@@ -29083,6 +29083,7 @@ impl NativeLuaOpenUriAction {
                 let program = args.remove(0);
                 Some(WindowCommand::SpawnCommandInNewWindow(
                     WindowSpawnCommandQuery {
+                        label: None,
                         program,
                         args,
                         cwd: None,
@@ -56530,6 +56531,7 @@ fn parse_lua_long_bracket_delimiters(value: &str) -> Option<(usize, String)> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct WindowSpawnCommandQuery {
+    label: Option<String>,
     program: String,
     args: Vec<String>,
     cwd: Option<String>,
@@ -56558,6 +56560,9 @@ impl WindowSpawnCommandQuery {
     }
 
     fn launch_menu_label(&self) -> String {
+        if let Some(label) = &self.label {
+            return label.clone();
+        }
         std::iter::once(self.program.as_str())
             .chain(self.args.iter().map(String::as_str))
             .collect::<Vec<_>>()
@@ -57143,6 +57148,7 @@ impl WindowSplitPaneTableOptions {
             let program = args.remove(0);
             return Some((
                 Some(WindowSpawnCommandQuery {
+                    label: None,
                     program,
                     args,
                     cwd: self.spawn_options.cwd,
@@ -57353,6 +57359,7 @@ fn spawn_command_table_from_query_with_static_source(
     }
     let program = args.remove(0);
     Some(WindowSpawnCommandQuery {
+        label,
         program,
         args,
         cwd,
@@ -57434,6 +57441,7 @@ fn spawn_command_table_options_from_query_with_static_source(
             return None;
         }
     }
+    let _ = label;
     (options.cwd.is_some()
         || !options.environment.is_empty()
         || options.domain.is_some()
@@ -60217,6 +60225,7 @@ fn split_pane_command_from_words(
         ),
     };
     Some(WindowSpawnCommandQuery {
+        label: None,
         program: program.to_owned(),
         args: args.iter().map(|arg| (*arg).to_owned()).collect(),
         cwd: options.cwd.clone(),
@@ -62092,6 +62101,7 @@ fn spawn_command_query_from_prefix(query: &str, prefix: &str) -> Option<WindowSp
     let args = words.map(str::to_owned).collect::<Vec<_>>();
 
     Some(WindowSpawnCommandQuery {
+        label: None,
         program,
         args,
         cwd: options.cwd,
@@ -64441,6 +64451,16 @@ fn window_key_assignment_command_label(keys: &str, command: &WindowCommand) -> S
         if let Some(digit) = window_key_assignment_trailing_digit(keys) {
             return format!("Activate Tab {digit}");
         }
+    }
+
+    match command {
+        WindowCommand::SpawnCommandInNewTab(command)
+        | WindowCommand::SpawnCommandInNewWindow(command) => {
+            if let Some(label) = &command.label {
+                return label.clone();
+            }
+        }
+        _ => {}
     }
 
     command.label().to_owned()
@@ -106112,6 +106132,7 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::SpawnCommandInNewTab(
             WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: Some("/tmp/project".to_owned()),
@@ -106144,6 +106165,7 @@ mod tests {
         assert!(
             app.command_palette_execute(WindowCommand::SpawnCommandInNewTab(
                 WindowSpawnCommandQuery {
+                    label: None,
                     program: "top".to_owned(),
                     args: vec!["-d".to_owned(), "1".to_owned()],
                     cwd: None,
@@ -106171,6 +106193,7 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::SpawnCommandInNewWindow(
             WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: Some("/tmp/project".to_owned()),
@@ -106213,6 +106236,7 @@ mod tests {
         assert!(
             app.command_palette_execute(WindowCommand::SpawnCommandInNewWindow(
                 WindowSpawnCommandQuery {
+                    label: None,
                     program: "top".to_owned(),
                     args: Vec::new(),
                     cwd: None,
@@ -113780,6 +113804,7 @@ mod tests {
         .expect("expected WezTerm SpawnCommand static field variable config");
 
         let command = WindowSpawnCommandQuery {
+            label: None,
             program: "top".to_owned(),
             args: vec!["-d".to_owned(), "1".to_owned()],
             cwd: Some("C:/Project Dir".to_owned()),
@@ -113798,6 +113823,7 @@ mod tests {
                 NativeUserKeyAssignment {
                     keys: "CTRL|ALT+W".to_owned(),
                     command: WindowCommand::SpawnCommandInNewWindow(WindowSpawnCommandQuery {
+                        label: None,
                         window_position: Some(crate::cli::WindowPosition {
                             origin: crate::cli::WindowPositionOrigin::Main,
                             x: 42,
@@ -113808,6 +113834,49 @@ mod tests {
                 },
             ])
         );
+    }
+
+    #[test]
+    fn window_app_show_launcher_key_assignments_use_spawn_command_label() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'T',
+                mods = 'CTRL|ALT',
+                action = act.SpawnCommandInNewTab {
+                  label = 'System Monitor',
+                  args = { 'top', '-d', '1' },
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SpawnCommand label config");
+
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::key_assignments(),
+                title: Some("Pick Key".to_owned()),
+                alphabet: None,
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+        app.command_palette_set_query("system monitor".to_owned());
+
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "CTRL|ALT+T: System Monitor");
     }
 
     #[test]
@@ -113841,6 +113910,7 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|ALT+T".to_owned(),
                 command: WindowCommand::SpawnCommandInNewTab(WindowSpawnCommandQuery {
+                    label: None,
                     program: "top".to_owned(),
                     args: vec!["-d".to_owned(), "1".to_owned()],
                     cwd: None,
@@ -113897,6 +113967,7 @@ mod tests {
         .expect("expected WezTerm SpawnCommand static table variable call config");
 
         let command = WindowSpawnCommandQuery {
+            label: None,
             program: "top".to_owned(),
             args: vec!["-d".to_owned(), "1".to_owned()],
             cwd: Some("C:/Project Dir".to_owned()),
@@ -113915,6 +113986,7 @@ mod tests {
                 NativeUserKeyAssignment {
                     keys: "CTRL|ALT+W".to_owned(),
                     command: WindowCommand::SpawnCommandInNewWindow(WindowSpawnCommandQuery {
+                        label: None,
                         window_position: Some(crate::cli::WindowPosition {
                             origin: crate::cli::WindowPositionOrigin::Main,
                             x: 42,
@@ -114517,6 +114589,7 @@ mod tests {
                     direction: rssh_core::app_shell::SplitDirection::Left,
                     domain: Some(WindowSpawnTabDomain::CurrentPaneDomain),
                     command: Some(WindowSpawnCommandQuery {
+                        label: None,
                         program: "top".to_owned(),
                         args: vec!["-d".to_owned(), "1".to_owned()],
                         cwd: Some("C:/Project Dir".to_owned()),
@@ -114577,6 +114650,7 @@ mod tests {
                     direction: rssh_core::app_shell::SplitDirection::Right,
                     domain: None,
                     command: Some(WindowSpawnCommandQuery {
+                        label: None,
                         program: "top".to_owned(),
                         args: vec!["-d".to_owned(), "1".to_owned()],
                         cwd: Some("C:/Project Dir".to_owned()),
@@ -114651,6 +114725,7 @@ mod tests {
                         direction: rssh_core::app_shell::SplitDirection::Left,
                         domain: Some(WindowSpawnTabDomain::CurrentPaneDomain),
                         command: Some(WindowSpawnCommandQuery {
+                            label: None,
                             program: "top".to_owned(),
                             args: vec!["-d".to_owned(), "1".to_owned()],
                             cwd: Some("C:/Project Dir".to_owned()),
@@ -118363,6 +118438,7 @@ mod tests {
                 command: WindowCommand::SwitchToWorkspaceArgs(WindowSwitchToWorkspaceOptions {
                     name: Some("monitoring".to_owned()),
                     command: Some(WindowSpawnCommandQuery {
+                        label: None,
                         program: "top".to_owned(),
                         args: vec!["-d".to_owned(), "1".to_owned()],
                         cwd: Some("C:/Mon".to_owned()),
@@ -118415,6 +118491,7 @@ mod tests {
                 command: WindowCommand::SwitchToWorkspaceArgs(WindowSwitchToWorkspaceOptions {
                     name: Some("monitoring".to_owned()),
                     command: Some(WindowSpawnCommandQuery {
+                        label: None,
                         program: "top".to_owned(),
                         args: vec!["-d".to_owned(), "1".to_owned()],
                         cwd: Some("C:/Mon".to_owned()),
@@ -118468,6 +118545,7 @@ mod tests {
                 command: WindowCommand::SwitchToWorkspaceArgs(WindowSwitchToWorkspaceOptions {
                     name: Some("monitoring".to_owned()),
                     command: Some(WindowSpawnCommandQuery {
+                        label: None,
                         program: "top".to_owned(),
                         args: vec!["-d".to_owned(), "1".to_owned()],
                         cwd: Some("C:/Mon".to_owned()),
@@ -133940,6 +134018,7 @@ act.Confirmation {
             launch_menu: Some(vec![NativeLaunchMenuItem {
                 label: Some("Top".to_owned()),
                 command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
+                    label: None,
                     program: "top".to_owned(),
                     args: vec!["-H".to_owned()],
                     cwd: Some("/tmp/default".to_owned()),
@@ -134411,6 +134490,7 @@ act.Confirmation {
             launch_menu: vec![NativeLaunchMenuItem {
                 label: Some("Top".to_owned()),
                 command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
+                    label: None,
                     program: "top".to_owned(),
                     args: vec!["-H".to_owned()],
                     cwd: Some("/tmp/default".to_owned()),
@@ -135378,6 +135458,7 @@ act.Confirmation {
                 WindowCommand::SwitchToWorkspaceArgs(WindowSwitchToWorkspaceOptions {
                     name: Some("monitoring".to_owned()),
                     command: Some(WindowSpawnCommandQuery {
+                        label: None,
                         program: "top".to_owned(),
                         args: vec!["-d".to_owned(), "1".to_owned()],
                         cwd: Some("C:/Mon".to_owned()),
@@ -135422,6 +135503,7 @@ act.Confirmation {
             app.command_palette_filtered_commands(),
             vec![WindowCommand::Multiple(vec![
                 WindowCommand::SpawnCommandInNewTab(WindowSpawnCommandQuery {
+                    label: None,
                     domain: None,
                     cwd: Some("/tmp/project".to_owned()),
                     environment: BTreeMap::from([("MODE".to_owned(), "dev".to_owned())]),
@@ -135601,6 +135683,7 @@ act.Confirmation {
                     direction: rssh_core::app_shell::SplitDirection::Right,
                     domain: None,
                     command: Some(WindowSpawnCommandQuery {
+                        label: None,
                         program: "top".to_owned(),
                         args: vec!["-d".to_owned(), "1".to_owned()],
                         cwd: None,
@@ -135838,6 +135921,7 @@ act.Confirmation {
                     direction: rssh_core::app_shell::SplitDirection::Down,
                     domain: None,
                     command: Some(WindowSpawnCommandQuery {
+                        label: None,
                         program: "top".to_owned(),
                         args: vec!["-d".to_owned(), "1".to_owned()],
                         cwd: None,
@@ -135871,6 +135955,7 @@ act.Confirmation {
                     direction: rssh_core::app_shell::SplitDirection::Down,
                     domain: None,
                     command: Some(WindowSpawnCommandQuery {
+                        label: None,
                         program: "top".to_owned(),
                         args: vec!["-d".to_owned(), "1".to_owned()],
                         cwd: None,
@@ -135904,6 +135989,7 @@ act.Confirmation {
                     direction: rssh_core::app_shell::SplitDirection::Down,
                     domain: None,
                     command: Some(WindowSpawnCommandQuery {
+                        label: None,
                         program: "top".to_owned(),
                         args: vec!["-d".to_owned(), "1".to_owned()],
                         cwd: Some("C:/Project Dir".to_owned()),
@@ -135937,6 +136023,7 @@ act.Confirmation {
                     direction: rssh_core::app_shell::SplitDirection::Down,
                     domain: None,
                     command: Some(WindowSpawnCommandQuery {
+                        label: None,
                         program: "top".to_owned(),
                         args: vec!["-d".to_owned(), "1".to_owned()],
                         cwd: None,
@@ -135970,6 +136057,7 @@ act.Confirmation {
                     direction: rssh_core::app_shell::SplitDirection::Down,
                     domain: None,
                     command: Some(WindowSpawnCommandQuery {
+                        label: None,
                         program: "top".to_owned(),
                         args: vec!["-d".to_owned(), "1".to_owned()],
                         cwd: None,
@@ -137636,6 +137724,7 @@ act.Confirmation {
                 direction: rssh_core::app_shell::SplitDirection::Right,
                 domain: None,
                 command: Some(WindowSpawnCommandQuery {
+                    label: None,
                     program: "top".to_owned(),
                     args: vec!["-d".to_owned(), "1".to_owned()],
                     cwd: None,
@@ -137653,6 +137742,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -137689,6 +137779,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -137755,6 +137846,7 @@ act.Confirmation {
                 direction: rssh_core::app_shell::SplitDirection::Down,
                 domain: None,
                 command: Some(WindowSpawnCommandQuery {
+                    label: None,
                     program: "top".to_owned(),
                     args: vec!["-d".to_owned(), "1".to_owned()],
                     cwd: None,
@@ -137788,6 +137880,7 @@ act.Confirmation {
                 direction: rssh_core::app_shell::SplitDirection::Right,
                 domain: None,
                 command: Some(WindowSpawnCommandQuery {
+                    label: None,
                     program: "top".to_owned(),
                     args: vec!["-d".to_owned(), "1".to_owned()],
                     cwd: Some("C:/Project Dir".to_owned()),
@@ -137821,6 +137914,7 @@ act.Confirmation {
                 direction: rssh_core::app_shell::SplitDirection::Left,
                 domain: None,
                 command: Some(WindowSpawnCommandQuery {
+                    label: None,
                     program: "top".to_owned(),
                     args: vec!["-d".to_owned(), "1".to_owned()],
                     cwd: Some("C:/Project Dir".to_owned()),
@@ -137854,6 +137948,7 @@ act.Confirmation {
                 direction: rssh_core::app_shell::SplitDirection::Left,
                 domain: None,
                 command: Some(WindowSpawnCommandQuery {
+                    label: None,
                     program: "top".to_owned(),
                     args: vec!["-d".to_owned(), "1".to_owned()],
                     cwd: Some("C:/Project Dir".to_owned()),
@@ -137936,6 +138031,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "powershell".to_owned(),
                 args: vec!["-No Logo".to_owned()],
                 cwd: Some("C:/Project Dir".to_owned()),
@@ -138013,6 +138109,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138059,6 +138156,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: Some(WindowSpawnTabDomain::DefaultDomain),
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138238,6 +138336,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "powershell".to_owned(),
                 args: vec!["-No Logo".to_owned()],
                 cwd: Some("C:/Project Dir".to_owned()),
@@ -138292,6 +138391,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "powershell".to_owned(),
                 args: vec!["-No Logo".to_owned()],
                 cwd: Some("C:/Project Dir".to_owned()),
@@ -138343,6 +138443,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138389,6 +138490,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138440,6 +138542,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Down,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138487,6 +138590,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Down,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138533,6 +138637,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Down,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138579,6 +138684,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Left,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138625,6 +138731,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Left,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138671,6 +138778,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Up,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138717,6 +138825,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Up,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138763,6 +138872,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Down,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138809,6 +138919,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Down,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138855,6 +138966,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Down,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138901,6 +139013,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138947,6 +139060,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -138993,6 +139107,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Down,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139039,6 +139154,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139085,6 +139201,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Down,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139133,6 +139250,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139179,6 +139297,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139227,6 +139346,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139275,6 +139395,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139321,6 +139442,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139360,6 +139482,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139401,6 +139524,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: Some("C:/Project Dir".to_owned()),
@@ -139444,6 +139568,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139489,6 +139614,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139668,6 +139794,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Left,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139721,6 +139848,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Left,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139774,6 +139902,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Up,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139828,6 +139957,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Up,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -139879,6 +140009,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Right,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: Some("/tmp/project".to_owned()),
@@ -139919,6 +140050,7 @@ act.Confirmation {
             direction: rssh_core::app_shell::SplitDirection::Down,
             domain: None,
             command: Some(WindowSpawnCommandQuery {
+                label: None,
                 program: "top".to_owned(),
                 args: vec!["-d".to_owned(), "1".to_owned()],
                 cwd: None,
@@ -149993,6 +150125,7 @@ act.Confirmation {
                 WindowSwitchToWorkspaceOptions {
                     name: Some("monitoring".to_owned()),
                     command: Some(WindowSpawnCommandQuery {
+                        label: None,
                         program: "top".to_owned(),
                         args: vec!["-d".to_owned(), "1".to_owned()],
                         cwd: Some("/tmp/project".to_owned()),
@@ -150303,6 +150436,7 @@ act.Confirmation {
             launch_menu: Some(vec![NativeLaunchMenuItem {
                 label: Some("System Monitor".to_owned()),
                 command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
+                    label: None,
                     program: "top".to_owned(),
                     args: vec!["-H".to_owned()],
                     cwd: Some("/tmp/project".to_owned()),
@@ -150357,6 +150491,7 @@ act.Confirmation {
             launch_menu: Some(vec![NativeLaunchMenuItem {
                 label: Some("System Monitor".to_owned()),
                 command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
+                    label: None,
                     program: "top".to_owned(),
                     args: Vec::new(),
                     cwd: None,
