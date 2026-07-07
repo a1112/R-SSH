@@ -1911,7 +1911,7 @@ keyboard, mouse, paste, resize
   `window:active_pane():get_user_vars()` dot-field, static string-key, or
   callback-local/top-level static string-key-variable concatenations for stored
   user-var names, including static `or` fallbacks with optional `tostring(...)`
-  wrapping
+  wrapping and callback-local variables assigned from those user-var reads
   plus static `pane:get_progress()` or
   `window:active_pane():get_progress()` conditional status branches for
   `Percentage`, `Error`, and `Indeterminate`
