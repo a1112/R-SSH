@@ -10728,6 +10728,13 @@ fn lua_static_window_config_overrides_from_query(
         check_for_updates: overrides.check_for_updates,
         check_for_updates_interval_seconds: overrides.check_for_updates_interval_seconds,
         show_update_window: overrides.show_update_window,
+        scroll_to_bottom_on_input: overrides.scroll_to_bottom_on_input,
+        disable_default_key_bindings: overrides.disable_default_key_bindings,
+        disable_default_mouse_bindings: overrides.disable_default_mouse_bindings,
+        hide_mouse_cursor_when_typing: overrides.hide_mouse_cursor_when_typing,
+        pane_focus_follows_mouse: overrides.pane_focus_follows_mouse,
+        swallow_mouse_click_on_pane_focus: overrides.swallow_mouse_click_on_pane_focus,
+        swallow_mouse_click_on_window_focus: overrides.swallow_mouse_click_on_window_focus,
         debug_key_events: overrides.debug_key_events,
         log_unknown_escape_sequences: overrides.log_unknown_escape_sequences,
         warn_about_missing_glyphs: overrides.warn_about_missing_glyphs,
@@ -29508,6 +29515,13 @@ struct NativeLuaWindowConfigOverrides {
     check_for_updates: Option<bool>,
     check_for_updates_interval_seconds: Option<u64>,
     show_update_window: Option<bool>,
+    scroll_to_bottom_on_input: Option<bool>,
+    disable_default_key_bindings: Option<bool>,
+    disable_default_mouse_bindings: Option<bool>,
+    hide_mouse_cursor_when_typing: Option<bool>,
+    pane_focus_follows_mouse: Option<bool>,
+    swallow_mouse_click_on_pane_focus: Option<bool>,
+    swallow_mouse_click_on_window_focus: Option<bool>,
     debug_key_events: Option<bool>,
     log_unknown_escape_sequences: Option<bool>,
     warn_about_missing_glyphs: Option<bool>,
@@ -29546,6 +29560,13 @@ impl NativeLuaWindowConfigOverrides {
             && self.check_for_updates.is_none()
             && self.check_for_updates_interval_seconds.is_none()
             && self.show_update_window.is_none()
+            && self.scroll_to_bottom_on_input.is_none()
+            && self.disable_default_key_bindings.is_none()
+            && self.disable_default_mouse_bindings.is_none()
+            && self.hide_mouse_cursor_when_typing.is_none()
+            && self.pane_focus_follows_mouse.is_none()
+            && self.swallow_mouse_click_on_pane_focus.is_none()
+            && self.swallow_mouse_click_on_window_focus.is_none()
             && self.debug_key_events.is_none()
             && self.log_unknown_escape_sequences.is_none()
             && self.warn_about_missing_glyphs.is_none()
@@ -29622,6 +29643,27 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.show_update_window.is_some() {
             self.show_update_window = update.show_update_window;
+        }
+        if update.scroll_to_bottom_on_input.is_some() {
+            self.scroll_to_bottom_on_input = update.scroll_to_bottom_on_input;
+        }
+        if update.disable_default_key_bindings.is_some() {
+            self.disable_default_key_bindings = update.disable_default_key_bindings;
+        }
+        if update.disable_default_mouse_bindings.is_some() {
+            self.disable_default_mouse_bindings = update.disable_default_mouse_bindings;
+        }
+        if update.hide_mouse_cursor_when_typing.is_some() {
+            self.hide_mouse_cursor_when_typing = update.hide_mouse_cursor_when_typing;
+        }
+        if update.pane_focus_follows_mouse.is_some() {
+            self.pane_focus_follows_mouse = update.pane_focus_follows_mouse;
+        }
+        if update.swallow_mouse_click_on_pane_focus.is_some() {
+            self.swallow_mouse_click_on_pane_focus = update.swallow_mouse_click_on_pane_focus;
+        }
+        if update.swallow_mouse_click_on_window_focus.is_some() {
+            self.swallow_mouse_click_on_window_focus = update.swallow_mouse_click_on_window_focus;
         }
         if update.debug_key_events.is_some() {
             self.debug_key_events = update.debug_key_events;
@@ -29728,6 +29770,29 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(show_update_window) = self.show_update_window {
             overrides.show_update_window = Some(show_update_window);
+        }
+        if let Some(scroll_to_bottom_on_input) = self.scroll_to_bottom_on_input {
+            overrides.scroll_to_bottom_on_input = Some(scroll_to_bottom_on_input);
+        }
+        if let Some(disable_default_key_bindings) = self.disable_default_key_bindings {
+            overrides.disable_default_key_bindings = Some(disable_default_key_bindings);
+        }
+        if let Some(disable_default_mouse_bindings) = self.disable_default_mouse_bindings {
+            overrides.disable_default_mouse_bindings = Some(disable_default_mouse_bindings);
+        }
+        if let Some(hide_mouse_cursor_when_typing) = self.hide_mouse_cursor_when_typing {
+            overrides.hide_mouse_cursor_when_typing = Some(hide_mouse_cursor_when_typing);
+        }
+        if let Some(pane_focus_follows_mouse) = self.pane_focus_follows_mouse {
+            overrides.pane_focus_follows_mouse = Some(pane_focus_follows_mouse);
+        }
+        if let Some(swallow_mouse_click_on_pane_focus) = self.swallow_mouse_click_on_pane_focus {
+            overrides.swallow_mouse_click_on_pane_focus = Some(swallow_mouse_click_on_pane_focus);
+        }
+        if let Some(swallow_mouse_click_on_window_focus) = self.swallow_mouse_click_on_window_focus
+        {
+            overrides.swallow_mouse_click_on_window_focus =
+                Some(swallow_mouse_click_on_window_focus);
         }
         if let Some(debug_key_events) = self.debug_key_events {
             overrides.debug_key_events = Some(debug_key_events);
@@ -86392,6 +86457,75 @@ mod tests {
         assert_eq!(
             app.right_status,
             "reload=false check=false interval=123 show=true term=wezterm-test enq=RSSH"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_input_mouse_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local overrides = {
+                scroll_to_bottom_on_input = false,
+                disable_default_key_bindings = true,
+                disable_default_mouse_bindings = true,
+                hide_mouse_cursor_when_typing = false,
+                pane_focus_follows_mouse = true,
+                swallow_mouse_click_on_pane_focus = true,
+                swallow_mouse_click_on_window_focus = true,
+              }
+              window:set_config_overrides(overrides)
+              window:set_right_status(
+                'scroll=' .. tostring(window:effective_config().scroll_to_bottom_on_input)
+                  .. ' keys=' .. tostring(window:effective_config().disable_default_key_bindings)
+                  .. ' mouse=' .. tostring(window:effective_config().disable_default_mouse_bindings)
+                  .. ' hide=' .. tostring(window:effective_config().hide_mouse_cursor_when_typing)
+                  .. ' focus=' .. tostring(window:effective_config().pane_focus_follows_mouse)
+                  .. ' swallow-pane=' .. tostring(window:effective_config().swallow_mouse_click_on_pane_focus)
+                  .. ' swallow-window=' .. tostring(window:effective_config().swallow_mouse_click_on_window_focus)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides input mouse callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert!(!effective.scroll_to_bottom_on_input);
+        assert!(effective.disable_default_key_bindings);
+        assert!(effective.disable_default_mouse_bindings);
+        assert!(!effective.hide_mouse_cursor_when_typing);
+        assert!(effective.pane_focus_follows_mouse);
+        assert!(effective.swallow_mouse_click_on_pane_focus);
+        assert!(effective.swallow_mouse_click_on_window_focus);
+        assert_eq!(
+            app.right_status,
+            "scroll=false keys=true mouse=true hide=false focus=true swallow-pane=true swallow-window=true"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
