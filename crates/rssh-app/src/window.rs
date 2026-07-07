@@ -10814,6 +10814,13 @@ fn lua_static_window_config_overrides_from_query(
         default_cwd: overrides.default_cwd,
         default_ssh_auth_sock: overrides.default_ssh_auth_sock,
         default_mux_server_domain: overrides.default_mux_server_domain,
+        exec_domains: overrides.exec_domains,
+        wsl_domains: overrides.wsl_domains,
+        unix_domains: overrides.unix_domains,
+        ssh_domains: overrides.ssh_domains,
+        tls_servers: overrides.tls_servers,
+        tls_clients: overrides.tls_clients,
+        serial_ports: overrides.serial_ports,
         mux_enable_ssh_agent: overrides.mux_enable_ssh_agent,
         ssh_backend: overrides.ssh_backend,
         ratelimit_mux_line_prefetches_per_second: overrides
@@ -29797,6 +29804,13 @@ struct NativeLuaWindowConfigOverrides {
     default_cwd: Option<String>,
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
+    exec_domains: Option<Vec<NativeExecDomain>>,
+    wsl_domains: Option<Vec<NativeWslDomain>>,
+    unix_domains: Option<Vec<NativeUnixDomain>>,
+    ssh_domains: Option<Vec<NativeSshDomain>>,
+    tls_servers: Option<Vec<NativeTlsServerDomain>>,
+    tls_clients: Option<Vec<NativeTlsClientDomain>>,
+    serial_ports: Option<Vec<NativeSerialDomain>>,
     mux_enable_ssh_agent: Option<bool>,
     ssh_backend: Option<NativeSshBackend>,
     ratelimit_mux_line_prefetches_per_second: Option<u32>,
@@ -30023,6 +30037,13 @@ impl NativeLuaWindowConfigOverrides {
             && self.default_cwd.is_none()
             && self.default_ssh_auth_sock.is_none()
             && self.default_mux_server_domain.is_none()
+            && self.exec_domains.is_none()
+            && self.wsl_domains.is_none()
+            && self.unix_domains.is_none()
+            && self.ssh_domains.is_none()
+            && self.tls_servers.is_none()
+            && self.tls_clients.is_none()
+            && self.serial_ports.is_none()
             && self.mux_enable_ssh_agent.is_none()
             && self.ssh_backend.is_none()
             && self.ratelimit_mux_line_prefetches_per_second.is_none()
@@ -30461,6 +30482,27 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.default_mux_server_domain.is_some() {
             self.default_mux_server_domain = update.default_mux_server_domain;
+        }
+        if update.exec_domains.is_some() {
+            self.exec_domains = update.exec_domains;
+        }
+        if update.wsl_domains.is_some() {
+            self.wsl_domains = update.wsl_domains;
+        }
+        if update.unix_domains.is_some() {
+            self.unix_domains = update.unix_domains;
+        }
+        if update.ssh_domains.is_some() {
+            self.ssh_domains = update.ssh_domains;
+        }
+        if update.tls_servers.is_some() {
+            self.tls_servers = update.tls_servers;
+        }
+        if update.tls_clients.is_some() {
+            self.tls_clients = update.tls_clients;
+        }
+        if update.serial_ports.is_some() {
+            self.serial_ports = update.serial_ports;
         }
         if update.mux_enable_ssh_agent.is_some() {
             self.mux_enable_ssh_agent = update.mux_enable_ssh_agent;
@@ -31152,6 +31194,27 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(default_mux_server_domain) = self.default_mux_server_domain {
             overrides.default_mux_server_domain = Some(default_mux_server_domain);
+        }
+        if let Some(exec_domains) = self.exec_domains {
+            overrides.exec_domains = Some(exec_domains);
+        }
+        if let Some(wsl_domains) = self.wsl_domains {
+            overrides.wsl_domains = Some(wsl_domains);
+        }
+        if let Some(unix_domains) = self.unix_domains {
+            overrides.unix_domains = Some(unix_domains);
+        }
+        if let Some(ssh_domains) = self.ssh_domains {
+            overrides.ssh_domains = Some(ssh_domains);
+        }
+        if let Some(tls_servers) = self.tls_servers {
+            overrides.tls_servers = Some(tls_servers);
+        }
+        if let Some(tls_clients) = self.tls_clients {
+            overrides.tls_clients = Some(tls_clients);
+        }
+        if let Some(serial_ports) = self.serial_ports {
+            overrides.serial_ports = Some(serial_ports);
         }
         if let Some(mux_enable_ssh_agent) = self.mux_enable_ssh_agent {
             overrides.mux_enable_ssh_agent = Some(mux_enable_ssh_agent);
@@ -89285,6 +89348,29 @@ mod tests {
                 default_cwd = '/tmp/default',
                 default_ssh_auth_sock = '/tmp/wezterm-agent.sock',
                 default_mux_server_domain = 'mux-main',
+                exec_domains = {
+                  wezterm.exec_domain('runtime-exec', function(cmd)
+                    return cmd
+                  end, 'Runtime Exec'),
+                },
+                wsl_domains = {
+                  { name = 'WSL:Runtime', distribution = 'RuntimeLinux' },
+                },
+                unix_domains = {
+                  { name = 'runtime-unix', socket_path = '/tmp/runtime.sock' },
+                },
+                ssh_domains = {
+                  { name = 'runtime-ssh', remote_address = 'runtime.example.com' },
+                },
+                tls_servers = {
+                  { bind_address = '127.0.0.1:9443', pem_cert = '/tmp/runtime.crt' },
+                },
+                tls_clients = {
+                  { name = 'runtime-tls', remote_address = 'runtime-tls.example.com:443' },
+                },
+                serial_ports = {
+                  { name = 'runtime-serial', port = 'COM9', baud = 115200 },
+                },
                 mux_enable_ssh_agent = false,
                 ssh_backend = 'Ssh2',
                 ratelimit_mux_line_prefetches_per_second = 12,
@@ -89342,6 +89428,98 @@ mod tests {
         assert_eq!(
             effective.default_mux_server_domain.as_deref(),
             Some("mux-main")
+        );
+        assert_eq!(
+            effective.exec_domains,
+            vec![NativeExecDomain {
+                name: "runtime-exec".to_owned(),
+                fixup_command: "exec-domain-runtime-exec".to_owned(),
+                label: Some(NativeExecDomainLabel::Value("Runtime Exec".to_owned())),
+            }]
+        );
+        assert_eq!(
+            effective.wsl_domains,
+            vec![NativeWslDomain {
+                name: "WSL:Runtime".to_owned(),
+                distribution: Some("RuntimeLinux".to_owned()),
+                username: None,
+                default_cwd: None,
+                default_prog: None,
+            }]
+        );
+        assert_eq!(
+            effective.unix_domains,
+            vec![NativeUnixDomain {
+                name: "runtime-unix".to_owned(),
+                socket_path: Some("/tmp/runtime.sock".to_owned()),
+                connect_automatically: false,
+                no_serve_automatically: false,
+                serve_command: None,
+                proxy_command: None,
+                skip_permissions_check: false,
+                read_timeout_ms: 60_000,
+                write_timeout_ms: 60_000,
+                local_echo_threshold_ms: None,
+                overlay_lag_indicator: false,
+            }]
+        );
+        assert_eq!(
+            effective.ssh_domains,
+            vec![NativeSshDomain {
+                name: "runtime-ssh".to_owned(),
+                remote_address: "runtime.example.com".to_owned(),
+                no_agent_auth: false,
+                username: None,
+                connect_automatically: false,
+                timeout_ms: 60_000,
+                local_echo_threshold_ms: Some(100),
+                overlay_lag_indicator: false,
+                remote_wezterm_path: None,
+                override_proxy_command: None,
+                ssh_backend: None,
+                multiplexing: NativeSshMultiplexing::WezTerm,
+                ssh_option: BTreeMap::new(),
+                default_prog: None,
+                assume_shell: NativeShellAssumption::Unknown,
+            }]
+        );
+        assert_eq!(
+            effective.tls_servers,
+            vec![NativeTlsServerDomain {
+                bind_address: "127.0.0.1:9443".to_owned(),
+                pem_private_key: None,
+                pem_cert: Some("/tmp/runtime.crt".to_owned()),
+                pem_ca: None,
+                pem_root_certs: Vec::new(),
+            }]
+        );
+        assert_eq!(
+            effective.tls_clients,
+            vec![NativeTlsClientDomain {
+                name: "runtime-tls".to_owned(),
+                bootstrap_via_ssh: None,
+                remote_address: "runtime-tls.example.com:443".to_owned(),
+                pem_private_key: None,
+                pem_cert: None,
+                pem_ca: None,
+                pem_root_certs: Vec::new(),
+                accept_invalid_hostnames: false,
+                expected_cn: None,
+                connect_automatically: false,
+                read_timeout_ms: 60_000,
+                write_timeout_ms: 60_000,
+                local_echo_threshold_ms: Some(100),
+                remote_wezterm_path: None,
+                overlay_lag_indicator: false,
+            }]
+        );
+        assert_eq!(
+            effective.serial_ports,
+            vec![NativeSerialDomain {
+                name: "runtime-serial".to_owned(),
+                port: Some("COM9".to_owned()),
+                baud: Some(115200),
+            }]
         );
         assert!(!effective.mux_enable_ssh_agent);
         assert_eq!(effective.ssh_backend, NativeSshBackend::Ssh2);
