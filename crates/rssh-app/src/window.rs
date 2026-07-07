@@ -10708,6 +10708,8 @@ fn lua_static_window_config_overrides_from_query(
     let config = format!("return {table}");
     let overrides = native_config_overrides_from_wezterm_lua_config(&config)?;
     Some(NativeLuaWindowConfigOverrides {
+        dpi: overrides.dpi,
+        dpi_by_screen: overrides.dpi_by_screen,
         font_size: overrides.font_size,
         cell_width: overrides.cell_width,
         cell_widths: overrides.cell_widths,
@@ -10746,6 +10748,7 @@ fn lua_static_window_config_overrides_from_query(
         front_end: overrides.front_end,
         webgpu_power_preference: overrides.webgpu_power_preference,
         webgpu_force_fallback_adapter: overrides.webgpu_force_fallback_adapter,
+        webgpu_preferred_adapter: overrides.webgpu_preferred_adapter,
         prefer_egl: overrides.prefer_egl,
         enable_wayland: overrides.enable_wayland,
         enable_zwlr_output_manager: overrides.enable_zwlr_output_manager,
@@ -29674,6 +29677,8 @@ struct NativeLuaWindowStatusUpdate {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct NativeLuaWindowConfigOverrides {
+    dpi: Option<u32>,
+    dpi_by_screen: Option<BTreeMap<String, u32>>,
     font_size: Option<NativeFontSize>,
     cell_width: Option<NativeCellWidth>,
     cell_widths: Option<Vec<NativeCellWidthOverride>>,
@@ -29712,6 +29717,7 @@ struct NativeLuaWindowConfigOverrides {
     front_end: Option<NativeRenderFrontEnd>,
     webgpu_power_preference: Option<NativeWebGpuPowerPreference>,
     webgpu_force_fallback_adapter: Option<bool>,
+    webgpu_preferred_adapter: Option<NativeWebGpuPreferredAdapter>,
     prefer_egl: Option<bool>,
     enable_wayland: Option<bool>,
     enable_zwlr_output_manager: Option<bool>,
@@ -29882,7 +29888,9 @@ struct NativeLuaWindowConfigOverrides {
 
 impl NativeLuaWindowConfigOverrides {
     fn is_empty(&self) -> bool {
-        self.font_size.is_none()
+        self.dpi.is_none()
+            && self.dpi_by_screen.is_none()
+            && self.font_size.is_none()
             && self.cell_width.is_none()
             && self.cell_widths.is_none()
             && self.line_height.is_none()
@@ -29920,6 +29928,7 @@ impl NativeLuaWindowConfigOverrides {
             && self.front_end.is_none()
             && self.webgpu_power_preference.is_none()
             && self.webgpu_force_fallback_adapter.is_none()
+            && self.webgpu_preferred_adapter.is_none()
             && self.prefer_egl.is_none()
             && self.enable_wayland.is_none()
             && self.enable_zwlr_output_manager.is_none()
@@ -30089,6 +30098,12 @@ impl NativeLuaWindowConfigOverrides {
     }
 
     fn merge(&mut self, update: Self) {
+        if update.dpi.is_some() {
+            self.dpi = update.dpi;
+        }
+        if update.dpi_by_screen.is_some() {
+            self.dpi_by_screen = update.dpi_by_screen;
+        }
         if update.font_size.is_some() {
             self.font_size = update.font_size;
         }
@@ -30204,6 +30219,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.webgpu_force_fallback_adapter.is_some() {
             self.webgpu_force_fallback_adapter = update.webgpu_force_fallback_adapter;
+        }
+        if update.webgpu_preferred_adapter.is_some() {
+            self.webgpu_preferred_adapter = update.webgpu_preferred_adapter;
         }
         if update.prefer_egl.is_some() {
             self.prefer_egl = update.prefer_egl;
@@ -30714,6 +30732,12 @@ impl NativeLuaWindowConfigOverrides {
     }
 
     fn apply_to_native_config_overrides(self, overrides: &mut NativeConfigOverrides) {
+        if let Some(dpi) = self.dpi {
+            overrides.dpi = Some(dpi);
+        }
+        if let Some(dpi_by_screen) = self.dpi_by_screen {
+            overrides.dpi_by_screen = Some(dpi_by_screen);
+        }
         if let Some(font_size) = self.font_size {
             overrides.font_size = Some(font_size);
         }
@@ -30833,6 +30857,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(webgpu_force_fallback_adapter) = self.webgpu_force_fallback_adapter {
             overrides.webgpu_force_fallback_adapter = Some(webgpu_force_fallback_adapter);
+        }
+        if let Some(webgpu_preferred_adapter) = self.webgpu_preferred_adapter {
+            overrides.webgpu_preferred_adapter = Some(webgpu_preferred_adapter);
         }
         if let Some(prefer_egl) = self.prefer_egl {
             overrides.prefer_egl = Some(prefer_egl);
@@ -88266,6 +88293,90 @@ mod tests {
         assert_eq!(
             app.right_status,
             "font=16.25 tab=28 interval=333 workspace=runtime tabbar=false"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_dpi_adapter_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                font_size = 14.5,
+                dpi = 144.0,
+                dpi_by_screen = {
+                  ['HDMI-A-1'] = 125.0,
+                },
+                webgpu_preferred_adapter = {
+                  backend = 'Vulkan',
+                  device = 29730,
+                  device_type = 'DiscreteGpu',
+                  driver = 'radv',
+                  driver_info = 'Mesa 22.3.4',
+                  name = 'AMD Radeon Pro W6400',
+                  vendor = 4098,
+                },
+              })
+              window:set_right_status(
+                'dpi=' .. tostring(window:effective_config().dpi)
+                  .. ' screen=' .. tostring(window:effective_config().dpi_by_screen['HDMI-A-1'])
+                  .. ' adapter=' .. tostring(window:effective_config().webgpu_preferred_adapter.backend)
+                  .. '/' .. tostring(window:effective_config().webgpu_preferred_adapter.device)
+                  .. '/' .. tostring(window:effective_config().webgpu_preferred_adapter.name)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides DPI adapter callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.font_size,
+            NativeFontSize::from_millipoints(14_500)
+        );
+        assert_eq!(effective.dpi, 144);
+        assert_eq!(effective.dpi_by_screen.get("HDMI-A-1"), Some(&125));
+        assert_eq!(
+            effective.webgpu_preferred_adapter,
+            Some(NativeWebGpuPreferredAdapter {
+                backend: Some("Vulkan".to_owned()),
+                device: Some(29_730),
+                device_type: Some("DiscreteGpu".to_owned()),
+                driver: Some("radv".to_owned()),
+                driver_info: Some("Mesa 22.3.4".to_owned()),
+                name: Some("AMD Radeon Pro W6400".to_owned()),
+                vendor: Some(4_098),
+            })
+        );
+        assert_eq!(
+            app.right_status,
+            "dpi=144 screen=125 adapter=Vulkan/29730/AMD Radeon Pro W6400"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
