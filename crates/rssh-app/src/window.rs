@@ -6727,6 +6727,15 @@ fn lua_static_callback_query_from_expression<'a>(
     value: &'a str,
 ) -> Option<Cow<'a, str>> {
     let value = lua_trim_start_comments(value)?;
+    if let Some(rest) = value.strip_prefix('(') {
+        let rest = lua_trim_start_comments(rest)?;
+        let (inner, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        let rest = lua_trim_start_comments(rest)?;
+        if lua_static_identifier_value_rest_is_statement_end(rest) {
+            return lua_static_callback_query_from_expression(source, start, inner);
+        }
+    }
+
     if lua_source_keyword_at(value, 0, "function") {
         return Some(Cow::Borrowed(value));
     }
@@ -97159,6 +97168,29 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "PARENTHESIZED CALLBACK TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_nested_parenthesized_callback() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            local title_callback = function(tab, pane, tabs, panes, config)
+              return 'NESTED PARENTHESIZED CALLBACK TITLE'
+            end
+
+            wezterm.on('format-window-title', ((title_callback)))
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title nested parenthesized callback");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.effective_window_title(),
+            "NESTED PARENTHESIZED CALLBACK TITLE"
+        );
     }
 
     #[test]
