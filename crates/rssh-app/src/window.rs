@@ -10726,6 +10726,15 @@ fn lua_static_window_config_overrides_from_query(
         initial_rows: overrides.initial_rows,
         adjust_window_size_when_changing_font_size: overrides
             .adjust_window_size_when_changing_font_size,
+        command_palette_rows: overrides.command_palette_rows,
+        command_palette_font_size: overrides.command_palette_font_size,
+        char_select_font_size: overrides.char_select_font_size,
+        pane_select_font_size: overrides.pane_select_font_size,
+        launcher_alphabet: overrides.launcher_alphabet,
+        quick_select_alphabet: overrides.quick_select_alphabet,
+        quick_select_patterns: overrides.quick_select_patterns,
+        disable_default_quick_select_patterns: overrides.disable_default_quick_select_patterns,
+        quick_select_remove_styling: overrides.quick_select_remove_styling,
         selection_word_boundary: overrides.selection_word_boundary,
         default_prog: overrides.default_prog,
         default_domain: overrides.default_domain,
@@ -29572,6 +29581,15 @@ struct NativeLuaWindowConfigOverrides {
     initial_cols: Option<u16>,
     initial_rows: Option<u16>,
     adjust_window_size_when_changing_font_size: Option<bool>,
+    command_palette_rows: Option<usize>,
+    command_palette_font_size: Option<NativeFontSize>,
+    char_select_font_size: Option<NativeFontSize>,
+    pane_select_font_size: Option<NativeFontSize>,
+    launcher_alphabet: Option<String>,
+    quick_select_alphabet: Option<String>,
+    quick_select_patterns: Option<Vec<String>>,
+    disable_default_quick_select_patterns: Option<bool>,
+    quick_select_remove_styling: Option<bool>,
     selection_word_boundary: Option<String>,
     default_prog: Option<Vec<String>>,
     default_domain: Option<String>,
@@ -29671,6 +29689,15 @@ impl NativeLuaWindowConfigOverrides {
             && self.initial_cols.is_none()
             && self.initial_rows.is_none()
             && self.adjust_window_size_when_changing_font_size.is_none()
+            && self.command_palette_rows.is_none()
+            && self.command_palette_font_size.is_none()
+            && self.char_select_font_size.is_none()
+            && self.pane_select_font_size.is_none()
+            && self.launcher_alphabet.is_none()
+            && self.quick_select_alphabet.is_none()
+            && self.quick_select_patterns.is_none()
+            && self.disable_default_quick_select_patterns.is_none()
+            && self.quick_select_remove_styling.is_none()
             && self.selection_word_boundary.is_none()
             && self.default_prog.is_none()
             && self.default_domain.is_none()
@@ -29803,6 +29830,34 @@ impl NativeLuaWindowConfigOverrides {
         if update.adjust_window_size_when_changing_font_size.is_some() {
             self.adjust_window_size_when_changing_font_size =
                 update.adjust_window_size_when_changing_font_size;
+        }
+        if update.command_palette_rows.is_some() {
+            self.command_palette_rows = update.command_palette_rows;
+        }
+        if update.command_palette_font_size.is_some() {
+            self.command_palette_font_size = update.command_palette_font_size;
+        }
+        if update.char_select_font_size.is_some() {
+            self.char_select_font_size = update.char_select_font_size;
+        }
+        if update.pane_select_font_size.is_some() {
+            self.pane_select_font_size = update.pane_select_font_size;
+        }
+        if update.launcher_alphabet.is_some() {
+            self.launcher_alphabet = update.launcher_alphabet;
+        }
+        if update.quick_select_alphabet.is_some() {
+            self.quick_select_alphabet = update.quick_select_alphabet;
+        }
+        if update.quick_select_patterns.is_some() {
+            self.quick_select_patterns = update.quick_select_patterns;
+        }
+        if update.disable_default_quick_select_patterns.is_some() {
+            self.disable_default_quick_select_patterns =
+                update.disable_default_quick_select_patterns;
+        }
+        if update.quick_select_remove_styling.is_some() {
+            self.quick_select_remove_styling = update.quick_select_remove_styling;
         }
         if update.selection_word_boundary.is_some() {
             self.selection_word_boundary = update.selection_word_boundary;
@@ -30100,6 +30155,36 @@ impl NativeLuaWindowConfigOverrides {
         {
             overrides.adjust_window_size_when_changing_font_size =
                 Some(adjust_window_size_when_changing_font_size);
+        }
+        if let Some(command_palette_rows) = self.command_palette_rows {
+            overrides.command_palette_rows = Some(command_palette_rows);
+        }
+        if let Some(command_palette_font_size) = self.command_palette_font_size {
+            overrides.command_palette_font_size = Some(command_palette_font_size);
+        }
+        if let Some(char_select_font_size) = self.char_select_font_size {
+            overrides.char_select_font_size = Some(char_select_font_size);
+        }
+        if let Some(pane_select_font_size) = self.pane_select_font_size {
+            overrides.pane_select_font_size = Some(pane_select_font_size);
+        }
+        if let Some(launcher_alphabet) = self.launcher_alphabet {
+            overrides.launcher_alphabet = Some(launcher_alphabet);
+        }
+        if let Some(quick_select_alphabet) = self.quick_select_alphabet {
+            overrides.quick_select_alphabet = Some(quick_select_alphabet);
+        }
+        if let Some(quick_select_patterns) = self.quick_select_patterns {
+            overrides.quick_select_patterns = Some(quick_select_patterns);
+        }
+        if let Some(disable_default_quick_select_patterns) =
+            self.disable_default_quick_select_patterns
+        {
+            overrides.disable_default_quick_select_patterns =
+                Some(disable_default_quick_select_patterns);
+        }
+        if let Some(quick_select_remove_styling) = self.quick_select_remove_styling {
+            overrides.quick_select_remove_styling = Some(quick_select_remove_styling);
         }
         if let Some(selection_word_boundary) = self.selection_word_boundary {
             overrides.selection_word_boundary = Some(selection_word_boundary);
@@ -87566,6 +87651,93 @@ mod tests {
         assert_eq!(
             app.right_status,
             "decor=RESIZE|INTEGRATED_BUTTONS cols=100 rows=30 adjust=false boundary= :"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_selector_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local overrides = {
+                command_palette_rows = 12,
+                command_palette_font_size = 15.5,
+                char_select_font_size = 16.25,
+                pane_select_font_size = 36.5,
+                launcher_alphabet = '12',
+                quick_select_alphabet = 'xy',
+                quick_select_patterns = { 'ticket-[0-9]+', 'BUG-[0-9]+' },
+                disable_default_quick_select_patterns = true,
+                quick_select_remove_styling = true,
+              }
+              window:set_config_overrides(overrides)
+              window:set_right_status(
+                'rows=' .. tostring(window:effective_config().command_palette_rows)
+                  .. ' command-font=' .. tostring(window:effective_config().command_palette_font_size)
+                  .. ' char-font=' .. tostring(window:effective_config().char_select_font_size)
+                  .. ' pane-font=' .. tostring(window:effective_config().pane_select_font_size)
+                  .. ' launcher=' .. tostring(window:effective_config().launcher_alphabet)
+                  .. ' quick=' .. tostring(window:effective_config().quick_select_alphabet)
+                  .. ' pattern=' .. tostring(window:effective_config().quick_select_patterns[2])
+                  .. ' disable=' .. tostring(window:effective_config().disable_default_quick_select_patterns)
+                  .. ' styling=' .. tostring(window:effective_config().quick_select_remove_styling)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides selector callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.command_palette_rows, Some(12));
+        assert_eq!(
+            effective.command_palette_font_size,
+            NativeFontSize::from_millipoints(15_500)
+        );
+        assert_eq!(
+            effective.char_select_font_size,
+            NativeFontSize::from_millipoints(16_250)
+        );
+        assert_eq!(
+            effective.pane_select_font_size,
+            NativeFontSize::from_millipoints(36_500)
+        );
+        assert_eq!(effective.launcher_alphabet, "12");
+        assert_eq!(effective.quick_select_alphabet, "xy");
+        assert_eq!(
+            effective.quick_select_patterns,
+            vec!["ticket-[0-9]+".to_owned(), "BUG-[0-9]+".to_owned()]
+        );
+        assert!(effective.disable_default_quick_select_patterns);
+        assert!(effective.quick_select_remove_styling);
+        assert_eq!(
+            app.right_status,
+            "rows=12 command-font=15.5 char-font=16.25 pane-font=36.5 launcher=12 quick=xy pattern=BUG-[0-9]+ disable=true styling=true"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
