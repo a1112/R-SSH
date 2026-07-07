@@ -4140,6 +4140,7 @@ struct NativeConfigOverrides {
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeLuaWindowStatusUpdate>,
     lua_bell: Option<NativeLuaWindowStatusUpdate>,
+    lua_focus_changed: Option<NativeLuaWindowStatusUpdate>,
     lua_user_var_changed: Option<NativeLuaUserVarChanged>,
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
@@ -4193,6 +4194,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(bell) = lua_static_wezterm_bell_event_from_query(config) {
         overrides.lua_bell = Some(bell);
+        parsed = true;
+    }
+    if let Some(focus_changed) = lua_static_wezterm_focus_changed_event_from_query(config) {
+        overrides.lua_focus_changed = Some(focus_changed);
         parsed = true;
     }
     if let Some(user_var_changed) = lua_static_wezterm_user_var_changed_event_from_query(config) {
@@ -6355,6 +6360,45 @@ fn lua_static_wezterm_bell_event_from_statement(
     let (event_name, rest) =
         lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
     if event_name != "bell" {
+        return None;
+    }
+    let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
+    let (body, window_name, pane_name, _) =
+        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(
+            callback.as_ref(),
+        )?;
+    lua_static_status_update_from_function_body(
+        body,
+        window_name,
+        pane_name,
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+    )
+}
+
+fn lua_static_wezterm_focus_changed_event_from_query(
+    source: &str,
+) -> Option<NativeLuaWindowStatusUpdate> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
+        if let Some(update) = lua_static_wezterm_focus_changed_event_from_statement(source, start) {
+            selected = Some(update);
+        }
+    }
+    selected
+}
+
+fn lua_static_wezterm_focus_changed_event_from_statement(
+    source: &str,
+    start: usize,
+) -> Option<NativeLuaWindowStatusUpdate> {
+    let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (event_name, rest) =
+        lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
+    if event_name != "window-focus-changed" {
         return None;
     }
     let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
@@ -30068,6 +30112,7 @@ struct NativeWindowApp {
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeLuaWindowStatusUpdate>,
     lua_bell: Option<NativeLuaWindowStatusUpdate>,
+    lua_focus_changed: Option<NativeLuaWindowStatusUpdate>,
     lua_user_var_changed: Option<NativeLuaUserVarChanged>,
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
@@ -31622,6 +31667,7 @@ impl NativeWindowApp {
             lua_window_title: None,
             lua_update_status: None,
             lua_bell: None,
+            lua_focus_changed: None,
             lua_user_var_changed: None,
             lua_open_uri: None,
             lua_new_tab_button_click: None,
@@ -32887,6 +32933,7 @@ impl NativeWindowApp {
         self.lua_window_title.clone_from(&source.lua_window_title);
         self.lua_update_status.clone_from(&source.lua_update_status);
         self.lua_bell.clone_from(&source.lua_bell);
+        self.lua_focus_changed.clone_from(&source.lua_focus_changed);
         self.lua_user_var_changed
             .clone_from(&source.lua_user_var_changed);
         self.lua_open_uri.clone_from(&source.lua_open_uri);
@@ -41705,6 +41752,7 @@ impl NativeWindowApp {
         self.lua_window_title = overrides.lua_window_title.clone();
         self.lua_update_status = overrides.lua_update_status.clone();
         self.lua_bell = overrides.lua_bell.clone();
+        self.lua_focus_changed = overrides.lua_focus_changed.clone();
         self.lua_user_var_changed = overrides.lua_user_var_changed.clone();
         self.lua_open_uri.clone_from(&overrides.lua_open_uri);
         self.lua_new_tab_button_click = overrides.lua_new_tab_button_click;
@@ -46922,7 +46970,18 @@ impl NativeWindowApp {
     }
 
     fn dispatch_focus_change(&mut self, change: &NativeWindowFocusChange) -> bool {
-        (self.focus_change_handler)(change)
+        let mut handled = (self.focus_change_handler)(change);
+        if let Some(update) = self.lua_focus_changed.clone() {
+            if let Some(left_status) = update.left_status {
+                self.left_status = self.lua_window_status_text(left_status);
+                handled = true;
+            }
+            if let Some(right_status) = update.right_status {
+                self.right_status = self.lua_window_status_text(right_status);
+                handled = true;
+            }
+        }
+        handled
     }
 
     fn dispatch_resize(&mut self, resize: &NativeWindowResize) -> bool {
@@ -73723,6 +73782,36 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_focus_changed_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('window-focus-changed', function(window, pane)
+              local focus = 'BLURRED'
+              if window:is_focused() then
+                focus = 'FOCUSED'
+              else
+                focus = 'BLURRED'
+              end
+              window:set_right_status(focus)
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm focus-changed event status setter");
+        app.set_config_overrides(overrides);
+
+        app.handle_focus_changed(false).unwrap();
+
+        assert_eq!(app.right_status, "BLURRED");
+
+        app.handle_focus_changed(true).unwrap();
+
+        assert_eq!(app.right_status, "FOCUSED");
     }
 
     #[test]
@@ -136517,6 +136606,7 @@ act.Confirmation {
                 right_status: Some(NativeLuaWindowStatusText::Static("RIGHT".to_owned())),
             }),
             lua_bell: None,
+            lua_focus_changed: None,
             lua_user_var_changed: None,
             lua_open_uri: Some(NativeLuaOpenUri::Static {
                 allow_default: false,
