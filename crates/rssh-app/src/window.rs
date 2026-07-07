@@ -10888,6 +10888,7 @@ fn lua_static_window_config_overrides_from_query(
         tab_bar_new_tab_hover_colors: (overrides.tab_bar_new_tab_hover_colors
             != NativeTabBarItemColors::default())
         .then_some(overrides.tab_bar_new_tab_hover_colors),
+        tab_bar_style: (!overrides.tab_bar_style.is_empty()).then_some(overrides.tab_bar_style),
         copy_mode_active_highlight_fg: overrides.copy_mode_active_highlight_fg,
         copy_mode_active_highlight_bg: overrides.copy_mode_active_highlight_bg,
         copy_mode_inactive_highlight_fg: overrides.copy_mode_inactive_highlight_fg,
@@ -30069,6 +30070,7 @@ struct NativeLuaWindowConfigOverrides {
     tab_bar_inactive_tab_hover_colors: Option<NativeTabBarItemColors>,
     tab_bar_new_tab_colors: Option<NativeTabBarItemColors>,
     tab_bar_new_tab_hover_colors: Option<NativeTabBarItemColors>,
+    tab_bar_style: Option<NativeTabBarStyle>,
     copy_mode_active_highlight_fg: Option<NativeColorSpec>,
     copy_mode_active_highlight_bg: Option<NativeColorSpec>,
     copy_mode_inactive_highlight_fg: Option<NativeColorSpec>,
@@ -30319,6 +30321,7 @@ impl NativeLuaWindowConfigOverrides {
             && self.tab_bar_inactive_tab_hover_colors.is_none()
             && self.tab_bar_new_tab_colors.is_none()
             && self.tab_bar_new_tab_hover_colors.is_none()
+            && self.tab_bar_style.is_none()
             && self.copy_mode_active_highlight_fg.is_none()
             && self.copy_mode_active_highlight_bg.is_none()
             && self.copy_mode_inactive_highlight_fg.is_none()
@@ -30908,6 +30911,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.tab_bar_new_tab_hover_colors.is_some() {
             self.tab_bar_new_tab_hover_colors = update.tab_bar_new_tab_hover_colors;
+        }
+        if update.tab_bar_style.is_some() {
+            self.tab_bar_style = update.tab_bar_style;
         }
         if update.copy_mode_active_highlight_fg.is_some() {
             self.copy_mode_active_highlight_fg = update.copy_mode_active_highlight_fg;
@@ -31675,6 +31681,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(tab_bar_new_tab_hover_colors) = self.tab_bar_new_tab_hover_colors {
             overrides.tab_bar_new_tab_hover_colors = tab_bar_new_tab_hover_colors;
+        }
+        if let Some(tab_bar_style) = self.tab_bar_style {
+            overrides.tab_bar_style = tab_bar_style;
         }
         if let Some(copy_mode_active_highlight_fg) = self.copy_mode_active_highlight_fg {
             overrides.copy_mode_active_highlight_fg = Some(copy_mode_active_highlight_fg);
@@ -89518,6 +89527,64 @@ mod tests {
         assert_eq!(
             app.right_status,
             "hide=true fancy=false bottom=true zero=true wheel=false last=true close=false new=false index=false tabs=false"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_tab_bar_style() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                tab_bar_style = {
+                  active_tab_left = wezterm.format({ { Text = '[' } }),
+                  active_tab_right = wezterm.format({ { Text = ']' } }),
+                  new_tab = wezterm.format({ { Text = 'NEW' } }),
+                },
+              })
+            end)
+            "##,
+        )
+        .expect("expected WezTerm set_config_overrides tab_bar_style callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.tab_bar_style.active_tab_left,
+            Some(vec![NativeFormatItem::Text("[".to_owned())])
+        );
+        assert_eq!(
+            effective.tab_bar_style.active_tab_right,
+            Some(vec![NativeFormatItem::Text("]".to_owned())])
+        );
+        assert_eq!(
+            effective.tab_bar_style.new_tab,
+            Some(vec![NativeFormatItem::Text("NEW".to_owned())])
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
