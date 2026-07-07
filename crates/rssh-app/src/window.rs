@@ -8165,6 +8165,13 @@ fn lua_window_title_text_part_from_expression(
         return Some(NativeLuaWindowTitlePart::ActiveTabId);
     }
 
+    let tab_index = format!("{tab_param}.tab_index");
+    if let Some(rest) = expression.strip_prefix(&tab_index)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaWindowTitlePart::ActiveTabIndex);
+    }
+
     let tab_window_title = format!("{tab_param}.window_title");
     if let Some(rest) = expression.strip_prefix(&tab_window_title)
         && lua_static_identifier_value_rest_is_statement_end(rest)
@@ -8200,6 +8207,13 @@ fn lua_window_title_text_part_from_expression(
                 }
             }
         }
+    }
+
+    let tab_count = format!("#{tabs_param}");
+    if let Some(rest) = expression.strip_prefix(&tab_count)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaWindowTitlePart::TabCount);
     }
 
     lua_window_title_tab_index_format_part_from_expression(expression, tab_param, tabs_param)
@@ -30149,6 +30163,7 @@ impl NativeLuaWindowTitle {
 enum NativeLuaWindowTitlePart {
     Static(String),
     ActiveTabId,
+    ActiveTabIndex,
     ActiveTabTitle,
     WindowTitle,
     ActivePaneId,
@@ -30157,6 +30172,7 @@ enum NativeLuaWindowTitlePart {
     ActivePaneForegroundProcessName,
     ActivePaneCurrentWorkingDir,
     ActivePaneTtyName,
+    TabCount,
     Conditional {
         condition: NativeLuaWindowTitleCondition,
         parts: Vec<NativeLuaWindowTitlePart>,
@@ -30172,6 +30188,7 @@ impl NativeLuaWindowTitlePart {
         match self {
             Self::Static(value) => Some(value.clone()),
             Self::ActiveTabId => Some(event.active_tab_info.tab_id.get().to_string()),
+            Self::ActiveTabIndex => Some(event.active_tab_info.tab_index.to_string()),
             Self::ActiveTabTitle => event.active_tab_info.tab_title.clone(),
             Self::WindowTitle => Some(event.active_tab_info.window_title.clone()),
             Self::ActivePaneId => Some(event.active_pane_info.pane_id.get().to_string()),
@@ -30182,6 +30199,7 @@ impl NativeLuaWindowTitlePart {
             }
             Self::ActivePaneCurrentWorkingDir => event.active_pane_info.current_working_dir.clone(),
             Self::ActivePaneTtyName => event.active_pane_info.tty_name.clone(),
+            Self::TabCount => Some(event.tab_count.to_string()),
             Self::Conditional { condition, parts } => {
                 if !condition.matches(event) {
                     return Some(String::new());
@@ -104937,6 +104955,25 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "1:Window Fallback");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_tab_index_and_count_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return tab.tab_index .. ':' .. #tabs
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title tab index/count return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "0:1");
     }
 
     #[test]
