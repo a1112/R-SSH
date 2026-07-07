@@ -6364,6 +6364,10 @@ fn lua_static_wezterm_user_var_changed_event_from_statement(
         pane_name,
         name_param,
         value_param,
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
     )
 }
 
@@ -9957,6 +9961,7 @@ fn lua_static_user_var_changed_from_function_body(
     pane_name: &str,
     name_param: &str,
     value_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaUserVarChanged> {
     let mut update = NativeLuaUserVarChanged {
         left_status: None,
@@ -9976,6 +9981,7 @@ fn lua_static_user_var_changed_from_function_body(
             pane_name,
             name_param,
             value_param,
+            outer_static_source,
             "set_left_status",
         ) {
             update.left_status = Some(left_status);
@@ -9987,6 +9993,7 @@ fn lua_static_user_var_changed_from_function_body(
             pane_name,
             name_param,
             value_param,
+            outer_static_source,
             "set_right_status",
         ) {
             update.right_status = Some(right_status);
@@ -10003,6 +10010,7 @@ fn lua_static_user_var_changed_status_setter_from_statement(
     pane_name: &str,
     name_param: &str,
     value_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     method: &str,
 ) -> Option<NativeLuaUserVarChangedStatusText> {
     let rest = statement.strip_prefix(window_name)?;
@@ -10031,6 +10039,8 @@ fn lua_static_user_var_changed_status_setter_from_statement(
             pane_name,
             name_param,
             value_param,
+            Some(static_source),
+            outer_static_source,
         );
     }
     lua_static_user_var_changed_status_text_from_query(
@@ -10039,6 +10049,8 @@ fn lua_static_user_var_changed_status_setter_from_statement(
         pane_name,
         name_param,
         value_param,
+        Some(static_source),
+        outer_static_source,
     )
 }
 
@@ -10048,6 +10060,8 @@ fn lua_static_user_var_changed_status_text_from_query(
     pane_name: &str,
     name_param: &str,
     value_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaUserVarChangedStatusText> {
     let mut parts = Vec::new();
     for segment in split_lua_string_concat_segments(value)? {
@@ -10064,7 +10078,9 @@ fn lua_static_user_var_changed_status_text_from_query(
         } else if lua_window_zero_arg_method_name_from_query(segment, pane_name) == Some("pane_id")
         {
             parts.push(NativeLuaUserVarChangedStatusPart::PaneId);
-        } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
+        } else if let Some(text) =
+            lua_static_string_value_from_expression(static_source, outer_static_source, segment)
+        {
             parts.push(NativeLuaUserVarChangedStatusPart::Static(text));
         } else {
             return None;
@@ -150005,6 +150021,29 @@ act.Confirmation {
             "#,
         )
         .expect("expected static WezTerm user-var-changed local status setter");
+        app.set_config_overrides(overrides);
+
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07")
+            .unwrap();
+
+        assert_eq!(app.right_status, "var=WEZTERM_PROG:psh");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_user_var_changed_static_string_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local prefix = 'var='
+
+            wezterm.on('user-var-changed', function(window, pane, name, value)
+              local sep = ':'
+              window:set_right_status(prefix .. name .. sep .. value)
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm user-var-changed static string status setter");
         app.set_config_overrides(overrides);
 
         app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07")
