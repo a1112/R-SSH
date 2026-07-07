@@ -22119,15 +22119,19 @@ fn lua_static_wezterm_color_load_scheme_alias_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_top_level_statement_value_from_query(value)
-            .is_some_and(lua_static_wezterm_color_load_scheme_alias_value_from_query);
+        selected = lua_static_wezterm_color_load_scheme_alias_value_from_query(value);
     }
 
     Some(selected)
 }
 
 fn lua_static_wezterm_color_load_scheme_alias_value_from_query(value: &str) -> bool {
-    value.trim() == "wezterm.color.load_scheme"
+    let Some(rest) =
+        lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.color.load_scheme")
+    else {
+        return false;
+    };
+    lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
 fn lua_identifier_literal_from_query(query: &str) -> Option<&str> {
@@ -77616,6 +77620,56 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(97, 98, 99));
         assert_eq!(effective.background_color, Color::Rgb(100, 101, 102));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(103, 104, 105));
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_colors_from_load_scheme_alias_dotted_comment() {
+        static NEXT_LOAD_SCHEME_ALIAS_DOTTED_COMMENT_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-alias-dotted-comment-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_ALIAS_DOTTED_COMMENT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Alias Dotted Comment Loaded Scheme"
+
+            [colors]
+            foreground = "#717273"
+            background = "#747576"
+            cursor_bg = "#777879"
+            "##,
+        )
+        .expect("expected temp load_scheme alias dotted comment TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local load_scheme = wezterm.color -- loader namespace
+              .load_scheme
+
+            config.colors = load_scheme('{}')
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme alias dotted-comment colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(113, 114, 115));
+        assert_eq!(effective.background_color, Color::Rgb(116, 117, 118));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(119, 120, 121));
         let _ = std::fs::remove_file(scheme_file);
     }
 

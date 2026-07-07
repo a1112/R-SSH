@@ -3304,7 +3304,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   including Lua comments between dotted helper path segments, plus top-level
   static aliases such as
   `local load_scheme = wezterm.color.load_scheme` invoked with a constant TOML
-  path including Lua comments before the call payload, can also feed selected
+  path including Lua comments inside the dotted alias helper path or before the
+  call payload, can also feed selected
   `config.color_schemes['Name']` entries directly or through static variables
   whose supported static mutations are applied, or `config.colors` directly,
   through a static table variable, or through the first returned variable from
