@@ -2304,8 +2304,8 @@ keyboard, mouse, paste, resize
   through callback-local status variables update left or right status text from
   static strings, callback-local/top-level static string variables,
   `window:window_id()`, `pane:pane_id()`, and the event `name` and `value`
-  parameters, plus callback-local `pane:get_user_vars()` reads for the triggering
-  pane.
+  parameters, plus callback-local `pane:get_user_vars()` reads with static `or`
+  fallbacks for the triggering pane.
 - Implemented in v1: `rssh-terminal` base64-decodes iTerm2
   `OSC 1337;SetBadgeFormat` metadata into terminal badge format state.
   `rssh-app` syncs that value into per-pane app-shell metadata for active and

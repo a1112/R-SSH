@@ -10086,6 +10086,17 @@ fn lua_static_user_var_changed_status_text_from_query(
         } else if lua_window_zero_arg_method_name_from_query(segment, pane_name) == Some("pane_id")
         {
             parts.push(NativeLuaUserVarChangedStatusPart::PaneId);
+        } else if let Some((name, fallback)) = static_source.and_then(|static_source| {
+            lua_static_pane_user_var_fallback_from_query(
+                static_source,
+                outer_static_source,
+                segment,
+                user_vars_variable.as_deref(),
+                window_name,
+                pane_name,
+            )
+        }) {
+            parts.push(NativeLuaUserVarChangedStatusPart::PaneUserVar { name, fallback });
         } else if let Some(name) = lua_static_pane_user_var_name_from_query(
             static_source,
             outer_static_source,
@@ -150100,6 +150111,39 @@ act.Confirmation {
         )
         .unwrap();
 
+        assert_eq!(app.right_status, "host=prod");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_user_var_changed_pane_user_vars_fallback_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('user-var-changed', function(window, pane, name, value)
+              local vars = pane:get_user_vars()
+              window:set_right_status('host=' .. (vars.WEZTERM_HOST or 'none'))
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm user-var-changed pane user vars fallback status setter");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        app.handle_pane_pty_output(
+            rssh_core::PaneId::new(1),
+            b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07",
+        )
+        .unwrap();
+        assert_eq!(app.right_status, "host=none");
+
+        app.handle_pane_pty_output(
+            rssh_core::PaneId::new(1),
+            b"\x1b]1337;SetUserVar=WEZTERM_HOST=cHJvZA==\x07",
+        )
+        .unwrap();
         assert_eq!(app.right_status, "host=prod");
     }
 
