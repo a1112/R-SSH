@@ -10731,6 +10731,14 @@ fn lua_static_window_config_overrides_from_query(
         freetype_interpreter_version: overrides.freetype_interpreter_version,
         freetype_pcf_long_family_names: overrides.freetype_pcf_long_family_names,
         display_pixel_geometry: overrides.display_pixel_geometry,
+        foreground_text_hsb: overrides.foreground_text_hsb,
+        text_background_opacity: overrides.text_background_opacity,
+        window_background_opacity: overrides.window_background_opacity,
+        kde_window_background_blur: overrides.kde_window_background_blur,
+        macos_window_background_blur: overrides.macos_window_background_blur,
+        win32_system_backdrop: overrides.win32_system_backdrop,
+        win32_acrylic_accent_color: overrides.win32_acrylic_accent_color,
+        inactive_pane_hsb: overrides.inactive_pane_hsb,
         tab_max_width: overrides.tab_max_width,
         status_update_interval_ms: overrides.status_update_interval_ms,
         max_fps: overrides.max_fps,
@@ -29640,6 +29648,14 @@ struct NativeLuaWindowConfigOverrides {
     freetype_interpreter_version: Option<u32>,
     freetype_pcf_long_family_names: Option<bool>,
     display_pixel_geometry: Option<NativeDisplayPixelGeometry>,
+    foreground_text_hsb: Option<NativeInactivePaneHsb>,
+    text_background_opacity: Option<NativeTextBackgroundOpacity>,
+    window_background_opacity: Option<NativeTextBackgroundOpacity>,
+    kde_window_background_blur: Option<bool>,
+    macos_window_background_blur: Option<u32>,
+    win32_system_backdrop: Option<NativeWin32SystemBackdrop>,
+    win32_acrylic_accent_color: Option<Color>,
+    inactive_pane_hsb: Option<NativeInactivePaneHsb>,
     tab_max_width: Option<usize>,
     status_update_interval_ms: Option<u64>,
     max_fps: Option<usize>,
@@ -29801,6 +29817,14 @@ impl NativeLuaWindowConfigOverrides {
             && self.freetype_interpreter_version.is_none()
             && self.freetype_pcf_long_family_names.is_none()
             && self.display_pixel_geometry.is_none()
+            && self.foreground_text_hsb.is_none()
+            && self.text_background_opacity.is_none()
+            && self.window_background_opacity.is_none()
+            && self.kde_window_background_blur.is_none()
+            && self.macos_window_background_blur.is_none()
+            && self.win32_system_backdrop.is_none()
+            && self.win32_acrylic_accent_color.is_none()
+            && self.inactive_pane_hsb.is_none()
             && self.tab_max_width.is_none()
             && self.status_update_interval_ms.is_none()
             && self.max_fps.is_none()
@@ -30008,6 +30032,30 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.display_pixel_geometry.is_some() {
             self.display_pixel_geometry = update.display_pixel_geometry;
+        }
+        if update.foreground_text_hsb.is_some() {
+            self.foreground_text_hsb = update.foreground_text_hsb;
+        }
+        if update.text_background_opacity.is_some() {
+            self.text_background_opacity = update.text_background_opacity;
+        }
+        if update.window_background_opacity.is_some() {
+            self.window_background_opacity = update.window_background_opacity;
+        }
+        if update.kde_window_background_blur.is_some() {
+            self.kde_window_background_blur = update.kde_window_background_blur;
+        }
+        if update.macos_window_background_blur.is_some() {
+            self.macos_window_background_blur = update.macos_window_background_blur;
+        }
+        if update.win32_system_backdrop.is_some() {
+            self.win32_system_backdrop = update.win32_system_backdrop;
+        }
+        if update.win32_acrylic_accent_color.is_some() {
+            self.win32_acrylic_accent_color = update.win32_acrylic_accent_color;
+        }
+        if update.inactive_pane_hsb.is_some() {
+            self.inactive_pane_hsb = update.inactive_pane_hsb;
         }
         if update.tab_max_width.is_some() {
             self.tab_max_width = update.tab_max_width;
@@ -30496,6 +30544,30 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(display_pixel_geometry) = self.display_pixel_geometry {
             overrides.display_pixel_geometry = Some(display_pixel_geometry);
+        }
+        if let Some(foreground_text_hsb) = self.foreground_text_hsb {
+            overrides.foreground_text_hsb = Some(foreground_text_hsb);
+        }
+        if let Some(text_background_opacity) = self.text_background_opacity {
+            overrides.text_background_opacity = Some(text_background_opacity);
+        }
+        if let Some(window_background_opacity) = self.window_background_opacity {
+            overrides.window_background_opacity = Some(window_background_opacity);
+        }
+        if let Some(kde_window_background_blur) = self.kde_window_background_blur {
+            overrides.kde_window_background_blur = Some(kde_window_background_blur);
+        }
+        if let Some(macos_window_background_blur) = self.macos_window_background_blur {
+            overrides.macos_window_background_blur = Some(macos_window_background_blur);
+        }
+        if let Some(win32_system_backdrop) = self.win32_system_backdrop {
+            overrides.win32_system_backdrop = Some(win32_system_backdrop);
+        }
+        if let Some(win32_acrylic_accent_color) = self.win32_acrylic_accent_color {
+            overrides.win32_acrylic_accent_color = Some(win32_acrylic_accent_color);
+        }
+        if let Some(inactive_pane_hsb) = self.inactive_pane_hsb {
+            overrides.inactive_pane_hsb = Some(inactive_pane_hsb);
         }
         if let Some(tab_max_width) = self.tab_max_width {
             overrides.tab_max_width = Some(tab_max_width);
@@ -87455,6 +87527,116 @@ mod tests {
         assert_eq!(
             app.right_status,
             "cap=true ignore=true sort=true search=true blocks=false/false overflow=Always ft=Light/HorizontalLcd/NO_HINTING|MONOCHROME/38/true geometry=BGR"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_background_visual_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                foreground_text_hsb = {
+                  hue = 0.5,
+                  saturation = 0.75,
+                  brightness = 1.25,
+                },
+                inactive_pane_hsb = {
+                  hue = 1.5,
+                  saturation = 0.25,
+                  brightness = 0.5,
+                },
+                text_background_opacity = 0.4,
+                window_background_opacity = 0.6,
+                kde_window_background_blur = true,
+                macos_window_background_blur = 20,
+                win32_system_backdrop = 'Mica',
+                win32_acrylic_accent_color = '#112233',
+              })
+              local config = window:effective_config()
+              window:set_right_status(
+                'fg=' .. tostring(config.foreground_text_hsb.hue)
+                  .. '/' .. tostring(config.foreground_text_hsb.saturation)
+                  .. '/' .. tostring(config.foreground_text_hsb.brightness)
+                  .. ' inactive=' .. tostring(config.inactive_pane_hsb.hue)
+                  .. '/' .. tostring(config.inactive_pane_hsb.saturation)
+                  .. '/' .. tostring(config.inactive_pane_hsb.brightness)
+                  .. ' opacity=' .. tostring(config.text_background_opacity)
+                  .. '/' .. tostring(config.window_background_opacity)
+                  .. ' blur=' .. tostring(config.kde_window_background_blur)
+                  .. '/' .. tostring(config.macos_window_background_blur)
+                  .. ' backdrop=' .. tostring(config.win32_system_backdrop)
+                  .. ' accent=' .. tostring(config.win32_acrylic_accent_color)
+              )
+            end)
+            "##,
+        )
+        .expect("expected WezTerm set_config_overrides background visual callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.foreground_text_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(0.5),
+                saturation: NativeHsbMultiplier::from_f32(0.75),
+                brightness: NativeHsbMultiplier::from_f32(1.25),
+            }
+        );
+        assert_eq!(
+            effective.inactive_pane_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.5),
+                saturation: NativeHsbMultiplier::from_f32(0.25),
+                brightness: NativeHsbMultiplier::from_f32(0.5),
+            }
+        );
+        assert_eq!(
+            effective.text_background_opacity,
+            NativeTextBackgroundOpacity::from_f32(0.4)
+        );
+        assert_eq!(
+            effective.window_background_opacity,
+            NativeTextBackgroundOpacity::from_f32(0.6)
+        );
+        assert!(effective.kde_window_background_blur);
+        assert_eq!(effective.macos_window_background_blur, 20);
+        assert_eq!(
+            effective.win32_system_backdrop,
+            NativeWin32SystemBackdrop::Mica
+        );
+        assert_eq!(
+            effective.win32_acrylic_accent_color,
+            Some(Color::Rgb(17, 34, 51))
+        );
+        assert_eq!(
+            app.right_status,
+            "fg=0.5/0.75/1.25 inactive=1.5/0.25/0.5 opacity=0.4/0.6 blur=true/20 backdrop=Mica accent=#112233"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
