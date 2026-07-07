@@ -7594,6 +7594,24 @@ fn lua_static_wezterm_require_receiver_rest_from_query(value: &str) -> Option<&s
     Some(rest)
 }
 
+fn lua_static_wezterm_receiver_rest_from_query<'a>(
+    source: &str,
+    max_start: usize,
+    value: &'a str,
+) -> Option<&'a str> {
+    let receiver = lua_identifier_literal_from_query(value)?;
+    let rest = value.get(receiver.len()..)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    if receiver == "wezterm"
+        || lua_static_wezterm_module_alias_before_offset(source, receiver, max_start)?
+    {
+        return Some(rest);
+    }
+    None
+}
+
 fn lua_static_wezterm_on_event_args_from_receiver_rest<'a>(
     source: &str,
     start: usize,
@@ -7650,10 +7668,12 @@ fn lua_static_wezterm_on_alias_value_from_query(
     let Some(value) = lua_trim_start_comments(value) else {
         return false;
     };
-    let Some(rest) = value
-        .strip_prefix("wezterm")
-        .or_else(|| lua_static_wezterm_require_receiver_rest_from_query(value))
-    else {
+    let rest = if let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) {
+        rest
+    } else if let Some(rest) = lua_static_wezterm_receiver_rest_from_query(source, max_start, value)
+    {
+        rest
+    } else {
         return false;
     };
     if value.starts_with("wezterm") && rest.chars().next().is_some_and(is_lua_identifier_character)
@@ -104305,6 +104325,25 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "REQUIRE ALIAS LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_module_on_alias_format_window_title_event() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wt = require 'wezterm'
+            local on = wt.on
+
+            on('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'MODULE ON ALIAS LUA TITLE'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm module on-alias format-window-title event");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "MODULE ON ALIAS LUA TITLE");
     }
 
     #[test]
