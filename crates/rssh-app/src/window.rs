@@ -10793,6 +10793,13 @@ fn lua_static_window_config_overrides_from_query(
         mouse_wheel_scrolls_tabs: overrides.mouse_wheel_scrolls_tabs,
         switch_to_last_active_tab_when_closing_tab: overrides
             .switch_to_last_active_tab_when_closing_tab,
+        quit_when_all_windows_are_closed: overrides.quit_when_all_windows_are_closed,
+        window_close_confirmation: overrides.window_close_confirmation,
+        exit_behavior: overrides.exit_behavior,
+        clean_exit_codes: overrides.clean_exit_codes,
+        exit_behavior_messaging: overrides.exit_behavior_messaging,
+        skip_close_confirmation_for_processes_named: overrides
+            .skip_close_confirmation_for_processes_named,
         show_close_tab_button_in_tabs: overrides.show_close_tab_button_in_tabs,
         show_new_tab_button_in_tab_bar: overrides.show_new_tab_button_in_tab_bar,
         show_tab_index_in_tab_bar: overrides.show_tab_index_in_tab_bar,
@@ -29622,6 +29629,12 @@ struct NativeLuaWindowConfigOverrides {
     tab_and_split_indices_are_zero_based: Option<bool>,
     mouse_wheel_scrolls_tabs: Option<bool>,
     switch_to_last_active_tab_when_closing_tab: Option<bool>,
+    quit_when_all_windows_are_closed: Option<bool>,
+    window_close_confirmation: Option<NativeWindowCloseConfirmation>,
+    exit_behavior: Option<NativeExitBehavior>,
+    clean_exit_codes: Option<Vec<u32>>,
+    exit_behavior_messaging: Option<NativeExitBehaviorMessaging>,
+    skip_close_confirmation_for_processes_named: Option<Vec<String>>,
     show_close_tab_button_in_tabs: Option<bool>,
     show_new_tab_button_in_tab_bar: Option<bool>,
     show_tab_index_in_tab_bar: Option<bool>,
@@ -29710,6 +29723,12 @@ impl NativeLuaWindowConfigOverrides {
             && self.tab_and_split_indices_are_zero_based.is_none()
             && self.mouse_wheel_scrolls_tabs.is_none()
             && self.switch_to_last_active_tab_when_closing_tab.is_none()
+            && self.quit_when_all_windows_are_closed.is_none()
+            && self.window_close_confirmation.is_none()
+            && self.exit_behavior.is_none()
+            && self.clean_exit_codes.is_none()
+            && self.exit_behavior_messaging.is_none()
+            && self.skip_close_confirmation_for_processes_named.is_none()
             && self.show_close_tab_button_in_tabs.is_none()
             && self.show_new_tab_button_in_tab_bar.is_none()
             && self.show_tab_index_in_tab_bar.is_none()
@@ -29961,6 +29980,25 @@ impl NativeLuaWindowConfigOverrides {
         if update.switch_to_last_active_tab_when_closing_tab.is_some() {
             self.switch_to_last_active_tab_when_closing_tab =
                 update.switch_to_last_active_tab_when_closing_tab;
+        }
+        if update.quit_when_all_windows_are_closed.is_some() {
+            self.quit_when_all_windows_are_closed = update.quit_when_all_windows_are_closed;
+        }
+        if update.window_close_confirmation.is_some() {
+            self.window_close_confirmation = update.window_close_confirmation;
+        }
+        if update.exit_behavior.is_some() {
+            self.exit_behavior = update.exit_behavior;
+        }
+        if update.clean_exit_codes.is_some() {
+            self.clean_exit_codes = update.clean_exit_codes;
+        }
+        if update.exit_behavior_messaging.is_some() {
+            self.exit_behavior_messaging = update.exit_behavior_messaging;
+        }
+        if update.skip_close_confirmation_for_processes_named.is_some() {
+            self.skip_close_confirmation_for_processes_named =
+                update.skip_close_confirmation_for_processes_named;
         }
         if update.show_close_tab_button_in_tabs.is_some() {
             self.show_close_tab_button_in_tabs = update.show_close_tab_button_in_tabs;
@@ -30243,6 +30281,27 @@ impl NativeLuaWindowConfigOverrides {
         {
             overrides.switch_to_last_active_tab_when_closing_tab =
                 Some(switch_to_last_active_tab_when_closing_tab);
+        }
+        if let Some(quit_when_all_windows_are_closed) = self.quit_when_all_windows_are_closed {
+            overrides.quit_when_all_windows_are_closed = Some(quit_when_all_windows_are_closed);
+        }
+        if let Some(window_close_confirmation) = self.window_close_confirmation {
+            overrides.window_close_confirmation = Some(window_close_confirmation);
+        }
+        if let Some(exit_behavior) = self.exit_behavior {
+            overrides.exit_behavior = Some(exit_behavior);
+        }
+        if let Some(clean_exit_codes) = self.clean_exit_codes {
+            overrides.clean_exit_codes = Some(clean_exit_codes);
+        }
+        if let Some(exit_behavior_messaging) = self.exit_behavior_messaging {
+            overrides.exit_behavior_messaging = Some(exit_behavior_messaging);
+        }
+        if let Some(skip_close_confirmation_for_processes_named) =
+            self.skip_close_confirmation_for_processes_named
+        {
+            overrides.skip_close_confirmation_for_processes_named =
+                Some(skip_close_confirmation_for_processes_named);
         }
         if let Some(show_close_tab_button_in_tabs) = self.show_close_tab_button_in_tabs {
             overrides.show_close_tab_button_in_tabs = Some(show_close_tab_button_in_tabs);
@@ -87305,6 +87364,84 @@ mod tests {
         assert_eq!(
             app.right_status,
             "prog=--login domain=local prefer=true env=dev flag=on"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_close_exit_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local overrides = {
+                quit_when_all_windows_are_closed = false,
+                window_close_confirmation = 'NeverPrompt',
+                exit_behavior = 'CloseOnCleanExit',
+                clean_exit_codes = { 130, 143 },
+                exit_behavior_messaging = 'Terse',
+                skip_close_confirmation_for_processes_named = { 'top', 'htop' },
+              }
+              window:set_config_overrides(overrides)
+              window:set_right_status(
+                'quit=' .. tostring(window:effective_config().quit_when_all_windows_are_closed)
+                  .. ' close=' .. tostring(window:effective_config().window_close_confirmation)
+                  .. ' exit=' .. tostring(window:effective_config().exit_behavior)
+                  .. ' clean=' .. tostring(window:effective_config().clean_exit_codes[2])
+                  .. ' msg=' .. tostring(window:effective_config().exit_behavior_messaging)
+                  .. ' skip=' .. tostring(window:effective_config().skip_close_confirmation_for_processes_named[2])
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides close exit callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert!(!effective.quit_when_all_windows_are_closed);
+        assert_eq!(
+            effective.window_close_confirmation,
+            NativeWindowCloseConfirmation::NeverPrompt
+        );
+        assert_eq!(
+            effective.exit_behavior,
+            NativeExitBehavior::CloseOnCleanExit
+        );
+        assert_eq!(effective.clean_exit_codes, vec![130, 143]);
+        assert_eq!(
+            effective.exit_behavior_messaging,
+            NativeExitBehaviorMessaging::Terse
+        );
+        assert_eq!(
+            effective.skip_close_confirmation_for_processes_named,
+            vec!["top".to_owned(), "htop".to_owned()]
+        );
+        assert_eq!(
+            app.right_status,
+            "quit=false close=NeverPrompt exit=CloseOnCleanExit clean=143 msg=Terse skip=htop"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
