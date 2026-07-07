@@ -10711,7 +10711,20 @@ fn lua_static_window_config_overrides_from_query(
         font_size: overrides.font_size,
         tab_max_width: overrides.tab_max_width,
         status_update_interval_ms: overrides.status_update_interval_ms,
+        max_fps: overrides.max_fps,
+        animation_fps: overrides.animation_fps,
+        front_end: overrides.front_end,
+        webgpu_power_preference: overrides.webgpu_power_preference,
+        webgpu_force_fallback_adapter: overrides.webgpu_force_fallback_adapter,
+        prefer_egl: overrides.prefer_egl,
+        enable_wayland: overrides.enable_wayland,
+        enable_zwlr_output_manager: overrides.enable_zwlr_output_manager,
+        use_box_model_render: overrides.use_box_model_render,
+        experimental_pixel_positioning: overrides.experimental_pixel_positioning,
         default_workspace: overrides.default_workspace,
+        debug_key_events: overrides.debug_key_events,
+        log_unknown_escape_sequences: overrides.log_unknown_escape_sequences,
+        warn_about_missing_glyphs: overrides.warn_about_missing_glyphs,
         enable_tab_bar: overrides.enable_tab_bar,
     })
     .filter(|overrides| !overrides.is_empty())
@@ -29461,7 +29474,20 @@ struct NativeLuaWindowConfigOverrides {
     font_size: Option<NativeFontSize>,
     tab_max_width: Option<usize>,
     status_update_interval_ms: Option<u64>,
+    max_fps: Option<usize>,
+    animation_fps: Option<usize>,
+    front_end: Option<NativeRenderFrontEnd>,
+    webgpu_power_preference: Option<NativeWebGpuPowerPreference>,
+    webgpu_force_fallback_adapter: Option<bool>,
+    prefer_egl: Option<bool>,
+    enable_wayland: Option<bool>,
+    enable_zwlr_output_manager: Option<bool>,
+    use_box_model_render: Option<bool>,
+    experimental_pixel_positioning: Option<bool>,
     default_workspace: Option<String>,
+    debug_key_events: Option<bool>,
+    log_unknown_escape_sequences: Option<bool>,
+    warn_about_missing_glyphs: Option<bool>,
     enable_tab_bar: Option<bool>,
 }
 
@@ -29470,7 +29496,20 @@ impl NativeLuaWindowConfigOverrides {
         self.font_size.is_none()
             && self.tab_max_width.is_none()
             && self.status_update_interval_ms.is_none()
+            && self.max_fps.is_none()
+            && self.animation_fps.is_none()
+            && self.front_end.is_none()
+            && self.webgpu_power_preference.is_none()
+            && self.webgpu_force_fallback_adapter.is_none()
+            && self.prefer_egl.is_none()
+            && self.enable_wayland.is_none()
+            && self.enable_zwlr_output_manager.is_none()
+            && self.use_box_model_render.is_none()
+            && self.experimental_pixel_positioning.is_none()
             && self.default_workspace.is_none()
+            && self.debug_key_events.is_none()
+            && self.log_unknown_escape_sequences.is_none()
+            && self.warn_about_missing_glyphs.is_none()
             && self.enable_tab_bar.is_none()
     }
 
@@ -29484,8 +29523,47 @@ impl NativeLuaWindowConfigOverrides {
         if update.status_update_interval_ms.is_some() {
             self.status_update_interval_ms = update.status_update_interval_ms;
         }
+        if update.max_fps.is_some() {
+            self.max_fps = update.max_fps;
+        }
+        if update.animation_fps.is_some() {
+            self.animation_fps = update.animation_fps;
+        }
+        if update.front_end.is_some() {
+            self.front_end = update.front_end;
+        }
+        if update.webgpu_power_preference.is_some() {
+            self.webgpu_power_preference = update.webgpu_power_preference;
+        }
+        if update.webgpu_force_fallback_adapter.is_some() {
+            self.webgpu_force_fallback_adapter = update.webgpu_force_fallback_adapter;
+        }
+        if update.prefer_egl.is_some() {
+            self.prefer_egl = update.prefer_egl;
+        }
+        if update.enable_wayland.is_some() {
+            self.enable_wayland = update.enable_wayland;
+        }
+        if update.enable_zwlr_output_manager.is_some() {
+            self.enable_zwlr_output_manager = update.enable_zwlr_output_manager;
+        }
+        if update.use_box_model_render.is_some() {
+            self.use_box_model_render = update.use_box_model_render;
+        }
+        if update.experimental_pixel_positioning.is_some() {
+            self.experimental_pixel_positioning = update.experimental_pixel_positioning;
+        }
         if update.default_workspace.is_some() {
             self.default_workspace = update.default_workspace;
+        }
+        if update.debug_key_events.is_some() {
+            self.debug_key_events = update.debug_key_events;
+        }
+        if update.log_unknown_escape_sequences.is_some() {
+            self.log_unknown_escape_sequences = update.log_unknown_escape_sequences;
+        }
+        if update.warn_about_missing_glyphs.is_some() {
+            self.warn_about_missing_glyphs = update.warn_about_missing_glyphs;
         }
         if update.enable_tab_bar.is_some() {
             self.enable_tab_bar = update.enable_tab_bar;
@@ -29502,8 +29580,47 @@ impl NativeLuaWindowConfigOverrides {
         if let Some(status_update_interval_ms) = self.status_update_interval_ms {
             overrides.status_update_interval_ms = Some(status_update_interval_ms);
         }
+        if let Some(max_fps) = self.max_fps {
+            overrides.max_fps = Some(max_fps);
+        }
+        if let Some(animation_fps) = self.animation_fps {
+            overrides.animation_fps = Some(animation_fps);
+        }
+        if let Some(front_end) = self.front_end {
+            overrides.front_end = Some(front_end);
+        }
+        if let Some(webgpu_power_preference) = self.webgpu_power_preference {
+            overrides.webgpu_power_preference = Some(webgpu_power_preference);
+        }
+        if let Some(webgpu_force_fallback_adapter) = self.webgpu_force_fallback_adapter {
+            overrides.webgpu_force_fallback_adapter = Some(webgpu_force_fallback_adapter);
+        }
+        if let Some(prefer_egl) = self.prefer_egl {
+            overrides.prefer_egl = Some(prefer_egl);
+        }
+        if let Some(enable_wayland) = self.enable_wayland {
+            overrides.enable_wayland = Some(enable_wayland);
+        }
+        if let Some(enable_zwlr_output_manager) = self.enable_zwlr_output_manager {
+            overrides.enable_zwlr_output_manager = Some(enable_zwlr_output_manager);
+        }
+        if let Some(use_box_model_render) = self.use_box_model_render {
+            overrides.use_box_model_render = Some(use_box_model_render);
+        }
+        if let Some(experimental_pixel_positioning) = self.experimental_pixel_positioning {
+            overrides.experimental_pixel_positioning = Some(experimental_pixel_positioning);
+        }
         if let Some(default_workspace) = self.default_workspace {
             overrides.default_workspace = Some(default_workspace);
+        }
+        if let Some(debug_key_events) = self.debug_key_events {
+            overrides.debug_key_events = Some(debug_key_events);
+        }
+        if let Some(log_unknown_escape_sequences) = self.log_unknown_escape_sequences {
+            overrides.log_unknown_escape_sequences = Some(log_unknown_escape_sequences);
+        }
+        if let Some(warn_about_missing_glyphs) = self.warn_about_missing_glyphs {
+            overrides.warn_about_missing_glyphs = Some(warn_about_missing_glyphs);
         }
         if let Some(enable_tab_bar) = self.enable_tab_bar {
             overrides.enable_tab_bar = Some(enable_tab_bar);
@@ -85889,6 +86006,96 @@ mod tests {
         assert_eq!(
             app.right_status,
             "font=16.25 tab=28 interval=333 workspace=runtime tabbar=false"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_render_diagnostics_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local overrides = {
+                max_fps = 144,
+                animation_fps = 24,
+                front_end = 'WebGpu',
+                webgpu_power_preference = 'HighPerformance',
+                webgpu_force_fallback_adapter = true,
+                prefer_egl = false,
+                enable_wayland = false,
+                enable_zwlr_output_manager = true,
+                use_box_model_render = true,
+                experimental_pixel_positioning = true,
+                debug_key_events = true,
+                log_unknown_escape_sequences = true,
+                warn_about_missing_glyphs = false,
+              }
+              window:set_config_overrides(overrides)
+              window:set_right_status(
+                'max=' .. window:effective_config().max_fps
+                  .. ' anim=' .. window:effective_config().animation_fps
+                  .. ' front=' .. window:effective_config().front_end
+                  .. ' power=' .. window:effective_config().webgpu_power_preference
+                  .. ' fallback=' .. tostring(window:effective_config().webgpu_force_fallback_adapter)
+                  .. ' egl=' .. tostring(window:effective_config().prefer_egl)
+                  .. ' wayland=' .. tostring(window:effective_config().enable_wayland)
+                  .. ' zwlr=' .. tostring(window:effective_config().enable_zwlr_output_manager)
+                  .. ' box=' .. tostring(window:effective_config().use_box_model_render)
+                  .. ' pixel=' .. tostring(window:effective_config().experimental_pixel_positioning)
+                  .. ' debug=' .. tostring(window:effective_config().debug_key_events)
+                  .. ' esc=' .. tostring(window:effective_config().log_unknown_escape_sequences)
+                  .. ' glyph=' .. tostring(window:effective_config().warn_about_missing_glyphs)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides render diagnostics callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.max_fps, 144);
+        assert_eq!(effective.animation_fps, 24);
+        assert_eq!(effective.front_end, NativeRenderFrontEnd::WebGpu);
+        assert_eq!(
+            effective.webgpu_power_preference,
+            NativeWebGpuPowerPreference::HighPerformance
+        );
+        assert!(effective.webgpu_force_fallback_adapter);
+        assert!(!effective.prefer_egl);
+        assert!(!effective.enable_wayland);
+        assert!(effective.enable_zwlr_output_manager);
+        assert!(effective.use_box_model_render);
+        assert!(effective.experimental_pixel_positioning);
+        assert!(effective.debug_key_events);
+        assert!(effective.log_unknown_escape_sequences);
+        assert!(!effective.warn_about_missing_glyphs);
+        assert_eq!(
+            app.right_status,
+            "max=144 anim=24 front=WebGpu power=HighPerformance fallback=true egl=false wayland=false zwlr=true box=true pixel=true debug=true esc=true glyph=false"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
