@@ -7474,17 +7474,38 @@ fn lua_static_wezterm_on_alias_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_static_wezterm_on_alias_value_from_query(value);
+        selected = lua_static_wezterm_on_alias_value_from_query(source, start, value);
     }
 
     Some(selected)
 }
 
-fn lua_static_wezterm_on_alias_value_from_query(value: &str) -> bool {
-    let Some(rest) = lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.on")
-    else {
+fn lua_static_wezterm_on_alias_value_from_query(
+    source: &str,
+    max_start: usize,
+    value: &str,
+) -> bool {
+    let Some(value) = lua_trim_start_comments(value) else {
         return false;
     };
+    let Some(rest) = value.strip_prefix("wezterm") else {
+        return false;
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return false;
+    }
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let Some((field, rest)) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource { source, max_start }),
+        rest,
+    ) else {
+        return false;
+    };
+    if field != "on" {
+        return false;
+    }
     lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
@@ -104009,6 +104030,25 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "ALIAS LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_bracket_on_alias_format_window_title_event() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local on = wezterm['on']
+
+            on('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'BRACKET ALIAS LUA TITLE'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm bracket on alias format-window-title event");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "BRACKET ALIAS LUA TITLE");
     }
 
     #[test]
