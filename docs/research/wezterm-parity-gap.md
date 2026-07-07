@@ -2927,11 +2927,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `prev_char`, static string field-name variables for nested `prev_char`
   option keys, and top-level static nested jump option table variables when
   parsed from static `config.key_tables`.
-  `MoveForwardSemanticZoneOfType = 'Input'` and
-  `MoveBackwardSemanticZoneOfType = 'Prompt'` assignment values reuse the
-  typed OSC 133 semantic-zone movement path and resolve top-level static string
-  variables from static `config.key_tables`. `MoveByPage` resolves top-level
-  static number variables from static `config.key_tables`.
+  `MoveForwardZoneOfType = 'Input'` and
+  `MoveBackwardZoneOfType = 'Prompt'` assignment values, plus the prior
+  `MoveForwardSemanticZoneOfType`/`MoveBackwardSemanticZoneOfType` aliases,
+  reuse the typed OSC 133 semantic-zone movement path and resolve top-level
+  static string variables from static `config.key_tables`. `MoveByPage`
+  resolves top-level static number variables from static `config.key_tables`.
   Single-name Lua table forms such as
   `wezterm.action.CopyMode { 'ClearSelectionMode' }` now reuse the same
   assignment parser. `AcceptPattern` and `EditPattern` now toggle whether
