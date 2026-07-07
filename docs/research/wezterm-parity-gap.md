@@ -2650,8 +2650,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   declarations, nested static table-field callback
   expressions from field assignments, table initializers, table-field named
   function declarations, static table-variable aliases, or static callback value aliases, nested parenthesized static callback
-  expressions, literal string returns, callback-local/top-level static
-  string-variable returns and concatenation, plus top-level static
+  expressions, literal string and static `tostring(...)` returns,
+  callback-local/top-level static string-variable returns and concatenation, plus top-level static
   `local <alias> = wezterm.on` event aliases with Lua comments allowed inside
   the dotted helper path, map onto the native title override path. The documented default
   processing example's static subset also parses callback-local conditional

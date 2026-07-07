@@ -7323,6 +7323,7 @@ fn lua_static_string_value_from_expression_with_depth(
         return None;
     }
     let value = lua_trim_start_comments(value.trim())?;
+    let value = lua_tostring_argument_from_query(value).unwrap_or(value);
     if let Some((literal, literal_len)) = lua_inline_string_literal_value_and_len(value) {
         return lua_trim_start_comments(value.get(literal_len..)?)?
             .is_empty()
@@ -103748,6 +103749,24 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_tostring_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return tostring('TOSTRING LUA TITLE')
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title tostring return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "TOSTRING LUA TITLE");
     }
 
     #[test]
