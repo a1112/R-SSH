@@ -10722,6 +10722,12 @@ fn lua_static_window_config_overrides_from_query(
         use_box_model_render: overrides.use_box_model_render,
         experimental_pixel_positioning: overrides.experimental_pixel_positioning,
         default_workspace: overrides.default_workspace,
+        term: overrides.term,
+        enq_answerback: overrides.enq_answerback,
+        automatically_reload_config: overrides.automatically_reload_config,
+        check_for_updates: overrides.check_for_updates,
+        check_for_updates_interval_seconds: overrides.check_for_updates_interval_seconds,
+        show_update_window: overrides.show_update_window,
         debug_key_events: overrides.debug_key_events,
         log_unknown_escape_sequences: overrides.log_unknown_escape_sequences,
         warn_about_missing_glyphs: overrides.warn_about_missing_glyphs,
@@ -29496,6 +29502,12 @@ struct NativeLuaWindowConfigOverrides {
     use_box_model_render: Option<bool>,
     experimental_pixel_positioning: Option<bool>,
     default_workspace: Option<String>,
+    term: Option<String>,
+    enq_answerback: Option<String>,
+    automatically_reload_config: Option<bool>,
+    check_for_updates: Option<bool>,
+    check_for_updates_interval_seconds: Option<u64>,
+    show_update_window: Option<bool>,
     debug_key_events: Option<bool>,
     log_unknown_escape_sequences: Option<bool>,
     warn_about_missing_glyphs: Option<bool>,
@@ -29528,6 +29540,12 @@ impl NativeLuaWindowConfigOverrides {
             && self.use_box_model_render.is_none()
             && self.experimental_pixel_positioning.is_none()
             && self.default_workspace.is_none()
+            && self.term.is_none()
+            && self.enq_answerback.is_none()
+            && self.automatically_reload_config.is_none()
+            && self.check_for_updates.is_none()
+            && self.check_for_updates_interval_seconds.is_none()
+            && self.show_update_window.is_none()
             && self.debug_key_events.is_none()
             && self.log_unknown_escape_sequences.is_none()
             && self.warn_about_missing_glyphs.is_none()
@@ -29586,6 +29604,24 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.default_workspace.is_some() {
             self.default_workspace = update.default_workspace;
+        }
+        if update.term.is_some() {
+            self.term = update.term;
+        }
+        if update.enq_answerback.is_some() {
+            self.enq_answerback = update.enq_answerback;
+        }
+        if update.automatically_reload_config.is_some() {
+            self.automatically_reload_config = update.automatically_reload_config;
+        }
+        if update.check_for_updates.is_some() {
+            self.check_for_updates = update.check_for_updates;
+        }
+        if update.check_for_updates_interval_seconds.is_some() {
+            self.check_for_updates_interval_seconds = update.check_for_updates_interval_seconds;
+        }
+        if update.show_update_window.is_some() {
+            self.show_update_window = update.show_update_window;
         }
         if update.debug_key_events.is_some() {
             self.debug_key_events = update.debug_key_events;
@@ -29674,6 +29710,24 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(default_workspace) = self.default_workspace {
             overrides.default_workspace = Some(default_workspace);
+        }
+        if let Some(term) = self.term {
+            overrides.term = Some(term);
+        }
+        if let Some(enq_answerback) = self.enq_answerback {
+            overrides.enq_answerback = Some(enq_answerback);
+        }
+        if let Some(automatically_reload_config) = self.automatically_reload_config {
+            overrides.automatically_reload_config = Some(automatically_reload_config);
+        }
+        if let Some(check_for_updates) = self.check_for_updates {
+            overrides.check_for_updates = Some(check_for_updates);
+        }
+        if let Some(check_for_updates_interval_seconds) = self.check_for_updates_interval_seconds {
+            overrides.check_for_updates_interval_seconds = Some(check_for_updates_interval_seconds);
+        }
+        if let Some(show_update_window) = self.show_update_window {
+            overrides.show_update_window = Some(show_update_window);
         }
         if let Some(debug_key_events) = self.debug_key_events {
             overrides.debug_key_events = Some(debug_key_events);
@@ -86272,6 +86326,72 @@ mod tests {
         assert_eq!(
             app.right_status,
             "hide=true fancy=false bottom=true zero=true wheel=false last=true close=false new=false index=false tabs=false"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_update_identity_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local overrides = {
+                automatically_reload_config = false,
+                check_for_updates = false,
+                check_for_updates_interval_seconds = 123,
+                show_update_window = true,
+                term = 'wezterm-test',
+                enq_answerback = 'RSSH',
+              }
+              window:set_config_overrides(overrides)
+              window:set_right_status(
+                'reload=' .. tostring(window:effective_config().automatically_reload_config)
+                  .. ' check=' .. tostring(window:effective_config().check_for_updates)
+                  .. ' interval=' .. window:effective_config().check_for_updates_interval_seconds
+                  .. ' show=' .. tostring(window:effective_config().show_update_window)
+                  .. ' term=' .. window:effective_config().term
+                  .. ' enq=' .. window:effective_config().enq_answerback
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides update identity callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert!(!effective.automatically_reload_config);
+        assert!(!effective.check_for_updates);
+        assert_eq!(effective.check_for_updates_interval_seconds, 123);
+        assert!(effective.show_update_window);
+        assert_eq!(effective.term, "wezterm-test");
+        assert_eq!(effective.enq_answerback, "RSSH");
+        assert_eq!(
+            app.right_status,
+            "reload=false check=false interval=123 show=true term=wezterm-test enq=RSSH"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
