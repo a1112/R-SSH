@@ -10738,6 +10738,7 @@ fn lua_static_window_config_overrides_from_query(
         foreground_text_hsb: overrides.foreground_text_hsb,
         text_background_opacity: overrides.text_background_opacity,
         window_background_opacity: overrides.window_background_opacity,
+        window_background_gradient: overrides.window_background_gradient,
         kde_window_background_blur: overrides.kde_window_background_blur,
         macos_window_background_blur: overrides.macos_window_background_blur,
         win32_system_backdrop: overrides.win32_system_backdrop,
@@ -29924,6 +29925,7 @@ struct NativeLuaWindowConfigOverrides {
     foreground_text_hsb: Option<NativeInactivePaneHsb>,
     text_background_opacity: Option<NativeTextBackgroundOpacity>,
     window_background_opacity: Option<NativeTextBackgroundOpacity>,
+    window_background_gradient: Option<NativeWindowBackgroundGradient>,
     kde_window_background_blur: Option<bool>,
     macos_window_background_blur: Option<u32>,
     win32_system_backdrop: Option<NativeWin32SystemBackdrop>,
@@ -30167,6 +30169,7 @@ impl NativeLuaWindowConfigOverrides {
             && self.foreground_text_hsb.is_none()
             && self.text_background_opacity.is_none()
             && self.window_background_opacity.is_none()
+            && self.window_background_gradient.is_none()
             && self.kde_window_background_blur.is_none()
             && self.macos_window_background_blur.is_none()
             && self.win32_system_backdrop.is_none()
@@ -30470,6 +30473,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.window_background_opacity.is_some() {
             self.window_background_opacity = update.window_background_opacity;
+        }
+        if update.window_background_gradient.is_some() {
+            self.window_background_gradient = update.window_background_gradient;
         }
         if update.kde_window_background_blur.is_some() {
             self.kde_window_background_blur = update.kde_window_background_blur;
@@ -31205,6 +31211,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(window_background_opacity) = self.window_background_opacity {
             overrides.window_background_opacity = Some(window_background_opacity);
+        }
+        if let Some(window_background_gradient) = self.window_background_gradient {
+            overrides.window_background_gradient = Some(window_background_gradient);
         }
         if let Some(kde_window_background_blur) = self.kde_window_background_blur {
             overrides.kde_window_background_blur = Some(kde_window_background_blur);
@@ -88589,6 +88598,66 @@ mod tests {
         assert_eq!(
             app.right_status,
             "fg=0.5/0.75/1.25 inactive=1.5/0.25/0.5 opacity=0.4/0.6 blur=true/20 backdrop=Mica accent=#112233"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_window_background_gradient() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                window_background_gradient = {
+                  orientation = 'Vertical',
+                  colors = { '#010203', '#111213' },
+                  noise = 0,
+                },
+              })
+            end)
+            "##,
+        )
+        .expect("expected WezTerm set_config_overrides window_background_gradient callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Vertical,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
+                segment: None,
+                preset: None,
+                opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
+                hsb: super::native_identity_hsb(),
+                colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
+            })
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
