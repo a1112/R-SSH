@@ -2614,10 +2614,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `pane = tab.active_pane` aliases, and direct or static-result-variable
   `wezterm.format` returns through static aliases, including aliases whose
   dotted `wezterm.format` helper path contains Lua comments, map onto the same tab-title override path. Simple dynamic callbacks that
-  return `tab.tab_title`, `tab.window_title`, `tab.active_pane.title`,
+  return `tab.tab_id`, `tab.tab_index`, `tab.tab_title`, `tab.window_title`, `tab.active_pane.title`,
   `tab.active_pane.domain_name`, `tab.active_pane.foreground_process_name`,
   `tab.active_pane.current_working_dir`, or `tab.active_pane.tty_name` resolve
-  the current explicit tab title, window title, pane title, pane domain name,
+  the current tab id/index, explicit tab title, window title, pane title, pane domain name,
   pane foreground process name, pane current working directory, or pane tty name
   at render time, and callback-local dynamic title variables assigned from that
   subset directly or through a simple top-level single-parameter helper can be
@@ -2625,7 +2625,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `tab_info.tab_title` when non-empty and otherwise returns
   `tab_info.active_pane.title`. Simple `..` concatenation returns can combine
   those dynamic title fields with literal/callback-local/top-level static string
-  segments and `tab.active_pane.pane_id`, resolving the pane id as text;
+  segments plus `tab.tab_id`, `tab.tab_index`, and `tab.active_pane.pane_id`,
+  resolving the ids and index as text;
   arbitrary Lua callbacks and the full Lua config object remain open.
 - Native window now dispatches a typed `format-window-title` hook after
   computing the default title. The event carries the default title, active tab

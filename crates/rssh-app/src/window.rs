@@ -9910,6 +9910,22 @@ fn lua_tab_title_event_field_return_from_statement(
         return None;
     }
     let rest = lua_trim_start_comments(rest)?;
+    let tab_id = format!("{tab_param}.tab_id");
+    if let Some(after_tab_id) = rest.strip_prefix(&tab_id) {
+        if !lua_static_identifier_value_rest_is_statement_end(after_tab_id) {
+            return None;
+        }
+        return Some(NativeLuaTabTitle::TabId);
+    }
+
+    if let Some(tab_index_offset) =
+        lua_window_title_tab_index_offset_from_expression(rest, tab_param)
+    {
+        return Some(NativeLuaTabTitle::TabIndex {
+            offset: tab_index_offset,
+        });
+    }
+
     let tab_title = format!("{tab_param}.tab_title");
     if let Some(after_tab_title) = rest.strip_prefix(&tab_title) {
         if !lua_static_identifier_value_rest_is_statement_end(after_tab_title) {
@@ -10029,6 +10045,21 @@ fn lua_tab_title_text_part_from_expression(
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitleTextPart> {
     let expression = lua_trim_start_comments(expression.trim())?;
+    let tab_id = format!("{tab_param}.tab_id");
+    if let Some(rest) = expression.strip_prefix(&tab_id)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaTabTitleTextPart::TabId);
+    }
+
+    if let Some(tab_index_offset) =
+        lua_window_title_tab_index_offset_from_expression(expression, tab_param)
+    {
+        return Some(NativeLuaTabTitleTextPart::TabIndex {
+            offset: tab_index_offset,
+        });
+    }
+
     for (field, part) in [
         ("tab_title", NativeLuaTabTitleTextPart::ActiveTabTitle),
         ("window_title", NativeLuaTabTitleTextPart::WindowTitle),
@@ -30196,6 +30227,10 @@ impl From<String> for NativeTabTitle {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaTabTitle {
     Static(NativeTabTitle),
+    TabId,
+    TabIndex {
+        offset: usize,
+    },
     ActiveTabTitle,
     WindowTitle,
     Conditional {
@@ -30215,6 +30250,10 @@ impl NativeLuaTabTitle {
     fn resolve(&self, event: &NativeTabTitleFormat) -> Option<NativeTabTitle> {
         match self {
             Self::Static(title) => Some(title.clone()),
+            Self::TabId => Some(NativeTabTitle::Text(event.tab.get().to_string())),
+            Self::TabIndex { offset } => Some(NativeTabTitle::Text(
+                event.tab_index.saturating_add(*offset).to_string(),
+            )),
             Self::ActiveTabTitle => event.tab_title.clone().map(NativeTabTitle::Text),
             Self::WindowTitle => Some(NativeTabTitle::Text(event.window_title.clone())),
             Self::Conditional { branches, fallback } => {
@@ -30311,6 +30350,10 @@ impl NativeLuaFormatItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaTabTitleTextPart {
     Static(String),
+    TabId,
+    TabIndex {
+        offset: usize,
+    },
     ActiveTabTitle,
     ActiveTabTitleOrActivePaneTitle,
     TruncateLeft {
@@ -30334,6 +30377,8 @@ impl NativeLuaTabTitleTextPart {
     fn resolve(&self, event: &NativeTabTitleFormat) -> Option<String> {
         match self {
             Self::Static(value) => Some(value.clone()),
+            Self::TabId => Some(event.tab.get().to_string()),
+            Self::TabIndex { offset } => Some(event.tab_index.saturating_add(*offset).to_string()),
             Self::ActiveTabTitle => event.tab_title.clone(),
             Self::ActiveTabTitleOrActivePaneTitle => event
                 .tab_title
@@ -101934,6 +101979,22 @@ mod tests {
     }
 
     #[test]
+    fn lua_parses_static_wezterm_format_tab_title_tab_id_return() {
+        let title = super::lua_static_wezterm_tab_title_return_event_from_query(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return tab.tab_id
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title tab id return");
+
+        assert_eq!(format!("{title:?}"), "TabId");
+    }
+
+    #[test]
     fn window_app_parses_static_wezterm_format_tab_title_window_title_return() {
         let mut app = NativeWindowApp::new(None);
         app.handle_pty_output(b"\x1b]2;PaneShell\x07").unwrap();
@@ -102055,6 +102116,33 @@ mod tests {
         );
         assert!(!tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_tab_id_index_concat_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;First\x07").unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.handle_pty_output(b"\x1b]2;Second\x07").unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return 'tab:' .. tab.tab_id .. '/' .. tab.tab_index
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title tab id/index concat return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("tab:1/0"), "tab bar was {tab_bar:?}");
+        assert!(tab_bar.contains("tab:2/1"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("First"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("Second"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
