@@ -2221,8 +2221,9 @@ runtime storage for tabs and split panes.
   `+` button independently controlled when the bar is visible. The clickable
   `+` button creates and activates a new tab through the same app-shell `NewTab`
   action used by keyboard shortcuts and the command palette. Static
-  `colors.tab_bar` item styles for active/inactive/new tabs parse intensity,
-  italic, strikethrough, and underline values including
+  `colors.tab_bar` item styles parse `fg_color`/`bg_color`, intensity, italic,
+  strikethrough, and underline values inline or through top-level static value
+  variables, including underline
   `None`/`Single`/`Double`/`Curly`/`Dotted`/`Dashed`.
 - Split panes can optionally focus on hover when the native
   `pane_focus_follows_mouse` effective-config field is true; the default remains

@@ -57513,30 +57513,32 @@ fn tab_bar_item_colors_lua_table_from_query(
         let value = value.trim();
         match key.as_str() {
             "fg_color" => {
+                let value = parse_maybe_static_query_text(static_source, value)?;
                 colors.fg_color = Some(lua_opaque_color_from_query_with_static_source(
                     static_source,
-                    &parse_maybe_quoted_query_text(value)?,
+                    &value,
                 )?);
             }
             "bg_color" => {
+                let value = parse_maybe_static_query_text(static_source, value)?;
                 colors.bg_color = Some(lua_opaque_color_from_query_with_static_source(
                     static_source,
-                    &parse_maybe_quoted_query_text(value)?,
+                    &value,
                 )?);
             }
             "intensity" => {
                 colors.intensity = Some(tab_bar_item_intensity_from_query(
-                    &parse_maybe_quoted_query_text(value)?,
+                    &parse_maybe_static_query_text(static_source, value)?,
                 )?);
             }
             "underline" => {
                 colors.underline = Some(tab_bar_item_underline_from_query(
-                    &parse_maybe_quoted_query_text(value)?,
+                    &parse_maybe_static_query_text(static_source, value)?,
                 )?);
             }
-            "italic" => colors.italic = Some(lua_bool_literal_from_query(value)? == "true"),
+            "italic" => colors.italic = Some(parse_maybe_static_query_bool(static_source, value)?),
             "strikethrough" => {
-                colors.strikethrough = Some(lua_bool_literal_from_query(value)? == "true");
+                colors.strikethrough = Some(parse_maybe_static_query_bool(static_source, value)?);
             }
             _ => {}
         }
@@ -90634,6 +90636,101 @@ mod tests {
             new_tab_cell.underline_style,
             rssh_terminal::UnderlineStyle::Dashed
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_tab_bar_item_style_static_values() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local active_intensity = 'Bold'
+            local active_underline = 'Curly'
+            local active_italic = true
+            local active_strikethrough = true
+            local inactive_intensity = 'Half'
+            local inactive_underline = 'Dotted'
+            local inactive_italic = true
+            local inactive_strikethrough = true
+            local new_intensity = 'Normal'
+            local new_underline = 'Dashed'
+            local new_italic = true
+            local new_strikethrough = true
+
+            config.colors = {
+              tab_bar = {
+                active_tab = {
+                  intensity = active_intensity,
+                  underline = active_underline,
+                  italic = active_italic,
+                  strikethrough = active_strikethrough,
+                },
+                inactive_tab = {
+                  intensity = inactive_intensity,
+                  underline = inactive_underline,
+                  italic = inactive_italic,
+                  strikethrough = inactive_strikethrough,
+                },
+                new_tab = {
+                  intensity = new_intensity,
+                  underline = new_underline,
+                  italic = new_italic,
+                  strikethrough = new_strikethrough,
+                },
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar item static style value config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let inactive_column = tab_bar
+            .find("1:1")
+            .expect("inactive tab label should be visible");
+        let active_column = tab_bar
+            .find("2:2*")
+            .expect("active tab label should be visible");
+        let new_tab_column = tab_bar.find('+').expect("new-tab button should be visible");
+        let inactive_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(inactive_column).unwrap()).unwrap();
+        let active_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(active_column).unwrap()).unwrap();
+        let new_tab_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(new_tab_column).unwrap()).unwrap();
+
+        assert!(active_cell.bold);
+        assert!(!active_cell.faint);
+        assert_eq!(
+            active_cell.underline_style,
+            rssh_terminal::UnderlineStyle::Curly
+        );
+        assert!(active_cell.italic);
+        assert!(active_cell.strikethrough);
+
+        assert!(!inactive_cell.bold);
+        assert!(inactive_cell.faint);
+        assert_eq!(
+            inactive_cell.underline_style,
+            rssh_terminal::UnderlineStyle::Dotted
+        );
+        assert!(inactive_cell.italic);
+        assert!(inactive_cell.strikethrough);
+
+        assert!(!new_tab_cell.bold);
+        assert!(!new_tab_cell.faint);
+        assert_eq!(
+            new_tab_cell.underline_style,
+            rssh_terminal::UnderlineStyle::Dashed
+        );
+        assert!(new_tab_cell.italic);
+        assert!(new_tab_cell.strikethrough);
     }
 
     #[test]
