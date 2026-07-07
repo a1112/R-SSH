@@ -8317,9 +8317,12 @@ fn lua_window_title_conditional_assignment_parts_before_offset(
             continue;
         };
         for (condition, body) in branches {
-            let Some(condition) =
-                lua_window_title_condition_from_expression(condition, tab_param, tabs_param)
-            else {
+            let Some(condition) = lua_window_title_condition_from_expression(
+                condition,
+                tab_param,
+                tabs_param,
+                panes_param,
+            ) else {
                 continue;
             };
             let Some(value) = lua_static_expression_variable_assignment_before_offset_from_query(
@@ -8356,6 +8359,7 @@ fn lua_window_title_condition_from_expression(
     condition: &str,
     tab_param: &str,
     tabs_param: &str,
+    panes_param: &str,
 ) -> Option<NativeLuaWindowTitleCondition> {
     let condition = lua_trim_start_comments(condition.trim())?;
     let zoomed = format!("{tab_param}.active_pane.is_zoomed");
@@ -8365,8 +8369,22 @@ fn lua_window_title_condition_from_expression(
         return Some(NativeLuaWindowTitleCondition::ActivePaneIsZoomed);
     }
 
-    let tab_count = condition.strip_prefix('#')?;
-    let Some(rest) = tab_count.strip_prefix(tabs_param) else {
+    if let Some(count) = lua_window_title_count_greater_than_condition(condition, tabs_param) {
+        return Some(NativeLuaWindowTitleCondition::TabCountGreaterThan(count));
+    }
+    if let Some(count) = lua_window_title_count_greater_than_condition(condition, panes_param) {
+        return Some(NativeLuaWindowTitleCondition::PaneCountGreaterThan(count));
+    }
+
+    None
+}
+
+fn lua_window_title_count_greater_than_condition(
+    condition: &str,
+    count_param: &str,
+) -> Option<usize> {
+    let count_expression = condition.strip_prefix('#')?;
+    let Some(rest) = count_expression.strip_prefix(count_param) else {
         return None;
     };
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
@@ -8376,12 +8394,7 @@ fn lua_window_title_condition_from_expression(
     let rest = lua_trim_start_comments(rest.strip_prefix('>')?)?;
     let count = lua_unsigned_integer_literal_from_query(rest)?;
     let after_count = lua_trim_start_comments(rest.get(count.len()..)?)?;
-    if !lua_static_identifier_value_rest_is_statement_end(after_count) {
-        return None;
-    }
-    Some(NativeLuaWindowTitleCondition::TabCountGreaterThan(
-        count.parse().ok()?,
-    ))
+    lua_static_identifier_value_rest_is_statement_end(after_count).then(|| count.parse().ok())?
 }
 
 fn lua_window_title_tab_index_format_part_from_expression(
@@ -30277,6 +30290,7 @@ impl NativeLuaWindowTitlePart {
 enum NativeLuaWindowTitleCondition {
     ActivePaneIsZoomed,
     TabCountGreaterThan(usize),
+    PaneCountGreaterThan(usize),
 }
 
 impl NativeLuaWindowTitleCondition {
@@ -30284,6 +30298,7 @@ impl NativeLuaWindowTitleCondition {
         match self {
             Self::ActivePaneIsZoomed => event.active_pane_info.is_zoomed,
             Self::TabCountGreaterThan(count) => event.tab_count > count,
+            Self::PaneCountGreaterThan(count) => event.pane_count > count,
         }
     }
 }
@@ -105059,6 +105074,31 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "1:1");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_pane_count_condition() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local prefix = ''
+
+              if #panes > 0 then
+                prefix = '[' .. #panes .. '] '
+              end
+
+              return prefix .. tab.window_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title pane count condition");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "[1] Window Fallback");
     }
 
     #[test]
