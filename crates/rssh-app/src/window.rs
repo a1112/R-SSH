@@ -6732,7 +6732,7 @@ fn lua_static_callback_query_from_expression_with_call_tail<'a>(
     let value = lua_static_table_field_path_assignment_value_before_offset_from_query(
         source, name, &keys, start,
     )?;
-    lua_source_keyword_at(value, 0, "function").then_some(Cow::Borrowed(value))
+    lua_static_callback_query_from_resolved_expression_value(source, start, value, alias_depth)
 }
 
 fn lua_static_callback_query_from_expression<'a>(
@@ -6811,7 +6811,27 @@ fn lua_static_callback_query_from_expression_with_depth<'a>(
     let value = lua_static_table_field_path_assignment_value_before_offset_from_query(
         source, name, &keys, start,
     )?;
-    lua_source_keyword_at(value, 0, "function").then_some(Cow::Borrowed(value))
+    lua_static_callback_query_from_resolved_expression_value(source, start, value, alias_depth)
+}
+
+fn lua_static_callback_query_from_resolved_expression_value<'a>(
+    source: &'a str,
+    start: usize,
+    value: &'a str,
+    alias_depth: usize,
+) -> Option<Cow<'a, str>> {
+    if lua_source_keyword_at(value, 0, "function") {
+        return Some(Cow::Borrowed(value));
+    }
+    if alias_depth < LUA_STATIC_CALLBACK_ALIAS_RESOLUTION_LIMIT {
+        return lua_static_callback_query_from_expression_with_depth(
+            source,
+            start,
+            value,
+            alias_depth + 1,
+        );
+    }
+    None
 }
 
 fn lua_static_table_field_path_assignment_value_before_offset_from_query<'a>(
@@ -97498,6 +97518,32 @@ mod tests {
         assert_eq!(
             app.effective_window_title(),
             "NESTED TABLE VARIABLE CALLBACK ALIAS TITLE"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_table_field_callback_value_alias() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            local title_callback = function(tab, pane, tabs, panes, config)
+              return 'TABLE FIELD CALLBACK VALUE ALIAS TITLE'
+            end
+            local callbacks = {}
+            callbacks.window = {}
+            callbacks.window.title = title_callback
+
+            wezterm.on('format-window-title', callbacks.window.title)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title table-field callback value alias");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.effective_window_title(),
+            "TABLE FIELD CALLBACK VALUE ALIAS TITLE"
         );
     }
 
