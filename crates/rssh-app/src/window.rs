@@ -9897,13 +9897,18 @@ fn lua_static_tab_title_return_from_statement(
                 return Some(NativeTabTitle::Format(items));
             }
             if let Some(items) =
-                native_format_items_from_static_lua_table_variable(static_source, variable)
+                native_format_items_from_static_lua_table_variable(
+                    static_source,
+                    outer_static_source,
+                    variable,
+                )
             {
                 return items.map(NativeTabTitle::Format);
             }
             if let Some(outer_static_source) = outer_static_source
                 && let Some(items) = native_format_items_from_static_lua_table_variable(
                     outer_static_source,
+                    None,
                     variable,
                 )
             {
@@ -57684,14 +57689,17 @@ fn native_format_items_from_wezterm_format_query_with_static_sources(
     }
 
     if let Some(static_source) = static_source
-        && let Some(items) =
-            native_format_items_from_static_lua_table_variable(static_source, variable)
+        && let Some(items) = native_format_items_from_static_lua_table_variable(
+            static_source,
+            outer_static_source,
+            variable,
+        )
     {
         return items;
     }
     if let Some(outer_static_source) = outer_static_source
         && let Some(items) =
-            native_format_items_from_static_lua_table_variable(outer_static_source, variable)
+            native_format_items_from_static_lua_table_variable(outer_static_source, None, variable)
     {
         return items;
     }
@@ -57701,6 +57709,7 @@ fn native_format_items_from_wezterm_format_query_with_static_sources(
 
 fn native_format_items_from_static_lua_table_variable(
     static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     variable: &str,
 ) -> Option<Option<Vec<NativeFormatItem>>> {
     let _shadowing_value = lua_static_expression_variable_assignment_before_offset_from_query(
@@ -57710,12 +57719,13 @@ fn native_format_items_from_static_lua_table_variable(
     )?;
     let value = lua_format_items_table_variable_with_insert_appends_before_offset(
         static_source.source,
+        outer_static_source,
         variable,
         static_source.max_start,
     )?;
     let items = native_format_items_from_lua_format_items_table_query_with_static_sources(
         Some(static_source),
-        None,
+        outer_static_source,
         &value,
     );
     Some(items)
@@ -57723,6 +57733,7 @@ fn native_format_items_from_static_lua_table_variable(
 
 fn lua_format_items_table_variable_with_insert_appends_before_offset(
     source: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     variable: &str,
     max_start: usize,
 ) -> Option<String> {
@@ -57741,7 +57752,10 @@ fn lua_format_items_table_variable_with_insert_appends_before_offset(
 
         if let Some(assignment) =
             lua_static_format_items_table_variable_index_or_append_assignment_from_query(
-                source, start, variable,
+                source,
+                outer_static_source,
+                start,
+                variable,
             )
         {
             selected = Some(lua_table_with_index_or_append_assigned_field(
@@ -57753,7 +57767,10 @@ fn lua_format_items_table_variable_with_insert_appends_before_offset(
         }
 
         if let Some(insert) = lua_static_format_items_table_variable_insert_append_value_from_query(
-            source, start, variable,
+            source,
+            outer_static_source,
+            start,
+            variable,
         ) {
             selected = Some(lua_table_with_inserted_field(
                 selected.take(),
@@ -57768,12 +57785,16 @@ fn lua_format_items_table_variable_with_insert_appends_before_offset(
 
 fn lua_static_format_items_table_variable_index_or_append_assignment_from_query(
     source: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     start: usize,
     variable: &str,
 ) -> Option<LuaTableIndexOrAppendAssignment<String>> {
-    if let Some(assignment) =
-        lua_static_format_items_table_variable_index_assignment_from_query(source, start, variable)
-    {
+    if let Some(assignment) = lua_static_format_items_table_variable_index_assignment_from_query(
+        source,
+        outer_static_source,
+        start,
+        variable,
+    ) {
         return Some(LuaTableIndexOrAppendAssignment {
             index: Some(assignment.index),
             value: assignment.value,
@@ -57802,13 +57823,17 @@ fn lua_static_format_items_table_variable_index_or_append_assignment_from_query(
     Some(LuaTableIndexOrAppendAssignment {
         index: None,
         value: lua_format_item_length_append_assignment_value_after_target_from_query(
-            source, rest, start,
+            source,
+            outer_static_source,
+            rest,
+            start,
         )?,
     })
 }
 
 fn lua_static_format_items_table_variable_index_assignment_from_query(
     source: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     start: usize,
     variable: &str,
 ) -> Option<LuaTableIndexAssignment<String>> {
@@ -57822,11 +57847,17 @@ fn lua_static_format_items_table_variable_index_assignment_from_query(
     {
         return None;
     }
-    lua_format_item_index_assignment_value_from_query(source, after_variable, start)
+    lua_format_item_index_assignment_value_from_query(
+        source,
+        outer_static_source,
+        after_variable,
+        start,
+    )
 }
 
 fn lua_format_item_index_assignment_value_from_query(
     source: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     query: &str,
     max_start: usize,
 ) -> Option<LuaTableIndexAssignment<String>> {
@@ -57839,12 +57870,18 @@ fn lua_format_item_index_assignment_value_from_query(
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
     Some(LuaTableIndexAssignment {
         index,
-        value: lua_format_item_assignment_value_from_query(source, rest, max_start)?,
+        value: lua_format_item_assignment_value_from_query(
+            source,
+            outer_static_source,
+            rest,
+            max_start,
+        )?,
     })
 }
 
 fn lua_format_item_length_append_assignment_value_after_target_from_query(
     source: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     query: &str,
     max_start: usize,
 ) -> Option<String> {
@@ -57857,11 +57894,12 @@ fn lua_format_item_length_append_assignment_value_after_target_from_query(
     let rest = lua_trim_start_comments(rest.get(literal.len()..)?)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(']')?)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
-    lua_format_item_assignment_value_from_query(source, rest, max_start)
+    lua_format_item_assignment_value_from_query(source, outer_static_source, rest, max_start)
 }
 
 fn lua_format_item_assignment_value_from_query(
     source: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     query: &str,
     max_start: usize,
 ) -> Option<String> {
@@ -57890,10 +57928,21 @@ fn lua_format_item_assignment_value_from_query(
         lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)
             .map(str::to_owned)
     })
+    .or_else(|| {
+        outer_static_source.and_then(|outer_static_source| {
+            lua_static_string_variable_assignment_before_offset_from_query(
+                outer_static_source.source,
+                variable,
+                outer_static_source.max_start,
+            )
+            .map(str::to_owned)
+        })
+    })
 }
 
 fn lua_static_format_items_table_variable_insert_append_value_from_query(
     source: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     start: usize,
     variable: &str,
 ) -> Option<LuaTableInsertValue> {
@@ -57920,7 +57969,9 @@ fn lua_static_format_items_table_variable_insert_append_value_from_query(
     }
     let rest = lua_trim_start_comments(after_variable)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
-    if let Some(value) = lua_format_item_insert_argument_value_from_query(source, rest, start) {
+    if let Some(value) =
+        lua_format_item_insert_argument_value_from_query(source, outer_static_source, rest, start)
+    {
         return Some(LuaTableInsertValue {
             position: None,
             value,
@@ -57933,12 +57984,18 @@ fn lua_static_format_items_table_variable_insert_append_value_from_query(
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     Some(LuaTableInsertValue {
         position: Some(position),
-        value: lua_format_item_insert_argument_value_from_query(source, rest, start)?,
+        value: lua_format_item_insert_argument_value_from_query(
+            source,
+            outer_static_source,
+            rest,
+            start,
+        )?,
     })
 }
 
 fn lua_format_item_insert_argument_value_from_query(
     source: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     query: &str,
     max_start: usize,
 ) -> Option<String> {
@@ -57966,6 +58023,16 @@ fn lua_format_item_insert_argument_value_from_query(
     .or_else(|| {
         lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)
             .map(str::to_owned)
+    })
+    .or_else(|| {
+        outer_static_source.and_then(|outer_static_source| {
+            lua_static_string_variable_assignment_before_offset_from_query(
+                outer_static_source.source,
+                variable,
+                outer_static_source.max_start,
+            )
+            .map(str::to_owned)
+        })
     })
 }
 
@@ -89587,6 +89654,48 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_static_wezterm_update_status_event_local_format_items_table_insert_top_level_string_variable()
+     {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local reset = 'ResetAttributes'
+
+            wezterm.on('update-status', function(window, pane)
+              local elements = {}
+              table.insert(elements, { Foreground = { Color = '#010203' } })
+              table.insert(elements, { Text = 'RIGHT' })
+              table.insert(elements, reset)
+              table.insert(elements, { Text = '-INSERT-TOP-VAR' })
+              window:set_right_status(wezterm.format(elements))
+            end)
+            "##,
+        )
+        .expect("expected static WezTerm update-status local format item table.insert top-level string variable config");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let start_column = tab_bar
+            .find("RIGHT-INSERT-TOP-VAR")
+            .expect("local format item table.insert top-level string variable status should render without escape bytes");
+        let styled_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(start_column).unwrap()).unwrap();
+        let plain_cell = snapshot_cell(
+            &snapshot,
+            0,
+            u16::try_from(start_column + "RIGHT".len()).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(styled_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_ne!(plain_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+    }
+
+    #[test]
     fn lua_format_items_table_variable_length_append_preserves_reset_attributes() {
         let source = r##"
         local elements = {}
@@ -89600,7 +89709,7 @@ mod tests {
             .expect("status setter should be in source");
 
         let table = super::lua_format_items_table_variable_with_insert_appends_before_offset(
-            source, "elements", max_start,
+            source, None, "elements", max_start,
         )
         .expect("expected static format item table length appends");
         let items = super::native_format_items_from_lua_format_items_table_query(&table)

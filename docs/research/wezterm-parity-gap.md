@@ -2828,7 +2828,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   Intensity/Italic/Underline item composition update native tab-bar status
   text, with static item tables resolved from callback-local or top-level
   scope plus callback-local `table.insert` or `items[#items + 1] = ...`
-  appends whose string items can resolve from static variables, including
+  appends whose string items can resolve from callback-local or top-level static variables, including
   `table.insert(elements, reset)`. Arbitrary Lua
   status callback execution, dynamic `wezterm.format` construction, remaining
   window status API wiring, and real keyboard LED tracking remain open.
