@@ -2387,7 +2387,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `notification_handling`, color scheme and palette fields `colors`,
   `color_scheme`, `color_schemes`, `color_scheme_dirs`, and
   `colors.compose_cursor`/`compose_cursor_color`, font lookup fields
-  `font_dirs` and `font_locator`, plus DPI/render-adapter fields `dpi`,
+  `font_dirs`, `font_locator`, `command_palette_font`,
+  `char_select_font`, and `pane_select_font`, plus DPI/render-adapter fields `dpi`,
   `dpi_by_screen`, and `webgpu_preferred_adapter`, plus platform input fields
   `key_map_preference`, `ui_key_cap_rendering`,
   `swap_backspace_and_delete`, `xcursor_theme`, `xcursor_size`,
@@ -2412,10 +2413,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `text_blink_rapid_ease_out`,
   `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_colr_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `ignore_svg_fonts`, `sort_fallback_fonts_by_coverage`, `search_font_dirs_for_fallback`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `dpi_by_screen`, `foreground_text_hsb`, `inactive_pane_hsb`, `text_background_opacity`, `window_background_opacity`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `kde_window_background_blur`, `macos_window_background_blur`, `win32_system_backdrop`, `win32_acrylic_accent_color`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
-  `command_palette_rows`, `command_palette_font_size`,
+  `command_palette_rows`, `command_palette_font`,
+  `command_palette_font_size`,
   `command_palette_bg_color`, `command_palette_fg_color`,
-  `char_select_font_size`, `char_select_bg_color`, `char_select_fg_color`,
-  `pane_select_font_size`, `pane_select_bg_color`, `pane_select_fg_color`,
+  `char_select_font`, `char_select_font_size`, `char_select_bg_color`,
+  `char_select_fg_color`, `pane_select_font`, `pane_select_font_size`,
+  `pane_select_bg_color`, `pane_select_fg_color`,
   `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`,
   `hyperlink_rules`, `selection_word_boundary`,
@@ -2465,10 +2468,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `log_unknown_escape_sequences`, and `warn_about_missing_glyphs`, plus
   the palette/quick-select/status/selection subset:
   `status_update_interval`, `command_palette_rows`,
-  `command_palette_font_size`, `command_palette_bg_color`,
-  `command_palette_fg_color`, `char_select_font_size`,
+  `command_palette_font`, `command_palette_font_size`,
+  `command_palette_bg_color`, `command_palette_fg_color`,
+  `char_select_font`, `char_select_font_size`,
   `char_select_bg_color`, `char_select_fg_color`,
-  `pane_select_font_size`, `pane_select_bg_color`, `pane_select_fg_color`,
+  `pane_select_font`, `pane_select_font_size`, `pane_select_bg_color`, `pane_select_fg_color`,
   `launcher_alphabet`,
   `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, and

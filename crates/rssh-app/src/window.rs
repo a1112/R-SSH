@@ -10791,12 +10791,15 @@ fn lua_static_window_config_overrides_from_query(
         adjust_window_size_when_changing_font_size: overrides
             .adjust_window_size_when_changing_font_size,
         command_palette_rows: overrides.command_palette_rows,
+        command_palette_font: overrides.command_palette_font,
         command_palette_font_size: overrides.command_palette_font_size,
         command_palette_bg_color: overrides.command_palette_bg_color,
         command_palette_fg_color: overrides.command_palette_fg_color,
+        char_select_font: overrides.char_select_font,
         char_select_font_size: overrides.char_select_font_size,
         char_select_bg_color: overrides.char_select_bg_color,
         char_select_fg_color: overrides.char_select_fg_color,
+        pane_select_font: overrides.pane_select_font,
         pane_select_font_size: overrides.pane_select_font_size,
         pane_select_bg_color: overrides.pane_select_bg_color,
         pane_select_fg_color: overrides.pane_select_fg_color,
@@ -29973,12 +29976,15 @@ struct NativeLuaWindowConfigOverrides {
     initial_rows: Option<u16>,
     adjust_window_size_when_changing_font_size: Option<bool>,
     command_palette_rows: Option<usize>,
+    command_palette_font: Option<NativeFontConfig>,
     command_palette_font_size: Option<NativeFontSize>,
     command_palette_bg_color: Option<Color>,
     command_palette_fg_color: Option<Color>,
+    char_select_font: Option<NativeFontConfig>,
     char_select_font_size: Option<NativeFontSize>,
     char_select_bg_color: Option<Color>,
     char_select_fg_color: Option<Color>,
+    pane_select_font: Option<NativeFontConfig>,
     pane_select_font_size: Option<NativeFontSize>,
     pane_select_bg_color: Option<Color>,
     pane_select_fg_color: Option<Color>,
@@ -30213,12 +30219,15 @@ impl NativeLuaWindowConfigOverrides {
             && self.initial_rows.is_none()
             && self.adjust_window_size_when_changing_font_size.is_none()
             && self.command_palette_rows.is_none()
+            && self.command_palette_font.is_none()
             && self.command_palette_font_size.is_none()
             && self.command_palette_bg_color.is_none()
             && self.command_palette_fg_color.is_none()
+            && self.char_select_font.is_none()
             && self.char_select_font_size.is_none()
             && self.char_select_bg_color.is_none()
             && self.char_select_fg_color.is_none()
+            && self.pane_select_font.is_none()
             && self.pane_select_font_size.is_none()
             && self.pane_select_bg_color.is_none()
             && self.pane_select_fg_color.is_none()
@@ -30619,6 +30628,9 @@ impl NativeLuaWindowConfigOverrides {
         if update.command_palette_rows.is_some() {
             self.command_palette_rows = update.command_palette_rows;
         }
+        if update.command_palette_font.is_some() {
+            self.command_palette_font = update.command_palette_font;
+        }
         if update.command_palette_font_size.is_some() {
             self.command_palette_font_size = update.command_palette_font_size;
         }
@@ -30628,6 +30640,9 @@ impl NativeLuaWindowConfigOverrides {
         if update.command_palette_fg_color.is_some() {
             self.command_palette_fg_color = update.command_palette_fg_color;
         }
+        if update.char_select_font.is_some() {
+            self.char_select_font = update.char_select_font;
+        }
         if update.char_select_font_size.is_some() {
             self.char_select_font_size = update.char_select_font_size;
         }
@@ -30636,6 +30651,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.char_select_fg_color.is_some() {
             self.char_select_fg_color = update.char_select_fg_color;
+        }
+        if update.pane_select_font.is_some() {
+            self.pane_select_font = update.pane_select_font;
         }
         if update.pane_select_font_size.is_some() {
             self.pane_select_font_size = update.pane_select_font_size;
@@ -31347,6 +31365,9 @@ impl NativeLuaWindowConfigOverrides {
         if let Some(command_palette_rows) = self.command_palette_rows {
             overrides.command_palette_rows = Some(command_palette_rows);
         }
+        if let Some(command_palette_font) = self.command_palette_font {
+            overrides.command_palette_font = Some(command_palette_font);
+        }
         if let Some(command_palette_font_size) = self.command_palette_font_size {
             overrides.command_palette_font_size = Some(command_palette_font_size);
         }
@@ -31356,6 +31377,9 @@ impl NativeLuaWindowConfigOverrides {
         if let Some(command_palette_fg_color) = self.command_palette_fg_color {
             overrides.command_palette_fg_color = Some(command_palette_fg_color);
         }
+        if let Some(char_select_font) = self.char_select_font {
+            overrides.char_select_font = Some(char_select_font);
+        }
         if let Some(char_select_font_size) = self.char_select_font_size {
             overrides.char_select_font_size = Some(char_select_font_size);
         }
@@ -31364,6 +31388,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(char_select_fg_color) = self.char_select_fg_color {
             overrides.char_select_fg_color = Some(char_select_fg_color);
+        }
+        if let Some(pane_select_font) = self.pane_select_font {
+            overrides.pane_select_font = Some(pane_select_font);
         }
         if let Some(pane_select_font_size) = self.pane_select_font_size {
             overrides.pane_select_font_size = Some(pane_select_font_size);
@@ -90445,6 +90472,95 @@ mod tests {
         assert_eq!(
             app.right_status,
             "rows=12 command-font=15.5 char-font=16.25 pane-font=36.5 launcher=12 quick=xy pattern=BUG-[0-9]+ disable=true styling=true"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_overlay_fonts() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                command_palette_font = wezterm.font_with_fallback {
+                  { family = 'Iosevka Term', weight = 'Bold' },
+                  'Noto Color Emoji',
+                },
+                char_select_font = wezterm.font {
+                  family = 'Fira Code',
+                  italic = true,
+                },
+                pane_select_font = wezterm.font 'JetBrains Mono',
+              })
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides overlay fonts callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.command_palette_font,
+            Some(super::NativeFontConfig {
+                families: vec!["Iosevka Term".to_owned(), "Noto Color Emoji".to_owned()],
+                attributes: NativeFontAttributes {
+                    weight: Some("Bold".to_owned()),
+                    stretch: None,
+                    style: None,
+                    harfbuzz_features: Vec::new(),
+                    assume_emoji_presentation: None,
+                    freetype_load_target: None,
+                    freetype_render_target: None,
+                    freetype_load_flags: None,
+                }
+            })
+        );
+        assert_eq!(
+            effective.char_select_font,
+            Some(super::NativeFontConfig {
+                families: vec!["Fira Code".to_owned()],
+                attributes: NativeFontAttributes {
+                    weight: None,
+                    stretch: None,
+                    style: Some("Italic".to_owned()),
+                    harfbuzz_features: Vec::new(),
+                    assume_emoji_presentation: None,
+                    freetype_load_target: None,
+                    freetype_render_target: None,
+                    freetype_load_flags: None,
+                }
+            })
+        );
+        assert_eq!(
+            effective.pane_select_font,
+            Some(super::NativeFontConfig {
+                families: vec!["JetBrains Mono".to_owned()],
+                attributes: NativeFontAttributes::default(),
+            })
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
