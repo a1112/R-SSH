@@ -7996,6 +7996,7 @@ fn lua_window_title_text_parts_from_expression(
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<Vec<NativeLuaWindowTitlePart>> {
     let expression = lua_trim_start_comments(expression.trim())?;
+    let expression = lua_tostring_argument_from_query(expression).unwrap_or(expression);
     if let Some(part) =
         lua_window_title_text_part_from_expression(expression, tab_param, pane_param, tabs_param)
     {
@@ -104422,6 +104423,26 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-window-title pane title return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "Pane Title");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_tostring_pane_title_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return tostring(pane.title)
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title tostring pane title return");
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "Pane Title");

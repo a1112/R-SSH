@@ -2659,7 +2659,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `string.format('[%d/%d] ', tab.tab_index + 1, #tabs)`, and final string
   concatenation with `tab.active_pane.title`. Simple dynamic callbacks that
   return `pane.title`, `tab.active_pane.title`, or `tab.tab_title` resolve the
-  active pane/tab title at recompute time; arbitrary Lua callback execution plus
+  active pane/tab title at recompute time, including `tostring(...)` wrappers;
+  arbitrary Lua callback execution plus
   the full Lua config object remain open.
 - Native window now dispatches typed `update-status` and deprecated
   `update-right-status` hooks from the native event loop with the window id and
