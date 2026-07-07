@@ -10877,12 +10877,18 @@ fn lua_static_window_config_overrides_from_query(
         check_for_updates: overrides.check_for_updates,
         check_for_updates_interval_seconds: overrides.check_for_updates_interval_seconds,
         show_update_window: overrides.show_update_window,
+        key_map_preference: overrides.key_map_preference,
+        ui_key_cap_rendering: overrides.ui_key_cap_rendering,
+        swap_backspace_and_delete: overrides.swap_backspace_and_delete,
         enable_kitty_graphics: overrides.enable_kitty_graphics,
         enable_checksum_rectangular_area: overrides.enable_checksum_rectangular_area,
         enable_title_reporting: overrides.enable_title_reporting,
         enable_csi_u_key_encoding: overrides.enable_csi_u_key_encoding,
         enable_kitty_keyboard: overrides.enable_kitty_keyboard,
         allow_download_protocols: overrides.allow_download_protocols,
+        xcursor_theme: overrides.xcursor_theme,
+        xcursor_size: overrides.xcursor_size,
+        palette_max_key_assigments_for_action: overrides.palette_max_key_assigments_for_action,
         allow_win32_input_mode: overrides.allow_win32_input_mode,
         treat_left_ctrlalt_as_altgr: overrides.treat_left_ctrlalt_as_altgr,
         send_composed_key_when_left_alt_is_pressed: overrides
@@ -10892,8 +10898,14 @@ fn lua_static_window_config_overrides_from_query(
         treat_east_asian_ambiguous_width_as_wide: overrides
             .treat_east_asian_ambiguous_width_as_wide,
         normalize_output_to_unicode_nfc: overrides.normalize_output_to_unicode_nfc,
+        unicode_version: overrides.unicode_version,
+        bidi_enabled: overrides.bidi_enabled,
+        bidi_direction: overrides.bidi_direction,
         use_ime: overrides.use_ime,
         use_dead_keys: overrides.use_dead_keys,
+        ime_preedit_rendering: overrides.ime_preedit_rendering,
+        macos_forward_to_ime_modifier_mask: overrides.macos_forward_to_ime_modifier_mask,
+        xim_im_name: overrides.xim_im_name,
         detect_password_input: overrides.detect_password_input,
         canonicalize_pasted_newlines: overrides.canonicalize_pasted_newlines,
         quote_dropped_files: overrides.quote_dropped_files,
@@ -29834,20 +29846,32 @@ struct NativeLuaWindowConfigOverrides {
     check_for_updates: Option<bool>,
     check_for_updates_interval_seconds: Option<u64>,
     show_update_window: Option<bool>,
+    key_map_preference: Option<NativeKeyMapPreference>,
+    ui_key_cap_rendering: Option<NativeUiKeyCapRendering>,
+    swap_backspace_and_delete: Option<bool>,
     enable_kitty_graphics: Option<bool>,
     enable_checksum_rectangular_area: Option<bool>,
     enable_title_reporting: Option<bool>,
     enable_csi_u_key_encoding: Option<bool>,
     enable_kitty_keyboard: Option<bool>,
     allow_download_protocols: Option<bool>,
+    xcursor_theme: Option<String>,
+    xcursor_size: Option<u32>,
+    palette_max_key_assigments_for_action: Option<usize>,
     allow_win32_input_mode: Option<bool>,
     treat_left_ctrlalt_as_altgr: Option<bool>,
     send_composed_key_when_left_alt_is_pressed: Option<bool>,
     send_composed_key_when_right_alt_is_pressed: Option<bool>,
     treat_east_asian_ambiguous_width_as_wide: Option<bool>,
     normalize_output_to_unicode_nfc: Option<bool>,
+    unicode_version: Option<u32>,
+    bidi_enabled: Option<bool>,
+    bidi_direction: Option<NativeBidiDirection>,
     use_ime: Option<bool>,
     use_dead_keys: Option<bool>,
+    ime_preedit_rendering: Option<NativeImePreeditRendering>,
+    macos_forward_to_ime_modifier_mask: Option<ModifiersState>,
+    xim_im_name: Option<String>,
     detect_password_input: Option<bool>,
     canonicalize_pasted_newlines: Option<NativeCanonicalizePastedNewlines>,
     quote_dropped_files: Option<NativeQuoteDroppedFiles>,
@@ -30045,20 +30069,32 @@ impl NativeLuaWindowConfigOverrides {
             && self.check_for_updates.is_none()
             && self.check_for_updates_interval_seconds.is_none()
             && self.show_update_window.is_none()
+            && self.key_map_preference.is_none()
+            && self.ui_key_cap_rendering.is_none()
+            && self.swap_backspace_and_delete.is_none()
             && self.enable_kitty_graphics.is_none()
             && self.enable_checksum_rectangular_area.is_none()
             && self.enable_title_reporting.is_none()
             && self.enable_csi_u_key_encoding.is_none()
             && self.enable_kitty_keyboard.is_none()
             && self.allow_download_protocols.is_none()
+            && self.xcursor_theme.is_none()
+            && self.xcursor_size.is_none()
+            && self.palette_max_key_assigments_for_action.is_none()
             && self.allow_win32_input_mode.is_none()
             && self.treat_left_ctrlalt_as_altgr.is_none()
             && self.send_composed_key_when_left_alt_is_pressed.is_none()
             && self.send_composed_key_when_right_alt_is_pressed.is_none()
             && self.treat_east_asian_ambiguous_width_as_wide.is_none()
             && self.normalize_output_to_unicode_nfc.is_none()
+            && self.unicode_version.is_none()
+            && self.bidi_enabled.is_none()
+            && self.bidi_direction.is_none()
             && self.use_ime.is_none()
             && self.use_dead_keys.is_none()
+            && self.ime_preedit_rendering.is_none()
+            && self.macos_forward_to_ime_modifier_mask.is_none()
+            && self.xim_im_name.is_none()
             && self.detect_password_input.is_none()
             && self.canonicalize_pasted_newlines.is_none()
             && self.quote_dropped_files.is_none()
@@ -30574,6 +30610,15 @@ impl NativeLuaWindowConfigOverrides {
         if update.show_update_window.is_some() {
             self.show_update_window = update.show_update_window;
         }
+        if update.key_map_preference.is_some() {
+            self.key_map_preference = update.key_map_preference;
+        }
+        if update.ui_key_cap_rendering.is_some() {
+            self.ui_key_cap_rendering = update.ui_key_cap_rendering;
+        }
+        if update.swap_backspace_and_delete.is_some() {
+            self.swap_backspace_and_delete = update.swap_backspace_and_delete;
+        }
         if update.enable_kitty_graphics.is_some() {
             self.enable_kitty_graphics = update.enable_kitty_graphics;
         }
@@ -30591,6 +30636,16 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.allow_download_protocols.is_some() {
             self.allow_download_protocols = update.allow_download_protocols;
+        }
+        if update.xcursor_theme.is_some() {
+            self.xcursor_theme = update.xcursor_theme;
+        }
+        if update.xcursor_size.is_some() {
+            self.xcursor_size = update.xcursor_size;
+        }
+        if update.palette_max_key_assigments_for_action.is_some() {
+            self.palette_max_key_assigments_for_action =
+                update.palette_max_key_assigments_for_action;
         }
         if update.allow_win32_input_mode.is_some() {
             self.allow_win32_input_mode = update.allow_win32_input_mode;
@@ -30613,11 +30668,29 @@ impl NativeLuaWindowConfigOverrides {
         if update.normalize_output_to_unicode_nfc.is_some() {
             self.normalize_output_to_unicode_nfc = update.normalize_output_to_unicode_nfc;
         }
+        if update.unicode_version.is_some() {
+            self.unicode_version = update.unicode_version;
+        }
+        if update.bidi_enabled.is_some() {
+            self.bidi_enabled = update.bidi_enabled;
+        }
+        if update.bidi_direction.is_some() {
+            self.bidi_direction = update.bidi_direction;
+        }
         if update.use_ime.is_some() {
             self.use_ime = update.use_ime;
         }
         if update.use_dead_keys.is_some() {
             self.use_dead_keys = update.use_dead_keys;
+        }
+        if update.ime_preedit_rendering.is_some() {
+            self.ime_preedit_rendering = update.ime_preedit_rendering;
+        }
+        if update.macos_forward_to_ime_modifier_mask.is_some() {
+            self.macos_forward_to_ime_modifier_mask = update.macos_forward_to_ime_modifier_mask;
+        }
+        if update.xim_im_name.is_some() {
+            self.xim_im_name = update.xim_im_name;
         }
         if update.detect_password_input.is_some() {
             self.detect_password_input = update.detect_password_input;
@@ -31223,6 +31296,15 @@ impl NativeLuaWindowConfigOverrides {
         if let Some(show_update_window) = self.show_update_window {
             overrides.show_update_window = Some(show_update_window);
         }
+        if let Some(key_map_preference) = self.key_map_preference {
+            overrides.key_map_preference = Some(key_map_preference);
+        }
+        if let Some(ui_key_cap_rendering) = self.ui_key_cap_rendering {
+            overrides.ui_key_cap_rendering = Some(ui_key_cap_rendering);
+        }
+        if let Some(swap_backspace_and_delete) = self.swap_backspace_and_delete {
+            overrides.swap_backspace_and_delete = Some(swap_backspace_and_delete);
+        }
         if let Some(enable_kitty_graphics) = self.enable_kitty_graphics {
             overrides.enable_kitty_graphics = Some(enable_kitty_graphics);
         }
@@ -31240,6 +31322,18 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(allow_download_protocols) = self.allow_download_protocols {
             overrides.allow_download_protocols = Some(allow_download_protocols);
+        }
+        if let Some(xcursor_theme) = self.xcursor_theme {
+            overrides.xcursor_theme = Some(xcursor_theme);
+        }
+        if let Some(xcursor_size) = self.xcursor_size {
+            overrides.xcursor_size = Some(xcursor_size);
+        }
+        if let Some(palette_max_key_assigments_for_action) =
+            self.palette_max_key_assigments_for_action
+        {
+            overrides.palette_max_key_assigments_for_action =
+                Some(palette_max_key_assigments_for_action);
         }
         if let Some(allow_win32_input_mode) = self.allow_win32_input_mode {
             overrides.allow_win32_input_mode = Some(allow_win32_input_mode);
@@ -31268,11 +31362,29 @@ impl NativeLuaWindowConfigOverrides {
         if let Some(normalize_output_to_unicode_nfc) = self.normalize_output_to_unicode_nfc {
             overrides.normalize_output_to_unicode_nfc = Some(normalize_output_to_unicode_nfc);
         }
+        if let Some(unicode_version) = self.unicode_version {
+            overrides.unicode_version = Some(unicode_version);
+        }
+        if let Some(bidi_enabled) = self.bidi_enabled {
+            overrides.bidi_enabled = Some(bidi_enabled);
+        }
+        if let Some(bidi_direction) = self.bidi_direction {
+            overrides.bidi_direction = Some(bidi_direction);
+        }
         if let Some(use_ime) = self.use_ime {
             overrides.use_ime = Some(use_ime);
         }
         if let Some(use_dead_keys) = self.use_dead_keys {
             overrides.use_dead_keys = Some(use_dead_keys);
+        }
+        if let Some(ime_preedit_rendering) = self.ime_preedit_rendering {
+            overrides.ime_preedit_rendering = Some(ime_preedit_rendering);
+        }
+        if let Some(macos_forward_to_ime_modifier_mask) = self.macos_forward_to_ime_modifier_mask {
+            overrides.macos_forward_to_ime_modifier_mask = Some(macos_forward_to_ime_modifier_mask);
+        }
+        if let Some(xim_im_name) = self.xim_im_name {
+            overrides.xim_im_name = Some(xim_im_name);
         }
         if let Some(detect_password_input) = self.detect_password_input {
             overrides.detect_password_input = Some(detect_password_input);
@@ -88956,6 +89068,104 @@ mod tests {
         assert_eq!(
             app.right_status,
             "kitty=false checksum=true title=false csiu=true keyboard=true dl=true win32=false altgr=true lalt=true ralt=false wide=true nfc=false ime=false dead=false"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_platform_input_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                key_map_preference = 'Physical',
+                ui_key_cap_rendering = 'Emacs',
+                swap_backspace_and_delete = true,
+                xcursor_theme = 'Adwaita',
+                xcursor_size = 24,
+                palette_max_key_assigments_for_action = 3,
+                unicode_version = 14,
+                bidi_enabled = true,
+                bidi_direction = 'AutoRightToLeft',
+                ime_preedit_rendering = 'System',
+                macos_forward_to_ime_modifier_mask = 'SHIFT|CTRL',
+                xim_im_name = 'fcitx',
+              })
+              window:set_right_status(
+                'key=' .. tostring(window:effective_config().key_map_preference)
+                  .. ' caps=' .. tostring(window:effective_config().ui_key_cap_rendering)
+                  .. ' swap=' .. tostring(window:effective_config().swap_backspace_and_delete)
+                  .. ' theme=' .. tostring(window:effective_config().xcursor_theme)
+                  .. ' size=' .. tostring(window:effective_config().xcursor_size)
+                  .. ' palette=' .. tostring(window:effective_config().palette_max_key_assigments_for_action)
+                  .. ' unicode=' .. tostring(window:effective_config().unicode_version)
+                  .. ' bidi=' .. tostring(window:effective_config().bidi_enabled)
+                  .. ' dir=' .. tostring(window:effective_config().bidi_direction)
+                  .. ' preedit=' .. tostring(window:effective_config().ime_preedit_rendering)
+                  .. ' mask=' .. tostring(window:effective_config().macos_forward_to_ime_modifier_mask)
+                  .. ' xim=' .. tostring(window:effective_config().xim_im_name)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides platform input callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.key_map_preference,
+            NativeKeyMapPreference::Physical
+        );
+        assert_eq!(
+            effective.ui_key_cap_rendering,
+            NativeUiKeyCapRendering::Emacs
+        );
+        assert!(effective.swap_backspace_and_delete);
+        assert_eq!(effective.xcursor_theme.as_deref(), Some("Adwaita"));
+        assert_eq!(effective.xcursor_size, Some(24));
+        assert_eq!(effective.palette_max_key_assigments_for_action, 3);
+        assert_eq!(effective.unicode_version, 14);
+        assert!(effective.bidi_enabled);
+        assert_eq!(
+            effective.bidi_direction,
+            NativeBidiDirection::AutoRightToLeft
+        );
+        assert_eq!(
+            effective.ime_preedit_rendering,
+            NativeImePreeditRendering::System
+        );
+        assert_eq!(
+            effective.macos_forward_to_ime_modifier_mask,
+            ModifiersState::SHIFT | ModifiersState::CONTROL
+        );
+        assert_eq!(effective.xim_im_name.as_deref(), Some("fcitx"));
+        assert_eq!(
+            app.right_status,
+            "key=Physical caps=Emacs swap=true theme=Adwaita size=24 palette=3 unicode=14 bidi=true dir=AutoRightToLeft preedit=System mask=CTRL|SHIFT xim=fcitx"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
