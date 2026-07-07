@@ -10748,6 +10748,7 @@ fn lua_static_window_config_overrides_from_query(
         macos_window_background_blur: overrides.macos_window_background_blur,
         win32_system_backdrop: overrides.win32_system_backdrop,
         win32_acrylic_accent_color: overrides.win32_acrylic_accent_color,
+        window_frame_appearance: overrides.window_frame_appearance,
         inactive_pane_hsb: overrides.inactive_pane_hsb,
         tab_max_width: overrides.tab_max_width,
         status_update_interval_ms: overrides.status_update_interval_ms,
@@ -29940,6 +29941,7 @@ struct NativeLuaWindowConfigOverrides {
     macos_window_background_blur: Option<u32>,
     win32_system_backdrop: Option<NativeWin32SystemBackdrop>,
     win32_acrylic_accent_color: Option<Color>,
+    window_frame_appearance: Option<NativeWindowFrameAppearance>,
     inactive_pane_hsb: Option<NativeInactivePaneHsb>,
     tab_max_width: Option<usize>,
     status_update_interval_ms: Option<u64>,
@@ -30189,6 +30191,7 @@ impl NativeLuaWindowConfigOverrides {
             && self.macos_window_background_blur.is_none()
             && self.win32_system_backdrop.is_none()
             && self.win32_acrylic_accent_color.is_none()
+            && self.window_frame_appearance.is_none()
             && self.inactive_pane_hsb.is_none()
             && self.tab_max_width.is_none()
             && self.status_update_interval_ms.is_none()
@@ -30518,6 +30521,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.win32_acrylic_accent_color.is_some() {
             self.win32_acrylic_accent_color = update.win32_acrylic_accent_color;
+        }
+        if update.window_frame_appearance.is_some() {
+            self.window_frame_appearance = update.window_frame_appearance;
         }
         if update.inactive_pane_hsb.is_some() {
             self.inactive_pane_hsb = update.inactive_pane_hsb;
@@ -31271,6 +31277,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(win32_acrylic_accent_color) = self.win32_acrylic_accent_color {
             overrides.win32_acrylic_accent_color = Some(win32_acrylic_accent_color);
+        }
+        if let Some(window_frame_appearance) = self.window_frame_appearance {
+            overrides.window_frame_appearance = Some(window_frame_appearance);
         }
         if let Some(inactive_pane_hsb) = self.inactive_pane_hsb {
             overrides.inactive_pane_hsb = Some(inactive_pane_hsb);
@@ -90504,6 +90513,70 @@ mod tests {
         assert_eq!(
             app.right_status,
             "decor=RESIZE|INTEGRATED_BUTTONS cols=100 rows=30 adjust=false boundary= : buttons=Close/Hide button-align=Left button-color=#010203 button-style=Gnome"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_window_frame() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                window_frame = {
+                  active_titlebar_bg = '#010203',
+                  inactive_titlebar_fg = '#040506',
+                  border_top_height = 4,
+                  border_bottom_height = '1.5cell',
+                },
+              })
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides window_frame callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(&effective.window_frame, &effective.window_frame_appearance);
+        assert_eq!(
+            effective.window_frame_appearance.active_titlebar_bg,
+            Some(Color::Rgb(1, 2, 3))
+        );
+        assert_eq!(
+            effective.window_frame_appearance.inactive_titlebar_fg,
+            Some(Color::Rgb(4, 5, 6))
+        );
+        assert_eq!(
+            effective.window_frame_appearance.border_top_height,
+            Some(NativeWindowPaddingDimension::Pixels(4))
+        );
+        assert_eq!(
+            effective.window_frame_appearance.border_bottom_height,
+            Some(NativeWindowPaddingDimension::CellFractionPerMille(1500))
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
