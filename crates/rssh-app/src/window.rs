@@ -57963,6 +57963,10 @@ fn lua_format_item_insert_argument_value_from_query(
     lua_static_table_variable_assignment_with_insert_appends_before_offset_from_query(
         source, variable, max_start,
     )
+    .or_else(|| {
+        lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)
+            .map(str::to_owned)
+    })
 }
 
 fn native_format_items_from_lua_format_items_table_query(
@@ -89527,6 +89531,48 @@ mod tests {
         let start_column = tab_bar
             .find("RIGHT-INSERT")
             .expect("local format item table.insert status should render without escape bytes");
+        let styled_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(start_column).unwrap()).unwrap();
+        let plain_cell = snapshot_cell(
+            &snapshot,
+            0,
+            u16::try_from(start_column + "RIGHT".len()).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(styled_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_ne!(plain_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_update_status_event_local_format_items_table_insert_string_variable()
+     {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local reset = 'ResetAttributes'
+              local elements = {}
+              table.insert(elements, { Foreground = { Color = '#010203' } })
+              table.insert(elements, { Text = 'RIGHT' })
+              table.insert(elements, reset)
+              table.insert(elements, { Text = '-INSERT-VAR' })
+              window:set_right_status(wezterm.format(elements))
+            end)
+            "##,
+        )
+        .expect("expected static WezTerm update-status local format item table.insert string variable config");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let start_column = tab_bar
+            .find("RIGHT-INSERT-VAR")
+            .expect("local format item table.insert string variable status should render without escape bytes");
         let styled_cell =
             snapshot_cell(&snapshot, 0, u16::try_from(start_column).unwrap()).unwrap();
         let plain_cell = snapshot_cell(

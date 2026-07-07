@@ -1989,7 +1989,8 @@ runtime storage for tabs and split panes.
   Intensity/Italic/Underline item composition also maps into status text with
   static item tables resolved from callback-local or top-level scope plus
   callback-local `table.insert` or `items[#items + 1] = ...` appends whose
-  string items can resolve from static variables. Arbitrary Lua callbacks,
+  string items can resolve from static variables, including
+  `table.insert(elements, reset)`. Arbitrary Lua callbacks,
   dynamic `wezterm.format` construction, remaining window status APIs, and
   real keyboard LED tracking remain later parity work.
 - `rssh-app` dispatches a typed native-window `new-tab-button-click` hook for

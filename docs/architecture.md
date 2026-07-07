@@ -2186,7 +2186,8 @@ keyboard, mouse, paste, resize
   Intensity/Italic/Underline item composition onto that status state, with
   static item tables resolving from callback-local or top-level scope and
   callback-local `table.insert` or `items[#items + 1] = ...` appends whose
-  string items can resolve from static variables.
+  string items can resolve from static variables, including
+  `table.insert(elements, reset)`.
   Arbitrary Lua status callbacks, dynamic `wezterm.format` construction, and
   remaining window status API wiring and real keyboard LED tracking remain
   future parity work.
