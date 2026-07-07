@@ -6713,6 +6713,23 @@ fn lua_static_table_field_assignment_value_before_offset_from_query<'a>(
     let mut selected = None;
 
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let rest = if lua_source_keyword_at(source, start, "local") {
+            lua_trim_start_comments(source.get(start + "local".len()..)?)?
+        } else {
+            source.get(start..)?
+        };
+        if let Some(table) = lua_static_table_variable_assignment_table_from_query(rest, variable) {
+            selected = lua_table_field_value_from_query_with_static_source(
+                Some(LuaStaticSource {
+                    source,
+                    max_start: start,
+                }),
+                table,
+                key,
+            )?;
+            continue;
+        }
+
         let Some(assignment) =
             lua_static_table_variable_field_assignment_from_query(source, start, variable)
         else {
@@ -97081,6 +97098,31 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "TABLE FIELD CALLBACK TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_table_initializer_callback() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            local callbacks = {
+              title = function(tab, pane, tabs, panes, config)
+                return 'TABLE INITIALIZER CALLBACK TITLE'
+              end,
+            }
+
+            wezterm.on('format-window-title', callbacks.title)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title table initializer callback");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.effective_window_title(),
+            "TABLE INITIALIZER CALLBACK TITLE"
+        );
     }
 
     #[test]
