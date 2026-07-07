@@ -6669,6 +6669,23 @@ fn lua_static_callback_query_from_value<'a>(
         return Some(Cow::Borrowed(value));
     }
 
+    if let Some(rest) = value.strip_prefix('(') {
+        let rest = lua_trim_start_comments(rest)?;
+        let (inner, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        let rest = lua_trim_start_comments(rest)?;
+        if rest.starts_with(')') {
+            return lua_static_callback_query_from_expression(source, start, inner);
+        }
+    }
+
+    lua_static_callback_query_from_expression_with_call_tail(source, start, value)
+}
+
+fn lua_static_callback_query_from_expression_with_call_tail<'a>(
+    source: &'a str,
+    start: usize,
+    value: &'a str,
+) -> Option<Cow<'a, str>> {
     let name = lua_identifier_literal_from_query(value)?;
     let rest = lua_trim_start_comments(value.get(name.len()..)?)?;
     if rest.starts_with(')') {
@@ -6695,6 +6712,51 @@ fn lua_static_callback_query_from_value<'a>(
     )?;
     let rest = lua_trim_start_comments(rest)?;
     if !rest.starts_with(')') {
+        return None;
+    }
+
+    let value = lua_static_table_field_assignment_value_before_offset_from_query(
+        source, name, &key, start,
+    )?;
+    lua_source_keyword_at(value, 0, "function").then_some(Cow::Borrowed(value))
+}
+
+fn lua_static_callback_query_from_expression<'a>(
+    source: &'a str,
+    start: usize,
+    value: &'a str,
+) -> Option<Cow<'a, str>> {
+    let value = lua_trim_start_comments(value)?;
+    if lua_source_keyword_at(value, 0, "function") {
+        return Some(Cow::Borrowed(value));
+    }
+
+    let name = lua_identifier_literal_from_query(value)?;
+    let rest = lua_trim_start_comments(value.get(name.len()..)?)?;
+    if lua_static_identifier_value_rest_is_statement_end(rest) {
+        if let Some(statement) =
+            lua_static_named_function_statement_before_offset(source, name, start)
+        {
+            let (params, body) =
+                lua_named_function_params_and_body_from_statement(statement, name)?;
+            return Some(Cow::Owned(format!("function({params}){body} end")));
+        }
+
+        let value = lua_static_expression_variable_assignment_before_offset_from_query(
+            source, name, start,
+        )?;
+        return lua_source_keyword_at(value, 0, "function").then_some(Cow::Borrowed(value));
+    }
+
+    let (key, rest) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+        rest,
+    )?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
         return None;
     }
 
@@ -97077,6 +97139,26 @@ mod tests {
             app.effective_window_title(),
             "FUNCTION VALUE CALLBACK TITLE"
         );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_parenthesized_callback() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            local title_callback = function(tab, pane, tabs, panes, config)
+              return 'PARENTHESIZED CALLBACK TITLE'
+            end
+
+            wezterm.on('format-window-title', (title_callback))
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title parenthesized callback");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "PARENTHESIZED CALLBACK TITLE");
     }
 
     #[test]
