@@ -2300,7 +2300,9 @@ keyboard, mouse, paste, resize
   `pane:get_user_vars()` or `window:active_pane():get_user_vars()` dot fields,
   static string keys, and callback-local/top-level static string-key variables
   from the same stored metadata, including static `or` fallbacks with optional
-  `tostring(...)` wrapping.
+  `tostring(...)` wrapping. Static `user-var-changed` callbacks can update
+  left or right status text from static strings plus the event `name` and
+  `value` parameters.
 - Implemented in v1: `rssh-terminal` base64-decodes iTerm2
   `OSC 1337;SetBadgeFormat` metadata into terminal badge format state.
   `rssh-app` syncs that value into per-pane app-shell metadata for active and

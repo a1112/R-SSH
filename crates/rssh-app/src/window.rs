@@ -4138,6 +4138,7 @@ struct NativeConfigOverrides {
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeLuaWindowStatusUpdate>,
+    lua_user_var_changed: Option<NativeLuaUserVarChanged>,
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
     lua_command_palette_entries: Option<Vec<NativeCommandPaletteEntry>>,
@@ -4186,6 +4187,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
 
     if let Some(update_status) = lua_static_wezterm_status_update_event_from_query(config) {
         overrides.lua_update_status = Some(update_status);
+        parsed = true;
+    }
+    if let Some(user_var_changed) = lua_static_wezterm_user_var_changed_event_from_query(config) {
+        overrides.lua_user_var_changed = Some(user_var_changed);
         parsed = true;
     }
     if let Some(window_title) = lua_static_wezterm_window_title_return_event_from_query(config) {
@@ -6322,6 +6327,38 @@ fn lua_static_wezterm_status_update_event_from_statement(
             max_start: start,
         }),
     )
+}
+
+fn lua_static_wezterm_user_var_changed_event_from_query(
+    source: &str,
+) -> Option<NativeLuaUserVarChanged> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
+        if let Some(update) =
+            lua_static_wezterm_user_var_changed_event_from_statement(source, start)
+        {
+            selected = Some(update);
+        }
+    }
+    selected
+}
+
+fn lua_static_wezterm_user_var_changed_event_from_statement(
+    source: &str,
+    start: usize,
+) -> Option<NativeLuaUserVarChanged> {
+    let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (event_name, rest) =
+        lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
+    if event_name != "user-var-changed" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (body, window_name, _pane_name, name_param, value_param) =
+        lua_anonymous_function_body_and_first_four_params_from_query(rest)?;
+    lua_static_user_var_changed_from_function_body(body, window_name, name_param, value_param)
 }
 
 fn lua_static_wezterm_window_title_return_event_from_query(
@@ -9906,6 +9943,98 @@ fn lua_static_status_update_from_function_body(
     }
 
     (update.left_status.is_some() || update.right_status.is_some()).then_some(update)
+}
+
+fn lua_static_user_var_changed_from_function_body(
+    body: &str,
+    window_name: &str,
+    name_param: &str,
+    value_param: &str,
+) -> Option<NativeLuaUserVarChanged> {
+    let mut update = NativeLuaUserVarChanged {
+        left_status: None,
+        right_status: None,
+    };
+
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(left_status) = lua_static_user_var_changed_status_setter_from_statement(
+            statement,
+            window_name,
+            name_param,
+            value_param,
+            "set_left_status",
+        ) {
+            update.left_status = Some(left_status);
+        }
+        if let Some(right_status) = lua_static_user_var_changed_status_setter_from_statement(
+            statement,
+            window_name,
+            name_param,
+            value_param,
+            "set_right_status",
+        ) {
+            update.right_status = Some(right_status);
+        }
+    }
+
+    (update.left_status.is_some() || update.right_status.is_some()).then_some(update)
+}
+
+fn lua_static_user_var_changed_status_setter_from_statement(
+    statement: &str,
+    window_name: &str,
+    name_param: &str,
+    value_param: &str,
+    method: &str,
+) -> Option<NativeLuaUserVarChangedStatusText> {
+    let rest = statement.strip_prefix(window_name)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with(method) || !lua_config_assignment_field_has_boundaries(rest, 0, method) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?.strip_prefix('(')?;
+    let (arguments, _) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    lua_static_user_var_changed_status_text_from_query(argument, name_param, value_param)
+}
+
+fn lua_static_user_var_changed_status_text_from_query(
+    value: &str,
+    name_param: &str,
+    value_param: &str,
+) -> Option<NativeLuaUserVarChangedStatusText> {
+    let mut parts = Vec::new();
+    for segment in split_lua_string_concat_segments(value)? {
+        let segment = segment.trim();
+        let segment = lua_tostring_argument_from_query(segment).unwrap_or(segment);
+        if lua_static_identifier_expression_matches(segment, name_param) {
+            parts.push(NativeLuaUserVarChangedStatusPart::Name);
+        } else if lua_static_identifier_expression_matches(segment, value_param) {
+            parts.push(NativeLuaUserVarChangedStatusPart::Value);
+        } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
+            parts.push(NativeLuaUserVarChangedStatusPart::Static(text));
+        } else {
+            return None;
+        }
+    }
+    (!parts.is_empty()).then_some(NativeLuaUserVarChangedStatusText { parts })
+}
+
+fn lua_static_identifier_expression_matches(value: &str, expected: &str) -> bool {
+    let value = lua_trim_start_comments(value).unwrap_or(value).trim();
+    let Some(rest) = value.strip_prefix(expected) else {
+        return false;
+    };
+    !rest.chars().next().is_some_and(is_lua_identifier_character)
+        && lua_trim_start_comments(rest).is_some_and(str::is_empty)
 }
 
 fn lua_static_window_status_setter_from_statement(
@@ -28033,6 +28162,24 @@ struct NativeLuaWindowStatusUpdate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeLuaUserVarChanged {
+    left_status: Option<NativeLuaUserVarChangedStatusText>,
+    right_status: Option<NativeLuaUserVarChangedStatusText>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeLuaUserVarChangedStatusText {
+    parts: Vec<NativeLuaUserVarChangedStatusPart>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLuaUserVarChangedStatusPart {
+    Static(String),
+    Name,
+    Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaWindowStatusText {
     Static(String),
     ActiveWorkspace,
@@ -28899,6 +29046,7 @@ struct NativeWindowApp {
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeLuaWindowStatusUpdate>,
+    lua_user_var_changed: Option<NativeLuaUserVarChanged>,
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
     lua_command_palette_entries: Vec<NativeCommandPaletteEntry>,
@@ -30451,6 +30599,7 @@ impl NativeWindowApp {
             lua_tab_title: None,
             lua_window_title: None,
             lua_update_status: None,
+            lua_user_var_changed: None,
             lua_open_uri: None,
             lua_new_tab_button_click: None,
             lua_command_palette_entries: Vec::new(),
@@ -31714,6 +31863,8 @@ impl NativeWindowApp {
         self.lua_tab_title.clone_from(&source.lua_tab_title);
         self.lua_window_title.clone_from(&source.lua_window_title);
         self.lua_update_status.clone_from(&source.lua_update_status);
+        self.lua_user_var_changed
+            .clone_from(&source.lua_user_var_changed);
         self.lua_open_uri.clone_from(&source.lua_open_uri);
         self.lua_new_tab_button_click = source.lua_new_tab_button_click;
         self.lua_command_palette_entries
@@ -40527,6 +40678,7 @@ impl NativeWindowApp {
         self.lua_tab_title = overrides.lua_tab_title.clone();
         self.lua_window_title = overrides.lua_window_title.clone();
         self.lua_update_status = overrides.lua_update_status.clone();
+        self.lua_user_var_changed = overrides.lua_user_var_changed.clone();
         self.lua_open_uri.clone_from(&overrides.lua_open_uri);
         self.lua_new_tab_button_click = overrides.lua_new_tab_button_click;
         self.lua_command_palette_entries = overrides
@@ -45740,7 +45892,34 @@ impl NativeWindowApp {
     }
 
     fn dispatch_user_var_change(&mut self, change: &NativeWindowUserVarChange) -> bool {
-        (self.user_var_change_handler)(change)
+        let mut handled = (self.user_var_change_handler)(change);
+        if let Some(update) = self.lua_user_var_changed.clone() {
+            if let Some(left_status) = update.left_status {
+                self.left_status = self.lua_user_var_changed_status_text(left_status, change);
+                handled = true;
+            }
+            if let Some(right_status) = update.right_status {
+                self.right_status = self.lua_user_var_changed_status_text(right_status, change);
+                handled = true;
+            }
+        }
+        handled
+    }
+
+    fn lua_user_var_changed_status_text(
+        &self,
+        status: NativeLuaUserVarChangedStatusText,
+        change: &NativeWindowUserVarChange,
+    ) -> String {
+        status
+            .parts
+            .into_iter()
+            .map(|part| match part {
+                NativeLuaUserVarChangedStatusPart::Static(text) => text,
+                NativeLuaUserVarChangedStatusPart::Name => change.name.clone(),
+                NativeLuaUserVarChangedStatusPart::Value => change.value.clone(),
+            })
+            .collect()
     }
 
     fn dispatch_config_reloaded(&mut self, event: &NativeWindowConfigReloaded) -> bool {
@@ -132247,6 +132426,7 @@ act.Confirmation {
                 left_status: Some(NativeLuaWindowStatusText::Static("LEFT".to_owned())),
                 right_status: Some(NativeLuaWindowStatusText::Static("RIGHT".to_owned())),
             }),
+            lua_user_var_changed: None,
             lua_open_uri: Some(NativeLuaOpenUri::Static {
                 allow_default: false,
             }),
@@ -149709,6 +149889,27 @@ act.Confirmation {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_user_var_changed_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('user-var-changed', function(window, pane, name, value)
+              window:set_right_status('var=' .. name .. ':' .. value)
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm user-var-changed event status setter");
+        app.set_config_overrides(overrides);
+
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07")
+            .unwrap();
+
+        assert_eq!(app.right_status, "var=WEZTERM_PROG:psh");
     }
 
     #[test]
