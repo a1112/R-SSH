@@ -7568,11 +7568,18 @@ fn lua_static_wezterm_on_event_args_from_require_query<'a>(
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix('(')?;
-    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
-    let arguments = split_lua_top_level_arguments(arguments)?;
-    let [literal] = arguments.as_slice() else {
-        return None;
+    let rest = lua_trim_start_comments(rest)?;
+    let (literal, rest) = if let Some(rest) = rest.strip_prefix('(') {
+        let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        let arguments = split_lua_top_level_arguments(arguments)?;
+        let [literal] = arguments.as_slice() else {
+            return None;
+        };
+        (*literal, rest)
+    } else {
+        let literal = lua_quoted_string_literal_from_query(rest)
+            .or_else(|| lua_long_bracket_literal_from_query(rest))?;
+        (literal, rest.get(literal.len()..)?)
     };
     let literal = lua_quoted_string_literal_from_query(literal)
         .or_else(|| lua_long_bracket_literal_from_query(literal))?;
@@ -104096,6 +104103,22 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "REQUIRE CALL LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_bare_require_call_format_window_title_event() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            require 'wezterm'.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'BARE REQUIRE CALL LUA TITLE'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm bare require-call format-window-title event");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "BARE REQUIRE CALL LUA TITLE");
     }
 
     #[test]
