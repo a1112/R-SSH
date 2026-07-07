@@ -10780,6 +10780,10 @@ fn lua_static_window_config_overrides_from_query(
         reverse_video_cursor_min_contrast: overrides.reverse_video_cursor_min_contrast,
         text_min_contrast_ratio: overrides.text_min_contrast_ratio,
         window_decorations: overrides.window_decorations,
+        integrated_title_buttons: overrides.integrated_title_buttons,
+        integrated_title_button_alignment: overrides.integrated_title_button_alignment,
+        integrated_title_button_color: overrides.integrated_title_button_color,
+        integrated_title_button_style: overrides.integrated_title_button_style,
         window_padding: overrides.window_padding,
         window_content_alignment: overrides.window_content_alignment,
         initial_cols: overrides.initial_cols,
@@ -29771,6 +29775,10 @@ struct NativeLuaWindowConfigOverrides {
     reverse_video_cursor_min_contrast: Option<NativeContrastRatio>,
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
     window_decorations: Option<NativeWindowDecorations>,
+    integrated_title_buttons: Option<Vec<NativeIntegratedTitleButton>>,
+    integrated_title_button_alignment: Option<NativeIntegratedTitleButtonAlignment>,
+    integrated_title_button_color: Option<NativeIntegratedTitleButtonColor>,
+    integrated_title_button_style: Option<NativeIntegratedTitleButtonStyle>,
     window_padding: Option<NativeWindowPadding>,
     window_content_alignment: Option<NativeWindowContentAlignment>,
     initial_cols: Option<u16>,
@@ -30004,6 +30012,10 @@ impl NativeLuaWindowConfigOverrides {
             && self.reverse_video_cursor_min_contrast.is_none()
             && self.text_min_contrast_ratio.is_none()
             && self.window_decorations.is_none()
+            && self.integrated_title_buttons.is_none()
+            && self.integrated_title_button_alignment.is_none()
+            && self.integrated_title_button_color.is_none()
+            && self.integrated_title_button_style.is_none()
             && self.window_padding.is_none()
             && self.window_content_alignment.is_none()
             && self.initial_cols.is_none()
@@ -30381,6 +30393,18 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.window_decorations.is_some() {
             self.window_decorations = update.window_decorations;
+        }
+        if update.integrated_title_buttons.is_some() {
+            self.integrated_title_buttons = update.integrated_title_buttons;
+        }
+        if update.integrated_title_button_alignment.is_some() {
+            self.integrated_title_button_alignment = update.integrated_title_button_alignment;
+        }
+        if update.integrated_title_button_color.is_some() {
+            self.integrated_title_button_color = update.integrated_title_button_color;
+        }
+        if update.integrated_title_button_style.is_some() {
+            self.integrated_title_button_style = update.integrated_title_button_style;
         }
         if update.window_padding.is_some() {
             self.window_padding = update.window_padding;
@@ -31086,6 +31110,18 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(window_decorations) = self.window_decorations {
             overrides.window_decorations = Some(window_decorations);
+        }
+        if let Some(integrated_title_buttons) = self.integrated_title_buttons {
+            overrides.integrated_title_buttons = Some(integrated_title_buttons);
+        }
+        if let Some(integrated_title_button_alignment) = self.integrated_title_button_alignment {
+            overrides.integrated_title_button_alignment = Some(integrated_title_button_alignment);
+        }
+        if let Some(integrated_title_button_color) = self.integrated_title_button_color {
+            overrides.integrated_title_button_color = Some(integrated_title_button_color);
+        }
+        if let Some(integrated_title_button_style) = self.integrated_title_button_style {
+            overrides.integrated_title_button_style = Some(integrated_title_button_style);
         }
         if let Some(window_padding) = self.window_padding {
             overrides.window_padding = Some(window_padding);
@@ -89739,6 +89775,10 @@ mod tests {
                 initial_rows = 30,
                 adjust_window_size_when_changing_font_size = false,
                 selection_word_boundary = ' :',
+                integrated_title_buttons = { 'Close', 'Hide' },
+                integrated_title_button_alignment = 'Left',
+                integrated_title_button_color = '#010203',
+                integrated_title_button_style = 'Gnome',
               }
               window:set_config_overrides(overrides)
               window:set_right_status(
@@ -89747,6 +89787,11 @@ mod tests {
                   .. ' rows=' .. tostring(window:effective_config().initial_rows)
                   .. ' adjust=' .. tostring(window:effective_config().adjust_window_size_when_changing_font_size)
                   .. ' boundary=' .. tostring(window:effective_config().selection_word_boundary)
+                  .. ' buttons=' .. tostring(window:effective_config().integrated_title_buttons[1])
+                  .. '/' .. tostring(window:effective_config().integrated_title_buttons[2])
+                  .. ' button-align=' .. tostring(window:effective_config().integrated_title_button_alignment)
+                  .. ' button-color=' .. tostring(window:effective_config().integrated_title_button_color)
+                  .. ' button-style=' .. tostring(window:effective_config().integrated_title_button_style)
               )
             end)
             "#,
@@ -89774,8 +89819,27 @@ mod tests {
         assert!(!effective.adjust_window_size_when_changing_font_size);
         assert_eq!(effective.selection_word_boundary, " :");
         assert_eq!(
+            effective.integrated_title_buttons,
+            vec![
+                NativeIntegratedTitleButton::Close,
+                NativeIntegratedTitleButton::Hide,
+            ]
+        );
+        assert_eq!(
+            effective.integrated_title_button_alignment,
+            NativeIntegratedTitleButtonAlignment::Left
+        );
+        assert_eq!(
+            effective.integrated_title_button_color,
+            NativeIntegratedTitleButtonColor::Color(Color::Rgb(1, 2, 3))
+        );
+        assert_eq!(
+            effective.integrated_title_button_style,
+            NativeIntegratedTitleButtonStyle::Gnome
+        );
+        assert_eq!(
             app.right_status,
-            "decor=RESIZE|INTEGRATED_BUTTONS cols=100 rows=30 adjust=false boundary= :"
+            "decor=RESIZE|INTEGRATED_BUTTONS cols=100 rows=30 adjust=false boundary= : buttons=Close/Hide button-align=Left button-color=#010203 button-style=Gnome"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
