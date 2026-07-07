@@ -49182,7 +49182,7 @@ fn strip_wezterm_action_index_prefix(query: &str) -> Option<String> {
         if !candidate.eq_ignore_ascii_case(prefix) {
             return None;
         }
-        let rest = query[prefix.len()..].trim_start();
+        let rest = lua_trim_start_comments(query.get(prefix.len()..)?)?;
         let index = rest.strip_prefix('[')?;
         let indexed = lua_trim_start_comments(index)?;
         let (name, tail) = if let Some(literal) = lua_quoted_string_literal_from_query(indexed)
@@ -137910,6 +137910,31 @@ act.Confirmation {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action[\"SpawnCommandInNewTab\"] -- spawn options\n { args = { \"top\", \"-d\", \"1\" } }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::NewTab]
+        );
+        app.command_palette_execute(WindowCommand::NewTab);
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+    }
+
+    #[test]
+    fn window_app_dispatches_wezterm_action_comment_before_index_table_constructor_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action -- indexed action\n [\"SpawnCommandInNewTab\"] { args = { \"top\", \"-d\", \"1\" } }"
                 .to_owned(),
         );
 
