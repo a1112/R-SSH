@@ -1266,8 +1266,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   newline and bracketed-paste encoding. The documented static workspace
   callback form `inner_window:perform_action(act.SwitchToWorkspace { name =
   label, spawn = { cwd = id } }, inner_pane)` maps selected choice data onto
-  the native `SwitchToWorkspace` path, while arbitrary Lua
-  `wezterm.action_callback` execution remains open.
+  the native `SwitchToWorkspace` path. Static `InputSelector.action` fields can
+  also carry implemented nested KeyAssignments such as `act.Nop` or a top-level
+  static variable that resolves to that action, preserving and executing them
+  through the native `WindowCommand` path when a choice is accepted, while
+  arbitrary Lua `wezterm.action_callback` execution remains open.
 - Native `Confirmation` action payloads now carry a message string, required Yes
   action, and optional No/cancel action. They open a modal confirmation overlay,
   dispatch typed native `accepted = true` events on Enter/`Y`/Space before

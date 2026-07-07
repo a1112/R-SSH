@@ -35419,6 +35419,7 @@ impl NativeWindowApp {
                     command_options,
                 })
             }
+            WindowInputSelectorAction::Command(command) => *command,
         };
         if let Err(error) = self.command_palette_apply_command(command) {
             eprintln!("input selector action failed: {error:?}");
@@ -51670,7 +51671,7 @@ fn input_selector_lua_table_from_query_with_static_source(
                 if parsed_action {
                     return None;
                 }
-                options.action = input_selector_action_from_lua_action_callback_with_static_source(
+                options.action = input_selector_action_from_lua_action_with_static_source(
                     static_source,
                     raw_value,
                 );
@@ -51740,6 +51741,27 @@ fn input_selector_action_from_lua_action_callback_with_static_source_and_depth(
         );
     }
     None
+}
+
+fn input_selector_action_from_lua_action_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowInputSelectorAction> {
+    input_selector_action_from_lua_action_callback_with_static_source(static_source, value)
+        .or_else(|| {
+            command_palette_structured_query_command(value)
+                .map(Box::new)
+                .map(WindowInputSelectorAction::Command)
+        })
+        .or_else(|| {
+            let static_source = static_source?;
+            let value = lua_static_expression_assignment_value_before_offset_from_query(
+                static_source.source,
+                value,
+                static_source.max_start,
+            )?;
+            input_selector_action_from_lua_action_with_static_source(Some(static_source), value)
+        })
 }
 
 fn input_selector_action_from_lua_action_callback_query(
@@ -63307,6 +63329,7 @@ enum WindowInputSelectorAction {
         name: WindowInputSelectorValueParam,
         cwd: Option<WindowInputSelectorValueParam>,
     },
+    Command(Box<WindowCommand>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71333,21 +71356,21 @@ mod tests {
         WindowActivateKeyTable, WindowActivateWindowRequest, WindowCharSelectOptions,
         WindowClearScrollbackMode, WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry,
         WindowConfirmationOptions, WindowCopyDestination, WindowDomainSelector, WindowEmitEvent,
-        WindowFontSizeAction, WindowInputSelectorChoice, WindowInputSelectorOptions,
-        WindowMouseEvent, WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
-        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineAction,
-        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
-        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
-        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
-        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
-        WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
-        activate_window_relative_index, command_palette_basic_structured_query_command,
-        default_gui_startup_args, default_hyperlink_rules, default_integrated_title_buttons,
-        default_mux_env_remove, default_native_unix_domains,
-        default_skip_close_confirmation_for_processes_named, default_tiling_desktop_environments,
-        demo_snapshot, encode_window_focus_event, encode_window_key, encode_window_key_with_kitty,
-        encode_window_key_with_kitty_event, encode_window_mouse_event,
-        encode_window_mouse_event_with_pixels, encode_window_paste,
+        WindowFontSizeAction, WindowInputSelectorAction, WindowInputSelectorChoice,
+        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
+        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
+        WindowPromptInputLineAction, WindowPromptInputLineOptions, WindowQuickSelectAction,
+        WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery,
+        WindowSearchMatchType, WindowSelection, WindowSendKey, WindowShowLauncherArgs,
+        WindowShowLauncherFlags, WindowSpawnCommandQuery, WindowSpawnTabDomain,
+        WindowSplitPaneOptions, WindowSplitPaneSize, WindowSwitchToWorkspaceOptions,
+        activate_window_absolute_index, activate_window_relative_index,
+        command_palette_basic_structured_query_command, default_gui_startup_args,
+        default_hyperlink_rules, default_integrated_title_buttons, default_mux_env_remove,
+        default_native_unix_domains, default_skip_close_confirmation_for_processes_named,
+        default_tiling_desktop_environments, demo_snapshot, encode_window_focus_event,
+        encode_window_key, encode_window_key_with_kitty, encode_window_key_with_kitty_event,
+        encode_window_mouse_event, encode_window_mouse_event_with_pixels, encode_window_paste,
         input_selector_options_from_query, native_window_key_assignment_entries,
         native_window_resize_increments_supported, nerd_font_icon_for_name,
         pane_select_activate_alphabet_from_query,
@@ -116553,6 +116576,57 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_input_selector_nested_static_action() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local selector_action = act.Nop
+
+            config.keys = {
+              {
+                key = 'I',
+                mods = 'CTRL|SHIFT',
+                action = act.InputSelector {
+                  title = 'Pick Reply',
+                  choices = 'decline=No thanks ; lgtm=LGTM',
+                  action = selector_action,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm InputSelector nested static action config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+I".to_owned(),
+                command: WindowCommand::InputSelector(WindowInputSelectorOptions {
+                    title: "Pick Reply".to_owned(),
+                    choices: vec![
+                        WindowInputSelectorChoice {
+                            label: "No thanks".to_owned(),
+                            id: Some("decline".to_owned()),
+                        },
+                        WindowInputSelectorChoice {
+                            label: "LGTM".to_owned(),
+                            id: Some("lgtm".to_owned()),
+                        },
+                    ],
+                    action: Some(WindowInputSelectorAction::Command(Box::new(
+                        WindowCommand::Nop,
+                    ))),
+                    ..WindowInputSelectorOptions::default()
+                }),
+            }])
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_static_action_callback_aliases() {
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
             r#"
@@ -129830,6 +129904,51 @@ act.Confirmation {
 
         assert!(app.command_palette.is_none());
         assert!(app.effective_window_title().contains("Pick Reply:"));
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_input_selector_wezterm_nested_action_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.InputSelector { title = \"Pick Reply\", choices = { { label = \"No thanks\", id = \"decline\" }, { label = \"LGTM\", id = \"lgtm\" } }, alphabet = \"ab\", action = act.Hide }"
+                .to_owned(),
+        );
+
+        let command = WindowCommand::InputSelector(WindowInputSelectorOptions {
+            title: "Pick Reply".to_owned(),
+            choices: vec![
+                WindowInputSelectorChoice {
+                    label: "No thanks".to_owned(),
+                    id: Some("decline".to_owned()),
+                },
+                WindowInputSelectorChoice {
+                    label: "LGTM".to_owned(),
+                    id: Some("lgtm".to_owned()),
+                },
+            ],
+            alphabet: Some("ab".to_owned()),
+            description: None,
+            fuzzy_description: None,
+            fuzzy: false,
+            action: Some(WindowInputSelectorAction::Command(Box::new(
+                WindowCommand::Hide,
+            ))),
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+        assert!(!app.window_hide_requested_for_test());
+
+        assert!(
+            app.handle_input_selector_key(&Key::Character("b".into()), ModifiersState::empty())
+        );
+
+        assert!(app.window_hide_requested_for_test());
+        assert!(app.input_selector.is_none());
     }
 
     #[test]
