@@ -10825,6 +10825,51 @@ fn lua_static_window_config_overrides_from_query(
         visual_bell: overrides.visual_bell,
         visual_bell_color: overrides.visual_bell_color,
         notification_handling: overrides.notification_handling,
+        colors: overrides.colors,
+        color_scheme: overrides.color_scheme,
+        color_scheme_dirs: overrides.color_scheme_dirs,
+        color_schemes: overrides.color_schemes,
+        foreground_color: overrides.foreground_color,
+        background_color: overrides.background_color,
+        ansi_palette: overrides.ansi_palette,
+        indexed_palette: overrides.indexed_palette,
+        selection_fg_color: overrides.selection_fg_color,
+        selection_bg_color: overrides.selection_bg_color,
+        cursor_bg_color: overrides.cursor_bg_color,
+        cursor_border_color: overrides.cursor_border_color,
+        cursor_fg_color: overrides.cursor_fg_color,
+        compose_cursor_color: overrides.compose_cursor_color,
+        split_color: overrides.split_color,
+        scrollbar_thumb_color: overrides.scrollbar_thumb_color,
+        tab_bar_background_color: overrides.tab_bar_background_color,
+        tab_bar_inactive_tab_edge_color: overrides.tab_bar_inactive_tab_edge_color,
+        tab_bar_active_tab_colors: (overrides.tab_bar_active_tab_colors
+            != NativeTabBarItemColors::default())
+        .then_some(overrides.tab_bar_active_tab_colors),
+        tab_bar_inactive_tab_colors: (overrides.tab_bar_inactive_tab_colors
+            != NativeTabBarItemColors::default())
+        .then_some(overrides.tab_bar_inactive_tab_colors),
+        tab_bar_inactive_tab_hover_colors: (overrides.tab_bar_inactive_tab_hover_colors
+            != NativeTabBarItemColors::default())
+        .then_some(overrides.tab_bar_inactive_tab_hover_colors),
+        tab_bar_new_tab_colors: (overrides.tab_bar_new_tab_colors
+            != NativeTabBarItemColors::default())
+        .then_some(overrides.tab_bar_new_tab_colors),
+        tab_bar_new_tab_hover_colors: (overrides.tab_bar_new_tab_hover_colors
+            != NativeTabBarItemColors::default())
+        .then_some(overrides.tab_bar_new_tab_hover_colors),
+        copy_mode_active_highlight_fg: overrides.copy_mode_active_highlight_fg,
+        copy_mode_active_highlight_bg: overrides.copy_mode_active_highlight_bg,
+        copy_mode_inactive_highlight_fg: overrides.copy_mode_inactive_highlight_fg,
+        copy_mode_inactive_highlight_bg: overrides.copy_mode_inactive_highlight_bg,
+        quick_select_label_fg: overrides.quick_select_label_fg,
+        quick_select_label_bg: overrides.quick_select_label_bg,
+        quick_select_match_fg: overrides.quick_select_match_fg,
+        quick_select_match_bg: overrides.quick_select_match_bg,
+        input_selector_label_fg: overrides.input_selector_label_fg,
+        input_selector_label_bg: overrides.input_selector_label_bg,
+        launcher_label_fg: overrides.launcher_label_fg,
+        launcher_label_bg: overrides.launcher_label_bg,
         automatically_reload_config: overrides.automatically_reload_config,
         check_for_updates: overrides.check_for_updates,
         check_for_updates_interval_seconds: overrides.check_for_updates_interval_seconds,
@@ -29744,6 +29789,41 @@ struct NativeLuaWindowConfigOverrides {
     visual_bell: Option<NativeVisualBell>,
     visual_bell_color: Option<Color>,
     notification_handling: Option<NativeNotificationHandling>,
+    colors: Option<NativePalette>,
+    color_scheme: Option<String>,
+    color_scheme_dirs: Option<Vec<String>>,
+    color_schemes: Option<HashMap<String, NativeResolvedPalette>>,
+    foreground_color: Option<Color>,
+    background_color: Option<Color>,
+    ansi_palette: Option<[Color; 16]>,
+    indexed_palette: Option<[Option<Color>; 256]>,
+    selection_fg_color: Option<Option<Color>>,
+    selection_bg_color: Option<Color>,
+    cursor_bg_color: Option<Color>,
+    cursor_border_color: Option<Color>,
+    cursor_fg_color: Option<Color>,
+    compose_cursor_color: Option<Color>,
+    split_color: Option<Color>,
+    scrollbar_thumb_color: Option<Color>,
+    tab_bar_background_color: Option<Color>,
+    tab_bar_inactive_tab_edge_color: Option<Color>,
+    tab_bar_active_tab_colors: Option<NativeTabBarItemColors>,
+    tab_bar_inactive_tab_colors: Option<NativeTabBarItemColors>,
+    tab_bar_inactive_tab_hover_colors: Option<NativeTabBarItemColors>,
+    tab_bar_new_tab_colors: Option<NativeTabBarItemColors>,
+    tab_bar_new_tab_hover_colors: Option<NativeTabBarItemColors>,
+    copy_mode_active_highlight_fg: Option<NativeColorSpec>,
+    copy_mode_active_highlight_bg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_fg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_bg: Option<NativeColorSpec>,
+    quick_select_label_fg: Option<NativeColorSpec>,
+    quick_select_label_bg: Option<NativeColorSpec>,
+    quick_select_match_fg: Option<NativeColorSpec>,
+    quick_select_match_bg: Option<NativeColorSpec>,
+    input_selector_label_fg: Option<NativeColorSpec>,
+    input_selector_label_bg: Option<NativeColorSpec>,
+    launcher_label_fg: Option<NativeColorSpec>,
+    launcher_label_bg: Option<NativeColorSpec>,
     automatically_reload_config: Option<bool>,
     check_for_updates: Option<bool>,
     check_for_updates_interval_seconds: Option<u64>,
@@ -29917,6 +29997,41 @@ impl NativeLuaWindowConfigOverrides {
             && self.visual_bell.is_none()
             && self.visual_bell_color.is_none()
             && self.notification_handling.is_none()
+            && self.colors.is_none()
+            && self.color_scheme.is_none()
+            && self.color_scheme_dirs.is_none()
+            && self.color_schemes.is_none()
+            && self.foreground_color.is_none()
+            && self.background_color.is_none()
+            && self.ansi_palette.is_none()
+            && self.indexed_palette.is_none()
+            && self.selection_fg_color.is_none()
+            && self.selection_bg_color.is_none()
+            && self.cursor_bg_color.is_none()
+            && self.cursor_border_color.is_none()
+            && self.cursor_fg_color.is_none()
+            && self.compose_cursor_color.is_none()
+            && self.split_color.is_none()
+            && self.scrollbar_thumb_color.is_none()
+            && self.tab_bar_background_color.is_none()
+            && self.tab_bar_inactive_tab_edge_color.is_none()
+            && self.tab_bar_active_tab_colors.is_none()
+            && self.tab_bar_inactive_tab_colors.is_none()
+            && self.tab_bar_inactive_tab_hover_colors.is_none()
+            && self.tab_bar_new_tab_colors.is_none()
+            && self.tab_bar_new_tab_hover_colors.is_none()
+            && self.copy_mode_active_highlight_fg.is_none()
+            && self.copy_mode_active_highlight_bg.is_none()
+            && self.copy_mode_inactive_highlight_fg.is_none()
+            && self.copy_mode_inactive_highlight_bg.is_none()
+            && self.quick_select_label_fg.is_none()
+            && self.quick_select_label_bg.is_none()
+            && self.quick_select_match_fg.is_none()
+            && self.quick_select_match_bg.is_none()
+            && self.input_selector_label_fg.is_none()
+            && self.input_selector_label_bg.is_none()
+            && self.launcher_label_fg.is_none()
+            && self.launcher_label_bg.is_none()
             && self.automatically_reload_config.is_none()
             && self.check_for_updates.is_none()
             && self.check_for_updates_interval_seconds.is_none()
@@ -30323,6 +30438,111 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.notification_handling.is_some() {
             self.notification_handling = update.notification_handling;
+        }
+        if update.colors.is_some() {
+            self.colors = update.colors;
+        }
+        if update.color_scheme.is_some() {
+            self.color_scheme = update.color_scheme;
+        }
+        if update.color_scheme_dirs.is_some() {
+            self.color_scheme_dirs = update.color_scheme_dirs;
+        }
+        if update.color_schemes.is_some() {
+            self.color_schemes = update.color_schemes;
+        }
+        if update.foreground_color.is_some() {
+            self.foreground_color = update.foreground_color;
+        }
+        if update.background_color.is_some() {
+            self.background_color = update.background_color;
+        }
+        if update.ansi_palette.is_some() {
+            self.ansi_palette = update.ansi_palette;
+        }
+        if update.indexed_palette.is_some() {
+            self.indexed_palette = update.indexed_palette;
+        }
+        if update.selection_fg_color.is_some() {
+            self.selection_fg_color = update.selection_fg_color;
+        }
+        if update.selection_bg_color.is_some() {
+            self.selection_bg_color = update.selection_bg_color;
+        }
+        if update.cursor_bg_color.is_some() {
+            self.cursor_bg_color = update.cursor_bg_color;
+        }
+        if update.cursor_border_color.is_some() {
+            self.cursor_border_color = update.cursor_border_color;
+        }
+        if update.cursor_fg_color.is_some() {
+            self.cursor_fg_color = update.cursor_fg_color;
+        }
+        if update.compose_cursor_color.is_some() {
+            self.compose_cursor_color = update.compose_cursor_color;
+        }
+        if update.split_color.is_some() {
+            self.split_color = update.split_color;
+        }
+        if update.scrollbar_thumb_color.is_some() {
+            self.scrollbar_thumb_color = update.scrollbar_thumb_color;
+        }
+        if update.tab_bar_background_color.is_some() {
+            self.tab_bar_background_color = update.tab_bar_background_color;
+        }
+        if update.tab_bar_inactive_tab_edge_color.is_some() {
+            self.tab_bar_inactive_tab_edge_color = update.tab_bar_inactive_tab_edge_color;
+        }
+        if update.tab_bar_active_tab_colors.is_some() {
+            self.tab_bar_active_tab_colors = update.tab_bar_active_tab_colors;
+        }
+        if update.tab_bar_inactive_tab_colors.is_some() {
+            self.tab_bar_inactive_tab_colors = update.tab_bar_inactive_tab_colors;
+        }
+        if update.tab_bar_inactive_tab_hover_colors.is_some() {
+            self.tab_bar_inactive_tab_hover_colors = update.tab_bar_inactive_tab_hover_colors;
+        }
+        if update.tab_bar_new_tab_colors.is_some() {
+            self.tab_bar_new_tab_colors = update.tab_bar_new_tab_colors;
+        }
+        if update.tab_bar_new_tab_hover_colors.is_some() {
+            self.tab_bar_new_tab_hover_colors = update.tab_bar_new_tab_hover_colors;
+        }
+        if update.copy_mode_active_highlight_fg.is_some() {
+            self.copy_mode_active_highlight_fg = update.copy_mode_active_highlight_fg;
+        }
+        if update.copy_mode_active_highlight_bg.is_some() {
+            self.copy_mode_active_highlight_bg = update.copy_mode_active_highlight_bg;
+        }
+        if update.copy_mode_inactive_highlight_fg.is_some() {
+            self.copy_mode_inactive_highlight_fg = update.copy_mode_inactive_highlight_fg;
+        }
+        if update.copy_mode_inactive_highlight_bg.is_some() {
+            self.copy_mode_inactive_highlight_bg = update.copy_mode_inactive_highlight_bg;
+        }
+        if update.quick_select_label_fg.is_some() {
+            self.quick_select_label_fg = update.quick_select_label_fg;
+        }
+        if update.quick_select_label_bg.is_some() {
+            self.quick_select_label_bg = update.quick_select_label_bg;
+        }
+        if update.quick_select_match_fg.is_some() {
+            self.quick_select_match_fg = update.quick_select_match_fg;
+        }
+        if update.quick_select_match_bg.is_some() {
+            self.quick_select_match_bg = update.quick_select_match_bg;
+        }
+        if update.input_selector_label_fg.is_some() {
+            self.input_selector_label_fg = update.input_selector_label_fg;
+        }
+        if update.input_selector_label_bg.is_some() {
+            self.input_selector_label_bg = update.input_selector_label_bg;
+        }
+        if update.launcher_label_fg.is_some() {
+            self.launcher_label_fg = update.launcher_label_fg;
+        }
+        if update.launcher_label_bg.is_some() {
+            self.launcher_label_bg = update.launcher_label_bg;
         }
         if update.automatically_reload_config.is_some() {
             self.automatically_reload_config = update.automatically_reload_config;
@@ -30858,6 +31078,111 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(notification_handling) = self.notification_handling {
             overrides.notification_handling = Some(notification_handling);
+        }
+        if let Some(colors) = self.colors {
+            overrides.colors = Some(colors);
+        }
+        if let Some(color_scheme) = self.color_scheme {
+            overrides.color_scheme = Some(color_scheme);
+        }
+        if let Some(color_scheme_dirs) = self.color_scheme_dirs {
+            overrides.color_scheme_dirs = Some(color_scheme_dirs);
+        }
+        if let Some(color_schemes) = self.color_schemes {
+            overrides.color_schemes = Some(color_schemes);
+        }
+        if let Some(foreground_color) = self.foreground_color {
+            overrides.foreground_color = Some(foreground_color);
+        }
+        if let Some(background_color) = self.background_color {
+            overrides.background_color = Some(background_color);
+        }
+        if let Some(ansi_palette) = self.ansi_palette {
+            overrides.ansi_palette = Some(ansi_palette);
+        }
+        if let Some(indexed_palette) = self.indexed_palette {
+            overrides.indexed_palette = Some(indexed_palette);
+        }
+        if let Some(selection_fg_color) = self.selection_fg_color {
+            overrides.selection_fg_color = Some(selection_fg_color);
+        }
+        if let Some(selection_bg_color) = self.selection_bg_color {
+            overrides.selection_bg_color = Some(selection_bg_color);
+        }
+        if let Some(cursor_bg_color) = self.cursor_bg_color {
+            overrides.cursor_bg_color = Some(cursor_bg_color);
+        }
+        if let Some(cursor_border_color) = self.cursor_border_color {
+            overrides.cursor_border_color = Some(cursor_border_color);
+        }
+        if let Some(cursor_fg_color) = self.cursor_fg_color {
+            overrides.cursor_fg_color = Some(cursor_fg_color);
+        }
+        if let Some(compose_cursor_color) = self.compose_cursor_color {
+            overrides.compose_cursor_color = Some(compose_cursor_color);
+        }
+        if let Some(split_color) = self.split_color {
+            overrides.split_color = Some(split_color);
+        }
+        if let Some(scrollbar_thumb_color) = self.scrollbar_thumb_color {
+            overrides.scrollbar_thumb_color = Some(scrollbar_thumb_color);
+        }
+        if let Some(tab_bar_background_color) = self.tab_bar_background_color {
+            overrides.tab_bar_background_color = Some(tab_bar_background_color);
+        }
+        if let Some(tab_bar_inactive_tab_edge_color) = self.tab_bar_inactive_tab_edge_color {
+            overrides.tab_bar_inactive_tab_edge_color = Some(tab_bar_inactive_tab_edge_color);
+        }
+        if let Some(tab_bar_active_tab_colors) = self.tab_bar_active_tab_colors {
+            overrides.tab_bar_active_tab_colors = tab_bar_active_tab_colors;
+        }
+        if let Some(tab_bar_inactive_tab_colors) = self.tab_bar_inactive_tab_colors {
+            overrides.tab_bar_inactive_tab_colors = tab_bar_inactive_tab_colors;
+        }
+        if let Some(tab_bar_inactive_tab_hover_colors) = self.tab_bar_inactive_tab_hover_colors {
+            overrides.tab_bar_inactive_tab_hover_colors = tab_bar_inactive_tab_hover_colors;
+        }
+        if let Some(tab_bar_new_tab_colors) = self.tab_bar_new_tab_colors {
+            overrides.tab_bar_new_tab_colors = tab_bar_new_tab_colors;
+        }
+        if let Some(tab_bar_new_tab_hover_colors) = self.tab_bar_new_tab_hover_colors {
+            overrides.tab_bar_new_tab_hover_colors = tab_bar_new_tab_hover_colors;
+        }
+        if let Some(copy_mode_active_highlight_fg) = self.copy_mode_active_highlight_fg {
+            overrides.copy_mode_active_highlight_fg = Some(copy_mode_active_highlight_fg);
+        }
+        if let Some(copy_mode_active_highlight_bg) = self.copy_mode_active_highlight_bg {
+            overrides.copy_mode_active_highlight_bg = Some(copy_mode_active_highlight_bg);
+        }
+        if let Some(copy_mode_inactive_highlight_fg) = self.copy_mode_inactive_highlight_fg {
+            overrides.copy_mode_inactive_highlight_fg = Some(copy_mode_inactive_highlight_fg);
+        }
+        if let Some(copy_mode_inactive_highlight_bg) = self.copy_mode_inactive_highlight_bg {
+            overrides.copy_mode_inactive_highlight_bg = Some(copy_mode_inactive_highlight_bg);
+        }
+        if let Some(quick_select_label_fg) = self.quick_select_label_fg {
+            overrides.quick_select_label_fg = Some(quick_select_label_fg);
+        }
+        if let Some(quick_select_label_bg) = self.quick_select_label_bg {
+            overrides.quick_select_label_bg = Some(quick_select_label_bg);
+        }
+        if let Some(quick_select_match_fg) = self.quick_select_match_fg {
+            overrides.quick_select_match_fg = Some(quick_select_match_fg);
+        }
+        if let Some(quick_select_match_bg) = self.quick_select_match_bg {
+            overrides.quick_select_match_bg = Some(quick_select_match_bg);
+        }
+        if let Some(input_selector_label_fg) = self.input_selector_label_fg {
+            overrides.input_selector_label_fg = Some(input_selector_label_fg);
+        }
+        if let Some(input_selector_label_bg) = self.input_selector_label_bg {
+            overrides.input_selector_label_bg = Some(input_selector_label_bg);
+        }
+        if let Some(launcher_label_fg) = self.launcher_label_fg {
+            overrides.launcher_label_fg = Some(launcher_label_fg);
+        }
+        if let Some(launcher_label_bg) = self.launcher_label_bg {
+            overrides.launcher_label_bg = Some(launcher_label_bg);
         }
         if let Some(automatically_reload_config) = self.automatically_reload_config {
             overrides.automatically_reload_config = Some(automatically_reload_config);
@@ -87756,6 +88081,125 @@ mod tests {
         assert_eq!(
             app.right_status,
             "audible=Disabled target=CursorColor notify=SuppressFromFocusedWindow"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_color_scheme_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                font_size = 14.0,
+                color_scheme = 'Runtime Scheme',
+                color_scheme_dirs = { 'runtime-colors', '/opt/runtime-colors' },
+                color_schemes = {
+                  ['Runtime Scheme'] = {
+                    foreground = '#010203',
+                    background = '#040506',
+                    ansi = {
+                      '#000000',
+                      '#111213',
+                      '#141516',
+                      '#171819',
+                      '#1a1b1c',
+                      '#1d1e1f',
+                      '#202122',
+                      '#232425',
+                    },
+                    brights = {
+                      '#262728',
+                      '#292a2b',
+                      '#2c2d2e',
+                      '#2f3031',
+                      '#323334',
+                      '#353637',
+                      '#38393a',
+                      '#3b3c3d',
+                    },
+                    indexed = {
+                      [136] = '#070809',
+                    },
+                  },
+                },
+                colors = {
+                  compose_cursor = '#0d0e0f',
+                },
+              })
+              local palette = window:effective_config().resolved_palette
+              window:set_right_status(
+                'scheme=' .. tostring(window:effective_config().color_scheme)
+                  .. ' dir=' .. tostring(window:effective_config().color_scheme_dirs[2])
+                  .. ' fg=' .. tostring(palette.foreground)
+                  .. ' bg=' .. tostring(palette.background)
+                  .. ' compose=' .. tostring(palette.compose_cursor)
+              )
+            end)
+            "##,
+        )
+        .expect("expected WezTerm set_config_overrides color scheme callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.font_size,
+            NativeFontSize::from_millipoints(14_000)
+        );
+        assert_eq!(effective.color_scheme, Some("Runtime Scheme".to_owned()));
+        assert_eq!(
+            effective.color_scheme_dirs,
+            vec![
+                "runtime-colors".to_owned(),
+                "/opt/runtime-colors".to_owned()
+            ]
+        );
+        let scheme = effective
+            .color_schemes
+            .get("Runtime Scheme")
+            .expect("expected retained Runtime Scheme");
+        assert_eq!(scheme.foreground, Color::Rgb(1, 2, 3));
+        assert_eq!(scheme.background, Color::Rgb(4, 5, 6));
+        assert_eq!(scheme.ansi[1], Color::Rgb(17, 18, 19));
+        assert_eq!(scheme.brights[1], Color::Rgb(41, 42, 43));
+        assert_eq!(scheme.indexed[136], Some(Color::Rgb(7, 8, 9)));
+        assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
+        assert_eq!(effective.background_color, Color::Rgb(4, 5, 6));
+        assert_eq!(effective.compose_cursor_color, Some(Color::Rgb(13, 14, 15)));
+        let resolved = effective.resolved_palette;
+        assert_eq!(resolved.foreground, Color::Rgb(1, 2, 3));
+        assert_eq!(resolved.background, Color::Rgb(4, 5, 6));
+        assert_eq!(resolved.ansi[1], Color::Rgb(17, 18, 19));
+        assert_eq!(resolved.brights[1], Color::Rgb(41, 42, 43));
+        assert_eq!(resolved.indexed[136], Some(Color::Rgb(7, 8, 9)));
+        assert_eq!(resolved.compose_cursor, Some(Color::Rgb(13, 14, 15)));
+        assert_eq!(
+            app.right_status,
+            "scheme=Runtime Scheme dir=/opt/runtime-colors fg=#010203 bg=#040506 compose=#0d0e0f"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
