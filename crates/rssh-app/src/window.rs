@@ -6729,10 +6729,7 @@ fn lua_static_callback_query_from_expression_with_call_tail<'a>(
         return None;
     }
 
-    let value = lua_static_table_field_path_assignment_value_before_offset_from_query(
-        source, name, &keys, start,
-    )?;
-    lua_static_callback_query_from_resolved_expression_value(source, start, value, alias_depth)
+    lua_static_callback_query_from_table_field_path(source, start, name, &keys, alias_depth)
 }
 
 fn lua_static_callback_query_from_expression<'a>(
@@ -6808,10 +6805,28 @@ fn lua_static_callback_query_from_expression_with_depth<'a>(
         return None;
     }
 
-    let value = lua_static_table_field_path_assignment_value_before_offset_from_query(
-        source, name, &keys, start,
-    )?;
-    lua_static_callback_query_from_resolved_expression_value(source, start, value, alias_depth)
+    lua_static_callback_query_from_table_field_path(source, start, name, &keys, alias_depth)
+}
+
+fn lua_static_callback_query_from_table_field_path<'a>(
+    source: &'a str,
+    start: usize,
+    variable: &str,
+    keys: &[String],
+    alias_depth: usize,
+) -> Option<Cow<'a, str>> {
+    if let Some(value) = lua_static_table_field_path_assignment_value_before_offset_from_query(
+        source, variable, keys, start,
+    ) {
+        return lua_static_callback_query_from_resolved_expression_value(
+            source,
+            start,
+            value,
+            alias_depth,
+        );
+    }
+
+    lua_static_table_field_path_function_callback_before_offset(source, variable, keys, start)
 }
 
 fn lua_static_callback_query_from_resolved_expression_value<'a>(
@@ -7001,6 +7016,29 @@ fn lua_static_named_function_statement_before_offset<'a>(
     selected
 }
 
+fn lua_static_table_field_path_function_callback_before_offset<'a>(
+    source: &'a str,
+    variable: &str,
+    keys: &[String],
+    max_start: usize,
+) -> Option<Cow<'a, str>> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let Some(statement) = lua_top_level_function_statement_from_index(source, start) else {
+            continue;
+        };
+        let Some((params, body)) =
+            lua_table_field_function_params_and_body_from_statement(statement, variable, keys)
+        else {
+            continue;
+        };
+        selected = Some(Cow::Owned(format!("function({params}){body} end")));
+    }
+
+    selected
+}
+
 fn lua_named_function_params_and_body_from_statement<'a>(
     statement: &'a str,
     function_name: &str,
@@ -7015,6 +7053,31 @@ fn lua_named_function_params_and_body_from_statement<'a>(
         return None;
     }
     let rest = lua_trim_start_comments(rest.get(name.len()..)?)?.strip_prefix('(')?;
+    let (params, body_start) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let body = lua_static_function_body_until_end(body_start)?;
+    Some((params, body))
+}
+
+fn lua_table_field_function_params_and_body_from_statement<'a>(
+    statement: &'a str,
+    variable: &str,
+    keys: &[String],
+) -> Option<(&'a str, &'a str)> {
+    if !lua_source_keyword_at(statement, 0, "function") {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(statement.get("function".len()..)?)?;
+    let name = lua_identifier_literal_from_query(rest)?;
+    if name != variable {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(name.len()..)?)?;
+    let (parsed_keys, rest) = lua_table_map_field_path_from_query_with_static_source(None, rest)?;
+    if parsed_keys != keys {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('(')?;
     let (params, body_start) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
     let body = lua_static_function_body_until_end(body_start)?;
     Some((params, body))
@@ -20853,8 +20916,20 @@ fn lua_top_level_statement_start_indices_before_offset(
             continue;
         }
 
-        if lua_source_keyword_at(source, index, "function")
-            || lua_source_keyword_at(source, index, "then")
+        if lua_source_keyword_at(source, index, "function") {
+            if lua_block_depth == 0
+                && table_depth == 0
+                && paren_depth == 0
+                && !character.is_whitespace()
+                && lua_source_index_starts_statement(source, index)
+            {
+                starts.push(index);
+            }
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+
+        if lua_source_keyword_at(source, index, "then")
             || lua_source_keyword_at(source, index, "do")
             || lua_source_keyword_at(source, index, "repeat")
         {
@@ -97464,6 +97539,31 @@ mod tests {
         assert_eq!(
             app.effective_window_title(),
             "NESTED TABLE FIELD ASSIGNMENT CALLBACK TITLE"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_nested_table_named_function_callback() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            local callbacks = {}
+            callbacks.window = {}
+            function callbacks.window.title(tab, pane, tabs, panes, config)
+              return 'NESTED TABLE NAMED FUNCTION CALLBACK TITLE'
+            end
+
+            wezterm.on('format-window-title', callbacks.window.title)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title nested table named function callback");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.effective_window_title(),
+            "NESTED TABLE NAMED FUNCTION CALLBACK TITLE"
         );
     }
 
