@@ -59714,8 +59714,8 @@ fn lua_static_wezterm_gradient_color_array_alias_query_from_query(
     let kind = lua_static_wezterm_gradient_color_array_alias_kind_before_offset(
         source, alias, max_start,
     )??;
-    let rest = query.get(alias.len()..)?;
-    if !matches!(rest.trim_start().chars().next()?, '(') {
+    let rest = lua_trim_start_comments(query.get(alias.len()..)?)?;
+    if !matches!(rest.chars().next()?, '(') {
         return None;
     }
 
@@ -75245,6 +75245,46 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_color_gradient_static_alias_comment_call() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local gradient = wezterm.color.gradient
+
+            config.window_background_gradient = {
+              colors = gradient -- stops
+                ({
+                  colors = { '#141516', '#242526' },
+                }, 2),
+              noise = 0,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.gradient static alias comment config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
+                segment: None,
+                preset: None,
+                opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
+                hsb: super::native_identity_hsb(),
+                colors: vec![Color::Rgb(20, 21, 22), Color::Rgb(36, 37, 38)],
+            })
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_color_parse_static_alias_for_window_background_gradient_colors() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -75357,6 +75397,46 @@ mod tests {
                 blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(37, 38, 39), Color::Rgb(53, 54, 55)],
+            })
+        );
+    }
+
+    #[test]
+    fn window_app_parses_legacy_wezterm_gradient_colors_static_alias_comment_call() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local gradient_colors = wezterm.gradient_colors
+
+            config.window_background_gradient = {
+              colors = gradient_colors -- stops
+                ({
+                  colors = { '#28292a', '#38393a' },
+                }, 2),
+              noise = 0,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected legacy WezTerm gradient_colors static alias comment config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
+                segment: None,
+                preset: None,
+                opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
+                hsb: super::native_identity_hsb(),
+                colors: vec![Color::Rgb(40, 41, 42), Color::Rgb(56, 57, 58)],
             })
         );
     }

@@ -3192,7 +3192,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `colors = wezterm.color.gradient(...)` and the legacy
   `colors = wezterm.gradient_colors(...)` helper forms now parse directly or
   through top-level static helper aliases for static inline gradient specs or
-  static top-level gradient table variables.
+  static top-level gradient table variables, with Lua comments allowed before
+  static alias call payloads.
   Static `config.colors` scalar, ANSI/bright/indexed palette, selection,
   tab-bar, visual-bell, selector overlay colors, `win32_acrylic_accent_color`,
   `integrated_title_button_color`, `config.background` Color sources,
