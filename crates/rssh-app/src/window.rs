@@ -16323,10 +16323,7 @@ fn lua_wezterm_font_family_call_assignment_value_from_query(query: &str) -> Opti
 
 fn lua_wezterm_font_with_fallback_call_assignment_value_from_query(query: &str) -> Option<&str> {
     let query = lua_trim_start_comments(query)?;
-    let call = query.find(".font_with_fallback")?;
-    let mut rest = query
-        .get(call + ".font_with_fallback".len()..)?
-        .trim_start();
+    let mut rest = lua_function_name_rest_from_query(query, "wezterm.font_with_fallback")?;
     let mut rest_start = query.len() - rest.len();
     let parenthesized = rest.starts_with('(');
     if parenthesized {
@@ -26797,10 +26794,7 @@ fn parse_wezterm_font_with_fallback_attributes_value(
     value: &str,
 ) -> Option<NativeFontAttributes> {
     let value = value.trim();
-    let call = value.find(".font_with_fallback")?;
-    let mut rest = value
-        .get(call + ".font_with_fallback".len()..)?
-        .trim_start();
+    let mut rest = lua_function_name_rest_from_query(value, "wezterm.font_with_fallback")?;
     let parenthesized = rest.starts_with('(');
     if let Some(stripped) = rest.strip_prefix('(') {
         rest = stripped.trim_start();
@@ -26822,10 +26816,7 @@ fn parse_wezterm_font_with_fallback_primary_attributes_value(
     source: &str,
     value: &str,
 ) -> Option<NativeFontAttributes> {
-    let call = value.find(".font_with_fallback")?;
-    let mut rest = value
-        .get(call + ".font_with_fallback".len()..)?
-        .trim_start();
+    let mut rest = lua_function_name_rest_from_query(value, "wezterm.font_with_fallback")?;
     if let Some(stripped) = rest.strip_prefix('(') {
         rest = stripped.trim_start();
     }
@@ -26952,10 +26943,7 @@ fn parse_wezterm_font_with_fallback_families_value(
     value: &str,
 ) -> Option<Vec<String>> {
     let value = value.trim();
-    let call = value.find(".font_with_fallback")?;
-    let mut rest = value
-        .get(call + ".font_with_fallback".len()..)?
-        .trim_start();
+    let mut rest = lua_function_name_rest_from_query(value, "wezterm.font_with_fallback")?;
     if let Some(stripped) = rest.strip_prefix('(') {
         rest = stripped.trim_start();
     }
@@ -125348,6 +125336,28 @@ mod tests {
             effective.contains("font_fallbacks: [\"Noto Color Emoji\"]"),
             "effective config should expose WezTerm fallback font families: {effective:?}"
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_with_fallback_dotted_comment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font = wezterm. -- fallback helper
+              font_with_fallback { 'JetBrains Mono', 'Noto Color Emoji' }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font_with_fallback dotted comment config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(effective.font_fallbacks, vec!["Noto Color Emoji"]);
     }
 
     #[test]

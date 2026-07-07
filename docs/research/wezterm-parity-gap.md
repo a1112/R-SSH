@@ -344,10 +344,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `DEFAULT` below 100 DPI or `NO_HINTING` at 100 DPI or higher, plus
   top-level static table variables and `table.insert(config.font_dirs, ...)`
   appends for `config.font_dirs`. `config.font` accepts static `wezterm.font`
-  and `wezterm.font_with_fallback` calls, including top-level static helper
+  and `wezterm.font_with_fallback` calls, including Lua comments inside direct
+  `wezterm.font_with_fallback` dotted helper paths, top-level static helper
   aliases with Lua comments inside the dotted helper path or before the call
-  payload and static font value variables, retaining the primary family, fallback families, and supported
-  font attributes in effective config.
+  payload and static font value variables, retaining the primary family,
+  fallback families, and supported font attributes in effective config.
   Direct or `table.insert`-appended `config.font_rules[*]` entries use the same
   static variable expansion for static field-name keys, font values, and
   matcher fields so rule-specific attributes are retained.
