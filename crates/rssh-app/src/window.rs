@@ -57928,18 +57928,12 @@ fn lua_format_item_assignment_value_from_query(
         max_start,
     )
     .or_else(|| {
-        lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)
-            .map(str::to_owned)
-    })
-    .or_else(|| {
-        outer_static_source.and_then(|outer_static_source| {
-            lua_static_string_variable_assignment_before_offset_from_query(
-                outer_static_source.source,
-                variable,
-                outer_static_source.max_start,
-            )
-            .map(str::to_owned)
-        })
+        lua_format_item_string_variable_assignment_from_sources(
+            source,
+            outer_static_source,
+            variable,
+            max_start,
+        )
     })
 }
 
@@ -58033,6 +58027,87 @@ fn lua_static_identifier_statement_value_from_query(value: &str) -> Option<&str>
     lua_static_identifier_value_rest_is_statement_end(rest).then_some(variable)
 }
 
+fn lua_format_item_string_variable_assignment_from_sources(
+    source: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    variable: &str,
+    max_start: usize,
+) -> Option<String> {
+    lua_format_item_string_variable_assignment_from_sources_with_depth(
+        source,
+        outer_static_source,
+        variable,
+        max_start,
+        0,
+    )
+}
+
+fn lua_format_item_string_variable_assignment_from_sources_with_depth(
+    source: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    variable: &str,
+    max_start: usize,
+    depth: usize,
+) -> Option<String> {
+    if depth > 8 {
+        return None;
+    }
+
+    if let Some(value) =
+        lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)
+    {
+        return Some(value.to_owned());
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(value) = lua_static_string_variable_assignment_before_offset_from_query(
+            outer_static_source.source,
+            variable,
+            outer_static_source.max_start,
+        )
+    {
+        return Some(value.to_owned());
+    }
+
+    let alias = lua_static_expression_variable_assignment_before_offset_from_query(
+        source, variable, max_start,
+    )
+    .and_then(lua_static_identifier_statement_value_from_query);
+    if let Some(alias) = alias
+        && alias != variable
+        && let Some(value) = lua_format_item_string_variable_assignment_from_sources_with_depth(
+            source,
+            outer_static_source,
+            alias,
+            max_start,
+            depth + 1,
+        )
+    {
+        return Some(value);
+    }
+
+    if let Some(outer_static_source) = outer_static_source {
+        let alias = lua_static_expression_variable_assignment_before_offset_from_query(
+            outer_static_source.source,
+            variable,
+            outer_static_source.max_start,
+        )
+        .and_then(lua_static_identifier_statement_value_from_query);
+        if let Some(alias) = alias
+            && alias != variable
+        {
+            return lua_format_item_string_variable_assignment_from_sources_with_depth(
+                source,
+                Some(outer_static_source),
+                alias,
+                max_start,
+                depth + 1,
+            );
+        }
+    }
+
+    None
+}
+
 fn lua_static_format_items_table_variable_insert_append_value_from_query(
     source: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
@@ -58117,18 +58192,12 @@ fn lua_format_item_insert_argument_value_from_query(
         max_start,
     )
     .or_else(|| {
-        lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)
-            .map(str::to_owned)
-    })
-    .or_else(|| {
-        outer_static_source.and_then(|outer_static_source| {
-            lua_static_string_variable_assignment_before_offset_from_query(
-                outer_static_source.source,
-                variable,
-                outer_static_source.max_start,
-            )
-            .map(str::to_owned)
-        })
+        lua_format_item_string_variable_assignment_from_sources(
+            source,
+            outer_static_source,
+            variable,
+            max_start,
+        )
     })
 }
 
@@ -89778,6 +89847,49 @@ mod tests {
         let start_column = tab_bar
             .find("RIGHT-INSERT-TOP-VAR")
             .expect("local format item table.insert top-level string variable status should render without escape bytes");
+        let styled_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(start_column).unwrap()).unwrap();
+        let plain_cell = snapshot_cell(
+            &snapshot,
+            0,
+            u16::try_from(start_column + "RIGHT".len()).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(styled_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_ne!(plain_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_update_status_event_local_format_items_table_insert_top_level_string_alias()
+     {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local reset = 'ResetAttributes'
+
+            wezterm.on('update-status', function(window, pane)
+              local item = reset
+              local elements = {}
+              table.insert(elements, { Foreground = { Color = '#010203' } })
+              table.insert(elements, { Text = 'RIGHT' })
+              table.insert(elements, item)
+              table.insert(elements, { Text = '-INSERT-STRING-ALIAS' })
+              window:set_right_status(wezterm.format(elements))
+            end)
+            "##,
+        )
+        .expect("expected static WezTerm update-status local format item table.insert top-level string alias config");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let start_column = tab_bar
+            .find("RIGHT-INSERT-STRING-ALIAS")
+            .expect("local format item table.insert top-level string alias status should render without escape bytes");
         let styled_cell =
             snapshot_cell(&snapshot, 0, u16::try_from(start_column).unwrap()).unwrap();
         let plain_cell = snapshot_cell(

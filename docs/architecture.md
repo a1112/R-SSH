@@ -2189,7 +2189,7 @@ keyboard, mouse, paste, resize
   table or string items can resolve from callback-local or top-level static
   variables, including `table.insert(elements, accent)` or
   `table.insert(elements, reset)`, plus callback-local aliases to those
-  top-level static item tables.
+  top-level static item tables or strings.
   Arbitrary Lua status callbacks, dynamic `wezterm.format` construction, and
   remaining window status API wiring and real keyboard LED tracking remain
   future parity work.

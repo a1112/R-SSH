@@ -1992,7 +1992,7 @@ runtime storage for tabs and split panes.
   table or string items can resolve from callback-local or top-level static
   variables, including `table.insert(elements, accent)` or
   `table.insert(elements, reset)`, plus callback-local aliases to those
-  top-level static item tables. Arbitrary Lua callbacks,
+  top-level static item tables or strings. Arbitrary Lua callbacks,
   dynamic `wezterm.format` construction, remaining window status APIs, and
   real keyboard LED tracking remain later parity work.
 - `rssh-app` dispatches a typed native-window `new-tab-button-click` hook for
