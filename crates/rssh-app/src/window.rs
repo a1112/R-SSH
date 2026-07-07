@@ -59675,12 +59675,8 @@ fn lua_wezterm_gradient_color_array_from_query(
         static_source.max_start,
     );
     let value = resolved_value.as_deref().unwrap_or(value);
-    let rest = value
-        .strip_prefix("wezterm.color.gradient")
-        .or_else(|| value.strip_prefix("wezterm.gradient_colors"))?;
-    if rest.chars().next().is_some_and(is_lua_identifier_character) {
-        return None;
-    }
+    let rest = lua_function_name_rest_from_query(value, "wezterm.color.gradient")
+        .or_else(|| lua_function_name_rest_from_query(value, "wezterm.gradient_colors"))?;
 
     let rest = lua_trim_start_comments(rest)?.strip_prefix('(')?;
     let rest = lua_trim_start_comments(rest)?;
@@ -75220,6 +75216,45 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_color_gradient_dotted_comment_call() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_background_gradient = {
+              colors = wezterm.color -- gradient namespace
+                .gradient({
+                  colors = { '#050607', '#151617' },
+                }, 2),
+              noise = 0,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.gradient dotted comment config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
+                segment: None,
+                preset: None,
+                opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
+                hsb: super::native_identity_hsb(),
+                colors: vec![Color::Rgb(5, 6, 7), Color::Rgb(21, 22, 23)],
+            })
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_color_gradient_static_alias() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -75372,6 +75407,45 @@ mod tests {
                 blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(32, 33, 34), Color::Rgb(48, 49, 50)],
+            })
+        );
+    }
+
+    #[test]
+    fn window_app_parses_legacy_wezterm_gradient_colors_dotted_comment_call() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_background_gradient = {
+              colors = wezterm -- legacy gradient helper
+                .gradient_colors({
+                  colors = { '#292a2b', '#393a3b' },
+                }, 2),
+              noise = 0,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected legacy WezTerm gradient_colors dotted comment config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
+                segment: None,
+                preset: None,
+                opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
+                hsb: super::native_identity_hsb(),
+                colors: vec![Color::Rgb(41, 42, 43), Color::Rgb(57, 58, 59)],
             })
         );
     }
