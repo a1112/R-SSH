@@ -57567,6 +57567,9 @@ fn tab_bar_item_underline_from_query(value: &str) -> Option<NativeFormatUnderlin
         "None" => Some(NativeFormatUnderline::None),
         "Single" => Some(NativeFormatUnderline::Single),
         "Double" => Some(NativeFormatUnderline::Double),
+        "Curly" => Some(NativeFormatUnderline::Curly),
+        "Dotted" => Some(NativeFormatUnderline::Dotted),
+        "Dashed" => Some(NativeFormatUnderline::Dashed),
         _ => None,
     }
 }
@@ -90570,6 +90573,66 @@ mod tests {
         assert_eq!(
             new_tab_cell.underline_style,
             rssh_terminal::UnderlineStyle::Single
+        );
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_tab_bar_item_extended_underline_styles() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              tab_bar = {
+                active_tab = {
+                  underline = 'Curly',
+                },
+                inactive_tab = {
+                  underline = 'Dotted',
+                },
+                new_tab = {
+                  underline = 'Dashed',
+                },
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar item extended underline style config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let inactive_column = tab_bar
+            .find("1:1")
+            .expect("inactive tab label should be visible");
+        let active_column = tab_bar
+            .find("2:2*")
+            .expect("active tab label should be visible");
+        let new_tab_column = tab_bar.find('+').expect("new-tab button should be visible");
+        let inactive_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(inactive_column).unwrap()).unwrap();
+        let active_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(active_column).unwrap()).unwrap();
+        let new_tab_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(new_tab_column).unwrap()).unwrap();
+
+        assert_eq!(
+            active_cell.underline_style,
+            rssh_terminal::UnderlineStyle::Curly
+        );
+        assert_eq!(
+            inactive_cell.underline_style,
+            rssh_terminal::UnderlineStyle::Dotted
+        );
+        assert_eq!(
+            new_tab_cell.underline_style,
+            rssh_terminal::UnderlineStyle::Dashed
         );
     }
 

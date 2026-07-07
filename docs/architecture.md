@@ -232,6 +232,9 @@ keyboard, mouse, paste, resize
   labels honor `tab_bar_style` edge `wezterm.format` items, and the new-tab
   button honors the current WezTerm `tab_bar_style.new_tab`/`new_tab_hover`
   full-button format fields while retaining the legacy left/right edge fields.
+  Static `colors.tab_bar` item styles for active/inactive/new tabs parse
+  intensity, italic, strikethrough, and underline values including
+  `None`/`Single`/`Double`/`Curly`/`Dotted`/`Dashed`.
   These fields parse inline or through top-level static table variables,
   including top-level
   `config[static_name].active_tab_left`/`active_tab_right`/`inactive_tab_left`/

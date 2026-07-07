@@ -142,7 +142,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   inactive-tab, plus new-tab button labels honor the corresponding
   `colors.tab_bar.active_tab`, `colors.tab_bar.inactive_tab`, and
   `colors.tab_bar.new_tab` `fg_color`/`bg_color` plus
-  `intensity`/`underline`/`italic`/`strikethrough` entries; inactive-tab hover
+  `intensity`/`underline`/`italic`/`strikethrough` entries, with underline
+  values including `None`/`Single`/`Double`/`Curly`/`Dotted`/`Dashed`;
+  inactive-tab hover
   and new-tab button hover labels honor `colors.tab_bar.inactive_tab_hover`
   and `colors.tab_bar.new_tab_hover` `fg_color`/`bg_color` plus
   `intensity`/`underline`/`italic`/`strikethrough`. Retro tab labels honor
@@ -3356,6 +3358,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `new_tab_hover` `fg_color`/`bg_color` plus
   `intensity`/`underline`/`italic`/`strikethrough` entries parse into
   native/effective config and apply to tab/new-tab labels, including
+  underline values `None`/`Single`/`Double`/`Curly`/`Dotted`/`Dashed` and
   top-level static-key config mutations through `config[static_name].tab_bar`
   where `static_name` resolves to `colors`; `tab_bar_style`
   active/inactive/inactive-hover/new-tab/new-tab-hover left/right edge
