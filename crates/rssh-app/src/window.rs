@@ -53346,11 +53346,7 @@ fn send_string_lua_table_from_query_with_static_source(
 
 fn strip_lua_function_call_from_query<'a>(query: &'a str, name: &str) -> Option<&'a str> {
     let query = query.trim();
-    let candidate = query.get(..name.len())?;
-    let rest = lua_trim_start_comments(query.get(name.len()..)?)?;
-    if !candidate.eq_ignore_ascii_case(name) {
-        return None;
-    }
+    let rest = lua_function_name_rest_from_query(query, name)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
     let (arguments, tail) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
     lua_trim_start_comments(tail)
@@ -53359,6 +53355,29 @@ fn strip_lua_function_call_from_query<'a>(query: &'a str, name: &str) -> Option<
         .then_some(arguments)
         .and_then(lua_trim_start_comments)
         .and_then(lua_trim_end_comments)
+}
+
+fn lua_function_name_rest_from_query<'a>(query: &'a str, name: &str) -> Option<&'a str> {
+    let mut query = query;
+    for (index, segment) in name.split('.').enumerate() {
+        if index > 0 {
+            query = lua_trim_start_comments(query)?.strip_prefix('.')?;
+            query = lua_trim_start_comments(query)?;
+        }
+        let candidate = query.get(..segment.len())?;
+        if !candidate.eq_ignore_ascii_case(segment) {
+            return None;
+        }
+        query = query.get(segment.len()..)?;
+        if query
+            .chars()
+            .next()
+            .is_some_and(is_lua_identifier_character)
+        {
+            return None;
+        }
+    }
+    lua_trim_start_comments(query)
 }
 
 fn send_key_from_query(query: &str) -> Option<WindowSendKey> {
@@ -75574,6 +75593,39 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
         assert_eq!(effective.background_color, Color::Rgb(4, 5, 6));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(7, 8, 9));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_dotted_comment_for_lua_colors_fields() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = wezterm.color -- foreground parser
+                .parse('#0a0b0c'),
+              background = wezterm -- background namespace
+                .color.parse('#0d0e0f'),
+              cursor_bg = wezterm.color -- cursor parser
+                .parse('rgb(16,17,18)'),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse dotted comment colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let colors = effective.colors.expect("expected retained colors palette");
+        assert_eq!(colors.foreground, Some(Color::Rgb(10, 11, 12)));
+        assert_eq!(colors.background, Some(Color::Rgb(13, 14, 15)));
+        assert_eq!(colors.cursor_bg, Some(Color::Rgb(16, 17, 18)));
+        assert_eq!(effective.foreground_color, Color::Rgb(10, 11, 12));
+        assert_eq!(effective.background_color, Color::Rgb(13, 14, 15));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(16, 17, 18));
     }
 
     #[test]
