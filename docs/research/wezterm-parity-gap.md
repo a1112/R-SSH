@@ -1163,7 +1163,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   KeyAssignments such as `wezterm.action.SendString 'text'`,
   `act.SendString('text')`, `wezterm.action.SendString { string = 'text' }`,
   and `wezterm.action { SendString = { string = 'text' } }`, including Lua
-  comments inside parenthesized function-call arguments, plus `SendKey`
+  comments before string-call payloads or inside parenthesized function-call
+  arguments, plus `SendKey`
   KeyAssignments such as `wezterm.action.SendKey { key = 'b', mods = 'ALT' }`,
   `act.SendKey({ key = 'LeftArrow', mods = 'ALT' })`, and
   `wezterm.action { SendKey = { key = 'b', mods = 'ALT' } }`, plus

@@ -53252,12 +53252,16 @@ fn send_string_from_query_with_static_source(
     query: &str,
 ) -> Option<String> {
     let indexed_query;
+    let is_wezterm_action_query;
     let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        is_wezterm_action_query = true;
         query
     } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        is_wezterm_action_query = true;
         indexed_query = query;
         indexed_query.as_str()
     } else {
+        is_wezterm_action_query = false;
         query
     };
 
@@ -53284,6 +53288,11 @@ fn send_string_from_query_with_static_source(
         query,
         &["send string=", "send string ", "sendstring=", "sendstring "],
     )?;
+    let value = if is_wezterm_action_query {
+        lua_trim_start_comments(value)?
+    } else {
+        value
+    };
     let value = strip_query_prefix_from_any(value, &["string=", "string "]).unwrap_or(value);
     parse_maybe_static_query_text(static_source, value)
 }
@@ -60196,6 +60205,21 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
                     line_comment = true;
                     continue;
                 }
+                if let Some(rest) = lua_trim_start_comments(&field[index..])
+                    && lua_expression_continuation_after_comment(rest)
+                {
+                    if let Some((content_start, closing)) =
+                        parse_lua_long_bracket_delimiters(&field[index + 2..])
+                    {
+                        let content_and_rest = &field[index + 2 + content_start..];
+                        let close_index = content_and_rest.find(&closing)?;
+                        block_comment_end =
+                            Some(index + 2 + content_start + close_index + closing.len());
+                        continue;
+                    }
+                    line_comment = true;
+                    continue;
+                }
                 return Some((&field[..key_end], &field[value_start..index]));
             }
             if key_end_before_comment.is_none() && !field[..index].trim().is_empty() {
@@ -60242,6 +60266,15 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
         &field[..key_end],
         lua_trim_start_comments(&field[value_start..])?,
     ))
+}
+
+fn lua_expression_continuation_after_comment(rest: &str) -> bool {
+    let rest = rest.trim_start();
+    rest.starts_with('\'')
+        || rest.starts_with('"')
+        || rest.starts_with('{')
+        || rest.starts_with('(')
+        || lua_long_bracket_literal_from_query(rest).is_some()
 }
 
 fn split_pane_table_size_from_query_with_static_source(
@@ -114208,6 +114241,37 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+C".to_owned(),
                 command: WindowCommand::SendString("from-commented-call".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_action_string_call_comment() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'S',
+                mods = 'CTRL|SHIFT',
+                action = act.SendString -- payload
+                  'from-commented-string-call',
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key action string call comment config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+S".to_owned(),
+                command: WindowCommand::SendString("from-commented-string-call".to_owned()),
             }])
         );
     }
