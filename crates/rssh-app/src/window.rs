@@ -53353,7 +53353,15 @@ fn strip_lua_function_call_from_query<'a>(query: &'a str, name: &str) -> Option<
 }
 
 fn lua_function_name_rest_from_query<'a>(query: &'a str, name: &str) -> Option<&'a str> {
-    let mut query = query;
+    lua_dotted_identifier_rest_from_query_preserving_tail(query, name)
+        .and_then(lua_trim_start_comments)
+}
+
+fn lua_dotted_identifier_rest_from_query_preserving_tail<'a>(
+    query: &'a str,
+    name: &str,
+) -> Option<&'a str> {
+    let mut query = query.trim_start();
     for (index, segment) in name.split('.').enumerate() {
         if index > 0 {
             query = lua_trim_start_comments(query)?.strip_prefix('.')?;
@@ -53372,7 +53380,7 @@ fn lua_function_name_rest_from_query<'a>(query: &'a str, name: &str) -> Option<&
             return None;
         }
     }
-    lua_trim_start_comments(query)
+    Some(query)
 }
 
 fn send_key_from_query(query: &str) -> Option<WindowSendKey> {
@@ -58874,11 +58882,19 @@ fn lua_static_wezterm_color_parse_alias_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_top_level_statement_value_from_query(value)
-            .is_some_and(|value| value.trim() == "wezterm.color.parse");
+        selected = lua_static_wezterm_color_parse_alias_value_from_query(value);
     }
 
     Some(selected)
+}
+
+fn lua_static_wezterm_color_parse_alias_value_from_query(value: &str) -> bool {
+    let Some(rest) =
+        lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.color.parse")
+    else {
+        return false;
+    };
+    lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
 fn color_spec_lua_table_field_from_query_with_static_source(
@@ -75726,6 +75742,38 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
         assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_static_alias_dotted_comment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color -- parser namespace
+              .parse
+
+            config.colors = {
+              foreground = parse_color('#111213'),
+              background = parse_color('#141516'),
+              cursor_bg = parse_color('rgb(23,24,25)'),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse dotted-comment static alias colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let colors = effective.colors.expect("expected retained colors palette");
+        assert_eq!(colors.foreground, Some(Color::Rgb(17, 18, 19)));
+        assert_eq!(colors.background, Some(Color::Rgb(20, 21, 22)));
+        assert_eq!(colors.cursor_bg, Some(Color::Rgb(23, 24, 25)));
+        assert_eq!(effective.foreground_color, Color::Rgb(17, 18, 19));
+        assert_eq!(effective.background_color, Color::Rgb(20, 21, 22));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(23, 24, 25));
     }
 
     #[test]
