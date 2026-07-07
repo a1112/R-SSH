@@ -10743,6 +10743,7 @@ fn lua_static_window_config_overrides_from_query(
         window_background_image_hsb: overrides.window_background_image_hsb,
         window_background_gradient: overrides.window_background_gradient,
         window_background_images: overrides.window_background_images,
+        window_background_layers: overrides.window_background_layers,
         kde_window_background_blur: overrides.kde_window_background_blur,
         macos_window_background_blur: overrides.macos_window_background_blur,
         win32_system_backdrop: overrides.win32_system_backdrop,
@@ -29934,6 +29935,7 @@ struct NativeLuaWindowConfigOverrides {
     window_background_image_hsb: Option<NativeInactivePaneHsb>,
     window_background_gradient: Option<NativeWindowBackgroundGradient>,
     window_background_images: Option<Vec<NativeWindowBackgroundImage>>,
+    window_background_layers: Option<Vec<NativeWindowBackgroundVisualLayer>>,
     kde_window_background_blur: Option<bool>,
     macos_window_background_blur: Option<u32>,
     win32_system_backdrop: Option<NativeWin32SystemBackdrop>,
@@ -30182,6 +30184,7 @@ impl NativeLuaWindowConfigOverrides {
             && self.window_background_image_hsb.is_none()
             && self.window_background_gradient.is_none()
             && self.window_background_images.is_none()
+            && self.window_background_layers.is_none()
             && self.kde_window_background_blur.is_none()
             && self.macos_window_background_blur.is_none()
             && self.win32_system_backdrop.is_none()
@@ -30500,6 +30503,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.window_background_images.is_some() {
             self.window_background_images = update.window_background_images;
+        }
+        if update.window_background_layers.is_some() {
+            self.window_background_layers = update.window_background_layers;
         }
         if update.kde_window_background_blur.is_some() {
             self.kde_window_background_blur = update.kde_window_background_blur;
@@ -31250,6 +31256,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(window_background_images) = self.window_background_images {
             overrides.window_background_images = Some(window_background_images);
+        }
+        if let Some(window_background_layers) = self.window_background_layers {
+            overrides.window_background_layers = Some(window_background_layers);
         }
         if let Some(kde_window_background_blur) = self.kde_window_background_blur {
             overrides.kde_window_background_blur = Some(kde_window_background_blur);
@@ -88819,6 +88828,79 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_window_background_layers() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                background = {
+                  {
+                    source = {
+                      Gradient = {
+                        orientation = 'Horizontal',
+                        colors = { '#ff0000', '#ff0000' },
+                        noise = 0,
+                      },
+                    },
+                  },
+                  {
+                    source = { Color = '#0000ff' },
+                    opacity = 0.5,
+                  },
+                },
+              })
+            end)
+            "##,
+        )
+        .expect("expected WezTerm set_config_overrides window_background_layers callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let expected = vec![
+            super::NativeWindowBackgroundVisualLayer::Gradient(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
+                segment: None,
+                preset: None,
+                opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
+                hsb: super::native_identity_hsb(),
+                colors: vec![Color::Rgb(255, 0, 0), Color::Rgb(255, 0, 0)],
+            }),
+            super::NativeWindowBackgroundVisualLayer::Color(Color::Rgba(0, 0, 255, 127)),
+        ];
+        let effective = app.native_effective_config();
+        assert_eq!(effective.background, expected);
+        assert_eq!(effective.window_background_layers, expected);
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
     }
 
     #[test]
