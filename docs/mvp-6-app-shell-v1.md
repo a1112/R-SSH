@@ -1193,7 +1193,8 @@ runtime storage for tabs and split panes.
   callback-local status variables update left or right status text from static
   strings, callback-local/top-level static string variables,
   `window:window_id()`, `pane:pane_id()`, and the event `name` and `value`
-  parameters.
+  parameters, plus callback-local `pane:get_user_vars()` reads for the
+  triggering pane.
 - `rssh-terminal` base64-decodes iTerm2 `OSC 1337;SetBadgeFormat` metadata into
   terminal badge format state. `rssh-app` syncs that badge metadata per pane for
   active and inactive panes, interpolates `\(user.NAME)` badge variables from
