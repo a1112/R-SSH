@@ -10709,6 +10709,15 @@ fn lua_static_window_config_overrides_from_query(
     let overrides = native_config_overrides_from_wezterm_lua_config(&config)?;
     Some(NativeLuaWindowConfigOverrides {
         font_size: overrides.font_size,
+        cell_width: overrides.cell_width,
+        cell_widths: overrides.cell_widths,
+        line_height: overrides.line_height,
+        font_antialias: overrides.font_antialias,
+        font_hinting: overrides.font_hinting,
+        font_rasterizer: overrides.font_rasterizer,
+        font_colr_rasterizer: overrides.font_colr_rasterizer,
+        font_shaper: overrides.font_shaper,
+        harfbuzz_features: overrides.harfbuzz_features,
         tab_max_width: overrides.tab_max_width,
         status_update_interval_ms: overrides.status_update_interval_ms,
         max_fps: overrides.max_fps,
@@ -29596,6 +29605,15 @@ struct NativeLuaWindowStatusUpdate {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct NativeLuaWindowConfigOverrides {
     font_size: Option<NativeFontSize>,
+    cell_width: Option<NativeCellWidth>,
+    cell_widths: Option<Vec<NativeCellWidthOverride>>,
+    line_height: Option<NativeLineHeight>,
+    font_antialias: Option<NativeFontAntialias>,
+    font_hinting: Option<NativeFontHinting>,
+    font_rasterizer: Option<NativeFontRasterizer>,
+    font_colr_rasterizer: Option<NativeFontRasterizer>,
+    font_shaper: Option<NativeFontShaper>,
+    harfbuzz_features: Option<Vec<String>>,
     tab_max_width: Option<usize>,
     status_update_interval_ms: Option<u64>,
     max_fps: Option<usize>,
@@ -29735,6 +29753,15 @@ struct NativeLuaWindowConfigOverrides {
 impl NativeLuaWindowConfigOverrides {
     fn is_empty(&self) -> bool {
         self.font_size.is_none()
+            && self.cell_width.is_none()
+            && self.cell_widths.is_none()
+            && self.line_height.is_none()
+            && self.font_antialias.is_none()
+            && self.font_hinting.is_none()
+            && self.font_rasterizer.is_none()
+            && self.font_colr_rasterizer.is_none()
+            && self.font_shaper.is_none()
+            && self.harfbuzz_features.is_none()
             && self.tab_max_width.is_none()
             && self.status_update_interval_ms.is_none()
             && self.max_fps.is_none()
@@ -29874,6 +29901,33 @@ impl NativeLuaWindowConfigOverrides {
     fn merge(&mut self, update: Self) {
         if update.font_size.is_some() {
             self.font_size = update.font_size;
+        }
+        if update.cell_width.is_some() {
+            self.cell_width = update.cell_width;
+        }
+        if update.cell_widths.is_some() {
+            self.cell_widths = update.cell_widths;
+        }
+        if update.line_height.is_some() {
+            self.line_height = update.line_height;
+        }
+        if update.font_antialias.is_some() {
+            self.font_antialias = update.font_antialias;
+        }
+        if update.font_hinting.is_some() {
+            self.font_hinting = update.font_hinting;
+        }
+        if update.font_rasterizer.is_some() {
+            self.font_rasterizer = update.font_rasterizer;
+        }
+        if update.font_colr_rasterizer.is_some() {
+            self.font_colr_rasterizer = update.font_colr_rasterizer;
+        }
+        if update.font_shaper.is_some() {
+            self.font_shaper = update.font_shaper;
+        }
+        if update.harfbuzz_features.is_some() {
+            self.harfbuzz_features = update.harfbuzz_features;
         }
         if update.tab_max_width.is_some() {
             self.tab_max_width = update.tab_max_width;
@@ -30290,6 +30344,33 @@ impl NativeLuaWindowConfigOverrides {
     fn apply_to_native_config_overrides(self, overrides: &mut NativeConfigOverrides) {
         if let Some(font_size) = self.font_size {
             overrides.font_size = Some(font_size);
+        }
+        if let Some(cell_width) = self.cell_width {
+            overrides.cell_width = Some(cell_width);
+        }
+        if let Some(cell_widths) = self.cell_widths {
+            overrides.cell_widths = Some(cell_widths);
+        }
+        if let Some(line_height) = self.line_height {
+            overrides.line_height = Some(line_height);
+        }
+        if let Some(font_antialias) = self.font_antialias {
+            overrides.font_antialias = Some(font_antialias);
+        }
+        if let Some(font_hinting) = self.font_hinting {
+            overrides.font_hinting = Some(font_hinting);
+        }
+        if let Some(font_rasterizer) = self.font_rasterizer {
+            overrides.font_rasterizer = Some(font_rasterizer);
+        }
+        if let Some(font_colr_rasterizer) = self.font_colr_rasterizer {
+            overrides.font_colr_rasterizer = Some(font_colr_rasterizer);
+        }
+        if let Some(font_shaper) = self.font_shaper {
+            overrides.font_shaper = Some(font_shaper);
+        }
+        if let Some(harfbuzz_features) = self.harfbuzz_features {
+            overrides.harfbuzz_features = Some(harfbuzz_features);
         }
         if let Some(tab_max_width) = self.tab_max_width {
             overrides.tab_max_width = Some(tab_max_width);
@@ -87045,6 +87126,107 @@ mod tests {
             NativeFontSize::from_millipoints(15_000)
         );
         assert_eq!(app.right_status, "font=15");
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_font_metrics_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                font_size = 13.5,
+                cell_width = 1.25,
+                cell_widths = {
+                  { first = 0x2606, last = 0x2606, width = 1 },
+                  { first = 0xe000, last = 0xf8ff, width = 2 },
+                },
+                line_height = 1.5,
+                font_antialias = 'Subpixel',
+                font_hinting = 'VerticalSubpixel',
+                font_rasterizer = 'Harfbuzz',
+                font_colr_rasterizer = 'FreeType',
+                font_shaper = 'Harfbuzz',
+                harfbuzz_features = { 'liga=0', 'calt=0' },
+              })
+              local config = window:effective_config()
+              local width = window:effective_config().cell_widths[2]
+              window:set_right_status(
+                'cell=' .. tostring(config.cell_width)
+                  .. ' line=' .. tostring(config.line_height)
+                  .. ' aa=' .. tostring(config.font_antialias)
+                  .. ' hint=' .. tostring(config.font_hinting)
+                  .. ' raster=' .. tostring(config.font_rasterizer)
+                  .. ' colr=' .. tostring(config.font_colr_rasterizer)
+                  .. ' shaper=' .. tostring(config.font_shaper)
+                  .. ' hb=' .. tostring(config.harfbuzz_features[2])
+                  .. ' width=' .. tostring(width.first)
+                  .. '/' .. tostring(width.last)
+                  .. '/' .. tostring(width.width)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides font metrics callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.font_size,
+            NativeFontSize::from_millipoints(13_500)
+        );
+        assert_eq!(effective.cell_width, NativeCellWidth::from_per_mille(1_250));
+        assert_eq!(
+            effective.cell_widths,
+            vec![
+                NativeCellWidthOverride::new(0x2606, 0x2606, 1),
+                NativeCellWidthOverride::new(0xe000, 0xf8ff, 2),
+            ]
+        );
+        assert_eq!(
+            effective.line_height,
+            NativeLineHeight::from_per_mille(1_500)
+        );
+        assert_eq!(effective.font_antialias, NativeFontAntialias::Subpixel);
+        assert_eq!(effective.font_hinting, NativeFontHinting::VerticalSubpixel);
+        assert_eq!(effective.font_rasterizer, NativeFontRasterizer::Harfbuzz);
+        assert_eq!(
+            effective.font_colr_rasterizer,
+            NativeFontRasterizer::FreeType
+        );
+        assert_eq!(effective.font_shaper, NativeFontShaper::Harfbuzz);
+        assert_eq!(
+            effective.harfbuzz_features,
+            vec!["liga=0".to_owned(), "calt=0".to_owned()]
+        );
+        assert_eq!(
+            app.right_status,
+            "cell=1.25 line=1.5 aa=Subpixel hint=VerticalSubpixel raster=Harfbuzz colr=FreeType shaper=Harfbuzz hb=calt=0 width=57344/63743/2"
+        );
         assert_eq!(
             events.lock().unwrap().as_slice(),
             [
