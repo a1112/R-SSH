@@ -8158,41 +8158,13 @@ fn lua_window_title_text_part_from_expression(
         return Some(NativeLuaWindowTitlePart::ActiveTabTitle);
     }
 
-    let tab_active_pane_title = format!("{tab_param}.active_pane.title");
-    if let Some(rest) = expression.strip_prefix(&tab_active_pane_title)
-        && lua_static_identifier_value_rest_is_statement_end(rest)
-    {
-        return Some(NativeLuaWindowTitlePart::ActivePaneTitle);
-    }
-
-    let tab_active_pane_domain_name = format!("{tab_param}.active_pane.domain_name");
-    if let Some(rest) = expression.strip_prefix(&tab_active_pane_domain_name)
-        && lua_static_identifier_value_rest_is_statement_end(rest)
-    {
-        return Some(NativeLuaWindowTitlePart::ActivePaneDomainName);
-    }
-
-    let tab_active_pane_foreground_process_name =
-        format!("{tab_param}.active_pane.foreground_process_name");
-    if let Some(rest) = expression.strip_prefix(&tab_active_pane_foreground_process_name)
-        && lua_static_identifier_value_rest_is_statement_end(rest)
-    {
-        return Some(NativeLuaWindowTitlePart::ActivePaneForegroundProcessName);
-    }
-
-    let tab_active_pane_current_working_dir =
-        format!("{tab_param}.active_pane.current_working_dir");
-    if let Some(rest) = expression.strip_prefix(&tab_active_pane_current_working_dir)
-        && lua_static_identifier_value_rest_is_statement_end(rest)
-    {
-        return Some(NativeLuaWindowTitlePart::ActivePaneCurrentWorkingDir);
-    }
-
-    let tab_active_pane_tty_name = format!("{tab_param}.active_pane.tty_name");
-    if let Some(rest) = expression.strip_prefix(&tab_active_pane_tty_name)
-        && lua_static_identifier_value_rest_is_statement_end(rest)
-    {
-        return Some(NativeLuaWindowTitlePart::ActivePaneTtyName);
+    for (field, part) in lua_window_title_active_pane_text_parts() {
+        let tab_active_pane_field = format!("{tab_param}.active_pane.{field}");
+        if let Some(rest) = expression.strip_prefix(&tab_active_pane_field)
+            && lua_static_identifier_value_rest_is_statement_end(rest)
+        {
+            return Some(part);
+        }
     }
 
     if let Some(receiver) = lua_identifier_literal_from_query(expression) {
@@ -8219,8 +8191,9 @@ fn lua_window_title_text_part_from_expression(
     lua_window_title_tab_index_format_part_from_expression(expression, tab_param, tabs_param)
 }
 
-fn lua_window_title_active_pane_text_parts() -> [(&'static str, NativeLuaWindowTitlePart); 5] {
+fn lua_window_title_active_pane_text_parts() -> [(&'static str, NativeLuaWindowTitlePart); 6] {
     [
+        ("pane_id", NativeLuaWindowTitlePart::ActivePaneId),
         (
             "domain_name",
             NativeLuaWindowTitlePart::ActivePaneDomainName,
@@ -30162,6 +30135,7 @@ impl NativeLuaWindowTitle {
 enum NativeLuaWindowTitlePart {
     Static(String),
     ActiveTabTitle,
+    ActivePaneId,
     ActivePaneTitle,
     ActivePaneDomainName,
     ActivePaneForegroundProcessName,
@@ -30182,6 +30156,7 @@ impl NativeLuaWindowTitlePart {
         match self {
             Self::Static(value) => Some(value.clone()),
             Self::ActiveTabTitle => event.active_tab_info.tab_title.clone(),
+            Self::ActivePaneId => Some(event.active_pane_info.pane_id.get().to_string()),
             Self::ActivePaneTitle => event.active_pane_info.title.clone(),
             Self::ActivePaneDomainName => Some(event.active_pane_info.domain_name.clone()),
             Self::ActivePaneForegroundProcessName => {
@@ -104753,6 +104728,26 @@ mod tests {
             app.effective_window_title(),
             "local:foreground-proc:/tmp/project:/dev/pts/9"
         );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_pane_id_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return pane.pane_id .. ':' .. tab.active_pane.pane_id
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title pane id return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "1:1");
     }
 
     #[test]
