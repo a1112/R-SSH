@@ -10763,6 +10763,14 @@ fn lua_static_window_config_overrides_from_query(
         use_ime: overrides.use_ime,
         use_dead_keys: overrides.use_dead_keys,
         detect_password_input: overrides.detect_password_input,
+        canonicalize_pasted_newlines: overrides.canonicalize_pasted_newlines,
+        quote_dropped_files: overrides.quote_dropped_files,
+        alternate_buffer_wheel_scroll_speed: overrides.alternate_buffer_wheel_scroll_speed,
+        bypass_mouse_reporting_modifiers: overrides.bypass_mouse_reporting_modifiers,
+        enable_scroll_bar: overrides.enable_scroll_bar,
+        scrollback_lines: overrides.scrollback_lines,
+        min_scroll_bar_height: overrides.min_scroll_bar_height,
+        unzoom_on_switch_pane: overrides.unzoom_on_switch_pane,
         scroll_to_bottom_on_input: overrides.scroll_to_bottom_on_input,
         disable_default_key_bindings: overrides.disable_default_key_bindings,
         disable_default_mouse_bindings: overrides.disable_default_mouse_bindings,
@@ -29581,6 +29589,14 @@ struct NativeLuaWindowConfigOverrides {
     use_ime: Option<bool>,
     use_dead_keys: Option<bool>,
     detect_password_input: Option<bool>,
+    canonicalize_pasted_newlines: Option<NativeCanonicalizePastedNewlines>,
+    quote_dropped_files: Option<NativeQuoteDroppedFiles>,
+    alternate_buffer_wheel_scroll_speed: Option<usize>,
+    bypass_mouse_reporting_modifiers: Option<ModifiersState>,
+    enable_scroll_bar: Option<bool>,
+    scrollback_lines: Option<usize>,
+    min_scroll_bar_height: Option<NativeScrollBarHeight>,
+    unzoom_on_switch_pane: Option<bool>,
     scroll_to_bottom_on_input: Option<bool>,
     disable_default_key_bindings: Option<bool>,
     disable_default_mouse_bindings: Option<bool>,
@@ -29657,6 +29673,14 @@ impl NativeLuaWindowConfigOverrides {
             && self.use_ime.is_none()
             && self.use_dead_keys.is_none()
             && self.detect_password_input.is_none()
+            && self.canonicalize_pasted_newlines.is_none()
+            && self.quote_dropped_files.is_none()
+            && self.alternate_buffer_wheel_scroll_speed.is_none()
+            && self.bypass_mouse_reporting_modifiers.is_none()
+            && self.enable_scroll_bar.is_none()
+            && self.scrollback_lines.is_none()
+            && self.min_scroll_bar_height.is_none()
+            && self.unzoom_on_switch_pane.is_none()
             && self.scroll_to_bottom_on_input.is_none()
             && self.disable_default_key_bindings.is_none()
             && self.disable_default_mouse_bindings.is_none()
@@ -29837,6 +29861,30 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.detect_password_input.is_some() {
             self.detect_password_input = update.detect_password_input;
+        }
+        if update.canonicalize_pasted_newlines.is_some() {
+            self.canonicalize_pasted_newlines = update.canonicalize_pasted_newlines;
+        }
+        if update.quote_dropped_files.is_some() {
+            self.quote_dropped_files = update.quote_dropped_files;
+        }
+        if update.alternate_buffer_wheel_scroll_speed.is_some() {
+            self.alternate_buffer_wheel_scroll_speed = update.alternate_buffer_wheel_scroll_speed;
+        }
+        if update.bypass_mouse_reporting_modifiers.is_some() {
+            self.bypass_mouse_reporting_modifiers = update.bypass_mouse_reporting_modifiers;
+        }
+        if update.enable_scroll_bar.is_some() {
+            self.enable_scroll_bar = update.enable_scroll_bar;
+        }
+        if update.scrollback_lines.is_some() {
+            self.scrollback_lines = update.scrollback_lines;
+        }
+        if update.min_scroll_bar_height.is_some() {
+            self.min_scroll_bar_height = update.min_scroll_bar_height;
+        }
+        if update.unzoom_on_switch_pane.is_some() {
+            self.unzoom_on_switch_pane = update.unzoom_on_switch_pane;
         }
         if update.scroll_to_bottom_on_input.is_some() {
             self.scroll_to_bottom_on_input = update.scroll_to_bottom_on_input;
@@ -30074,6 +30122,32 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(detect_password_input) = self.detect_password_input {
             overrides.detect_password_input = Some(detect_password_input);
+        }
+        if let Some(canonicalize_pasted_newlines) = self.canonicalize_pasted_newlines {
+            overrides.canonicalize_pasted_newlines = Some(canonicalize_pasted_newlines);
+        }
+        if let Some(quote_dropped_files) = self.quote_dropped_files {
+            overrides.quote_dropped_files = Some(quote_dropped_files);
+        }
+        if let Some(alternate_buffer_wheel_scroll_speed) = self.alternate_buffer_wheel_scroll_speed
+        {
+            overrides.alternate_buffer_wheel_scroll_speed =
+                Some(alternate_buffer_wheel_scroll_speed);
+        }
+        if let Some(bypass_mouse_reporting_modifiers) = self.bypass_mouse_reporting_modifiers {
+            overrides.bypass_mouse_reporting_modifiers = Some(bypass_mouse_reporting_modifiers);
+        }
+        if let Some(enable_scroll_bar) = self.enable_scroll_bar {
+            overrides.enable_scroll_bar = Some(enable_scroll_bar);
+        }
+        if let Some(scrollback_lines) = self.scrollback_lines {
+            overrides.scrollback_lines = Some(scrollback_lines);
+        }
+        if let Some(min_scroll_bar_height) = self.min_scroll_bar_height {
+            overrides.min_scroll_bar_height = Some(min_scroll_bar_height);
+        }
+        if let Some(unzoom_on_switch_pane) = self.unzoom_on_switch_pane {
+            overrides.unzoom_on_switch_pane = Some(unzoom_on_switch_pane);
         }
         if let Some(scroll_to_bottom_on_input) = self.scroll_to_bottom_on_input {
             overrides.scroll_to_bottom_on_input = Some(scroll_to_bottom_on_input);
@@ -86830,6 +86904,90 @@ mod tests {
         assert_eq!(
             app.right_status,
             "scroll=false keys=true mouse=true hide=false focus=true swallow-pane=true swallow-window=true"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_scroll_paste_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local overrides = {
+                canonicalize_pasted_newlines = 'CarriageReturnAndLineFeed',
+                quote_dropped_files = 'Posix',
+                alternate_buffer_wheel_scroll_speed = 3,
+                bypass_mouse_reporting_modifiers = 'ALT|SHIFT',
+                enable_scroll_bar = true,
+                scrollback_lines = 7,
+                min_scroll_bar_height = '2cell',
+                unzoom_on_switch_pane = false,
+              }
+              window:set_config_overrides(overrides)
+              window:set_right_status(
+                'paste=' .. tostring(window:effective_config().canonicalize_pasted_newlines)
+                  .. ' quote=' .. tostring(window:effective_config().quote_dropped_files)
+                  .. ' alt-wheel=' .. tostring(window:effective_config().alternate_buffer_wheel_scroll_speed)
+                  .. ' bypass=' .. tostring(window:effective_config().bypass_mouse_reporting_modifiers)
+                  .. ' scrollbar=' .. tostring(window:effective_config().enable_scroll_bar)
+                  .. ' scrollback=' .. tostring(window:effective_config().scrollback_lines)
+                  .. ' min=' .. tostring(window:effective_config().min_scroll_bar_height)
+                  .. ' unzoom=' .. tostring(window:effective_config().unzoom_on_switch_pane)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides scroll paste callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.canonicalize_pasted_newlines,
+            NativeCanonicalizePastedNewlines::CarriageReturnAndLineFeed
+        );
+        assert_eq!(
+            effective.quote_dropped_files,
+            NativeQuoteDroppedFiles::Posix
+        );
+        assert_eq!(effective.alternate_buffer_wheel_scroll_speed, 3);
+        assert_eq!(
+            effective.bypass_mouse_reporting_modifiers,
+            ModifiersState::SHIFT | ModifiersState::ALT
+        );
+        assert!(effective.enable_scroll_bar);
+        assert_eq!(effective.scrollback_lines, 7);
+        assert_eq!(
+            effective.min_scroll_bar_height,
+            Some(NativeScrollBarHeight::CellFractionPerMille(2_000))
+        );
+        assert!(!effective.unzoom_on_switch_pane);
+        assert_eq!(
+            app.right_status,
+            "paste=CarriageReturnAndLineFeed quote=Posix alt-wheel=3 bypass=SHIFT|ALT scrollbar=true scrollback=7 min=2cell unzoom=false"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
