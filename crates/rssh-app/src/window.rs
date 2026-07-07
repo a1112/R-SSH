@@ -8339,31 +8339,16 @@ fn lua_window_title_conditional_assignment_parts_before_offset(
                 source: body,
                 max_start: body.len(),
             };
-            if let Some(parts) = lua_window_title_self_referential_conditional_assignment_parts(
+            let parts = lua_window_title_assignment_parts(
                 source,
                 start,
                 variable,
                 value,
-                condition,
                 tab_param,
                 pane_param,
                 tabs_param,
                 panes_param,
                 branch_static_source,
-                outer_static_source,
-            ) {
-                if branches.len() == 1 && else_body.is_none() {
-                    return Some(parts);
-                }
-                continue 'statements;
-            }
-            let parts = lua_window_title_text_parts_from_expression(
-                value,
-                tab_param,
-                pane_param,
-                tabs_param,
-                panes_param,
-                Some(branch_static_source),
                 outer_static_source,
             )?;
             parsed_branches.push((condition, parts));
@@ -8371,6 +8356,8 @@ fn lua_window_title_conditional_assignment_parts_before_offset(
 
         let mut else_parts = lua_window_title_else_assignment_parts(
             else_body,
+            source,
+            start,
             variable,
             tab_param,
             pane_param,
@@ -8378,6 +8365,18 @@ fn lua_window_title_conditional_assignment_parts_before_offset(
             panes_param,
             outer_static_source,
         );
+        if else_body.is_none() && else_parts.is_none() {
+            else_parts = lua_window_title_previous_assignment_parts(
+                source,
+                start,
+                variable,
+                tab_param,
+                pane_param,
+                tabs_param,
+                panes_param,
+                outer_static_source,
+            );
+        }
         for (condition, parts) in parsed_branches.into_iter().rev() {
             else_parts = Some(vec![NativeLuaWindowTitlePart::Conditional {
                 condition,
@@ -8395,6 +8394,8 @@ fn lua_window_title_conditional_assignment_parts_before_offset(
 
 fn lua_window_title_else_assignment_parts(
     else_body: Option<&str>,
+    source: &str,
+    branch_start: usize,
     variable: &str,
     tab_param: &str,
     pane_param: &str,
@@ -8412,77 +8413,89 @@ fn lua_window_title_else_assignment_parts(
         source: else_body,
         max_start: else_body.len(),
     };
-    lua_window_title_text_parts_from_expression(
+    lua_window_title_assignment_parts(
+        source,
+        branch_start,
+        variable,
         value,
         tab_param,
         pane_param,
         tabs_param,
         panes_param,
-        Some(static_source),
+        static_source,
         outer_static_source,
     )
 }
 
-fn lua_window_title_self_referential_conditional_assignment_parts(
+fn lua_window_title_assignment_parts(
     source: &str,
     branch_start: usize,
     variable: &str,
     value: &str,
-    condition: NativeLuaWindowTitleCondition,
     tab_param: &str,
     pane_param: &str,
     tabs_param: &str,
     panes_param: &str,
-    branch_static_source: LuaStaticSource<'_>,
+    static_source: LuaStaticSource<'_>,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<Vec<NativeLuaWindowTitlePart>> {
-    let segments = split_lua_string_concat_segments(value)?;
+    let value = lua_trim_start_comments(value.trim())?;
+    let value = lua_trim_end_statement_separator(value)?;
+    let Some(segments) = split_lua_string_concat_segments(value) else {
+        if lua_window_title_expression_is_variable(value, variable) {
+            return lua_window_title_previous_assignment_parts(
+                source,
+                branch_start,
+                variable,
+                tab_param,
+                pane_param,
+                tabs_param,
+                panes_param,
+                outer_static_source,
+            );
+        }
+        return lua_window_title_text_parts_from_expression(
+            value,
+            tab_param,
+            pane_param,
+            tabs_param,
+            panes_param,
+            Some(static_source),
+            outer_static_source,
+        );
+    };
+
     if !segments
         .iter()
         .any(|segment| lua_window_title_expression_is_variable(segment, variable))
     {
-        return None;
+        return lua_window_title_text_parts_from_expression(
+            value,
+            tab_param,
+            pane_param,
+            tabs_param,
+            panes_param,
+            Some(static_source),
+            outer_static_source,
+        );
     }
 
-    let previous_value = lua_static_expression_variable_assignment_before_offset_from_query(
+    let previous_parts = lua_window_title_previous_assignment_parts(
         source,
-        variable,
         branch_start,
-    )?;
-    let previous_static_source = LuaStaticSource {
-        source,
-        max_start: branch_start,
-    };
-    let previous_parts = lua_window_title_text_parts_from_expression(
-        previous_value,
+        variable,
         tab_param,
         pane_param,
         tabs_param,
         panes_param,
-        Some(previous_static_source),
         outer_static_source,
     )?;
 
     let mut parts = Vec::new();
-    let mut conditional_parts = Vec::new();
-    let flush_conditional_parts =
-        |parts: &mut Vec<NativeLuaWindowTitlePart>,
-         conditional_parts: &mut Vec<NativeLuaWindowTitlePart>| {
-            if conditional_parts.is_empty() {
-                return;
-            }
-            parts.push(NativeLuaWindowTitlePart::Conditional {
-                condition,
-                parts: std::mem::take(conditional_parts),
-                else_parts: None,
-            });
-        };
-
     for segment in segments {
         let segment = lua_trim_start_comments(segment.trim())?;
         let segment = lua_trim_end_statement_separator(segment)?;
         if lua_window_title_expression_is_variable(segment, variable) {
-            flush_conditional_parts(&mut parts, &mut conditional_parts);
             parts.extend(previous_parts.clone());
             continue;
         }
@@ -8493,14 +8506,43 @@ fn lua_window_title_self_referential_conditional_assignment_parts(
             pane_param,
             tabs_param,
             panes_param,
-            Some(branch_static_source),
+            Some(static_source),
             outer_static_source,
         )?;
-        conditional_parts.extend(segment_parts);
+        parts.extend(segment_parts);
     }
-    flush_conditional_parts(&mut parts, &mut conditional_parts);
 
     (!parts.is_empty()).then_some(parts)
+}
+
+fn lua_window_title_previous_assignment_parts(
+    source: &str,
+    before_start: usize,
+    variable: &str,
+    tab_param: &str,
+    pane_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<Vec<NativeLuaWindowTitlePart>> {
+    let previous_value = lua_static_expression_variable_assignment_before_offset_from_query(
+        source,
+        variable,
+        before_start,
+    )?;
+    let previous_static_source = LuaStaticSource {
+        source,
+        max_start: before_start,
+    };
+    lua_window_title_text_parts_from_expression(
+        previous_value,
+        tab_param,
+        pane_param,
+        tabs_param,
+        panes_param,
+        Some(previous_static_source),
+        outer_static_source,
+    )
 }
 
 fn lua_window_title_expression_is_variable(expression: &str, variable: &str) -> bool {
@@ -105350,6 +105392,33 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "[1] Window Fallback");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_self_referential_else_condition() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local title = tab.window_title
+
+              if #panes > 1 then
+                title = '[many] ' .. title
+              else
+                title = '[one] ' .. title
+              end
+
+              return title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title self-referential else condition");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "[one] Window Fallback");
     }
 
     #[test]
