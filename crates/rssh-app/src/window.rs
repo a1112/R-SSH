@@ -10721,7 +10721,24 @@ fn lua_static_window_config_overrides_from_query(
         enable_zwlr_output_manager: overrides.enable_zwlr_output_manager,
         use_box_model_render: overrides.use_box_model_render,
         experimental_pixel_positioning: overrides.experimental_pixel_positioning,
+        default_gui_startup_args: overrides.default_gui_startup_args,
         default_workspace: overrides.default_workspace,
+        native_macos_fullscreen_mode: overrides.native_macos_fullscreen_mode,
+        macos_fullscreen_extend_behind_notch: overrides.macos_fullscreen_extend_behind_notch,
+        use_resize_increments: overrides.use_resize_increments,
+        default_cwd: overrides.default_cwd,
+        default_ssh_auth_sock: overrides.default_ssh_auth_sock,
+        default_mux_server_domain: overrides.default_mux_server_domain,
+        mux_enable_ssh_agent: overrides.mux_enable_ssh_agent,
+        ssh_backend: overrides.ssh_backend,
+        ratelimit_mux_line_prefetches_per_second: overrides
+            .ratelimit_mux_line_prefetches_per_second,
+        mux_output_parser_buffer_size: overrides.mux_output_parser_buffer_size,
+        mux_output_parser_coalesce_delay_ms: overrides.mux_output_parser_coalesce_delay_ms,
+        periodic_stat_logging: overrides.periodic_stat_logging,
+        ulimit_nofile: overrides.ulimit_nofile,
+        ulimit_nproc: overrides.ulimit_nproc,
+        tiling_desktop_environments: overrides.tiling_desktop_environments,
         term: overrides.term,
         enq_answerback: overrides.enq_answerback,
         automatically_reload_config: overrides.automatically_reload_config,
@@ -10745,6 +10762,7 @@ fn lua_static_window_config_overrides_from_query(
         normalize_output_to_unicode_nfc: overrides.normalize_output_to_unicode_nfc,
         use_ime: overrides.use_ime,
         use_dead_keys: overrides.use_dead_keys,
+        detect_password_input: overrides.detect_password_input,
         scroll_to_bottom_on_input: overrides.scroll_to_bottom_on_input,
         disable_default_key_bindings: overrides.disable_default_key_bindings,
         disable_default_mouse_bindings: overrides.disable_default_mouse_bindings,
@@ -29525,7 +29543,23 @@ struct NativeLuaWindowConfigOverrides {
     enable_zwlr_output_manager: Option<bool>,
     use_box_model_render: Option<bool>,
     experimental_pixel_positioning: Option<bool>,
+    default_gui_startup_args: Option<Vec<String>>,
     default_workspace: Option<String>,
+    native_macos_fullscreen_mode: Option<bool>,
+    macos_fullscreen_extend_behind_notch: Option<bool>,
+    use_resize_increments: Option<bool>,
+    default_cwd: Option<String>,
+    default_ssh_auth_sock: Option<String>,
+    default_mux_server_domain: Option<String>,
+    mux_enable_ssh_agent: Option<bool>,
+    ssh_backend: Option<NativeSshBackend>,
+    ratelimit_mux_line_prefetches_per_second: Option<u32>,
+    mux_output_parser_buffer_size: Option<usize>,
+    mux_output_parser_coalesce_delay_ms: Option<u64>,
+    periodic_stat_logging: Option<u64>,
+    ulimit_nofile: Option<u64>,
+    ulimit_nproc: Option<u64>,
+    tiling_desktop_environments: Option<Vec<String>>,
     term: Option<String>,
     enq_answerback: Option<String>,
     automatically_reload_config: Option<bool>,
@@ -29546,6 +29580,7 @@ struct NativeLuaWindowConfigOverrides {
     normalize_output_to_unicode_nfc: Option<bool>,
     use_ime: Option<bool>,
     use_dead_keys: Option<bool>,
+    detect_password_input: Option<bool>,
     scroll_to_bottom_on_input: Option<bool>,
     disable_default_key_bindings: Option<bool>,
     disable_default_mouse_bindings: Option<bool>,
@@ -29584,7 +29619,23 @@ impl NativeLuaWindowConfigOverrides {
             && self.enable_zwlr_output_manager.is_none()
             && self.use_box_model_render.is_none()
             && self.experimental_pixel_positioning.is_none()
+            && self.default_gui_startup_args.is_none()
             && self.default_workspace.is_none()
+            && self.native_macos_fullscreen_mode.is_none()
+            && self.macos_fullscreen_extend_behind_notch.is_none()
+            && self.use_resize_increments.is_none()
+            && self.default_cwd.is_none()
+            && self.default_ssh_auth_sock.is_none()
+            && self.default_mux_server_domain.is_none()
+            && self.mux_enable_ssh_agent.is_none()
+            && self.ssh_backend.is_none()
+            && self.ratelimit_mux_line_prefetches_per_second.is_none()
+            && self.mux_output_parser_buffer_size.is_none()
+            && self.mux_output_parser_coalesce_delay_ms.is_none()
+            && self.periodic_stat_logging.is_none()
+            && self.ulimit_nofile.is_none()
+            && self.ulimit_nproc.is_none()
+            && self.tiling_desktop_environments.is_none()
             && self.term.is_none()
             && self.enq_answerback.is_none()
             && self.automatically_reload_config.is_none()
@@ -29605,6 +29656,7 @@ impl NativeLuaWindowConfigOverrides {
             && self.normalize_output_to_unicode_nfc.is_none()
             && self.use_ime.is_none()
             && self.use_dead_keys.is_none()
+            && self.detect_password_input.is_none()
             && self.scroll_to_bottom_on_input.is_none()
             && self.disable_default_key_bindings.is_none()
             && self.disable_default_mouse_bindings.is_none()
@@ -29668,8 +29720,57 @@ impl NativeLuaWindowConfigOverrides {
         if update.experimental_pixel_positioning.is_some() {
             self.experimental_pixel_positioning = update.experimental_pixel_positioning;
         }
+        if update.default_gui_startup_args.is_some() {
+            self.default_gui_startup_args = update.default_gui_startup_args;
+        }
         if update.default_workspace.is_some() {
             self.default_workspace = update.default_workspace;
+        }
+        if update.native_macos_fullscreen_mode.is_some() {
+            self.native_macos_fullscreen_mode = update.native_macos_fullscreen_mode;
+        }
+        if update.macos_fullscreen_extend_behind_notch.is_some() {
+            self.macos_fullscreen_extend_behind_notch = update.macos_fullscreen_extend_behind_notch;
+        }
+        if update.use_resize_increments.is_some() {
+            self.use_resize_increments = update.use_resize_increments;
+        }
+        if update.default_cwd.is_some() {
+            self.default_cwd = update.default_cwd;
+        }
+        if update.default_ssh_auth_sock.is_some() {
+            self.default_ssh_auth_sock = update.default_ssh_auth_sock;
+        }
+        if update.default_mux_server_domain.is_some() {
+            self.default_mux_server_domain = update.default_mux_server_domain;
+        }
+        if update.mux_enable_ssh_agent.is_some() {
+            self.mux_enable_ssh_agent = update.mux_enable_ssh_agent;
+        }
+        if update.ssh_backend.is_some() {
+            self.ssh_backend = update.ssh_backend;
+        }
+        if update.ratelimit_mux_line_prefetches_per_second.is_some() {
+            self.ratelimit_mux_line_prefetches_per_second =
+                update.ratelimit_mux_line_prefetches_per_second;
+        }
+        if update.mux_output_parser_buffer_size.is_some() {
+            self.mux_output_parser_buffer_size = update.mux_output_parser_buffer_size;
+        }
+        if update.mux_output_parser_coalesce_delay_ms.is_some() {
+            self.mux_output_parser_coalesce_delay_ms = update.mux_output_parser_coalesce_delay_ms;
+        }
+        if update.periodic_stat_logging.is_some() {
+            self.periodic_stat_logging = update.periodic_stat_logging;
+        }
+        if update.ulimit_nofile.is_some() {
+            self.ulimit_nofile = update.ulimit_nofile;
+        }
+        if update.ulimit_nproc.is_some() {
+            self.ulimit_nproc = update.ulimit_nproc;
+        }
+        if update.tiling_desktop_environments.is_some() {
+            self.tiling_desktop_environments = update.tiling_desktop_environments;
         }
         if update.term.is_some() {
             self.term = update.term;
@@ -29733,6 +29834,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.use_dead_keys.is_some() {
             self.use_dead_keys = update.use_dead_keys;
+        }
+        if update.detect_password_input.is_some() {
+            self.detect_password_input = update.detect_password_input;
         }
         if update.scroll_to_bottom_on_input.is_some() {
             self.scroll_to_bottom_on_input = update.scroll_to_bottom_on_input;
@@ -29840,8 +29944,64 @@ impl NativeLuaWindowConfigOverrides {
         if let Some(experimental_pixel_positioning) = self.experimental_pixel_positioning {
             overrides.experimental_pixel_positioning = Some(experimental_pixel_positioning);
         }
+        if let Some(default_gui_startup_args) = self.default_gui_startup_args {
+            overrides.default_gui_startup_args = Some(default_gui_startup_args);
+        }
         if let Some(default_workspace) = self.default_workspace {
             overrides.default_workspace = Some(default_workspace);
+        }
+        if let Some(native_macos_fullscreen_mode) = self.native_macos_fullscreen_mode {
+            overrides.native_macos_fullscreen_mode = Some(native_macos_fullscreen_mode);
+        }
+        if let Some(macos_fullscreen_extend_behind_notch) =
+            self.macos_fullscreen_extend_behind_notch
+        {
+            overrides.macos_fullscreen_extend_behind_notch =
+                Some(macos_fullscreen_extend_behind_notch);
+        }
+        if let Some(use_resize_increments) = self.use_resize_increments {
+            overrides.use_resize_increments = Some(use_resize_increments);
+        }
+        if let Some(default_cwd) = self.default_cwd {
+            overrides.default_cwd = Some(default_cwd);
+        }
+        if let Some(default_ssh_auth_sock) = self.default_ssh_auth_sock {
+            overrides.default_ssh_auth_sock = Some(default_ssh_auth_sock);
+        }
+        if let Some(default_mux_server_domain) = self.default_mux_server_domain {
+            overrides.default_mux_server_domain = Some(default_mux_server_domain);
+        }
+        if let Some(mux_enable_ssh_agent) = self.mux_enable_ssh_agent {
+            overrides.mux_enable_ssh_agent = Some(mux_enable_ssh_agent);
+        }
+        if let Some(ssh_backend) = self.ssh_backend {
+            overrides.ssh_backend = Some(ssh_backend);
+        }
+        if let Some(ratelimit_mux_line_prefetches_per_second) =
+            self.ratelimit_mux_line_prefetches_per_second
+        {
+            overrides.ratelimit_mux_line_prefetches_per_second =
+                Some(ratelimit_mux_line_prefetches_per_second);
+        }
+        if let Some(mux_output_parser_buffer_size) = self.mux_output_parser_buffer_size {
+            overrides.mux_output_parser_buffer_size = Some(mux_output_parser_buffer_size);
+        }
+        if let Some(mux_output_parser_coalesce_delay_ms) = self.mux_output_parser_coalesce_delay_ms
+        {
+            overrides.mux_output_parser_coalesce_delay_ms =
+                Some(mux_output_parser_coalesce_delay_ms);
+        }
+        if let Some(periodic_stat_logging) = self.periodic_stat_logging {
+            overrides.periodic_stat_logging = Some(periodic_stat_logging);
+        }
+        if let Some(ulimit_nofile) = self.ulimit_nofile {
+            overrides.ulimit_nofile = Some(ulimit_nofile);
+        }
+        if let Some(ulimit_nproc) = self.ulimit_nproc {
+            overrides.ulimit_nproc = Some(ulimit_nproc);
+        }
+        if let Some(tiling_desktop_environments) = self.tiling_desktop_environments {
+            overrides.tiling_desktop_environments = Some(tiling_desktop_environments);
         }
         if let Some(term) = self.term {
             overrides.term = Some(term);
@@ -29911,6 +30071,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(use_dead_keys) = self.use_dead_keys {
             overrides.use_dead_keys = Some(use_dead_keys);
+        }
+        if let Some(detect_password_input) = self.detect_password_input {
+            overrides.detect_password_input = Some(detect_password_input);
         }
         if let Some(scroll_to_bottom_on_input) = self.scroll_to_bottom_on_input {
             overrides.scroll_to_bottom_on_input = Some(scroll_to_bottom_on_input);
@@ -86757,6 +86920,117 @@ mod tests {
         assert_eq!(
             app.right_status,
             "kitty=false checksum=true title=false csiu=true keyboard=true dl=true win32=false altgr=true lalt=true ralt=false wide=true nfc=false ime=false dead=false"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_startup_resource_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local overrides = {
+                default_gui_startup_args = { 'connect', 'prod' },
+                default_cwd = '/tmp/default',
+                default_ssh_auth_sock = '/tmp/wezterm-agent.sock',
+                default_mux_server_domain = 'mux-main',
+                mux_enable_ssh_agent = false,
+                ssh_backend = 'Ssh2',
+                ratelimit_mux_line_prefetches_per_second = 12,
+                mux_output_parser_buffer_size = 4096,
+                mux_output_parser_coalesce_delay_ms = 7,
+                periodic_stat_logging = 15,
+                ulimit_nofile = 4096,
+                ulimit_nproc = 8192,
+                tiling_desktop_environments = { 'X11 i3', 'Wayland Sway' },
+                detect_password_input = false,
+                native_macos_fullscreen_mode = true,
+                macos_fullscreen_extend_behind_notch = true,
+                use_resize_increments = true,
+              }
+              window:set_config_overrides(overrides)
+              window:set_right_status(
+                'startup=' .. tostring(window:effective_config().default_gui_startup_args[2])
+                  .. ' cwd=' .. tostring(window:effective_config().default_cwd)
+                  .. ' ssh-auth=' .. tostring(window:effective_config().default_ssh_auth_sock)
+                  .. ' mux-domain=' .. tostring(window:effective_config().default_mux_server_domain)
+                  .. ' mux-agent=' .. tostring(window:effective_config().mux_enable_ssh_agent)
+                  .. ' ssh=' .. tostring(window:effective_config().ssh_backend)
+                  .. ' prefetch=' .. tostring(window:effective_config().ratelimit_mux_line_prefetches_per_second)
+                  .. ' buffer=' .. tostring(window:effective_config().mux_output_parser_buffer_size)
+                  .. ' coalesce=' .. tostring(window:effective_config().mux_output_parser_coalesce_delay_ms)
+                  .. ' stats=' .. tostring(window:effective_config().periodic_stat_logging)
+                  .. ' nofile=' .. tostring(window:effective_config().ulimit_nofile)
+                  .. ' nproc=' .. tostring(window:effective_config().ulimit_nproc)
+                  .. ' tiling=' .. tostring(window:effective_config().tiling_desktop_environments[2])
+                  .. ' detect=' .. tostring(window:effective_config().detect_password_input)
+                  .. ' macos=' .. tostring(window:effective_config().native_macos_fullscreen_mode)
+                  .. ' notch=' .. tostring(window:effective_config().macos_fullscreen_extend_behind_notch)
+                  .. ' resize=' .. tostring(window:effective_config().use_resize_increments)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides startup resource callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.default_gui_startup_args,
+            vec!["connect".to_owned(), "prod".to_owned()]
+        );
+        assert_eq!(effective.default_cwd.as_deref(), Some("/tmp/default"));
+        assert_eq!(
+            effective.default_ssh_auth_sock.as_deref(),
+            Some("/tmp/wezterm-agent.sock")
+        );
+        assert_eq!(
+            effective.default_mux_server_domain.as_deref(),
+            Some("mux-main")
+        );
+        assert!(!effective.mux_enable_ssh_agent);
+        assert_eq!(effective.ssh_backend, NativeSshBackend::Ssh2);
+        assert_eq!(effective.ratelimit_mux_line_prefetches_per_second, 12);
+        assert_eq!(effective.mux_output_parser_buffer_size, 4096);
+        assert_eq!(effective.mux_output_parser_coalesce_delay_ms, 7);
+        assert_eq!(effective.periodic_stat_logging, 15);
+        assert_eq!(effective.ulimit_nofile, 4096);
+        assert_eq!(effective.ulimit_nproc, 8192);
+        assert_eq!(
+            effective.tiling_desktop_environments,
+            vec!["X11 i3".to_owned(), "Wayland Sway".to_owned()]
+        );
+        assert!(!effective.detect_password_input);
+        assert!(effective.native_macos_fullscreen_mode);
+        assert!(effective.macos_fullscreen_extend_behind_notch);
+        assert!(effective.use_resize_increments);
+        assert_eq!(
+            app.right_status,
+            "startup=prod cwd=/tmp/default ssh-auth=/tmp/wezterm-agent.sock mux-domain=mux-main mux-agent=false ssh=Ssh2 prefetch=12 buffer=4096 coalesce=7 stats=15 nofile=4096 nproc=8192 tiling=Wayland Sway detect=false macos=true notch=true resize=true"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
