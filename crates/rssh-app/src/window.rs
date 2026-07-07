@@ -16371,8 +16371,9 @@ fn lua_static_wezterm_font_alias_call_assignment_value_from_query<'a>(
     let max_start = lua_source_slice_start_offset(source, query)?;
     let alias = lua_identifier_literal_from_query(query)?;
     let kind = lua_static_wezterm_font_alias_kind_before_offset(source, alias, max_start)??;
-    let rest = query.get(alias.len()..)?;
-    if !matches!(rest.trim_start().chars().next()?, '(' | '\'' | '"' | '{') {
+    let raw_rest = query.get(alias.len()..)?;
+    let rest = lua_trim_start_comments(raw_rest)?;
+    if !matches!(rest.chars().next()?, '(' | '\'' | '"' | '{') {
         return None;
     }
 
@@ -16380,7 +16381,8 @@ fn lua_static_wezterm_font_alias_call_assignment_value_from_query<'a>(
     let normalized = format!("{normalized_prefix}{rest}");
     let parsed = lua_wezterm_font_call_assignment_value_from_query(&normalized)?;
     let consumed_rest_len = parsed.len().checked_sub(normalized_prefix.len())?;
-    query.get(..alias.len() + consumed_rest_len)
+    let skipped_rest_len = raw_rest.len().checked_sub(rest.len())?;
+    query.get(..alias.len() + skipped_rest_len + consumed_rest_len)
 }
 
 fn lua_static_wezterm_font_alias_query_from_query(
@@ -16391,8 +16393,8 @@ fn lua_static_wezterm_font_alias_query_from_query(
     let query = lua_trim_start_comments(query)?;
     let alias = lua_identifier_literal_from_query(query)?;
     let kind = lua_static_wezterm_font_alias_kind_before_offset(source, alias, max_start)??;
-    let rest = query.get(alias.len()..)?;
-    if !matches!(rest.trim_start().chars().next()?, '(' | '\'' | '"' | '{') {
+    let rest = lua_trim_start_comments(query.get(alias.len()..)?)?;
+    if !matches!(rest.chars().next()?, '(' | '\'' | '"' | '{') {
         return None;
     }
 
@@ -124383,6 +124385,44 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_font_static_alias_comment_call() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local font = wezterm.font
+
+            config.font = font -- primary
+              ('JetBrains Mono', {
+                weight = 'Bold',
+                style = 'Italic',
+              })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font alias comment config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(
+            effective.font_attributes,
+            NativeFontAttributes {
+                weight: Some("Bold".to_owned()),
+                stretch: None,
+                style: Some("Italic".to_owned()),
+                harfbuzz_features: Vec::new(),
+                assume_emoji_presentation: None,
+                freetype_load_target: None,
+                freetype_render_target: None,
+                freetype_load_flags: None,
+            }
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_font_static_value() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -127113,6 +127153,32 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm font static alias window_frame font config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_frame_appearance.font,
+            Some("Roboto Mono".to_owned())
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_font_static_alias_comment_for_lua_window_frame_font() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local frame_font = wezterm.font
+
+            config.window_frame = {
+              font = frame_font -- titlebar
+                'Roboto Mono',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font static alias comment window_frame font config");
         app.set_config_overrides(overrides);
 
         assert_eq!(
