@@ -7896,14 +7896,6 @@ fn lua_static_window_title_return_from_function_body(
         ) {
             return Some(NativeLuaWindowTitle::Static(value));
         }
-        if let Some(value) = lua_static_string_concat_return_from_statement(
-            body,
-            start,
-            statement,
-            outer_static_source,
-        ) {
-            return Some(NativeLuaWindowTitle::Static(value));
-        }
         if let Some(value) = lua_dynamic_window_title_return_from_statement(
             body,
             start,
@@ -7914,6 +7906,14 @@ fn lua_static_window_title_return_from_function_body(
             outer_static_source,
         ) {
             return Some(value);
+        }
+        if let Some(value) = lua_static_string_concat_return_from_statement(
+            body,
+            start,
+            statement,
+            outer_static_source,
+        ) {
+            return Some(NativeLuaWindowTitle::Static(value));
         }
     }
 
@@ -8080,32 +8080,58 @@ fn lua_window_title_text_parts_from_expression_with_depth(
         );
     }
 
+    if expression.contains("..") {
+        let mut parts = Vec::new();
+        let mut has_dynamic_part = false;
+        for segment in split_lua_string_concat_segments(expression)? {
+            let segment = lua_trim_start_comments(segment.trim())?;
+            let segment = lua_trim_end_statement_separator(segment)?;
+            if let Some(part) = lua_window_title_text_part_from_expression(
+                segment,
+                tab_param,
+                pane_param,
+                tabs_param,
+                static_source,
+            ) {
+                has_dynamic_part = true;
+                parts.push(part);
+                continue;
+            }
+            if let Some(segment_parts) = lua_window_title_text_parts_from_expression_with_depth(
+                segment,
+                tab_param,
+                pane_param,
+                tabs_param,
+                static_source,
+                outer_static_source,
+                depth + 1,
+            ) {
+                has_dynamic_part |= segment_parts
+                    .iter()
+                    .any(|part| !matches!(part, NativeLuaWindowTitlePart::Static(_)));
+                parts.extend(segment_parts);
+                continue;
+            }
+            let value = lua_static_string_value_from_expression(
+                static_source,
+                outer_static_source,
+                segment,
+            )?;
+            parts.push(NativeLuaWindowTitlePart::Static(value));
+        }
+
+        if has_dynamic_part {
+            return Some(parts);
+        }
+    }
+
     if let Some(value) =
         lua_static_string_value_from_expression(static_source, outer_static_source, expression)
     {
         return Some(vec![NativeLuaWindowTitlePart::Static(value)]);
     }
 
-    if !expression.contains("..") {
-        return None;
-    }
-
-    let mut parts = Vec::new();
-    for segment in split_lua_string_concat_segments(expression)? {
-        let segment = lua_trim_start_comments(segment.trim())?;
-        let segment = lua_trim_end_statement_separator(segment)?;
-        parts.extend(lua_window_title_text_parts_from_expression_with_depth(
-            segment,
-            tab_param,
-            pane_param,
-            tabs_param,
-            static_source,
-            outer_static_source,
-            depth + 1,
-        )?);
-    }
-
-    Some(parts)
+    None
 }
 
 fn lua_window_title_text_part_from_expression(
@@ -8178,15 +8204,36 @@ fn lua_window_title_text_part_from_expression(
         .unwrap_or(false)
         {
             let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-            if let Some(rest) = rest.strip_prefix("title")
-                && lua_static_identifier_value_rest_is_statement_end(rest)
-            {
-                return Some(NativeLuaWindowTitlePart::ActivePaneTitle);
+            for (field, part) in lua_window_title_active_pane_text_parts() {
+                if let Some(rest) = rest.strip_prefix(field)
+                    && lua_static_identifier_value_rest_is_statement_end(rest)
+                {
+                    return Some(part);
+                }
             }
         }
     }
 
     lua_window_title_tab_index_format_part_from_expression(expression, tab_param, tabs_param)
+}
+
+fn lua_window_title_active_pane_text_parts() -> [(&'static str, NativeLuaWindowTitlePart); 5] {
+    [
+        (
+            "domain_name",
+            NativeLuaWindowTitlePart::ActivePaneDomainName,
+        ),
+        (
+            "foreground_process_name",
+            NativeLuaWindowTitlePart::ActivePaneForegroundProcessName,
+        ),
+        (
+            "current_working_dir",
+            NativeLuaWindowTitlePart::ActivePaneCurrentWorkingDir,
+        ),
+        ("tty_name", NativeLuaWindowTitlePart::ActivePaneTtyName),
+        ("title", NativeLuaWindowTitlePart::ActivePaneTitle),
+    ]
 }
 
 fn lua_window_title_active_pane_alias_before_offset(
@@ -104628,6 +104675,34 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "Pane Title");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_active_pane_alias_metadata_return() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("foreground-proc").with_cwd("/tmp/project"),
+        );
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local active = tab.active_pane
+              return active.domain_name .. ':' .. active.foreground_process_name .. ':' .. active.current_working_dir .. ':' .. active.tty_name
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title active pane alias metadata return");
+        app.set_config_overrides(overrides);
+        app.session_tty_name = Some("/dev/pts/9".to_owned());
+
+        assert_eq!(
+            app.effective_window_title(),
+            "local:foreground-proc:/tmp/project:/dev/pts/9"
+        );
     }
 
     #[test]
