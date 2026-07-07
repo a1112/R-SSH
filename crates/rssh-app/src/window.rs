@@ -4142,6 +4142,7 @@ struct NativeConfigOverrides {
     lua_bell: Option<NativeLuaWindowStatusUpdate>,
     lua_focus_changed: Option<NativeLuaWindowStatusUpdate>,
     lua_resized: Option<NativeLuaWindowStatusUpdate>,
+    lua_config_reloaded: Option<NativeLuaWindowStatusUpdate>,
     lua_user_var_changed: Option<NativeLuaUserVarChanged>,
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
@@ -4203,6 +4204,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(resized) = lua_static_wezterm_resized_event_from_query(config) {
         overrides.lua_resized = Some(resized);
+        parsed = true;
+    }
+    if let Some(config_reloaded) = lua_static_wezterm_config_reloaded_event_from_query(config) {
+        overrides.lua_config_reloaded = Some(config_reloaded);
         parsed = true;
     }
     if let Some(user_var_changed) = lua_static_wezterm_user_var_changed_event_from_query(config) {
@@ -6443,6 +6448,46 @@ fn lua_static_wezterm_resized_event_from_statement(
     let (event_name, rest) =
         lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
     if event_name != "window-resized" {
+        return None;
+    }
+    let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
+    let (body, window_name, pane_name, _) =
+        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(
+            callback.as_ref(),
+        )?;
+    lua_static_status_update_from_function_body(
+        body,
+        window_name,
+        pane_name,
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+    )
+}
+
+fn lua_static_wezterm_config_reloaded_event_from_query(
+    source: &str,
+) -> Option<NativeLuaWindowStatusUpdate> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
+        if let Some(update) = lua_static_wezterm_config_reloaded_event_from_statement(source, start)
+        {
+            selected = Some(update);
+        }
+    }
+    selected
+}
+
+fn lua_static_wezterm_config_reloaded_event_from_statement(
+    source: &str,
+    start: usize,
+) -> Option<NativeLuaWindowStatusUpdate> {
+    let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (event_name, rest) =
+        lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
+    if event_name != "window-config-reloaded" {
         return None;
     }
     let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
@@ -30158,6 +30203,7 @@ struct NativeWindowApp {
     lua_bell: Option<NativeLuaWindowStatusUpdate>,
     lua_focus_changed: Option<NativeLuaWindowStatusUpdate>,
     lua_resized: Option<NativeLuaWindowStatusUpdate>,
+    lua_config_reloaded: Option<NativeLuaWindowStatusUpdate>,
     lua_user_var_changed: Option<NativeLuaUserVarChanged>,
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
@@ -31714,6 +31760,7 @@ impl NativeWindowApp {
             lua_bell: None,
             lua_focus_changed: None,
             lua_resized: None,
+            lua_config_reloaded: None,
             lua_user_var_changed: None,
             lua_open_uri: None,
             lua_new_tab_button_click: None,
@@ -32981,6 +33028,8 @@ impl NativeWindowApp {
         self.lua_bell.clone_from(&source.lua_bell);
         self.lua_focus_changed.clone_from(&source.lua_focus_changed);
         self.lua_resized.clone_from(&source.lua_resized);
+        self.lua_config_reloaded
+            .clone_from(&source.lua_config_reloaded);
         self.lua_user_var_changed
             .clone_from(&source.lua_user_var_changed);
         self.lua_open_uri.clone_from(&source.lua_open_uri);
@@ -41801,6 +41850,7 @@ impl NativeWindowApp {
         self.lua_bell = overrides.lua_bell.clone();
         self.lua_focus_changed = overrides.lua_focus_changed.clone();
         self.lua_resized = overrides.lua_resized.clone();
+        self.lua_config_reloaded = overrides.lua_config_reloaded.clone();
         self.lua_user_var_changed = overrides.lua_user_var_changed.clone();
         self.lua_open_uri.clone_from(&overrides.lua_open_uri);
         self.lua_new_tab_button_click = overrides.lua_new_tab_button_click;
@@ -47095,7 +47145,18 @@ impl NativeWindowApp {
     }
 
     fn dispatch_config_reloaded(&mut self, event: &NativeWindowConfigReloaded) -> bool {
-        (self.config_reloaded_handler)(event)
+        let mut handled = (self.config_reloaded_handler)(event);
+        if let Some(update) = self.lua_config_reloaded.clone() {
+            if let Some(left_status) = update.left_status {
+                self.left_status = self.lua_window_status_text(left_status);
+                handled = true;
+            }
+            if let Some(right_status) = update.right_status {
+                self.right_status = self.lua_window_status_text(right_status);
+                handled = true;
+            }
+        }
+        handled
     }
 
     fn dispatch_command_palette_augment(
@@ -133322,6 +133383,27 @@ act.Confirmation {
     }
 
     #[test]
+    fn window_app_parses_static_wezterm_config_reloaded_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('window-config-reloaded', function(window, pane)
+              window:set_right_status('CONFIG-RELOADED')
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm config-reloaded event status setter");
+        app.set_config_overrides(overrides);
+        app.right_status.clear();
+
+        assert!(app.command_palette_execute(WindowCommand::ReloadConfiguration));
+
+        assert_eq!(app.right_status, "CONFIG-RELOADED");
+    }
+
+    #[test]
     fn window_app_dispatches_palette_reload_configuration_wezterm_action_table_wrapper_query() {
         let events = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&events);
@@ -136689,6 +136771,7 @@ act.Confirmation {
             lua_bell: None,
             lua_focus_changed: None,
             lua_resized: None,
+            lua_config_reloaded: None,
             lua_user_var_changed: None,
             lua_open_uri: Some(NativeLuaOpenUri::Static {
                 allow_default: false,

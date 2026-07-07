@@ -2351,7 +2351,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   arbitrary Lua resize callback execution remains open.
 - Native window now dispatches a typed `window-config-reloaded` hook for
   command-palette `ReloadConfiguration` and the default `Ctrl+Shift+R`
-  shortcut, carrying the window id and active pane id. A typed native
+  shortcut, carrying the window id and active pane id. Static
+  `wezterm.on('window-config-reloaded', function(window, pane) ... end)`
+  callbacks with literal or static status string `window:set_left_status(...)`
+  / `window:set_right_status(...)` calls now update tab-bar status on reload
+  events. A typed native
   `set_config_overrides`/`get_config_overrides` subset stores
   per-window overrides for `dpi`, `tab_max_width`, `status_update_interval`,
   `max_fps`, `animation_fps`, `front_end`, `webgpu_power_preference`, `webgpu_force_fallback_adapter`, `webgpu_preferred_adapter`, `prefer_egl`, `enable_wayland`, `enable_zwlr_output_manager`, `use_box_model_render`, `experimental_pixel_positioning`, `shape_cache_size`, `line_state_cache_size`, `line_quad_cache_size`, `line_to_ele_shape_cache_size`, `glyph_cache_image_cache_size`, `cursor_blink_rate`, `cursor_blink_ease_in`, `cursor_blink_ease_out`,
