@@ -58827,8 +58827,8 @@ fn lua_static_wezterm_color_parse_alias_query_from_query(
     )? {
         return None;
     }
-    let rest = query.get(alias.len()..)?;
-    if !matches!(rest.trim_start().chars().next()?, '(') {
+    let rest = lua_trim_start_comments(query.get(alias.len()..)?)?;
+    if !matches!(rest.chars().next()?, '(') {
         return None;
     }
 
@@ -75523,6 +75523,40 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
         assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_static_alias_comment_call() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color.parse
+
+            config.colors = {
+              foreground = parse_color -- foreground
+                ('#202122'),
+              background = parse_color -- background
+                ('#232425'),
+              cursor_bg = parse_color -- cursor
+                ('rgb(38,39,40)'),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse static alias comment colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let colors = effective.colors.expect("expected retained colors palette");
+        assert_eq!(colors.foreground, Some(Color::Rgb(32, 33, 34)));
+        assert_eq!(colors.background, Some(Color::Rgb(35, 36, 37)));
+        assert_eq!(colors.cursor_bg, Some(Color::Rgb(38, 39, 40)));
+        assert_eq!(effective.foreground_color, Color::Rgb(32, 33, 34));
+        assert_eq!(effective.background_color, Color::Rgb(35, 36, 37));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(38, 39, 40));
     }
 
     #[test]
