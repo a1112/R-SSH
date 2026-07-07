@@ -9952,6 +9952,13 @@ fn lua_tab_title_condition_from_expression(
         return Some(NativeLuaTabTitleCondition::IsHover);
     }
 
+    let zoomed = format!("{tab_param}.active_pane.is_zoomed");
+    if let Some(rest) = condition.strip_prefix(&zoomed)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaTabTitleCondition::ActivePaneIsZoomed);
+    }
+
     for (field, parsed) in [
         ("is_active", NativeLuaTabTitleCondition::IsActive),
         ("is_last_active", NativeLuaTabTitleCondition::IsLastActive),
@@ -30500,6 +30507,7 @@ enum NativeLuaTabTitleCondition {
     IsActive,
     IsLastActive,
     IsHover,
+    ActivePaneIsZoomed,
     TabCountGreaterThan(usize),
     PaneCountGreaterThan(usize),
 }
@@ -30510,6 +30518,7 @@ impl NativeLuaTabTitleCondition {
             Self::IsActive => event.is_active,
             Self::IsLastActive => event.is_last_active,
             Self::IsHover => event.hover,
+            Self::ActivePaneIsZoomed => event.active_pane_info.is_zoomed,
             Self::TabCountGreaterThan(count) => event.tab_count > count,
             Self::PaneCountGreaterThan(count) => event.pane_count > count,
         }
@@ -102563,6 +102572,70 @@ mod tests {
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("lua-panes:2"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("lua-single:"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn lua_parses_static_wezterm_format_tab_title_zoomed_condition() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              if tab.active_pane.is_zoomed then
+                return 'zoomed:' .. tab.tab_title
+              end
+              return 'plain:' .. tab.tab_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title zoomed condition");
+
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        assert!(
+            parsed.contains("ActivePaneIsZoomed"),
+            "parsed lua tab title was {parsed}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_zoomed_condition() {
+        let mut app = NativeWindowApp::new(None);
+        let active_tab = app.active_tab_id();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: active_tab,
+            title: "Main".to_owned(),
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: app.active_pane_id(),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::SetPaneZoomState {
+            pane: app.active_pane_id(),
+            zoomed: true,
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              if tab.active_pane.is_zoomed then
+                return 'zoomed:' .. tab.tab_title
+              end
+              return 'plain:' .. tab.tab_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title zoomed condition");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("zoomed:Main"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("plain:Main"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
