@@ -11632,6 +11632,7 @@ fn lua_static_pane_user_var_fallback_from_query(
     value: &str,
     variable: &str,
 ) -> Option<(String, String)> {
+    let value = lua_tostring_argument_from_query(value).unwrap_or(value);
     let (dynamic, fallback) = lua_dynamic_status_fallback_from_query(value)?;
     let name = lua_static_pane_user_var_name_from_query(
         Some(static_source),
@@ -82740,6 +82741,32 @@ mod tests {
         .unwrap();
         app.dispatch_update_status();
         assert_eq!(app.right_status, "prog=psh host=prod");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_pane_user_vars_tostring_fallback_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local prog_key = 'WEZTERM-PROG'
+
+            wezterm.on('update-status', function(window, pane)
+              local vars = pane:get_user_vars()
+              window:set_right_status('prog=' .. tostring(vars[prog_key] or 'missing'))
+            end)
+            "#,
+        )
+        .expect("expected WezTerm pane get_user_vars tostring fallback status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=missing");
+
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM-PROG=cHNo\x07")
+            .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=psh");
     }
 
     #[test]
