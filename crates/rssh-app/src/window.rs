@@ -4139,6 +4139,7 @@ struct NativeConfigOverrides {
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeLuaWindowStatusUpdate>,
+    lua_bell: Option<NativeLuaWindowStatusUpdate>,
     lua_user_var_changed: Option<NativeLuaUserVarChanged>,
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
@@ -4188,6 +4189,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
 
     if let Some(update_status) = lua_static_wezterm_status_update_event_from_query(config) {
         overrides.lua_update_status = Some(update_status);
+        parsed = true;
+    }
+    if let Some(bell) = lua_static_wezterm_bell_event_from_query(config) {
+        overrides.lua_bell = Some(bell);
         parsed = true;
     }
     if let Some(user_var_changed) = lua_static_wezterm_user_var_changed_event_from_query(config) {
@@ -6313,6 +6318,43 @@ fn lua_static_wezterm_status_update_event_from_statement(
     let (event_name, rest) =
         lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
     if !matches!(event_name.as_str(), "update-status" | "update-right-status") {
+        return None;
+    }
+    let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
+    let (body, window_name, pane_name, _) =
+        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(
+            callback.as_ref(),
+        )?;
+    lua_static_status_update_from_function_body(
+        body,
+        window_name,
+        pane_name,
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+    )
+}
+
+fn lua_static_wezterm_bell_event_from_query(source: &str) -> Option<NativeLuaWindowStatusUpdate> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
+        if let Some(update) = lua_static_wezterm_bell_event_from_statement(source, start) {
+            selected = Some(update);
+        }
+    }
+    selected
+}
+
+fn lua_static_wezterm_bell_event_from_statement(
+    source: &str,
+    start: usize,
+) -> Option<NativeLuaWindowStatusUpdate> {
+    let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (event_name, rest) =
+        lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
+    if event_name != "bell" {
         return None;
     }
     let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
@@ -30025,6 +30067,7 @@ struct NativeWindowApp {
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeLuaWindowStatusUpdate>,
+    lua_bell: Option<NativeLuaWindowStatusUpdate>,
     lua_user_var_changed: Option<NativeLuaUserVarChanged>,
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
@@ -31578,6 +31621,7 @@ impl NativeWindowApp {
             lua_tab_title: None,
             lua_window_title: None,
             lua_update_status: None,
+            lua_bell: None,
             lua_user_var_changed: None,
             lua_open_uri: None,
             lua_new_tab_button_click: None,
@@ -32842,6 +32886,7 @@ impl NativeWindowApp {
         self.lua_tab_title.clone_from(&source.lua_tab_title);
         self.lua_window_title.clone_from(&source.lua_window_title);
         self.lua_update_status.clone_from(&source.lua_update_status);
+        self.lua_bell.clone_from(&source.lua_bell);
         self.lua_user_var_changed
             .clone_from(&source.lua_user_var_changed);
         self.lua_open_uri.clone_from(&source.lua_open_uri);
@@ -41659,6 +41704,7 @@ impl NativeWindowApp {
         self.lua_tab_title = overrides.lua_tab_title.clone();
         self.lua_window_title = overrides.lua_window_title.clone();
         self.lua_update_status = overrides.lua_update_status.clone();
+        self.lua_bell = overrides.lua_bell.clone();
         self.lua_user_var_changed = overrides.lua_user_var_changed.clone();
         self.lua_open_uri.clone_from(&overrides.lua_open_uri);
         self.lua_new_tab_button_click = overrides.lua_new_tab_button_click;
@@ -46861,7 +46907,18 @@ impl NativeWindowApp {
     }
 
     fn dispatch_bell(&mut self, bell: NativeWindowBell) -> bool {
-        (self.bell_handler)(&bell)
+        let mut handled = (self.bell_handler)(&bell);
+        if let Some(update) = self.lua_bell.clone() {
+            if let Some(left_status) = update.left_status {
+                self.left_status = self.lua_window_status_text(left_status);
+                handled = true;
+            }
+            if let Some(right_status) = update.right_status {
+                self.right_status = self.lua_window_status_text(right_status);
+                handled = true;
+            }
+        }
+        handled
     }
 
     fn dispatch_focus_change(&mut self, change: &NativeWindowFocusChange) -> bool {
@@ -80497,6 +80554,26 @@ mod tests {
             }]
         );
         assert_eq!(app.metrics_snapshot().bells, 1);
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_bell_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('bell', function(window, pane)
+              window:set_right_status('BELL-LUA')
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm bell event status setter");
+        app.set_config_overrides(overrides);
+
+        app.handle_pty_output(b"\x07").unwrap();
+
+        assert_eq!(app.right_status, "BELL-LUA");
     }
 
     #[test]
@@ -136439,6 +136516,7 @@ act.Confirmation {
                 left_status: Some(NativeLuaWindowStatusText::Static("LEFT".to_owned())),
                 right_status: Some(NativeLuaWindowStatusText::Static("RIGHT".to_owned())),
             }),
+            lua_bell: None,
             lua_user_var_changed: None,
             lua_open_uri: Some(NativeLuaOpenUri::Static {
                 allow_default: false,
