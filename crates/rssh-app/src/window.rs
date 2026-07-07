@@ -22955,6 +22955,110 @@ fn lua_trim_start_comments(mut source: &str) -> Option<&str> {
     }
 }
 
+fn lua_trim_end_comments(mut source: &str) -> Option<&str> {
+    loop {
+        let trimmed = source.trim_end();
+        let mut quote = None;
+        let mut escape = false;
+        let mut line_comment = false;
+        let mut block_comment_end = None;
+        let mut long_bracket_end = None;
+        let mut brace_depth = 0u32;
+        let mut paren_depth = 0u32;
+        let mut bracket_depth = 0u32;
+        let mut removed_comment = false;
+
+        for (index, character) in trimmed.char_indices() {
+            if let Some(end) = block_comment_end {
+                if index < end {
+                    continue;
+                }
+                block_comment_end = None;
+            }
+
+            if let Some(end) = long_bracket_end {
+                if index < end {
+                    continue;
+                }
+                long_bracket_end = None;
+            }
+
+            if line_comment {
+                if character == '\n' {
+                    line_comment = false;
+                }
+                continue;
+            }
+
+            if let Some(active_quote) = quote {
+                if escape {
+                    escape = false;
+                } else if character == '\\' {
+                    escape = true;
+                } else if character == active_quote {
+                    quote = None;
+                }
+                continue;
+            }
+
+            if trimmed[index..].starts_with("--") {
+                let top_level = brace_depth == 0 && paren_depth == 0 && bracket_depth == 0;
+                if let Some((content_start, closing)) =
+                    parse_lua_long_bracket_delimiters(&trimmed[index + 2..])
+                {
+                    let content_and_rest = &trimmed[index + 2 + content_start..];
+                    let close_index = content_and_rest.find(&closing)?;
+                    let end = index + 2 + content_start + close_index + closing.len();
+                    if top_level && trimmed[end..].trim().is_empty() {
+                        source = &trimmed[..index];
+                        removed_comment = true;
+                        break;
+                    }
+                    block_comment_end = Some(end);
+                    continue;
+                }
+                if top_level {
+                    source = &trimmed[..index];
+                    removed_comment = true;
+                    break;
+                }
+                line_comment = true;
+                continue;
+            }
+
+            match character {
+                '\'' | '"' => quote = Some(character),
+                '[' => {
+                    if let Some((content_start, closing)) =
+                        parse_lua_long_bracket_delimiters(&trimmed[index..])
+                    {
+                        let content_and_rest = &trimmed[index + content_start..];
+                        long_bracket_end = Some(
+                            content_and_rest
+                                .find(&closing)
+                                .map_or(trimmed.len(), |close_index| {
+                                    index + content_start + close_index + closing.len()
+                                }),
+                        );
+                    } else {
+                        bracket_depth = bracket_depth.saturating_add(1);
+                    }
+                }
+                ']' => bracket_depth = bracket_depth.checked_sub(1)?,
+                '{' => brace_depth = brace_depth.saturating_add(1),
+                '}' => brace_depth = brace_depth.checked_sub(1)?,
+                '(' => paren_depth = paren_depth.saturating_add(1),
+                ')' => paren_depth = paren_depth.checked_sub(1)?,
+                _ => {}
+            }
+        }
+
+        if !removed_comment {
+            return Some(trimmed);
+        }
+    }
+}
+
 #[allow(dead_code)]
 fn lua_config_bracket_assignment_rest_from_query<'a>(
     source: &'a str,
@@ -53233,7 +53337,7 @@ fn strip_lua_function_call_from_query<'a>(query: &'a str, name: &str) -> Option<
         .strip_prefix('(')?
         .strip_suffix(')')
         .and_then(lua_trim_start_comments)
-        .map(str::trim_end)
+        .and_then(lua_trim_end_comments)
 }
 
 fn send_key_from_query(query: &str) -> Option<WindowSendKey> {
@@ -105216,6 +105320,34 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.SpawnCommandInNewTab( -- spawn options\n { cwd = \"C:/Project Dir\", args = { \"top\", \"-d\", \"1\" } })"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::NewTab]
+        );
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+        assert_eq!(launch.cwd(), Some("C:/Project Dir"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_wezterm_action_spawn_command_comment_before_call_close_query()
+    {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SpawnCommandInNewTab({ cwd = \"C:/Project Dir\", args = { \"top\", \"-d\", \"1\" } } -- spawn options\n)"
                 .to_owned(),
         );
 
