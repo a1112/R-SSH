@@ -993,7 +993,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   queries such as `SpawnCommandInNewTab = { ... }` also accept Lua comments
   between the action name and `=`, and `wezterm.action { Name = ... }`
   table-wrapper queries accept Lua comments before or after the wrapper table,
-  plus after parenthesized wrapper table payloads before `)`. Indexed
+  plus before or after parenthesized wrapper table payloads inside `(...)`. Indexed
   `wezterm.action["..."]` and long-bracket `wezterm.action[ [[...]] ]` names
   followed by Lua table constructors now preserve the table payload separator,
   including when Lua comments appear between `wezterm.action` and `[`, or
