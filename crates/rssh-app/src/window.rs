@@ -8160,6 +8160,13 @@ fn lua_window_title_text_part_from_expression(
         return Some(NativeLuaWindowTitlePart::ActivePaneCurrentWorkingDir);
     }
 
+    let tab_active_pane_tty_name = format!("{tab_param}.active_pane.tty_name");
+    if let Some(rest) = expression.strip_prefix(&tab_active_pane_tty_name)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaWindowTitlePart::ActivePaneTtyName);
+    }
+
     if let Some(receiver) = lua_identifier_literal_from_query(expression) {
         let rest = expression.get(receiver.len()..)?;
         if lua_window_title_active_pane_alias_before_offset(
@@ -30110,6 +30117,7 @@ enum NativeLuaWindowTitlePart {
     ActivePaneDomainName,
     ActivePaneForegroundProcessName,
     ActivePaneCurrentWorkingDir,
+    ActivePaneTtyName,
     Conditional {
         condition: NativeLuaWindowTitleCondition,
         parts: Vec<NativeLuaWindowTitlePart>,
@@ -30131,6 +30139,7 @@ impl NativeLuaWindowTitlePart {
                 Some(event.active_pane_info.foreground_process_name.clone())
             }
             Self::ActivePaneCurrentWorkingDir => event.active_pane_info.current_working_dir.clone(),
+            Self::ActivePaneTtyName => event.active_pane_info.tty_name.clone(),
             Self::Conditional { condition, parts } => {
                 if !condition.matches(event) {
                     return Some(String::new());
@@ -104707,6 +104716,27 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "/tmp/project");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_active_pane_tty_name_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return tab.active_pane.tty_name
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title active pane tty name return");
+        app.set_config_overrides(overrides);
+        app.session_tty_name = Some("/dev/pts/9".to_owned());
+
+        assert_eq!(app.effective_window_title(), "/dev/pts/9");
     }
 
     #[test]
