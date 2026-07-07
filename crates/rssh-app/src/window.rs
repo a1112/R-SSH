@@ -9757,8 +9757,8 @@ fn lua_static_tab_title_conditional_return_from_function_body(
 
     for start in starts {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
-        if let Some((if_branches, rest_after_if)) =
-            lua_static_if_condition_and_body_branches_from_statement(statement)
+        if let Some((if_branches, else_body, rest_after_if)) =
+            lua_static_if_condition_and_body_branches_and_else_from_statement(statement)
         {
             let fallback_return =
                 lua_static_tab_title_fallback_return_statement_after_if(body, rest_after_if);
@@ -9795,14 +9795,41 @@ fn lua_static_tab_title_conditional_return_from_function_body(
                 branches.push(NativeLuaTabTitleConditionalBranch { condition, title });
             }
             if fallback.is_none()
-                && let Some(title) = lua_static_tab_title_fallback_return_after_if(
-                    body,
-                    rest_after_if,
-                    tab_param,
-                    tabs_param,
-                    panes_param,
-                    outer_static_source,
-                )
+                && let Some(title) = else_body
+                    .and_then(|else_body| {
+                        lua_static_tab_title_first_return_from_nested_body(
+                            body,
+                            else_body,
+                            tab_param,
+                            tabs_param,
+                            panes_param,
+                            outer_static_source,
+                        )
+                        .or_else(|| {
+                            let (_, shared_prefix, return_statement) = fallback_return?;
+                            lua_static_tab_title_return_with_branch_assignments(
+                                body,
+                                start,
+                                else_body,
+                                shared_prefix,
+                                return_statement,
+                                tab_param,
+                                tabs_param,
+                                panes_param,
+                                outer_static_source,
+                            )
+                        })
+                    })
+                    .or_else(|| {
+                        lua_static_tab_title_fallback_return_after_if(
+                            body,
+                            rest_after_if,
+                            tab_param,
+                            tabs_param,
+                            panes_param,
+                            outer_static_source,
+                        )
+                    })
             {
                 fallback = Some(Box::new(title));
                 break;
@@ -102542,6 +102569,86 @@ mod tests {
         assert!(tab_bar.contains("many:2"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("one:First"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("one:Second"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_else_return_condition() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              if #tabs > 1 then
+                return 'many:' .. #tabs
+              else
+                return 'one:' .. tab.tab_title
+              end
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title else return condition");
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        assert!(parsed.contains("Conditional"), "parsed was {parsed}");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "Solo".to_owned(),
+        })
+        .unwrap();
+
+        let formatted = app
+            .formatted_tab_title_for_tab(0, app.app_shell.active_tab())
+            .expect("expected formatted tab title")
+            .plain_text();
+        assert_eq!(formatted, "one:Solo");
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("one:Solo"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("many:"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_else_assignment_condition() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab.tab_title
+
+              if #tabs > 1 then
+                title = 'many:' .. #tabs
+              else
+                title = 'one:' .. tab.tab_title
+              end
+
+              return title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title else assignment condition");
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        assert!(parsed.contains("Conditional"), "parsed was {parsed}");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "Solo".to_owned(),
+        })
+        .unwrap();
+
+        let formatted = app
+            .formatted_tab_title_for_tab(0, app.app_shell.active_tab())
+            .expect("expected formatted tab title")
+            .plain_text();
+        assert_eq!(formatted, "one:Solo");
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("one:Solo"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("many:"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
