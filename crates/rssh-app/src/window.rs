@@ -49630,7 +49630,7 @@ fn command_palette_basic_structured_query_command(query: &str) -> Option<WindowC
 }
 
 fn strip_zero_arg_lua_function_call_from_query(query: &str) -> Option<&str> {
-    let query = query.trim();
+    let query = lua_trim_end_comments(query.trim())?;
     let without_close = query.strip_suffix(')')?;
     let (name, args) = without_close.split_once('(')?;
     let name = name.trim();
@@ -131344,6 +131344,38 @@ act.Confirmation {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.ReloadConfiguration( -- reload options\n )".to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::ReloadConfiguration]
+        );
+        assert!(app.command_palette_execute(WindowCommand::ReloadConfiguration));
+
+        assert!(app.command_palette.is_none());
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [NativeWindowConfigReloaded {
+                window_id: rssh_core::WindowId::new(1),
+                pane: active_pane,
+            }]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_reload_configuration_wezterm_action_function_trailing_comment_query()
+     {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.ReloadConfiguration() -- reload options".to_owned(),
         );
 
         assert_eq!(
