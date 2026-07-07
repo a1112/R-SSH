@@ -2377,8 +2377,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `quit_when_all_windows_are_closed`,
   `window_close_confirmation`, `exit_behavior`, `clean_exit_codes`,
   `exit_behavior_messaging`, `skip_close_confirmation_for_processes_named`,
-  `leader`, and `enable_tab_bar` overrides into the native effective config. That static
-  subset also covers background visual fields `foreground_text_hsb`,
+  `leader`, `keys`, `key_tables`, `mouse_bindings`, and `enable_tab_bar`
+  overrides into the native effective config. That static subset also covers
+  background visual fields `foreground_text_hsb`,
   `inactive_pane_hsb`, `text_background_opacity`,
   `window_background_opacity`, `background`, `window_background_image`,
   `window_background_image_hsb`, `window_background_gradient`,

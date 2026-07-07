@@ -10954,6 +10954,9 @@ fn lua_static_window_config_overrides_from_query(
         log_unknown_escape_sequences: overrides.log_unknown_escape_sequences,
         warn_about_missing_glyphs: overrides.warn_about_missing_glyphs,
         leader: overrides.leader,
+        key_assignments: overrides.key_assignments,
+        key_tables: overrides.key_tables,
+        mouse_assignments: overrides.mouse_assignments,
         enable_tab_bar: overrides.enable_tab_bar,
         hide_tab_bar_if_only_one_tab: overrides.hide_tab_bar_if_only_one_tab,
         use_fancy_tab_bar: overrides.use_fancy_tab_bar,
@@ -30134,6 +30137,9 @@ struct NativeLuaWindowConfigOverrides {
     log_unknown_escape_sequences: Option<bool>,
     warn_about_missing_glyphs: Option<bool>,
     leader: Option<NativeLeaderKey>,
+    key_assignments: Option<Vec<NativeUserKeyAssignment>>,
+    key_tables: Option<BTreeMap<String, Vec<NativeUserKeyAssignment>>>,
+    mouse_assignments: Option<Vec<NativeUserMouseAssignment>>,
     enable_tab_bar: Option<bool>,
     hide_tab_bar_if_only_one_tab: Option<bool>,
     use_fancy_tab_bar: Option<bool>,
@@ -30386,6 +30392,9 @@ impl NativeLuaWindowConfigOverrides {
             && self.log_unknown_escape_sequences.is_none()
             && self.warn_about_missing_glyphs.is_none()
             && self.leader.is_none()
+            && self.key_assignments.is_none()
+            && self.key_tables.is_none()
+            && self.mouse_assignments.is_none()
             && self.enable_tab_bar.is_none()
             && self.hide_tab_bar_if_only_one_tab.is_none()
             && self.use_fancy_tab_bar.is_none()
@@ -31107,6 +31116,15 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.leader.is_some() {
             self.leader = update.leader;
+        }
+        if update.key_assignments.is_some() {
+            self.key_assignments = update.key_assignments;
+        }
+        if update.key_tables.is_some() {
+            self.key_tables = update.key_tables;
+        }
+        if update.mouse_assignments.is_some() {
+            self.mouse_assignments = update.mouse_assignments;
         }
         if update.enable_tab_bar.is_some() {
             self.enable_tab_bar = update.enable_tab_bar;
@@ -31892,6 +31910,15 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(leader) = self.leader {
             overrides.leader = Some(leader);
+        }
+        if let Some(key_assignments) = self.key_assignments {
+            overrides.key_assignments = Some(key_assignments);
+        }
+        if let Some(key_tables) = self.key_tables {
+            overrides.key_tables = Some(key_tables);
+        }
+        if let Some(mouse_assignments) = self.mouse_assignments {
+            overrides.mouse_assignments = Some(mouse_assignments);
         }
         if let Some(enable_tab_bar) = self.enable_tab_bar {
             overrides.enable_tab_bar = Some(enable_tab_bar);
@@ -89642,6 +89669,105 @@ mod tests {
                 keys: "CTRL+a".to_owned(),
                 timeout_milliseconds: Some(1000),
             })
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_input_bindings() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                keys = {
+                  {
+                    key = 'Space',
+                    mods = 'CTRL|SHIFT',
+                    action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+                  },
+                },
+                key_tables = {
+                  resize_pane = {
+                    { key = 'h', action = act.SendString 'left' },
+                  },
+                },
+                mouse_bindings = {
+                  {
+                    event = { Drag = { streak = 1, button = 'Left' } },
+                    mods = 'ALT',
+                    action = act.StartWindowDrag,
+                  },
+                },
+              })
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides input bindings callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.keys,
+            vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Space".to_owned(),
+                command: WindowCommand::ActivateKeyTable(WindowActivateKeyTable {
+                    name: "resize_pane".to_owned(),
+                    timeout_milliseconds: None,
+                    one_shot: true,
+                    replace_current: false,
+                    until_unknown: false,
+                    prevent_fallback: false,
+                }),
+            }]
+        );
+        assert_eq!(
+            effective.key_tables,
+            BTreeMap::from([(
+                "resize_pane".to_owned(),
+                vec![NativeUserKeyAssignment {
+                    keys: "h".to_owned(),
+                    command: WindowCommand::SendString("left".to_owned()),
+                }],
+            )])
+        );
+        assert_eq!(
+            effective.mouse_bindings,
+            vec![NativeUserMouseAssignment {
+                event: NativeMouseAssignmentEvent {
+                    kind: NativeMouseAssignmentEventKind::Drag,
+                    button: NativeMouseAssignmentButton::Mouse(MouseButton::Left),
+                    streak: 1,
+                },
+                modifiers: ModifiersState::ALT,
+                mouse_reporting: false,
+                alt_screen: NativeMouseAssignmentAltScreen::Any,
+                command: WindowCommand::StartWindowDrag,
+            }]
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
