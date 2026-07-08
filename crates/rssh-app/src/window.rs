@@ -19455,6 +19455,22 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Clrs (Gogh)" => Some(BUILTIN_CLRS_GOGH_COLOR_SCHEME_TOML),
         "Cobalt 2 (Gogh)" => Some(BUILTIN_COBALT_2_GOGH_COLOR_SCHEME_TOML),
         "Cobalt Neon" => Some(BUILTIN_COBALT_NEON_COLOR_SCHEME_TOML),
+        "Cobalt Neon (Gogh)" => Some(BUILTIN_COBALT_NEON_GOGH_COLOR_SCHEME_TOML),
+        "Cobalt2" => Some(BUILTIN_COBALT2_COLOR_SCHEME_TOML),
+        "Codeschool (base16)" => Some(BUILTIN_CODESCHOOL_BASE16_COLOR_SCHEME_TOML),
+        "Codeschool (dark) (terminal.sexy)" => {
+            Some(BUILTIN_CODESCHOOL_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Codeschool (light) (terminal.sexy)" => {
+            Some(BUILTIN_CODESCHOOL_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "coffee_theme" => Some(BUILTIN_COFFEE_THEME_COLOR_SCHEME_TOML),
+        "Color Star (terminal.sexy)" => Some(BUILTIN_COLOR_STAR_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Colorcli (Gogh)" => Some(BUILTIN_COLORCLI_GOGH_COLOR_SCHEME_TOML),
+        "Colorful Colors (terminal.sexy)" => {
+            Some(BUILTIN_COLORFUL_COLORS_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Colors (base16)" => Some(BUILTIN_COLORS_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -27153,6 +27169,390 @@ aliases = [
 name = "Cobalt Neon"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_COBALT_NEON_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#142631",
+    "#ff2320",
+    "#3ba5ff",
+    "#e9e75c",
+    "#8ff586",
+    "#781aa0",
+    "#8ff586",
+    "#ba46b2",
+]
+background = "#142838"
+brights = [
+    "#fff688",
+    "#d4312e",
+    "#8ff586",
+    "#e9f06d",
+    "#3c7dd2",
+    "#8230a7",
+    "#6cbc67",
+    "#8ff586",
+]
+cursor_bg = "#8ff586"
+cursor_border = "#8ff586"
+cursor_fg = "#142838"
+foreground = "#8ff586"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Cobalt Neon (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_COBALT2_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff0000",
+    "#38de21",
+    "#ffe50a",
+    "#1460d2",
+    "#ff005d",
+    "#00bbbb",
+    "#bbbbbb",
+]
+background = "#132738"
+brights = [
+    "#555555",
+    "#f40e17",
+    "#3bd01d",
+    "#edc809",
+    "#5555ff",
+    "#ff55ff",
+    "#6ae3fa",
+    "#ffffff",
+]
+cursor_bg = "#f0cc09"
+cursor_border = "#f0cc09"
+cursor_fg = "#fefff2"
+foreground = "#ffffff"
+selection_bg = "#18354f"
+selection_fg = "#b5b5b5"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Cobalt 2 (Gogh)"]
+name = "Cobalt2"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_CODESCHOOL_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#232c31",
+    "#2a5491",
+    "#237986",
+    "#a03b1e",
+    "#484d79",
+    "#c59820",
+    "#b02f30",
+    "#9ea7a6",
+]
+background = "#232c31"
+brights = [
+    "#3f4944",
+    "#2a5491",
+    "#237986",
+    "#a03b1e",
+    "#484d79",
+    "#c59820",
+    "#b02f30",
+    "#b5d8f6",
+]
+cursor_bg = "#9ea7a6"
+cursor_border = "#9ea7a6"
+cursor_fg = "#232c31"
+foreground = "#9ea7a6"
+selection_bg = "#9ea7a6"
+selection_fg = "#232c31"
+
+[colors.indexed]
+16 = "#43820d"
+17 = "#c98344"
+18 = "#1c3657"
+19 = "#2a343a"
+20 = "#84898c"
+21 = "#a7cfa3"
+
+[metadata]
+aliases = ["Codeschool (dark) (terminal.sexy)"]
+author = "blockloop"
+name = "Codeschool (base16)"
+origin_url = "https://github.com/blockloop/base16-codeschool-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CODESCHOOL_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#232c31",
+    "#2a5491",
+    "#237986",
+    "#a03b1e",
+    "#484d79",
+    "#c59820",
+    "#b02f30",
+    "#9ea7a6",
+]
+background = "#232c31"
+brights = [
+    "#3f4944",
+    "#2a5491",
+    "#237986",
+    "#a03b1e",
+    "#484d79",
+    "#c59820",
+    "#b02f30",
+    "#b5d8f6",
+]
+foreground = "#9ea7a6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Codeschool (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_CODESCHOOL_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#232c31",
+    "#2a5491",
+    "#237986",
+    "#a03b1e",
+    "#484d79",
+    "#c59820",
+    "#b02f30",
+    "#9ea7a6",
+]
+background = "#b5d8f6"
+brights = [
+    "#3f4944",
+    "#2a5491",
+    "#237986",
+    "#a03b1e",
+    "#484d79",
+    "#c59820",
+    "#b02f30",
+    "#b5d8f6",
+]
+foreground = "#2a343a"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Codeschool (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_COFFEE_THEME_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c91b00",
+    "#00c200",
+    "#c7c400",
+    "#0225c7",
+    "#ca30c7",
+    "#00c5c7",
+    "#c7c7c7",
+]
+background = "#f5deb3"
+brights = [
+    "#686868",
+    "#ff6e67",
+    "#5ffa68",
+    "#fffc67",
+    "#6871ff",
+    "#ff77ff",
+    "#60fdff",
+    "#ffffff",
+]
+cursor_bg = "#c7c7c7"
+cursor_border = "#c7c7c7"
+cursor_fg = "#fffc67"
+foreground = "#000000"
+selection_bg = "#c1deff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "coffee_theme"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_COLOR_STAR_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#03010f",
+    "#503b43",
+    "#353b64",
+    "#8c2424",
+    "#6067ac",
+    "#624d19",
+    "#7c83c0",
+    "#9a600f",
+]
+background = "#000000"
+brights = [
+    "#ab9e9e",
+    "#b28930",
+    "#bbada9",
+    "#c37305",
+    "#d0ae58",
+    "#d7b559",
+    "#f4e199",
+    "#f6f4df",
+]
+foreground = "#d3d3d3"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "dkeg"
+name = "Color Star (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_COLORCLI_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d70000",
+    "#5faf00",
+    "#5faf00",
+    "#005f87",
+    "#d70000",
+    "#5f5f5f",
+    "#e4e4e4",
+]
+background = "#ffffff"
+brights = [
+    "#5f5f5f",
+    "#d70000",
+    "#5f5f5f",
+    "#ffff00",
+    "#0087af",
+    "#0087af",
+    "#0087af",
+    "#ffffff",
+]
+cursor_bg = "#005f87"
+cursor_border = "#005f87"
+cursor_fg = "#ffffff"
+foreground = "#005f87"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Colorcli (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_COLORFUL_COLORS_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151515",
+    "#ff8eaf",
+    "#a6e25f",
+    "#f8e578",
+    "#a6e2f0",
+    "#e85b92",
+    "#5f868f",
+    "#d5f1f2",
+]
+background = "#000000"
+brights = [
+    "#696969",
+    "#ed4c7a",
+    "#a6e179",
+    "#ffdf6b",
+    "#79d2ff",
+    "#bb5d79",
+    "#87a8af",
+    "#e2f1f6",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Colorful Colors (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_COLORS_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#111111",
+    "#ff4136",
+    "#2ecc40",
+    "#ffdc00",
+    "#0074d9",
+    "#b10dc9",
+    "#7fdbff",
+    "#bbbbbb",
+]
+background = "#111111"
+brights = [
+    "#777777",
+    "#ff4136",
+    "#2ecc40",
+    "#ffdc00",
+    "#0074d9",
+    "#b10dc9",
+    "#7fdbff",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#111111"
+foreground = "#bbbbbb"
+selection_bg = "#bbbbbb"
+selection_fg = "#111111"
+
+[colors.indexed]
+16 = "#ff851b"
+17 = "#85144b"
+18 = "#333333"
+19 = "#555555"
+20 = "#999999"
+21 = "#dddddd"
+
+[metadata]
+aliases = []
+author = "mrmrs (http://clrs.cc)"
+name = "Colors (base16)"
+origin_url = "https://github.com/hakatashi/base16-colors-scheme"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -96645,6 +97045,224 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm City Lights-to-Cobalt Neon built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_cobalt_neon_gogh_to_colors_builtin_color_schemes() {
+        let cases = [
+            (
+                "Cobalt Neon (Gogh)",
+                Color::Rgb(143, 245, 134),
+                Color::Rgb(20, 40, 56),
+                Color::Rgb(143, 245, 134),
+                Some(Color::Rgb(20, 40, 56)),
+                None,
+                None,
+                Color::Rgb(20, 38, 49),
+                Color::Rgb(255, 35, 32),
+                Color::Rgb(59, 165, 255),
+                Color::Rgb(233, 231, 92),
+                Color::Rgb(255, 246, 136),
+                Color::Rgb(143, 245, 134),
+                None,
+            ),
+            (
+                "Cobalt2",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(19, 39, 56),
+                Color::Rgb(240, 204, 9),
+                Some(Color::Rgb(254, 255, 242)),
+                Some(Color::Rgb(24, 53, 79)),
+                Some(Some(Color::Rgb(181, 181, 181))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 0, 0),
+                Color::Rgb(56, 222, 33),
+                Color::Rgb(255, 229, 10),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Codeschool (base16)",
+                Color::Rgb(158, 167, 166),
+                Color::Rgb(35, 44, 49),
+                Color::Rgb(158, 167, 166),
+                Some(Color::Rgb(35, 44, 49)),
+                Some(Color::Rgb(158, 167, 166)),
+                Some(Some(Color::Rgb(35, 44, 49))),
+                Color::Rgb(35, 44, 49),
+                Color::Rgb(42, 84, 145),
+                Color::Rgb(35, 121, 134),
+                Color::Rgb(160, 59, 30),
+                Color::Rgb(63, 73, 68),
+                Color::Rgb(181, 216, 246),
+                Some(Color::Rgb(67, 130, 13)),
+            ),
+            (
+                "Codeschool (dark) (terminal.sexy)",
+                Color::Rgb(158, 167, 166),
+                Color::Rgb(35, 44, 49),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(35, 44, 49),
+                Color::Rgb(42, 84, 145),
+                Color::Rgb(35, 121, 134),
+                Color::Rgb(160, 59, 30),
+                Color::Rgb(63, 73, 68),
+                Color::Rgb(181, 216, 246),
+                None,
+            ),
+            (
+                "Codeschool (light) (terminal.sexy)",
+                Color::Rgb(42, 52, 58),
+                Color::Rgb(181, 216, 246),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(35, 44, 49),
+                Color::Rgb(42, 84, 145),
+                Color::Rgb(35, 121, 134),
+                Color::Rgb(160, 59, 30),
+                Color::Rgb(63, 73, 68),
+                Color::Rgb(181, 216, 246),
+                None,
+            ),
+            (
+                "coffee_theme",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(245, 222, 179),
+                Color::Rgb(199, 199, 199),
+                Some(Color::Rgb(255, 252, 103)),
+                Some(Color::Rgb(193, 222, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(201, 27, 0),
+                Color::Rgb(0, 194, 0),
+                Color::Rgb(199, 196, 0),
+                Color::Rgb(104, 104, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Color Star (terminal.sexy)",
+                Color::Rgb(211, 211, 211),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(3, 1, 15),
+                Color::Rgb(80, 59, 67),
+                Color::Rgb(53, 59, 100),
+                Color::Rgb(140, 36, 36),
+                Color::Rgb(171, 158, 158),
+                Color::Rgb(246, 244, 223),
+                None,
+            ),
+            (
+                "Colorcli (Gogh)",
+                Color::Rgb(0, 95, 135),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 95, 135),
+                Some(Color::Rgb(255, 255, 255)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(215, 0, 0),
+                Color::Rgb(95, 175, 0),
+                Color::Rgb(95, 175, 0),
+                Color::Rgb(95, 95, 95),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Colorful Colors (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(255, 142, 175),
+                Color::Rgb(166, 226, 95),
+                Color::Rgb(248, 229, 120),
+                Color::Rgb(105, 105, 105),
+                Color::Rgb(226, 241, 246),
+                None,
+            ),
+            (
+                "Colors (base16)",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(17, 17, 17),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(17, 17, 17)),
+                Some(Color::Rgb(187, 187, 187)),
+                Some(Some(Color::Rgb(17, 17, 17))),
+                Color::Rgb(17, 17, 17),
+                Color::Rgb(255, 65, 54),
+                Color::Rgb(46, 204, 64),
+                Color::Rgb(255, 220, 0),
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(255, 133, 27)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Cobalt Neon Gogh-to-Colors built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

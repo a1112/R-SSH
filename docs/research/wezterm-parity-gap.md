@@ -3608,7 +3608,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `City Streets (terminal.sexy)`, `Classic Dark (base16)`,
   `Classic Light (base16)`, `Clone Of Ubuntu (Gogh)`,
   `Cloud (terminal.sexy)`, `CLRS`, `Clrs (Gogh)`, `Cobalt 2 (Gogh)`,
-  `Cobalt Neon`, `Builtin Dark`, `Builtin Light`,
+  `Cobalt Neon`, `Cobalt Neon (Gogh)`, `Cobalt2`, `Codeschool (base16)`,
+  `Codeschool (dark) (terminal.sexy)`, `Codeschool (light) (terminal.sexy)`,
+  `coffee_theme`, `Color Star (terminal.sexy)`, `Colorcli (Gogh)`,
+  `Colorful Colors (terminal.sexy)`, `Colors (base16)`, `Builtin Dark`,
+  `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
