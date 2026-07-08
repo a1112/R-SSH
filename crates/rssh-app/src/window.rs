@@ -58877,7 +58877,17 @@ fn lua_callback_statement_performs_action(
     window_param: &str,
     pane_param: &str,
 ) -> Option<WindowCommand> {
-    let action = lua_callback_statement_perform_action_query(statement, window_param, pane_param)?;
+    let action = if let Some(static_source) = static_source {
+        lua_callback_statement_perform_action_query_with_static_sources(
+            statement,
+            window_param,
+            pane_param,
+            static_source,
+            outer_static_source,
+        )
+    } else {
+        lua_callback_statement_perform_action_query(statement, window_param, pane_param)
+    }?;
     native_key_assignment_command_from_callback_action(
         static_source,
         outer_static_source,
@@ -126910,6 +126920,48 @@ mod tests {
         .unwrap();
 
         assert_eq!(written.lock().unwrap().as_slice(), b"from-callback");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_action_callback_perform_action_aliases() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'I',
+                mods = 'CTRL|SHIFT',
+                action = wezterm.action_callback(function(window, pane)
+                  local win = window
+                  local target = pane
+                  win:perform_action(act.SendString 'from-callback-alias', target)
+                end),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm action_callback perform_action alias key config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character("i".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyI),
+            Some("i"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"from-callback-alias");
     }
 
     #[test]

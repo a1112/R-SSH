@@ -1183,7 +1183,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   KeyAssignments such as `wezterm.action.PopKeyTable` and
   `act.ClearKeyTableStack()`, plus static `wezterm.action_callback(...)`
   custom actions as native-handler placeholders. Static callback bodies that
-  call `window:perform_action(<implemented action>, pane)` now map the nested
+  call `window:perform_action(<implemented action>, pane)`, including through
+  callback-local aliases assigned from `window` or `pane`, now map the nested
   action onto the existing native `WindowCommand` path, including clipboard,
   paste, send-string, event, multiple-action, key-table, and no-op subsets.
   Static callback bodies that call
