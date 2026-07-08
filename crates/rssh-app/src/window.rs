@@ -19212,6 +19212,15 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "aikofog (terminal.sexy)" => Some(BUILTIN_AIKOFOG_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Alabaster" => Some(BUILTIN_ALABASTER_COLOR_SCHEME_TOML),
         "Alien Blood (Gogh)" | "AlienBlood" => Some(BUILTIN_ALIENBLOOD_COLOR_SCHEME_TOML),
+        "Andromeda" => Some(BUILTIN_ANDROMEDA_COLOR_SCHEME_TOML),
+        "Apathy (base16)" => Some(BUILTIN_APATHY_BASE16_COLOR_SCHEME_TOML),
+        "Apple Classic" => Some(BUILTIN_APPLE_CLASSIC_COLOR_SCHEME_TOML),
+        "Apple System Colors" => Some(BUILTIN_APPLE_SYSTEM_COLORS_COLOR_SCHEME_TOML),
+        "Apprentice (base16)" => Some(BUILTIN_APPRENTICE_BASE16_COLOR_SCHEME_TOML),
+        "Apprentice (Gogh)" => Some(BUILTIN_APPRENTICE_GOGH_COLOR_SCHEME_TOML),
+        "arcoiris" => Some(BUILTIN_ARCOIRIS_COLOR_SCHEME_TOML),
+        "Argonaut" => Some(BUILTIN_ARGONAUT_COLOR_SCHEME_TOML),
+        "Argonaut (Gogh)" => Some(BUILTIN_ARGONAUT_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -19923,6 +19932,367 @@ aliases = ["Alien Blood (Gogh)"]
 name = "AlienBlood"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_ANDROMEDA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cd3131",
+    "#05bc79",
+    "#e5e512",
+    "#2472c8",
+    "#bc3fbc",
+    "#0fa8cd",
+    "#e5e5e5",
+]
+background = "#262a33"
+brights = [
+    "#666666",
+    "#cd3131",
+    "#05bc79",
+    "#e5e512",
+    "#2472c8",
+    "#bc3fbc",
+    "#0fa8cd",
+    "#e5e5e5",
+]
+cursor_bg = "#f8f8f0"
+cursor_border = "#f8f8f0"
+cursor_fg = "#cfcfc2"
+foreground = "#e5e5e5"
+selection_bg = "#5a5c62"
+selection_fg = "#ece7e7"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Andromeda"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_APATHY_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#031a16",
+    "#3e9688",
+    "#883e96",
+    "#3e4c96",
+    "#96883e",
+    "#4c963e",
+    "#963e4c",
+    "#81b5ac",
+]
+background = "#031a16"
+brights = [
+    "#2b685e",
+    "#3e9688",
+    "#883e96",
+    "#3e4c96",
+    "#96883e",
+    "#4c963e",
+    "#963e4c",
+    "#d2e7e4",
+]
+cursor_bg = "#81b5ac"
+cursor_border = "#81b5ac"
+cursor_fg = "#031a16"
+foreground = "#81b5ac"
+selection_bg = "#81b5ac"
+selection_fg = "#031a16"
+
+[colors.indexed]
+16 = "#3e7996"
+17 = "#3e965b"
+18 = "#0b342d"
+19 = "#184e45"
+20 = "#5f9c92"
+21 = "#a7cec8"
+
+[metadata]
+aliases = []
+author = "Jannik Siebert (https://github.com/janniks)"
+name = "Apathy (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_APPLE_CLASSIC_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c91b00",
+    "#00c200",
+    "#c7c400",
+    "#0225c7",
+    "#ca30c7",
+    "#00c5c7",
+    "#c7c7c7",
+]
+background = "#2c2b2b"
+brights = [
+    "#686868",
+    "#ff6e67",
+    "#5ffa68",
+    "#fffc67",
+    "#6871ff",
+    "#ff77ff",
+    "#60fdff",
+    "#ffffff",
+]
+cursor_bg = "#c7c7c7"
+cursor_border = "#c7c7c7"
+cursor_fg = "#ffffff"
+foreground = "#d5a200"
+selection_bg = "#6b5b02"
+selection_fg = "#67e000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Apple Classic"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_APPLE_SYSTEM_COLORS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1a1a1a",
+    "#cc372e",
+    "#26a439",
+    "#cdac08",
+    "#0869cb",
+    "#9647bf",
+    "#479ec2",
+    "#98989d",
+]
+background = "#1e1e1e"
+brights = [
+    "#464646",
+    "#ff453a",
+    "#32d74b",
+    "#ffd60a",
+    "#0a84ff",
+    "#bf5af2",
+    "#76d6ff",
+    "#ffffff",
+]
+cursor_bg = "#98989d"
+cursor_border = "#98989d"
+cursor_fg = "#ffffff"
+foreground = "#ffffff"
+selection_bg = "#3f638b"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Apple System Colors"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_APPRENTICE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#262626",
+    "#444444",
+    "#ffffaf",
+    "#87af87",
+    "#8787af",
+    "#5fafaf",
+    "#87afd7",
+    "#5f5f87",
+]
+background = "#262626"
+brights = [
+    "#87875f",
+    "#444444",
+    "#ffffaf",
+    "#87af87",
+    "#8787af",
+    "#5fafaf",
+    "#87afd7",
+    "#6c6c6c",
+]
+cursor_bg = "#5f5f87"
+cursor_border = "#5f5f87"
+cursor_fg = "#262626"
+foreground = "#5f5f87"
+selection_bg = "#5f5f87"
+selection_fg = "#262626"
+
+[colors.indexed]
+16 = "#ff8700"
+17 = "#bcbcbc"
+18 = "#af5f5f"
+19 = "#5f875f"
+20 = "#5f87af"
+21 = "#5f8787"
+
+[metadata]
+aliases = []
+author = "romainl"
+name = "Apprentice (base16)"
+origin_url = "https://github.com/casonadams/base16-apprentice-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_APPRENTICE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1c1c",
+    "#af5f5f",
+    "#5f875f",
+    "#87875f",
+    "#5f87af",
+    "#5f5f87",
+    "#5f8787",
+    "#6c6c6c",
+]
+background = "#262626"
+brights = [
+    "#444444",
+    "#ff8700",
+    "#87af87",
+    "#ffffaf",
+    "#8fafd7",
+    "#8787af",
+    "#5fafaf",
+    "#ffffff",
+]
+cursor_bg = "#bcbcbc"
+cursor_border = "#bcbcbc"
+cursor_fg = "#262626"
+foreground = "#bcbcbc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Apprentice (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_ARCOIRIS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#333333",
+    "#da2700",
+    "#12c258",
+    "#ffc656",
+    "#518bfc",
+    "#e37bd9",
+    "#63fad5",
+    "#bab2b2",
+]
+background = "#201f1e"
+brights = [
+    "#777777",
+    "#ffb9b9",
+    "#e3f6aa",
+    "#ffddaa",
+    "#b3e8f3",
+    "#cbbaf9",
+    "#bcffc7",
+    "#efefef",
+]
+cursor_bg = "#7a1c1c"
+cursor_border = "#7a1c1c"
+cursor_fg = "#fffbf2"
+foreground = "#eee4d9"
+selection_bg = "#25524a"
+selection_fg = "#f3fffd"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "arcoiris"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ARGONAUT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#232323",
+    "#ff000f",
+    "#8ce10b",
+    "#ffb900",
+    "#008df8",
+    "#6d43a6",
+    "#00d8eb",
+    "#ffffff",
+]
+background = "#0e1019"
+brights = [
+    "#444444",
+    "#ff2740",
+    "#abe15b",
+    "#ffd242",
+    "#0092ff",
+    "#9a5feb",
+    "#67fff0",
+    "#ffffff",
+]
+cursor_bg = "#ff0018"
+cursor_border = "#ff0018"
+cursor_fg = "#ff0018"
+foreground = "#fffaf4"
+selection_bg = "#002a3b"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Argonaut (Gogh)"]
+name = "Argonaut"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ARGONAUT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#232323",
+    "#ff000f",
+    "#8ce10b",
+    "#ffb900",
+    "#008df8",
+    "#6d43a6",
+    "#00d8eb",
+    "#ffffff",
+]
+background = "#0e1019"
+brights = [
+    "#444444",
+    "#ff2740",
+    "#abe15b",
+    "#ffd242",
+    "#0092ff",
+    "#9a5feb",
+    "#67fff0",
+    "#ffffff",
+]
+cursor_bg = "#fffaf4"
+cursor_border = "#fffaf4"
+cursor_fg = "#0e1019"
+foreground = "#fffaf4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Argonaut (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -85866,6 +86236,186 @@ mod tests {
             assert_eq!(ansi[1], ansi_1);
             assert_eq!(ansi[8], ansi_8);
             assert_eq!(ansi[15], ansi_15);
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_andromeda_to_argonaut_builtin_color_schemes() {
+        let cases = [
+            (
+                "Andromeda",
+                Color::Rgb(229, 229, 229),
+                Color::Rgb(38, 42, 51),
+                Color::Rgb(248, 248, 240),
+                Some(Color::Rgb(207, 207, 194)),
+                Some(Color::Rgb(90, 92, 98)),
+                Some(Some(Color::Rgb(236, 231, 231))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(205, 49, 49),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Apathy (base16)",
+                Color::Rgb(129, 181, 172),
+                Color::Rgb(3, 26, 22),
+                Color::Rgb(129, 181, 172),
+                Some(Color::Rgb(3, 26, 22)),
+                Some(Color::Rgb(129, 181, 172)),
+                Some(Some(Color::Rgb(3, 26, 22))),
+                Color::Rgb(3, 26, 22),
+                Color::Rgb(62, 150, 136),
+                Color::Rgb(43, 104, 94),
+                Color::Rgb(210, 231, 228),
+                Some(Color::Rgb(62, 121, 150)),
+            ),
+            (
+                "Apple Classic",
+                Color::Rgb(213, 162, 0),
+                Color::Rgb(44, 43, 43),
+                Color::Rgb(199, 199, 199),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(107, 91, 2)),
+                Some(Some(Color::Rgb(103, 224, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(201, 27, 0),
+                Color::Rgb(104, 104, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Apple System Colors",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(152, 152, 157),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(63, 99, 139)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(26, 26, 26),
+                Color::Rgb(204, 55, 46),
+                Color::Rgb(70, 70, 70),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Apprentice (base16)",
+                Color::Rgb(95, 95, 135),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(95, 95, 135),
+                Some(Color::Rgb(38, 38, 38)),
+                Some(Color::Rgb(95, 95, 135)),
+                Some(Some(Color::Rgb(38, 38, 38))),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(68, 68, 68),
+                Color::Rgb(135, 135, 95),
+                Color::Rgb(108, 108, 108),
+                Some(Color::Rgb(255, 135, 0)),
+            ),
+            (
+                "Apprentice (Gogh)",
+                Color::Rgb(188, 188, 188),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(188, 188, 188),
+                Some(Color::Rgb(38, 38, 38)),
+                None,
+                None,
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(175, 95, 95),
+                Color::Rgb(68, 68, 68),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "arcoiris",
+                Color::Rgb(238, 228, 217),
+                Color::Rgb(32, 31, 30),
+                Color::Rgb(122, 28, 28),
+                Some(Color::Rgb(255, 251, 242)),
+                Some(Color::Rgb(37, 82, 74)),
+                Some(Some(Color::Rgb(243, 255, 253))),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(218, 39, 0),
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(239, 239, 239),
+                None,
+            ),
+            (
+                "Argonaut",
+                Color::Rgb(255, 250, 244),
+                Color::Rgb(14, 16, 25),
+                Color::Rgb(255, 0, 24),
+                Some(Color::Rgb(255, 0, 24)),
+                Some(Color::Rgb(0, 42, 59)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(35, 35, 35),
+                Color::Rgb(255, 0, 15),
+                Color::Rgb(68, 68, 68),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Argonaut (Gogh)",
+                Color::Rgb(255, 250, 244),
+                Color::Rgb(14, 16, 25),
+                Color::Rgb(255, 250, 244),
+                Some(Color::Rgb(14, 16, 25)),
+                None,
+                None,
+                Color::Rgb(35, 35, 35),
+                Color::Rgb(255, 0, 15),
+                Color::Rgb(68, 68, 68),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Andromeda-to-Argonaut built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
         }
     }
 

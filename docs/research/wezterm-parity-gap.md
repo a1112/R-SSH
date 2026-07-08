@@ -3541,12 +3541,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `3024 Day (Gogh)`, `3024 Night`, `3024 Night (Gogh)`, `Aardvark Blue`,
   `Abernathy`, `Aci (Gogh)`, `Aco (Gogh)`, `Adventure`, `AdventureTime`,
   `Afterglow`, `Afterglow (Gogh)`, `aikofog (terminal.sexy)`, `Alabaster`,
-  `AlienBlood`, `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
-  `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
-  `Builtin Tango Light`, and their WezTerm aliases using WezTerm's built-in TOML
-  palette data. The broader built-in scheme catalog, richer dynamic
-  `load_scheme` composition, and full dynamic Lua scheme construction remain
-  later parity work.
+  `AlienBlood`, `Andromeda`, `Apathy (base16)`, `Apple Classic`,
+  `Apple System Colors`, `Apprentice (base16)`, `Apprentice (Gogh)`,
+  `arcoiris`, `Argonaut`, `Argonaut (Gogh)`, `Builtin Dark`, `Builtin Light`,
+  `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
+  `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
+  WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
+  richer dynamic `load_scheme` composition, and full dynamic Lua scheme
+  construction remain later parity work.
 - Native terminal rendering applies WezTerm-style `colors.background` as the
   default framebuffer background for full and damage renders. Static
   WezTerm-style Lua `config.colors.background` snippets now parse into the same
