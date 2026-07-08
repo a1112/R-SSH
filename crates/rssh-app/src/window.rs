@@ -23760,24 +23760,43 @@ fn lua_static_wezterm_action_callback_alias_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_static_wezterm_action_callback_alias_value_from_query(value);
+        selected = lua_static_wezterm_action_callback_alias_value_from_query(source, start, value);
     }
 
     Some(selected)
 }
 
-fn lua_static_wezterm_action_callback_alias_value_from_query(value: &str) -> bool {
+fn lua_static_wezterm_action_callback_alias_value_from_query(
+    source: &str,
+    max_start: usize,
+    value: &str,
+) -> bool {
     if lua_top_level_statement_value_from_query(value)
         .is_some_and(|value| value.trim() == "action_callback")
     {
         return true;
     }
-    let Some(rest) =
-        lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.action_callback")
-    else {
+    let Some(value) = lua_trim_start_comments(value) else {
         return false;
     };
-    lua_static_identifier_value_rest_is_statement_end(rest)
+    let rest = if let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) {
+        rest
+    } else if let Some(rest) = lua_static_wezterm_receiver_rest_from_query(source, max_start, value)
+    {
+        rest
+    } else {
+        return false;
+    };
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let Some((field, rest)) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource { source, max_start }),
+        rest,
+    ) else {
+        return false;
+    };
+    field == "action_callback" && lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
 fn lua_static_wezterm_format_alias_query_from_query(
@@ -131313,6 +131332,51 @@ mod tests {
                     ..WindowQuickSelectOptions::default()
                 }),
             }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_static_action_callback_alias_static_key_module() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wt = require 'wezterm'
+            local act = wt.action
+            local callback_key = 'action_callback'
+            local cb = wt[callback_key]
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'K',
+                mods = 'CTRL|SHIFT',
+                action = cb(function(window, pane)
+                  window:perform_action(act.SendString 'from-static-key-callback', pane)
+                end),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm action_callback static-key module alias config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character("k".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyK),
+            Some("k"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(
+            written.lock().unwrap().as_slice(),
+            b"from-static-key-callback"
         );
     }
 

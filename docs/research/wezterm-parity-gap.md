@@ -1969,9 +1969,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   action variables for `QuickSelectArgs.action` when parsed from static
   WezTerm-style `config.keys`, including `local <alias> = wezterm.action`
   aliases with Lua comments inside the dotted helper path or before table-call,
-  dot-call, or indexed action constructors, static `local <callback> = wezterm.action_callback` aliases
-  with Lua comments inside the dotted helper path or before the callback call, plus
-  parenthesized calls that pass a top-level static options table variable.
+  dot-call, or indexed action constructors, static `local <callback> =
+  wezterm.action_callback` aliases plus module-alias/static-key
+  `action_callback` aliases with Lua comments inside the dotted helper path or
+  before the callback call, plus parenthesized calls that pass a top-level
+  static options table variable.
   These exact WezTerm table/config forms now produce native
   `QuickSelectArgs { ... }` payloads while legacy
   command-palette aliases continue through the internal quick-select entry.
