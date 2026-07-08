@@ -344,7 +344,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `DEFAULT` below 100 DPI or `NO_HINTING` at 100 DPI or higher, plus
   top-level static table variables and `table.insert(config.font_dirs, ...)`
   appends for `config.font_dirs`. `config.font` accepts static `wezterm.font`
-  and `wezterm.font_with_fallback` calls, including Lua comments inside direct
+  and `wezterm.font_with_fallback` calls, including direct module/static-key
+  helper calls such as `wt[font_key](...)`, Lua comments inside direct
   `wezterm.font`/`wezterm.font_with_fallback` dotted helper paths, top-level
   static helper aliases including module/static-key aliases such as
   `local font = wt[font_key]` and `local fallback = wt[fallback_key]`, Lua
