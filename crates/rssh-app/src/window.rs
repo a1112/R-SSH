@@ -19547,6 +19547,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Ef-Day" => Some(BUILTIN_EF_DAY_COLOR_SCHEME_TOML),
         "Ef-Deuteranopia-Dark" => Some(BUILTIN_EF_DEUTERANOPIA_DARK_COLOR_SCHEME_TOML),
         "Ef-Deuteranopia-Light" => Some(BUILTIN_EF_DEUTERANOPIA_LIGHT_COLOR_SCHEME_TOML),
+        "Ef-Dream" => Some(BUILTIN_EF_DREAM_COLOR_SCHEME_TOML),
+        "Ef-Duo-Dark" => Some(BUILTIN_EF_DUO_DARK_COLOR_SCHEME_TOML),
+        "Ef-Duo-Light" => Some(BUILTIN_EF_DUO_LIGHT_COLOR_SCHEME_TOML),
+        "Ef-Elea-Dark" => Some(BUILTIN_EF_ELEA_DARK_COLOR_SCHEME_TOML),
+        "Ef-Elea-Light" => Some(BUILTIN_EF_ELEA_LIGHT_COLOR_SCHEME_TOML),
+        "Ef-Frost" => Some(BUILTIN_EF_FROST_COLOR_SCHEME_TOML),
+        "Ef-Kassio" => Some(BUILTIN_EF_KASSIO_COLOR_SCHEME_TOML),
+        "Ef-Light" => Some(BUILTIN_EF_LIGHT_COLOR_SCHEME_TOML),
+        "Ef-Maris-Dark" => Some(BUILTIN_EF_MARIS_DARK_COLOR_SCHEME_TOML),
+        "Ef-Maris-Light" => Some(BUILTIN_EF_MARIS_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -30568,6 +30578,406 @@ aliases = []
 author = "anhsirk0"
 name = "Ef-Deuteranopia-Light"
 origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-deuteranopia-light-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_EF_DREAM_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#322f34",
+    "#ff6f6f",
+    "#51b04f",
+    "#c0b24f",
+    "#57b0ff",
+    "#ffaacf",
+    "#6fb3c0",
+    "#efd5c5",
+]
+background = "#232025"
+brights = [
+    "#5b595e",
+    "#e47980",
+    "#3fc489",
+    "#deb07a",
+    "#12b4ff",
+    "#d0b0ff",
+    "#65c5a8",
+    "#8f8886",
+]
+cursor_bg = "#f3c09a"
+cursor_border = "#f3c09a"
+cursor_fg = "#232025"
+foreground = "#efd5c5"
+selection_bg = "#544a50"
+selection_fg = "#efd5c5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Ef-Dream"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-dream-theme.el"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_EF_DUO_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d1a26",
+    "#ef656a",
+    "#1fa526",
+    "#c48702",
+    "#379cf6",
+    "#d369af",
+    "#5faaef",
+    "#d0d0d0",
+]
+background = "#070019"
+brights = [
+    "#4a4759",
+    "#ef798f",
+    "#00b982",
+    "#df805f",
+    "#029fff",
+    "#af85ff",
+    "#0dafdf",
+    "#857f8f",
+]
+cursor_bg = "#ef6f11"
+cursor_border = "#ef6f11"
+cursor_fg = "#070019"
+foreground = "#d0d0d0"
+selection_bg = "#042a50"
+selection_fg = "#d0d0d0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Ef-Duo-Dark"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-duo-dark-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_EF_DUO_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f6ece8",
+    "#cc3333",
+    "#217a3c",
+    "#8a5d00",
+    "#375cd8",
+    "#ba35af",
+    "#1f6fbf",
+    "#222222",
+]
+background = "#fff8f0"
+brights = [
+    "#c7c0ba",
+    "#c04440",
+    "#008058",
+    "#8f5a3a",
+    "#065fff",
+    "#6052cf",
+    "#1f77bb",
+    "#63728f",
+]
+cursor_bg = "#1144ff"
+cursor_border = "#1144ff"
+cursor_fg = "#fff8f0"
+foreground = "#222222"
+selection_bg = "#caeafa"
+selection_fg = "#222222"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Ef-Duo-Light"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-duo-light-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_EF_ELEA_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#303332",
+    "#ff656a",
+    "#7fc87f",
+    "#cac85f",
+    "#57aff6",
+    "#f59acf",
+    "#6fcfd2",
+    "#eaf2ef",
+]
+background = "#222524"
+brights = [
+    "#5e6160",
+    "#fa7f88",
+    "#50cf89",
+    "#cfb27f",
+    "#62cfef",
+    "#cfaaff",
+    "#60d5c2",
+    "#969faf",
+]
+cursor_bg = "#ef7fa8"
+cursor_border = "#ef7fa8"
+cursor_fg = "#222524"
+foreground = "#eaf2ef"
+selection_bg = "#543040"
+selection_fg = "#eaf2ef"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Ef-Elea-Dark"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-elea-dark-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_EF_ELEA_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#e3e9d6",
+    "#c3303a",
+    "#00601f",
+    "#9a501f",
+    "#375cc6",
+    "#80308f",
+    "#1f70af",
+    "#221321",
+]
+background = "#edf5e2"
+brights = [
+    "#b0b7aa",
+    "#b02440",
+    "#007047",
+    "#88541f",
+    "#162f8f",
+    "#5032aa",
+    "#00677f",
+    "#676470",
+]
+cursor_bg = "#770080"
+cursor_border = "#770080"
+cursor_fg = "#edf5e2"
+foreground = "#221321"
+selection_bg = "#d9d2ef"
+selection_fg = "#221321"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Ef-Elea-Light"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-elea-light-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_EF_FROST_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#eaefef",
+    "#c42d2f",
+    "#008a00",
+    "#aa6100",
+    "#004fc0",
+    "#aa44c5",
+    "#1f6fbf",
+    "#232323",
+]
+background = "#fcffff"
+brights = [
+    "#b5b8b8",
+    "#cf2f4f",
+    "#00845f",
+    "#996c4f",
+    "#065fff",
+    "#7f5ae0",
+    "#007a85",
+    "#66657f",
+]
+cursor_bg = "#0055bb"
+cursor_border = "#0055bb"
+cursor_fg = "#fcffff"
+foreground = "#232323"
+selection_bg = "#d4eaf3"
+selection_fg = "#232323"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Ef-Frost"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-frost-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_EF_KASSIO_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#efe7e7",
+    "#b00234",
+    "#217a3c",
+    "#9a6012",
+    "#3c3bbe",
+    "#a01f64",
+    "#2f5f9f",
+    "#201f36",
+]
+background = "#fff7f7"
+brights = [
+    "#c0bbbb",
+    "#d5305f",
+    "#008358",
+    "#a04646",
+    "#065fff",
+    "#7022bf",
+    "#1077ab",
+    "#776f79",
+]
+cursor_bg = "#d06f30"
+cursor_border = "#d06f30"
+cursor_fg = "#fff7f7"
+foreground = "#201f36"
+selection_bg = "#dfe4f4"
+selection_fg = "#201f36"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Ef-Kassio"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-kassio-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_EF_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#efefef",
+    "#d3303a",
+    "#217a3c",
+    "#a45f22",
+    "#3740cf",
+    "#ba35af",
+    "#1f6fbf",
+    "#202020",
+]
+background = "#ffffff"
+brights = [
+    "#b3b3b3",
+    "#d50f7f",
+    "#008858",
+    "#b65050",
+    "#065fff",
+    "#6052cf",
+    "#1f77bb",
+    "#70627f",
+]
+cursor_bg = "#0033cc"
+cursor_border = "#0033cc"
+cursor_fg = "#ffffff"
+foreground = "#202020"
+selection_bg = "#bfefff"
+selection_fg = "#202020"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Ef-Light"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-light-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_EF_MARIS_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d2c39",
+    "#ff6f6f",
+    "#41bf4f",
+    "#d0d24f",
+    "#57b0ff",
+    "#f59acf",
+    "#2fd0db",
+    "#eaedef",
+]
+background = "#131c2b"
+brights = [
+    "#4a5664",
+    "#ff7788",
+    "#30c489",
+    "#cab27f",
+    "#12b4ff",
+    "#cf90ff",
+    "#65d5a8",
+    "#969faf",
+]
+cursor_bg = "#8fdfff"
+cursor_border = "#8fdfff"
+cursor_fg = "#131c2b"
+foreground = "#eaedef"
+selection_bg = "#183c65"
+selection_fg = "#eaedef"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Ef-Maris-Dark"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-maris-dark-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_EF_MARIS_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#e0e7ef",
+    "#c3303a",
+    "#007010",
+    "#805a1f",
+    "#375cc6",
+    "#80308f",
+    "#1f66af",
+    "#151a27",
+]
+background = "#edf4f8"
+brights = [
+    "#afb8c3",
+    "#b02440",
+    "#007047",
+    "#78542f",
+    "#003faf",
+    "#5f2fba",
+    "#006f70",
+    "#676470",
+]
+cursor_bg = "#036f99"
+cursor_border = "#036f99"
+cursor_fg = "#edf4f8"
+foreground = "#151a27"
+selection_bg = "#c8dcff"
+selection_fg = "#151a27"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Ef-Maris-Light"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-maris-light-theme.el"
 wezterm_version = "20240127-113634-bbcac864"
 "##;
 
@@ -101820,6 +102230,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Edge Light-to-Ef Deuteranopia Light built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_ef_dream_to_ef_maris_light_builtin_color_schemes() {
+        let cases = [
+            (
+                "Ef-Dream",
+                Color::Rgb(239, 213, 197),
+                Color::Rgb(35, 32, 37),
+                Color::Rgb(243, 192, 154),
+                Some(Color::Rgb(35, 32, 37)),
+                Some(Color::Rgb(84, 74, 80)),
+                Some(Some(Color::Rgb(239, 213, 197))),
+                Color::Rgb(50, 47, 52),
+                Color::Rgb(255, 111, 111),
+                Color::Rgb(81, 176, 79),
+                Color::Rgb(192, 178, 79),
+                Color::Rgb(91, 89, 94),
+                Color::Rgb(143, 136, 134),
+                None,
+            ),
+            (
+                "Ef-Duo-Dark",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(7, 0, 25),
+                Color::Rgb(239, 111, 17),
+                Some(Color::Rgb(7, 0, 25)),
+                Some(Color::Rgb(4, 42, 80)),
+                Some(Some(Color::Rgb(208, 208, 208))),
+                Color::Rgb(29, 26, 38),
+                Color::Rgb(239, 101, 106),
+                Color::Rgb(31, 165, 38),
+                Color::Rgb(196, 135, 2),
+                Color::Rgb(74, 71, 89),
+                Color::Rgb(133, 127, 143),
+                None,
+            ),
+            (
+                "Ef-Duo-Light",
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(255, 248, 240),
+                Color::Rgb(17, 68, 255),
+                Some(Color::Rgb(255, 248, 240)),
+                Some(Color::Rgb(202, 234, 250)),
+                Some(Some(Color::Rgb(34, 34, 34))),
+                Color::Rgb(246, 236, 232),
+                Color::Rgb(204, 51, 51),
+                Color::Rgb(33, 122, 60),
+                Color::Rgb(138, 93, 0),
+                Color::Rgb(199, 192, 186),
+                Color::Rgb(99, 114, 143),
+                None,
+            ),
+            (
+                "Ef-Elea-Dark",
+                Color::Rgb(234, 242, 239),
+                Color::Rgb(34, 37, 36),
+                Color::Rgb(239, 127, 168),
+                Some(Color::Rgb(34, 37, 36)),
+                Some(Color::Rgb(84, 48, 64)),
+                Some(Some(Color::Rgb(234, 242, 239))),
+                Color::Rgb(48, 51, 50),
+                Color::Rgb(255, 101, 106),
+                Color::Rgb(127, 200, 127),
+                Color::Rgb(202, 200, 95),
+                Color::Rgb(94, 97, 96),
+                Color::Rgb(150, 159, 175),
+                None,
+            ),
+            (
+                "Ef-Elea-Light",
+                Color::Rgb(34, 19, 33),
+                Color::Rgb(237, 245, 226),
+                Color::Rgb(119, 0, 128),
+                Some(Color::Rgb(237, 245, 226)),
+                Some(Color::Rgb(217, 210, 239)),
+                Some(Some(Color::Rgb(34, 19, 33))),
+                Color::Rgb(227, 233, 214),
+                Color::Rgb(195, 48, 58),
+                Color::Rgb(0, 96, 31),
+                Color::Rgb(154, 80, 31),
+                Color::Rgb(176, 183, 170),
+                Color::Rgb(103, 100, 112),
+                None,
+            ),
+            (
+                "Ef-Frost",
+                Color::Rgb(35, 35, 35),
+                Color::Rgb(252, 255, 255),
+                Color::Rgb(0, 85, 187),
+                Some(Color::Rgb(252, 255, 255)),
+                Some(Color::Rgb(212, 234, 243)),
+                Some(Some(Color::Rgb(35, 35, 35))),
+                Color::Rgb(234, 239, 239),
+                Color::Rgb(196, 45, 47),
+                Color::Rgb(0, 138, 0),
+                Color::Rgb(170, 97, 0),
+                Color::Rgb(181, 184, 184),
+                Color::Rgb(102, 101, 127),
+                None,
+            ),
+            (
+                "Ef-Kassio",
+                Color::Rgb(32, 31, 54),
+                Color::Rgb(255, 247, 247),
+                Color::Rgb(208, 111, 48),
+                Some(Color::Rgb(255, 247, 247)),
+                Some(Color::Rgb(223, 228, 244)),
+                Some(Some(Color::Rgb(32, 31, 54))),
+                Color::Rgb(239, 231, 231),
+                Color::Rgb(176, 2, 52),
+                Color::Rgb(33, 122, 60),
+                Color::Rgb(154, 96, 18),
+                Color::Rgb(192, 187, 187),
+                Color::Rgb(119, 111, 121),
+                None,
+            ),
+            (
+                "Ef-Light",
+                Color::Rgb(32, 32, 32),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 51, 204),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(191, 239, 255)),
+                Some(Some(Color::Rgb(32, 32, 32))),
+                Color::Rgb(239, 239, 239),
+                Color::Rgb(211, 48, 58),
+                Color::Rgb(33, 122, 60),
+                Color::Rgb(164, 95, 34),
+                Color::Rgb(179, 179, 179),
+                Color::Rgb(112, 98, 127),
+                None,
+            ),
+            (
+                "Ef-Maris-Dark",
+                Color::Rgb(234, 237, 239),
+                Color::Rgb(19, 28, 43),
+                Color::Rgb(143, 223, 255),
+                Some(Color::Rgb(19, 28, 43)),
+                Some(Color::Rgb(24, 60, 101)),
+                Some(Some(Color::Rgb(234, 237, 239))),
+                Color::Rgb(29, 44, 57),
+                Color::Rgb(255, 111, 111),
+                Color::Rgb(65, 191, 79),
+                Color::Rgb(208, 210, 79),
+                Color::Rgb(74, 86, 100),
+                Color::Rgb(150, 159, 175),
+                None,
+            ),
+            (
+                "Ef-Maris-Light",
+                Color::Rgb(21, 26, 39),
+                Color::Rgb(237, 244, 248),
+                Color::Rgb(3, 111, 153),
+                Some(Color::Rgb(237, 244, 248)),
+                Some(Color::Rgb(200, 220, 255)),
+                Some(Some(Color::Rgb(21, 26, 39))),
+                Color::Rgb(224, 231, 239),
+                Color::Rgb(195, 48, 58),
+                Color::Rgb(0, 112, 16),
+                Color::Rgb(128, 90, 31),
+                Color::Rgb(175, 184, 195),
+                Color::Rgb(103, 100, 112),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Ef Dream-to-Ef Maris Light built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
