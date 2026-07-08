@@ -19262,6 +19262,36 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Atelier Seaside Light (base16)" => {
             Some(BUILTIN_ATELIER_SEASIDE_LIGHT_BASE16_COLOR_SCHEME_TOML)
         }
+        "Atelier Sulphurpool (base16)" => {
+            Some(BUILTIN_ATELIER_SULPHURPOOL_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Atelier Sulphurpool Light (base16)" => {
+            Some(BUILTIN_ATELIER_SULPHURPOOL_LIGHT_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Atelierdune (dark) (terminal.sexy)" => {
+            Some(BUILTIN_ATELIERDUNE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Atelierdune (light) (terminal.sexy)" => {
+            Some(BUILTIN_ATELIERDUNE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Atelierforest (dark) (terminal.sexy)" => {
+            Some(BUILTIN_ATELIERFOREST_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Atelierforest (light) (terminal.sexy)" => {
+            Some(BUILTIN_ATELIERFOREST_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Atelierheath (dark) (terminal.sexy)" => {
+            Some(BUILTIN_ATELIERHEATH_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Atelierheath (light) (terminal.sexy)" => {
+            Some(BUILTIN_ATELIERHEATH_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Atelierlakeside (dark) (terminal.sexy)" => {
+            Some(BUILTIN_ATELIERLAKESIDE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Atelierlakeside (light) (terminal.sexy)" => {
+            Some(BUILTIN_ATELIERLAKESIDE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -21425,6 +21455,378 @@ aliases = []
 author = "Bram de Haan (http://atelierbramdehaan.nl)"
 name = "Atelier Seaside Light (base16)"
 origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_SULPHURPOOL_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#202746",
+    "#c94922",
+    "#ac9739",
+    "#c08b30",
+    "#3d8fd1",
+    "#6679cc",
+    "#22a2c9",
+    "#979db4",
+]
+background = "#202746"
+brights = [
+    "#6b7394",
+    "#c94922",
+    "#ac9739",
+    "#c08b30",
+    "#3d8fd1",
+    "#6679cc",
+    "#22a2c9",
+    "#f5f7ff",
+]
+cursor_bg = "#979db4"
+cursor_border = "#979db4"
+cursor_fg = "#202746"
+foreground = "#979db4"
+selection_bg = "#979db4"
+selection_fg = "#202746"
+
+[colors.indexed]
+16 = "#c76b29"
+17 = "#9c637a"
+18 = "#293256"
+19 = "#5e6687"
+20 = "#898ea4"
+21 = "#dfe2f1"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Sulphurpool (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_SULPHURPOOL_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f5f7ff",
+    "#c94922",
+    "#ac9739",
+    "#c08b30",
+    "#3d8fd1",
+    "#6679cc",
+    "#22a2c9",
+    "#5e6687",
+]
+background = "#f5f7ff"
+brights = [
+    "#898ea4",
+    "#c94922",
+    "#ac9739",
+    "#c08b30",
+    "#3d8fd1",
+    "#6679cc",
+    "#22a2c9",
+    "#202746",
+]
+cursor_bg = "#5e6687"
+cursor_border = "#5e6687"
+cursor_fg = "#f5f7ff"
+foreground = "#5e6687"
+selection_bg = "#5e6687"
+selection_fg = "#f5f7ff"
+
+[colors.indexed]
+16 = "#c76b29"
+17 = "#9c637a"
+18 = "#dfe2f1"
+19 = "#979db4"
+20 = "#6b7394"
+21 = "#293256"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Sulphurpool Light (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIERDUNE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#20201d",
+    "#d73737",
+    "#60ac39",
+    "#cfb017",
+    "#6684e1",
+    "#b854d4",
+    "#1fad83",
+    "#a6a28c",
+]
+background = "#20201d"
+brights = [
+    "#7d7a68",
+    "#d73737",
+    "#60ac39",
+    "#cfb017",
+    "#6684e1",
+    "#b854d4",
+    "#1fad83",
+    "#fefbec",
+]
+foreground = "#a6a28c"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Atelierdune (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIERDUNE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#20201d",
+    "#d73737",
+    "#60ac39",
+    "#cfb017",
+    "#6684e1",
+    "#b854d4",
+    "#1fad83",
+    "#a6a28c",
+]
+background = "#fefbec"
+brights = [
+    "#7d7a68",
+    "#d73737",
+    "#60ac39",
+    "#cfb017",
+    "#6684e1",
+    "#b854d4",
+    "#1fad83",
+    "#fefbec",
+]
+foreground = "#6e6b5e"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Atelierdune (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIERFOREST_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1918",
+    "#f22c40",
+    "#5ab738",
+    "#d5911a",
+    "#407ee7",
+    "#6666ea",
+    "#00ad9c",
+    "#a8a19f",
+]
+background = "#1b1918"
+brights = [
+    "#766e6b",
+    "#f22c40",
+    "#5ab738",
+    "#d5911a",
+    "#407ee7",
+    "#6666ea",
+    "#00ad9c",
+    "#f1efee",
+]
+foreground = "#a8a19f"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Atelierforest (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIERFOREST_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1918",
+    "#f22c40",
+    "#5ab738",
+    "#d5911a",
+    "#407ee7",
+    "#6666ea",
+    "#00ad9c",
+    "#a8a19f",
+]
+background = "#f1efee"
+brights = [
+    "#766e6b",
+    "#f22c40",
+    "#5ab738",
+    "#d5911a",
+    "#407ee7",
+    "#6666ea",
+    "#00ad9c",
+    "#f1efee",
+]
+foreground = "#68615e"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Atelierforest (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIERHEATH_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b181b",
+    "#ca402b",
+    "#379a37",
+    "#bb8a35",
+    "#516aec",
+    "#7b59c0",
+    "#159393",
+    "#ab9bab",
+]
+background = "#1b181b"
+brights = [
+    "#776977",
+    "#ca402b",
+    "#379a37",
+    "#bb8a35",
+    "#516aec",
+    "#7b59c0",
+    "#159393",
+    "#f7f3f7",
+]
+foreground = "#ab9bab"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Atelierheath (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIERHEATH_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b181b",
+    "#ca402b",
+    "#379a37",
+    "#bb8a35",
+    "#516aec",
+    "#7b59c0",
+    "#159393",
+    "#ab9bab",
+]
+background = "#f7f3f7"
+brights = [
+    "#776977",
+    "#ca402b",
+    "#379a37",
+    "#bb8a35",
+    "#516aec",
+    "#7b59c0",
+    "#159393",
+    "#f7f3f7",
+]
+foreground = "#695d69"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Atelierheath (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIERLAKESIDE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#161b1d",
+    "#d22d72",
+    "#568c3b",
+    "#8a8a0f",
+    "#257fad",
+    "#5d5db1",
+    "#2d8f6f",
+    "#7ea2b4",
+]
+background = "#161b1d"
+brights = [
+    "#5a7b8c",
+    "#d22d72",
+    "#568c3b",
+    "#8a8a0f",
+    "#257fad",
+    "#5d5db1",
+    "#2d8f6f",
+    "#ebf8ff",
+]
+foreground = "#7ea2b4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Atelierlakeside (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIERLAKESIDE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#161b1d",
+    "#d22d72",
+    "#568c3b",
+    "#8a8a0f",
+    "#257fad",
+    "#5d5db1",
+    "#2d8f6f",
+    "#7ea2b4",
+]
+background = "#ebf8ff"
+brights = [
+    "#5a7b8c",
+    "#d22d72",
+    "#568c3b",
+    "#8a8a0f",
+    "#257fad",
+    "#5d5db1",
+    "#2d8f6f",
+    "#ebf8ff",
+]
+foreground = "#516d7b"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Atelierlakeside (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -88097,6 +88499,202 @@ mod tests {
             ))
             .expect(
                 "expected WezTerm Atelier Plateau/Savanna/Seaside built-in color_scheme config",
+            );
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_atelier_sulphurpool_and_terminal_sexy_builtin_color_schemes() {
+        let cases = [
+            (
+                "Atelier Sulphurpool (base16)",
+                Color::Rgb(151, 157, 180),
+                Color::Rgb(32, 39, 70),
+                Color::Rgb(151, 157, 180),
+                Some(Color::Rgb(32, 39, 70)),
+                Some(Color::Rgb(151, 157, 180)),
+                Some(Some(Color::Rgb(32, 39, 70))),
+                Color::Rgb(32, 39, 70),
+                Color::Rgb(201, 73, 34),
+                Color::Rgb(107, 115, 148),
+                Color::Rgb(245, 247, 255),
+                Some(Color::Rgb(199, 107, 41)),
+            ),
+            (
+                "Atelier Sulphurpool Light (base16)",
+                Color::Rgb(94, 102, 135),
+                Color::Rgb(245, 247, 255),
+                Color::Rgb(94, 102, 135),
+                Some(Color::Rgb(245, 247, 255)),
+                Some(Color::Rgb(94, 102, 135)),
+                Some(Some(Color::Rgb(245, 247, 255))),
+                Color::Rgb(245, 247, 255),
+                Color::Rgb(201, 73, 34),
+                Color::Rgb(137, 142, 164),
+                Color::Rgb(32, 39, 70),
+                Some(Color::Rgb(199, 107, 41)),
+            ),
+            (
+                "Atelierdune (dark) (terminal.sexy)",
+                Color::Rgb(166, 162, 140),
+                Color::Rgb(32, 32, 29),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(32, 32, 29),
+                Color::Rgb(215, 55, 55),
+                Color::Rgb(125, 122, 104),
+                Color::Rgb(254, 251, 236),
+                None,
+            ),
+            (
+                "Atelierdune (light) (terminal.sexy)",
+                Color::Rgb(110, 107, 94),
+                Color::Rgb(254, 251, 236),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(32, 32, 29),
+                Color::Rgb(215, 55, 55),
+                Color::Rgb(125, 122, 104),
+                Color::Rgb(254, 251, 236),
+                None,
+            ),
+            (
+                "Atelierforest (dark) (terminal.sexy)",
+                Color::Rgb(168, 161, 159),
+                Color::Rgb(27, 25, 24),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(27, 25, 24),
+                Color::Rgb(242, 44, 64),
+                Color::Rgb(118, 110, 107),
+                Color::Rgb(241, 239, 238),
+                None,
+            ),
+            (
+                "Atelierforest (light) (terminal.sexy)",
+                Color::Rgb(104, 97, 94),
+                Color::Rgb(241, 239, 238),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(27, 25, 24),
+                Color::Rgb(242, 44, 64),
+                Color::Rgb(118, 110, 107),
+                Color::Rgb(241, 239, 238),
+                None,
+            ),
+            (
+                "Atelierheath (dark) (terminal.sexy)",
+                Color::Rgb(171, 155, 171),
+                Color::Rgb(27, 24, 27),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(27, 24, 27),
+                Color::Rgb(202, 64, 43),
+                Color::Rgb(119, 105, 119),
+                Color::Rgb(247, 243, 247),
+                None,
+            ),
+            (
+                "Atelierheath (light) (terminal.sexy)",
+                Color::Rgb(105, 93, 105),
+                Color::Rgb(247, 243, 247),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(27, 24, 27),
+                Color::Rgb(202, 64, 43),
+                Color::Rgb(119, 105, 119),
+                Color::Rgb(247, 243, 247),
+                None,
+            ),
+            (
+                "Atelierlakeside (dark) (terminal.sexy)",
+                Color::Rgb(126, 162, 180),
+                Color::Rgb(22, 27, 29),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(22, 27, 29),
+                Color::Rgb(210, 45, 114),
+                Color::Rgb(90, 123, 140),
+                Color::Rgb(235, 248, 255),
+                None,
+            ),
+            (
+                "Atelierlakeside (light) (terminal.sexy)",
+                Color::Rgb(81, 109, 123),
+                Color::Rgb(235, 248, 255),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(22, 27, 29),
+                Color::Rgb(210, 45, 114),
+                Color::Rgb(90, 123, 140),
+                Color::Rgb(235, 248, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect(
+                "expected WezTerm Atelier Sulphurpool/terminal.sexy built-in color_scheme config",
             );
             app.set_config_overrides(overrides);
 
