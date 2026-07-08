@@ -9933,15 +9933,37 @@ fn lua_static_new_tab_button_click_performs_default_action(
     pane_param: &str,
     default_action_param: &str,
 ) -> Option<bool> {
+    lua_static_new_tab_button_click_performs_default_action_with_static_source(
+        body,
+        window_param,
+        pane_param,
+        default_action_param,
+        None,
+    )
+}
+
+fn lua_static_new_tab_button_click_performs_default_action_with_static_source(
+    body: &str,
+    window_param: &str,
+    pane_param: &str,
+    default_action_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<bool> {
     let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
     for (index, start) in starts.iter().copied().enumerate() {
         let end = starts.get(index + 1).copied().unwrap_or_else(|| body.len());
         let statement = lua_trim_start_comments(body.get(start..end)?)?;
+        let static_source = LuaStaticSource {
+            source: body,
+            max_start: start,
+        };
         if lua_new_tab_button_click_statement_performs_default_action(
             statement,
             window_param,
             pane_param,
             default_action_param,
+            static_source,
+            outer_static_source,
         )? {
             return Some(true);
         }
@@ -9954,11 +9976,18 @@ fn lua_new_tab_button_click_statement_performs_default_action(
     window_param: &str,
     pane_param: &str,
     default_action_param: &str,
+    static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<bool> {
     if let Some(action) =
         lua_callback_statement_perform_action_query(statement, window_param, pane_param)
     {
-        return lua_new_tab_button_click_action_is_default(action, default_action_param);
+        return Some(lua_new_tab_button_click_expression_is_default_action_param(
+            action,
+            default_action_param,
+            static_source,
+            outer_static_source,
+        ));
     }
     if let Some((branches, rest)) =
         lua_static_if_condition_and_body_branches_from_statement(statement)
@@ -9970,11 +9999,14 @@ fn lua_new_tab_button_click_statement_performs_default_action(
             if lua_new_tab_button_click_condition_is_default_action(
                 condition,
                 default_action_param,
-            )? && lua_static_new_tab_button_click_performs_default_action(
+                static_source,
+                outer_static_source,
+            )? && lua_static_new_tab_button_click_performs_default_action_with_static_source(
                 body,
                 window_param,
                 pane_param,
                 default_action_param,
+                Some(static_source),
             )? {
                 return Some(true);
             }
@@ -9986,30 +10018,39 @@ fn lua_new_tab_button_click_statement_performs_default_action(
 fn lua_new_tab_button_click_condition_is_default_action(
     condition: &str,
     default_action_param: &str,
+    static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<bool> {
     let condition = lua_trim_start_comments(condition.trim())?;
     if let Some(present) = lua_new_tab_button_click_default_action_nil_presence_condition(
         condition,
         default_action_param,
+        static_source,
+        outer_static_source,
     ) {
         return Some(present);
     }
-    let name = lua_identifier_literal_from_query(condition)?;
-    Some(
-        name == default_action_param
-            && lua_static_identifier_value_rest_is_statement_end(condition.get(name.len()..)?),
-    )
+    Some(lua_new_tab_button_click_expression_is_default_action_param(
+        condition,
+        default_action_param,
+        static_source,
+        outer_static_source,
+    ))
 }
 
 fn lua_new_tab_button_click_default_action_nil_presence_condition(
     condition: &str,
     default_action_param: &str,
+    static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<bool> {
     if let Some((left, right)) = condition.split_once("~=") {
         return lua_new_tab_button_click_default_action_nil_presence(
             left,
             right,
             default_action_param,
+            static_source,
+            outer_static_source,
             true,
         );
     }
@@ -10018,6 +10059,8 @@ fn lua_new_tab_button_click_default_action_nil_presence_condition(
             left,
             right,
             default_action_param,
+            static_source,
+            outer_static_source,
             false,
         );
     }
@@ -10028,12 +10071,22 @@ fn lua_new_tab_button_click_default_action_nil_presence(
     left: &str,
     right: &str,
     default_action_param: &str,
+    static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     present: bool,
 ) -> Option<bool> {
-    let left_is_default_action =
-        lua_static_identifier_expression_matches(left, default_action_param);
-    let right_is_default_action =
-        lua_static_identifier_expression_matches(right, default_action_param);
+    let left_is_default_action = lua_new_tab_button_click_expression_is_default_action_param(
+        left,
+        default_action_param,
+        static_source,
+        outer_static_source,
+    );
+    let right_is_default_action = lua_new_tab_button_click_expression_is_default_action_param(
+        right,
+        default_action_param,
+        static_source,
+        outer_static_source,
+    );
     let left_is_nil = lua_new_tab_button_click_expression_is_nil(left);
     let right_is_nil = lua_new_tab_button_click_expression_is_nil(right);
 
@@ -10049,6 +10102,65 @@ fn lua_new_tab_button_click_expression_is_nil(expression: &str) -> bool {
         return false;
     };
     lua_static_identifier_value_rest_is_statement_end(rest)
+}
+
+fn lua_new_tab_button_click_expression_is_default_action_param(
+    expression: &str,
+    default_action_param: &str,
+    static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> bool {
+    lua_new_tab_button_click_expression_is_default_action_param_with_depth(
+        expression,
+        default_action_param,
+        static_source,
+        outer_static_source,
+        0,
+    )
+}
+
+fn lua_new_tab_button_click_expression_is_default_action_param_with_depth(
+    expression: &str,
+    default_action_param: &str,
+    static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    depth: usize,
+) -> bool {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return false;
+    }
+    if lua_static_identifier_expression_matches(expression, default_action_param) {
+        return true;
+    }
+    if let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+        static_source.source,
+        expression,
+        static_source.max_start,
+    ) {
+        return lua_new_tab_button_click_expression_is_default_action_param_with_depth(
+            value,
+            default_action_param,
+            static_source,
+            outer_static_source,
+            depth + 1,
+        );
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            outer_static_source.source,
+            expression,
+            outer_static_source.max_start,
+        )
+    {
+        return lua_new_tab_button_click_expression_is_default_action_param_with_depth(
+            value,
+            default_action_param,
+            outer_static_source,
+            None,
+            depth + 1,
+        );
+    }
+    false
 }
 
 fn lua_new_tab_button_click_button_condition(
@@ -10165,18 +10277,6 @@ fn lua_new_tab_button_click_button_from_expression(
         "Middle" | "middle" => Some(MouseButton::Middle),
         _ => None,
     }
-}
-
-fn lua_new_tab_button_click_action_is_default(
-    action: &str,
-    default_action_param: &str,
-) -> Option<bool> {
-    let action = lua_trim_start_comments(action.trim())?;
-    let name = lua_identifier_literal_from_query(action)?;
-    Some(
-        name == default_action_param
-            && lua_static_identifier_value_rest_is_statement_end(action.get(name.len()..)?),
-    )
 }
 
 fn lua_static_open_uri_return_from_function_body(
@@ -107099,6 +107199,49 @@ mod tests {
         .expect(
             "expected static WezTerm new-tab-button-click reversed non-nil default action guard",
         );
+        app.set_config_overrides(overrides);
+
+        let tab_width = tab_bar_tab_label(
+            0,
+            rssh_core::TabId::new(1),
+            1,
+            true,
+            None,
+            rssh_core::app_shell::PaneProgress::None,
+        )
+        .chars()
+        .count();
+        let new_tab_column = app.tab_bar_workspace_label().chars().count() + tab_width + 1;
+        let x = u32::try_from(new_tab_column).unwrap_or(0) * CELL_WIDTH;
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 2);
+    }
+
+    #[test]
+    fn window_app_parses_new_tab_button_click_default_action_alias() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('new-tab-button-click', function(window, pane, button, default_action)
+              local action = default_action
+              if action ~= nil then
+                window:perform_action(action, pane)
+              end
+              return false
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm new-tab-button-click default action alias");
         app.set_config_overrides(overrides);
 
         let tab_width = tab_bar_tab_label(
