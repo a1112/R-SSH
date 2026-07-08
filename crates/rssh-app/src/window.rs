@@ -4737,7 +4737,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         && !external_color_scheme_found
         && let Some(color_scheme) = color_scheme.as_deref()
     {
-        parsed |= apply_default_toml_color_scheme_dirs_overrides(color_scheme, &mut overrides)?;
+        let default_color_scheme_found =
+            apply_default_toml_color_scheme_dirs_overrides(color_scheme, &mut overrides)?;
+        parsed |= default_color_scheme_found;
+        if !default_color_scheme_found {
+            parsed |= apply_builtin_color_scheme_overrides(color_scheme, &mut overrides)?;
+        }
     }
     if let Some(colors_source) = lua_config_colors_source_from_query(config)? {
         let mut colors_overrides = NativeConfigOverrides::default();
@@ -19174,6 +19179,66 @@ fn apply_default_toml_color_scheme_dirs_overrides(
 
     Some(false)
 }
+
+fn apply_builtin_color_scheme_overrides(
+    color_scheme: &str,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let Some(scheme) = builtin_color_scheme_toml(color_scheme) else {
+        return Some(false);
+    };
+    let scheme = toml::from_str::<toml::Value>(scheme).ok()?;
+    let colors = scheme.as_table().and_then(|table| table.get("colors"))?;
+    apply_toml_colors_table_overrides(colors, overrides)
+}
+
+fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
+    match color_scheme {
+        "Builtin Solarized Dark" | "iTerm2 Solarized Dark" => {
+            Some(BUILTIN_SOLARIZED_DARK_COLOR_SCHEME_TOML)
+        }
+        _ => None,
+    }
+}
+
+const BUILTIN_SOLARIZED_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#073642",
+    "#dc322f",
+    "#859900",
+    "#b58900",
+    "#268bd2",
+    "#d33682",
+    "#2aa198",
+    "#eee8d5",
+]
+background = "#002b36"
+brights = [
+    "#002b36",
+    "#cb4b16",
+    "#586e75",
+    "#657b83",
+    "#839496",
+    "#6c71c4",
+    "#93a1a1",
+    "#fdf6e3",
+]
+cursor_bg = "#839496"
+cursor_border = "#839496"
+cursor_fg = "#073642"
+foreground = "#839496"
+selection_bg = "#073642"
+selection_fg = "#93a1a1"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["iTerm2 Solarized Dark"]
+name = "Builtin Solarized Dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
 
 fn default_toml_color_scheme_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
@@ -84302,6 +84367,59 @@ mod tests {
         assert_eq!(effective.background_color, Color::Rgb(86, 87, 88));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(83, 84, 85));
         let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_builtin_solarized_dark_color_scheme() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.color_scheme = 'Builtin Solarized Dark'
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm built-in Solarized Dark color_scheme config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.color_scheme.as_deref(),
+            Some("Builtin Solarized Dark")
+        );
+        assert_eq!(effective.foreground_color, Color::Rgb(131, 148, 150));
+        assert_eq!(effective.background_color, Color::Rgb(0, 43, 54));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(131, 148, 150));
+        assert_eq!(effective.cursor_fg_color, Some(Color::Rgb(7, 54, 66)));
+        let ansi = effective.ansi_palette.expect("expected ANSI palette");
+        assert_eq!(ansi[0], Color::Rgb(7, 54, 66));
+        assert_eq!(ansi[1], Color::Rgb(220, 50, 47));
+        assert_eq!(ansi[8], Color::Rgb(0, 43, 54));
+        assert_eq!(ansi[15], Color::Rgb(253, 246, 227));
+    }
+
+    #[test]
+    fn window_app_retains_unknown_wezterm_lua_color_scheme_name() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.color_scheme = 'Unknown Project Scheme'
+
+            return config
+            "##,
+        )
+        .expect("expected unknown WezTerm color_scheme name to remain a valid config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.color_scheme.as_deref(),
+            Some("Unknown Project Scheme")
+        );
     }
 
     #[test]
