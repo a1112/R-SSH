@@ -59313,12 +59313,12 @@ fn lua_callback_statement_wezterm_emit_call_args_from_require_query(
 }
 
 fn lua_callback_statement_wezterm_emit_call_args_from_receiver_rest(rest: &str) -> Option<&str> {
-    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
     let rest = lua_trim_start_comments(rest)?;
-    if !rest.starts_with("emit") || !lua_config_assignment_field_has_boundaries(rest, 0, "emit") {
+    let (field, rest) = lua_table_map_field_key_from_query_with_static_source(None, rest)?;
+    if field != "emit" {
         return None;
     }
-    lua_trim_start_comments(rest.get("emit".len()..)?)
+    lua_trim_start_comments(rest)
 }
 
 fn lua_static_wezterm_emit_alias_before_offset(
@@ -122672,6 +122672,40 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_emits_static_event_bracket_field() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+
+            wezterm.on('send-greeting', function(window, pane)
+              wezterm['emit']('write-greeting', window, pane)
+            end)
+
+            wezterm.on('write-greeting', function(window, pane)
+              window:perform_action(act.SendString 'hello-bracket', pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler bracket-field config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello-bracket");
     }
 
     #[test]

@@ -1355,7 +1355,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   retained, and matching `EmitEvent` names run those native commands in order
   after dispatching the typed native event. Top-level
   `wezterm.emit(<static-event-name>, window, pane)` calls from those handlers
-  re-enter matching static handlers, including through a top-level static
+  or the equivalent `wezterm['emit'](...)` bracket-field form re-enter matching
+  static handlers, including through a top-level static
   `local <alias> = require 'wezterm'` module alias receiver or a top-level static
   direct `require('wezterm').emit(...)` receiver or a top-level static
   `local <alias> = wezterm.emit` or `local <alias> = require('wezterm').emit`
