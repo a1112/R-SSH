@@ -19431,6 +19431,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Chalk" => Some(BUILTIN_CHALK_COLOR_SCHEME_TOML),
         "Chalk (base16)" => Some(BUILTIN_CHALK_BASE16_COLOR_SCHEME_TOML),
         "Chalk (dark) (terminal.sexy)" => Some(BUILTIN_CHALK_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Chalk (Gogh)" => Some(BUILTIN_CHALK_GOGH_COLOR_SCHEME_TOML),
+        "Chalk (light) (terminal.sexy)" => {
+            Some(BUILTIN_CHALK_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Chalkboard" => Some(BUILTIN_CHALKBOARD_COLOR_SCHEME_TOML),
+        "Chalkboard (Gogh)" => Some(BUILTIN_CHALKBOARD_GOGH_COLOR_SCHEME_TOML),
+        "ChallengerDeep" => Some(BUILTIN_CHALLENGER_DEEP_COLOR_SCHEME_TOML),
+        "Chameleon (Gogh)" => Some(BUILTIN_CHAMELEON_GOGH_COLOR_SCHEME_TOML),
+        "Chester" => Some(BUILTIN_CHESTER_COLOR_SCHEME_TOML),
+        "Ciapre" => Some(BUILTIN_CIAPRE_COLOR_SCHEME_TOML),
+        "Ciapre (Gogh)" => Some(BUILTIN_CIAPRE_GOGH_COLOR_SCHEME_TOML),
+        "Circus (base16)" => Some(BUILTIN_CIRCUS_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -26353,6 +26365,391 @@ author = "Chris Kempson"
 name = "Chalk (dark) (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_CHALK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#646464",
+    "#f58e8e",
+    "#a9d3ab",
+    "#fed37e",
+    "#7aabd4",
+    "#d6add5",
+    "#79d4d5",
+    "#d4d4d4",
+]
+background = "#2d2d2d"
+brights = [
+    "#646464",
+    "#f58e8e",
+    "#a9d3ab",
+    "#fed37e",
+    "#7aabd4",
+    "#d6add5",
+    "#79d4d5",
+    "#d4d4d4",
+]
+cursor_bg = "#d4d4d4"
+cursor_border = "#d4d4d4"
+cursor_fg = "#2d2d2d"
+foreground = "#d4d4d4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Chalk (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CHALK_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151515",
+    "#fb9fb1",
+    "#acc267",
+    "#ddb26f",
+    "#6fc2ef",
+    "#e1a3ee",
+    "#12cfc0",
+    "#d0d0d0",
+]
+background = "#f5f5f5"
+brights = [
+    "#505050",
+    "#fb9fb1",
+    "#acc267",
+    "#ddb26f",
+    "#6fc2ef",
+    "#e1a3ee",
+    "#12cfc0",
+    "#f5f5f5",
+]
+foreground = "#303030"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Chalk (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CHALKBOARD_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c37372",
+    "#72c373",
+    "#c2c372",
+    "#7372c3",
+    "#c372c2",
+    "#72c2c3",
+    "#d9d9d9",
+]
+background = "#29262f"
+brights = [
+    "#323232",
+    "#dbaaaa",
+    "#aadbaa",
+    "#dadbaa",
+    "#aaaadb",
+    "#dbaada",
+    "#aadadb",
+    "#ffffff",
+]
+cursor_bg = "#d9e6f2"
+cursor_border = "#d9e6f2"
+cursor_fg = "#29262f"
+foreground = "#d9e6f2"
+selection_bg = "#073642"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Chalkboard (Gogh)"]
+name = "Chalkboard"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_CHALKBOARD_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c37372",
+    "#72c373",
+    "#c2c372",
+    "#7372c3",
+    "#c372c2",
+    "#72c2c3",
+    "#d9d9d9",
+]
+background = "#29262f"
+brights = [
+    "#323232",
+    "#dbaaaa",
+    "#aadbaa",
+    "#dadbaa",
+    "#aaaadb",
+    "#dbaada",
+    "#aadadb",
+    "#ffffff",
+]
+cursor_bg = "#d9e6f2"
+cursor_border = "#d9e6f2"
+cursor_fg = "#29262f"
+foreground = "#d9e6f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Chalkboard (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_CHALLENGER_DEEP_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#141228",
+    "#ff5458",
+    "#62d196",
+    "#ffb378",
+    "#65b2ff",
+    "#906cff",
+    "#63f2f1",
+    "#a6b3cc",
+]
+background = "#1e1c31"
+brights = [
+    "#565575",
+    "#ff8080",
+    "#95ffa4",
+    "#ffe9aa",
+    "#91ddff",
+    "#c991e1",
+    "#aaffe4",
+    "#cbe3e7",
+]
+cursor_bg = "#fbfcfc"
+cursor_border = "#fbfcfc"
+cursor_fg = "#ff271d"
+foreground = "#cbe1e7"
+selection_bg = "#cbe1e7"
+selection_fg = "#1e1c31"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "ChallengerDeep"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_CHAMELEON_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2c2c2c",
+    "#cc231c",
+    "#689d69",
+    "#d79922",
+    "#366b71",
+    "#4e5165",
+    "#458587",
+    "#c8bb97",
+]
+background = "#2c2c2c"
+brights = [
+    "#777777",
+    "#cc231c",
+    "#689d69",
+    "#d79922",
+    "#366b71",
+    "#4e5165",
+    "#458587",
+    "#c8bb97",
+]
+cursor_bg = "#dedede"
+cursor_border = "#dedede"
+cursor_fg = "#2c2c2c"
+foreground = "#dedede"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Chameleon (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CHESTER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#080200",
+    "#fa5e5b",
+    "#16c98d",
+    "#ffc83f",
+    "#288ad6",
+    "#d34590",
+    "#28ddde",
+    "#e7e7e7",
+]
+background = "#2c3643"
+brights = [
+    "#6f6b68",
+    "#fa5e5b",
+    "#16c98d",
+    "#feef6d",
+    "#278ad6",
+    "#d34590",
+    "#27dede",
+    "#ffffff",
+]
+cursor_bg = "#b4b1b1"
+cursor_border = "#b4b1b1"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+selection_bg = "#67747c"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Chester"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_CIAPRE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#181818",
+    "#810009",
+    "#48513b",
+    "#cc8b3f",
+    "#576d8c",
+    "#724d7c",
+    "#5c4f4b",
+    "#aea47f",
+]
+background = "#191c27"
+brights = [
+    "#555555",
+    "#ac3835",
+    "#a6a75d",
+    "#dcdf7c",
+    "#3097c6",
+    "#d33061",
+    "#f3dbb2",
+    "#f4f4f4",
+]
+cursor_bg = "#92805b"
+cursor_border = "#92805b"
+cursor_fg = "#181818"
+foreground = "#aea47a"
+selection_bg = "#172539"
+selection_fg = "#aea47f"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Ciapre (Gogh)"]
+name = "Ciapre"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_CIAPRE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#181818",
+    "#810009",
+    "#48513b",
+    "#cc8b3f",
+    "#576d8c",
+    "#724d7c",
+    "#5c4f4b",
+    "#aea47f",
+]
+background = "#191c27"
+brights = [
+    "#555555",
+    "#ac3835",
+    "#a6a75d",
+    "#dcdf7c",
+    "#3097c6",
+    "#d33061",
+    "#f3dbb2",
+    "#f4f4f4",
+]
+cursor_bg = "#aea47a"
+cursor_border = "#aea47a"
+cursor_fg = "#191c27"
+foreground = "#aea47a"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Ciapre (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_CIRCUS_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#191919",
+    "#dc657d",
+    "#84b97c",
+    "#c3ba63",
+    "#639ee4",
+    "#b888e2",
+    "#4bb1a7",
+    "#a7a7a7",
+]
+background = "#191919"
+brights = [
+    "#5f5a60",
+    "#dc657d",
+    "#84b97c",
+    "#c3ba63",
+    "#639ee4",
+    "#b888e2",
+    "#4bb1a7",
+    "#ffffff",
+]
+cursor_bg = "#a7a7a7"
+cursor_border = "#a7a7a7"
+cursor_fg = "#191919"
+foreground = "#a7a7a7"
+selection_bg = "#a7a7a7"
+selection_fg = "#191919"
+
+[colors.indexed]
+16 = "#4bb1a7"
+17 = "#b888e2"
+18 = "#202020"
+19 = "#303030"
+20 = "#505050"
+21 = "#808080"
+
+[metadata]
+aliases = []
+author = "Stephan Boyer (https://github.com/stepchowfun) and Esther Wang (https://github.com/ewang12)"
+name = "Circus (base16)"
+origin_url = "https://github.com/stepchowfun/base16-circus-scheme"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -95409,6 +95806,224 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Catppuccin Mocha-to-Chalk Dark built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_chalk_gogh_to_circus_builtin_color_schemes() {
+        let cases = [
+            (
+                "Chalk (Gogh)",
+                Color::Rgb(212, 212, 212),
+                Color::Rgb(45, 45, 45),
+                Color::Rgb(212, 212, 212),
+                Some(Color::Rgb(45, 45, 45)),
+                None,
+                None,
+                Color::Rgb(100, 100, 100),
+                Color::Rgb(245, 142, 142),
+                Color::Rgb(169, 211, 171),
+                Color::Rgb(254, 211, 126),
+                Color::Rgb(100, 100, 100),
+                Color::Rgb(212, 212, 212),
+                None,
+            ),
+            (
+                "Chalk (light) (terminal.sexy)",
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(245, 245, 245),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(251, 159, 177),
+                Color::Rgb(172, 194, 103),
+                Color::Rgb(221, 178, 111),
+                Color::Rgb(80, 80, 80),
+                Color::Rgb(245, 245, 245),
+                None,
+            ),
+            (
+                "Chalkboard",
+                Color::Rgb(217, 230, 242),
+                Color::Rgb(41, 38, 47),
+                Color::Rgb(217, 230, 242),
+                Some(Color::Rgb(41, 38, 47)),
+                Some(Color::Rgb(7, 54, 66)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(195, 115, 114),
+                Color::Rgb(114, 195, 115),
+                Color::Rgb(194, 195, 114),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Chalkboard (Gogh)",
+                Color::Rgb(217, 230, 242),
+                Color::Rgb(41, 38, 47),
+                Color::Rgb(217, 230, 242),
+                Some(Color::Rgb(41, 38, 47)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(195, 115, 114),
+                Color::Rgb(114, 195, 115),
+                Color::Rgb(194, 195, 114),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "ChallengerDeep",
+                Color::Rgb(203, 225, 231),
+                Color::Rgb(30, 28, 49),
+                Color::Rgb(251, 252, 252),
+                Some(Color::Rgb(255, 39, 29)),
+                Some(Color::Rgb(203, 225, 231)),
+                Some(Some(Color::Rgb(30, 28, 49))),
+                Color::Rgb(20, 18, 40),
+                Color::Rgb(255, 84, 88),
+                Color::Rgb(98, 209, 150),
+                Color::Rgb(255, 179, 120),
+                Color::Rgb(86, 85, 117),
+                Color::Rgb(203, 227, 231),
+                None,
+            ),
+            (
+                "Chameleon (Gogh)",
+                Color::Rgb(222, 222, 222),
+                Color::Rgb(44, 44, 44),
+                Color::Rgb(222, 222, 222),
+                Some(Color::Rgb(44, 44, 44)),
+                None,
+                None,
+                Color::Rgb(44, 44, 44),
+                Color::Rgb(204, 35, 28),
+                Color::Rgb(104, 157, 105),
+                Color::Rgb(215, 153, 34),
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(200, 187, 151),
+                None,
+            ),
+            (
+                "Chester",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(44, 54, 67),
+                Color::Rgb(180, 177, 177),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(103, 116, 124)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(8, 2, 0),
+                Color::Rgb(250, 94, 91),
+                Color::Rgb(22, 201, 141),
+                Color::Rgb(255, 200, 63),
+                Color::Rgb(111, 107, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Ciapre",
+                Color::Rgb(174, 164, 122),
+                Color::Rgb(25, 28, 39),
+                Color::Rgb(146, 128, 91),
+                Some(Color::Rgb(24, 24, 24)),
+                Some(Color::Rgb(23, 37, 57)),
+                Some(Some(Color::Rgb(174, 164, 127))),
+                Color::Rgb(24, 24, 24),
+                Color::Rgb(129, 0, 9),
+                Color::Rgb(72, 81, 59),
+                Color::Rgb(204, 139, 63),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(244, 244, 244),
+                None,
+            ),
+            (
+                "Ciapre (Gogh)",
+                Color::Rgb(174, 164, 122),
+                Color::Rgb(25, 28, 39),
+                Color::Rgb(174, 164, 122),
+                Some(Color::Rgb(25, 28, 39)),
+                None,
+                None,
+                Color::Rgb(24, 24, 24),
+                Color::Rgb(129, 0, 9),
+                Color::Rgb(72, 81, 59),
+                Color::Rgb(204, 139, 63),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(244, 244, 244),
+                None,
+            ),
+            (
+                "Circus (base16)",
+                Color::Rgb(167, 167, 167),
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(167, 167, 167),
+                Some(Color::Rgb(25, 25, 25)),
+                Some(Color::Rgb(167, 167, 167)),
+                Some(Some(Color::Rgb(25, 25, 25))),
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(220, 101, 125),
+                Color::Rgb(132, 185, 124),
+                Color::Rgb(195, 186, 99),
+                Color::Rgb(95, 90, 96),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(75, 177, 167)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Chalk Gogh-to-Circus built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

@@ -3601,8 +3601,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Catppuccin Macchiato (Gogh)`, `Catppuccin Mocha`,
   `Catppuccin Mocha (Gogh)`, `catppuccin-frappe`, `catppuccin-latte`,
   `catppuccin-macchiato`, `catppuccin-mocha`, `CGA`, `Chalk`,
-  `Chalk (base16)`, `Chalk (dark) (terminal.sexy)`, `Builtin Dark`,
-  `Builtin Light`,
+  `Chalk (base16)`, `Chalk (dark) (terminal.sexy)`, `Chalk (Gogh)`,
+  `Chalk (light) (terminal.sexy)`, `Chalkboard`, `Chalkboard (Gogh)`,
+  `ChallengerDeep`, `Chameleon (Gogh)`, `Chester`, `Ciapre`,
+  `Ciapre (Gogh)`, `Circus (base16)`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
