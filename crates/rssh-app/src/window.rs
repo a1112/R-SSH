@@ -9998,6 +9998,23 @@ fn lua_new_tab_button_click_expression_is_button_param(
     button_param: &str,
     static_source: LuaStaticSource<'_>,
 ) -> bool {
+    lua_new_tab_button_click_expression_is_button_param_with_depth(
+        expression,
+        button_param,
+        static_source,
+        0,
+    )
+}
+
+fn lua_new_tab_button_click_expression_is_button_param_with_depth(
+    expression: &str,
+    button_param: &str,
+    static_source: LuaStaticSource<'_>,
+    depth: usize,
+) -> bool {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return false;
+    }
     if lua_static_identifier_expression_matches(expression, button_param) {
         return true;
     }
@@ -10008,7 +10025,12 @@ fn lua_new_tab_button_click_expression_is_button_param(
     ) else {
         return false;
     };
-    lua_static_identifier_expression_matches(value, button_param)
+    lua_new_tab_button_click_expression_is_button_param_with_depth(
+        value,
+        button_param,
+        static_source,
+        depth + 1,
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106673,6 +106695,52 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm new-tab-button-click button alias condition");
+        app.set_config_overrides(overrides);
+
+        let tab_width = tab_bar_tab_label(
+            0,
+            rssh_core::TabId::new(1),
+            1,
+            true,
+            None,
+            rssh_core::app_shell::PaneProgress::None,
+        )
+        .chars()
+        .count();
+        let new_tab_column = app.tab_bar_workspace_label().chars().count() + tab_width + 1;
+        let x = u32::try_from(new_tab_column).unwrap_or(0) * CELL_WIDTH;
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Right)
+                .unwrap()
+        );
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_new_tab_button_click_nested_button_alias_condition() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('new-tab-button-click', function(window, pane, button, default_action)
+              local clicked = button
+              local pressed = clicked
+              if pressed == 'Right' then
+                return false
+              else
+                return true
+              end
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm new-tab-button-click nested button alias condition");
         app.set_config_overrides(overrides);
 
         let tab_width = tab_bar_tab_label(
