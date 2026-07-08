@@ -10014,13 +10014,13 @@ fn lua_tab_title_condition_from_expression(
         return Some(NativeLuaTabTitleCondition::ActivePaneProgressFieldPresent { field });
     }
 
-    if let Some(name) = lua_tab_title_active_pane_user_var_present_condition(
+    if let Some((name, present)) = lua_tab_title_active_pane_user_var_presence_condition(
         condition,
         tab_param,
         static_source,
         outer_static_source,
     ) {
-        return Some(NativeLuaTabTitleCondition::ActivePaneUserVarPresent { name });
+        return Some(NativeLuaTabTitleCondition::ActivePaneUserVarPresence { name, present });
     }
 
     for (field, parsed) in [
@@ -10205,15 +10205,15 @@ fn lua_tab_title_progress_field_present_rest(rest: &str) -> Option<NativeLuaTabT
     Some(parsed)
 }
 
-fn lua_tab_title_active_pane_user_var_present_condition(
+fn lua_tab_title_active_pane_user_var_presence_condition(
     condition: &str,
     tab_param: &str,
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
-) -> Option<String> {
+) -> Option<(String, bool)> {
     let user_vars = format!("{tab_param}.active_pane.user_vars");
     if let Some(rest) = condition.strip_prefix(&user_vars) {
-        return lua_tab_title_user_var_present_rest(static_source, outer_static_source, rest);
+        return lua_tab_title_user_var_presence_rest(static_source, outer_static_source, rest);
     }
 
     let receiver = lua_identifier_literal_from_query(condition)?;
@@ -10227,7 +10227,7 @@ fn lua_tab_title_active_pane_user_var_present_condition(
     {
         let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
         let rest = rest.strip_prefix("user_vars")?;
-        return lua_tab_title_user_var_present_rest(static_source, outer_static_source, rest);
+        return lua_tab_title_user_var_presence_rest(static_source, outer_static_source, rest);
     }
 
     if lua_tab_title_active_pane_user_vars_alias_before_offset(
@@ -10237,22 +10237,29 @@ fn lua_tab_title_active_pane_user_var_present_condition(
         tab_param,
     ) == Some(true)
     {
-        return lua_tab_title_user_var_present_rest(static_source, outer_static_source, rest);
+        return lua_tab_title_user_var_presence_rest(static_source, outer_static_source, rest);
     }
 
     None
 }
 
-fn lua_tab_title_user_var_present_rest(
+fn lua_tab_title_user_var_presence_rest(
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
     rest: &str,
-) -> Option<String> {
+) -> Option<(String, bool)> {
     let (name, rest) =
         lua_tab_title_user_var_name_and_rest_from_rest(static_source, outer_static_source, rest)?;
-    let rest = lua_trim_start_comments(rest)?.strip_prefix("~=")?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (rest, present) = if let Some(rest) = rest.strip_prefix("~=") {
+        (rest, true)
+    } else if let Some(rest) = rest.strip_prefix("==") {
+        (rest, false)
+    } else {
+        return None;
+    };
     let rest = lua_trim_start_comments(rest)?.strip_prefix("nil")?;
-    lua_static_identifier_value_rest_is_statement_end(rest).then_some(name)
+    lua_static_identifier_value_rest_is_statement_end(rest).then_some((name, present))
 }
 
 fn lua_tab_title_user_var_name_and_rest_from_rest<'a>(
@@ -30976,8 +30983,9 @@ enum NativeLuaTabTitleCondition {
     ActivePaneProgressFieldPresent {
         field: NativeLuaTabTitleProgressField,
     },
-    ActivePaneUserVarPresent {
+    ActivePaneUserVarPresence {
         name: String,
+        present: bool,
     },
     TabCountGreaterThan(usize),
     PaneCountGreaterThan(usize),
@@ -31005,8 +31013,8 @@ impl NativeLuaTabTitleCondition {
                     )
                 )
             }
-            Self::ActivePaneUserVarPresent { name } => {
-                event.active_pane_info.user_vars.contains_key(name)
+            Self::ActivePaneUserVarPresence { name, present } => {
+                event.active_pane_info.user_vars.contains_key(name) == *present
             }
             Self::TabCountGreaterThan(count) => event.tab_count > *count,
             Self::PaneCountGreaterThan(count) => event.pane_count > *count,
@@ -102970,6 +102978,32 @@ mod tests {
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("prog=psh"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("prog=none"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_missing_user_var_condition() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local pane = tab.active_pane
+              local vars = pane.user_vars
+              if vars['WEZTERM-PROG'] == nil then
+                return 'prog=none'
+              end
+
+              return 'prog=' .. vars['WEZTERM-PROG']
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title missing user var condition");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("prog=none"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
