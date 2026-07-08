@@ -19194,12 +19194,13 @@ fn apply_builtin_color_scheme_overrides(
 
 fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
     match color_scheme {
-        "3024 Day" | "3024 Day (Gogh)" | "3024Day (Gogh)" => {
-            Some(BUILTIN_3024_DAY_COLOR_SCHEME_TOML)
-        }
-        "3024 Night" | "3024 Night (Gogh)" | "3024Night (Gogh)" => {
-            Some(BUILTIN_3024_NIGHT_COLOR_SCHEME_TOML)
-        }
+        "3024 (base16)" => Some(BUILTIN_3024_BASE16_COLOR_SCHEME_TOML),
+        "3024 (dark) (terminal.sexy)" => Some(BUILTIN_3024_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "3024 (light) (terminal.sexy)" => Some(BUILTIN_3024_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "3024 Day" | "3024Day (Gogh)" => Some(BUILTIN_3024_DAY_COLOR_SCHEME_TOML),
+        "3024 Day (Gogh)" => Some(BUILTIN_3024_DAY_GOGH_COLOR_SCHEME_TOML),
+        "3024 Night" | "3024Night (Gogh)" => Some(BUILTIN_3024_NIGHT_COLOR_SCHEME_TOML),
+        "3024 Night (Gogh)" => Some(BUILTIN_3024_NIGHT_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -19217,6 +19218,122 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         _ => None,
     }
 }
+
+const BUILTIN_3024_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#090300",
+    "#db2d20",
+    "#01a252",
+    "#fded02",
+    "#01a0e4",
+    "#a16a94",
+    "#b5e4f4",
+    "#a5a2a2",
+]
+background = "#090300"
+brights = [
+    "#5c5855",
+    "#db2d20",
+    "#01a252",
+    "#fded02",
+    "#01a0e4",
+    "#a16a94",
+    "#b5e4f4",
+    "#f7f7f7",
+]
+cursor_bg = "#a5a2a2"
+cursor_border = "#a5a2a2"
+cursor_fg = "#090300"
+foreground = "#a5a2a2"
+selection_bg = "#a5a2a2"
+selection_fg = "#090300"
+
+[colors.indexed]
+16 = "#e8bbd0"
+17 = "#cdab53"
+18 = "#3a3432"
+19 = "#4a4543"
+20 = "#807d7c"
+21 = "#d6d5d4"
+
+[metadata]
+aliases = ["3024 (dark) (terminal.sexy)"]
+author = "Jan T. Sott (http://github.com/idleberg)"
+name = "3024 (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_3024_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#090300",
+    "#db2d20",
+    "#01a252",
+    "#fded02",
+    "#01a0e4",
+    "#a16a94",
+    "#b5e4f4",
+    "#a5a2a2",
+]
+background = "#090300"
+brights = [
+    "#5c5855",
+    "#db2d20",
+    "#01a252",
+    "#fded02",
+    "#01a0e4",
+    "#a16a94",
+    "#b5e4f4",
+    "#f7f7f7",
+]
+foreground = "#a5a2a2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "3024 (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_3024_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#090300",
+    "#db2d20",
+    "#01a252",
+    "#fded02",
+    "#01a0e4",
+    "#a16a94",
+    "#b5e4f4",
+    "#a5a2a2",
+]
+background = "#f7f7f7"
+brights = [
+    "#5c5855",
+    "#db2d20",
+    "#01a252",
+    "#fded02",
+    "#01a0e4",
+    "#a16a94",
+    "#b5e4f4",
+    "#f7f7f7",
+]
+foreground = "#4a4543"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "3024 (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
 
 const BUILTIN_3024_DAY_COLOR_SCHEME_TOML: &str = r##"
 [colors]
@@ -19261,6 +19378,43 @@ origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
 "##;
 
+const BUILTIN_3024_DAY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#090300",
+    "#db2d20",
+    "#01a252",
+    "#fded02",
+    "#01a0e4",
+    "#a16a94",
+    "#b5e4f4",
+    "#a5a2a2",
+]
+background = "#f7f7f7"
+brights = [
+    "#5c5855",
+    "#e8bbd0",
+    "#3a3432",
+    "#4a4543",
+    "#807d7c",
+    "#d6d5d4",
+    "#cdab53",
+    "#f7f7f7",
+]
+cursor_bg = "#4a4543"
+cursor_border = "#4a4543"
+cursor_fg = "#f7f7f7"
+foreground = "#4a4543"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "3024 Day (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
 const BUILTIN_3024_NIGHT_COLOR_SCHEME_TOML: &str = r##"
 [colors]
 ansi = [
@@ -19302,6 +19456,43 @@ author = "Jan T. Sott (http://github.com/idleberg)"
 name = "3024 Night"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_3024_NIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#090300",
+    "#db2d20",
+    "#01a252",
+    "#fded02",
+    "#01a0e4",
+    "#a16a94",
+    "#b5e4f4",
+    "#a5a2a2",
+]
+background = "#090300"
+brights = [
+    "#5c5855",
+    "#e8bbd0",
+    "#3a3432",
+    "#4a4543",
+    "#807d7c",
+    "#d6d5d4",
+    "#cdab53",
+    "#f7f7f7",
+]
+cursor_bg = "#a5a2a2"
+cursor_border = "#a5a2a2"
+cursor_fg = "#090300"
+foreground = "#a5a2a2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "3024 Night (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -84878,6 +85069,106 @@ mod tests {
             assert_eq!(ansi[1], Color::Rgb(219, 45, 32));
             assert_eq!(ansi[8], Color::Rgb(92, 88, 85));
             assert_eq!(ansi[15], Color::Rgb(247, 247, 247));
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_3024_base16_terminal_and_gogh_color_schemes() {
+        let cases = [
+            (
+                "3024 (base16)",
+                Color::Rgb(165, 162, 162),
+                Color::Rgb(9, 3, 0),
+                Color::Rgb(165, 162, 162),
+                Some(Color::Rgb(9, 3, 0)),
+                Some(Color::Rgb(165, 162, 162)),
+                Some(Some(Color::Rgb(9, 3, 0))),
+                Some(Color::Rgb(232, 187, 208)),
+            ),
+            (
+                "3024 (dark) (terminal.sexy)",
+                Color::Rgb(165, 162, 162),
+                Color::Rgb(9, 3, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                None,
+            ),
+            (
+                "3024 (light) (terminal.sexy)",
+                Color::Rgb(74, 69, 67),
+                Color::Rgb(247, 247, 247),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                None,
+            ),
+            (
+                "3024 Day (Gogh)",
+                Color::Rgb(74, 69, 67),
+                Color::Rgb(247, 247, 247),
+                Color::Rgb(74, 69, 67),
+                Some(Color::Rgb(247, 247, 247)),
+                None,
+                None,
+                None,
+            ),
+            (
+                "3024 Night (Gogh)",
+                Color::Rgb(165, 162, 162),
+                Color::Rgb(9, 3, 0),
+                Color::Rgb(165, 162, 162),
+                Some(Color::Rgb(9, 3, 0)),
+                None,
+                None,
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm 3024 variant color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], Color::Rgb(9, 3, 0));
+            assert_eq!(ansi[1], Color::Rgb(219, 45, 32));
+            assert_eq!(ansi[8], Color::Rgb(92, 88, 85));
+            assert_eq!(ansi[15], Color::Rgb(247, 247, 247));
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
         }
     }
 

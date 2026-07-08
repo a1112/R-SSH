@@ -3536,13 +3536,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   assignments. When no in-file or configured-dir
   scheme matches, the default WezTerm custom scheme directories are also
   searched: `$HOME/.config/wezterm/colors` on POSIX and `colors` next to the
-  executable on Windows. Initial built-in scheme lookup covers `3024 Day`,
-  `3024 Night`, `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
-  `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
-  `Builtin Tango Light`, and their WezTerm aliases using WezTerm's built-in
-  TOML palette data. The broader built-in scheme catalog, richer dynamic
-  `load_scheme` composition, and full dynamic Lua scheme construction remain
-  later parity work.
+  executable on Windows. Initial built-in scheme lookup covers `3024 (base16)`,
+  `3024 (dark) (terminal.sexy)`, `3024 (light) (terminal.sexy)`, `3024 Day`,
+  `3024 Day (Gogh)`, `3024 Night`, `3024 Night (Gogh)`, `Builtin Dark`,
+  `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
+  `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
+  their WezTerm aliases using WezTerm's built-in TOML palette data. The broader
+  built-in scheme catalog, richer dynamic `load_scheme` composition, and full
+  dynamic Lua scheme construction remain later parity work.
 - Native terminal rendering applies WezTerm-style `colors.background` as the
   default framebuffer background for full and damage renders. Static
   WezTerm-style Lua `config.colors.background` snippets now parse into the same
