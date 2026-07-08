@@ -59351,8 +59351,30 @@ fn lua_static_wezterm_emit_alias_before_offset(
 }
 
 fn lua_static_wezterm_emit_alias_value_from_query(value: &str) -> bool {
-    let Some(rest) = lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.emit")
-    else {
+    let Some(value) = lua_trim_start_comments(value) else {
+        return false;
+    };
+    if let Some(rest) = lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.emit")
+    {
+        return lua_static_identifier_value_rest_is_statement_end(rest);
+    }
+    let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) else {
+        return false;
+    };
+    lua_static_wezterm_emit_alias_receiver_rest_is_statement_end(rest)
+}
+
+fn lua_static_wezterm_emit_alias_receiver_rest_is_statement_end(rest: &str) -> bool {
+    let Some(rest) = lua_trim_start_comments(rest).and_then(|rest| rest.strip_prefix('.')) else {
+        return false;
+    };
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    if !rest.starts_with("emit") || !lua_config_assignment_field_has_boundaries(rest, 0, "emit") {
+        return false;
+    }
+    let Some(rest) = rest.get("emit".len()..) else {
         return false;
     };
     lua_static_identifier_value_rest_is_statement_end(rest)
@@ -122753,6 +122775,41 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello-require");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_emits_static_event_require_alias() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local emit = require('wezterm').emit
+
+            wezterm.on('send-greeting', function(window, pane)
+              emit('write-greeting', window, pane)
+            end)
+
+            wezterm.on('write-greeting', function(window, pane)
+              window:perform_action(act.SendString 'hello-require-alias', pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler require alias config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello-require-alias");
     }
 
     #[test]
