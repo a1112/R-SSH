@@ -3579,7 +3579,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Black Metal (Bathory) (base16)`, `Black Metal (Burzum) (base16)`,
   `Black Metal (Dark Funeral) (base16)`,
   `Black Metal (Gorgoroth) (base16)`, `Black Metal (Immortal) (base16)`,
-  `Black Metal (Khold) (base16)`, `Builtin Dark`, `Builtin Light`,
+  `Black Metal (Khold) (base16)`, `Black Metal (Marduk) (base16)`,
+  `Black Metal (Mayhem) (base16)`, `Black Metal (Nile) (base16)`,
+  `Black Metal (Venom) (base16)`, `Blazer`, `Blazer (Gogh)`,
+  `Bleh-1 (terminal.sexy)`, `Blue Dolphin (Gogh)`, `Blue Matrix`,
+  `BlueBerryPie`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,

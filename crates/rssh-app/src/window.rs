@@ -19350,6 +19350,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
             Some(BUILTIN_BLACK_METAL_IMMORTAL_BASE16_COLOR_SCHEME_TOML)
         }
         "Black Metal (Khold) (base16)" => Some(BUILTIN_BLACK_METAL_KHOLD_BASE16_COLOR_SCHEME_TOML),
+        "Black Metal (Marduk) (base16)" => {
+            Some(BUILTIN_BLACK_METAL_MARDUK_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Black Metal (Mayhem) (base16)" => {
+            Some(BUILTIN_BLACK_METAL_MAYHEM_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Black Metal (Nile) (base16)" => Some(BUILTIN_BLACK_METAL_NILE_BASE16_COLOR_SCHEME_TOML),
+        "Black Metal (Venom) (base16)" => Some(BUILTIN_BLACK_METAL_VENOM_BASE16_COLOR_SCHEME_TOML),
+        "Blazer" => Some(BUILTIN_BLAZER_COLOR_SCHEME_TOML),
+        "Blazer (Gogh)" => Some(BUILTIN_BLAZER_GOGH_COLOR_SCHEME_TOML),
+        "Bleh-1 (terminal.sexy)" => Some(BUILTIN_BLEH_1_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Blue Dolphin (Gogh)" => Some(BUILTIN_BLUE_DOLPHIN_GOGH_COLOR_SCHEME_TOML),
+        "Blue Matrix" => Some(BUILTIN_BLUE_MATRIX_COLOR_SCHEME_TOML),
+        "BlueBerryPie" => Some(BUILTIN_BLUEBERRYPIE_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -23620,6 +23634,419 @@ author = "metalelf0 (https://github.com/metalelf0)"
 name = "Black Metal (Khold) (base16)"
 origin_url = "https://github.com/metalelf0/base16-black-metal-scheme"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLACK_METAL_MARDUK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#5f8787",
+    "#a5aaa7",
+    "#626b67",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+background = "#000000"
+brights = [
+    "#333333",
+    "#5f8787",
+    "#a5aaa7",
+    "#626b67",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+cursor_bg = "#c1c1c1"
+cursor_border = "#c1c1c1"
+cursor_fg = "#000000"
+foreground = "#c1c1c1"
+selection_bg = "#c1c1c1"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#aaaaaa"
+17 = "#444444"
+18 = "#121212"
+19 = "#222222"
+20 = "#999999"
+21 = "#999999"
+
+[metadata]
+aliases = []
+author = "metalelf0 (https://github.com/metalelf0)"
+name = "Black Metal (Marduk) (base16)"
+origin_url = "https://github.com/metalelf0/base16-black-metal-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLACK_METAL_MAYHEM_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#5f8787",
+    "#f3ecd4",
+    "#eecc6c",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+background = "#000000"
+brights = [
+    "#333333",
+    "#5f8787",
+    "#f3ecd4",
+    "#eecc6c",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+cursor_bg = "#c1c1c1"
+cursor_border = "#c1c1c1"
+cursor_fg = "#000000"
+foreground = "#c1c1c1"
+selection_bg = "#c1c1c1"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#aaaaaa"
+17 = "#444444"
+18 = "#121212"
+19 = "#222222"
+20 = "#999999"
+21 = "#999999"
+
+[metadata]
+aliases = []
+author = "metalelf0 (https://github.com/metalelf0)"
+name = "Black Metal (Mayhem) (base16)"
+origin_url = "https://github.com/metalelf0/base16-black-metal-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLACK_METAL_NILE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#5f8787",
+    "#aa9988",
+    "#777755",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+background = "#000000"
+brights = [
+    "#333333",
+    "#5f8787",
+    "#aa9988",
+    "#777755",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+cursor_bg = "#c1c1c1"
+cursor_border = "#c1c1c1"
+cursor_fg = "#000000"
+foreground = "#c1c1c1"
+selection_bg = "#c1c1c1"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#aaaaaa"
+17 = "#444444"
+18 = "#121212"
+19 = "#222222"
+20 = "#999999"
+21 = "#999999"
+
+[metadata]
+aliases = []
+author = "metalelf0 (https://github.com/metalelf0)"
+name = "Black Metal (Nile) (base16)"
+origin_url = "https://github.com/metalelf0/base16-black-metal-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLACK_METAL_VENOM_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#5f8787",
+    "#f8f7f2",
+    "#79241f",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+background = "#000000"
+brights = [
+    "#333333",
+    "#5f8787",
+    "#f8f7f2",
+    "#79241f",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+cursor_bg = "#c1c1c1"
+cursor_border = "#c1c1c1"
+cursor_fg = "#000000"
+foreground = "#c1c1c1"
+selection_bg = "#c1c1c1"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#aaaaaa"
+17 = "#444444"
+18 = "#121212"
+19 = "#222222"
+20 = "#999999"
+21 = "#999999"
+
+[metadata]
+aliases = []
+author = "metalelf0 (https://github.com/metalelf0)"
+name = "Black Metal (Venom) (base16)"
+origin_url = "https://github.com/metalelf0/base16-black-metal-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLAZER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#b87a7a",
+    "#7ab87a",
+    "#b8b87a",
+    "#7a7ab8",
+    "#b87ab8",
+    "#7ab8b8",
+    "#d9d9d9",
+]
+background = "#0d1926"
+brights = [
+    "#262626",
+    "#dbbdbd",
+    "#bddbbd",
+    "#dbdbbd",
+    "#bdbddb",
+    "#dbbddb",
+    "#bddbdb",
+    "#ffffff",
+]
+cursor_bg = "#d9e6f2"
+cursor_border = "#d9e6f2"
+cursor_fg = "#0d1926"
+foreground = "#d9e6f2"
+selection_bg = "#c1ddff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Blazer (Gogh)",
+    "Miu (Gogh)",
+]
+name = "Blazer"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BLAZER_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#b87a7a",
+    "#7ab87a",
+    "#b8b87a",
+    "#7a7ab8",
+    "#b87ab8",
+    "#7ab8b8",
+    "#d9d9d9",
+]
+background = "#0d1926"
+brights = [
+    "#262626",
+    "#dbbdbd",
+    "#bddbbd",
+    "#dbdbbd",
+    "#bdbddb",
+    "#dbbddb",
+    "#bddbdb",
+    "#ffffff",
+]
+cursor_bg = "#d9e6f2"
+cursor_border = "#d9e6f2"
+cursor_fg = "#0d1926"
+foreground = "#d9e6f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Blazer (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_BLEH_1_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#666666",
+    "#996578",
+    "#889965",
+    "#998565",
+    "#657a99",
+    "#8b6599",
+    "#65998d",
+    "#a5a5a4",
+]
+background = "#000000"
+brights = [
+    "#8c847f",
+    "#bd4b76",
+    "#95b548",
+    "#bd814b",
+    "#4c83bf",
+    "#a04bbd",
+    "#4dbda8",
+    "#848484",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Bleh-1 (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLUE_DOLPHIN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#292d3e",
+    "#ff8288",
+    "#b4e88d",
+    "#f4d69f",
+    "#82aaff",
+    "#e9c1ff",
+    "#89ebff",
+    "#d0d0d0",
+]
+background = "#006984"
+brights = [
+    "#434758",
+    "#ff8b92",
+    "#ddffa7",
+    "#ffe585",
+    "#9cc4ff",
+    "#ddb0f6",
+    "#a3f7ff",
+    "#ffffff",
+]
+cursor_bg = "#ffcc00"
+cursor_border = "#ffcc00"
+cursor_fg = "#006984"
+foreground = "#c5f2ff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Blue Dolphin (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_BLUE_MATRIX_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#101116",
+    "#ff5680",
+    "#00ff9c",
+    "#fffc58",
+    "#00b0ff",
+    "#d57bff",
+    "#76c1ff",
+    "#c7c7c7",
+]
+background = "#101116"
+brights = [
+    "#686868",
+    "#ff6e67",
+    "#5ffa68",
+    "#fffc67",
+    "#6871ff",
+    "#d682ec",
+    "#60fdff",
+    "#ffffff",
+]
+cursor_bg = "#76ff9f"
+cursor_border = "#76ff9f"
+cursor_fg = "#ffffff"
+foreground = "#00a2ff"
+selection_bg = "#c1deff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Blue Matrix"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BLUEBERRYPIE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0a4c62",
+    "#99246e",
+    "#5cb1b3",
+    "#eab9a8",
+    "#90a5bd",
+    "#9d54a7",
+    "#7e83cc",
+    "#f0e8d6",
+]
+background = "#1c0c28"
+brights = [
+    "#201637",
+    "#c87272",
+    "#0a6c7e",
+    "#7a3188",
+    "#39173d",
+    "#bc94b7",
+    "#5e6071",
+    "#0a6c7e",
+]
+cursor_bg = "#fcfad6"
+cursor_border = "#fcfad6"
+cursor_fg = "#000000"
+foreground = "#babab9"
+selection_bg = "#606060"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "BlueBerryPie"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -91286,6 +91713,224 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Birds/Black Metal built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_black_metal_to_blueberry_builtin_color_schemes() {
+        let cases = [
+            (
+                "Black Metal (Marduk) (base16)",
+                Color::Rgb(193, 193, 193),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(193, 193, 193)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(95, 135, 135),
+                Color::Rgb(165, 170, 167),
+                Color::Rgb(98, 107, 103),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(170, 170, 170)),
+            ),
+            (
+                "Black Metal (Mayhem) (base16)",
+                Color::Rgb(193, 193, 193),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(193, 193, 193)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(95, 135, 135),
+                Color::Rgb(243, 236, 212),
+                Color::Rgb(238, 204, 108),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(170, 170, 170)),
+            ),
+            (
+                "Black Metal (Nile) (base16)",
+                Color::Rgb(193, 193, 193),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(193, 193, 193)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(95, 135, 135),
+                Color::Rgb(170, 153, 136),
+                Color::Rgb(119, 119, 85),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(170, 170, 170)),
+            ),
+            (
+                "Black Metal (Venom) (base16)",
+                Color::Rgb(193, 193, 193),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(193, 193, 193)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(95, 135, 135),
+                Color::Rgb(248, 247, 242),
+                Color::Rgb(121, 36, 31),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(170, 170, 170)),
+            ),
+            (
+                "Blazer",
+                Color::Rgb(217, 230, 242),
+                Color::Rgb(13, 25, 38),
+                Color::Rgb(217, 230, 242),
+                Some(Color::Rgb(13, 25, 38)),
+                Some(Color::Rgb(193, 221, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(184, 122, 122),
+                Color::Rgb(122, 184, 122),
+                Color::Rgb(184, 184, 122),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Blazer (Gogh)",
+                Color::Rgb(217, 230, 242),
+                Color::Rgb(13, 25, 38),
+                Color::Rgb(217, 230, 242),
+                Some(Color::Rgb(13, 25, 38)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(184, 122, 122),
+                Color::Rgb(122, 184, 122),
+                Color::Rgb(184, 184, 122),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Bleh-1 (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(153, 101, 120),
+                Color::Rgb(136, 153, 101),
+                Color::Rgb(153, 133, 101),
+                Color::Rgb(140, 132, 127),
+                Color::Rgb(132, 132, 132),
+                None,
+            ),
+            (
+                "Blue Dolphin (Gogh)",
+                Color::Rgb(197, 242, 255),
+                Color::Rgb(0, 105, 132),
+                Color::Rgb(255, 204, 0),
+                Some(Color::Rgb(0, 105, 132)),
+                None,
+                None,
+                Color::Rgb(41, 45, 62),
+                Color::Rgb(255, 130, 136),
+                Color::Rgb(180, 232, 141),
+                Color::Rgb(244, 214, 159),
+                Color::Rgb(67, 71, 88),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Blue Matrix",
+                Color::Rgb(0, 162, 255),
+                Color::Rgb(16, 17, 22),
+                Color::Rgb(118, 255, 159),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(193, 222, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(16, 17, 22),
+                Color::Rgb(255, 86, 128),
+                Color::Rgb(0, 255, 156),
+                Color::Rgb(255, 252, 88),
+                Color::Rgb(104, 104, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "BlueBerryPie",
+                Color::Rgb(186, 186, 185),
+                Color::Rgb(28, 12, 40),
+                Color::Rgb(252, 250, 214),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(96, 96, 96)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(10, 76, 98),
+                Color::Rgb(153, 36, 110),
+                Color::Rgb(92, 177, 179),
+                Color::Rgb(234, 185, 168),
+                Color::Rgb(32, 22, 55),
+                Color::Rgb(10, 108, 126),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Black Metal-to-BlueBerry built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();
