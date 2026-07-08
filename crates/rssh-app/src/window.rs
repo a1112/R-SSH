@@ -19507,6 +19507,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Default (light) (terminal.sexy)" => {
             Some(BUILTIN_DEFAULT_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
+        "Default Dark (base16)" => Some(BUILTIN_DEFAULT_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Default Light (base16)" => Some(BUILTIN_DEFAULT_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Dehydration (Gogh)" => Some(BUILTIN_DEHYDRATION_GOGH_COLOR_SCHEME_TOML),
+        "Derp (terminal.sexy)" => Some(BUILTIN_DERP_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Desert" => Some(BUILTIN_DESERT_COLOR_SCHEME_TOML),
+        "Desert (Gogh)" => Some(BUILTIN_DESERT_GOGH_COLOR_SCHEME_TOML),
+        "Digerati (terminal.sexy)" => Some(BUILTIN_DIGERATI_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Dimmed Monokai (Gogh)" => Some(BUILTIN_DIMMED_MONOKAI_GOGH_COLOR_SCHEME_TOML),
+        "DimmedMonokai" => Some(BUILTIN_DIMMED_MONOKAI_COLOR_SCHEME_TOML),
+        "dirtysea (base16)" => Some(BUILTIN_DIRTYSEA_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -28846,6 +28856,403 @@ aliases = []
 author = "Chris Kempson"
 name = "Default (light) (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DEFAULT_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#181818",
+    "#ab4642",
+    "#a1b56c",
+    "#f7ca88",
+    "#7cafc2",
+    "#ba8baf",
+    "#86c1b9",
+    "#d8d8d8",
+]
+background = "#181818"
+brights = [
+    "#585858",
+    "#ab4642",
+    "#a1b56c",
+    "#f7ca88",
+    "#7cafc2",
+    "#ba8baf",
+    "#86c1b9",
+    "#f8f8f8",
+]
+cursor_bg = "#d8d8d8"
+cursor_border = "#d8d8d8"
+cursor_fg = "#181818"
+foreground = "#d8d8d8"
+selection_bg = "#d8d8d8"
+selection_fg = "#181818"
+
+[colors.indexed]
+16 = "#dc9656"
+17 = "#a16946"
+18 = "#282828"
+19 = "#383838"
+20 = "#b8b8b8"
+21 = "#e8e8e8"
+
+[metadata]
+aliases = []
+author = "Chris Kempson (http://chriskempson.com)"
+name = "Default Dark (base16)"
+origin_url = "https://github.com/chriskempson/base16-default-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DEFAULT_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f8f8f8",
+    "#ab4642",
+    "#a1b56c",
+    "#f7ca88",
+    "#7cafc2",
+    "#ba8baf",
+    "#86c1b9",
+    "#383838",
+]
+background = "#f8f8f8"
+brights = [
+    "#b8b8b8",
+    "#ab4642",
+    "#a1b56c",
+    "#f7ca88",
+    "#7cafc2",
+    "#ba8baf",
+    "#86c1b9",
+    "#181818",
+]
+cursor_bg = "#383838"
+cursor_border = "#383838"
+cursor_fg = "#f8f8f8"
+foreground = "#383838"
+selection_bg = "#383838"
+selection_fg = "#f8f8f8"
+
+[colors.indexed]
+16 = "#dc9656"
+17 = "#a16946"
+18 = "#e8e8e8"
+19 = "#d8d8d8"
+20 = "#585858"
+21 = "#282828"
+
+[metadata]
+aliases = []
+author = "Chris Kempson (http://chriskempson.com)"
+name = "Default Light (base16)"
+origin_url = "https://github.com/chriskempson/base16-default-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DEHYDRATION_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#333333",
+    "#ff5555",
+    "#5fd38d",
+    "#ff9955",
+    "#3771c8",
+    "#bc5fd3",
+    "#5fd3bc",
+    "#999999",
+]
+background = "#333333"
+brights = [
+    "#666666",
+    "#ff8080",
+    "#87deaa",
+    "#ffb380",
+    "#5f8dd3",
+    "#cd87de",
+    "#87decd",
+    "#cccccc",
+]
+cursor_bg = "#cccccc"
+cursor_border = "#cccccc"
+cursor_fg = "#333333"
+foreground = "#cccccc"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["DeHydration (Gogh)"]
+name = "Dehydration (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DERP_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#111111",
+    "#d36265",
+    "#aece91",
+    "#e7e18c",
+    "#5297cf",
+    "#963c59",
+    "#5e7175",
+    "#bebebe",
+]
+background = "#000000"
+brights = [
+    "#666666",
+    "#ef8171",
+    "#cfefb3",
+    "#fff796",
+    "#74b8ef",
+    "#b85e7b",
+    "#a3babf",
+    "#ffffff",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Derp (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DESERT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4d4d4d",
+    "#ff2b2b",
+    "#98fb98",
+    "#f0e68c",
+    "#cd853f",
+    "#ffdead",
+    "#ffa0a0",
+    "#f5deb3",
+]
+background = "#333333"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#55ff55",
+    "#ffff55",
+    "#87ceff",
+    "#ff55ff",
+    "#ffd700",
+    "#ffffff",
+]
+cursor_bg = "#00ff00"
+cursor_border = "#00ff00"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Desert (Gogh)"]
+name = "Desert"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DESERT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4d4d4d",
+    "#ff2b2b",
+    "#98fb98",
+    "#f0e68c",
+    "#cd853f",
+    "#ffdead",
+    "#ffa0a0",
+    "#f5deb3",
+]
+background = "#333333"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#55ff55",
+    "#ffff55",
+    "#87ceff",
+    "#ff55ff",
+    "#ffd700",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#333333"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Desert (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_DIGERATI_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#303030",
+    "#c03000",
+    "#b1d631",
+    "#fecf35",
+    "#426870",
+    "#6d506d",
+    "#4bb5c1",
+    "#e2e2e5",
+]
+background = "#000000"
+brights = [
+    "#5f5f5f",
+    "#ff3a78",
+    "#a6cd07",
+    "#b5c865",
+    "#4a7781",
+    "#ff3b77",
+    "#4bb5c1",
+    "#e2e2e5",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Digerati (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DIMMED_MONOKAI_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3a3d43",
+    "#be3f48",
+    "#879a3b",
+    "#c5a635",
+    "#4f76a1",
+    "#855c8d",
+    "#578fa4",
+    "#b9bcba",
+]
+background = "#1f1f1f"
+brights = [
+    "#888987",
+    "#fb001f",
+    "#0f722f",
+    "#c47033",
+    "#186de3",
+    "#fb0067",
+    "#2e706d",
+    "#fdffb9",
+]
+cursor_bg = "#b9bcba"
+cursor_border = "#b9bcba"
+cursor_fg = "#1f1f1f"
+foreground = "#b9bcba"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Dimmed Monokai (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_DIMMED_MONOKAI_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3a3d43",
+    "#be3f48",
+    "#879a3b",
+    "#c5a635",
+    "#4f76a1",
+    "#855c8d",
+    "#578fa4",
+    "#b9bcba",
+]
+background = "#1f1f1f"
+brights = [
+    "#888987",
+    "#fb001f",
+    "#0f722f",
+    "#c47033",
+    "#186de3",
+    "#fb0067",
+    "#2e706d",
+    "#fdffb9",
+]
+cursor_bg = "#f83e19"
+cursor_border = "#f83e19"
+cursor_fg = "#171717"
+foreground = "#b9bcba"
+selection_bg = "#2a2d32"
+selection_fg = "#b9bcba"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Dimmed Monokai (Gogh)"]
+name = "DimmedMonokai"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DIRTYSEA_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#e0e0e0",
+    "#840000",
+    "#730073",
+    "#755b00",
+    "#007300",
+    "#000090",
+    "#755b00",
+    "#000000",
+]
+background = "#e0e0e0"
+brights = [
+    "#707070",
+    "#840000",
+    "#730073",
+    "#755b00",
+    "#007300",
+    "#000090",
+    "#755b00",
+    "#c4d9c4",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#e0e0e0"
+foreground = "#000000"
+selection_bg = "#000000"
+selection_fg = "#e0e0e0"
+
+[colors.indexed]
+16 = "#006565"
+17 = "#755b00"
+18 = "#d0dad0"
+19 = "#d0d0d0"
+20 = "#202020"
+21 = "#f8f8f8"
+
+[metadata]
+aliases = []
+author = "Kahlil (Kal) Hodgson"
+name = "dirtysea (base16)"
+origin_url = "https://github.com/tartansandal/base16-dirtysea-scheme"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -99213,6 +99620,224 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Darkside Gogh-to-Default Light built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_default_dark_to_dirtysea_builtin_color_schemes() {
+        let cases = [
+            (
+                "Default Dark (base16)",
+                Color::Rgb(216, 216, 216),
+                Color::Rgb(24, 24, 24),
+                Color::Rgb(216, 216, 216),
+                Some(Color::Rgb(24, 24, 24)),
+                Some(Color::Rgb(216, 216, 216)),
+                Some(Some(Color::Rgb(24, 24, 24))),
+                Color::Rgb(24, 24, 24),
+                Color::Rgb(171, 70, 66),
+                Color::Rgb(161, 181, 108),
+                Color::Rgb(247, 202, 136),
+                Color::Rgb(88, 88, 88),
+                Color::Rgb(248, 248, 248),
+                Some(Color::Rgb(220, 150, 86)),
+            ),
+            (
+                "Default Light (base16)",
+                Color::Rgb(56, 56, 56),
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(56, 56, 56),
+                Some(Color::Rgb(248, 248, 248)),
+                Some(Color::Rgb(56, 56, 56)),
+                Some(Some(Color::Rgb(248, 248, 248))),
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(171, 70, 66),
+                Color::Rgb(161, 181, 108),
+                Color::Rgb(247, 202, 136),
+                Color::Rgb(184, 184, 184),
+                Color::Rgb(24, 24, 24),
+                Some(Color::Rgb(220, 150, 86)),
+            ),
+            (
+                "Dehydration (Gogh)",
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(204, 204, 204),
+                Some(Color::Rgb(51, 51, 51)),
+                None,
+                None,
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(255, 85, 85),
+                Color::Rgb(95, 211, 141),
+                Color::Rgb(255, 153, 85),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(204, 204, 204),
+                None,
+            ),
+            (
+                "Derp (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(17, 17, 17),
+                Color::Rgb(211, 98, 101),
+                Color::Rgb(174, 206, 145),
+                Color::Rgb(231, 225, 140),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Desert",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(0, 255, 0),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(181, 213, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(77, 77, 77),
+                Color::Rgb(255, 43, 43),
+                Color::Rgb(152, 251, 152),
+                Color::Rgb(240, 230, 140),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Desert (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(51, 51, 51)),
+                None,
+                None,
+                Color::Rgb(77, 77, 77),
+                Color::Rgb(255, 43, 43),
+                Color::Rgb(152, 251, 152),
+                Color::Rgb(240, 230, 140),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Digerati (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(192, 48, 0),
+                Color::Rgb(177, 214, 49),
+                Color::Rgb(254, 207, 53),
+                Color::Rgb(95, 95, 95),
+                Color::Rgb(226, 226, 229),
+                None,
+            ),
+            (
+                "Dimmed Monokai (Gogh)",
+                Color::Rgb(185, 188, 186),
+                Color::Rgb(31, 31, 31),
+                Color::Rgb(185, 188, 186),
+                Some(Color::Rgb(31, 31, 31)),
+                None,
+                None,
+                Color::Rgb(58, 61, 67),
+                Color::Rgb(190, 63, 72),
+                Color::Rgb(135, 154, 59),
+                Color::Rgb(197, 166, 53),
+                Color::Rgb(136, 137, 135),
+                Color::Rgb(253, 255, 185),
+                None,
+            ),
+            (
+                "DimmedMonokai",
+                Color::Rgb(185, 188, 186),
+                Color::Rgb(31, 31, 31),
+                Color::Rgb(248, 62, 25),
+                Some(Color::Rgb(23, 23, 23)),
+                Some(Color::Rgb(42, 45, 50)),
+                Some(Some(Color::Rgb(185, 188, 186))),
+                Color::Rgb(58, 61, 67),
+                Color::Rgb(190, 63, 72),
+                Color::Rgb(135, 154, 59),
+                Color::Rgb(197, 166, 53),
+                Color::Rgb(136, 137, 135),
+                Color::Rgb(253, 255, 185),
+                None,
+            ),
+            (
+                "dirtysea (base16)",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(224, 224, 224),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(224, 224, 224)),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Some(Color::Rgb(224, 224, 224))),
+                Color::Rgb(224, 224, 224),
+                Color::Rgb(132, 0, 0),
+                Color::Rgb(115, 0, 115),
+                Color::Rgb(117, 91, 0),
+                Color::Rgb(112, 112, 112),
+                Color::Rgb(196, 217, 196),
+                Some(Color::Rgb(0, 101, 101)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Default Dark-to-dirtysea built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

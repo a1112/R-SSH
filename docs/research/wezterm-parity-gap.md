@@ -3622,7 +3622,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Darktooth (base16)`, `Dawn (terminal.sexy)`, `dawnfox`, `dayfox`,
   `Deafened (terminal.sexy)`, `Decaf (base16)`, `deep`,
   `Default (dark) (terminal.sexy)`, `Default (light) (terminal.sexy)`,
-  `Builtin Dark`, `Builtin Light`,
+  `Default Dark (base16)`, `Default Light (base16)`, `Dehydration (Gogh)`,
+  `Derp (terminal.sexy)`, `Desert`, `Desert (Gogh)`,
+  `Digerati (terminal.sexy)`, `Dimmed Monokai (Gogh)`, `DimmedMonokai`,
+  `dirtysea (base16)`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
