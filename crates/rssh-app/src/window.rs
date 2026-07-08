@@ -19567,6 +19567,22 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Ef-Symbiosis" => Some(BUILTIN_EF_SYMBIOSIS_COLOR_SCHEME_TOML),
         "Ef-Trio-Dark" => Some(BUILTIN_EF_TRIO_DARK_COLOR_SCHEME_TOML),
         "Ef-Trio-Light" => Some(BUILTIN_EF_TRIO_LIGHT_COLOR_SCHEME_TOML),
+        "Ef-Tritanopia-Dark" => Some(BUILTIN_EF_TRITANOPIA_DARK_COLOR_SCHEME_TOML),
+        "Ef-Tritanopia-Light" => Some(BUILTIN_EF_TRITANOPIA_LIGHT_COLOR_SCHEME_TOML),
+        "Ef-Winter" => Some(BUILTIN_EF_WINTER_COLOR_SCHEME_TOML),
+        "Eighties (base16)" => Some(BUILTIN_EIGHTIES_BASE16_COLOR_SCHEME_TOML),
+        "Eighties (dark) (terminal.sexy)" => {
+            Some(BUILTIN_EIGHTIES_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Eighties (light) (terminal.sexy)" => {
+            Some(BUILTIN_EIGHTIES_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Eldorado dark (terminal.sexy)" => {
+            Some(BUILTIN_ELDORADO_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Eldritch" => Some(BUILTIN_ELDRITCH_COLOR_SCHEME_TOML),
+        "Elemental" => Some(BUILTIN_ELEMENTAL_COLOR_SCHEME_TOML),
+        "Elemental (Gogh)" => Some(BUILTIN_ELEMENTAL_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -31389,6 +31405,439 @@ author = "anhsirk0"
 name = "Ef-Trio-Light"
 origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-trio-light-theme.el"
 wezterm_version = "20230408-112425-69ae8472"
+"##;
+
+const BUILTIN_EF_TRITANOPIA_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282026",
+    "#cf4f5f",
+    "#2fa526",
+    "#c48702",
+    "#379cf6",
+    "#b0648f",
+    "#3fafcf",
+    "#dfd0d5",
+]
+background = "#15050f"
+brights = [
+    "#554f4f",
+    "#d24f7f",
+    "#00b066",
+    "#df8f6f",
+    "#029fff",
+    "#a6699f",
+    "#4fafaf",
+    "#908890",
+]
+cursor_bg = "#fd3333"
+cursor_border = "#fd3333"
+cursor_fg = "#15050f"
+foreground = "#dfd0d5"
+selection_bg = "#293140"
+selection_fg = "#dfd0d5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Ef-Tritanopia-Dark"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-tritanopia-dark-theme.el"
+wezterm_version = "20230408-112425-69ae8472"
+"##;
+
+const BUILTIN_EF_TRITANOPIA_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#efecec",
+    "#aa0010",
+    "#217a3c",
+    "#805d00",
+    "#375cd8",
+    "#aa357f",
+    "#2070af",
+    "#1a1a1a",
+]
+background = "#fff9f9"
+brights = [
+    "#bdb9b9",
+    "#c50f4f",
+    "#008058",
+    "#765040",
+    "#065fff",
+    "#af40af",
+    "#007faa",
+    "#756275",
+]
+cursor_bg = "#bb0000"
+cursor_border = "#bb0000"
+cursor_fg = "#fff9f9"
+foreground = "#1a1a1a"
+selection_bg = "#dadadf"
+selection_fg = "#1a1a1a"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Ef-Tritanopia-Light"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-tritanopia-light-theme.el"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_EF_WINTER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d202f",
+    "#f47359",
+    "#29a444",
+    "#b58a52",
+    "#3f95f6",
+    "#d369af",
+    "#4fbaef",
+    "#b8c6d5",
+]
+background = "#0f0b15"
+brights = [
+    "#4a4f62",
+    "#ff6a7a",
+    "#00a392",
+    "#df9080",
+    "#029fff",
+    "#af85ea",
+    "#35afbf",
+    "#807c9f",
+]
+cursor_bg = "#ff6ff0"
+cursor_border = "#ff6ff0"
+cursor_fg = "#0f0b15"
+foreground = "#b8c6d5"
+selection_bg = "#342464"
+selection_fg = "#b8c6d5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Ef-Winter"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/ef-winter-theme.el"
+wezterm_version = "20230408-112425-69ae8472"
+"##;
+
+const BUILTIN_EIGHTIES_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2d2d2d",
+    "#f2777a",
+    "#99cc99",
+    "#ffcc66",
+    "#6699cc",
+    "#cc99cc",
+    "#66cccc",
+    "#d3d0c8",
+]
+background = "#2d2d2d"
+brights = [
+    "#747369",
+    "#f2777a",
+    "#99cc99",
+    "#ffcc66",
+    "#6699cc",
+    "#cc99cc",
+    "#66cccc",
+    "#f2f0ec",
+]
+cursor_bg = "#d3d0c8"
+cursor_border = "#d3d0c8"
+cursor_fg = "#2d2d2d"
+foreground = "#d3d0c8"
+selection_bg = "#d3d0c8"
+selection_fg = "#2d2d2d"
+
+[colors.indexed]
+16 = "#f99157"
+17 = "#d27b53"
+18 = "#393939"
+19 = "#515151"
+20 = "#a09f93"
+21 = "#e8e6df"
+
+[metadata]
+aliases = ["Eighties (dark) (terminal.sexy)"]
+author = "Chris Kempson (http://chriskempson.com)"
+name = "Eighties (base16)"
+origin_url = "https://github.com/chriskempson/base16-default-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_EIGHTIES_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2d2d2d",
+    "#f2777a",
+    "#99cc99",
+    "#ffcc66",
+    "#6699cc",
+    "#cc99cc",
+    "#66cccc",
+    "#d3d0c8",
+]
+background = "#2d2d2d"
+brights = [
+    "#747369",
+    "#f2777a",
+    "#99cc99",
+    "#ffcc66",
+    "#6699cc",
+    "#cc99cc",
+    "#66cccc",
+    "#f2f0ec",
+]
+foreground = "#d3d0c8"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Eighties (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_EIGHTIES_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2d2d2d",
+    "#f2777a",
+    "#99cc99",
+    "#ffcc66",
+    "#6699cc",
+    "#cc99cc",
+    "#66cccc",
+    "#d3d0c8",
+]
+background = "#f2f0ec"
+brights = [
+    "#747369",
+    "#f2777a",
+    "#99cc99",
+    "#ffcc66",
+    "#6699cc",
+    "#cc99cc",
+    "#66cccc",
+    "#f2f0ec",
+]
+foreground = "#515151"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Eighties (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ELDORADO_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4e4e4e",
+    "#a9635d",
+    "#468459",
+    "#84763d",
+    "#5879af",
+    "#9c6594",
+    "#008592",
+    "#cfcfcf",
+]
+background = "#292929"
+brights = [
+    "#777777",
+    "#ffbbb2",
+    "#9ddeaf",
+    "#e0ce91",
+    "#b3d1ff",
+    "#fabdf0",
+    "#79e0ed",
+    "#ffffff",
+]
+foreground = "#a2a2a2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Baskerville"
+name = "Eldorado dark (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ELDRITCH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#212337",
+    "#f16c75",
+    "#37f499",
+    "#f7c67f",
+    "#a48cf2",
+    "#f265b5",
+    "#04d1f9",
+    "#ebfafa",
+]
+background = "#212337"
+brights = [
+    "#323449",
+    "#f9515d",
+    "#37f499",
+    "#e9f941",
+    "#9071f4",
+    "#f265b5",
+    "#66e4fd",
+    "#ffffff",
+]
+compose_cursor = "#f7c67f"
+cursor_bg = "#37f499"
+cursor_border = "#04d1f9"
+cursor_fg = "#212337"
+foreground = "#ebfafa"
+scrollbar_thumb = "#37f499"
+selection_bg = "rgba(26.666668% 27.843138% 35.294117% 50%)"
+selection_fg = "rgba(0% 0% 0% 0%)"
+split = "#a48cf2"
+
+[colors.indexed]
+
+[colors.tab_bar]
+background = "#212337"
+
+[colors.tab_bar.active_tab]
+bg_color = "#37f499"
+fg_color = "#212337"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#212337"
+fg_color = "#04d1f9"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#37f499"
+fg_color = "#212337"
+intensity = "Normal"
+italic = true
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#212337"
+fg_color = "#ebfafa"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#37f499"
+fg_color = "#ebfafa"
+intensity = "Normal"
+italic = true
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+author = "jacobrreed"
+name = "Eldritch"
+origin_url = "https://github.com/eldritch-theme/eldritch/ports/terminal/wezterm"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_ELEMENTAL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3c3c30",
+    "#98290f",
+    "#479a43",
+    "#7f7111",
+    "#497f7d",
+    "#7f4e2f",
+    "#387f58",
+    "#807974",
+]
+background = "#22211d"
+brights = [
+    "#555445",
+    "#e0502a",
+    "#61e070",
+    "#d69927",
+    "#79d9d9",
+    "#cd7c54",
+    "#59d599",
+    "#fff1e9",
+]
+cursor_bg = "#facb80"
+cursor_border = "#facb80"
+cursor_fg = "#161611"
+foreground = "#807a74"
+selection_bg = "#413829"
+selection_fg = "#facd77"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Elemental (Gogh)"]
+name = "Elemental"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ELEMENTAL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3c3c30",
+    "#98290f",
+    "#479a43",
+    "#7f7111",
+    "#497f7d",
+    "#7f4e2f",
+    "#387f58",
+    "#807974",
+]
+background = "#22211d"
+brights = [
+    "#555445",
+    "#e0502a",
+    "#61e070",
+    "#d69927",
+    "#79d9d9",
+    "#cd7c54",
+    "#59d599",
+    "#fff1e9",
+]
+cursor_bg = "#807a74"
+cursor_border = "#807a74"
+cursor_fg = "#22211d"
+foreground = "#807a74"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Elemental (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -103084,6 +103533,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Ef Melissa-to-Ef Trio Light built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_ef_tritanopia_to_elemental_gogh_builtin_color_schemes() {
+        let cases = [
+            (
+                "Ef-Tritanopia-Dark",
+                Color::Rgb(223, 208, 213),
+                Color::Rgb(21, 5, 15),
+                Color::Rgb(253, 51, 51),
+                Some(Color::Rgb(21, 5, 15)),
+                Some(Color::Rgb(41, 49, 64)),
+                Some(Some(Color::Rgb(223, 208, 213))),
+                Color::Rgb(40, 32, 38),
+                Color::Rgb(207, 79, 95),
+                Color::Rgb(47, 165, 38),
+                Color::Rgb(196, 135, 2),
+                Color::Rgb(85, 79, 79),
+                Color::Rgb(144, 136, 144),
+                None,
+            ),
+            (
+                "Ef-Tritanopia-Light",
+                Color::Rgb(26, 26, 26),
+                Color::Rgb(255, 249, 249),
+                Color::Rgb(187, 0, 0),
+                Some(Color::Rgb(255, 249, 249)),
+                Some(Color::Rgb(218, 218, 223)),
+                Some(Some(Color::Rgb(26, 26, 26))),
+                Color::Rgb(239, 236, 236),
+                Color::Rgb(170, 0, 16),
+                Color::Rgb(33, 122, 60),
+                Color::Rgb(128, 93, 0),
+                Color::Rgb(189, 185, 185),
+                Color::Rgb(117, 98, 117),
+                None,
+            ),
+            (
+                "Ef-Winter",
+                Color::Rgb(184, 198, 213),
+                Color::Rgb(15, 11, 21),
+                Color::Rgb(255, 111, 240),
+                Some(Color::Rgb(15, 11, 21)),
+                Some(Color::Rgb(52, 36, 100)),
+                Some(Some(Color::Rgb(184, 198, 213))),
+                Color::Rgb(29, 32, 47),
+                Color::Rgb(244, 115, 89),
+                Color::Rgb(41, 164, 68),
+                Color::Rgb(181, 138, 82),
+                Color::Rgb(74, 79, 98),
+                Color::Rgb(128, 124, 159),
+                None,
+            ),
+            (
+                "Eighties (base16)",
+                Color::Rgb(211, 208, 200),
+                Color::Rgb(45, 45, 45),
+                Color::Rgb(211, 208, 200),
+                Some(Color::Rgb(45, 45, 45)),
+                Some(Color::Rgb(211, 208, 200)),
+                Some(Some(Color::Rgb(45, 45, 45))),
+                Color::Rgb(45, 45, 45),
+                Color::Rgb(242, 119, 122),
+                Color::Rgb(153, 204, 153),
+                Color::Rgb(255, 204, 102),
+                Color::Rgb(116, 115, 105),
+                Color::Rgb(242, 240, 236),
+                Some(Color::Rgb(249, 145, 87)),
+            ),
+            (
+                "Eighties (dark) (terminal.sexy)",
+                Color::Rgb(211, 208, 200),
+                Color::Rgb(45, 45, 45),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(45, 45, 45),
+                Color::Rgb(242, 119, 122),
+                Color::Rgb(153, 204, 153),
+                Color::Rgb(255, 204, 102),
+                Color::Rgb(116, 115, 105),
+                Color::Rgb(242, 240, 236),
+                None,
+            ),
+            (
+                "Eighties (light) (terminal.sexy)",
+                Color::Rgb(81, 81, 81),
+                Color::Rgb(242, 240, 236),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(45, 45, 45),
+                Color::Rgb(242, 119, 122),
+                Color::Rgb(153, 204, 153),
+                Color::Rgb(255, 204, 102),
+                Color::Rgb(116, 115, 105),
+                Color::Rgb(242, 240, 236),
+                None,
+            ),
+            (
+                "Eldorado dark (terminal.sexy)",
+                Color::Rgb(162, 162, 162),
+                Color::Rgb(41, 41, 41),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(78, 78, 78),
+                Color::Rgb(169, 99, 93),
+                Color::Rgb(70, 132, 89),
+                Color::Rgb(132, 118, 61),
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Eldritch",
+                Color::Rgb(235, 250, 250),
+                Color::Rgb(33, 35, 55),
+                Color::Rgb(55, 244, 153),
+                Some(Color::Rgb(33, 35, 55)),
+                Some(Color::Rgba(68, 71, 89, 127)),
+                Some(None),
+                Color::Rgb(33, 35, 55),
+                Color::Rgb(241, 108, 117),
+                Color::Rgb(55, 244, 153),
+                Color::Rgb(247, 198, 127),
+                Color::Rgb(50, 52, 73),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Elemental",
+                Color::Rgb(128, 122, 116),
+                Color::Rgb(34, 33, 29),
+                Color::Rgb(250, 203, 128),
+                Some(Color::Rgb(22, 22, 17)),
+                Some(Color::Rgb(65, 56, 41)),
+                Some(Some(Color::Rgb(250, 205, 119))),
+                Color::Rgb(60, 60, 48),
+                Color::Rgb(152, 41, 15),
+                Color::Rgb(71, 154, 67),
+                Color::Rgb(127, 113, 17),
+                Color::Rgb(85, 84, 69),
+                Color::Rgb(255, 241, 233),
+                None,
+            ),
+            (
+                "Elemental (Gogh)",
+                Color::Rgb(128, 122, 116),
+                Color::Rgb(34, 33, 29),
+                Color::Rgb(128, 122, 116),
+                Some(Color::Rgb(34, 33, 29)),
+                None,
+                None,
+                Color::Rgb(60, 60, 48),
+                Color::Rgb(152, 41, 15),
+                Color::Rgb(71, 154, 67),
+                Color::Rgb(127, 113, 17),
+                Color::Rgb(85, 84, 69),
+                Color::Rgb(255, 241, 233),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Ef Tritanopia-to-Elemental Gogh built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
