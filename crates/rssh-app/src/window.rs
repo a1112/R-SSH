@@ -8990,6 +8990,15 @@ fn lua_window_title_condition_from_expression(
         return Some(NativeLuaWindowTitleCondition::ActivePaneProgressIndeterminate);
     }
 
+    if let Some((name, present)) = lua_window_title_active_pane_user_var_presence_condition(
+        condition,
+        tab_param,
+        pane_param,
+        static_source,
+    ) {
+        return Some(NativeLuaWindowTitleCondition::ActivePaneUserVarPresence { name, present });
+    }
+
     if let Some(count) = lua_window_title_count_greater_than_condition(condition, tabs_param) {
         return Some(NativeLuaWindowTitleCondition::TabCountGreaterThan(count));
     }
@@ -9050,6 +9059,50 @@ fn lua_window_title_active_pane_progress_indeterminate_condition(
     }
 
     false
+}
+
+fn lua_window_title_active_pane_user_var_presence_condition(
+    condition: &str,
+    tab_param: &str,
+    pane_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+) -> Option<(String, bool)> {
+    let pane_user_vars = format!("{pane_param}.user_vars");
+    if let Some(rest) = condition.strip_prefix(&pane_user_vars) {
+        return lua_tab_title_user_var_presence_rest(static_source, None, rest);
+    }
+
+    let tab_active_pane_user_vars = format!("{tab_param}.active_pane.user_vars");
+    if let Some(rest) = condition.strip_prefix(&tab_active_pane_user_vars) {
+        return lua_tab_title_user_var_presence_rest(static_source, None, rest);
+    }
+
+    let receiver = lua_identifier_literal_from_query(condition)?;
+    let rest = condition.get(receiver.len()..)?;
+    if lua_window_title_active_pane_alias_before_offset(
+        static_source,
+        receiver,
+        tab_param,
+        pane_param,
+    ) == Some(true)
+    {
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = rest.strip_prefix("user_vars")?;
+        return lua_tab_title_user_var_presence_rest(static_source, None, rest);
+    }
+
+    if lua_window_title_active_pane_user_vars_alias_before_offset(
+        static_source,
+        None,
+        receiver,
+        tab_param,
+        pane_param,
+    ) == Some(true)
+    {
+        return lua_tab_title_user_var_presence_rest(static_source, None, rest);
+    }
+
+    None
 }
 
 fn lua_window_title_active_pane_progress_field_presence_condition(
@@ -31805,7 +31858,7 @@ impl NativeLuaWindowTitlePart {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaWindowTitleCondition {
     ActivePaneIsZoomed,
     ActivePaneProgressIndeterminate,
@@ -31813,12 +31866,16 @@ enum NativeLuaWindowTitleCondition {
         field: NativeLuaTabTitleProgressField,
         present: bool,
     },
+    ActivePaneUserVarPresence {
+        name: String,
+        present: bool,
+    },
     TabCountGreaterThan(usize),
     PaneCountGreaterThan(usize),
 }
 
 impl NativeLuaWindowTitleCondition {
-    fn matches(self, event: &NativeWindowTitleFormat) -> bool {
+    fn matches(&self, event: &NativeWindowTitleFormat) -> bool {
         match self {
             Self::ActivePaneIsZoomed => event.active_pane_info.is_zoomed,
             Self::ActivePaneProgressIndeterminate => {
@@ -31826,14 +31883,17 @@ impl NativeLuaWindowTitleCondition {
             }
             Self::ActivePaneProgressFieldPresence { field, present } => {
                 let has_field = match (field, event.active_pane_info.progress) {
-                    (NativeLuaTabTitleProgressField::Percentage, PaneProgress::Percentage(_))
-                    | (NativeLuaTabTitleProgressField::Error, PaneProgress::Error(_)) => true,
+                    (&NativeLuaTabTitleProgressField::Percentage, PaneProgress::Percentage(_))
+                    | (&NativeLuaTabTitleProgressField::Error, PaneProgress::Error(_)) => true,
                     _ => false,
                 };
-                has_field == present
+                has_field == *present
             }
-            Self::TabCountGreaterThan(count) => event.tab_count > count,
-            Self::PaneCountGreaterThan(count) => event.pane_count > count,
+            Self::ActivePaneUserVarPresence { name, present } => {
+                event.active_pane_info.user_vars.contains_key(name) == *present
+            }
+            Self::TabCountGreaterThan(count) => event.tab_count > *count,
+            Self::PaneCountGreaterThan(count) => event.pane_count > *count,
         }
     }
 }
@@ -107393,6 +107453,55 @@ mod tests {
             .unwrap();
 
         assert_eq!(app.effective_window_title(), "prog=psh");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_user_var_condition() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              if pane.user_vars['WEZTERM-PROG'] ~= nil then
+                return 'prog=' .. pane.user_vars['WEZTERM-PROG']
+              end
+
+              return 'prog=none'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title user var condition");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM-PROG=cHNo\x07")
+            .unwrap();
+
+        assert_eq!(app.effective_window_title(), "prog=psh");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_missing_user_var_condition() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local vars = tab.active_pane.user_vars
+              if vars.WEZTERM_PROG == nil then
+                return 'prog=none'
+              end
+
+              return 'prog=' .. vars.WEZTERM_PROG
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title missing user var condition");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "prog=none");
     }
 
     #[test]
