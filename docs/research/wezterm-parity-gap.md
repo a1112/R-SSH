@@ -3644,6 +3644,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Eighties (base16)`, `Eighties (dark) (terminal.sexy)`,
   `Eighties (light) (terminal.sexy)`, `Eldorado dark (terminal.sexy)`,
   `Eldritch`, `Elemental`, `Elemental (Gogh)`,
+  `Elementary`, `Elementary (Gogh)`, `Elic (Gogh)`, `Elio (Gogh)`,
+  `Embers (base16)`, `Embers (dark) (terminal.sexy)`,
+  `Embers (light) (terminal.sexy)`, `ENCOM`, `Epiphany (terminal.sexy)`,
+  `Eqie6 (terminal.sexy)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using

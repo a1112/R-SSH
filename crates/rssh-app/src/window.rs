@@ -19583,6 +19583,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Eldritch" => Some(BUILTIN_ELDRITCH_COLOR_SCHEME_TOML),
         "Elemental" => Some(BUILTIN_ELEMENTAL_COLOR_SCHEME_TOML),
         "Elemental (Gogh)" => Some(BUILTIN_ELEMENTAL_GOGH_COLOR_SCHEME_TOML),
+        "Elementary" => Some(BUILTIN_ELEMENTARY_COLOR_SCHEME_TOML),
+        "Elementary (Gogh)" => Some(BUILTIN_ELEMENTARY_GOGH_COLOR_SCHEME_TOML),
+        "Elic (Gogh)" => Some(BUILTIN_ELIC_GOGH_COLOR_SCHEME_TOML),
+        "Elio (Gogh)" => Some(BUILTIN_ELIO_GOGH_COLOR_SCHEME_TOML),
+        "Embers (base16)" => Some(BUILTIN_EMBERS_BASE16_COLOR_SCHEME_TOML),
+        "Embers (dark) (terminal.sexy)" => {
+            Some(BUILTIN_EMBERS_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Embers (light) (terminal.sexy)" => {
+            Some(BUILTIN_EMBERS_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "ENCOM" => Some(BUILTIN_ENCOM_COLOR_SCHEME_TOML),
+        "Epiphany (terminal.sexy)" => Some(BUILTIN_EPIPHANY_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Eqie6 (terminal.sexy)" => Some(BUILTIN_EQIE6_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -31838,6 +31852,381 @@ aliases = []
 name = "Elemental (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_ELEMENTARY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#242424",
+    "#d71c15",
+    "#5aa513",
+    "#fdb40c",
+    "#063b8c",
+    "#e40038",
+    "#2595e1",
+    "#efefef",
+]
+background = "#181818"
+brights = [
+    "#4b4b4b",
+    "#fc1c18",
+    "#6bc219",
+    "#fec80e",
+    "#0955ff",
+    "#fb0050",
+    "#3ea8fc",
+    "#8c00ec",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#efefef"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Elementary"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ELEMENTARY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#303030",
+    "#e1321a",
+    "#6ab017",
+    "#ffc005",
+    "#004f9e",
+    "#ec0048",
+    "#2aa7e7",
+    "#f2f2f2",
+]
+background = "#101010"
+brights = [
+    "#5d5d5d",
+    "#ff361e",
+    "#7bc91f",
+    "#ffd00a",
+    "#0071ff",
+    "#ff1d62",
+    "#4bb8fd",
+    "#a020f0",
+]
+cursor_bg = "#f2f2f2"
+cursor_border = "#f2f2f2"
+cursor_fg = "#101010"
+foreground = "#f2f2f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Elementary (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ELIC_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#303030",
+    "#e1321a",
+    "#6ab017",
+    "#ffc005",
+    "#729fcf",
+    "#ec0048",
+    "#f2f2f2",
+    "#2aa7e7",
+]
+background = "#4a453e"
+brights = [
+    "#5d5d5d",
+    "#ff361e",
+    "#7bc91f",
+    "#ffd00a",
+    "#0071ff",
+    "#ff1d62",
+    "#4bb8fd",
+    "#a020f0",
+]
+cursor_bg = "#f2f2f2"
+cursor_border = "#f2f2f2"
+cursor_fg = "#4a453e"
+foreground = "#f2f2f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Elic (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ELIO_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#303030",
+    "#e1321a",
+    "#6ab017",
+    "#ffc005",
+    "#729fcf",
+    "#ec0048",
+    "#2aa7e7",
+    "#f2f2f2",
+]
+background = "#041a3b"
+brights = [
+    "#5d5d5d",
+    "#ff361e",
+    "#7bc91f",
+    "#ffd00a",
+    "#0071ff",
+    "#ff1d62",
+    "#4bb8fd",
+    "#a020f0",
+]
+cursor_bg = "#f2f2f2"
+cursor_border = "#f2f2f2"
+cursor_fg = "#041a3b"
+foreground = "#f2f2f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Elio (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_EMBERS_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#16130f",
+    "#826d57",
+    "#57826d",
+    "#6d8257",
+    "#6d5782",
+    "#82576d",
+    "#576d82",
+    "#a39a90",
+]
+background = "#16130f"
+brights = [
+    "#5a5047",
+    "#826d57",
+    "#57826d",
+    "#6d8257",
+    "#6d5782",
+    "#82576d",
+    "#576d82",
+    "#dbd6d1",
+]
+cursor_bg = "#a39a90"
+cursor_border = "#a39a90"
+cursor_fg = "#16130f"
+foreground = "#a39a90"
+selection_bg = "#a39a90"
+selection_fg = "#16130f"
+
+[colors.indexed]
+16 = "#828257"
+17 = "#825757"
+18 = "#2c2620"
+19 = "#433b32"
+20 = "#8a8075"
+21 = "#beb6ae"
+
+[metadata]
+aliases = ["Embers (dark) (terminal.sexy)"]
+author = "Jannik Siebert (https://github.com/janniks)"
+name = "Embers (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_EMBERS_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#16130f",
+    "#826d57",
+    "#57826d",
+    "#6d8257",
+    "#6d5782",
+    "#82576d",
+    "#576d82",
+    "#a39a90",
+]
+background = "#16130f"
+brights = [
+    "#5a5047",
+    "#826d57",
+    "#57826d",
+    "#6d8257",
+    "#6d5782",
+    "#82576d",
+    "#576d82",
+    "#dbd6d1",
+]
+foreground = "#a39a90"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Embers (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_EMBERS_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#16130f",
+    "#826d57",
+    "#57826d",
+    "#6d8257",
+    "#6d5782",
+    "#82576d",
+    "#576d82",
+    "#a39a90",
+]
+background = "#dbd6d1"
+brights = [
+    "#5a5047",
+    "#826d57",
+    "#57826d",
+    "#6d8257",
+    "#6d5782",
+    "#82576d",
+    "#576d82",
+    "#dbd6d1",
+]
+foreground = "#433b32"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Embers (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ENCOM_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#9f0000",
+    "#008b00",
+    "#ffd000",
+    "#0081ff",
+    "#bc00ca",
+    "#008b8b",
+    "#bbbbbb",
+]
+background = "#000000"
+brights = [
+    "#555555",
+    "#ff0000",
+    "#00ee00",
+    "#ffff00",
+    "#0000ff",
+    "#ff00ff",
+    "#00cdcd",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#00a595"
+selection_bg = "#00a48c"
+selection_fg = "#3de1c9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "ENCOM"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_EPIPHANY_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#565656",
+    "#ac4f4f",
+    "#88ab77",
+    "#d0d9ad",
+    "#677088",
+    "#cdcdb4",
+    "#445362",
+    "#ffffff",
+]
+background = "#000000"
+brights = [
+    "#656565",
+    "#e85555",
+    "#8ccd6c",
+    "#c5d67d",
+    "#647396",
+    "#cdb4c9",
+    "#505b6c",
+    "#c0c0c0",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Epiphany (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_EQIE6_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#222222",
+    "#e84f4f",
+    "#b7ce42",
+    "#fea63c",
+    "#66a9b9",
+    "#b7416e",
+    "#6d878d",
+    "#cccccc",
+]
+background = "#111111"
+brights = [
+    "#666666",
+    "#d23d3d",
+    "#bde077",
+    "#ffe863",
+    "#aaccbb",
+    "#e16a98",
+    "#42717b",
+    "#ffffff",
+]
+foreground = "#cccccc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Eqie6 (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -103755,6 +104144,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Ef Tritanopia-to-Elemental Gogh built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_elementary_to_eqie6_builtin_color_schemes() {
+        let cases = [
+            (
+                "Elementary",
+                Color::Rgb(239, 239, 239),
+                Color::Rgb(24, 24, 24),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(181, 213, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(36, 36, 36),
+                Color::Rgb(215, 28, 21),
+                Color::Rgb(90, 165, 19),
+                Color::Rgb(253, 180, 12),
+                Color::Rgb(75, 75, 75),
+                Color::Rgb(140, 0, 236),
+                None,
+            ),
+            (
+                "Elementary (Gogh)",
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(242, 242, 242),
+                Some(Color::Rgb(16, 16, 16)),
+                None,
+                None,
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(225, 50, 26),
+                Color::Rgb(106, 176, 23),
+                Color::Rgb(255, 192, 5),
+                Color::Rgb(93, 93, 93),
+                Color::Rgb(160, 32, 240),
+                None,
+            ),
+            (
+                "Elic (Gogh)",
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(74, 69, 62),
+                Color::Rgb(242, 242, 242),
+                Some(Color::Rgb(74, 69, 62)),
+                None,
+                None,
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(225, 50, 26),
+                Color::Rgb(106, 176, 23),
+                Color::Rgb(255, 192, 5),
+                Color::Rgb(93, 93, 93),
+                Color::Rgb(160, 32, 240),
+                None,
+            ),
+            (
+                "Elio (Gogh)",
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(4, 26, 59),
+                Color::Rgb(242, 242, 242),
+                Some(Color::Rgb(4, 26, 59)),
+                None,
+                None,
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(225, 50, 26),
+                Color::Rgb(106, 176, 23),
+                Color::Rgb(255, 192, 5),
+                Color::Rgb(93, 93, 93),
+                Color::Rgb(160, 32, 240),
+                None,
+            ),
+            (
+                "Embers (base16)",
+                Color::Rgb(163, 154, 144),
+                Color::Rgb(22, 19, 15),
+                Color::Rgb(163, 154, 144),
+                Some(Color::Rgb(22, 19, 15)),
+                Some(Color::Rgb(163, 154, 144)),
+                Some(Some(Color::Rgb(22, 19, 15))),
+                Color::Rgb(22, 19, 15),
+                Color::Rgb(130, 109, 87),
+                Color::Rgb(87, 130, 109),
+                Color::Rgb(109, 130, 87),
+                Color::Rgb(90, 80, 71),
+                Color::Rgb(219, 214, 209),
+                Some(Color::Rgb(130, 130, 87)),
+            ),
+            (
+                "Embers (dark) (terminal.sexy)",
+                Color::Rgb(163, 154, 144),
+                Color::Rgb(22, 19, 15),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(22, 19, 15),
+                Color::Rgb(130, 109, 87),
+                Color::Rgb(87, 130, 109),
+                Color::Rgb(109, 130, 87),
+                Color::Rgb(90, 80, 71),
+                Color::Rgb(219, 214, 209),
+                None,
+            ),
+            (
+                "Embers (light) (terminal.sexy)",
+                Color::Rgb(67, 59, 50),
+                Color::Rgb(219, 214, 209),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(22, 19, 15),
+                Color::Rgb(130, 109, 87),
+                Color::Rgb(87, 130, 109),
+                Color::Rgb(109, 130, 87),
+                Color::Rgb(90, 80, 71),
+                Color::Rgb(219, 214, 209),
+                None,
+            ),
+            (
+                "ENCOM",
+                Color::Rgb(0, 165, 149),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(0, 164, 140)),
+                Some(Some(Color::Rgb(61, 225, 201))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(159, 0, 0),
+                Color::Rgb(0, 139, 0),
+                Color::Rgb(255, 208, 0),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Epiphany (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(86, 86, 86),
+                Color::Rgb(172, 79, 79),
+                Color::Rgb(136, 171, 119),
+                Color::Rgb(208, 217, 173),
+                Color::Rgb(101, 101, 101),
+                Color::Rgb(192, 192, 192),
+                None,
+            ),
+            (
+                "Eqie6 (terminal.sexy)",
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(17, 17, 17),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(232, 79, 79),
+                Color::Rgb(183, 206, 66),
+                Color::Rgb(254, 166, 60),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Elementary-to-Eqie6 built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
