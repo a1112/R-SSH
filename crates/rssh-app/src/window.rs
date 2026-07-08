@@ -59255,11 +59255,18 @@ fn lua_callback_statement_emit_call_args_query<'a>(
     outer_static_source: Option<LuaStaticSource<'_>>,
     statement: &'a str,
 ) -> Option<&'a str> {
-    if let Some(rest) = lua_callback_statement_wezterm_emit_call_args_query(statement) {
+    if let Some(rest) = lua_callback_statement_wezterm_emit_call_args_query(
+        static_source,
+        outer_static_source,
+        statement,
+    ) {
         return Some(rest);
     }
-    if let Some(rest) = lua_callback_statement_wezterm_emit_call_args_from_require_query(statement)
-    {
+    if let Some(rest) = lua_callback_statement_wezterm_emit_call_args_from_require_query(
+        static_source,
+        outer_static_source,
+        statement,
+    ) {
         return Some(rest);
     }
 
@@ -59279,7 +59286,11 @@ fn lua_callback_statement_emit_call_args_query<'a>(
         })
         .unwrap_or(false);
     if has_local_module_alias || has_outer_module_alias {
-        return lua_callback_statement_wezterm_emit_call_args_from_receiver_rest(rest);
+        return lua_callback_statement_wezterm_emit_call_args_from_receiver_rest(
+            static_source,
+            outer_static_source,
+            rest,
+        );
     }
     let has_local_alias = static_source
         .and_then(|source| {
@@ -59297,24 +59308,46 @@ fn lua_callback_statement_emit_call_args_query<'a>(
     lua_trim_start_comments(rest)
 }
 
-fn lua_callback_statement_wezterm_emit_call_args_query(statement: &str) -> Option<&str> {
+fn lua_callback_statement_wezterm_emit_call_args_query<'a>(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    statement: &'a str,
+) -> Option<&'a str> {
     let rest = statement.strip_prefix("wezterm")?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
-    lua_callback_statement_wezterm_emit_call_args_from_receiver_rest(rest)
+    lua_callback_statement_wezterm_emit_call_args_from_receiver_rest(
+        static_source,
+        outer_static_source,
+        rest,
+    )
 }
 
-fn lua_callback_statement_wezterm_emit_call_args_from_require_query(
-    statement: &str,
-) -> Option<&str> {
+fn lua_callback_statement_wezterm_emit_call_args_from_require_query<'a>(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    statement: &'a str,
+) -> Option<&'a str> {
     let rest = lua_static_wezterm_require_receiver_rest_from_query(statement)?;
-    lua_callback_statement_wezterm_emit_call_args_from_receiver_rest(rest)
+    lua_callback_statement_wezterm_emit_call_args_from_receiver_rest(
+        static_source,
+        outer_static_source,
+        rest,
+    )
 }
 
-fn lua_callback_statement_wezterm_emit_call_args_from_receiver_rest(rest: &str) -> Option<&str> {
+fn lua_callback_statement_wezterm_emit_call_args_from_receiver_rest<'a>(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    rest: &'a str,
+) -> Option<&'a str> {
     let rest = lua_trim_start_comments(rest)?;
-    let (field, rest) = lua_table_map_field_key_from_query_with_static_source(None, rest)?;
+    let (field, rest) = lua_table_map_field_key_from_query_with_static_sources(
+        static_source,
+        outer_static_source,
+        rest,
+    )?;
     if field != "emit" {
         return None;
     }
@@ -122716,6 +122749,44 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello-bracket");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_emits_static_event_static_key_field() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local emit_key = 'emit'
+
+            wezterm.on('send-greeting', function(window, pane)
+              wezterm[emit_key]('write-greeting', window, pane)
+            end)
+
+            wezterm.on('write-greeting', function(window, pane)
+              window:perform_action(act.SendString 'hello-static-key-field', pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler static-key field config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(
+            written.lock().unwrap().as_slice(),
+            b"hello-static-key-field"
+        );
     }
 
     #[test]
