@@ -7660,6 +7660,10 @@ fn lua_static_wezterm_receiver_rest_from_query<'a>(
     max_start: usize,
     value: &'a str,
 ) -> Option<&'a str> {
+    if let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) {
+        return Some(rest);
+    }
+
     let receiver = lua_identifier_literal_from_query(value)?;
     let rest = value.get(receiver.len()..)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
@@ -84638,6 +84642,54 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(65, 66, 67));
         assert_eq!(effective.background_color, Color::Rgb(68, 69, 70));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(71, 72, 73));
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_colors_from_load_scheme_direct_require_call() {
+        static NEXT_LOAD_SCHEME_DIRECT_REQUIRE_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-direct-require-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_DIRECT_REQUIRE_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Direct Require Loaded Scheme"
+
+            [colors]
+            foreground = "#a1a2a3"
+            background = "#a4a5a6"
+            cursor_bg = "#a7a8a9"
+            "##,
+        )
+        .expect("expected temp direct require load_scheme TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+            local colors, metadata = require('wezterm').color.load_scheme('{}')
+
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm direct require load_scheme colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(161, 162, 163));
+        assert_eq!(effective.background_color, Color::Rgb(164, 165, 166));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(167, 168, 169));
         let _ = std::fs::remove_file(scheme_file);
     }
 
