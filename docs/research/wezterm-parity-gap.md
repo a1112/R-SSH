@@ -2633,8 +2633,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   FormatItem table returns whose `Text` entries use simple dynamic title-field
   concatenations through direct fields, local dynamic title variables fed
   directly or through simple top-level helper functions including the documented
-  explicit-title-then-active-pane-title fallback pattern, direct
-  `wezterm.truncate_left(title, max_width - N)` /
+  explicit-title-then-active-pane-title fallback pattern, direct or
+  module/static-key `wezterm.truncate_left(title, max_width - N)` /
   `wezterm.truncate_right(title, max_width - N)` truncation, documented static
   `wezterm.nerdfonts.pl_left_hard_divider` /
   `wezterm.nerdfonts.pl_right_hard_divider` text variables, and local

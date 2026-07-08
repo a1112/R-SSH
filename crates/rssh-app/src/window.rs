@@ -12322,25 +12322,12 @@ fn lua_tab_title_truncate_parts_from_expression(
         return None;
     }
 
-    let rest = expression.strip_prefix("wezterm")?;
-    if rest.chars().next().is_some_and(is_lua_identifier_character) {
-        return None;
-    }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-    let rest = lua_trim_start_comments(rest)?;
-    let direction = if rest.starts_with("truncate_right")
-        && lua_config_assignment_field_has_boundaries(rest, 0, "truncate_right")
-    {
-        NativeLuaTabTitleTruncateDirection::Right
-    } else if rest.starts_with("truncate_left")
-        && lua_config_assignment_field_has_boundaries(rest, 0, "truncate_left")
-    {
-        NativeLuaTabTitleTruncateDirection::Left
-    } else {
-        return None;
-    };
-    let name = direction.lua_function_name();
-    let rest = lua_trim_start_comments(rest.get(name.len()..)?)?.strip_prefix('(')?;
+    let (direction, rest) = lua_tab_title_truncate_direction_and_call_rest_from_expression(
+        expression,
+        static_source,
+        outer_static_source,
+    )?;
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('(')?;
     let (argument_list, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
     if !lua_static_identifier_value_rest_is_statement_end(rest) {
         return None;
@@ -12374,6 +12361,62 @@ fn lua_tab_title_truncate_parts_from_expression(
             max_width_offset,
         },
     }])
+}
+
+fn lua_tab_title_truncate_direction_and_call_rest_from_expression<'a>(
+    expression: &'a str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<(NativeLuaTabTitleTruncateDirection, &'a str)> {
+    let expression = lua_trim_start_comments(expression.trim())?;
+    let rest = lua_tab_title_wezterm_receiver_rest_from_expression(
+        expression,
+        static_source,
+        outer_static_source,
+    )?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (field, rest) = lua_table_map_field_key_from_query_with_static_sources(
+        static_source,
+        outer_static_source,
+        rest,
+    )?;
+    let direction = match field.as_str() {
+        "truncate_left" => NativeLuaTabTitleTruncateDirection::Left,
+        "truncate_right" => NativeLuaTabTitleTruncateDirection::Right,
+        _ => return None,
+    };
+    Some((direction, rest))
+}
+
+fn lua_tab_title_wezterm_receiver_rest_from_expression<'a>(
+    expression: &'a str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<&'a str> {
+    if let Some(static_source) = static_source
+        && let Some(rest) = lua_static_wezterm_receiver_rest_from_query(
+            static_source.source,
+            static_source.max_start,
+            expression,
+        )
+    {
+        return Some(rest);
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(rest) = lua_static_wezterm_receiver_rest_from_query(
+            outer_static_source.source,
+            outer_static_source.max_start,
+            expression,
+        )
+    {
+        return Some(rest);
+    }
+
+    let rest = expression.strip_prefix("wezterm")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    Some(rest)
 }
 
 fn lua_static_source_before_current_statement<'a>(
@@ -32512,15 +32555,6 @@ impl NativeLuaTabTitleTextPart {
 enum NativeLuaTabTitleTruncateDirection {
     Left,
     Right,
-}
-
-impl NativeLuaTabTitleTruncateDirection {
-    fn lua_function_name(self) -> &'static str {
-        match self {
-            Self::Left => "truncate_left",
-            Self::Right => "truncate_right",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104136,6 +104170,53 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_truncate_right_static_key_module() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local wt = require 'wezterm'
+            local truncate_key = 'truncate_right'
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              title = wt[truncate_key](title, max_width - 2)
+              return {
+                { Text = '<' .. title .. '>' },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title truncate_right static-key module");
+        app.set_config_overrides(overrides);
+        let active_tab = app.active_tab_id();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: active_tab,
+            title: "abcdefghijklmnopqr".to_owned(),
+        })
+        .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("<abcdefghijklmn>"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(
+            !tab_bar.contains("<abcdefghijklmnopqr>"),
+            "tab bar was {tab_bar:?}"
+        );
+    }
+
+    #[test]
     fn lua_parses_wezterm_format_tab_title_nerdfont_dividers() {
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
             r#"
@@ -104256,6 +104337,48 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-tab-title truncate_left title");
+
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        assert!(
+            parsed.contains("TruncateLeft"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("max_width_offset: 2"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("ActiveTabTitleOrActivePaneTitle"),
+            "parsed lua tab title was {parsed}"
+        );
+    }
+
+    #[test]
+    fn lua_parses_wezterm_format_tab_title_truncate_left_static_key_module() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local wt = require 'wezterm'
+            local truncate_key = 'truncate_left'
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              title = wt[truncate_key](title, max_width - 2)
+              return {
+                { Text = '<' .. title .. '>' },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title truncate_left static-key module");
 
         let parsed = format!("{:?}", overrides.lua_tab_title);
         assert!(
