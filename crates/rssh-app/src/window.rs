@@ -7900,6 +7900,18 @@ fn lua_static_window_title_return_from_function_body(
     panes_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowTitle> {
+    if let Some(parts) = lua_window_title_explicit_title_fallback_parts_from_function_body(
+        body,
+        tab_param,
+        pane_param,
+        tabs_param,
+        panes_param,
+        outer_static_source,
+        0,
+    ) {
+        return Some(NativeLuaWindowTitle::Concat(parts));
+    }
+
     if let Some(value) = lua_static_window_title_conditional_return_from_function_body(
         body,
         tab_param,
@@ -107496,6 +107508,37 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-window-title helper explicit-title fallback");
+        app.set_config_overrides(overrides);
+        assert_eq!(app.effective_window_title(), "Pane Title");
+
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "Explicit Tab".to_owned(),
+        })
+        .unwrap();
+
+        assert_eq!(app.effective_window_title(), "Explicit Tab");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_inline_explicit_title_fallback() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local title = tab.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab.active_pane.title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title inline explicit-title fallback");
         app.set_config_overrides(overrides);
         assert_eq!(app.effective_window_title(), "Pane Title");
 
