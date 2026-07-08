@@ -9850,30 +9850,28 @@ fn lua_static_new_tab_button_click_allow_default_from_function_body(
         {
             continue;
         }
-        let [(condition, if_body)] = branches.as_slice() else {
-            continue;
-        };
-        let (button, comparison) =
-            lua_new_tab_button_click_button_condition(condition, button_param)?;
-        let branch_allow_default =
-            lua_static_bool_return_from_function_body(if_body, outer_static_source)?;
+        let mut button_branches = Vec::new();
+        for (condition, branch_body) in branches {
+            let (button, comparison) =
+                lua_new_tab_button_click_button_condition(condition, button_param)?;
+            let allow_default =
+                lua_static_bool_return_from_function_body(branch_body, outer_static_source)?;
+            button_branches.push(LuaNewTabButtonClickButtonBranch {
+                button,
+                comparison,
+                allow_default,
+            });
+        }
         let else_allow_default = else_body
             .and_then(|else_body| {
                 lua_static_bool_return_from_function_body(else_body, outer_static_source)
             })
             .unwrap_or(true);
-        let (matches_allow_default, non_matches_allow_default) = match comparison {
-            LuaNewTabButtonClickButtonComparison::Equals => {
-                (branch_allow_default, else_allow_default)
-            }
-            LuaNewTabButtonClickButtonComparison::NotEquals => {
-                (else_allow_default, branch_allow_default)
-            }
-        };
-        return Some(NativeLuaNewTabButtonClickAllowDefault::ButtonCondition {
-            button,
-            matches_allow_default,
-            non_matches_allow_default,
+        return Some(NativeLuaNewTabButtonClickAllowDefault::ButtonConditions {
+            defaults: NativeLuaNewTabButtonClickButtonDefaults::from_lua_branches(
+                &button_branches,
+                else_allow_default,
+            ),
         });
     }
 
@@ -9981,6 +9979,22 @@ fn lua_new_tab_button_click_button_condition(
 enum LuaNewTabButtonClickButtonComparison {
     Equals,
     NotEquals,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LuaNewTabButtonClickButtonBranch {
+    button: MouseButton,
+    comparison: LuaNewTabButtonClickButtonComparison,
+    allow_default: bool,
+}
+
+impl LuaNewTabButtonClickButtonBranch {
+    fn matches(self, button: MouseButton) -> bool {
+        match self.comparison {
+            LuaNewTabButtonClickButtonComparison::Equals => button == self.button,
+            LuaNewTabButtonClickButtonComparison::NotEquals => button != self.button,
+        }
+    }
 }
 
 fn lua_new_tab_button_click_button_from_expression(expression: &str) -> Option<MouseButton> {
@@ -35100,11 +35114,17 @@ struct NativeLuaNewTabButtonClick {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeLuaNewTabButtonClickAllowDefault {
     Static(bool),
-    ButtonCondition {
-        button: MouseButton,
-        matches_allow_default: bool,
-        non_matches_allow_default: bool,
+    ButtonConditions {
+        defaults: NativeLuaNewTabButtonClickButtonDefaults,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NativeLuaNewTabButtonClickButtonDefaults {
+    left_allow_default: bool,
+    right_allow_default: bool,
+    middle_allow_default: bool,
+    other_allow_default: bool,
 }
 
 impl NativeLuaNewTabButtonClick {
@@ -35121,17 +35141,57 @@ impl NativeLuaNewTabButtonClickAllowDefault {
     fn allows_default(self, event: &NativeWindowNewTabButtonClick) -> bool {
         match self {
             Self::Static(allow_default) => allow_default,
-            Self::ButtonCondition {
-                button,
-                matches_allow_default,
-                non_matches_allow_default,
-            } => {
-                if event.button == button {
-                    matches_allow_default
-                } else {
-                    non_matches_allow_default
-                }
-            }
+            Self::ButtonConditions { defaults } => defaults.allows_default(event.button),
+        }
+    }
+}
+
+impl NativeLuaNewTabButtonClickButtonDefaults {
+    fn from_lua_branches(
+        branches: &[LuaNewTabButtonClickButtonBranch],
+        fallback_allow_default: bool,
+    ) -> Self {
+        Self {
+            left_allow_default: Self::allow_default_for_button(
+                branches,
+                fallback_allow_default,
+                MouseButton::Left,
+            ),
+            right_allow_default: Self::allow_default_for_button(
+                branches,
+                fallback_allow_default,
+                MouseButton::Right,
+            ),
+            middle_allow_default: Self::allow_default_for_button(
+                branches,
+                fallback_allow_default,
+                MouseButton::Middle,
+            ),
+            other_allow_default: Self::allow_default_for_button(
+                branches,
+                fallback_allow_default,
+                MouseButton::Other(0),
+            ),
+        }
+    }
+
+    fn allow_default_for_button(
+        branches: &[LuaNewTabButtonClickButtonBranch],
+        fallback_allow_default: bool,
+        button: MouseButton,
+    ) -> bool {
+        branches
+            .iter()
+            .find_map(|branch| branch.matches(button).then_some(branch.allow_default))
+            .unwrap_or(fallback_allow_default)
+    }
+
+    const fn allows_default(self, button: MouseButton) -> bool {
+        match button {
+            MouseButton::Left => self.left_allow_default,
+            MouseButton::Right => self.right_allow_default,
+            MouseButton::Middle => self.middle_allow_default,
+            _ => self.other_allow_default,
         }
     }
 }
@@ -106505,6 +106565,52 @@ mod tests {
 
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
         assert_eq!(app.app_shell.active_workspace().tabs().len(), 2);
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_new_tab_button_click_elseif_button_condition() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('new-tab-button-click', function(window, pane, button, default_action)
+              if button == 'Left' then
+                return true
+              elseif button == 'Right' then
+                return false
+              else
+                return true
+              end
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm new-tab-button-click elseif button condition");
+        app.set_config_overrides(overrides);
+
+        let tab_width = tab_bar_tab_label(
+            0,
+            rssh_core::TabId::new(1),
+            1,
+            true,
+            None,
+            rssh_core::app_shell::PaneProgress::None,
+        )
+        .chars()
+        .count();
+        let new_tab_column = app.tab_bar_workspace_label().chars().count() + tab_width + 1;
+        let x = u32::try_from(new_tab_column).unwrap_or(0) * CELL_WIDTH;
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Right)
+                .unwrap()
+        );
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
+        assert!(app.command_palette.is_none());
     }
 
     #[test]
