@@ -19517,6 +19517,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Dimmed Monokai (Gogh)" => Some(BUILTIN_DIMMED_MONOKAI_GOGH_COLOR_SCHEME_TOML),
         "DimmedMonokai" => Some(BUILTIN_DIMMED_MONOKAI_COLOR_SCHEME_TOML),
         "dirtysea (base16)" => Some(BUILTIN_DIRTYSEA_BASE16_COLOR_SCHEME_TOML),
+        "Dissonance (Gogh)" => Some(BUILTIN_DISSONANCE_GOGH_COLOR_SCHEME_TOML),
+        "Django" => Some(BUILTIN_DJANGO_COLOR_SCHEME_TOML),
+        "DjangoRebornAgain" => Some(BUILTIN_DJANGO_REBORN_AGAIN_COLOR_SCHEME_TOML),
+        "DjangoSmooth" => Some(BUILTIN_DJANGO_SMOOTH_COLOR_SCHEME_TOML),
+        "Doom Peacock" => Some(BUILTIN_DOOM_PEACOCK_COLOR_SCHEME_TOML),
+        "DoomOne" => Some(BUILTIN_DOOM_ONE_COLOR_SCHEME_TOML),
+        "DotGov" => Some(BUILTIN_DOTGOV_COLOR_SCHEME_TOML),
+        "Dotshare (terminal.sexy)" => Some(BUILTIN_DOTSHARE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Dracula" => Some(BUILTIN_DRACULA_COLOR_SCHEME_TOML),
+        "Dracula (base16)" => Some(BUILTIN_DRACULA_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -29253,6 +29263,397 @@ aliases = []
 author = "Kahlil (Kal) Hodgson"
 name = "dirtysea (base16)"
 origin_url = "https://github.com/tartansandal/base16-dirtysea-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DISSONANCE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#dc322f",
+    "#56db3a",
+    "#ff8400",
+    "#0084d4",
+    "#b729d9",
+    "#ccccff",
+    "#ffffff",
+]
+background = "#000000"
+brights = [
+    "#d6dbe5",
+    "#dc322f",
+    "#56db3a",
+    "#ff8400",
+    "#0084d4",
+    "#b729d9",
+    "#ccccff",
+    "#ffffff",
+]
+cursor_bg = "#dc322f"
+cursor_border = "#dc322f"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Dissonance (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DJANGO_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#fd6209",
+    "#41a83e",
+    "#ffe862",
+    "#245032",
+    "#f8f8f8",
+    "#9df39f",
+    "#ffffff",
+]
+background = "#0b2f20"
+brights = [
+    "#323232",
+    "#ff943b",
+    "#73da70",
+    "#ffff94",
+    "#568264",
+    "#ffffff",
+    "#cfffd1",
+    "#ffffff",
+]
+cursor_bg = "#336442"
+cursor_border = "#336442"
+cursor_fg = "#f8f8f8"
+foreground = "#f8f8f8"
+selection_bg = "#245032"
+selection_fg = "#f8f8f8"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Django"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DJANGO_REBORN_AGAIN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#fd6209",
+    "#41a83e",
+    "#ffe862",
+    "#245032",
+    "#f8f8f8",
+    "#9df39f",
+    "#ffffff",
+]
+background = "#051f14"
+brights = [
+    "#323232",
+    "#ff943b",
+    "#73da70",
+    "#ffff94",
+    "#568264",
+    "#ffffff",
+    "#cfffd1",
+    "#ffffff",
+]
+cursor_bg = "#ffcc00"
+cursor_border = "#ffcc00"
+cursor_fg = "#dadedc"
+foreground = "#dadedc"
+selection_bg = "#203727"
+selection_fg = "#dadedc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "DjangoRebornAgain"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DJANGO_SMOOTH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#fd6209",
+    "#41a83e",
+    "#ffe862",
+    "#989898",
+    "#f8f8f8",
+    "#9df39f",
+    "#e8e8e7",
+]
+background = "#245032"
+brights = [
+    "#323232",
+    "#ff943b",
+    "#73da70",
+    "#ffff94",
+    "#cacaca",
+    "#ffffff",
+    "#cfffd1",
+    "#ffffff",
+]
+cursor_bg = "#336442"
+cursor_border = "#336442"
+cursor_fg = "#f8f8f8"
+foreground = "#f8f8f8"
+selection_bg = "#336442"
+selection_fg = "#f8f8f8"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "DjangoSmooth"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DOOM_PEACOCK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1f24",
+    "#cb4b16",
+    "#26a6a6",
+    "#bcd42a",
+    "#2a6cc6",
+    "#a9a1e1",
+    "#5699af",
+    "#ede0ce",
+]
+background = "#2b2a27"
+brights = [
+    "#2b2a27",
+    "#ff5d38",
+    "#98be65",
+    "#e6f972",
+    "#51afef",
+    "#c678dd",
+    "#46d9ff",
+    "#dfdfdf",
+]
+cursor_bg = "#9c9c9d"
+cursor_border = "#9c9c9d"
+cursor_fg = "#36312b"
+foreground = "#ede0ce"
+selection_bg = "#a60033"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Doom Peacock"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DOOM_ONE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff6c6b",
+    "#98be65",
+    "#ecbe7b",
+    "#a9a1e1",
+    "#c678dd",
+    "#51afef",
+    "#bbc2cf",
+]
+background = "#282c34"
+brights = [
+    "#000000",
+    "#ff6655",
+    "#99bb66",
+    "#ecbe7b",
+    "#a9a1e1",
+    "#c678dd",
+    "#51afef",
+    "#bfbfbf",
+]
+cursor_bg = "#51afef"
+cursor_border = "#51afef"
+cursor_fg = "#1b1b1b"
+foreground = "#bbc2cf"
+selection_bg = "#42444b"
+selection_fg = "#bbc2cf"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "DoomOne"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DOTGOV_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#191919",
+    "#bf091d",
+    "#3d9751",
+    "#f6bb34",
+    "#17b2e0",
+    "#7830b0",
+    "#8bd2ed",
+    "#ffffff",
+]
+background = "#262c35"
+brights = [
+    "#191919",
+    "#bf091d",
+    "#3d9751",
+    "#f6bb34",
+    "#17b2e0",
+    "#7830b0",
+    "#8bd2ed",
+    "#ffffff",
+]
+cursor_bg = "#d9002f"
+cursor_border = "#d9002f"
+cursor_fg = "#ffffff"
+foreground = "#ebebeb"
+selection_bg = "#1a4080"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "DotGov"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DOTSHARE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#101010",
+    "#e84f4f",
+    "#b8d68c",
+    "#e1aa5d",
+    "#7dc1cf",
+    "#9b64fb",
+    "#6d878d",
+    "#dddddd",
+]
+background = "#000000"
+brights = [
+    "#404040",
+    "#d23d3d",
+    "#a0cf5d",
+    "#f39d21",
+    "#4e9fb1",
+    "#8542ff",
+    "#42717b",
+    "#dddddd",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Dotshare (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DRACULA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff5555",
+    "#50fa7b",
+    "#f1fa8c",
+    "#bd93f9",
+    "#ff79c6",
+    "#8be9fd",
+    "#bbbbbb",
+]
+background = "#1e1f29"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#50fa7b",
+    "#f1fa8c",
+    "#bd93f9",
+    "#ff79c6",
+    "#8be9fd",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#f8f8f2"
+selection_bg = "#44475a"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Dracula"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DRACULA_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282936",
+    "#ea51b2",
+    "#ebff87",
+    "#00f769",
+    "#62d6e8",
+    "#b45bcf",
+    "#a1efe4",
+    "#e9e9f4",
+]
+background = "#282936"
+brights = [
+    "#626483",
+    "#ea51b2",
+    "#ebff87",
+    "#00f769",
+    "#62d6e8",
+    "#b45bcf",
+    "#a1efe4",
+    "#f7f7fb",
+]
+cursor_bg = "#e9e9f4"
+cursor_border = "#e9e9f4"
+cursor_fg = "#282936"
+foreground = "#e9e9f4"
+selection_bg = "#e9e9f4"
+selection_fg = "#282936"
+
+[colors.indexed]
+16 = "#b45bcf"
+17 = "#00f769"
+18 = "#3a3c4e"
+19 = "#4d4f68"
+20 = "#62d6e8"
+21 = "#f1f2f8"
+
+[metadata]
+aliases = []
+author = "Mike Barkmin (http://github.com/mikebarkmin) based on Dracula Theme (http://github.com/dracula)"
+name = "Dracula (base16)"
+origin_url = "https://github.com/dracula/base16-dracula-scheme"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -99838,6 +100239,224 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Default Dark-to-dirtysea built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_dissonance_to_dracula_base16_builtin_color_schemes() {
+        let cases = [
+            (
+                "Dissonance (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(220, 50, 47),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(220, 50, 47),
+                Color::Rgb(86, 219, 58),
+                Color::Rgb(255, 132, 0),
+                Color::Rgb(214, 219, 229),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Django",
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(11, 47, 32),
+                Color::Rgb(51, 100, 66),
+                Some(Color::Rgb(248, 248, 248)),
+                Some(Color::Rgb(36, 80, 50)),
+                Some(Some(Color::Rgb(248, 248, 248))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(253, 98, 9),
+                Color::Rgb(65, 168, 62),
+                Color::Rgb(255, 232, 98),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "DjangoRebornAgain",
+                Color::Rgb(218, 222, 220),
+                Color::Rgb(5, 31, 20),
+                Color::Rgb(255, 204, 0),
+                Some(Color::Rgb(218, 222, 220)),
+                Some(Color::Rgb(32, 55, 39)),
+                Some(Some(Color::Rgb(218, 222, 220))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(253, 98, 9),
+                Color::Rgb(65, 168, 62),
+                Color::Rgb(255, 232, 98),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "DjangoSmooth",
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(36, 80, 50),
+                Color::Rgb(51, 100, 66),
+                Some(Color::Rgb(248, 248, 248)),
+                Some(Color::Rgb(51, 100, 66)),
+                Some(Some(Color::Rgb(248, 248, 248))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(253, 98, 9),
+                Color::Rgb(65, 168, 62),
+                Color::Rgb(255, 232, 98),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Doom Peacock",
+                Color::Rgb(237, 224, 206),
+                Color::Rgb(43, 42, 39),
+                Color::Rgb(156, 156, 157),
+                Some(Color::Rgb(54, 49, 43)),
+                Some(Color::Rgb(166, 0, 51)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(28, 31, 36),
+                Color::Rgb(203, 75, 22),
+                Color::Rgb(38, 166, 166),
+                Color::Rgb(188, 212, 42),
+                Color::Rgb(43, 42, 39),
+                Color::Rgb(223, 223, 223),
+                None,
+            ),
+            (
+                "DoomOne",
+                Color::Rgb(187, 194, 207),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(81, 175, 239),
+                Some(Color::Rgb(27, 27, 27)),
+                Some(Color::Rgb(66, 68, 75)),
+                Some(Some(Color::Rgb(187, 194, 207))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 108, 107),
+                Color::Rgb(152, 190, 101),
+                Color::Rgb(236, 190, 123),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(191, 191, 191),
+                None,
+            ),
+            (
+                "DotGov",
+                Color::Rgb(235, 235, 235),
+                Color::Rgb(38, 44, 53),
+                Color::Rgb(217, 0, 47),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(26, 64, 128)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(191, 9, 29),
+                Color::Rgb(61, 151, 81),
+                Color::Rgb(246, 187, 52),
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Dotshare (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(232, 79, 79),
+                Color::Rgb(184, 214, 140),
+                Color::Rgb(225, 170, 93),
+                Color::Rgb(64, 64, 64),
+                Color::Rgb(221, 221, 221),
+                None,
+            ),
+            (
+                "Dracula",
+                Color::Rgb(248, 248, 242),
+                Color::Rgb(30, 31, 41),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(68, 71, 90)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 85, 85),
+                Color::Rgb(80, 250, 123),
+                Color::Rgb(241, 250, 140),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Dracula (base16)",
+                Color::Rgb(233, 233, 244),
+                Color::Rgb(40, 41, 54),
+                Color::Rgb(233, 233, 244),
+                Some(Color::Rgb(40, 41, 54)),
+                Some(Color::Rgb(233, 233, 244)),
+                Some(Some(Color::Rgb(40, 41, 54))),
+                Color::Rgb(40, 41, 54),
+                Color::Rgb(234, 81, 178),
+                Color::Rgb(235, 255, 135),
+                Color::Rgb(0, 247, 105),
+                Color::Rgb(98, 100, 131),
+                Color::Rgb(247, 247, 251),
+                Some(Color::Rgb(180, 91, 207)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Dissonance-to-Dracula base16 built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

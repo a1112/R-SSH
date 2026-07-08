@@ -3625,7 +3625,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Default Dark (base16)`, `Default Light (base16)`, `Dehydration (Gogh)`,
   `Derp (terminal.sexy)`, `Desert`, `Desert (Gogh)`,
   `Digerati (terminal.sexy)`, `Dimmed Monokai (Gogh)`, `DimmedMonokai`,
-  `dirtysea (base16)`, `Builtin Dark`, `Builtin Light`,
+  `dirtysea (base16)`, `Dissonance (Gogh)`, `Django`,
+  `DjangoRebornAgain`, `DjangoSmooth`, `Doom Peacock`, `DoomOne`,
+  `DotGov`, `Dotshare (terminal.sexy)`, `Dracula`, `Dracula (base16)`,
+  `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
