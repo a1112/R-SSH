@@ -19330,6 +19330,26 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
             Some(BUILTIN_BESPIN_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
         "Bim (Gogh)" => Some(BUILTIN_BIM_GOGH_COLOR_SCHEME_TOML),
+        "Birds Of Paradise (Gogh)" => Some(BUILTIN_BIRDS_OF_PARADISE_GOGH_COLOR_SCHEME_TOML),
+        "BirdsOfParadise" => Some(BUILTIN_BIRDSOFPARADISE_COLOR_SCHEME_TOML),
+        "Bitmute (terminal.sexy)" => Some(BUILTIN_BITMUTE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Black Metal (base16)" => Some(BUILTIN_BLACK_METAL_BASE16_COLOR_SCHEME_TOML),
+        "Black Metal (Bathory) (base16)" => {
+            Some(BUILTIN_BLACK_METAL_BATHORY_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Black Metal (Burzum) (base16)" => {
+            Some(BUILTIN_BLACK_METAL_BURZUM_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Black Metal (Dark Funeral) (base16)" => {
+            Some(BUILTIN_BLACK_METAL_DARK_FUNERAL_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Black Metal (Gorgoroth) (base16)" => {
+            Some(BUILTIN_BLACK_METAL_GORGOROTH_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Black Metal (Immortal) (base16)" => {
+            Some(BUILTIN_BLACK_METAL_IMMORTAL_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Black Metal (Khold) (base16)" => Some(BUILTIN_BLACK_METAL_KHOLD_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -23166,6 +23186,439 @@ foreground = "#a9bed8"
 aliases = []
 name = "Bim (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BIRDS_OF_PARADISE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#573d26",
+    "#be2d26",
+    "#6ba18a",
+    "#e99d2a",
+    "#5a86ad",
+    "#ac80a6",
+    "#74a6ad",
+    "#e0dbb7",
+]
+background = "#2a1f1d"
+brights = [
+    "#9b6c4a",
+    "#e84627",
+    "#95d8ba",
+    "#d0d150",
+    "#b8d3ed",
+    "#d19ecb",
+    "#93cfd7",
+    "#fff9d5",
+]
+cursor_bg = "#e0dbb7"
+cursor_border = "#e0dbb7"
+cursor_fg = "#2a1f1d"
+foreground = "#e0dbb7"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Birds Of Paradise (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_BIRDSOFPARADISE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#573d26",
+    "#be2d26",
+    "#6ba18a",
+    "#e99d2a",
+    "#5a86ad",
+    "#ac80a6",
+    "#74a6ad",
+    "#e0dbb7",
+]
+background = "#2a1f1d"
+brights = [
+    "#9b6c4a",
+    "#e84627",
+    "#95d8ba",
+    "#d0d150",
+    "#b8d3ed",
+    "#d19ecb",
+    "#93cfd7",
+    "#fff9d5",
+]
+cursor_bg = "#573d26"
+cursor_border = "#573d26"
+cursor_fg = "#573d26"
+foreground = "#e0dbb7"
+selection_bg = "#563c27"
+selection_fg = "#e0dbbb"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Birds Of Paradise (Gogh)"]
+name = "BirdsOfParadise"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BITMUTE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282828",
+    "#b76969",
+    "#719d72",
+    "#909858",
+    "#68668f",
+    "#966894",
+    "#688891",
+    "#8e8e8e",
+]
+background = "#000000"
+brights = [
+    "#494949",
+    "#b87e7e",
+    "#839d84",
+    "#919864",
+    "#73718f",
+    "#987397",
+    "#758c93",
+    "#aeaeae",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Bitmute (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLACK_METAL_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#5f8787",
+    "#dd9999",
+    "#a06666",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+background = "#000000"
+brights = [
+    "#333333",
+    "#5f8787",
+    "#dd9999",
+    "#a06666",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+cursor_bg = "#c1c1c1"
+cursor_border = "#c1c1c1"
+cursor_fg = "#000000"
+foreground = "#c1c1c1"
+selection_bg = "#c1c1c1"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#aaaaaa"
+17 = "#444444"
+18 = "#121212"
+19 = "#222222"
+20 = "#999999"
+21 = "#999999"
+
+[metadata]
+aliases = []
+author = "metalelf0 (https://github.com/metalelf0)"
+name = "Black Metal (base16)"
+origin_url = "https://github.com/metalelf0/base16-black-metal-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLACK_METAL_BATHORY_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#5f8787",
+    "#fbcb97",
+    "#e78a53",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+background = "#000000"
+brights = [
+    "#333333",
+    "#5f8787",
+    "#fbcb97",
+    "#e78a53",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+cursor_bg = "#c1c1c1"
+cursor_border = "#c1c1c1"
+cursor_fg = "#000000"
+foreground = "#c1c1c1"
+selection_bg = "#c1c1c1"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#aaaaaa"
+17 = "#444444"
+18 = "#121212"
+19 = "#222222"
+20 = "#999999"
+21 = "#999999"
+
+[metadata]
+aliases = []
+author = "metalelf0 (https://github.com/metalelf0)"
+name = "Black Metal (Bathory) (base16)"
+origin_url = "https://github.com/metalelf0/base16-black-metal-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLACK_METAL_BURZUM_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#5f8787",
+    "#ddeecc",
+    "#99bbaa",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+background = "#000000"
+brights = [
+    "#333333",
+    "#5f8787",
+    "#ddeecc",
+    "#99bbaa",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+cursor_bg = "#c1c1c1"
+cursor_border = "#c1c1c1"
+cursor_fg = "#000000"
+foreground = "#c1c1c1"
+selection_bg = "#c1c1c1"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#aaaaaa"
+17 = "#444444"
+18 = "#121212"
+19 = "#222222"
+20 = "#999999"
+21 = "#999999"
+
+[metadata]
+aliases = []
+author = "metalelf0 (https://github.com/metalelf0)"
+name = "Black Metal (Burzum) (base16)"
+origin_url = "https://github.com/metalelf0/base16-black-metal-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLACK_METAL_DARK_FUNERAL_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#5f8787",
+    "#d0dfee",
+    "#5f81a5",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+background = "#000000"
+brights = [
+    "#333333",
+    "#5f8787",
+    "#d0dfee",
+    "#5f81a5",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+cursor_bg = "#c1c1c1"
+cursor_border = "#c1c1c1"
+cursor_fg = "#000000"
+foreground = "#c1c1c1"
+selection_bg = "#c1c1c1"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#aaaaaa"
+17 = "#444444"
+18 = "#121212"
+19 = "#222222"
+20 = "#999999"
+21 = "#999999"
+
+[metadata]
+aliases = []
+author = "metalelf0 (https://github.com/metalelf0)"
+name = "Black Metal (Dark Funeral) (base16)"
+origin_url = "https://github.com/metalelf0/base16-black-metal-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLACK_METAL_GORGOROTH_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#5f8787",
+    "#9b8d7f",
+    "#8c7f70",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+background = "#000000"
+brights = [
+    "#333333",
+    "#5f8787",
+    "#9b8d7f",
+    "#8c7f70",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+cursor_bg = "#c1c1c1"
+cursor_border = "#c1c1c1"
+cursor_fg = "#000000"
+foreground = "#c1c1c1"
+selection_bg = "#c1c1c1"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#aaaaaa"
+17 = "#444444"
+18 = "#121212"
+19 = "#222222"
+20 = "#999999"
+21 = "#999999"
+
+[metadata]
+aliases = []
+author = "metalelf0 (https://github.com/metalelf0)"
+name = "Black Metal (Gorgoroth) (base16)"
+origin_url = "https://github.com/metalelf0/base16-black-metal-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLACK_METAL_IMMORTAL_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#5f8787",
+    "#7799bb",
+    "#556677",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+background = "#000000"
+brights = [
+    "#333333",
+    "#5f8787",
+    "#7799bb",
+    "#556677",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+cursor_bg = "#c1c1c1"
+cursor_border = "#c1c1c1"
+cursor_fg = "#000000"
+foreground = "#c1c1c1"
+selection_bg = "#c1c1c1"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#aaaaaa"
+17 = "#444444"
+18 = "#121212"
+19 = "#222222"
+20 = "#999999"
+21 = "#999999"
+
+[metadata]
+aliases = []
+author = "metalelf0 (https://github.com/metalelf0)"
+name = "Black Metal (Immortal) (base16)"
+origin_url = "https://github.com/metalelf0/base16-black-metal-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLACK_METAL_KHOLD_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#5f8787",
+    "#eceee3",
+    "#974b46",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+background = "#000000"
+brights = [
+    "#333333",
+    "#5f8787",
+    "#eceee3",
+    "#974b46",
+    "#888888",
+    "#999999",
+    "#aaaaaa",
+    "#c1c1c1",
+]
+cursor_bg = "#c1c1c1"
+cursor_border = "#c1c1c1"
+cursor_fg = "#000000"
+foreground = "#c1c1c1"
+selection_bg = "#c1c1c1"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#aaaaaa"
+17 = "#444444"
+18 = "#121212"
+19 = "#222222"
+20 = "#999999"
+21 = "#999999"
+
+[metadata]
+aliases = []
+author = "metalelf0 (https://github.com/metalelf0)"
+name = "Black Metal (Khold) (base16)"
+origin_url = "https://github.com/metalelf0/base16-black-metal-scheme"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -90630,6 +91083,224 @@ mod tests {
             let ansi = effective.ansi_palette.expect("expected ANSI palette");
             assert_eq!(ansi[0], ansi_0);
             assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_birds_black_metal_builtin_color_schemes() {
+        let cases = [
+            (
+                "Birds Of Paradise (Gogh)",
+                Color::Rgb(224, 219, 183),
+                Color::Rgb(42, 31, 29),
+                Color::Rgb(224, 219, 183),
+                Some(Color::Rgb(42, 31, 29)),
+                None,
+                None,
+                Color::Rgb(87, 61, 38),
+                Color::Rgb(190, 45, 38),
+                Color::Rgb(107, 161, 138),
+                Color::Rgb(233, 157, 42),
+                Color::Rgb(155, 108, 74),
+                Color::Rgb(255, 249, 213),
+                None,
+            ),
+            (
+                "BirdsOfParadise",
+                Color::Rgb(224, 219, 183),
+                Color::Rgb(42, 31, 29),
+                Color::Rgb(87, 61, 38),
+                Some(Color::Rgb(87, 61, 38)),
+                Some(Color::Rgb(86, 60, 39)),
+                Some(Some(Color::Rgb(224, 219, 187))),
+                Color::Rgb(87, 61, 38),
+                Color::Rgb(190, 45, 38),
+                Color::Rgb(107, 161, 138),
+                Color::Rgb(233, 157, 42),
+                Color::Rgb(155, 108, 74),
+                Color::Rgb(255, 249, 213),
+                None,
+            ),
+            (
+                "Bitmute (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(183, 105, 105),
+                Color::Rgb(113, 157, 114),
+                Color::Rgb(144, 152, 88),
+                Color::Rgb(73, 73, 73),
+                Color::Rgb(174, 174, 174),
+                None,
+            ),
+            (
+                "Black Metal (base16)",
+                Color::Rgb(193, 193, 193),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(193, 193, 193)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(95, 135, 135),
+                Color::Rgb(221, 153, 153),
+                Color::Rgb(160, 102, 102),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(170, 170, 170)),
+            ),
+            (
+                "Black Metal (Bathory) (base16)",
+                Color::Rgb(193, 193, 193),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(193, 193, 193)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(95, 135, 135),
+                Color::Rgb(251, 203, 151),
+                Color::Rgb(231, 138, 83),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(170, 170, 170)),
+            ),
+            (
+                "Black Metal (Burzum) (base16)",
+                Color::Rgb(193, 193, 193),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(193, 193, 193)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(95, 135, 135),
+                Color::Rgb(221, 238, 204),
+                Color::Rgb(153, 187, 170),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(170, 170, 170)),
+            ),
+            (
+                "Black Metal (Dark Funeral) (base16)",
+                Color::Rgb(193, 193, 193),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(193, 193, 193)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(95, 135, 135),
+                Color::Rgb(208, 223, 238),
+                Color::Rgb(95, 129, 165),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(170, 170, 170)),
+            ),
+            (
+                "Black Metal (Gorgoroth) (base16)",
+                Color::Rgb(193, 193, 193),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(193, 193, 193)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(95, 135, 135),
+                Color::Rgb(155, 141, 127),
+                Color::Rgb(140, 127, 112),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(170, 170, 170)),
+            ),
+            (
+                "Black Metal (Immortal) (base16)",
+                Color::Rgb(193, 193, 193),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(193, 193, 193)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(95, 135, 135),
+                Color::Rgb(119, 153, 187),
+                Color::Rgb(85, 102, 119),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(170, 170, 170)),
+            ),
+            (
+                "Black Metal (Khold) (base16)",
+                Color::Rgb(193, 193, 193),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(193, 193, 193)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(95, 135, 135),
+                Color::Rgb(236, 238, 227),
+                Color::Rgb(151, 75, 70),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(170, 170, 170)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Birds/Black Metal built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
             assert_eq!(ansi[8], ansi_8);
             assert_eq!(ansi[15], ansi_15);
             assert_eq!(

@@ -3574,10 +3574,15 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Belafonte Day (Gogh)`, `Belafonte Night`, `Belafonte Night (Gogh)`,
   `Belge (terminal.sexy)`, `Bespin (base16)`,
   `Bespin (dark) (terminal.sexy)`, `Bespin (light) (terminal.sexy)`,
-  `Bim (Gogh)`, `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
-  `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
-  `Builtin Tango Light`, and their WezTerm aliases using WezTerm's built-in
-  TOML palette data. The broader built-in scheme catalog,
+  `Bim (Gogh)`, `Birds Of Paradise (Gogh)`, `BirdsOfParadise`,
+  `Bitmute (terminal.sexy)`, `Black Metal (base16)`,
+  `Black Metal (Bathory) (base16)`, `Black Metal (Burzum) (base16)`,
+  `Black Metal (Dark Funeral) (base16)`,
+  `Black Metal (Gorgoroth) (base16)`, `Black Metal (Immortal) (base16)`,
+  `Black Metal (Khold) (base16)`, `Builtin Dark`, `Builtin Light`,
+  `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
+  `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
+  WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
   richer dynamic `load_scheme` composition, and full dynamic Lua scheme
   construction remain later parity work.
 - Native terminal rendering applies WezTerm-style `colors.background` as the
