@@ -19201,6 +19201,12 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "3024 Day (Gogh)" => Some(BUILTIN_3024_DAY_GOGH_COLOR_SCHEME_TOML),
         "3024 Night" | "3024Night (Gogh)" => Some(BUILTIN_3024_NIGHT_COLOR_SCHEME_TOML),
         "3024 Night (Gogh)" => Some(BUILTIN_3024_NIGHT_GOGH_COLOR_SCHEME_TOML),
+        "Aardvark Blue" => Some(BUILTIN_AARDVARK_BLUE_COLOR_SCHEME_TOML),
+        "Abernathy" => Some(BUILTIN_ABERNATHY_COLOR_SCHEME_TOML),
+        "Aci (Gogh)" => Some(BUILTIN_ACI_GOGH_COLOR_SCHEME_TOML),
+        "Aco (Gogh)" => Some(BUILTIN_ACO_GOGH_COLOR_SCHEME_TOML),
+        "Adventure" => Some(BUILTIN_ADVENTURE_COLOR_SCHEME_TOML),
+        "Adventure Time (Gogh)" | "AdventureTime" => Some(BUILTIN_ADVENTURE_TIME_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -19493,6 +19499,236 @@ aliases = []
 name = "3024 Night (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_AARDVARK_BLUE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#191919",
+    "#aa342e",
+    "#4b8c0f",
+    "#dbba00",
+    "#1370d3",
+    "#c43ac3",
+    "#008eb0",
+    "#bebebe",
+]
+background = "#102040"
+brights = [
+    "#454545",
+    "#f05b50",
+    "#95dc55",
+    "#ffe763",
+    "#60a4ec",
+    "#e26be2",
+    "#60b6cb",
+    "#f7f7f7",
+]
+cursor_bg = "#007acc"
+cursor_border = "#007acc"
+cursor_fg = "#bfdbfe"
+foreground = "#dddddd"
+selection_bg = "#bfdbfe"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Aardvark Blue"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_ABERNATHY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cd0000",
+    "#00cd00",
+    "#cdcd00",
+    "#1093f5",
+    "#cd00cd",
+    "#00cdcd",
+    "#faebd7",
+]
+background = "#111416"
+brights = [
+    "#404040",
+    "#ff0000",
+    "#00ff00",
+    "#ffff00",
+    "#11b5f6",
+    "#ff00ff",
+    "#00ffff",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#eeeeec"
+selection_bg = "#eeeeec"
+selection_fg = "#333333"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Abernathy"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ACI_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#363636",
+    "#ff0883",
+    "#83ff08",
+    "#ff8308",
+    "#0883ff",
+    "#8308ff",
+    "#08ff83",
+    "#b6b6b6",
+]
+background = "#0d1926"
+brights = [
+    "#424242",
+    "#ff1e8e",
+    "#8eff1e",
+    "#ff8e1e",
+    "#1e8eff",
+    "#8e1eff",
+    "#1eff8e",
+    "#c2c2c2",
+]
+cursor_bg = "#b4e1fd"
+cursor_border = "#b4e1fd"
+cursor_fg = "#0d1926"
+foreground = "#b4e1fd"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Aci (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ACO_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3f3f3f",
+    "#ff0883",
+    "#83ff08",
+    "#ff8308",
+    "#0883ff",
+    "#8308ff",
+    "#08ff83",
+    "#bebebe",
+]
+background = "#1f1305"
+brights = [
+    "#474747",
+    "#ff1e8e",
+    "#8eff1e",
+    "#ff8e1e",
+    "#1e8eff",
+    "#8e1eff",
+    "#1eff8e",
+    "#c4c4c4",
+]
+cursor_bg = "#b4e1fd"
+cursor_border = "#b4e1fd"
+cursor_fg = "#1f1305"
+foreground = "#b4e1fd"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Aco (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ADVENTURE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#040404",
+    "#d84a33",
+    "#5da602",
+    "#eebb6e",
+    "#417ab3",
+    "#e5c499",
+    "#bdcfe5",
+    "#dbded8",
+]
+background = "#040404"
+brights = [
+    "#685656",
+    "#d76b42",
+    "#99b52c",
+    "#ffb670",
+    "#97d7ef",
+    "#aa7900",
+    "#bdcfe5",
+    "#e4d5c7",
+]
+cursor_bg = "#feffff"
+cursor_border = "#feffff"
+cursor_fg = "#000000"
+foreground = "#feffff"
+selection_bg = "#606060"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Adventure"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ADVENTURE_TIME_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#050404",
+    "#bd0013",
+    "#4ab118",
+    "#e7741e",
+    "#0f4ac6",
+    "#665993",
+    "#70a598",
+    "#f8dcc0",
+]
+background = "#1f1d45"
+brights = [
+    "#4e7cbf",
+    "#fc5f5a",
+    "#9eff6e",
+    "#efc11a",
+    "#1997c6",
+    "#9b5953",
+    "#c8faf4",
+    "#f6f5fb",
+]
+cursor_bg = "#efbf38"
+cursor_border = "#efbf38"
+cursor_fg = "#08080a"
+foreground = "#f8dcc0"
+selection_bg = "#706b4e"
+selection_fg = "#f3d9c4"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Adventure Time (Gogh)"]
+name = "AdventureTime"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -85169,6 +85405,146 @@ mod tests {
                 effective.indexed_palette.and_then(|indexed| indexed[16]),
                 indexed_16
             );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_early_a_builtin_color_schemes() {
+        let cases = [
+            (
+                "Aardvark Blue",
+                Color::Rgb(221, 221, 221),
+                Color::Rgb(16, 32, 64),
+                Color::Rgb(0, 122, 204),
+                Some(Color::Rgb(191, 219, 254)),
+                Some(Color::Rgb(191, 219, 254)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(170, 52, 46),
+                Color::Rgb(69, 69, 69),
+                Color::Rgb(247, 247, 247),
+            ),
+            (
+                "Abernathy",
+                Color::Rgb(238, 238, 236),
+                Color::Rgb(17, 20, 22),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(238, 238, 236)),
+                Some(Some(Color::Rgb(51, 51, 51))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(205, 0, 0),
+                Color::Rgb(64, 64, 64),
+                Color::Rgb(255, 255, 255),
+            ),
+            (
+                "Aci (Gogh)",
+                Color::Rgb(180, 225, 253),
+                Color::Rgb(13, 25, 38),
+                Color::Rgb(180, 225, 253),
+                Some(Color::Rgb(13, 25, 38)),
+                None,
+                None,
+                Color::Rgb(54, 54, 54),
+                Color::Rgb(255, 8, 131),
+                Color::Rgb(66, 66, 66),
+                Color::Rgb(194, 194, 194),
+            ),
+            (
+                "Aco (Gogh)",
+                Color::Rgb(180, 225, 253),
+                Color::Rgb(31, 19, 5),
+                Color::Rgb(180, 225, 253),
+                Some(Color::Rgb(31, 19, 5)),
+                None,
+                None,
+                Color::Rgb(63, 63, 63),
+                Color::Rgb(255, 8, 131),
+                Color::Rgb(71, 71, 71),
+                Color::Rgb(196, 196, 196),
+            ),
+            (
+                "Adventure",
+                Color::Rgb(254, 255, 255),
+                Color::Rgb(4, 4, 4),
+                Color::Rgb(254, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(96, 96, 96)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(4, 4, 4),
+                Color::Rgb(216, 74, 51),
+                Color::Rgb(104, 86, 86),
+                Color::Rgb(228, 213, 199),
+            ),
+            (
+                "Adventure Time (Gogh)",
+                Color::Rgb(248, 220, 192),
+                Color::Rgb(31, 29, 69),
+                Color::Rgb(239, 191, 56),
+                Some(Color::Rgb(8, 8, 10)),
+                Some(Color::Rgb(112, 107, 78)),
+                Some(Some(Color::Rgb(243, 217, 196))),
+                Color::Rgb(5, 4, 4),
+                Color::Rgb(189, 0, 19),
+                Color::Rgb(78, 124, 191),
+                Color::Rgb(246, 245, 251),
+            ),
+            (
+                "AdventureTime",
+                Color::Rgb(248, 220, 192),
+                Color::Rgb(31, 29, 69),
+                Color::Rgb(239, 191, 56),
+                Some(Color::Rgb(8, 8, 10)),
+                Some(Color::Rgb(112, 107, 78)),
+                Some(Some(Color::Rgb(243, 217, 196))),
+                Color::Rgb(5, 4, 4),
+                Color::Rgb(189, 0, 19),
+                Color::Rgb(78, 124, 191),
+                Color::Rgb(246, 245, 251),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_8,
+            ansi_15,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm early A built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
         }
     }
 
