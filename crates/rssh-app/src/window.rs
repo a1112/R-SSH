@@ -26102,10 +26102,42 @@ fn lua_wezterm_color_load_scheme_path_from_query_with_static_source(
     }
 
     let max_start = lua_source_slice_start_offset(source, query)?;
+    if let Some(value) =
+        lua_static_wezterm_color_load_scheme_call_query_from_query(source, query, max_start)
+    {
+        return lua_wezterm_color_load_scheme_path_literal_from_query(&value)
+            .and_then(parse_maybe_quoted_query_text);
+    }
+
     let value =
         lua_static_wezterm_color_load_scheme_alias_query_from_query(source, query, max_start)?;
     lua_wezterm_color_load_scheme_path_literal_from_query(&value)
         .and_then(parse_maybe_quoted_query_text)
+}
+
+fn lua_static_wezterm_color_load_scheme_call_query_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<String> {
+    let query = lua_trim_start_comments(query)?;
+    let rest = lua_static_wezterm_receiver_rest_from_query(source, max_start, query)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let static_source = Some(LuaStaticSource { source, max_start });
+    let (field, rest) = lua_table_map_field_key_from_query_with_static_source(static_source, rest)?;
+    if field != "color" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    let (field, rest) = lua_table_map_field_key_from_query_with_static_source(static_source, rest)?;
+    if field != "load_scheme" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    if !matches!(rest.chars().next()?, '(' | '\'' | '"' | '[') {
+        return None;
+    }
+    Some(format!("wezterm.color.load_scheme{rest}"))
 }
 
 fn lua_static_wezterm_color_load_scheme_alias_query_from_query(
@@ -84606,6 +84638,57 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(65, 66, 67));
         assert_eq!(effective.background_color, Color::Rgb(68, 69, 70));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(71, 72, 73));
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_colors_from_load_scheme_direct_static_key_module() {
+        static NEXT_LOAD_SCHEME_DIRECT_STATIC_KEY_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-direct-static-key-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_DIRECT_STATIC_KEY_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Direct Static Key Loaded Scheme"
+
+            [colors]
+            foreground = "#919293"
+            background = "#949596"
+            cursor_bg = "#979899"
+            "##,
+        )
+        .expect("expected temp direct static-key load_scheme TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wt = require 'wezterm'
+            local config = {{}}
+            local color_key = 'color'
+            local load_key = 'load_scheme'
+            local colors, metadata = wt[color_key][load_key]('{}')
+
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm direct static-key load_scheme colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(145, 146, 147));
+        assert_eq!(effective.background_color, Color::Rgb(148, 149, 150));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(151, 152, 153));
         let _ = std::fs::remove_file(scheme_file);
     }
 
