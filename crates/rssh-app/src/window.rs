@@ -19421,6 +19421,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Catppuccin Latte (Gogh)" => Some(BUILTIN_CATPPUCCIN_LATTE_GOGH_COLOR_SCHEME_TOML),
         "Catppuccin Macchiato" => Some(BUILTIN_CATPPUCCIN_MACCHIATO_COLOR_SCHEME_TOML),
         "Catppuccin Macchiato (Gogh)" => Some(BUILTIN_CATPPUCCIN_MACCHIATO_GOGH_COLOR_SCHEME_TOML),
+        "Catppuccin Mocha" => Some(BUILTIN_CATPPUCCIN_MOCHA_COLOR_SCHEME_TOML),
+        "Catppuccin Mocha (Gogh)" => Some(BUILTIN_CATPPUCCIN_MOCHA_GOGH_COLOR_SCHEME_TOML),
+        "catppuccin-frappe" => Some(BUILTIN_CATPPUCCIN_FRAPPE_ALIAS_COLOR_SCHEME_TOML),
+        "catppuccin-latte" => Some(BUILTIN_CATPPUCCIN_LATTE_ALIAS_COLOR_SCHEME_TOML),
+        "catppuccin-macchiato" => Some(BUILTIN_CATPPUCCIN_MACCHIATO_ALIAS_COLOR_SCHEME_TOML),
+        "catppuccin-mocha" => Some(BUILTIN_CATPPUCCIN_MOCHA_ALIAS_COLOR_SCHEME_TOML),
+        "CGA" => Some(BUILTIN_CGA_COLOR_SCHEME_TOML),
+        "Chalk" => Some(BUILTIN_CHALK_COLOR_SCHEME_TOML),
+        "Chalk (base16)" => Some(BUILTIN_CHALK_BASE16_COLOR_SCHEME_TOML),
+        "Chalk (dark) (terminal.sexy)" => Some(BUILTIN_CHALK_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -25897,6 +25907,451 @@ foreground = "#cad3f5"
 aliases = []
 name = "Catppuccin Macchiato (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_CATPPUCCIN_MOCHA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#45475a",
+    "#f38ba8",
+    "#a6e3a1",
+    "#f9e2af",
+    "#89b4fa",
+    "#f5c2e7",
+    "#94e2d5",
+    "#bac2de",
+]
+background = "#1e1e2e"
+brights = [
+    "#585b70",
+    "#f38ba8",
+    "#a6e3a1",
+    "#f9e2af",
+    "#89b4fa",
+    "#f5c2e7",
+    "#94e2d5",
+    "#a6adc8",
+]
+compose_cursor = "#f2cdcd"
+cursor_bg = "#f5e0dc"
+cursor_border = "#f5e0dc"
+cursor_fg = "#11111b"
+foreground = "#cdd6f4"
+scrollbar_thumb = "#585b70"
+selection_bg = "#585b70"
+selection_fg = "#cdd6f4"
+split = "#6c7086"
+visual_bell = "#313244"
+
+[colors.indexed]
+16 = "#fab387"
+17 = "#f5e0dc"
+
+[colors.tab_bar]
+background = "#11111b"
+inactive_tab_edge = "#313244"
+
+[colors.tab_bar.active_tab]
+bg_color = "#cba6f7"
+fg_color = "#11111b"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#181825"
+fg_color = "#cdd6f4"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#1e1e2e"
+fg_color = "#cdd6f4"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#313244"
+fg_color = "#cdd6f4"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#45475a"
+fg_color = "#cdd6f4"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = [
+    "Catppuccin Mocha (Gogh)",
+    "catppuccin-mocha",
+]
+author = "Catppuccin Org"
+name = "Catppuccin Mocha"
+origin_url = "https://github.com/catppuccin/wezterm"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CATPPUCCIN_MOCHA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#45475a",
+    "#f38ba8",
+    "#a6e3a1",
+    "#f9e2af",
+    "#89b4fa",
+    "#f5c2e7",
+    "#94e2d5",
+    "#bac2de",
+]
+background = "#1e1e2e"
+brights = [
+    "#585b70",
+    "#f38ba8",
+    "#a6e3a1",
+    "#f9e2af",
+    "#89b4fa",
+    "#f5c2e7",
+    "#94e2d5",
+    "#a6adc8",
+]
+cursor_bg = "#cdd6f4"
+cursor_border = "#cdd6f4"
+cursor_fg = "#1e1e2e"
+foreground = "#cdd6f4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Catppuccin Mocha (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_CATPPUCCIN_FRAPPE_ALIAS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#51576d",
+    "#e78284",
+    "#a6d189",
+    "#e5c890",
+    "#8caaee",
+    "#f4b8e4",
+    "#81c8be",
+    "#b5bfe2",
+]
+background = "#303446"
+brights = [
+    "#626880",
+    "#e78284",
+    "#a6d189",
+    "#e5c890",
+    "#8caaee",
+    "#f4b8e4",
+    "#81c8be",
+    "#a5adce",
+]
+cursor_bg = "#f2d5cf"
+cursor_border = "#f2d5cf"
+cursor_fg = "#c6d0f5"
+foreground = "#c6d0f5"
+selection_bg = "#626880"
+selection_fg = "#c6d0f5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "catppuccin-frappe"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_CATPPUCCIN_LATTE_ALIAS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#5c5f77",
+    "#d20f39",
+    "#40a02b",
+    "#df8e1d",
+    "#1e66f5",
+    "#ea76cb",
+    "#179299",
+    "#acb0be",
+]
+background = "#eff1f5"
+brights = [
+    "#6c6f85",
+    "#d20f39",
+    "#40a02b",
+    "#df8e1d",
+    "#1e66f5",
+    "#ea76cb",
+    "#179299",
+    "#bcc0cc",
+]
+cursor_bg = "#dc8a78"
+cursor_border = "#dc8a78"
+cursor_fg = "#4c4f69"
+foreground = "#4c4f69"
+selection_bg = "#acb0be"
+selection_fg = "#4c4f69"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Catppuccin Latte (Gogh)"]
+name = "catppuccin-latte"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_CATPPUCCIN_MACCHIATO_ALIAS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#494d64",
+    "#ed8796",
+    "#a6da95",
+    "#eed49f",
+    "#8aadf4",
+    "#f5bde6",
+    "#8bd5ca",
+    "#b8c0e0",
+]
+background = "#24273a"
+brights = [
+    "#5b6078",
+    "#ed8796",
+    "#a6da95",
+    "#eed49f",
+    "#8aadf4",
+    "#f5bde6",
+    "#8bd5ca",
+    "#a5adcb",
+]
+cursor_bg = "#f4dbd6"
+cursor_border = "#f4dbd6"
+cursor_fg = "#cad3f5"
+foreground = "#cad3f5"
+selection_bg = "#5b6078"
+selection_fg = "#cad3f5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "catppuccin-macchiato"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_CATPPUCCIN_MOCHA_ALIAS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#45475a",
+    "#f38ba8",
+    "#a6e3a1",
+    "#f9e2af",
+    "#89b4fa",
+    "#f5c2e7",
+    "#94e2d5",
+    "#bac2de",
+]
+background = "#1e1e2e"
+brights = [
+    "#585b70",
+    "#f38ba8",
+    "#a6e3a1",
+    "#f9e2af",
+    "#89b4fa",
+    "#f5c2e7",
+    "#94e2d5",
+    "#a6adc8",
+]
+cursor_bg = "#f5e0dc"
+cursor_border = "#f5e0dc"
+cursor_fg = "#cdd6f4"
+foreground = "#cdd6f4"
+selection_bg = "#585b70"
+selection_fg = "#cdd6f4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "catppuccin-mocha"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_CGA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#aa0000",
+    "#00aa00",
+    "#aa5500",
+    "#0000aa",
+    "#aa00aa",
+    "#00aaaa",
+    "#aaaaaa",
+]
+background = "#000000"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#55ff55",
+    "#ffff55",
+    "#5555ff",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#b8b8b8"
+cursor_border = "#b8b8b8"
+cursor_fg = "#ffffff"
+foreground = "#aaaaaa"
+selection_bg = "#c1deff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "CGA"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_CHALK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#7d8b8f",
+    "#b23a52",
+    "#789b6a",
+    "#b9ac4a",
+    "#2a7fac",
+    "#bd4f5a",
+    "#44a799",
+    "#d2d8d9",
+]
+background = "#2b2d2e"
+brights = [
+    "#888888",
+    "#f24840",
+    "#80c470",
+    "#ffeb62",
+    "#4196ff",
+    "#fc5275",
+    "#53cdbd",
+    "#d2d8d9",
+]
+cursor_bg = "#708284"
+cursor_border = "#708284"
+cursor_fg = "#002831"
+foreground = "#d2d8d9"
+selection_bg = "#e4e8ed"
+selection_fg = "#3f4041"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Chalk"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_CHALK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151515",
+    "#fb9fb1",
+    "#acc267",
+    "#ddb26f",
+    "#6fc2ef",
+    "#e1a3ee",
+    "#12cfc0",
+    "#d0d0d0",
+]
+background = "#151515"
+brights = [
+    "#505050",
+    "#fb9fb1",
+    "#acc267",
+    "#ddb26f",
+    "#6fc2ef",
+    "#e1a3ee",
+    "#12cfc0",
+    "#f5f5f5",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#151515"
+foreground = "#d0d0d0"
+selection_bg = "#d0d0d0"
+selection_fg = "#151515"
+
+[colors.indexed]
+16 = "#eda987"
+17 = "#deaf8f"
+18 = "#202020"
+19 = "#303030"
+20 = "#b0b0b0"
+21 = "#e0e0e0"
+
+[metadata]
+aliases = ["Chalk (dark) (terminal.sexy)"]
+author = "Chris Kempson (http://chriskempson.com)"
+name = "Chalk (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CHALK_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151515",
+    "#fb9fb1",
+    "#acc267",
+    "#ddb26f",
+    "#6fc2ef",
+    "#e1a3ee",
+    "#12cfc0",
+    "#d0d0d0",
+]
+background = "#151515"
+brights = [
+    "#505050",
+    "#fb9fb1",
+    "#acc267",
+    "#ddb26f",
+    "#6fc2ef",
+    "#e1a3ee",
+    "#12cfc0",
+    "#f5f5f5",
+]
+foreground = "#d0d0d0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Chalk (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
@@ -94736,6 +95191,224 @@ mod tests {
             .expect(
                 "expected WezTerm Campbell-to-Catppuccin Macchiato built-in color_scheme config",
             );
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_catppuccin_mocha_to_chalk_dark_builtin_color_schemes() {
+        let cases = [
+            (
+                "Catppuccin Mocha",
+                Color::Rgb(205, 214, 244),
+                Color::Rgb(30, 30, 46),
+                Color::Rgb(245, 224, 220),
+                Some(Color::Rgb(17, 17, 27)),
+                Some(Color::Rgb(88, 91, 112)),
+                Some(Some(Color::Rgb(205, 214, 244))),
+                Color::Rgb(69, 71, 90),
+                Color::Rgb(243, 139, 168),
+                Color::Rgb(166, 227, 161),
+                Color::Rgb(249, 226, 175),
+                Color::Rgb(88, 91, 112),
+                Color::Rgb(166, 173, 200),
+                Some(Color::Rgb(250, 179, 135)),
+            ),
+            (
+                "Catppuccin Mocha (Gogh)",
+                Color::Rgb(205, 214, 244),
+                Color::Rgb(30, 30, 46),
+                Color::Rgb(205, 214, 244),
+                Some(Color::Rgb(30, 30, 46)),
+                None,
+                None,
+                Color::Rgb(69, 71, 90),
+                Color::Rgb(243, 139, 168),
+                Color::Rgb(166, 227, 161),
+                Color::Rgb(249, 226, 175),
+                Color::Rgb(88, 91, 112),
+                Color::Rgb(166, 173, 200),
+                None,
+            ),
+            (
+                "catppuccin-frappe",
+                Color::Rgb(198, 208, 245),
+                Color::Rgb(48, 52, 70),
+                Color::Rgb(242, 213, 207),
+                Some(Color::Rgb(198, 208, 245)),
+                Some(Color::Rgb(98, 104, 128)),
+                Some(Some(Color::Rgb(198, 208, 245))),
+                Color::Rgb(81, 87, 109),
+                Color::Rgb(231, 130, 132),
+                Color::Rgb(166, 209, 137),
+                Color::Rgb(229, 200, 144),
+                Color::Rgb(98, 104, 128),
+                Color::Rgb(165, 173, 206),
+                None,
+            ),
+            (
+                "catppuccin-latte",
+                Color::Rgb(76, 79, 105),
+                Color::Rgb(239, 241, 245),
+                Color::Rgb(220, 138, 120),
+                Some(Color::Rgb(76, 79, 105)),
+                Some(Color::Rgb(172, 176, 190)),
+                Some(Some(Color::Rgb(76, 79, 105))),
+                Color::Rgb(92, 95, 119),
+                Color::Rgb(210, 15, 57),
+                Color::Rgb(64, 160, 43),
+                Color::Rgb(223, 142, 29),
+                Color::Rgb(108, 111, 133),
+                Color::Rgb(188, 192, 204),
+                None,
+            ),
+            (
+                "catppuccin-macchiato",
+                Color::Rgb(202, 211, 245),
+                Color::Rgb(36, 39, 58),
+                Color::Rgb(244, 219, 214),
+                Some(Color::Rgb(202, 211, 245)),
+                Some(Color::Rgb(91, 96, 120)),
+                Some(Some(Color::Rgb(202, 211, 245))),
+                Color::Rgb(73, 77, 100),
+                Color::Rgb(237, 135, 150),
+                Color::Rgb(166, 218, 149),
+                Color::Rgb(238, 212, 159),
+                Color::Rgb(91, 96, 120),
+                Color::Rgb(165, 173, 203),
+                None,
+            ),
+            (
+                "catppuccin-mocha",
+                Color::Rgb(205, 214, 244),
+                Color::Rgb(30, 30, 46),
+                Color::Rgb(245, 224, 220),
+                Some(Color::Rgb(205, 214, 244)),
+                Some(Color::Rgb(88, 91, 112)),
+                Some(Some(Color::Rgb(205, 214, 244))),
+                Color::Rgb(69, 71, 90),
+                Color::Rgb(243, 139, 168),
+                Color::Rgb(166, 227, 161),
+                Color::Rgb(249, 226, 175),
+                Color::Rgb(88, 91, 112),
+                Color::Rgb(166, 173, 200),
+                None,
+            ),
+            (
+                "CGA",
+                Color::Rgb(170, 170, 170),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(184, 184, 184),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(193, 222, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(170, 0, 0),
+                Color::Rgb(0, 170, 0),
+                Color::Rgb(170, 85, 0),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Chalk",
+                Color::Rgb(210, 216, 217),
+                Color::Rgb(43, 45, 46),
+                Color::Rgb(112, 130, 132),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Color::Rgb(228, 232, 237)),
+                Some(Some(Color::Rgb(63, 64, 65))),
+                Color::Rgb(125, 139, 143),
+                Color::Rgb(178, 58, 82),
+                Color::Rgb(120, 155, 106),
+                Color::Rgb(185, 172, 74),
+                Color::Rgb(136, 136, 136),
+                Color::Rgb(210, 216, 217),
+                None,
+            ),
+            (
+                "Chalk (base16)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(21, 21, 21)),
+                Some(Color::Rgb(208, 208, 208)),
+                Some(Some(Color::Rgb(21, 21, 21))),
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(251, 159, 177),
+                Color::Rgb(172, 194, 103),
+                Color::Rgb(221, 178, 111),
+                Color::Rgb(80, 80, 80),
+                Color::Rgb(245, 245, 245),
+                Some(Color::Rgb(237, 169, 135)),
+            ),
+            (
+                "Chalk (dark) (terminal.sexy)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(21, 21, 21),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(251, 159, 177),
+                Color::Rgb(172, 194, 103),
+                Color::Rgb(221, 178, 111),
+                Color::Rgb(80, 80, 80),
+                Color::Rgb(245, 245, 245),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Catppuccin Mocha-to-Chalk Dark built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

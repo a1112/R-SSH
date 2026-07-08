@@ -3598,7 +3598,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Catch Me If You Can (terminal.sexy)`, `Catppuccin Frappe`,
   `Catppuccin Frappé (Gogh)`, `Catppuccin Latte`,
   `Catppuccin Latte (Gogh)`, `Catppuccin Macchiato`,
-  `Catppuccin Macchiato (Gogh)`, `Builtin Dark`, `Builtin Light`,
+  `Catppuccin Macchiato (Gogh)`, `Catppuccin Mocha`,
+  `Catppuccin Mocha (Gogh)`, `catppuccin-frappe`, `catppuccin-latte`,
+  `catppuccin-macchiato`, `catppuccin-mocha`, `CGA`, `Chalk`,
+  `Chalk (base16)`, `Chalk (dark) (terminal.sexy)`, `Builtin Dark`,
+  `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
