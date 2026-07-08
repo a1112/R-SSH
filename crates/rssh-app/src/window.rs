@@ -9986,6 +9986,10 @@ fn lua_tab_title_condition_from_expression(
         return Some(NativeLuaTabTitleCondition::ActivePaneIsZoomed);
     }
 
+    if lua_tab_title_active_pane_progress_indeterminate_condition(condition, tab_param) {
+        return Some(NativeLuaTabTitleCondition::ActivePaneProgressIndeterminate);
+    }
+
     for (field, parsed) in [
         ("is_active", NativeLuaTabTitleCondition::IsActive),
         ("is_last_active", NativeLuaTabTitleCondition::IsLastActive),
@@ -10006,6 +10010,33 @@ fn lua_tab_title_condition_from_expression(
     }
 
     None
+}
+
+fn lua_tab_title_active_pane_progress_indeterminate_condition(
+    condition: &str,
+    tab_param: &str,
+) -> bool {
+    let progress = format!("{tab_param}.active_pane.progress");
+    let Some(rest) = condition.strip_prefix(&progress) else {
+        return false;
+    };
+    let Some(rest) = lua_trim_start_comments(rest).and_then(|rest| rest.strip_prefix("==")) else {
+        return false;
+    };
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let Some(literal) = lua_quoted_string_literal_from_query(rest)
+        .or_else(|| lua_long_bracket_literal_from_query(rest))
+    else {
+        return false;
+    };
+    let Some(value) = parse_maybe_quoted_query_text(literal) else {
+        return false;
+    };
+    value == "Indeterminate"
+        && lua_trim_start_comments(rest.get(literal.len()..).unwrap_or_default())
+            .is_some_and(str::is_empty)
 }
 
 fn lua_tab_title_event_field_return_from_statement(
@@ -30582,6 +30613,7 @@ enum NativeLuaTabTitleCondition {
     IsLastActive,
     IsHover,
     ActivePaneIsZoomed,
+    ActivePaneProgressIndeterminate,
     TabCountGreaterThan(usize),
     PaneCountGreaterThan(usize),
 }
@@ -30593,6 +30625,9 @@ impl NativeLuaTabTitleCondition {
             Self::IsLastActive => event.is_last_active,
             Self::IsHover => event.hover,
             Self::ActivePaneIsZoomed => event.active_pane_info.is_zoomed,
+            Self::ActivePaneProgressIndeterminate => {
+                event.active_pane_info.progress == PaneProgress::Indeterminate
+            }
             Self::TabCountGreaterThan(count) => event.tab_count > count,
             Self::PaneCountGreaterThan(count) => event.pane_count > count,
         }
@@ -102544,6 +102579,41 @@ mod tests {
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("err=7"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_active_pane_indeterminate_progress_condition()
+     {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              if tab.active_pane.progress == 'Indeterminate' then
+                return 'progress=indeterminate'
+              end
+
+              return 'progress=idle'
+            end)
+            "#,
+        )
+        .expect(
+            "expected static WezTerm format-tab-title active pane indeterminate progress condition",
+        );
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]9;4;3;0\x07").unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("progress=indeterminate"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(
+            !tab_bar.contains("progress=idle"),
+            "tab bar was {tab_bar:?}"
+        );
     }
 
     #[test]
