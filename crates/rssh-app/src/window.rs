@@ -8369,6 +8369,13 @@ fn lua_window_title_text_part_from_expression(
         return Some(NativeLuaWindowTitlePart::ActivePaneUserVar { name });
     }
 
+    let pane_progress = format!("{pane_param}.progress");
+    if let Some(rest) = expression.strip_prefix(&pane_progress)
+        && let Some(field) = lua_tab_title_active_pane_progress_field_from_rest(rest)
+    {
+        return Some(NativeLuaWindowTitlePart::ActivePaneProgress { field });
+    }
+
     for (field, part) in lua_window_title_active_pane_text_parts() {
         let pane_field = format!("{pane_param}.{field}");
         if let Some(rest) = expression.strip_prefix(&pane_field)
@@ -8415,6 +8422,13 @@ fn lua_window_title_text_part_from_expression(
         return Some(NativeLuaWindowTitlePart::ActivePaneUserVar { name });
     }
 
+    let tab_active_pane_progress = format!("{tab_param}.active_pane.progress");
+    if let Some(rest) = expression.strip_prefix(&tab_active_pane_progress)
+        && let Some(field) = lua_tab_title_active_pane_progress_field_from_rest(rest)
+    {
+        return Some(NativeLuaWindowTitlePart::ActivePaneProgress { field });
+    }
+
     for (field, part) in lua_window_title_active_pane_text_parts() {
         let tab_active_pane_field = format!("{tab_param}.active_pane.{field}");
         if let Some(rest) = expression.strip_prefix(&tab_active_pane_field)
@@ -8443,6 +8457,12 @@ fn lua_window_title_text_part_from_expression(
                 )
             {
                 return Some(NativeLuaWindowTitlePart::ActivePaneUserVar { name });
+            }
+
+            if let Some(rest) = rest.strip_prefix("progress")
+                && let Some(field) = lua_tab_title_active_pane_progress_field_from_rest(rest)
+            {
+                return Some(NativeLuaWindowTitlePart::ActivePaneProgress { field });
             }
 
             for (field, part) in lua_window_title_active_pane_text_parts() {
@@ -31452,6 +31472,9 @@ enum NativeLuaWindowTitlePart {
     ActivePaneUserVar {
         name: String,
     },
+    ActivePaneProgress {
+        field: NativeLuaTabTitleProgressField,
+    },
     ActivePaneTitle,
     ActivePaneDomainName,
     ActivePaneForegroundProcessName,
@@ -31482,6 +31505,13 @@ impl NativeLuaWindowTitlePart {
             Self::WindowTitle => Some(event.active_tab_info.window_title.clone()),
             Self::ActivePaneId => Some(event.active_pane_info.pane_id.get().to_string()),
             Self::ActivePaneUserVar { name } => event.active_pane_info.user_vars.get(name).cloned(),
+            Self::ActivePaneProgress { field } => match (field, event.active_pane_info.progress) {
+                (NativeLuaTabTitleProgressField::Percentage, PaneProgress::Percentage(value))
+                | (NativeLuaTabTitleProgressField::Error, PaneProgress::Error(value)) => {
+                    Some(value.to_string())
+                }
+                _ => None,
+            },
             Self::ActivePaneTitle => event.active_pane_info.title.clone(),
             Self::ActivePaneDomainName => Some(event.active_pane_info.domain_name.clone()),
             Self::ActivePaneForegroundProcessName => {
@@ -107075,6 +107105,54 @@ mod tests {
             .unwrap();
 
         assert_eq!(app.effective_window_title(), "prog=psh");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_active_pane_progress_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'pct=' .. tab.active_pane.progress.Percentage
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title active pane progress return");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::SetPaneProgress {
+            pane: rssh_core::PaneId::new(1),
+            progress: rssh_core::app_shell::PaneProgress::Percentage(42),
+        })
+        .unwrap();
+
+        assert_eq!(app.effective_window_title(), "pct=42");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_active_pane_progress_error_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'err=' .. pane.progress.Error
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title active pane progress error return");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::SetPaneProgress {
+            pane: rssh_core::PaneId::new(1),
+            progress: rssh_core::app_shell::PaneProgress::Error(7),
+        })
+        .unwrap();
+
+        assert_eq!(app.effective_window_title(), "err=7");
     }
 
     #[test]
