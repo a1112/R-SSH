@@ -3611,8 +3611,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Cobalt Neon`, `Cobalt Neon (Gogh)`, `Cobalt2`, `Codeschool (base16)`,
   `Codeschool (dark) (terminal.sexy)`, `Codeschool (light) (terminal.sexy)`,
   `coffee_theme`, `Color Star (terminal.sexy)`, `Colorcli (Gogh)`,
-  `Colorful Colors (terminal.sexy)`, `Colors (base16)`, `Builtin Dark`,
-  `Builtin Light`,
+  `Colorful Colors (terminal.sexy)`, `Colors (base16)`,
+  `Count Von Count (terminal.sexy)`, `Crayon Pony Fish (Gogh)`,
+  `CrayonPonyFish`, `Cupcake (base16)`, `Cupertino (base16)`, `CutiePro`,
+  `Cyberdyne`, `cyberpunk`, `DanQing (base16)`,
+  `DanQing Light (base16)`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,

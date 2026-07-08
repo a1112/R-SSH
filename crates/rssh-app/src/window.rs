@@ -19471,6 +19471,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
             Some(BUILTIN_COLORFUL_COLORS_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
         "Colors (base16)" => Some(BUILTIN_COLORS_BASE16_COLOR_SCHEME_TOML),
+        "Count Von Count (terminal.sexy)" => {
+            Some(BUILTIN_COUNT_VON_COUNT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Crayon Pony Fish (Gogh)" => Some(BUILTIN_CRAYON_PONY_FISH_GOGH_COLOR_SCHEME_TOML),
+        "CrayonPonyFish" => Some(BUILTIN_CRAYON_PONY_FISH_COLOR_SCHEME_TOML),
+        "Cupcake (base16)" => Some(BUILTIN_CUPCAKE_BASE16_COLOR_SCHEME_TOML),
+        "Cupertino (base16)" => Some(BUILTIN_CUPERTINO_BASE16_COLOR_SCHEME_TOML),
+        "CutiePro" => Some(BUILTIN_CUTIEPRO_COLOR_SCHEME_TOML),
+        "Cyberdyne" => Some(BUILTIN_CYBERDYNE_COLOR_SCHEME_TOML),
+        "cyberpunk" => Some(BUILTIN_CYBERPUNK_COLOR_SCHEME_TOML),
+        "DanQing (base16)" => Some(BUILTIN_DANQING_BASE16_COLOR_SCHEME_TOML),
+        "DanQing Light (base16)" => Some(BUILTIN_DANQING_LIGHT_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -27553,6 +27565,418 @@ author = "mrmrs (http://clrs.cc)"
 name = "Colors (base16)"
 origin_url = "https://github.com/hakatashi/base16-colors-scheme"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_COUNT_VON_COUNT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#303030",
+    "#c10023",
+    "#a83334",
+    "#b51d2c",
+    "#8c4b46",
+    "#7d534f",
+    "#9a413d",
+    "#c6c6c6",
+]
+background = "#000000"
+brights = [
+    "#5e5e5e",
+    "#ff8781",
+    "#ffa095",
+    "#ff948b",
+    "#feb2aa",
+    "#ebbbb5",
+    "#ffaaa0",
+    "#ffffff",
+]
+foreground = "#919191"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Baskerville"
+name = "Count Von Count (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CRAYON_PONY_FISH_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2b1b1d",
+    "#91002b",
+    "#579524",
+    "#ab311b",
+    "#8c87b0",
+    "#692f50",
+    "#e8a866",
+    "#68525a",
+]
+background = "#150707"
+brights = [
+    "#3d2b2e",
+    "#c5255d",
+    "#8dff57",
+    "#c8381d",
+    "#cfc9ff",
+    "#fc6cba",
+    "#ffceaf",
+    "#b0949d",
+]
+cursor_bg = "#68525a"
+cursor_border = "#68525a"
+cursor_fg = "#150707"
+foreground = "#68525a"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Crayon Pony Fish (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_CRAYON_PONY_FISH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2b1b1d",
+    "#91002b",
+    "#579524",
+    "#ab311b",
+    "#8c87b0",
+    "#692f50",
+    "#e8a866",
+    "#68525a",
+]
+background = "#150707"
+brights = [
+    "#3d2b2e",
+    "#c5255d",
+    "#8dff57",
+    "#c8381d",
+    "#cfc9ff",
+    "#fc6cba",
+    "#ffceaf",
+    "#b0949d",
+]
+cursor_bg = "#68525a"
+cursor_border = "#68525a"
+cursor_fg = "#140707"
+foreground = "#68525a"
+selection_bg = "#2b1b1d"
+selection_fg = "#69525a"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Crayon Pony Fish (Gogh)"]
+name = "CrayonPonyFish"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_CUPCAKE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#fbf1f2",
+    "#d57e85",
+    "#a3b367",
+    "#dcb16c",
+    "#7297b9",
+    "#bb99b4",
+    "#69a9a7",
+    "#8b8198",
+]
+background = "#fbf1f2"
+brights = [
+    "#bfb9c6",
+    "#d57e85",
+    "#a3b367",
+    "#dcb16c",
+    "#7297b9",
+    "#bb99b4",
+    "#69a9a7",
+    "#585062",
+]
+cursor_bg = "#8b8198"
+cursor_border = "#8b8198"
+cursor_fg = "#fbf1f2"
+foreground = "#8b8198"
+selection_bg = "#8b8198"
+selection_fg = "#fbf1f2"
+
+[colors.indexed]
+16 = "#ebb790"
+17 = "#baa58c"
+18 = "#f2f1f4"
+19 = "#d8d5dd"
+20 = "#a59daf"
+21 = "#72677e"
+
+[metadata]
+aliases = []
+author = "Chris Kempson (http://chriskempson.com)"
+name = "Cupcake (base16)"
+origin_url = "https://github.com/chriskempson/base16-default-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CUPERTINO_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#ffffff",
+    "#c41a15",
+    "#007400",
+    "#826b28",
+    "#0000ff",
+    "#a90d91",
+    "#318495",
+    "#404040",
+]
+background = "#ffffff"
+brights = [
+    "#808080",
+    "#c41a15",
+    "#007400",
+    "#826b28",
+    "#0000ff",
+    "#a90d91",
+    "#318495",
+    "#5e5e5e",
+]
+cursor_bg = "#404040"
+cursor_border = "#404040"
+cursor_fg = "#ffffff"
+foreground = "#404040"
+selection_bg = "#404040"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+16 = "#eb8500"
+17 = "#826b28"
+18 = "#c0c0c0"
+19 = "#c0c0c0"
+20 = "#808080"
+21 = "#404040"
+
+[metadata]
+aliases = []
+author = "Defman21"
+name = "Cupertino (base16)"
+origin_url = "https://github.com/Defman21/base16-cupertino"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CUTIEPRO_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#f56e7f",
+    "#bec975",
+    "#f58669",
+    "#42d9c5",
+    "#d286b7",
+    "#37cb8a",
+    "#d5c3c3",
+]
+background = "#181818"
+brights = [
+    "#88847f",
+    "#e5a1a3",
+    "#e8d6a7",
+    "#f1bb79",
+    "#80c5de",
+    "#b294bb",
+    "#9dccbb",
+    "#ffffff",
+]
+cursor_bg = "#efc4cd"
+cursor_border = "#efc4cd"
+cursor_fg = "#181818"
+foreground = "#d5d0c9"
+selection_bg = "#363636"
+selection_fg = "#d5d0c9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "CutiePro"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_CYBERDYNE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#080808",
+    "#ff8373",
+    "#00c172",
+    "#d2a700",
+    "#0071cf",
+    "#ff90fe",
+    "#6bffdd",
+    "#f1f1f1",
+]
+background = "#151144"
+brights = [
+    "#2e2e2e",
+    "#ffc4be",
+    "#d6fcba",
+    "#fffed5",
+    "#c2e3ff",
+    "#ffb2fe",
+    "#e6e7fe",
+    "#ffffff",
+]
+cursor_bg = "#00ff9c"
+cursor_border = "#00ff9c"
+cursor_fg = "#ffffff"
+foreground = "#00ff92"
+selection_bg = "#454d96"
+selection_fg = "#f4f4f4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Cyberdyne"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_CYBERPUNK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff7092",
+    "#00fbac",
+    "#fffa6a",
+    "#00bfff",
+    "#df95ff",
+    "#86cbfe",
+    "#ffffff",
+]
+background = "#332a57"
+brights = [
+    "#000000",
+    "#ff8aa4",
+    "#21f6bc",
+    "#fff787",
+    "#1bccfd",
+    "#e6aefe",
+    "#99d6fc",
+    "#ffffff",
+]
+cursor_bg = "#21f6bc"
+cursor_border = "#21f6bc"
+cursor_fg = "#ffffff"
+foreground = "#e6e6e6"
+selection_bg = "#c1deff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "cyberpunk"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DANQING_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2d302f",
+    "#f9906f",
+    "#8ab361",
+    "#f0c239",
+    "#b0a4e3",
+    "#cca4e3",
+    "#30dff3",
+    "#e0f0ef",
+]
+background = "#2d302f"
+brights = [
+    "#9da8a3",
+    "#f9906f",
+    "#8ab361",
+    "#f0c239",
+    "#b0a4e3",
+    "#cca4e3",
+    "#30dff3",
+    "#fcfefd",
+]
+cursor_bg = "#e0f0ef"
+cursor_border = "#e0f0ef"
+cursor_fg = "#2d302f"
+foreground = "#e0f0ef"
+selection_bg = "#e0f0ef"
+selection_fg = "#2d302f"
+
+[colors.indexed]
+16 = "#b38a61"
+17 = "#ca6924"
+18 = "#434846"
+19 = "#5a605d"
+20 = "#cad8d2"
+21 = "#ecf6f2"
+
+[metadata]
+aliases = []
+author = "Wenhan Zhu (Cosmos) (zhuwenhan950913@gmail.com)"
+name = "DanQing (base16)"
+origin_url = "https://github.com/CosmosAtlas/base16-danqing-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DANQING_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#fcfefd",
+    "#f9906f",
+    "#8ab361",
+    "#f0c239",
+    "#b0a4e3",
+    "#cca4e3",
+    "#30dff3",
+    "#5a605d",
+]
+background = "#fcfefd"
+brights = [
+    "#cad8d2",
+    "#f9906f",
+    "#8ab361",
+    "#f0c239",
+    "#b0a4e3",
+    "#cca4e3",
+    "#30dff3",
+    "#2d302f",
+]
+cursor_bg = "#5a605d"
+cursor_border = "#5a605d"
+cursor_fg = "#fcfefd"
+foreground = "#5a605d"
+selection_bg = "#5a605d"
+selection_fg = "#fcfefd"
+
+[colors.indexed]
+16 = "#b38a61"
+17 = "#ca6924"
+18 = "#ecf6f2"
+19 = "#e0f0ef"
+20 = "#9da8a3"
+21 = "#434846"
+
+[metadata]
+aliases = []
+author = "Wenhan Zhu (Cosmos) (zhuwenhan950913@gmail.com)"
+name = "DanQing Light (base16)"
+origin_url = "https://github.com/CosmosAtlas/base16-danqing-scheme"
+wezterm_version = "20220903-194523-3bb1ed61"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -97263,6 +97687,226 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Cobalt Neon Gogh-to-Colors built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_count_von_count_to_danqing_light_builtin_color_schemes() {
+        let cases = [
+            (
+                "Count Von Count (terminal.sexy)",
+                Color::Rgb(145, 145, 145),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(193, 0, 35),
+                Color::Rgb(168, 51, 52),
+                Color::Rgb(181, 29, 44),
+                Color::Rgb(94, 94, 94),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Crayon Pony Fish (Gogh)",
+                Color::Rgb(104, 82, 90),
+                Color::Rgb(21, 7, 7),
+                Color::Rgb(104, 82, 90),
+                Some(Color::Rgb(21, 7, 7)),
+                None,
+                None,
+                Color::Rgb(43, 27, 29),
+                Color::Rgb(145, 0, 43),
+                Color::Rgb(87, 149, 36),
+                Color::Rgb(171, 49, 27),
+                Color::Rgb(61, 43, 46),
+                Color::Rgb(176, 148, 157),
+                None,
+            ),
+            (
+                "CrayonPonyFish",
+                Color::Rgb(104, 82, 90),
+                Color::Rgb(21, 7, 7),
+                Color::Rgb(104, 82, 90),
+                Some(Color::Rgb(20, 7, 7)),
+                Some(Color::Rgb(43, 27, 29)),
+                Some(Some(Color::Rgb(105, 82, 90))),
+                Color::Rgb(43, 27, 29),
+                Color::Rgb(145, 0, 43),
+                Color::Rgb(87, 149, 36),
+                Color::Rgb(171, 49, 27),
+                Color::Rgb(61, 43, 46),
+                Color::Rgb(176, 148, 157),
+                None,
+            ),
+            (
+                "Cupcake (base16)",
+                Color::Rgb(139, 129, 152),
+                Color::Rgb(251, 241, 242),
+                Color::Rgb(139, 129, 152),
+                Some(Color::Rgb(251, 241, 242)),
+                Some(Color::Rgb(139, 129, 152)),
+                Some(Some(Color::Rgb(251, 241, 242))),
+                Color::Rgb(251, 241, 242),
+                Color::Rgb(213, 126, 133),
+                Color::Rgb(163, 179, 103),
+                Color::Rgb(220, 177, 108),
+                Color::Rgb(191, 185, 198),
+                Color::Rgb(88, 80, 98),
+                Some(Color::Rgb(235, 183, 144)),
+            ),
+            (
+                "Cupertino (base16)",
+                Color::Rgb(64, 64, 64),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(64, 64, 64),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(64, 64, 64)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(196, 26, 21),
+                Color::Rgb(0, 116, 0),
+                Color::Rgb(130, 107, 40),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(94, 94, 94),
+                Some(Color::Rgb(235, 133, 0)),
+            ),
+            (
+                "CutiePro",
+                Color::Rgb(213, 208, 201),
+                Color::Rgb(24, 24, 24),
+                Color::Rgb(239, 196, 205),
+                Some(Color::Rgb(24, 24, 24)),
+                Some(Color::Rgb(54, 54, 54)),
+                Some(Some(Color::Rgb(213, 208, 201))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(245, 110, 127),
+                Color::Rgb(190, 201, 117),
+                Color::Rgb(245, 134, 105),
+                Color::Rgb(136, 132, 127),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Cyberdyne",
+                Color::Rgb(0, 255, 146),
+                Color::Rgb(21, 17, 68),
+                Color::Rgb(0, 255, 156),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(69, 77, 150)),
+                Some(Some(Color::Rgb(244, 244, 244))),
+                Color::Rgb(8, 8, 8),
+                Color::Rgb(255, 131, 115),
+                Color::Rgb(0, 193, 114),
+                Color::Rgb(210, 167, 0),
+                Color::Rgb(46, 46, 46),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "cyberpunk",
+                Color::Rgb(230, 230, 230),
+                Color::Rgb(51, 42, 87),
+                Color::Rgb(33, 246, 188),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(193, 222, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 112, 146),
+                Color::Rgb(0, 251, 172),
+                Color::Rgb(255, 250, 106),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "DanQing (base16)",
+                Color::Rgb(224, 240, 239),
+                Color::Rgb(45, 48, 47),
+                Color::Rgb(224, 240, 239),
+                Some(Color::Rgb(45, 48, 47)),
+                Some(Color::Rgb(224, 240, 239)),
+                Some(Some(Color::Rgb(45, 48, 47))),
+                Color::Rgb(45, 48, 47),
+                Color::Rgb(249, 144, 111),
+                Color::Rgb(138, 179, 97),
+                Color::Rgb(240, 194, 57),
+                Color::Rgb(157, 168, 163),
+                Color::Rgb(252, 254, 253),
+                Some(Color::Rgb(179, 138, 97)),
+            ),
+            (
+                "DanQing Light (base16)",
+                Color::Rgb(90, 96, 93),
+                Color::Rgb(252, 254, 253),
+                Color::Rgb(90, 96, 93),
+                Some(Color::Rgb(252, 254, 253)),
+                Some(Color::Rgb(90, 96, 93)),
+                Some(Some(Color::Rgb(252, 254, 253))),
+                Color::Rgb(252, 254, 253),
+                Color::Rgb(249, 144, 111),
+                Color::Rgb(138, 179, 97),
+                Color::Rgb(240, 194, 57),
+                Color::Rgb(202, 216, 210),
+                Color::Rgb(45, 48, 47),
+                Some(Color::Rgb(179, 138, 97)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect(
+                "expected WezTerm Count Von Count-to-DanQing Light built-in color_scheme config",
+            );
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();
