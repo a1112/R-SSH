@@ -3543,7 +3543,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Afterglow`, `Afterglow (Gogh)`, `aikofog (terminal.sexy)`, `Alabaster`,
   `AlienBlood`, `Andromeda`, `Apathy (base16)`, `Apple Classic`,
   `Apple System Colors`, `Apprentice (base16)`, `Apprentice (Gogh)`,
-  `arcoiris`, `Argonaut`, `Argonaut (Gogh)`, `Builtin Dark`, `Builtin Light`,
+  `arcoiris`, `Argonaut`, `Argonaut (Gogh)`, `Arthur`, `Arthur (Gogh)`,
+  `Ashes (base16)`, `Ashes (dark) (terminal.sexy)`,
+  `Ashes (light) (terminal.sexy)`, `Astrodark (Gogh)`,
+  `astromouse (terminal.sexy)`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,

@@ -19221,6 +19221,15 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "arcoiris" => Some(BUILTIN_ARCOIRIS_COLOR_SCHEME_TOML),
         "Argonaut" => Some(BUILTIN_ARGONAUT_COLOR_SCHEME_TOML),
         "Argonaut (Gogh)" => Some(BUILTIN_ARGONAUT_GOGH_COLOR_SCHEME_TOML),
+        "Arthur" => Some(BUILTIN_ARTHUR_COLOR_SCHEME_TOML),
+        "Arthur (Gogh)" => Some(BUILTIN_ARTHUR_GOGH_COLOR_SCHEME_TOML),
+        "Ashes (base16)" => Some(BUILTIN_ASHES_BASE16_COLOR_SCHEME_TOML),
+        "Ashes (dark) (terminal.sexy)" => Some(BUILTIN_ASHES_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Ashes (light) (terminal.sexy)" => {
+            Some(BUILTIN_ASHES_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Astrodark (Gogh)" => Some(BUILTIN_ASTRODARK_GOGH_COLOR_SCHEME_TOML),
+        "astromouse (terminal.sexy)" => Some(BUILTIN_ASTROMOUSE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -20293,6 +20302,270 @@ aliases = []
 name = "Argonaut (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_ARTHUR_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3d352a",
+    "#cd5c5c",
+    "#86af80",
+    "#e8ae5b",
+    "#6495ed",
+    "#deb887",
+    "#b0c4de",
+    "#bbaa99",
+]
+background = "#1c1c1c"
+brights = [
+    "#554444",
+    "#cc5533",
+    "#88aa22",
+    "#ffa75d",
+    "#87ceeb",
+    "#996600",
+    "#b0c4de",
+    "#ddccbb",
+]
+cursor_bg = "#e2bbef"
+cursor_border = "#e2bbef"
+cursor_fg = "#000000"
+foreground = "#ddeedd"
+selection_bg = "#4d4d4d"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Arthur (Gogh)"]
+name = "Arthur"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ARTHUR_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3d352a",
+    "#cd5c5c",
+    "#86af80",
+    "#e8ae5b",
+    "#6495ed",
+    "#deb887",
+    "#b0c4de",
+    "#bbaa99",
+]
+background = "#1c1c1c"
+brights = [
+    "#554444",
+    "#cc5533",
+    "#88aa22",
+    "#ffa75d",
+    "#87ceeb",
+    "#996600",
+    "#b0c4de",
+    "#ddccbb",
+]
+cursor_bg = "#ddeedd"
+cursor_border = "#ddeedd"
+cursor_fg = "#1c1c1c"
+foreground = "#ddeedd"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Arthur (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_ASHES_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c2023",
+    "#c7ae95",
+    "#95c7ae",
+    "#aec795",
+    "#ae95c7",
+    "#c795ae",
+    "#95aec7",
+    "#c7ccd1",
+]
+background = "#1c2023"
+brights = [
+    "#747c84",
+    "#c7ae95",
+    "#95c7ae",
+    "#aec795",
+    "#ae95c7",
+    "#c795ae",
+    "#95aec7",
+    "#f3f4f5",
+]
+cursor_bg = "#c7ccd1"
+cursor_border = "#c7ccd1"
+cursor_fg = "#1c2023"
+foreground = "#c7ccd1"
+selection_bg = "#c7ccd1"
+selection_fg = "#1c2023"
+
+[colors.indexed]
+16 = "#c7c795"
+17 = "#c79595"
+18 = "#393f45"
+19 = "#565e65"
+20 = "#adb3ba"
+21 = "#dfe2e5"
+
+[metadata]
+aliases = ["Ashes (dark) (terminal.sexy)"]
+author = "Jannik Siebert (https://github.com/janniks)"
+name = "Ashes (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ASHES_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c2023",
+    "#c7ae95",
+    "#95c7ae",
+    "#aec795",
+    "#ae95c7",
+    "#c795ae",
+    "#95aec7",
+    "#c7ccd1",
+]
+background = "#1c2023"
+brights = [
+    "#747c84",
+    "#c7ae95",
+    "#95c7ae",
+    "#aec795",
+    "#ae95c7",
+    "#c795ae",
+    "#95aec7",
+    "#f3f4f5",
+]
+foreground = "#c7ccd1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Ashes (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_ASHES_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c2023",
+    "#c7ae95",
+    "#95c7ae",
+    "#aec795",
+    "#ae95c7",
+    "#c795ae",
+    "#95aec7",
+    "#c7ccd1",
+]
+background = "#f3f4f5"
+brights = [
+    "#747c84",
+    "#c7ae95",
+    "#95c7ae",
+    "#aec795",
+    "#ae95c7",
+    "#c795ae",
+    "#95aec7",
+    "#f3f4f5",
+]
+foreground = "#565e65"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Ashes (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ASTRODARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#111317",
+    "#f8747e",
+    "#75ad47",
+    "#d09214",
+    "#50a4e9",
+    "#cc83e3",
+    "#00b298",
+    "#adb0bb",
+]
+background = "#1a1d23"
+brights = [
+    "#576176",
+    "#faa5ab",
+    "#a5cd84",
+    "#efbd58",
+    "#8dc3f1",
+    "#deaeed",
+    "#27ffdf",
+    "#caccd3",
+]
+cursor_bg = "#caccd3"
+cursor_border = "#caccd3"
+cursor_fg = "#1a1d23"
+foreground = "#9b9fa9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Astrodark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_ASTROMOUSE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1c1c",
+    "#d770af",
+    "#9acc79",
+    "#d0d26b",
+    "#77b6c5",
+    "#a488d9",
+    "#7fcab3",
+    "#8d8d8d",
+]
+background = "#000000"
+brights = [
+    "#3d3a3a",
+    "#d28abf",
+    "#8fb676",
+    "#c8bc45",
+    "#8fa7b9",
+    "#bd89de",
+    "#6ec2a8",
+    "#dad3d3",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "astromouse (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -86397,6 +86670,158 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Andromeda-to-Argonaut built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_arthur_to_astromouse_builtin_color_schemes() {
+        let cases = [
+            (
+                "Arthur",
+                Color::Rgb(221, 238, 221),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(226, 187, 239),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(77, 77, 77)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(61, 53, 42),
+                Color::Rgb(205, 92, 92),
+                Color::Rgb(85, 68, 68),
+                Color::Rgb(221, 204, 187),
+                None,
+            ),
+            (
+                "Arthur (Gogh)",
+                Color::Rgb(221, 238, 221),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(221, 238, 221),
+                Some(Color::Rgb(28, 28, 28)),
+                None,
+                None,
+                Color::Rgb(61, 53, 42),
+                Color::Rgb(205, 92, 92),
+                Color::Rgb(85, 68, 68),
+                Color::Rgb(221, 204, 187),
+                None,
+            ),
+            (
+                "Ashes (base16)",
+                Color::Rgb(199, 204, 209),
+                Color::Rgb(28, 32, 35),
+                Color::Rgb(199, 204, 209),
+                Some(Color::Rgb(28, 32, 35)),
+                Some(Color::Rgb(199, 204, 209)),
+                Some(Some(Color::Rgb(28, 32, 35))),
+                Color::Rgb(28, 32, 35),
+                Color::Rgb(199, 174, 149),
+                Color::Rgb(116, 124, 132),
+                Color::Rgb(243, 244, 245),
+                Some(Color::Rgb(199, 199, 149)),
+            ),
+            (
+                "Ashes (dark) (terminal.sexy)",
+                Color::Rgb(199, 204, 209),
+                Color::Rgb(28, 32, 35),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(28, 32, 35),
+                Color::Rgb(199, 174, 149),
+                Color::Rgb(116, 124, 132),
+                Color::Rgb(243, 244, 245),
+                None,
+            ),
+            (
+                "Ashes (light) (terminal.sexy)",
+                Color::Rgb(86, 94, 101),
+                Color::Rgb(243, 244, 245),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(28, 32, 35),
+                Color::Rgb(199, 174, 149),
+                Color::Rgb(116, 124, 132),
+                Color::Rgb(243, 244, 245),
+                None,
+            ),
+            (
+                "Astrodark (Gogh)",
+                Color::Rgb(155, 159, 169),
+                Color::Rgb(26, 29, 35),
+                Color::Rgb(202, 204, 211),
+                Some(Color::Rgb(26, 29, 35)),
+                None,
+                None,
+                Color::Rgb(17, 19, 23),
+                Color::Rgb(248, 116, 126),
+                Color::Rgb(87, 97, 118),
+                Color::Rgb(202, 204, 211),
+                None,
+            ),
+            (
+                "astromouse (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(215, 112, 175),
+                Color::Rgb(61, 58, 58),
+                Color::Rgb(218, 211, 211),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Arthur-to-astromouse built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();
