@@ -3043,8 +3043,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:keyboard_modifiers()` status example with current modifier text and
   empty LED status, plus the documented `window:composition_status()` status
   example with static prefix and fallback text backed by Builtin IME preedit or
-  current dead-key text, plus inline,
-  static-table-variable, or static-alias `wezterm.format`
+  current dead-key text, plus inline, static-table-variable, or static-alias
+  `wezterm.format` including module-alias/static-key format aliases for
   Text/Foreground/Background/ResetAttributes and Attribute
   Intensity/Italic/Underline item composition update native tab-bar status
   text, with static item tables resolved from callback-local or top-level

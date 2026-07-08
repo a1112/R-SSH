@@ -23861,21 +23861,41 @@ fn lua_static_wezterm_format_alias_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_static_wezterm_format_alias_value_from_query(value);
+        selected = lua_static_wezterm_format_alias_value_from_query(source, start, value);
     }
 
     Some(selected)
 }
 
-fn lua_static_wezterm_format_alias_value_from_query(value: &str) -> bool {
+fn lua_static_wezterm_format_alias_value_from_query(
+    source: &str,
+    max_start: usize,
+    value: &str,
+) -> bool {
     if value.trim() == "format" {
         return true;
     }
-    let Some(rest) = lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.format")
-    else {
+    let Some(value) = lua_trim_start_comments(value) else {
         return false;
     };
-    lua_static_identifier_value_rest_is_statement_end(rest)
+    let rest = if let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) {
+        rest
+    } else if let Some(rest) = lua_static_wezterm_receiver_rest_from_query(source, max_start, value)
+    {
+        rest
+    } else {
+        return false;
+    };
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let Some((field, rest)) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource { source, max_start }),
+        rest,
+    ) else {
+        return false;
+    };
+    field == "format" && lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
 fn lua_top_level_statement_value_from_query(value: &str) -> Option<&str> {
@@ -100249,6 +100269,38 @@ mod tests {
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.ends_with("RIGHT-ALIAS"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_update_status_event_format_alias_static_key_module() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wt = require 'wezterm'
+            local format_key = 'format'
+            local fmt = wt[format_key]
+
+            wt.on('update-status', function(window, pane)
+              window:set_right_status(fmt({
+                { Text = 'RIGHT' },
+                { Text = '-STATIC-KEY-FORMAT' },
+              }))
+            end)
+            "#,
+        )
+        .expect(
+            "expected static WezTerm update-status event static-key format alias status setter",
+        );
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.ends_with("RIGHT-STATIC-KEY-FORMAT"),
+            "tab bar was {tab_bar:?}"
+        );
     }
 
     #[test]
