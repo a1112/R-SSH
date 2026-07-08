@@ -9979,9 +9979,13 @@ fn lua_new_tab_button_click_statement_performs_default_action(
     static_source: LuaStaticSource<'_>,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<bool> {
-    if let Some(action) =
-        lua_callback_statement_perform_action_query(statement, window_param, pane_param)
-    {
+    if let Some(action) = lua_callback_statement_perform_action_query_with_pane_static_sources(
+        statement,
+        window_param,
+        pane_param,
+        static_source,
+        outer_static_source,
+    ) {
         return Some(lua_new_tab_button_click_expression_is_default_action_param(
             action,
             default_action_param,
@@ -58886,6 +58890,34 @@ fn lua_callback_statement_perform_action_query<'a>(
     window_param: &str,
     pane_param: &str,
 ) -> Option<&'a str> {
+    let (action, pane) =
+        lua_callback_statement_perform_action_arguments_query(statement, window_param)?;
+    if !lua_static_identifier_expression_matches(pane, pane_param) {
+        return None;
+    }
+    Some(action)
+}
+
+fn lua_callback_statement_perform_action_query_with_pane_static_sources<'a>(
+    statement: &'a str,
+    window_param: &str,
+    pane_param: &str,
+    static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<&'a str> {
+    let (action, pane) =
+        lua_callback_statement_perform_action_arguments_query(statement, window_param)?;
+    if !lua_callback_expression_is_pane_param(pane, pane_param, static_source, outer_static_source)
+    {
+        return None;
+    }
+    Some(action)
+}
+
+fn lua_callback_statement_perform_action_arguments_query<'a>(
+    statement: &'a str,
+    window_param: &str,
+) -> Option<(&'a str, &'a str)> {
     let statement = lua_trim_start_comments(statement)?;
     let rest = statement.strip_prefix(window_param)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
@@ -58906,14 +58938,69 @@ fn lua_callback_statement_perform_action_query<'a>(
         return None;
     };
     let pane = lua_trim_start_comments(pane.trim())?;
-    let name = lua_identifier_literal_from_query(pane)?;
-    if name != pane_param
-        || !lua_static_identifier_value_rest_is_statement_end(pane.get(name.len()..)?)
-        || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
-    {
+    if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
         return None;
     }
-    Some(action.trim())
+    Some((action.trim(), pane))
+}
+
+fn lua_callback_expression_is_pane_param(
+    expression: &str,
+    pane_param: &str,
+    static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> bool {
+    lua_callback_expression_is_pane_param_with_depth(
+        expression,
+        pane_param,
+        static_source,
+        outer_static_source,
+        0,
+    )
+}
+
+fn lua_callback_expression_is_pane_param_with_depth(
+    expression: &str,
+    pane_param: &str,
+    static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    depth: usize,
+) -> bool {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return false;
+    }
+    if lua_static_identifier_expression_matches(expression, pane_param) {
+        return true;
+    }
+    if let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+        static_source.source,
+        expression,
+        static_source.max_start,
+    ) {
+        return lua_callback_expression_is_pane_param_with_depth(
+            value,
+            pane_param,
+            static_source,
+            outer_static_source,
+            depth + 1,
+        );
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            outer_static_source.source,
+            expression,
+            outer_static_source.max_start,
+        )
+    {
+        return lua_callback_expression_is_pane_param_with_depth(
+            value,
+            pane_param,
+            outer_static_source,
+            None,
+            depth + 1,
+        );
+    }
+    false
 }
 
 fn native_key_assignment_command_from_callback_action(
@@ -107242,6 +107329,49 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm new-tab-button-click default action alias");
+        app.set_config_overrides(overrides);
+
+        let tab_width = tab_bar_tab_label(
+            0,
+            rssh_core::TabId::new(1),
+            1,
+            true,
+            None,
+            rssh_core::app_shell::PaneProgress::None,
+        )
+        .chars()
+        .count();
+        let new_tab_column = app.tab_bar_workspace_label().chars().count() + tab_width + 1;
+        let x = u32::try_from(new_tab_column).unwrap_or(0) * CELL_WIDTH;
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 2);
+    }
+
+    #[test]
+    fn window_app_parses_new_tab_button_click_pane_alias_default_action() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('new-tab-button-click', function(window, pane, button, default_action)
+              local target = pane
+              if default_action then
+                window:perform_action(default_action, target)
+              end
+              return false
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm new-tab-button-click pane alias default action");
         app.set_config_overrides(overrides);
 
         let tab_width = tab_bar_tab_label(
