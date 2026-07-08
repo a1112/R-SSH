@@ -59264,6 +59264,19 @@ fn lua_callback_statement_emit_call_args_query<'a>(
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
+    let has_local_module_alias = static_source
+        .and_then(|source| {
+            lua_static_wezterm_module_alias_before_offset(source.source, alias, source.max_start)
+        })
+        .unwrap_or(false);
+    let has_outer_module_alias = outer_static_source
+        .and_then(|source| {
+            lua_static_wezterm_module_alias_before_offset(source.source, alias, source.max_start)
+        })
+        .unwrap_or(false);
+    if has_local_module_alias || has_outer_module_alias {
+        return lua_callback_statement_wezterm_emit_call_args_from_receiver_rest(rest);
+    }
     let has_local_alias = static_source
         .and_then(|source| {
             lua_static_wezterm_emit_alias_before_offset(source.source, alias, source.max_start)
@@ -59285,6 +59298,10 @@ fn lua_callback_statement_wezterm_emit_call_args_query(statement: &str) -> Optio
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
+    lua_callback_statement_wezterm_emit_call_args_from_receiver_rest(rest)
+}
+
+fn lua_callback_statement_wezterm_emit_call_args_from_receiver_rest(rest: &str) -> Option<&str> {
     let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
     let rest = lua_trim_start_comments(rest)?;
     if !rest.starts_with("emit") || !lua_config_assignment_field_has_boundaries(rest, 0, "emit") {
@@ -122657,6 +122674,40 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_emits_static_event_module_alias() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wt = require 'wezterm'
+            local act = wt.action
+
+            wt.on('send-greeting', function(window, pane)
+              wt.emit('write-greeting', window, pane)
+            end)
+
+            wt.on('write-greeting', function(window, pane)
+              window:perform_action(act.SendString 'hello-module-alias', pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler module alias config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello-module-alias");
     }
 
     #[test]
