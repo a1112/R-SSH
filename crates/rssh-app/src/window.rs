@@ -8484,6 +8484,19 @@ fn lua_window_title_text_part_from_expression(
             return lua_tab_title_active_pane_progress_field_from_rest(rest)
                 .map(|field| NativeLuaWindowTitlePart::ActivePaneProgress { field });
         }
+
+        if lua_window_title_active_pane_user_vars_alias_before_offset(
+            static_source,
+            outer_static_source,
+            receiver,
+            tab_param,
+            pane_param,
+        ) == Some(true)
+            && let Some(name) =
+                lua_static_pane_user_var_name_from_rest(static_source, outer_static_source, rest)
+        {
+            return Some(NativeLuaWindowTitlePart::ActivePaneUserVar { name });
+        }
     }
 
     let tab_count = format!("#{tabs_param}");
@@ -8537,6 +8550,63 @@ fn lua_window_title_active_pane_alias_before_offset(
     )?;
     let value = value.trim();
     Some(value == format!("{tab_param}.active_pane") || value == pane_param)
+}
+
+fn lua_window_title_active_pane_user_vars_alias_before_offset(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    alias: &str,
+    tab_param: &str,
+    pane_param: &str,
+) -> Option<bool> {
+    let static_source = static_source?;
+    let value = lua_static_expression_variable_assignment_before_offset_from_query(
+        static_source.source,
+        alias,
+        static_source.max_start,
+    )?;
+    lua_window_title_active_pane_user_vars_expression_from_query(
+        value,
+        tab_param,
+        pane_param,
+        Some(static_source),
+        outer_static_source,
+    )
+}
+
+fn lua_window_title_active_pane_user_vars_expression_from_query(
+    expression: &str,
+    tab_param: &str,
+    pane_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    _outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<bool> {
+    let expression = lua_trim_start_comments(expression.trim())?;
+
+    let pane_user_vars = format!("{pane_param}.user_vars");
+    if let Some(rest) = expression.strip_prefix(&pane_user_vars) {
+        return Some(lua_static_identifier_value_rest_is_statement_end(rest));
+    }
+
+    let tab_active_pane_user_vars = format!("{tab_param}.active_pane.user_vars");
+    if let Some(rest) = expression.strip_prefix(&tab_active_pane_user_vars) {
+        return Some(lua_static_identifier_value_rest_is_statement_end(rest));
+    }
+
+    let receiver = lua_identifier_literal_from_query(expression)?;
+    let rest = expression.get(receiver.len()..)?;
+    if lua_window_title_active_pane_alias_before_offset(
+        static_source,
+        receiver,
+        tab_param,
+        pane_param,
+    ) != Some(true)
+    {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = rest.strip_prefix("user_vars")?;
+    Some(lua_static_identifier_value_rest_is_statement_end(rest))
 }
 
 fn lua_window_title_active_pane_progress_alias_before_offset(
@@ -107296,6 +107366,28 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-window-title active pane alias user var return");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM-PROG=cHNo\x07")
+            .unwrap();
+
+        assert_eq!(app.effective_window_title(), "prog=psh");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_local_user_vars_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local vars = pane.user_vars
+              return 'prog=' .. vars['WEZTERM-PROG']
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title local user vars return");
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM-PROG=cHNo\x07")
             .unwrap();
