@@ -3615,7 +3615,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Count Von Count (terminal.sexy)`, `Crayon Pony Fish (Gogh)`,
   `CrayonPonyFish`, `Cupcake (base16)`, `Cupertino (base16)`, `CutiePro`,
   `Cyberdyne`, `cyberpunk`, `DanQing (base16)`,
-  `DanQing Light (base16)`, `Builtin Dark`, `Builtin Light`,
+  `DanQing Light (base16)`, `Darcula (base16)`,
+  `Dark Ocean (terminal.sexy)`, `Dark Pastel`, `Dark Pastel (Gogh)`,
+  `Dark Violet (base16)`, `Dark+`, `darkermatrix`, `darkmatrix`,
+  `darkmoss (base16)`, `Darkside`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
