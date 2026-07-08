@@ -8900,11 +8900,65 @@ fn lua_window_title_condition_from_expression(
         }
     }
 
+    if let Some((field, present)) = lua_window_title_active_pane_progress_field_presence_condition(
+        condition,
+        tab_param,
+        pane_param,
+        static_source,
+    ) {
+        return Some(
+            NativeLuaWindowTitleCondition::ActivePaneProgressFieldPresence { field, present },
+        );
+    }
+
     if let Some(count) = lua_window_title_count_greater_than_condition(condition, tabs_param) {
         return Some(NativeLuaWindowTitleCondition::TabCountGreaterThan(count));
     }
     if let Some(count) = lua_window_title_count_greater_than_condition(condition, panes_param) {
         return Some(NativeLuaWindowTitleCondition::PaneCountGreaterThan(count));
+    }
+
+    None
+}
+
+fn lua_window_title_active_pane_progress_field_presence_condition(
+    condition: &str,
+    tab_param: &str,
+    pane_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+) -> Option<(NativeLuaTabTitleProgressField, bool)> {
+    let pane_progress = format!("{pane_param}.progress");
+    if let Some(rest) = condition.strip_prefix(&pane_progress) {
+        return lua_tab_title_progress_field_presence_rest(rest);
+    }
+
+    let tab_active_pane_progress = format!("{tab_param}.active_pane.progress");
+    if let Some(rest) = condition.strip_prefix(&tab_active_pane_progress) {
+        return lua_tab_title_progress_field_presence_rest(rest);
+    }
+
+    let receiver = lua_identifier_literal_from_query(condition)?;
+    let rest = condition.get(receiver.len()..)?;
+    if lua_window_title_active_pane_alias_before_offset(
+        static_source,
+        receiver,
+        tab_param,
+        pane_param,
+    ) == Some(true)
+    {
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = rest.strip_prefix("progress")?;
+        return lua_tab_title_progress_field_presence_rest(rest);
+    }
+
+    if lua_window_title_active_pane_progress_alias_before_offset(
+        static_source,
+        receiver,
+        tab_param,
+        pane_param,
+    ) == Some(true)
+    {
+        return lua_tab_title_progress_field_presence_rest(rest);
     }
 
     None
@@ -31623,6 +31677,10 @@ impl NativeLuaWindowTitlePart {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeLuaWindowTitleCondition {
     ActivePaneIsZoomed,
+    ActivePaneProgressFieldPresence {
+        field: NativeLuaTabTitleProgressField,
+        present: bool,
+    },
     TabCountGreaterThan(usize),
     PaneCountGreaterThan(usize),
 }
@@ -31631,6 +31689,14 @@ impl NativeLuaWindowTitleCondition {
     fn matches(self, event: &NativeWindowTitleFormat) -> bool {
         match self {
             Self::ActivePaneIsZoomed => event.active_pane_info.is_zoomed,
+            Self::ActivePaneProgressFieldPresence { field, present } => {
+                let has_field = match (field, event.active_pane_info.progress) {
+                    (NativeLuaTabTitleProgressField::Percentage, PaneProgress::Percentage(_))
+                    | (NativeLuaTabTitleProgressField::Error, PaneProgress::Error(_)) => true,
+                    _ => false,
+                };
+                has_field == present
+            }
             Self::TabCountGreaterThan(count) => event.tab_count > count,
             Self::PaneCountGreaterThan(count) => event.pane_count > count,
         }
@@ -107243,6 +107309,60 @@ mod tests {
         .unwrap();
 
         assert_eq!(app.effective_window_title(), "pct=42");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_progress_percentage_condition() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              if pane.progress.Percentage ~= nil then
+                return 'pct=' .. pane.progress.Percentage
+              end
+
+              return 'pct=none'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title progress percentage condition");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::SetPaneProgress {
+            pane: rssh_core::PaneId::new(1),
+            progress: rssh_core::app_shell::PaneProgress::Percentage(42),
+        })
+        .unwrap();
+
+        assert_eq!(app.effective_window_title(), "pct=42");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_missing_progress_percentage_condition()
+    {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              if tab.active_pane.progress.Percentage == nil then
+                return 'pct=none'
+              end
+
+              return 'pct=' .. tab.active_pane.progress.Percentage
+            end)
+            "#,
+        )
+        .expect(
+            "expected static WezTerm format-window-title missing progress percentage condition",
+        );
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "pct=none");
     }
 
     #[test]
