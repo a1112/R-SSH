@@ -7900,6 +7900,17 @@ fn lua_static_window_title_return_from_function_body(
     panes_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowTitle> {
+    if let Some(value) = lua_static_window_title_conditional_return_from_function_body(
+        body,
+        tab_param,
+        pane_param,
+        tabs_param,
+        panes_param,
+        outer_static_source,
+    ) {
+        return Some(value);
+    }
+
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
         if let Some(value) =
@@ -7945,6 +7956,168 @@ fn lua_static_window_title_return_from_function_body(
     }
 
     None
+}
+
+fn lua_static_window_title_conditional_return_from_function_body(
+    body: &str,
+    tab_param: &str,
+    pane_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaWindowTitle> {
+    let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
+
+    for start in starts {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        let Some((if_branches, else_body, rest_after_if)) =
+            lua_static_if_condition_and_body_branches_and_else_from_statement(statement)
+        else {
+            continue;
+        };
+
+        let mut else_parts = else_body
+            .and_then(|else_body| {
+                lua_static_window_title_first_return_parts_from_nested_body(
+                    body,
+                    else_body,
+                    tab_param,
+                    pane_param,
+                    tabs_param,
+                    panes_param,
+                    outer_static_source,
+                )
+            })
+            .or_else(|| {
+                lua_static_window_title_fallback_return_parts_after_if(
+                    body,
+                    rest_after_if,
+                    tab_param,
+                    pane_param,
+                    tabs_param,
+                    panes_param,
+                    outer_static_source,
+                )
+            })?;
+
+        for (condition, if_body) in if_branches.into_iter().rev() {
+            let condition = lua_window_title_condition_from_expression(
+                condition,
+                tab_param,
+                pane_param,
+                tabs_param,
+                panes_param,
+            )?;
+            let parts = lua_static_window_title_first_return_parts_from_nested_body(
+                body,
+                if_body,
+                tab_param,
+                pane_param,
+                tabs_param,
+                panes_param,
+                outer_static_source,
+            )?;
+            else_parts = vec![NativeLuaWindowTitlePart::Conditional {
+                condition,
+                parts,
+                else_parts: Some(else_parts),
+            }];
+        }
+
+        return Some(NativeLuaWindowTitle::Concat(else_parts));
+    }
+
+    None
+}
+
+fn lua_static_window_title_first_return_parts_from_nested_body(
+    outer_body: &str,
+    nested_body: &str,
+    tab_param: &str,
+    pane_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<Vec<NativeLuaWindowTitlePart>> {
+    let nested_start = lua_source_slice_start_offset(outer_body, nested_body)?;
+    for start in
+        lua_top_level_statement_start_indices_before_offset(nested_body, nested_body.len())?
+    {
+        let statement = lua_trim_start_comments(nested_body.get(start..)?)?;
+        if let Some(parts) = lua_window_title_return_parts_from_statement(
+            outer_body,
+            nested_start.checked_add(start)?,
+            statement,
+            tab_param,
+            pane_param,
+            tabs_param,
+            panes_param,
+            outer_static_source,
+        ) {
+            return Some(parts);
+        }
+    }
+
+    None
+}
+
+fn lua_static_window_title_fallback_return_parts_after_if(
+    outer_body: &str,
+    rest_after_if: &str,
+    tab_param: &str,
+    pane_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<Vec<NativeLuaWindowTitlePart>> {
+    let rest_start = lua_source_slice_start_offset(outer_body, rest_after_if)?;
+    for start in
+        lua_top_level_statement_start_indices_before_offset(rest_after_if, rest_after_if.len())?
+    {
+        let statement = lua_trim_start_comments(rest_after_if.get(start..)?)?;
+        if lua_static_if_condition_and_body_branches_from_statement(statement).is_some() {
+            return None;
+        }
+        if let Some(parts) = lua_window_title_return_parts_from_statement(
+            outer_body,
+            rest_start.checked_add(start)?,
+            statement,
+            tab_param,
+            pane_param,
+            tabs_param,
+            panes_param,
+            outer_static_source,
+        ) {
+            return Some(parts);
+        }
+    }
+
+    None
+}
+
+fn lua_window_title_return_parts_from_statement(
+    source: &str,
+    start: usize,
+    statement: &str,
+    tab_param: &str,
+    pane_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<Vec<NativeLuaWindowTitlePart>> {
+    let expression = lua_static_return_expression_from_statement(statement)?;
+    lua_window_title_text_parts_from_expression(
+        expression,
+        tab_param,
+        pane_param,
+        tabs_param,
+        panes_param,
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+        outer_static_source,
+    )
 }
 
 fn lua_dynamic_window_title_return_from_statement(
@@ -8331,6 +8504,7 @@ fn lua_window_title_conditional_assignment_parts_before_offset(
             let Some(condition) = lua_window_title_condition_from_expression(
                 condition,
                 tab_param,
+                pane_param,
                 tabs_param,
                 panes_param,
             ) else {
@@ -8569,15 +8743,20 @@ fn lua_window_title_expression_is_variable(expression: &str, variable: &str) -> 
 fn lua_window_title_condition_from_expression(
     condition: &str,
     tab_param: &str,
+    pane_param: &str,
     tabs_param: &str,
     panes_param: &str,
 ) -> Option<NativeLuaWindowTitleCondition> {
     let condition = lua_trim_start_comments(condition.trim())?;
-    let zoomed = format!("{tab_param}.active_pane.is_zoomed");
-    if let Some(rest) = condition.strip_prefix(&zoomed)
-        && lua_static_identifier_value_rest_is_statement_end(rest)
-    {
-        return Some(NativeLuaWindowTitleCondition::ActivePaneIsZoomed);
+    for zoomed in [
+        format!("{tab_param}.active_pane.is_zoomed"),
+        format!("{pane_param}.is_zoomed"),
+    ] {
+        if let Some(rest) = condition.strip_prefix(&zoomed)
+            && lua_static_identifier_value_rest_is_statement_end(rest)
+        {
+            return Some(NativeLuaWindowTitleCondition::ActivePaneIsZoomed);
+        }
     }
 
     if let Some(count) = lua_window_title_count_greater_than_condition(condition, tabs_param) {
@@ -106958,6 +107137,40 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "[1] Window Fallback");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_pane_zoomed_condition() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: app.active_pane_id(),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::SetPaneZoomState {
+            pane: app.active_pane_id(),
+            zoomed: true,
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              if pane.is_zoomed then
+                return 'zoomed:' .. tab.window_title
+              end
+
+              return 'plain:' .. tab.window_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title pane zoomed condition");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "zoomed:Window Fallback");
     }
 
     #[test]
