@@ -19364,6 +19364,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Blue Dolphin (Gogh)" => Some(BUILTIN_BLUE_DOLPHIN_GOGH_COLOR_SCHEME_TOML),
         "Blue Matrix" => Some(BUILTIN_BLUE_MATRIX_COLOR_SCHEME_TOML),
         "BlueBerryPie" => Some(BUILTIN_BLUEBERRYPIE_COLOR_SCHEME_TOML),
+        "BlueDolphin" => Some(BUILTIN_BLUEDOLPHIN_COLOR_SCHEME_TOML),
+        "Bluloco Light (Gogh)" | "BlulocoLight (Gogh)" => {
+            Some(BUILTIN_BLULOCO_LIGHT_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Bluloco Zsh Light (Gogh)" | "BlulocoZshLight (Gogh)" => {
+            Some(BUILTIN_BLULOCO_ZSH_LIGHT_GOGH_COLOR_SCHEME_TOML)
+        }
+        "BlulocoDark" => Some(BUILTIN_BLULOCO_DARK_COLOR_SCHEME_TOML),
+        "BlulocoLight" => Some(BUILTIN_BLULOCO_LIGHT_COLOR_SCHEME_TOML),
+        "Borland" => Some(BUILTIN_BORLAND_COLOR_SCHEME_TOML),
+        "Borland (Gogh)" => Some(BUILTIN_BORLAND_GOGH_COLOR_SCHEME_TOML),
+        "Breadog (Gogh)" => Some(BUILTIN_BREADOG_GOGH_COLOR_SCHEME_TOML),
+        "Breath (Gogh)" => Some(BUILTIN_BREATH_GOGH_COLOR_SCHEME_TOML),
+        "Breath Darker (Gogh)" => Some(BUILTIN_BREATH_DARKER_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -24047,6 +24061,384 @@ aliases = []
 name = "BlueBerryPie"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_BLUEDOLPHIN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#292d3e",
+    "#ff8288",
+    "#b4e88d",
+    "#f4d69f",
+    "#82aaff",
+    "#e9c1ff",
+    "#89ebff",
+    "#d0d0d0",
+]
+background = "#006984"
+brights = [
+    "#434758",
+    "#ff8b92",
+    "#ddffa7",
+    "#ffe585",
+    "#9cc4ff",
+    "#ddb0f6",
+    "#a3f7ff",
+    "#ffffff",
+]
+cursor_bg = "#ffcc00"
+cursor_border = "#ffcc00"
+cursor_fg = "#292d3e"
+foreground = "#c5f2ff"
+selection_bg = "#2baeca"
+selection_fg = "#eceff1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "BlueDolphin"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BLULOCO_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#d5d6dd",
+    "#d52753",
+    "#23974a",
+    "#df631c",
+    "#275fe4",
+    "#823ff1",
+    "#27618d",
+    "#000000",
+]
+background = "#f9f9f9"
+brights = [
+    "#e4e5ed",
+    "#ff6480",
+    "#3cbc66",
+    "#c5a332",
+    "#0099e1",
+    "#ce33c0",
+    "#6d93bb",
+    "#26272d",
+]
+cursor_bg = "#383a42"
+cursor_border = "#383a42"
+cursor_fg = "#f9f9f9"
+foreground = "#383a42"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["BlulocoLight (Gogh)"]
+name = "Bluloco Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLULOCO_ZSH_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#e4e5f1",
+    "#d52753",
+    "#23974a",
+    "#df631c",
+    "#275fe4",
+    "#823ff1",
+    "#27618d",
+    "#000000",
+]
+background = "#f9f9f9"
+brights = [
+    "#5794de",
+    "#ff6480",
+    "#3cbc66",
+    "#c5a332",
+    "#0099e1",
+    "#ce33c0",
+    "#6d93bb",
+    "#26272d",
+]
+cursor_bg = "#383a42"
+cursor_border = "#383a42"
+cursor_fg = "#f9f9f9"
+foreground = "#383a42"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["BlulocoZshLight (Gogh)"]
+name = "Bluloco Zsh Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BLULOCO_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#41444d",
+    "#fc2f52",
+    "#25a45c",
+    "#ff936a",
+    "#3476ff",
+    "#7a82da",
+    "#4483aa",
+    "#cdd4e0",
+]
+background = "#282c34"
+brights = [
+    "#8f9aae",
+    "#ff6480",
+    "#3fc56b",
+    "#f9c859",
+    "#10b1fe",
+    "#ff78f8",
+    "#5fb9bc",
+    "#ffffff",
+]
+cursor_bg = "#ffcc00"
+cursor_border = "#ffcc00"
+cursor_fg = "#282c34"
+foreground = "#b9c0cb"
+selection_bg = "#b9c0ca"
+selection_fg = "#272b33"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "BlulocoDark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BLULOCO_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#373a41",
+    "#d52753",
+    "#23974a",
+    "#df631c",
+    "#275fe4",
+    "#823ff1",
+    "#27618d",
+    "#babbc2",
+]
+background = "#f9f9f9"
+brights = [
+    "#676a77",
+    "#ff6480",
+    "#3cbc66",
+    "#c5a332",
+    "#0099e1",
+    "#ce33c0",
+    "#6d93bb",
+    "#d3d3d3",
+]
+cursor_bg = "#f32759"
+cursor_border = "#f32759"
+cursor_fg = "#ffffff"
+foreground = "#373a41"
+selection_bg = "#daf0ff"
+selection_fg = "#373a41"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "BlulocoLight"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BORLAND_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4f4f4f",
+    "#ff6c60",
+    "#a8ff60",
+    "#ffffb6",
+    "#96cbfe",
+    "#ff73fd",
+    "#c6c5fe",
+    "#eeeeee",
+]
+background = "#0000a4"
+brights = [
+    "#7c7c7c",
+    "#ffb6b0",
+    "#ceffac",
+    "#ffffcc",
+    "#b5dcff",
+    "#ff9cfe",
+    "#dfdffe",
+    "#ffffff",
+]
+cursor_bg = "#ffa560"
+cursor_border = "#ffa560"
+cursor_fg = "#ffffff"
+foreground = "#ffff4e"
+selection_bg = "#a4a4a4"
+selection_fg = "#0000a4"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Borland (Gogh)"]
+name = "Borland"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BORLAND_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4f4f4f",
+    "#ff6c60",
+    "#a8ff60",
+    "#ffffb6",
+    "#96cbfe",
+    "#ff73fd",
+    "#c6c5fe",
+    "#eeeeee",
+]
+background = "#0000a4"
+brights = [
+    "#7c7c7c",
+    "#ffb6b0",
+    "#ceffac",
+    "#ffffcc",
+    "#b5dcff",
+    "#ff9cfe",
+    "#dfdffe",
+    "#ffffff",
+]
+cursor_bg = "#ffff4e"
+cursor_border = "#ffff4e"
+cursor_fg = "#0000a4"
+foreground = "#ffff4e"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Borland (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_BREADOG_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#362c24",
+    "#b10b00",
+    "#007232",
+    "#8b4c00",
+    "#005cb4",
+    "#9b0097",
+    "#006a78",
+    "#d4c3b7",
+]
+background = "#f1ebe6"
+brights = [
+    "#514337",
+    "#de1100",
+    "#008f40",
+    "#ae6000",
+    "#0074e1",
+    "#c300bd",
+    "#008697",
+    "#eae1da",
+]
+cursor_bg = "#362c24"
+cursor_border = "#362c24"
+cursor_fg = "#f1ebe6"
+foreground = "#362c24"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Breadog (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_BREATH_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e2229",
+    "#ed1515",
+    "#44853a",
+    "#f67400",
+    "#1d99f3",
+    "#9b59b6",
+    "#1abc9c",
+    "#fcfcfc",
+]
+background = "#1e2229"
+brights = [
+    "#7f8c8d",
+    "#c0392b",
+    "#55a649",
+    "#fdbc4b",
+    "#3daee9",
+    "#8e44ad",
+    "#16a085",
+    "#ffffff",
+]
+cursor_bg = "#17a88b"
+cursor_border = "#17a88b"
+cursor_fg = "#1e2229"
+foreground = "#17a88b"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Breath (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_BREATH_DARKER_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e2229",
+    "#ed1515",
+    "#44853a",
+    "#f67400",
+    "#1d99f3",
+    "#9b59b6",
+    "#1abc9c",
+    "#fcfcfc",
+]
+background = "#080d14"
+brights = [
+    "#7f8c8d",
+    "#c0392b",
+    "#55a649",
+    "#fdbc4b",
+    "#3daee9",
+    "#8e44ad",
+    "#16a085",
+    "#ffffff",
+]
+cursor_bg = "#17a88b"
+cursor_border = "#17a88b"
+cursor_fg = "#080d14"
+foreground = "#17a88b"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Breath Darker (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230320-124340-559cb7b0"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -91931,6 +92323,256 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Black Metal-to-BlueBerry built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_bluedolphin_to_breath_darker_builtin_color_schemes() {
+        let cases = [
+            (
+                "BlueDolphin",
+                Color::Rgb(197, 242, 255),
+                Color::Rgb(0, 105, 132),
+                Color::Rgb(255, 204, 0),
+                Some(Color::Rgb(41, 45, 62)),
+                Some(Color::Rgb(43, 174, 202)),
+                Some(Some(Color::Rgb(236, 239, 241))),
+                Color::Rgb(41, 45, 62),
+                Color::Rgb(255, 130, 136),
+                Color::Rgb(180, 232, 141),
+                Color::Rgb(244, 214, 159),
+                Color::Rgb(67, 71, 88),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Bluloco Light (Gogh)",
+                Color::Rgb(56, 58, 66),
+                Color::Rgb(249, 249, 249),
+                Color::Rgb(56, 58, 66),
+                Some(Color::Rgb(249, 249, 249)),
+                None,
+                None,
+                Color::Rgb(213, 214, 221),
+                Color::Rgb(213, 39, 83),
+                Color::Rgb(35, 151, 74),
+                Color::Rgb(223, 99, 28),
+                Color::Rgb(228, 229, 237),
+                Color::Rgb(38, 39, 45),
+                None,
+            ),
+            (
+                "BlulocoLight (Gogh)",
+                Color::Rgb(56, 58, 66),
+                Color::Rgb(249, 249, 249),
+                Color::Rgb(56, 58, 66),
+                Some(Color::Rgb(249, 249, 249)),
+                None,
+                None,
+                Color::Rgb(213, 214, 221),
+                Color::Rgb(213, 39, 83),
+                Color::Rgb(35, 151, 74),
+                Color::Rgb(223, 99, 28),
+                Color::Rgb(228, 229, 237),
+                Color::Rgb(38, 39, 45),
+                None,
+            ),
+            (
+                "Bluloco Zsh Light (Gogh)",
+                Color::Rgb(56, 58, 66),
+                Color::Rgb(249, 249, 249),
+                Color::Rgb(56, 58, 66),
+                Some(Color::Rgb(249, 249, 249)),
+                None,
+                None,
+                Color::Rgb(228, 229, 241),
+                Color::Rgb(213, 39, 83),
+                Color::Rgb(35, 151, 74),
+                Color::Rgb(223, 99, 28),
+                Color::Rgb(87, 148, 222),
+                Color::Rgb(38, 39, 45),
+                None,
+            ),
+            (
+                "BlulocoZshLight (Gogh)",
+                Color::Rgb(56, 58, 66),
+                Color::Rgb(249, 249, 249),
+                Color::Rgb(56, 58, 66),
+                Some(Color::Rgb(249, 249, 249)),
+                None,
+                None,
+                Color::Rgb(228, 229, 241),
+                Color::Rgb(213, 39, 83),
+                Color::Rgb(35, 151, 74),
+                Color::Rgb(223, 99, 28),
+                Color::Rgb(87, 148, 222),
+                Color::Rgb(38, 39, 45),
+                None,
+            ),
+            (
+                "BlulocoDark",
+                Color::Rgb(185, 192, 203),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(255, 204, 0),
+                Some(Color::Rgb(40, 44, 52)),
+                Some(Color::Rgb(185, 192, 202)),
+                Some(Some(Color::Rgb(39, 43, 51))),
+                Color::Rgb(65, 68, 77),
+                Color::Rgb(252, 47, 82),
+                Color::Rgb(37, 164, 92),
+                Color::Rgb(255, 147, 106),
+                Color::Rgb(143, 154, 174),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "BlulocoLight",
+                Color::Rgb(55, 58, 65),
+                Color::Rgb(249, 249, 249),
+                Color::Rgb(243, 39, 89),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(218, 240, 255)),
+                Some(Some(Color::Rgb(55, 58, 65))),
+                Color::Rgb(55, 58, 65),
+                Color::Rgb(213, 39, 83),
+                Color::Rgb(35, 151, 74),
+                Color::Rgb(223, 99, 28),
+                Color::Rgb(103, 106, 119),
+                Color::Rgb(211, 211, 211),
+                None,
+            ),
+            (
+                "Borland",
+                Color::Rgb(255, 255, 78),
+                Color::Rgb(0, 0, 164),
+                Color::Rgb(255, 165, 96),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(164, 164, 164)),
+                Some(Some(Color::Rgb(0, 0, 164))),
+                Color::Rgb(79, 79, 79),
+                Color::Rgb(255, 108, 96),
+                Color::Rgb(168, 255, 96),
+                Color::Rgb(255, 255, 182),
+                Color::Rgb(124, 124, 124),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Borland (Gogh)",
+                Color::Rgb(255, 255, 78),
+                Color::Rgb(0, 0, 164),
+                Color::Rgb(255, 255, 78),
+                Some(Color::Rgb(0, 0, 164)),
+                None,
+                None,
+                Color::Rgb(79, 79, 79),
+                Color::Rgb(255, 108, 96),
+                Color::Rgb(168, 255, 96),
+                Color::Rgb(255, 255, 182),
+                Color::Rgb(124, 124, 124),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Breadog (Gogh)",
+                Color::Rgb(54, 44, 36),
+                Color::Rgb(241, 235, 230),
+                Color::Rgb(54, 44, 36),
+                Some(Color::Rgb(241, 235, 230)),
+                None,
+                None,
+                Color::Rgb(54, 44, 36),
+                Color::Rgb(177, 11, 0),
+                Color::Rgb(0, 114, 50),
+                Color::Rgb(139, 76, 0),
+                Color::Rgb(81, 67, 55),
+                Color::Rgb(234, 225, 218),
+                None,
+            ),
+            (
+                "Breath (Gogh)",
+                Color::Rgb(23, 168, 139),
+                Color::Rgb(30, 34, 41),
+                Color::Rgb(23, 168, 139),
+                Some(Color::Rgb(30, 34, 41)),
+                None,
+                None,
+                Color::Rgb(30, 34, 41),
+                Color::Rgb(237, 21, 21),
+                Color::Rgb(68, 133, 58),
+                Color::Rgb(246, 116, 0),
+                Color::Rgb(127, 140, 141),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Breath Darker (Gogh)",
+                Color::Rgb(23, 168, 139),
+                Color::Rgb(8, 13, 20),
+                Color::Rgb(23, 168, 139),
+                Some(Color::Rgb(8, 13, 20)),
+                None,
+                None,
+                Color::Rgb(30, 34, 41),
+                Color::Rgb(237, 21, 21),
+                Color::Rgb(68, 133, 58),
+                Color::Rgb(246, 116, 0),
+                Color::Rgb(127, 140, 141),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm BlueDolphin-to-Breath Darker built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();
