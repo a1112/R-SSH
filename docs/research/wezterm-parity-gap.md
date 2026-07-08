@@ -3500,9 +3500,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.color.load_scheme('path')` calls with a constant TOML path,
   including Lua comments between dotted helper path segments, plus top-level
   static aliases such as
-  `local load_scheme = wezterm.color.load_scheme` invoked with a constant TOML
-  path including Lua comments inside the dotted alias helper path or before the
-  call payload, can also feed selected
+  `local load_scheme = wezterm.color.load_scheme` or module/static-key aliases
+  such as `local load_scheme = wt[color_key][load_key]` invoked with a
+  constant TOML path including Lua comments inside the alias helper path or
+  before the call payload, can also feed selected
   `config.color_schemes['Name']` entries directly or through static variables
   whose supported static mutations are applied, or `config.colors` directly,
   through a static table variable, or through the first returned variable from

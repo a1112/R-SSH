@@ -26085,19 +26085,50 @@ fn lua_static_wezterm_color_load_scheme_alias_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_static_wezterm_color_load_scheme_alias_value_from_query(value);
+        selected =
+            lua_static_wezterm_color_load_scheme_alias_value_from_query(source, start, value);
     }
 
     Some(selected)
 }
 
-fn lua_static_wezterm_color_load_scheme_alias_value_from_query(value: &str) -> bool {
-    let Some(rest) =
-        lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.color.load_scheme")
+fn lua_static_wezterm_color_load_scheme_alias_value_from_query(
+    source: &str,
+    max_start: usize,
+    value: &str,
+) -> bool {
+    let Some(value) = lua_trim_start_comments(value) else {
+        return false;
+    };
+    let rest = if let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) {
+        rest
+    } else if let Some(rest) = lua_static_wezterm_receiver_rest_from_query(source, max_start, value)
+    {
+        rest
+    } else {
+        return false;
+    };
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let static_source = Some(LuaStaticSource { source, max_start });
+    let Some((field, rest)) =
+        lua_table_map_field_key_from_query_with_static_source(static_source, rest)
     else {
         return false;
     };
-    lua_static_identifier_value_rest_is_statement_end(rest)
+    if field != "color" {
+        return false;
+    }
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let Some((field, rest)) =
+        lua_table_map_field_key_from_query_with_static_source(static_source, rest)
+    else {
+        return false;
+    };
+    field == "load_scheme" && lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
 fn lua_identifier_literal_from_query(query: &str) -> Option<&str> {
@@ -84515,6 +84546,57 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(49, 50, 51));
         assert_eq!(effective.background_color, Color::Rgb(52, 53, 54));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(55, 56, 57));
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_colors_from_load_scheme_alias_static_key_module() {
+        static NEXT_LOAD_SCHEME_ALIAS_STATIC_KEY_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-alias-static-key-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_ALIAS_STATIC_KEY_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Alias Static Key Loaded Scheme"
+
+            [colors]
+            foreground = "#818283"
+            background = "#848586"
+            cursor_bg = "#878889"
+            "##,
+        )
+        .expect("expected temp load_scheme alias static-key TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wt = require 'wezterm'
+            local config = {{}}
+            local color_key = 'color'
+            local load_key = 'load_scheme'
+            local load_scheme = wt[color_key][load_key]
+
+            config.colors = load_scheme('{}')
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme static-key alias colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(129, 130, 131));
+        assert_eq!(effective.background_color, Color::Rgb(132, 133, 134));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(135, 136, 137));
         let _ = std::fs::remove_file(scheme_file);
     }
 
