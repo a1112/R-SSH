@@ -19230,6 +19230,14 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Astrodark (Gogh)" => Some(BUILTIN_ASTRODARK_GOGH_COLOR_SCHEME_TOML),
         "astromouse (terminal.sexy)" => Some(BUILTIN_ASTROMOUSE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Atelier Cave (base16)" => Some(BUILTIN_ATELIER_CAVE_BASE16_COLOR_SCHEME_TOML),
+        "Atelier Cave Light (base16)" => Some(BUILTIN_ATELIER_CAVE_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Atelier Dune (base16)" => Some(BUILTIN_ATELIER_DUNE_BASE16_COLOR_SCHEME_TOML),
+        "Atelier Dune Light (base16)" => Some(BUILTIN_ATELIER_DUNE_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Atelier Estuary (base16)" => Some(BUILTIN_ATELIER_ESTUARY_BASE16_COLOR_SCHEME_TOML),
+        "Atelier Estuary Light (base16)" => {
+            Some(BUILTIN_ATELIER_ESTUARY_LIGHT_BASE16_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -20565,6 +20573,282 @@ aliases = []
 author = ""
 name = "astromouse (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_CAVE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#19171c",
+    "#be4678",
+    "#2a9292",
+    "#a06e3b",
+    "#576ddb",
+    "#955ae7",
+    "#398bc6",
+    "#8b8792",
+]
+background = "#19171c"
+brights = [
+    "#655f6d",
+    "#be4678",
+    "#2a9292",
+    "#a06e3b",
+    "#576ddb",
+    "#955ae7",
+    "#398bc6",
+    "#efecf4",
+]
+cursor_bg = "#8b8792"
+cursor_border = "#8b8792"
+cursor_fg = "#19171c"
+foreground = "#8b8792"
+selection_bg = "#8b8792"
+selection_fg = "#19171c"
+
+[colors.indexed]
+16 = "#aa573c"
+17 = "#bf40bf"
+18 = "#26232a"
+19 = "#585260"
+20 = "#7e7887"
+21 = "#e2dfe7"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Cave (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_CAVE_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#efecf4",
+    "#be4678",
+    "#2a9292",
+    "#a06e3b",
+    "#576ddb",
+    "#955ae7",
+    "#398bc6",
+    "#585260",
+]
+background = "#efecf4"
+brights = [
+    "#7e7887",
+    "#be4678",
+    "#2a9292",
+    "#a06e3b",
+    "#576ddb",
+    "#955ae7",
+    "#398bc6",
+    "#19171c",
+]
+cursor_bg = "#585260"
+cursor_border = "#585260"
+cursor_fg = "#efecf4"
+foreground = "#585260"
+selection_bg = "#585260"
+selection_fg = "#efecf4"
+
+[colors.indexed]
+16 = "#aa573c"
+17 = "#bf40bf"
+18 = "#e2dfe7"
+19 = "#8b8792"
+20 = "#655f6d"
+21 = "#26232a"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Cave Light (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_DUNE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#20201d",
+    "#d73737",
+    "#60ac39",
+    "#ae9513",
+    "#6684e1",
+    "#b854d4",
+    "#1fad83",
+    "#a6a28c",
+]
+background = "#20201d"
+brights = [
+    "#7d7a68",
+    "#d73737",
+    "#60ac39",
+    "#ae9513",
+    "#6684e1",
+    "#b854d4",
+    "#1fad83",
+    "#fefbec",
+]
+cursor_bg = "#a6a28c"
+cursor_border = "#a6a28c"
+cursor_fg = "#20201d"
+foreground = "#a6a28c"
+selection_bg = "#a6a28c"
+selection_fg = "#20201d"
+
+[colors.indexed]
+16 = "#b65611"
+17 = "#d43552"
+18 = "#292824"
+19 = "#6e6b5e"
+20 = "#999580"
+21 = "#e8e4cf"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Dune (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_DUNE_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#fefbec",
+    "#d73737",
+    "#60ac39",
+    "#ae9513",
+    "#6684e1",
+    "#b854d4",
+    "#1fad83",
+    "#6e6b5e",
+]
+background = "#fefbec"
+brights = [
+    "#999580",
+    "#d73737",
+    "#60ac39",
+    "#ae9513",
+    "#6684e1",
+    "#b854d4",
+    "#1fad83",
+    "#20201d",
+]
+cursor_bg = "#6e6b5e"
+cursor_border = "#6e6b5e"
+cursor_fg = "#fefbec"
+foreground = "#6e6b5e"
+selection_bg = "#6e6b5e"
+selection_fg = "#fefbec"
+
+[colors.indexed]
+16 = "#b65611"
+17 = "#d43552"
+18 = "#e8e4cf"
+19 = "#a6a28c"
+20 = "#7d7a68"
+21 = "#292824"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Dune Light (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_ESTUARY_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#22221b",
+    "#ba6236",
+    "#7d9726",
+    "#a5980d",
+    "#36a166",
+    "#5f9182",
+    "#5b9d48",
+    "#929181",
+]
+background = "#22221b"
+brights = [
+    "#6c6b5a",
+    "#ba6236",
+    "#7d9726",
+    "#a5980d",
+    "#36a166",
+    "#5f9182",
+    "#5b9d48",
+    "#f4f3ec",
+]
+cursor_bg = "#929181"
+cursor_border = "#929181"
+cursor_fg = "#22221b"
+foreground = "#929181"
+selection_bg = "#929181"
+selection_fg = "#22221b"
+
+[colors.indexed]
+16 = "#ae7313"
+17 = "#9d6c7c"
+18 = "#302f27"
+19 = "#5f5e4e"
+20 = "#878573"
+21 = "#e7e6df"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Estuary (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_ESTUARY_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f4f3ec",
+    "#ba6236",
+    "#7d9726",
+    "#a5980d",
+    "#36a166",
+    "#5f9182",
+    "#5b9d48",
+    "#5f5e4e",
+]
+background = "#f4f3ec"
+brights = [
+    "#878573",
+    "#ba6236",
+    "#7d9726",
+    "#a5980d",
+    "#36a166",
+    "#5f9182",
+    "#5b9d48",
+    "#22221b",
+]
+cursor_bg = "#5f5e4e"
+cursor_border = "#5f5e4e"
+cursor_fg = "#f4f3ec"
+foreground = "#5f5e4e"
+selection_bg = "#5f5e4e"
+selection_fg = "#f4f3ec"
+
+[colors.indexed]
+16 = "#ae7313"
+17 = "#9d6c7c"
+18 = "#e7e6df"
+19 = "#929181"
+20 = "#6c6b5a"
+21 = "#302f27"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Estuary Light (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -86822,6 +87106,144 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Arthur-to-astromouse built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_atelier_cave_dune_estuary_builtin_color_schemes() {
+        let cases = [
+            (
+                "Atelier Cave (base16)",
+                Color::Rgb(139, 135, 146),
+                Color::Rgb(25, 23, 28),
+                Color::Rgb(139, 135, 146),
+                Some(Color::Rgb(25, 23, 28)),
+                Some(Color::Rgb(139, 135, 146)),
+                Some(Some(Color::Rgb(25, 23, 28))),
+                Color::Rgb(25, 23, 28),
+                Color::Rgb(190, 70, 120),
+                Color::Rgb(101, 95, 109),
+                Color::Rgb(239, 236, 244),
+                Some(Color::Rgb(170, 87, 60)),
+            ),
+            (
+                "Atelier Cave Light (base16)",
+                Color::Rgb(88, 82, 96),
+                Color::Rgb(239, 236, 244),
+                Color::Rgb(88, 82, 96),
+                Some(Color::Rgb(239, 236, 244)),
+                Some(Color::Rgb(88, 82, 96)),
+                Some(Some(Color::Rgb(239, 236, 244))),
+                Color::Rgb(239, 236, 244),
+                Color::Rgb(190, 70, 120),
+                Color::Rgb(126, 120, 135),
+                Color::Rgb(25, 23, 28),
+                Some(Color::Rgb(170, 87, 60)),
+            ),
+            (
+                "Atelier Dune (base16)",
+                Color::Rgb(166, 162, 140),
+                Color::Rgb(32, 32, 29),
+                Color::Rgb(166, 162, 140),
+                Some(Color::Rgb(32, 32, 29)),
+                Some(Color::Rgb(166, 162, 140)),
+                Some(Some(Color::Rgb(32, 32, 29))),
+                Color::Rgb(32, 32, 29),
+                Color::Rgb(215, 55, 55),
+                Color::Rgb(125, 122, 104),
+                Color::Rgb(254, 251, 236),
+                Some(Color::Rgb(182, 86, 17)),
+            ),
+            (
+                "Atelier Dune Light (base16)",
+                Color::Rgb(110, 107, 94),
+                Color::Rgb(254, 251, 236),
+                Color::Rgb(110, 107, 94),
+                Some(Color::Rgb(254, 251, 236)),
+                Some(Color::Rgb(110, 107, 94)),
+                Some(Some(Color::Rgb(254, 251, 236))),
+                Color::Rgb(254, 251, 236),
+                Color::Rgb(215, 55, 55),
+                Color::Rgb(153, 149, 128),
+                Color::Rgb(32, 32, 29),
+                Some(Color::Rgb(182, 86, 17)),
+            ),
+            (
+                "Atelier Estuary (base16)",
+                Color::Rgb(146, 145, 129),
+                Color::Rgb(34, 34, 27),
+                Color::Rgb(146, 145, 129),
+                Some(Color::Rgb(34, 34, 27)),
+                Some(Color::Rgb(146, 145, 129)),
+                Some(Some(Color::Rgb(34, 34, 27))),
+                Color::Rgb(34, 34, 27),
+                Color::Rgb(186, 98, 54),
+                Color::Rgb(108, 107, 90),
+                Color::Rgb(244, 243, 236),
+                Some(Color::Rgb(174, 115, 19)),
+            ),
+            (
+                "Atelier Estuary Light (base16)",
+                Color::Rgb(95, 94, 78),
+                Color::Rgb(244, 243, 236),
+                Color::Rgb(95, 94, 78),
+                Some(Color::Rgb(244, 243, 236)),
+                Some(Color::Rgb(95, 94, 78)),
+                Some(Some(Color::Rgb(244, 243, 236))),
+                Color::Rgb(244, 243, 236),
+                Color::Rgb(186, 98, 54),
+                Color::Rgb(135, 133, 115),
+                Color::Rgb(34, 34, 27),
+                Some(Color::Rgb(174, 115, 19)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Atelier Cave/Dune/Estuary built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

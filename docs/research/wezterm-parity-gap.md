@@ -3546,7 +3546,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `arcoiris`, `Argonaut`, `Argonaut (Gogh)`, `Arthur`, `Arthur (Gogh)`,
   `Ashes (base16)`, `Ashes (dark) (terminal.sexy)`,
   `Ashes (light) (terminal.sexy)`, `Astrodark (Gogh)`,
-  `astromouse (terminal.sexy)`, `Builtin Dark`, `Builtin Light`,
+  `astromouse (terminal.sexy)`, `Atelier Cave (base16)`,
+  `Atelier Cave Light (base16)`, `Atelier Dune (base16)`,
+  `Atelier Dune Light (base16)`, `Atelier Estuary (base16)`,
+  `Atelier Estuary Light (base16)`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
