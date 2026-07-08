@@ -8294,6 +8294,18 @@ fn lua_window_title_text_parts_from_expression_with_depth(
         );
     }
 
+    if let Some(parts) = lua_window_title_helper_call_parts_from_expression(
+        expression,
+        tab_param,
+        pane_param,
+        tabs_param,
+        panes_param,
+        outer_static_source,
+        depth + 1,
+    ) {
+        return Some(parts);
+    }
+
     if expression.contains("..") {
         let mut parts = Vec::new();
         let mut has_dynamic_part = false;
@@ -8534,6 +8546,273 @@ fn lua_window_title_active_pane_text_parts() -> [(&'static str, NativeLuaWindowT
         ("tty_name", NativeLuaWindowTitlePart::ActivePaneTtyName),
         ("title", NativeLuaWindowTitlePart::ActivePaneTitle),
     ]
+}
+
+fn lua_window_title_helper_call_parts_from_expression(
+    expression: &str,
+    tab_param: &str,
+    pane_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    depth: usize,
+) -> Option<Vec<NativeLuaWindowTitlePart>> {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return None;
+    }
+
+    let outer_static_source = outer_static_source?;
+    let function_name = lua_identifier_literal_from_query(expression)?;
+    let rest = expression.get(function_name.len()..)?;
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    let argument = lua_trim_start_comments(argument.trim())?;
+    let argument_name = lua_identifier_literal_from_query(argument)?;
+    if argument_name != tab_param {
+        return None;
+    }
+    if !lua_static_identifier_value_rest_is_statement_end(argument.get(argument_name.len()..)?) {
+        return None;
+    }
+
+    lua_static_window_title_helper_function_parts_before_offset(
+        outer_static_source.source,
+        function_name,
+        outer_static_source.max_start,
+        outer_static_source,
+        pane_param,
+        tabs_param,
+        panes_param,
+        depth + 1,
+    )
+}
+
+fn lua_static_window_title_helper_function_parts_before_offset(
+    source: &str,
+    function_name: &str,
+    max_start: usize,
+    outer_static_source: LuaStaticSource<'_>,
+    pane_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
+    depth: usize,
+) -> Option<Vec<NativeLuaWindowTitlePart>> {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return None;
+    }
+
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let Some(statement) = lua_top_level_function_statement_from_index(source, start) else {
+            continue;
+        };
+        if let Some(parts) = lua_window_title_helper_function_parts_from_statement(
+            statement,
+            function_name,
+            outer_static_source,
+            pane_param,
+            tabs_param,
+            panes_param,
+            depth + 1,
+        ) {
+            selected = Some(parts);
+        }
+    }
+
+    selected
+}
+
+fn lua_window_title_helper_function_parts_from_statement(
+    statement: &str,
+    function_name: &str,
+    outer_static_source: LuaStaticSource<'_>,
+    pane_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
+    depth: usize,
+) -> Option<Vec<NativeLuaWindowTitlePart>> {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH || !lua_source_keyword_at(statement, 0, "function") {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(statement.get("function".len()..)?)?;
+    let name = lua_identifier_literal_from_query(rest)?;
+    if name != function_name {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(name.len()..)?)?.strip_prefix('(')?;
+    let (params, body_start) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let params = split_lua_top_level_arguments(params)?;
+    let [first_param] = params.as_slice() else {
+        return None;
+    };
+    let first_param = lua_function_param_identifier(first_param)?;
+    let body = lua_static_function_body_until_end(body_start)?;
+    lua_window_title_return_text_parts_from_function_body(
+        body,
+        first_param,
+        pane_param,
+        tabs_param,
+        panes_param,
+        Some(outer_static_source),
+        depth + 1,
+    )
+}
+
+fn lua_window_title_return_text_parts_from_function_body(
+    body: &str,
+    tab_param: &str,
+    pane_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    depth: usize,
+) -> Option<Vec<NativeLuaWindowTitlePart>> {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return None;
+    }
+
+    if let Some(parts) = lua_window_title_explicit_title_fallback_parts_from_function_body(
+        body,
+        tab_param,
+        pane_param,
+        tabs_param,
+        panes_param,
+        outer_static_source,
+        depth + 1,
+    ) {
+        return Some(parts);
+    }
+
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        let Some(expression) = lua_static_return_expression_from_statement(statement) else {
+            continue;
+        };
+        if let Some(parts) = lua_window_title_text_parts_from_expression_with_depth(
+            expression,
+            tab_param,
+            pane_param,
+            tabs_param,
+            panes_param,
+            Some(LuaStaticSource {
+                source: body,
+                max_start: start,
+            }),
+            outer_static_source,
+            depth + 1,
+        ) {
+            return Some(parts);
+        }
+    }
+
+    None
+}
+
+fn lua_window_title_explicit_title_fallback_parts_from_function_body(
+    body: &str,
+    tab_param: &str,
+    pane_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    depth: usize,
+) -> Option<Vec<NativeLuaWindowTitlePart>> {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return None;
+    }
+
+    let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
+    for (position, start) in starts.iter().enumerate() {
+        let statement = lua_trim_start_comments(body.get(*start..)?)?;
+        let Some((condition, if_body)) =
+            lua_static_if_condition_and_body_branches_from_statement(statement)
+                .and_then(|(branches, _)| branches.first().copied())
+        else {
+            continue;
+        };
+        let Some(condition_variable) = lua_tab_title_non_empty_condition_variable(condition) else {
+            continue;
+        };
+        let Some(returned_variable) = lua_static_return_identifier_from_function_body(if_body)
+        else {
+            continue;
+        };
+        if returned_variable != condition_variable {
+            continue;
+        }
+
+        let Some(assigned_value) =
+            lua_static_expression_variable_assignment_before_offset_from_query(
+                body,
+                condition_variable,
+                *start,
+            )
+        else {
+            continue;
+        };
+        let if_static_source = LuaStaticSource {
+            source: body,
+            max_start: *start,
+        };
+        if !matches!(
+            lua_window_title_text_part_from_expression(
+                assigned_value,
+                tab_param,
+                pane_param,
+                tabs_param,
+                panes_param,
+                Some(if_static_source),
+                outer_static_source,
+            ),
+            Some(NativeLuaWindowTitlePart::ActiveTabTitle)
+        ) {
+            continue;
+        }
+
+        for fallback_start in starts.iter().skip(position + 1) {
+            let fallback_statement = lua_trim_start_comments(body.get(*fallback_start..)?)?;
+            let Some(fallback_expression) =
+                lua_static_return_expression_from_statement(fallback_statement)
+            else {
+                continue;
+            };
+            let fallback_static_source = LuaStaticSource {
+                source: body,
+                max_start: *fallback_start,
+            };
+            let Some(fallback_parts) = lua_window_title_text_parts_from_expression_with_depth(
+                fallback_expression,
+                tab_param,
+                pane_param,
+                tabs_param,
+                panes_param,
+                Some(fallback_static_source),
+                outer_static_source,
+                depth + 1,
+            ) else {
+                continue;
+            };
+            if matches!(
+                fallback_parts.as_slice(),
+                [NativeLuaWindowTitlePart::ActivePaneTitle]
+            ) {
+                return Some(vec![
+                    NativeLuaWindowTitlePart::ActiveTabTitleOrActivePaneTitle,
+                ]);
+            }
+        }
+    }
+
+    None
 }
 
 fn lua_window_title_active_pane_alias_before_offset(
@@ -31779,6 +32058,7 @@ enum NativeLuaWindowTitlePart {
         field: NativeLuaTabTitleProgressField,
     },
     ActivePaneTitle,
+    ActiveTabTitleOrActivePaneTitle,
     ActivePaneDomainName,
     ActivePaneForegroundProcessName,
     ActivePaneCurrentWorkingDir,
@@ -31816,6 +32096,13 @@ impl NativeLuaWindowTitlePart {
                 _ => None,
             },
             Self::ActivePaneTitle => event.active_pane_info.title.clone(),
+            Self::ActiveTabTitleOrActivePaneTitle => event
+                .active_tab_info
+                .tab_title
+                .as_ref()
+                .filter(|title| !title.is_empty())
+                .cloned()
+                .or_else(|| event.active_pane_info.title.clone()),
             Self::ActivePaneDomainName => Some(event.active_pane_info.domain_name.clone()),
             Self::ActivePaneForegroundProcessName => {
                 Some(event.active_pane_info.foreground_process_name.clone())
@@ -107183,6 +107470,42 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "Pane Title");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_helper_explicit_title_fallback() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local title = tab_title(tab)
+              return title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title helper explicit-title fallback");
+        app.set_config_overrides(overrides);
+        assert_eq!(app.effective_window_title(), "Pane Title");
+
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "Explicit Tab".to_owned(),
+        })
+        .unwrap();
+
+        assert_eq!(app.effective_window_title(), "Explicit Tab");
     }
 
     #[test]
