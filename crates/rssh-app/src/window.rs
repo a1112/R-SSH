@@ -19197,6 +19197,10 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Builtin Solarized Dark" | "iTerm2 Solarized Dark" => {
             Some(BUILTIN_SOLARIZED_DARK_COLOR_SCHEME_TOML)
         }
+        "Builtin Solarized Light"
+        | "Solarized Light (Gogh)"
+        | "SolarizedLight (Gogh)"
+        | "iTerm2 Solarized Light" => Some(BUILTIN_SOLARIZED_LIGHT_COLOR_SCHEME_TOML),
         _ => None,
     }
 }
@@ -19236,6 +19240,49 @@ selection_fg = "#93a1a1"
 [metadata]
 aliases = ["iTerm2 Solarized Dark"]
 name = "Builtin Solarized Dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SOLARIZED_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#073642",
+    "#dc322f",
+    "#859900",
+    "#b58900",
+    "#268bd2",
+    "#d33682",
+    "#2aa198",
+    "#eee8d5",
+]
+background = "#fdf6e3"
+brights = [
+    "#002b36",
+    "#cb4b16",
+    "#586e75",
+    "#657b83",
+    "#839496",
+    "#6c71c4",
+    "#93a1a1",
+    "#fdf6e3",
+]
+cursor_bg = "#657b83"
+cursor_border = "#657b83"
+cursor_fg = "#eee8d5"
+foreground = "#657b83"
+selection_bg = "#eee8d5"
+selection_fg = "#586e75"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Solarized Light (Gogh)",
+    "SolarizedLight (Gogh)",
+    "iTerm2 Solarized Light",
+]
+name = "Builtin Solarized Light"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
 "##;
@@ -84398,6 +84445,37 @@ mod tests {
         assert_eq!(ansi[1], Color::Rgb(220, 50, 47));
         assert_eq!(ansi[8], Color::Rgb(0, 43, 54));
         assert_eq!(ansi[15], Color::Rgb(253, 246, 227));
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_builtin_solarized_light_color_scheme_aliases() {
+        for color_scheme in ["Builtin Solarized Light", "iTerm2 Solarized Light"] {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm built-in Solarized Light color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, Color::Rgb(101, 123, 131));
+            assert_eq!(effective.background_color, Color::Rgb(253, 246, 227));
+            assert_eq!(effective.cursor_bg_color, Color::Rgb(101, 123, 131));
+            assert_eq!(effective.cursor_fg_color, Some(Color::Rgb(238, 232, 213)));
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], Color::Rgb(7, 54, 66));
+            assert_eq!(ansi[1], Color::Rgb(220, 50, 47));
+            assert_eq!(ansi[8], Color::Rgb(0, 43, 54));
+            assert_eq!(ansi[15], Color::Rgb(253, 246, 227));
+        }
     }
 
     #[test]
