@@ -3628,6 +3628,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `dirtysea (base16)`, `Dissonance (Gogh)`, `Django`,
   `DjangoRebornAgain`, `DjangoSmooth`, `Doom Peacock`, `DoomOne`,
   `DotGov`, `Dotshare (terminal.sexy)`, `Dracula`, `Dracula (base16)`,
+  `Dracula (Gogh)`, `Dracula (Official)`, `Dracula+`, `duckbones`,
+  `Duotone Dark`, `duskfox`, `DWM rob (terminal.sexy)`, `Earthsong`,
+  `Earthsong (Gogh)`, `Edge Dark (base16)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using

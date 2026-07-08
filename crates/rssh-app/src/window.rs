@@ -19527,6 +19527,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Dotshare (terminal.sexy)" => Some(BUILTIN_DOTSHARE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Dracula" => Some(BUILTIN_DRACULA_COLOR_SCHEME_TOML),
         "Dracula (base16)" => Some(BUILTIN_DRACULA_BASE16_COLOR_SCHEME_TOML),
+        "Dracula (Gogh)" => Some(BUILTIN_DRACULA_GOGH_COLOR_SCHEME_TOML),
+        "Dracula (Official)" => Some(BUILTIN_DRACULA_OFFICIAL_COLOR_SCHEME_TOML),
+        "Dracula+" => Some(BUILTIN_DRACULA_PLUS_COLOR_SCHEME_TOML),
+        "duckbones" => Some(BUILTIN_DUCKBONES_COLOR_SCHEME_TOML),
+        "Duotone Dark" => Some(BUILTIN_DUOTONE_DARK_COLOR_SCHEME_TOML),
+        "duskfox" => Some(BUILTIN_DUSKFOX_COLOR_SCHEME_TOML),
+        "DWM rob (terminal.sexy)" => Some(BUILTIN_DWM_ROB_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Earthsong" => Some(BUILTIN_EARTHSONG_COLOR_SCHEME_TOML),
+        "Earthsong (Gogh)" => Some(BUILTIN_EARTHSONG_GOGH_COLOR_SCHEME_TOML),
+        "Edge Dark (base16)" => Some(BUILTIN_EDGE_DARK_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -29654,6 +29664,494 @@ aliases = []
 author = "Mike Barkmin (http://github.com/mikebarkmin) based on Dracula Theme (http://github.com/dracula)"
 name = "Dracula (base16)"
 origin_url = "https://github.com/dracula/base16-dracula-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DRACULA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#44475a",
+    "#ff5555",
+    "#50fa7b",
+    "#ffb86c",
+    "#8be9fd",
+    "#bd93f9",
+    "#ff79c6",
+    "#f8f8f2",
+]
+background = "#282a36"
+brights = [
+    "#000000",
+    "#ff5555",
+    "#50fa7b",
+    "#ffb86c",
+    "#8be9fd",
+    "#bd93f9",
+    "#ff79c6",
+    "#ffffff",
+]
+cursor_bg = "#f8f8f2"
+cursor_border = "#f8f8f2"
+cursor_fg = "#282a36"
+foreground = "#f8f8f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Dracula (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DRACULA_OFFICIAL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#21222c",
+    "#ff5555",
+    "#50fa7b",
+    "#f1fa8c",
+    "#bd93f9",
+    "#ff79c6",
+    "#8be9fd",
+    "#f8f8f2",
+]
+background = "#282a36"
+brights = [
+    "#6272a4",
+    "#ff6e6e",
+    "#69ff94",
+    "#ffffa5",
+    "#d6acff",
+    "#ff92df",
+    "#a4ffff",
+    "#ffffff",
+]
+compose_cursor = "#ffb86c"
+cursor_bg = "#f8f8f2"
+cursor_border = "#f8f8f2"
+cursor_fg = "#282a36"
+foreground = "#f8f8f2"
+scrollbar_thumb = "#44475a"
+selection_bg = "rgba(26.666668% 27.843138% 35.294117% 50%)"
+selection_fg = "rgba(0% 0% 0% 0%)"
+split = "#6272a4"
+
+[colors.indexed]
+
+[colors.tab_bar]
+background = "#282a36"
+
+[colors.tab_bar.active_tab]
+bg_color = "#bd93f9"
+fg_color = "#282a36"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#282a36"
+fg_color = "#f8f8f2"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#6272a4"
+fg_color = "#f8f8f2"
+intensity = "Normal"
+italic = true
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#282a36"
+fg_color = "#f8f8f2"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#ff79c6"
+fg_color = "#f8f8f2"
+intensity = "Normal"
+italic = true
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+author = "timescam"
+name = "Dracula (Official)"
+origin_url = "https://github.com/dracula/wezterm"
+wezterm_version = "20220903-194523-3bb1ed61"
+"##;
+
+const BUILTIN_DRACULA_PLUS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#21222c",
+    "#ff5555",
+    "#50fa7b",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#8be9fd",
+    "#f8f8f2",
+]
+background = "#212121"
+brights = [
+    "#545454",
+    "#ff6e6e",
+    "#69ff94",
+    "#ffcb6b",
+    "#d6acff",
+    "#ff92df",
+    "#a4ffff",
+    "#f8f8f2",
+]
+cursor_bg = "#eceff4"
+cursor_border = "#eceff4"
+cursor_fg = "#282828"
+foreground = "#f8f8f2"
+selection_bg = "#f8f8f2"
+selection_fg = "#545454"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Dracula+"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DUCKBONES_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0e101a",
+    "#e03600",
+    "#5dcd97",
+    "#e39500",
+    "#00a3cb",
+    "#795ccc",
+    "#00a3cb",
+    "#ebefc0",
+]
+background = "#0e101a"
+brights = [
+    "#2b2f46",
+    "#ff4821",
+    "#58db9e",
+    "#f6a100",
+    "#00b4e0",
+    "#b3a1e6",
+    "#00b4e0",
+    "#b3b692",
+]
+cursor_bg = "#edf2c2"
+cursor_border = "#edf2c2"
+cursor_fg = "#0e101a"
+foreground = "#ebefc0"
+selection_bg = "#37382d"
+selection_fg = "#ebefc0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "duckbones"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DUOTONE_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1f1d27",
+    "#d9393e",
+    "#2dcd73",
+    "#d9b76e",
+    "#ffc284",
+    "#de8d40",
+    "#2488ff",
+    "#b7a1ff",
+]
+background = "#1f1d27"
+brights = [
+    "#353147",
+    "#d9393e",
+    "#2dcd73",
+    "#d9b76e",
+    "#ffc284",
+    "#de8d40",
+    "#2488ff",
+    "#eae5ff",
+]
+cursor_bg = "#ff9839"
+cursor_border = "#ff9839"
+cursor_fg = "#1f1d27"
+foreground = "#b7a1ff"
+selection_bg = "#353147"
+selection_fg = "#b7a2ff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Duotone Dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DUSKFOX_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#393552",
+    "#eb6f92",
+    "#a3be8c",
+    "#f6c177",
+    "#569fba",
+    "#c4a7e7",
+    "#9ccfd8",
+    "#e0def4",
+]
+background = "#232136"
+brights = [
+    "#47407d",
+    "#f083a2",
+    "#b1d196",
+    "#f9cb8c",
+    "#65b1cd",
+    "#ccb1ed",
+    "#a6dae3",
+    "#e2e0f7",
+]
+compose_cursor = "#ea9a97"
+cursor_bg = "#e0def4"
+cursor_border = "#e0def4"
+cursor_fg = "#232136"
+foreground = "#e0def4"
+scrollbar_thumb = "#6e6a86"
+selection_bg = "#433c59"
+selection_fg = "#e0def4"
+split = "#191726"
+visual_bell = "#e0def4"
+
+[colors.indexed]
+16 = "#eb98c3"
+17 = "#ea9a97"
+
+[colors.tab_bar]
+background = "#191726"
+inactive_tab_edge = "#191726"
+inactive_tab_edge_hover = "#2d2a45"
+
+[colors.tab_bar.active_tab]
+bg_color = "#6e6a86"
+fg_color = "#232136"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#2d2a45"
+fg_color = "#cdcbe0"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#373354"
+fg_color = "#e0def4"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#232136"
+fg_color = "#cdcbe0"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#373354"
+fg_color = "#e0def4"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+author = "EdenEast"
+name = "duskfox"
+origin_url = "https://github.com/EdenEast/nightfox.nvim"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DWM_ROB_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151515",
+    "#bf7979",
+    "#97b26b",
+    "#cdcda1",
+    "#4a5463",
+    "#9c3885",
+    "#88aadd",
+    "#ffffff",
+]
+background = "#000000"
+brights = [
+    "#505450",
+    "#f4a45f",
+    "#c5f779",
+    "#ffffaf",
+    "#7d8794",
+    "#e628ba",
+    "#99ccff",
+    "#dedede",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "DWM rob (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_EARTHSONG_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#121418",
+    "#c94234",
+    "#85c54c",
+    "#f5ae2e",
+    "#1398b9",
+    "#d0633d",
+    "#509552",
+    "#e5c6aa",
+]
+background = "#292520"
+brights = [
+    "#675f54",
+    "#ff645a",
+    "#98e036",
+    "#e0d561",
+    "#5fdaff",
+    "#ff9269",
+    "#84f088",
+    "#f6f7ec",
+]
+cursor_bg = "#f6f7ec"
+cursor_border = "#f6f7ec"
+cursor_fg = "#292520"
+foreground = "#e5c7a9"
+selection_bg = "#121418"
+selection_fg = "#e5c7a9"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Earthsong (Gogh)"]
+name = "Earthsong"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_EARTHSONG_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#121418",
+    "#c94234",
+    "#85c54c",
+    "#f5ae2e",
+    "#1398b9",
+    "#d0633d",
+    "#509552",
+    "#e5c6aa",
+]
+background = "#292520"
+brights = [
+    "#675f54",
+    "#ff645a",
+    "#98e036",
+    "#e0d561",
+    "#5fdaff",
+    "#ff9269",
+    "#84f088",
+    "#f6f7ec",
+]
+cursor_bg = "#e5c7a9"
+cursor_border = "#e5c7a9"
+cursor_fg = "#292520"
+foreground = "#e5c7a9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Earthsong (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_EDGE_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#262729",
+    "#e77171",
+    "#a1bf78",
+    "#dbb774",
+    "#73b3e7",
+    "#d390e7",
+    "#5ebaa5",
+    "#b7bec9",
+]
+background = "#262729"
+brights = [
+    "#3e4249",
+    "#e77171",
+    "#a1bf78",
+    "#dbb774",
+    "#73b3e7",
+    "#d390e7",
+    "#5ebaa5",
+    "#3e4249",
+]
+cursor_bg = "#b7bec9"
+cursor_border = "#b7bec9"
+cursor_fg = "#262729"
+foreground = "#b7bec9"
+selection_bg = "#b7bec9"
+selection_fg = "#262729"
+
+[colors.indexed]
+16 = "#e77171"
+17 = "#5ebaa5"
+18 = "#88909f"
+19 = "#b7bec9"
+20 = "#73b3e7"
+21 = "#d390e7"
+
+[metadata]
+aliases = []
+author = "cjayross (https://github.com/cjayross)"
+name = "Edge Dark (base16)"
+origin_url = "https://github.com/cjayross/base16-edge-schemes"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -77100,8 +77598,15 @@ fn lua_rgb_color_from_query(value: &str) -> Option<Color> {
 
 fn lua_rgba_color_from_query(value: &str) -> Option<Color> {
     let components = lua_color_function_body(value, "rgba")?;
-    let components = components.split(',').map(str::trim).collect::<Vec<_>>();
-    let [red, green, blue, alpha] = <[&str; 4]>::try_from(components).ok()?;
+    let (mut components, alpha) = split_lua_css_rgb_channels_and_alpha(components)?;
+    let alpha = alpha.or_else(|| {
+        if components.len() == 4 {
+            components.pop()
+        } else {
+            None
+        }
+    })?;
+    let [red, green, blue] = <[&str; 3]>::try_from(components).ok()?;
     let red = lua_css_rgb_channel_from_query(red)?;
     let green = lua_css_rgb_channel_from_query(green)?;
     let blue = lua_css_rgb_channel_from_query(blue)?;
@@ -100482,6 +100987,228 @@ mod tests {
     }
 
     #[test]
+    fn window_app_loads_wezterm_lua_dracula_gogh_to_edge_dark_builtin_color_schemes() {
+        let cases = [
+            (
+                "Dracula (Gogh)",
+                Color::Rgb(248, 248, 242),
+                Color::Rgb(40, 42, 54),
+                Color::Rgb(248, 248, 242),
+                Some(Color::Rgb(40, 42, 54)),
+                None,
+                None,
+                Color::Rgb(68, 71, 90),
+                Color::Rgb(255, 85, 85),
+                Color::Rgb(80, 250, 123),
+                Color::Rgb(255, 184, 108),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Dracula (Official)",
+                Color::Rgb(248, 248, 242),
+                Color::Rgb(40, 42, 54),
+                Color::Rgb(248, 248, 242),
+                Some(Color::Rgb(40, 42, 54)),
+                Some(Color::Rgba(68, 71, 89, 127)),
+                Some(None),
+                Color::Rgb(33, 34, 44),
+                Color::Rgb(255, 85, 85),
+                Color::Rgb(80, 250, 123),
+                Color::Rgb(241, 250, 140),
+                Color::Rgb(98, 114, 164),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Dracula+",
+                Color::Rgb(248, 248, 242),
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(236, 239, 244),
+                Some(Color::Rgb(40, 40, 40)),
+                Some(Color::Rgb(248, 248, 242)),
+                Some(Some(Color::Rgb(84, 84, 84))),
+                Color::Rgb(33, 34, 44),
+                Color::Rgb(255, 85, 85),
+                Color::Rgb(80, 250, 123),
+                Color::Rgb(255, 203, 107),
+                Color::Rgb(84, 84, 84),
+                Color::Rgb(248, 248, 242),
+                None,
+            ),
+            (
+                "duckbones",
+                Color::Rgb(235, 239, 192),
+                Color::Rgb(14, 16, 26),
+                Color::Rgb(237, 242, 194),
+                Some(Color::Rgb(14, 16, 26)),
+                Some(Color::Rgb(55, 56, 45)),
+                Some(Some(Color::Rgb(235, 239, 192))),
+                Color::Rgb(14, 16, 26),
+                Color::Rgb(224, 54, 0),
+                Color::Rgb(93, 205, 151),
+                Color::Rgb(227, 149, 0),
+                Color::Rgb(43, 47, 70),
+                Color::Rgb(179, 182, 146),
+                None,
+            ),
+            (
+                "Duotone Dark",
+                Color::Rgb(183, 161, 255),
+                Color::Rgb(31, 29, 39),
+                Color::Rgb(255, 152, 57),
+                Some(Color::Rgb(31, 29, 39)),
+                Some(Color::Rgb(53, 49, 71)),
+                Some(Some(Color::Rgb(183, 162, 255))),
+                Color::Rgb(31, 29, 39),
+                Color::Rgb(217, 57, 62),
+                Color::Rgb(45, 205, 115),
+                Color::Rgb(217, 183, 110),
+                Color::Rgb(53, 49, 71),
+                Color::Rgb(234, 229, 255),
+                None,
+            ),
+            (
+                "duskfox",
+                Color::Rgb(224, 222, 244),
+                Color::Rgb(35, 33, 54),
+                Color::Rgb(224, 222, 244),
+                Some(Color::Rgb(35, 33, 54)),
+                Some(Color::Rgb(67, 60, 89)),
+                Some(Some(Color::Rgb(224, 222, 244))),
+                Color::Rgb(57, 53, 82),
+                Color::Rgb(235, 111, 146),
+                Color::Rgb(163, 190, 140),
+                Color::Rgb(246, 193, 119),
+                Color::Rgb(71, 64, 125),
+                Color::Rgb(226, 224, 247),
+                Some(Color::Rgb(235, 152, 195)),
+            ),
+            (
+                "DWM rob (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(191, 121, 121),
+                Color::Rgb(151, 178, 107),
+                Color::Rgb(205, 205, 161),
+                Color::Rgb(80, 84, 80),
+                Color::Rgb(222, 222, 222),
+                None,
+            ),
+            (
+                "Earthsong",
+                Color::Rgb(229, 199, 169),
+                Color::Rgb(41, 37, 32),
+                Color::Rgb(246, 247, 236),
+                Some(Color::Rgb(41, 37, 32)),
+                Some(Color::Rgb(18, 20, 24)),
+                Some(Some(Color::Rgb(229, 199, 169))),
+                Color::Rgb(18, 20, 24),
+                Color::Rgb(201, 66, 52),
+                Color::Rgb(133, 197, 76),
+                Color::Rgb(245, 174, 46),
+                Color::Rgb(103, 95, 84),
+                Color::Rgb(246, 247, 236),
+                None,
+            ),
+            (
+                "Earthsong (Gogh)",
+                Color::Rgb(229, 199, 169),
+                Color::Rgb(41, 37, 32),
+                Color::Rgb(229, 199, 169),
+                Some(Color::Rgb(41, 37, 32)),
+                None,
+                None,
+                Color::Rgb(18, 20, 24),
+                Color::Rgb(201, 66, 52),
+                Color::Rgb(133, 197, 76),
+                Color::Rgb(245, 174, 46),
+                Color::Rgb(103, 95, 84),
+                Color::Rgb(246, 247, 236),
+                None,
+            ),
+            (
+                "Edge Dark (base16)",
+                Color::Rgb(183, 190, 201),
+                Color::Rgb(38, 39, 41),
+                Color::Rgb(183, 190, 201),
+                Some(Color::Rgb(38, 39, 41)),
+                Some(Color::Rgb(183, 190, 201)),
+                Some(Some(Color::Rgb(38, 39, 41))),
+                Color::Rgb(38, 39, 41),
+                Color::Rgb(231, 113, 113),
+                Color::Rgb(161, 191, 120),
+                Color::Rgb(219, 183, 116),
+                Color::Rgb(62, 66, 73),
+                Color::Rgb(62, 66, 73),
+                Some(Color::Rgb(231, 113, 113)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Dracula Gogh-to-Edge Dark built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
     fn window_app_loads_wezterm_lua_builtin_solarized_light_color_scheme_aliases() {
         for color_scheme in ["Builtin Solarized Light", "iTerm2 Solarized Light"] {
             let mut app = NativeWindowApp::new(None);
@@ -102602,6 +103329,29 @@ mod tests {
             plain_cell_uses_percent_foreground,
             "foreground CSS rgb percentages did not render"
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_css_rgba_space_percent_selection_colors() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.colors = {
+              selection_bg = 'rgba(26.666668% 27.843138% 35.294117% 50%)',
+              selection_fg = 'rgba(0% 0% 0% 0%)',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm CSS rgba space percentage color config");
+
+        assert_eq!(
+            overrides.selection_bg_color,
+            Some(Color::Rgba(68, 71, 89, 127))
+        );
+        assert_eq!(overrides.selection_fg_color, Some(None));
     }
 
     #[test]
