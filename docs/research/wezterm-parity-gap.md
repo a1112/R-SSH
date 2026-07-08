@@ -3631,6 +3631,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Dracula (Gogh)`, `Dracula (Official)`, `Dracula+`, `duckbones`,
   `Duotone Dark`, `duskfox`, `DWM rob (terminal.sexy)`, `Earthsong`,
   `Earthsong (Gogh)`, `Edge Dark (base16)`,
+  `Edge Light (base16)`, `Ef-Arbutus`, `Ef-Autumn`, `Ef-Bio`,
+  `Ef-Cherie`, `Ef-Cyprus`, `Ef-Dark`, `Ef-Day`,
+  `Ef-Deuteranopia-Dark`, `Ef-Deuteranopia-Light`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
