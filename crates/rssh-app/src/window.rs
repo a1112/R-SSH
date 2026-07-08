@@ -59354,9 +59354,10 @@ fn lua_static_wezterm_emit_alias_value_from_query(value: &str) -> bool {
     let Some(value) = lua_trim_start_comments(value) else {
         return false;
     };
-    if let Some(rest) = lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.emit")
-    {
-        return lua_static_identifier_value_rest_is_statement_end(rest);
+    if let Some(rest) = value.strip_prefix("wezterm") {
+        if !rest.chars().next().is_some_and(is_lua_identifier_character) {
+            return lua_static_wezterm_emit_alias_receiver_rest_is_statement_end(rest);
+        }
     }
     let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) else {
         return false;
@@ -59365,19 +59366,14 @@ fn lua_static_wezterm_emit_alias_value_from_query(value: &str) -> bool {
 }
 
 fn lua_static_wezterm_emit_alias_receiver_rest_is_statement_end(rest: &str) -> bool {
-    let Some(rest) = lua_trim_start_comments(rest).and_then(|rest| rest.strip_prefix('.')) else {
-        return false;
-    };
     let Some(rest) = lua_trim_start_comments(rest) else {
         return false;
     };
-    if !rest.starts_with("emit") || !lua_config_assignment_field_has_boundaries(rest, 0, "emit") {
-        return false;
-    }
-    let Some(rest) = rest.get("emit".len()..) else {
+    let Some((field, rest)) = lua_table_map_field_key_from_query_with_static_source(None, rest)
+    else {
         return false;
     };
-    lua_static_identifier_value_rest_is_statement_end(rest)
+    field == "emit" && lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
 #[derive(Clone, Default)]
@@ -122741,6 +122737,41 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_emits_static_event_bracket_alias() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local emit = wezterm['emit']
+
+            wezterm.on('send-greeting', function(window, pane)
+              emit('write-greeting', window, pane)
+            end)
+
+            wezterm.on('write-greeting', function(window, pane)
+              window:perform_action(act.SendString 'hello-bracket-alias', pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler bracket alias config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello-bracket-alias");
     }
 
     #[test]
