@@ -19207,6 +19207,11 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Aco (Gogh)" => Some(BUILTIN_ACO_GOGH_COLOR_SCHEME_TOML),
         "Adventure" => Some(BUILTIN_ADVENTURE_COLOR_SCHEME_TOML),
         "Adventure Time (Gogh)" | "AdventureTime" => Some(BUILTIN_ADVENTURE_TIME_COLOR_SCHEME_TOML),
+        "Afterglow" => Some(BUILTIN_AFTERGLOW_COLOR_SCHEME_TOML),
+        "Afterglow (Gogh)" => Some(BUILTIN_AFTERGLOW_GOGH_COLOR_SCHEME_TOML),
+        "aikofog (terminal.sexy)" => Some(BUILTIN_AIKOFOG_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Alabaster" => Some(BUILTIN_ALABASTER_COLOR_SCHEME_TOML),
+        "Alien Blood (Gogh)" | "AlienBlood" => Some(BUILTIN_ALIENBLOOD_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -19727,6 +19732,195 @@ selection_fg = "#f3d9c4"
 [metadata]
 aliases = ["Adventure Time (Gogh)"]
 name = "AdventureTime"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_AFTERGLOW_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151515",
+    "#ac4142",
+    "#7e8e50",
+    "#e5b567",
+    "#6c99bb",
+    "#9f4e85",
+    "#7dd6cf",
+    "#d0d0d0",
+]
+background = "#212121"
+brights = [
+    "#505050",
+    "#ac4142",
+    "#7e8e50",
+    "#e5b567",
+    "#6c99bb",
+    "#9f4e85",
+    "#7dd6cf",
+    "#f5f5f5",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#151515"
+foreground = "#d0d0d0"
+selection_bg = "#303030"
+selection_fg = "#d0d0d0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Afterglow"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_AFTERGLOW_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151515",
+    "#a53c23",
+    "#7b9246",
+    "#d3a04d",
+    "#6c99bb",
+    "#9f4e85",
+    "#7dd6cf",
+    "#d0d0d0",
+]
+background = "#222222"
+brights = [
+    "#505050",
+    "#a53c23",
+    "#7b9246",
+    "#d3a04d",
+    "#547c99",
+    "#9f4e85",
+    "#7dd6cf",
+    "#f5f5f5",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#222222"
+foreground = "#d0d0d0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Afterglow (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_AIKOFOG_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#757475",
+    "#936a6f",
+    "#668462",
+    "#7f7b62",
+    "#6e7291",
+    "#846887",
+    "#637e7b",
+    "#9a9a9a",
+]
+background = "#f1eee9"
+brights = [
+    "#4a4a4a",
+    "#d76572",
+    "#4fae42",
+    "#a8981f",
+    "#7782cf",
+    "#b754c4",
+    "#2ea89a",
+    "#c4c4c4",
+]
+foreground = "#b2b3b8"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Gutterslob"
+name = "aikofog (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ALABASTER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#aa3731",
+    "#448c27",
+    "#cb9000",
+    "#325cc0",
+    "#7a3e9d",
+    "#0083b2",
+    "#f7f7f7",
+]
+background = "#f7f7f7"
+brights = [
+    "#777777",
+    "#f05050",
+    "#60cb00",
+    "#ffbc5d",
+    "#007acc",
+    "#e64ce6",
+    "#00aacb",
+    "#f7f7f7",
+]
+cursor_bg = "#007acc"
+cursor_border = "#007acc"
+cursor_fg = "#bfdbfe"
+foreground = "#000000"
+selection_bg = "#bfdbfe"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Alabaster"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ALIENBLOOD_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#112616",
+    "#7f2b27",
+    "#2f7e25",
+    "#717f24",
+    "#2f6a7f",
+    "#47587f",
+    "#327f77",
+    "#647d75",
+]
+background = "#0f1610"
+brights = [
+    "#3c4812",
+    "#e08009",
+    "#18e000",
+    "#bde000",
+    "#00aae0",
+    "#0058e0",
+    "#00e0c4",
+    "#73fa91",
+]
+cursor_bg = "#73fa91"
+cursor_border = "#73fa91"
+cursor_fg = "#0f1610"
+foreground = "#637d75"
+selection_bg = "#1d4125"
+selection_fg = "#73fa91"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Alien Blood (Gogh)"]
+name = "AlienBlood"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
 "##;
@@ -85530,6 +85724,133 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm early A built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_afterglow_to_alien_builtin_color_schemes() {
+        let cases = [
+            (
+                "Afterglow",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(21, 21, 21)),
+                Some(Color::Rgb(48, 48, 48)),
+                Some(Some(Color::Rgb(208, 208, 208))),
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(172, 65, 66),
+                Color::Rgb(80, 80, 80),
+                Color::Rgb(245, 245, 245),
+            ),
+            (
+                "Afterglow (Gogh)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(34, 34, 34)),
+                None,
+                None,
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(165, 60, 35),
+                Color::Rgb(80, 80, 80),
+                Color::Rgb(245, 245, 245),
+            ),
+            (
+                "aikofog (terminal.sexy)",
+                Color::Rgb(178, 179, 184),
+                Color::Rgb(241, 238, 233),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(117, 116, 117),
+                Color::Rgb(147, 106, 111),
+                Color::Rgb(74, 74, 74),
+                Color::Rgb(196, 196, 196),
+            ),
+            (
+                "Alabaster",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(247, 247, 247),
+                Color::Rgb(0, 122, 204),
+                Some(Color::Rgb(191, 219, 254)),
+                Some(Color::Rgb(191, 219, 254)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(170, 55, 49),
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(247, 247, 247),
+            ),
+            (
+                "Alien Blood (Gogh)",
+                Color::Rgb(99, 125, 117),
+                Color::Rgb(15, 22, 16),
+                Color::Rgb(115, 250, 145),
+                Some(Color::Rgb(15, 22, 16)),
+                Some(Color::Rgb(29, 65, 37)),
+                Some(Some(Color::Rgb(115, 250, 145))),
+                Color::Rgb(17, 38, 22),
+                Color::Rgb(127, 43, 39),
+                Color::Rgb(60, 72, 18),
+                Color::Rgb(115, 250, 145),
+            ),
+            (
+                "AlienBlood",
+                Color::Rgb(99, 125, 117),
+                Color::Rgb(15, 22, 16),
+                Color::Rgb(115, 250, 145),
+                Some(Color::Rgb(15, 22, 16)),
+                Some(Color::Rgb(29, 65, 37)),
+                Some(Some(Color::Rgb(115, 250, 145))),
+                Color::Rgb(17, 38, 22),
+                Color::Rgb(127, 43, 39),
+                Color::Rgb(60, 72, 18),
+                Color::Rgb(115, 250, 145),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_8,
+            ansi_15,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Afterglow-to-Alien built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

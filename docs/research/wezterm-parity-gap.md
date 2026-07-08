@@ -3540,10 +3540,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `3024 (dark) (terminal.sexy)`, `3024 (light) (terminal.sexy)`, `3024 Day`,
   `3024 Day (Gogh)`, `3024 Night`, `3024 Night (Gogh)`, `Aardvark Blue`,
   `Abernathy`, `Aci (Gogh)`, `Aco (Gogh)`, `Adventure`, `AdventureTime`,
-  `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
+  `Afterglow`, `Afterglow (Gogh)`, `aikofog (terminal.sexy)`, `Alabaster`,
+  `AlienBlood`, `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
   `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
-  `Builtin Tango Light`, and their WezTerm aliases using WezTerm's built-in
-  TOML palette data. The broader built-in scheme catalog, richer dynamic
+  `Builtin Tango Light`, and their WezTerm aliases using WezTerm's built-in TOML
+  palette data. The broader built-in scheme catalog, richer dynamic
   `load_scheme` composition, and full dynamic Lua scheme construction remain
   later parity work.
 - Native terminal rendering applies WezTerm-style `colors.background` as the
