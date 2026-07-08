@@ -8237,6 +8237,7 @@ fn lua_window_title_text_parts_from_expression_with_depth(
         tabs_param,
         panes_param,
         static_source,
+        outer_static_source,
     ) {
         return Some(vec![part]);
     }
@@ -8306,6 +8307,7 @@ fn lua_window_title_text_parts_from_expression_with_depth(
                 tabs_param,
                 panes_param,
                 static_source,
+                outer_static_source,
             ) {
                 has_dynamic_part = true;
                 parts.push(part);
@@ -8356,8 +8358,17 @@ fn lua_window_title_text_part_from_expression(
     tabs_param: &str,
     panes_param: &str,
     static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowTitlePart> {
     let expression = lua_trim_start_comments(expression.trim())?;
+    let pane_user_vars = format!("{pane_param}.user_vars");
+    if let Some(rest) = expression.strip_prefix(&pane_user_vars)
+        && let Some(name) =
+            lua_static_pane_user_var_name_from_rest(static_source, outer_static_source, rest)
+    {
+        return Some(NativeLuaWindowTitlePart::ActivePaneUserVar { name });
+    }
+
     for (field, part) in lua_window_title_active_pane_text_parts() {
         let pane_field = format!("{pane_param}.{field}");
         if let Some(rest) = expression.strip_prefix(&pane_field)
@@ -8396,6 +8407,14 @@ fn lua_window_title_text_part_from_expression(
         return Some(NativeLuaWindowTitlePart::WindowTitle);
     }
 
+    let tab_active_pane_user_vars = format!("{tab_param}.active_pane.user_vars");
+    if let Some(rest) = expression.strip_prefix(&tab_active_pane_user_vars)
+        && let Some(name) =
+            lua_static_pane_user_var_name_from_rest(static_source, outer_static_source, rest)
+    {
+        return Some(NativeLuaWindowTitlePart::ActivePaneUserVar { name });
+    }
+
     for (field, part) in lua_window_title_active_pane_text_parts() {
         let tab_active_pane_field = format!("{tab_param}.active_pane.{field}");
         if let Some(rest) = expression.strip_prefix(&tab_active_pane_field)
@@ -8416,6 +8435,16 @@ fn lua_window_title_text_part_from_expression(
         .unwrap_or(false)
         {
             let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+            if let Some(rest) = rest.strip_prefix("user_vars")
+                && let Some(name) = lua_static_pane_user_var_name_from_rest(
+                    static_source,
+                    outer_static_source,
+                    rest,
+                )
+            {
+                return Some(NativeLuaWindowTitlePart::ActivePaneUserVar { name });
+            }
+
             for (field, part) in lua_window_title_active_pane_text_parts() {
                 if let Some(rest) = rest.strip_prefix(field)
                     && lua_static_identifier_value_rest_is_statement_end(rest)
@@ -31420,6 +31449,9 @@ enum NativeLuaWindowTitlePart {
     ActiveTabTitle,
     WindowTitle,
     ActivePaneId,
+    ActivePaneUserVar {
+        name: String,
+    },
     ActivePaneTitle,
     ActivePaneDomainName,
     ActivePaneForegroundProcessName,
@@ -31449,6 +31481,7 @@ impl NativeLuaWindowTitlePart {
             Self::ActiveTabTitle => event.active_tab_info.tab_title.clone(),
             Self::WindowTitle => Some(event.active_tab_info.window_title.clone()),
             Self::ActivePaneId => Some(event.active_pane_info.pane_id.get().to_string()),
+            Self::ActivePaneUserVar { name } => event.active_pane_info.user_vars.get(name).cloned(),
             Self::ActivePaneTitle => event.active_pane_info.title.clone(),
             Self::ActivePaneDomainName => Some(event.active_pane_info.domain_name.clone()),
             Self::ActivePaneForegroundProcessName => {
@@ -106999,6 +107032,49 @@ mod tests {
         app.session_tty_name = Some("/dev/pts/9".to_owned());
 
         assert_eq!(app.effective_window_title(), "/dev/pts/9");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_active_pane_user_var_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'prog=' .. tab.active_pane.user_vars.WEZTERM_PROG
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title active pane user var return");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07")
+            .unwrap();
+
+        assert_eq!(app.effective_window_title(), "prog=psh");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_active_pane_alias_user_var_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local active = tab.active_pane
+              return 'prog=' .. active.user_vars['WEZTERM-PROG']
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title active pane alias user var return");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM-PROG=cHNo\x07")
+            .unwrap();
+
+        assert_eq!(app.effective_window_title(), "prog=psh");
     }
 
     #[test]
