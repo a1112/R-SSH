@@ -9769,6 +9769,11 @@ fn lua_static_tab_title_conditional_return_from_function_body(
                     tabs_param,
                     panes_param,
                     hover_param,
+                    Some(LuaStaticSource {
+                        source: body,
+                        max_start: start,
+                    }),
+                    outer_static_source,
                 )?;
                 let title = lua_static_tab_title_first_return_from_nested_body(
                     body,
@@ -9970,6 +9975,8 @@ fn lua_tab_title_condition_from_expression(
     tabs_param: &str,
     panes_param: &str,
     hover_param: Option<&str>,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitleCondition> {
     let condition = lua_trim_start_comments(condition.trim())?;
     if let Some(hover_param) = hover_param
@@ -9986,7 +9993,12 @@ fn lua_tab_title_condition_from_expression(
         return Some(NativeLuaTabTitleCondition::ActivePaneIsZoomed);
     }
 
-    if lua_tab_title_active_pane_progress_indeterminate_condition(condition, tab_param) {
+    if lua_tab_title_active_pane_progress_indeterminate_condition(
+        condition,
+        tab_param,
+        static_source,
+        outer_static_source,
+    ) {
         return Some(NativeLuaTabTitleCondition::ActivePaneProgressIndeterminate);
     }
 
@@ -10015,11 +10027,39 @@ fn lua_tab_title_condition_from_expression(
 fn lua_tab_title_active_pane_progress_indeterminate_condition(
     condition: &str,
     tab_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> bool {
     let progress = format!("{tab_param}.active_pane.progress");
-    let Some(rest) = condition.strip_prefix(&progress) else {
+    if let Some(rest) = condition.strip_prefix(&progress) {
+        return lua_tab_title_progress_indeterminate_rest_is_complete(rest);
+    }
+
+    let Some(receiver) = lua_identifier_literal_from_query(condition) else {
         return false;
     };
+    let Some(rest) = condition.get(receiver.len()..) else {
+        return false;
+    };
+    if lua_tab_title_active_pane_alias_before_offset(
+        static_source,
+        outer_static_source,
+        receiver,
+        tab_param,
+    ) != Some(true)
+    {
+        return false;
+    }
+    let Some(rest) = lua_trim_start_comments(rest).and_then(|rest| rest.strip_prefix('.')) else {
+        return false;
+    };
+    let Some(rest) = rest.strip_prefix("progress") else {
+        return false;
+    };
+    lua_tab_title_progress_indeterminate_rest_is_complete(rest)
+}
+
+fn lua_tab_title_progress_indeterminate_rest_is_complete(rest: &str) -> bool {
     let Some(rest) = lua_trim_start_comments(rest).and_then(|rest| rest.strip_prefix("==")) else {
         return false;
     };
@@ -102628,6 +102668,42 @@ mod tests {
         )
         .expect(
             "expected static WezTerm format-tab-title active pane indeterminate progress condition",
+        );
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]9;4;3;0\x07").unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("progress=indeterminate"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(
+            !tab_bar.contains("progress=idle"),
+            "tab bar was {tab_bar:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_active_pane_alias_indeterminate_progress_condition()
+     {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local pane = tab.active_pane
+              if pane.progress == 'Indeterminate' then
+                return 'progress=indeterminate'
+              end
+
+              return 'progress=idle'
+            end)
+            "#,
+        )
+        .expect(
+            "expected static WezTerm format-tab-title active pane alias indeterminate progress condition",
         );
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"\x1b]9;4;3;0\x07").unwrap();
