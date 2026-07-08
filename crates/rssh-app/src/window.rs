@@ -6639,14 +6639,13 @@ fn lua_static_wezterm_window_title_return_event_from_statement(
 }
 
 fn lua_static_wezterm_tab_title_return_event_from_query(source: &str) -> Option<NativeLuaTabTitle> {
-    let mut selected = None;
     for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
         if let Some(value) = lua_static_wezterm_tab_title_return_event_from_statement(source, start)
         {
-            selected = Some(value);
+            return Some(value);
         }
     }
-    selected
+    None
 }
 
 fn lua_static_wezterm_tab_title_return_event_from_statement(
@@ -101867,6 +101866,35 @@ mod tests {
             "tab bar was {tab_bar:?}"
         );
         assert!(!tab_bar.contains("PowerShell"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_uses_first_static_wezterm_format_tab_title_handler() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return 'FIRST LUA TAB'
+            end)
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return 'SECOND LUA TAB'
+            end)
+            "#,
+        )
+        .expect("expected first static WezTerm format-tab-title handler");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("FIRST LUA TAB"), "tab bar was {tab_bar:?}");
+        assert!(
+            !tab_bar.contains("SECOND LUA TAB"),
+            "tab bar was {tab_bar:?}"
+        );
     }
 
     #[test]
