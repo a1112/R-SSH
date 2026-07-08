@@ -6744,8 +6744,16 @@ fn lua_static_wezterm_new_tab_button_click_event_from_statement(
         return None;
     }
     let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
-    let (body, window_param, pane_param, _, default_action_param) =
-        lua_anonymous_function_body_and_first_four_params_from_query(callback.as_ref())?;
+    let (params, body) = lua_anonymous_function_params_and_body_from_query(callback.as_ref())?;
+    let window_param = params
+        .first()
+        .and_then(|param| lua_function_param_identifier(param));
+    let pane_param = params
+        .get(1)
+        .and_then(|param| lua_function_param_identifier(param));
+    let default_action_param = params
+        .get(3)
+        .and_then(|param| lua_function_param_identifier(param));
     lua_static_new_tab_button_click_return_from_function_body(
         body,
         window_param,
@@ -9784,18 +9792,23 @@ fn lua_static_tab_title_return_from_function_body(
 
 fn lua_static_new_tab_button_click_return_from_function_body(
     body: &str,
-    window_param: &str,
-    pane_param: &str,
-    default_action_param: &str,
+    window_param: Option<&str>,
+    pane_param: Option<&str>,
+    default_action_param: Option<&str>,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaNewTabButtonClick> {
     let allow_default = lua_static_bool_return_from_function_body(body, outer_static_source)?;
-    let perform_default_action = lua_static_new_tab_button_click_performs_default_action(
-        body,
-        window_param,
-        pane_param,
-        default_action_param,
-    )?;
+    let perform_default_action = match (window_param, pane_param, default_action_param) {
+        (Some(window_param), Some(pane_param), Some(default_action_param)) => {
+            lua_static_new_tab_button_click_performs_default_action(
+                body,
+                window_param,
+                pane_param,
+                default_action_param,
+            )?
+        }
+        _ => false,
+    };
     Some(NativeLuaNewTabButtonClick {
         allow_default,
         perform_default_action,
@@ -106192,6 +106205,45 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm new-tab-button-click false return");
+        app.set_config_overrides(overrides);
+
+        let tab_width = tab_bar_tab_label(
+            0,
+            rssh_core::TabId::new(1),
+            1,
+            true,
+            None,
+            rssh_core::app_shell::PaneProgress::None,
+        )
+        .chars()
+        .count();
+        let new_tab_column = app.tab_bar_workspace_label().chars().count() + tab_width + 1;
+        let x = u32::try_from(new_tab_column).unwrap_or(0) * CELL_WIDTH;
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_new_tab_button_click_false_return_without_params() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('new-tab-button-click', function()
+              return false
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm new-tab-button-click false return without params");
         app.set_config_overrides(overrides);
 
         let tab_width = tab_bar_tab_label(
