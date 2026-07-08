@@ -10226,6 +10226,14 @@ fn lua_tab_title_text_part_from_expression(
         }
     }
 
+    let active_pane_user_vars = format!("{tab_param}.active_pane.user_vars");
+    if let Some(rest) = expression.strip_prefix(&active_pane_user_vars)
+        && let Some(name) =
+            lua_static_pane_user_var_name_from_rest(static_source, outer_static_source, rest)
+    {
+        return Some(NativeLuaTabTitleTextPart::ActivePaneUserVar { name });
+    }
+
     for (field, part) in lua_tab_title_active_pane_text_parts() {
         let path = format!("{tab_param}.active_pane.{field}");
         if let Some(rest) = expression.strip_prefix(&path)
@@ -10244,6 +10252,13 @@ fn lua_tab_title_text_part_from_expression(
         tab_param,
     )? {
         let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        if let Some(rest) = rest.strip_prefix("user_vars")
+            && let Some(name) =
+                lua_static_pane_user_var_name_from_rest(static_source, outer_static_source, rest)
+        {
+            return Some(NativeLuaTabTitleTextPart::ActivePaneUserVar { name });
+        }
+
         for (field, part) in lua_tab_title_active_pane_text_parts() {
             if let Some(rest) = rest.strip_prefix(field)
                 && lua_static_identifier_value_rest_is_statement_end(rest)
@@ -30601,6 +30616,9 @@ enum NativeLuaTabTitleTextPart {
     },
     WindowTitle,
     ActivePaneId,
+    ActivePaneUserVar {
+        name: String,
+    },
     ActivePaneDomainName,
     ActivePaneForegroundProcessName,
     ActivePaneCurrentWorkingDir,
@@ -30654,6 +30672,7 @@ impl NativeLuaTabTitleTextPart {
             }
             Self::WindowTitle => Some(event.window_title.clone()),
             Self::ActivePaneId => Some(event.active_pane_info.pane_id.get().to_string()),
+            Self::ActivePaneUserVar { name } => event.active_pane_info.user_vars.get(name).cloned(),
             Self::ActivePaneDomainName => Some(event.active_pane_info.domain_name.clone()),
             Self::ActivePaneForegroundProcessName => {
                 Some(event.active_pane_info.foreground_process_name.clone())
@@ -102393,6 +102412,51 @@ mod tests {
         );
         assert!(!tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_active_pane_user_var_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return 'prog=' .. tab.active_pane.user_vars.WEZTERM_PROG
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title active pane user var return");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07")
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("prog=psh"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_active_pane_alias_user_var_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local pane = tab.active_pane
+              return 'prog=' .. pane.user_vars['WEZTERM-PROG']
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title active pane alias user var return");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM-PROG=cHNo\x07")
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("prog=psh"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
