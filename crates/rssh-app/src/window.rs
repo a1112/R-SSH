@@ -10236,9 +10236,9 @@ fn lua_tab_title_text_part_from_expression(
 
     let active_pane_progress = format!("{tab_param}.active_pane.progress");
     if let Some(rest) = expression.strip_prefix(&active_pane_progress)
-        && lua_tab_title_active_pane_progress_percentage_rest_is_complete(rest)
+        && let Some(field) = lua_tab_title_active_pane_progress_field_from_rest(rest)
     {
-        return Some(NativeLuaTabTitleTextPart::ActivePaneProgressPercentage);
+        return Some(NativeLuaTabTitleTextPart::ActivePaneProgress { field });
     }
 
     for (field, part) in lua_tab_title_active_pane_text_parts() {
@@ -10278,16 +10278,26 @@ fn lua_tab_title_text_part_from_expression(
     None
 }
 
-fn lua_tab_title_active_pane_progress_percentage_rest_is_complete(rest: &str) -> bool {
+fn lua_tab_title_active_pane_progress_field_from_rest(
+    rest: &str,
+) -> Option<NativeLuaTabTitleProgressField> {
     let Some(rest) = lua_trim_start_comments(rest).and_then(|rest| rest.strip_prefix('.')) else {
-        return false;
+        return None;
     };
     let Some(field) = lua_identifier_literal_from_query(rest) else {
-        return false;
+        return None;
     };
-    field == "Percentage"
-        && lua_trim_start_comments(rest.get(field.len()..).unwrap_or_default())
-            .is_some_and(str::is_empty)
+    if !lua_trim_start_comments(rest.get(field.len()..).unwrap_or_default())
+        .is_some_and(str::is_empty)
+    {
+        return None;
+    }
+
+    match field {
+        "Percentage" => Some(NativeLuaTabTitleProgressField::Percentage),
+        "Error" => Some(NativeLuaTabTitleProgressField::Error),
+        _ => None,
+    }
 }
 
 fn lua_tab_title_active_pane_text_parts() -> [(&'static str, NativeLuaTabTitleTextPart); 6] {
@@ -30638,12 +30648,20 @@ enum NativeLuaTabTitleTextPart {
     ActivePaneUserVar {
         name: String,
     },
-    ActivePaneProgressPercentage,
+    ActivePaneProgress {
+        field: NativeLuaTabTitleProgressField,
+    },
     ActivePaneDomainName,
     ActivePaneForegroundProcessName,
     ActivePaneCurrentWorkingDir,
     ActivePaneTtyName,
     ActivePaneTitle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaTabTitleProgressField {
+    Percentage,
+    Error,
 }
 
 impl NativeLuaTabTitleTextPart {
@@ -30693,8 +30711,11 @@ impl NativeLuaTabTitleTextPart {
             Self::WindowTitle => Some(event.window_title.clone()),
             Self::ActivePaneId => Some(event.active_pane_info.pane_id.get().to_string()),
             Self::ActivePaneUserVar { name } => event.active_pane_info.user_vars.get(name).cloned(),
-            Self::ActivePaneProgressPercentage => match event.active_pane_info.progress {
-                PaneProgress::Percentage(value) => Some(value.to_string()),
+            Self::ActivePaneProgress { field } => match (field, event.active_pane_info.progress) {
+                (NativeLuaTabTitleProgressField::Percentage, PaneProgress::Percentage(value))
+                | (NativeLuaTabTitleProgressField::Error, PaneProgress::Error(value)) => {
+                    Some(value.to_string())
+                }
                 _ => None,
             },
             Self::ActivePaneDomainName => Some(event.active_pane_info.domain_name.clone()),
@@ -102502,6 +102523,27 @@ mod tests {
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("pct=42"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_active_pane_progress_error_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return 'err=' .. tab.active_pane.progress.Error
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title active pane progress error return");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]9;4;2;7\x07").unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("err=7"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
