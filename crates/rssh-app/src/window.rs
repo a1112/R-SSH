@@ -8911,6 +8911,15 @@ fn lua_window_title_condition_from_expression(
         );
     }
 
+    if lua_window_title_active_pane_progress_indeterminate_condition(
+        condition,
+        tab_param,
+        pane_param,
+        static_source,
+    ) {
+        return Some(NativeLuaWindowTitleCondition::ActivePaneProgressIndeterminate);
+    }
+
     if let Some(count) = lua_window_title_count_greater_than_condition(condition, tabs_param) {
         return Some(NativeLuaWindowTitleCondition::TabCountGreaterThan(count));
     }
@@ -8919,6 +8928,58 @@ fn lua_window_title_condition_from_expression(
     }
 
     None
+}
+
+fn lua_window_title_active_pane_progress_indeterminate_condition(
+    condition: &str,
+    tab_param: &str,
+    pane_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+) -> bool {
+    let pane_progress = format!("{pane_param}.progress");
+    if let Some(rest) = condition.strip_prefix(&pane_progress) {
+        return lua_tab_title_progress_indeterminate_rest_is_complete(rest);
+    }
+
+    let tab_active_pane_progress = format!("{tab_param}.active_pane.progress");
+    if let Some(rest) = condition.strip_prefix(&tab_active_pane_progress) {
+        return lua_tab_title_progress_indeterminate_rest_is_complete(rest);
+    }
+
+    let Some(receiver) = lua_identifier_literal_from_query(condition) else {
+        return false;
+    };
+    let Some(rest) = condition.get(receiver.len()..) else {
+        return false;
+    };
+    if lua_window_title_active_pane_alias_before_offset(
+        static_source,
+        receiver,
+        tab_param,
+        pane_param,
+    ) == Some(true)
+    {
+        let Some(rest) = lua_trim_start_comments(rest).and_then(|rest| rest.strip_prefix('.'))
+        else {
+            return false;
+        };
+        let Some(rest) = rest.strip_prefix("progress") else {
+            return false;
+        };
+        return lua_tab_title_progress_indeterminate_rest_is_complete(rest);
+    }
+
+    if lua_window_title_active_pane_progress_alias_before_offset(
+        static_source,
+        receiver,
+        tab_param,
+        pane_param,
+    ) == Some(true)
+    {
+        return lua_tab_title_progress_indeterminate_rest_is_complete(rest);
+    }
+
+    false
 }
 
 fn lua_window_title_active_pane_progress_field_presence_condition(
@@ -31677,6 +31738,7 @@ impl NativeLuaWindowTitlePart {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeLuaWindowTitleCondition {
     ActivePaneIsZoomed,
+    ActivePaneProgressIndeterminate,
     ActivePaneProgressFieldPresence {
         field: NativeLuaTabTitleProgressField,
         present: bool,
@@ -31689,6 +31751,9 @@ impl NativeLuaWindowTitleCondition {
     fn matches(self, event: &NativeWindowTitleFormat) -> bool {
         match self {
             Self::ActivePaneIsZoomed => event.active_pane_info.is_zoomed,
+            Self::ActivePaneProgressIndeterminate => {
+                event.active_pane_info.progress == PaneProgress::Indeterminate
+            }
             Self::ActivePaneProgressFieldPresence { field, present } => {
                 let has_field = match (field, event.active_pane_info.progress) {
                     (NativeLuaTabTitleProgressField::Percentage, PaneProgress::Percentage(_))
@@ -107363,6 +107428,66 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "pct=none");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_indeterminate_progress_condition() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              if tab.active_pane.progress == 'Indeterminate' then
+                return 'busy'
+              end
+
+              return 'idle'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title indeterminate progress condition");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::SetPaneProgress {
+            pane: rssh_core::PaneId::new(1),
+            progress: rssh_core::app_shell::PaneProgress::Indeterminate,
+        })
+        .unwrap();
+
+        assert_eq!(app.effective_window_title(), "busy");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_local_indeterminate_progress_condition()
+    {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local progress = pane.progress
+              if progress == 'Indeterminate' then
+                return 'busy'
+              end
+
+              return 'idle'
+            end)
+            "#,
+        )
+        .expect(
+            "expected static WezTerm format-window-title local indeterminate progress condition",
+        );
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::SetPaneProgress {
+            pane: rssh_core::PaneId::new(1),
+            progress: rssh_core::app_shell::PaneProgress::Indeterminate,
+        })
+        .unwrap();
+
+        assert_eq!(app.effective_window_title(), "busy");
     }
 
     #[test]
