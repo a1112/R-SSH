@@ -7345,7 +7345,11 @@ fn lua_static_string_value_from_expression_with_depth(
             .then_some(literal);
     }
 
-    if let Some(value) = lua_static_wezterm_nerdfonts_value_from_expression(value) {
+    if let Some(value) = lua_static_wezterm_nerdfonts_value_from_expression(
+        static_source,
+        outer_static_source,
+        value,
+    ) {
         return Some(value);
     }
 
@@ -7394,32 +7398,73 @@ fn lua_static_string_value_from_expression_with_depth(
     None
 }
 
-fn lua_static_wezterm_nerdfonts_value_from_expression(value: &str) -> Option<String> {
-    let rest = value.trim().strip_prefix("wezterm")?;
-    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+fn lua_static_wezterm_nerdfonts_value_from_expression(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<String> {
+    let value = lua_trim_start_comments(value.trim())?;
+    let rest = lua_static_wezterm_receiver_rest_from_expression(
+        value,
+        static_source,
+        outer_static_source,
+    )?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (field, rest) = lua_table_map_field_key_from_query_with_static_sources(
+        static_source,
+        outer_static_source,
+        rest,
+    )?;
+    if field != "nerdfonts" {
         return None;
     }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
     let rest = lua_trim_start_comments(rest)?;
-    if !rest.starts_with("nerdfonts")
-        || !lua_config_assignment_field_has_boundaries(rest, 0, "nerdfonts")
-    {
-        return None;
-    }
-    let rest = lua_trim_start_comments(rest.get("nerdfonts".len()..)?)?.strip_prefix('.')?;
-    let rest = lua_trim_start_comments(rest)?;
-    let name = lua_identifier_literal_from_query(rest)?;
-    let name_rest = rest.get(name.len()..)?;
-    if !lua_static_identifier_value_rest_is_statement_end(name_rest) {
+    let (name, rest) = lua_table_map_field_key_from_query_with_static_sources(
+        static_source,
+        outer_static_source,
+        rest,
+    )?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
         return None;
     }
 
-    let value = match name {
+    let value = match name.as_str() {
         "pl_left_hard_divider" => "\u{e0b0}",
         "pl_right_hard_divider" => "\u{e0b2}",
         _ => return None,
     };
     Some(value.to_owned())
+}
+
+fn lua_static_wezterm_receiver_rest_from_expression<'a>(
+    expression: &'a str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<&'a str> {
+    if let Some(static_source) = static_source
+        && let Some(rest) = lua_static_wezterm_receiver_rest_from_query(
+            static_source.source,
+            static_source.max_start,
+            expression,
+        )
+    {
+        return Some(rest);
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(rest) = lua_static_wezterm_receiver_rest_from_query(
+            outer_static_source.source,
+            outer_static_source.max_start,
+            expression,
+        )
+    {
+        return Some(rest);
+    }
+
+    let rest = expression.strip_prefix("wezterm")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    Some(rest)
 }
 
 fn lua_static_wezterm_on_event_args_from_statement<'a>(
@@ -12369,7 +12414,7 @@ fn lua_tab_title_truncate_direction_and_call_rest_from_expression<'a>(
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<(NativeLuaTabTitleTruncateDirection, &'a str)> {
     let expression = lua_trim_start_comments(expression.trim())?;
-    let rest = lua_tab_title_wezterm_receiver_rest_from_expression(
+    let rest = lua_static_wezterm_receiver_rest_from_expression(
         expression,
         static_source,
         outer_static_source,
@@ -12386,37 +12431,6 @@ fn lua_tab_title_truncate_direction_and_call_rest_from_expression<'a>(
         _ => return None,
     };
     Some((direction, rest))
-}
-
-fn lua_tab_title_wezterm_receiver_rest_from_expression<'a>(
-    expression: &'a str,
-    static_source: Option<LuaStaticSource<'_>>,
-    outer_static_source: Option<LuaStaticSource<'_>>,
-) -> Option<&'a str> {
-    if let Some(static_source) = static_source
-        && let Some(rest) = lua_static_wezterm_receiver_rest_from_query(
-            static_source.source,
-            static_source.max_start,
-            expression,
-        )
-    {
-        return Some(rest);
-    }
-    if let Some(outer_static_source) = outer_static_source
-        && let Some(rest) = lua_static_wezterm_receiver_rest_from_query(
-            outer_static_source.source,
-            outer_static_source.max_start,
-            expression,
-        )
-    {
-        return Some(rest);
-    }
-
-    let rest = expression.strip_prefix("wezterm")?;
-    if rest.chars().next().is_some_and(is_lua_identifier_character) {
-        return None;
-    }
-    Some(rest)
 }
 
 fn lua_static_source_before_current_statement<'a>(
@@ -104432,6 +104446,61 @@ mod tests {
         assert!(
             parsed.contains("ActiveTabTitleOrActivePaneTitle"),
             "parsed lua tab title was {parsed}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_nerdfont_static_key_module() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local wt = require 'wezterm'
+            local nerd_key = 'nerdfonts'
+            local left_key = 'pl_right_hard_divider'
+            local right_key = 'pl_left_hard_divider'
+            local SOLID_LEFT_ARROW = wt[nerd_key][left_key]
+            local SOLID_RIGHT_ARROW = wt[nerd_key][right_key]
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              title = wezterm.truncate_right(title, max_width - 2)
+              return {
+                { Text = SOLID_LEFT_ARROW },
+                { Text = title },
+                { Text = SOLID_RIGHT_ARROW },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title nerdfont static-key module");
+        app.set_config_overrides(overrides);
+        let active_tab = app.active_tab_id();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: active_tab,
+            title: "abcdefghijklmnopqr".to_owned(),
+        })
+        .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let expected = format!(
+            "{}abcdefghijklmn{}",
+            char::from_u32(0xe0b2).unwrap(),
+            char::from_u32(0xe0b0).unwrap()
+        );
+        assert!(tab_bar.contains(&expected), "tab bar was {tab_bar:?}");
+        assert!(
+            !tab_bar.contains("abcdefghijklmnopqr"),
+            "tab bar was {tab_bar:?}"
         );
     }
 

@@ -2636,7 +2636,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   explicit-title-then-active-pane-title fallback pattern, direct or
   module/static-key `wezterm.truncate_left(title, max_width - N)` /
   `wezterm.truncate_right(title, max_width - N)` truncation, documented static
-  `wezterm.nerdfonts.pl_left_hard_divider` /
+  or module/static-key `wezterm.nerdfonts.pl_left_hard_divider` /
   `wezterm.nerdfonts.pl_right_hard_divider` text variables, and local
   `pane = tab.active_pane` aliases, and direct or static-result-variable
   `wezterm.format` returns through static aliases, including aliases whose
