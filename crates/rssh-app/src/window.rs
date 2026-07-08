@@ -23701,21 +23701,41 @@ fn lua_static_wezterm_action_alias_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_static_wezterm_action_alias_value_from_query(value);
+        selected = lua_static_wezterm_action_alias_value_from_query(source, start, value);
     }
 
     Some(selected)
 }
 
-fn lua_static_wezterm_action_alias_value_from_query(value: &str) -> bool {
+fn lua_static_wezterm_action_alias_value_from_query(
+    source: &str,
+    max_start: usize,
+    value: &str,
+) -> bool {
     if lua_top_level_statement_value_from_query(value).is_some_and(|value| value.trim() == "act") {
         return true;
     }
-    let Some(rest) = lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.action")
-    else {
+    let Some(value) = lua_trim_start_comments(value) else {
         return false;
     };
-    lua_static_identifier_value_rest_is_statement_end(rest)
+    let rest = if let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) {
+        rest
+    } else if let Some(rest) = lua_static_wezterm_receiver_rest_from_query(source, max_start, value)
+    {
+        rest
+    } else {
+        return false;
+    };
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let Some((field, rest)) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource { source, max_start }),
+        rest,
+    ) else {
+        return false;
+    };
+    field == "action" && lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
 fn lua_static_wezterm_action_callback_alias_query_from_query(
@@ -127537,6 +127557,48 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm static action alias dotted-comment key config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![
+                NativeUserKeyAssignment {
+                    keys: "CTRL|SHIFT+C".to_owned(),
+                    command: WindowCommand::CopyTo(WindowCopyDestination::Clipboard),
+                },
+                NativeUserKeyAssignment {
+                    keys: "CTRL|SHIFT+V".to_owned(),
+                    command: WindowCommand::PasteFrom(WindowPasteSource::PrimarySelection),
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_static_action_alias_static_key_module() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wt = require 'wezterm'
+            local action_key = 'action'
+            local action = wt[action_key]
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'C',
+                mods = 'CTRL|SHIFT',
+                action = action.CopyTo('Clipboard'),
+              },
+              {
+                key = 'V',
+                mods = 'CTRL|SHIFT',
+                action = action["PasteFrom"]('PrimarySelection'),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static-key action alias key config");
 
         assert_eq!(
             overrides.key_assignments,

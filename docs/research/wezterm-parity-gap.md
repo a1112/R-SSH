@@ -1705,7 +1705,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `action = act(wrapper)` after `local wrapper = { SendString = "text" }`.
 - Structured action queries now accept the common documented
   `local act = wezterm.action` alias form for implemented action constructors
-  and wrapper tables, including `act.PromptInputLine { ... }` and
+  and wrapper tables, plus module-alias/static-key action namespace aliases,
+  including `act.PromptInputLine { ... }` and
   `act { PasteFrom = "Clipboard" }`.
 - Structured action queries now accept Lua indexed action constructors such as
   `wezterm.action["ToggleFullScreen"]`, `act["SendString"]("text")`, and
