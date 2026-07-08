@@ -3499,7 +3499,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   same implemented color fields as `config.colors`, so explicit `config.colors`
   values override the selected scheme. Static
   `wezterm.color.load_scheme('path')` calls with a constant TOML path now
-  include direct `require('wezterm').color.load_scheme('path')` receivers,
+  include direct `require('wezterm').color.load_scheme('path')` receivers and
+  parenthesized direct receivers such as
+  `(require('wezterm')).color.load_scheme('path')`,
   direct module/static-key helper calls such as
   `wt[color_key][load_key]('path')`, Lua comments between dotted helper path
   segments, plus top-level

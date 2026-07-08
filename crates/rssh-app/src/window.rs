@@ -7660,6 +7660,17 @@ fn lua_static_wezterm_receiver_rest_from_query<'a>(
     max_start: usize,
     value: &'a str,
 ) -> Option<&'a str> {
+    if let Some(value) = lua_trim_start_comments(value)
+        && let Some(rest) = value.strip_prefix('(')
+        && let Some((receiver, rest)) = lua_parenthesized_argument_list_prefix_from_query(rest)
+    {
+        let receiver_rest =
+            lua_static_wezterm_receiver_rest_from_query(source, max_start, receiver.trim())?;
+        if lua_static_wezterm_module_alias_receiver_rest_is_statement_end(receiver_rest) {
+            return Some(rest);
+        }
+    }
+
     if let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) {
         return Some(rest);
     }
@@ -84690,6 +84701,54 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(161, 162, 163));
         assert_eq!(effective.background_color, Color::Rgb(164, 165, 166));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(167, 168, 169));
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_colors_from_load_scheme_parenthesized_require_call() {
+        static NEXT_LOAD_SCHEME_PAREN_REQUIRE_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-paren-require-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_PAREN_REQUIRE_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Parenthesized Require Loaded Scheme"
+
+            [colors]
+            foreground = "#b1b2b3"
+            background = "#b4b5b6"
+            cursor_bg = "#b7b8b9"
+            "##,
+        )
+        .expect("expected temp parenthesized require load_scheme TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+            local colors, metadata = (require('wezterm')).color.load_scheme('{}')
+
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm parenthesized require load_scheme colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(177, 178, 179));
+        assert_eq!(effective.background_color, Color::Rgb(180, 181, 182));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(183, 184, 185));
         let _ = std::fs::remove_file(scheme_file);
     }
 
