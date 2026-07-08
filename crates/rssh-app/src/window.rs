@@ -9856,8 +9856,12 @@ fn lua_static_new_tab_button_click_allow_default_from_function_body(
             max_start: start,
         };
         for (condition, branch_body) in branches {
-            let (button, comparison) =
-                lua_new_tab_button_click_button_condition(condition, button_param, static_source)?;
+            let (button, comparison) = lua_new_tab_button_click_button_condition(
+                condition,
+                button_param,
+                static_source,
+                outer_static_source,
+            )?;
             let allow_default =
                 lua_static_bool_return_from_function_body(branch_body, outer_static_source)?;
             button_branches.push(LuaNewTabButtonClickButtonBranch {
@@ -9954,6 +9958,7 @@ fn lua_new_tab_button_click_button_condition(
     condition: &str,
     button_param: &str,
     static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<(MouseButton, LuaNewTabButtonClickButtonComparison)> {
     let condition = lua_trim_start_comments(condition.trim())?;
     let (left, right, comparison) = if let Some((left, right)) = condition.split_once("~=") {
@@ -9967,13 +9972,21 @@ fn lua_new_tab_button_click_button_condition(
 
     if lua_new_tab_button_click_expression_is_button_param(left, button_param, static_source) {
         return Some((
-            lua_new_tab_button_click_button_from_expression(right)?,
+            lua_new_tab_button_click_button_from_expression(
+                right,
+                Some(static_source),
+                outer_static_source,
+            )?,
             comparison,
         ));
     }
     if lua_new_tab_button_click_expression_is_button_param(right, button_param, static_source) {
         return Some((
-            lua_new_tab_button_click_button_from_expression(left)?,
+            lua_new_tab_button_click_button_from_expression(
+                left,
+                Some(static_source),
+                outer_static_source,
+            )?,
             comparison,
         ));
     }
@@ -10020,8 +10033,14 @@ impl LuaNewTabButtonClickButtonBranch {
     }
 }
 
-fn lua_new_tab_button_click_button_from_expression(expression: &str) -> Option<MouseButton> {
-    match lua_static_string_value_from_expression(None, None, expression)?.as_str() {
+fn lua_new_tab_button_click_button_from_expression(
+    expression: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<MouseButton> {
+    match lua_static_string_value_from_expression(static_source, outer_static_source, expression)?
+        .as_str()
+    {
         "Left" | "left" => Some(MouseButton::Left),
         "Right" | "right" => Some(MouseButton::Right),
         "Middle" | "middle" => Some(MouseButton::Middle),
@@ -106654,6 +106673,51 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm new-tab-button-click button alias condition");
+        app.set_config_overrides(overrides);
+
+        let tab_width = tab_bar_tab_label(
+            0,
+            rssh_core::TabId::new(1),
+            1,
+            true,
+            None,
+            rssh_core::app_shell::PaneProgress::None,
+        )
+        .chars()
+        .count();
+        let new_tab_column = app.tab_bar_workspace_label().chars().count() + tab_width + 1;
+        let x = u32::try_from(new_tab_column).unwrap_or(0) * CELL_WIDTH;
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Right)
+                .unwrap()
+        );
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_new_tab_button_click_button_string_variable_condition() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('new-tab-button-click', function(window, pane, button, default_action)
+              local right_button = 'Right'
+              if button == right_button then
+                return false
+              else
+                return true
+              end
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm new-tab-button-click button string variable condition");
         app.set_config_overrides(overrides);
 
         let tab_width = tab_bar_tab_label(
