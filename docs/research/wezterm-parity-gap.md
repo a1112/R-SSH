@@ -3398,9 +3398,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   titlebar/button/border color fields, and ColorSpec fields plus static
   `config.colors` variable mutations now also accept `wezterm.color.parse(...)`
   calls, including top-level static aliases such as
-  `local parse_color = wezterm.color.parse`, with Lua comments allowed before
-  the alias call payload, between direct dotted helper path segments, and inside
-  the dotted `wezterm.color.parse` helper path used by static alias assignments.
+  `local parse_color = wezterm.color.parse` and module/static-key aliases such
+  as `local parse_color = wt[color_key][parse_key]`, with Lua comments allowed
+  before the alias call payload, between direct dotted helper path segments, and
+  inside the helper path used by static alias assignments.
   Static Lua snippets for that subset now parse into native/effective config.
   Static WezTerm `config.background` tables now parse inline Color layer tables
   or top-level static Color layer table variables with source-over alpha

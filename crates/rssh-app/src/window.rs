@@ -65596,19 +65596,49 @@ fn lua_static_wezterm_color_parse_alias_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_static_wezterm_color_parse_alias_value_from_query(value);
+        selected = lua_static_wezterm_color_parse_alias_value_from_query(source, start, value);
     }
 
     Some(selected)
 }
 
-fn lua_static_wezterm_color_parse_alias_value_from_query(value: &str) -> bool {
-    let Some(rest) =
-        lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.color.parse")
+fn lua_static_wezterm_color_parse_alias_value_from_query(
+    source: &str,
+    max_start: usize,
+    value: &str,
+) -> bool {
+    let Some(value) = lua_trim_start_comments(value) else {
+        return false;
+    };
+    let rest = if let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) {
+        rest
+    } else if let Some(rest) = lua_static_wezterm_receiver_rest_from_query(source, max_start, value)
+    {
+        rest
+    } else {
+        return false;
+    };
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let static_source = Some(LuaStaticSource { source, max_start });
+    let Some((field, rest)) =
+        lua_table_map_field_key_from_query_with_static_source(static_source, rest)
     else {
         return false;
     };
-    lua_static_identifier_value_rest_is_statement_end(rest)
+    if field != "color" {
+        return false;
+    }
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let Some((field, rest)) =
+        lua_table_map_field_key_from_query_with_static_source(static_source, rest)
+    else {
+        return false;
+    };
+    field == "parse" && lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
 fn color_spec_lua_table_field_from_query_with_static_source(
@@ -82549,6 +82579,39 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
         assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_static_alias_static_key_module() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wt = require 'wezterm'
+            local config = {}
+            local color_key = 'color'
+            local parse_key = 'parse'
+            local parse_color = wt[color_key][parse_key]
+
+            config.colors = {
+              foreground = parse_color('#252627'),
+              background = parse_color('#28292a'),
+              cursor_bg = parse_color('rgb(43,44,45)'),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse static-key module alias colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let colors = effective.colors.expect("expected retained colors palette");
+        assert_eq!(colors.foreground, Some(Color::Rgb(37, 38, 39)));
+        assert_eq!(colors.background, Some(Color::Rgb(40, 41, 42)));
+        assert_eq!(colors.cursor_bg, Some(Color::Rgb(43, 44, 45)));
+        assert_eq!(effective.foreground_color, Color::Rgb(37, 38, 39));
+        assert_eq!(effective.background_color, Color::Rgb(40, 41, 42));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(43, 44, 45));
     }
 
     #[test]
