@@ -8473,6 +8473,17 @@ fn lua_window_title_text_part_from_expression(
                 }
             }
         }
+
+        if lua_window_title_active_pane_progress_alias_before_offset(
+            static_source,
+            receiver,
+            tab_param,
+            pane_param,
+        ) == Some(true)
+        {
+            return lua_tab_title_active_pane_progress_field_from_rest(rest)
+                .map(|field| NativeLuaWindowTitlePart::ActivePaneProgress { field });
+        }
     }
 
     let tab_count = format!("#{tabs_param}");
@@ -8526,6 +8537,60 @@ fn lua_window_title_active_pane_alias_before_offset(
     )?;
     let value = value.trim();
     Some(value == format!("{tab_param}.active_pane") || value == pane_param)
+}
+
+fn lua_window_title_active_pane_progress_alias_before_offset(
+    static_source: Option<LuaStaticSource<'_>>,
+    alias: &str,
+    tab_param: &str,
+    pane_param: &str,
+) -> Option<bool> {
+    let static_source = static_source?;
+    let value = lua_static_expression_variable_assignment_before_offset_from_query(
+        static_source.source,
+        alias,
+        static_source.max_start,
+    )?;
+    lua_window_title_active_pane_progress_expression_from_query(
+        value,
+        tab_param,
+        pane_param,
+        Some(static_source),
+    )
+}
+
+fn lua_window_title_active_pane_progress_expression_from_query(
+    expression: &str,
+    tab_param: &str,
+    pane_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+) -> Option<bool> {
+    let expression = lua_trim_start_comments(expression.trim())?;
+
+    let pane_progress = format!("{pane_param}.progress");
+    if let Some(rest) = expression.strip_prefix(&pane_progress) {
+        return Some(lua_static_identifier_value_rest_is_statement_end(rest));
+    }
+
+    let tab_active_pane_progress = format!("{tab_param}.active_pane.progress");
+    if let Some(rest) = expression.strip_prefix(&tab_active_pane_progress) {
+        return Some(lua_static_identifier_value_rest_is_statement_end(rest));
+    }
+
+    let receiver = lua_identifier_literal_from_query(expression)?;
+    let rest = expression.get(receiver.len()..)?;
+    if lua_window_title_active_pane_alias_before_offset(
+        static_source,
+        receiver,
+        tab_param,
+        pane_param,
+    ) != Some(true)
+    {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = rest.strip_prefix("progress")?;
+    Some(lua_static_identifier_value_rest_is_statement_end(rest))
 }
 
 fn lua_window_title_conditional_assignment_parts_before_offset(
@@ -107153,6 +107218,31 @@ mod tests {
         .unwrap();
 
         assert_eq!(app.effective_window_title(), "err=7");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_local_progress_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local progress = pane.progress
+              return 'pct=' .. progress.Percentage
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title local progress return");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::SetPaneProgress {
+            pane: rssh_core::PaneId::new(1),
+            progress: rssh_core::app_shell::PaneProgress::Percentage(42),
+        })
+        .unwrap();
+
+        assert_eq!(app.effective_window_title(), "pct=42");
     }
 
     #[test]
