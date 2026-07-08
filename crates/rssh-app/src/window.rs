@@ -19250,6 +19250,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Atelier Lakeside Light (base16)" => {
             Some(BUILTIN_ATELIER_LAKESIDE_LIGHT_BASE16_COLOR_SCHEME_TOML)
         }
+        "Atelier Plateau (base16)" => Some(BUILTIN_ATELIER_PLATEAU_BASE16_COLOR_SCHEME_TOML),
+        "Atelier Plateau Light (base16)" => {
+            Some(BUILTIN_ATELIER_PLATEAU_LIGHT_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Atelier Savanna (base16)" => Some(BUILTIN_ATELIER_SAVANNA_BASE16_COLOR_SCHEME_TOML),
+        "Atelier Savanna Light (base16)" => {
+            Some(BUILTIN_ATELIER_SAVANNA_LIGHT_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Atelier Seaside (base16)" => Some(BUILTIN_ATELIER_SEASIDE_BASE16_COLOR_SCHEME_TOML),
+        "Atelier Seaside Light (base16)" => {
+            Some(BUILTIN_ATELIER_SEASIDE_LIGHT_BASE16_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -21136,6 +21148,282 @@ selection_fg = "#ebf8ff"
 aliases = []
 author = "Bram de Haan (http://atelierbramdehaan.nl)"
 name = "Atelier Lakeside Light (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_PLATEAU_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1818",
+    "#ca4949",
+    "#4b8b8b",
+    "#a06e3b",
+    "#7272ca",
+    "#8464c4",
+    "#5485b6",
+    "#8a8585",
+]
+background = "#1b1818"
+brights = [
+    "#655d5d",
+    "#ca4949",
+    "#4b8b8b",
+    "#a06e3b",
+    "#7272ca",
+    "#8464c4",
+    "#5485b6",
+    "#f4ecec",
+]
+cursor_bg = "#8a8585"
+cursor_border = "#8a8585"
+cursor_fg = "#1b1818"
+foreground = "#8a8585"
+selection_bg = "#8a8585"
+selection_fg = "#1b1818"
+
+[colors.indexed]
+16 = "#b45a3c"
+17 = "#bd5187"
+18 = "#292424"
+19 = "#585050"
+20 = "#7e7777"
+21 = "#e7dfdf"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Plateau (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_PLATEAU_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f4ecec",
+    "#ca4949",
+    "#4b8b8b",
+    "#a06e3b",
+    "#7272ca",
+    "#8464c4",
+    "#5485b6",
+    "#585050",
+]
+background = "#f4ecec"
+brights = [
+    "#7e7777",
+    "#ca4949",
+    "#4b8b8b",
+    "#a06e3b",
+    "#7272ca",
+    "#8464c4",
+    "#5485b6",
+    "#1b1818",
+]
+cursor_bg = "#585050"
+cursor_border = "#585050"
+cursor_fg = "#f4ecec"
+foreground = "#585050"
+selection_bg = "#585050"
+selection_fg = "#f4ecec"
+
+[colors.indexed]
+16 = "#b45a3c"
+17 = "#bd5187"
+18 = "#e7dfdf"
+19 = "#8a8585"
+20 = "#655d5d"
+21 = "#292424"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Plateau Light (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_SAVANNA_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#171c19",
+    "#b16139",
+    "#489963",
+    "#a07e3b",
+    "#478c90",
+    "#55859b",
+    "#1c9aa0",
+    "#87928a",
+]
+background = "#171c19"
+brights = [
+    "#5f6d64",
+    "#b16139",
+    "#489963",
+    "#a07e3b",
+    "#478c90",
+    "#55859b",
+    "#1c9aa0",
+    "#ecf4ee",
+]
+cursor_bg = "#87928a"
+cursor_border = "#87928a"
+cursor_fg = "#171c19"
+foreground = "#87928a"
+selection_bg = "#87928a"
+selection_fg = "#171c19"
+
+[colors.indexed]
+16 = "#9f713c"
+17 = "#867469"
+18 = "#232a25"
+19 = "#526057"
+20 = "#78877d"
+21 = "#dfe7e2"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Savanna (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_SAVANNA_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#ecf4ee",
+    "#b16139",
+    "#489963",
+    "#a07e3b",
+    "#478c90",
+    "#55859b",
+    "#1c9aa0",
+    "#526057",
+]
+background = "#ecf4ee"
+brights = [
+    "#78877d",
+    "#b16139",
+    "#489963",
+    "#a07e3b",
+    "#478c90",
+    "#55859b",
+    "#1c9aa0",
+    "#171c19",
+]
+cursor_bg = "#526057"
+cursor_border = "#526057"
+cursor_fg = "#ecf4ee"
+foreground = "#526057"
+selection_bg = "#526057"
+selection_fg = "#ecf4ee"
+
+[colors.indexed]
+16 = "#9f713c"
+17 = "#867469"
+18 = "#dfe7e2"
+19 = "#87928a"
+20 = "#5f6d64"
+21 = "#232a25"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Savanna Light (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_SEASIDE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#131513",
+    "#e6193c",
+    "#29a329",
+    "#98981b",
+    "#3d62f5",
+    "#ad2bee",
+    "#1999b3",
+    "#8ca68c",
+]
+background = "#131513"
+brights = [
+    "#687d68",
+    "#e6193c",
+    "#29a329",
+    "#98981b",
+    "#3d62f5",
+    "#ad2bee",
+    "#1999b3",
+    "#f4fbf4",
+]
+cursor_bg = "#8ca68c"
+cursor_border = "#8ca68c"
+cursor_fg = "#131513"
+foreground = "#8ca68c"
+selection_bg = "#8ca68c"
+selection_fg = "#131513"
+
+[colors.indexed]
+16 = "#87711d"
+17 = "#e619c3"
+18 = "#242924"
+19 = "#5e6e5e"
+20 = "#809980"
+21 = "#cfe8cf"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Seaside (base16)"
+origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIER_SEASIDE_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f4fbf4",
+    "#e6193c",
+    "#29a329",
+    "#98981b",
+    "#3d62f5",
+    "#ad2bee",
+    "#1999b3",
+    "#5e6e5e",
+]
+background = "#f4fbf4"
+brights = [
+    "#809980",
+    "#e6193c",
+    "#29a329",
+    "#98981b",
+    "#3d62f5",
+    "#ad2bee",
+    "#1999b3",
+    "#131513",
+]
+cursor_bg = "#5e6e5e"
+cursor_border = "#5e6e5e"
+cursor_fg = "#f4fbf4"
+foreground = "#5e6e5e"
+selection_bg = "#5e6e5e"
+selection_fg = "#f4fbf4"
+
+[colors.indexed]
+16 = "#87711d"
+17 = "#e619c3"
+18 = "#cfe8cf"
+19 = "#8ca68c"
+20 = "#687d68"
+21 = "#242924"
+
+[metadata]
+aliases = []
+author = "Bram de Haan (http://atelierbramdehaan.nl)"
+name = "Atelier Seaside Light (base16)"
 origin_url = "https://github.com/atelierbram/base16-atelier-schemes"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
@@ -87670,6 +87958,146 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Atelier Forest/Heath/Lakeside built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_atelier_plateau_savanna_seaside_builtin_color_schemes() {
+        let cases = [
+            (
+                "Atelier Plateau (base16)",
+                Color::Rgb(138, 133, 133),
+                Color::Rgb(27, 24, 24),
+                Color::Rgb(138, 133, 133),
+                Some(Color::Rgb(27, 24, 24)),
+                Some(Color::Rgb(138, 133, 133)),
+                Some(Some(Color::Rgb(27, 24, 24))),
+                Color::Rgb(27, 24, 24),
+                Color::Rgb(202, 73, 73),
+                Color::Rgb(101, 93, 93),
+                Color::Rgb(244, 236, 236),
+                Some(Color::Rgb(180, 90, 60)),
+            ),
+            (
+                "Atelier Plateau Light (base16)",
+                Color::Rgb(88, 80, 80),
+                Color::Rgb(244, 236, 236),
+                Color::Rgb(88, 80, 80),
+                Some(Color::Rgb(244, 236, 236)),
+                Some(Color::Rgb(88, 80, 80)),
+                Some(Some(Color::Rgb(244, 236, 236))),
+                Color::Rgb(244, 236, 236),
+                Color::Rgb(202, 73, 73),
+                Color::Rgb(126, 119, 119),
+                Color::Rgb(27, 24, 24),
+                Some(Color::Rgb(180, 90, 60)),
+            ),
+            (
+                "Atelier Savanna (base16)",
+                Color::Rgb(135, 146, 138),
+                Color::Rgb(23, 28, 25),
+                Color::Rgb(135, 146, 138),
+                Some(Color::Rgb(23, 28, 25)),
+                Some(Color::Rgb(135, 146, 138)),
+                Some(Some(Color::Rgb(23, 28, 25))),
+                Color::Rgb(23, 28, 25),
+                Color::Rgb(177, 97, 57),
+                Color::Rgb(95, 109, 100),
+                Color::Rgb(236, 244, 238),
+                Some(Color::Rgb(159, 113, 60)),
+            ),
+            (
+                "Atelier Savanna Light (base16)",
+                Color::Rgb(82, 96, 87),
+                Color::Rgb(236, 244, 238),
+                Color::Rgb(82, 96, 87),
+                Some(Color::Rgb(236, 244, 238)),
+                Some(Color::Rgb(82, 96, 87)),
+                Some(Some(Color::Rgb(236, 244, 238))),
+                Color::Rgb(236, 244, 238),
+                Color::Rgb(177, 97, 57),
+                Color::Rgb(120, 135, 125),
+                Color::Rgb(23, 28, 25),
+                Some(Color::Rgb(159, 113, 60)),
+            ),
+            (
+                "Atelier Seaside (base16)",
+                Color::Rgb(140, 166, 140),
+                Color::Rgb(19, 21, 19),
+                Color::Rgb(140, 166, 140),
+                Some(Color::Rgb(19, 21, 19)),
+                Some(Color::Rgb(140, 166, 140)),
+                Some(Some(Color::Rgb(19, 21, 19))),
+                Color::Rgb(19, 21, 19),
+                Color::Rgb(230, 25, 60),
+                Color::Rgb(104, 125, 104),
+                Color::Rgb(244, 251, 244),
+                Some(Color::Rgb(135, 113, 29)),
+            ),
+            (
+                "Atelier Seaside Light (base16)",
+                Color::Rgb(94, 110, 94),
+                Color::Rgb(244, 251, 244),
+                Color::Rgb(94, 110, 94),
+                Some(Color::Rgb(244, 251, 244)),
+                Some(Color::Rgb(94, 110, 94)),
+                Some(Some(Color::Rgb(244, 251, 244))),
+                Color::Rgb(244, 251, 244),
+                Color::Rgb(230, 25, 60),
+                Color::Rgb(128, 153, 128),
+                Color::Rgb(19, 21, 19),
+                Some(Color::Rgb(135, 113, 29)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect(
+                "expected WezTerm Atelier Plateau/Savanna/Seaside built-in color_scheme config",
+            );
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

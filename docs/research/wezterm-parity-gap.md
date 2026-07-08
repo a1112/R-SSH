@@ -3552,7 +3552,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Atelier Estuary Light (base16)`, `Atelier Forest (base16)`,
   `Atelier Forest Light (base16)`, `Atelier Heath (base16)`,
   `Atelier Heath Light (base16)`, `Atelier Lakeside (base16)`,
-  `Atelier Lakeside Light (base16)`, `Builtin Dark`, `Builtin Light`,
+  `Atelier Lakeside Light (base16)`, `Atelier Plateau (base16)`,
+  `Atelier Plateau Light (base16)`, `Atelier Savanna (base16)`,
+  `Atelier Savanna Light (base16)`, `Atelier Seaside (base16)`,
+  `Atelier Seaside Light (base16)`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
