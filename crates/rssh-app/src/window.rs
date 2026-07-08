@@ -19493,6 +19493,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "darkmatrix" => Some(BUILTIN_DARKMATRIX_COLOR_SCHEME_TOML),
         "darkmoss (base16)" => Some(BUILTIN_DARKMOSS_BASE16_COLOR_SCHEME_TOML),
         "Darkside" => Some(BUILTIN_DARKSIDE_COLOR_SCHEME_TOML),
+        "Darkside (Gogh)" => Some(BUILTIN_DARKSIDE_GOGH_COLOR_SCHEME_TOML),
+        "Darktooth (base16)" => Some(BUILTIN_DARKTOOTH_BASE16_COLOR_SCHEME_TOML),
+        "Dawn (terminal.sexy)" => Some(BUILTIN_DAWN_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "dawnfox" => Some(BUILTIN_DAWNFOX_COLOR_SCHEME_TOML),
+        "dayfox" => Some(BUILTIN_DAYFOX_COLOR_SCHEME_TOML),
+        "Deafened (terminal.sexy)" => Some(BUILTIN_DEAFENED_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Decaf (base16)" => Some(BUILTIN_DECAF_BASE16_COLOR_SCHEME_TOML),
+        "deep" => Some(BUILTIN_DEEP_COLOR_SCHEME_TOML),
+        "Default (dark) (terminal.sexy)" => {
+            Some(BUILTIN_DEFAULT_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Default (light) (terminal.sexy)" => {
+            Some(BUILTIN_DEFAULT_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -28395,6 +28409,444 @@ aliases = ["Darkside (Gogh)"]
 name = "Darkside"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_DARKSIDE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#e8341c",
+    "#68c256",
+    "#f2d42c",
+    "#1c98e8",
+    "#8e69c9",
+    "#1c98e8",
+    "#bababa",
+]
+background = "#222324"
+brights = [
+    "#000000",
+    "#e05a4f",
+    "#77b869",
+    "#efd64b",
+    "#387cd3",
+    "#957bbe",
+    "#3d97e2",
+    "#bababa",
+]
+cursor_bg = "#bababa"
+cursor_border = "#bababa"
+cursor_fg = "#222324"
+foreground = "#bababa"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Darkside (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_DARKTOOTH_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d2021",
+    "#fb543f",
+    "#95c085",
+    "#fac03b",
+    "#0d6678",
+    "#8f4673",
+    "#8ba59b",
+    "#a89984",
+]
+background = "#1d2021"
+brights = [
+    "#665c54",
+    "#fb543f",
+    "#95c085",
+    "#fac03b",
+    "#0d6678",
+    "#8f4673",
+    "#8ba59b",
+    "#fdf4c1",
+]
+cursor_bg = "#a89984"
+cursor_border = "#a89984"
+cursor_fg = "#1d2021"
+foreground = "#a89984"
+selection_bg = "#a89984"
+selection_fg = "#1d2021"
+
+[colors.indexed]
+16 = "#fe8625"
+17 = "#a87322"
+18 = "#32302f"
+19 = "#504945"
+20 = "#928374"
+21 = "#d5c4a1"
+
+[metadata]
+aliases = []
+author = "Jason Milkins (https://github.com/jasonm23)"
+name = "Darktooth (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DAWN_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#353535",
+    "#744b40",
+    "#6d6137",
+    "#765636",
+    "#61564b",
+    "#6b4a49",
+    "#435861",
+    "#b3b3b3",
+]
+background = "#181b20"
+brights = [
+    "#5f5f5f",
+    "#785850",
+    "#6f6749",
+    "#776049",
+    "#696057",
+    "#6f5a59",
+    "#525f66",
+    "#cdcdcd",
+]
+foreground = "#9b9081"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Escapist"
+name = "Dawn (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DAWNFOX_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#575279",
+    "#b4637a",
+    "#618774",
+    "#ea9d34",
+    "#286983",
+    "#907aa9",
+    "#56949f",
+    "#e5e9f0",
+]
+background = "#faf4ed"
+brights = [
+    "#5f5695",
+    "#c26d85",
+    "#629f81",
+    "#eea846",
+    "#2d81a3",
+    "#9a80b9",
+    "#5ca7b4",
+    "#e6ebf3",
+]
+compose_cursor = "#d7827e"
+cursor_bg = "#575279"
+cursor_border = "#575279"
+cursor_fg = "#faf4ed"
+foreground = "#575279"
+scrollbar_thumb = "#a8a3b3"
+selection_bg = "#d0d8d8"
+selection_fg = "#575279"
+split = "#ebe5df"
+visual_bell = "#575279"
+
+[colors.indexed]
+16 = "#d685af"
+17 = "#d7827e"
+
+[colors.tab_bar]
+background = "#ebe5df"
+inactive_tab_edge = "#ebe5df"
+inactive_tab_edge_hover = "#ebe0df"
+
+[colors.tab_bar.active_tab]
+bg_color = "#a8a3b3"
+fg_color = "#faf4ed"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#ebe0df"
+fg_color = "#625c87"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#ebdfe4"
+fg_color = "#575279"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#faf4ed"
+fg_color = "#625c87"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#ebdfe4"
+fg_color = "#575279"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+author = "EdenEast"
+name = "dawnfox"
+origin_url = "https://github.com/EdenEast/nightfox.nvim"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DAYFOX_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#352c24",
+    "#a5222f",
+    "#396847",
+    "#ac5402",
+    "#2848a9",
+    "#6e33ce",
+    "#287980",
+    "#f2e9e1",
+]
+background = "#f6f2ee"
+brights = [
+    "#534c45",
+    "#b3434e",
+    "#577f63",
+    "#b86e28",
+    "#4863b6",
+    "#8452d5",
+    "#488d93",
+    "#f4ece6",
+]
+cursor_bg = "#3d2b5a"
+cursor_border = "#3d2b5a"
+cursor_fg = "#f6f2ee"
+foreground = "#3d2b5a"
+selection_bg = "#e7d2be"
+selection_fg = "#3d2b5a"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "dayfox"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DEAFENED_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3d3e3d",
+    "#755a5b",
+    "#68755a",
+    "#756e5a",
+    "#5b6976",
+    "#755b76",
+    "#465457",
+    "#ccccc6",
+]
+background = "#000000"
+brights = [
+    "#5a5b5c",
+    "#a37679",
+    "#87a376",
+    "#a39b76",
+    "#758ba3",
+    "#9f76a3",
+    "#899ca1",
+    "#f8f8f2",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Deafened (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DECAF_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2d2d2d",
+    "#ff7f7b",
+    "#beda78",
+    "#ffd67c",
+    "#90bee1",
+    "#efb3f7",
+    "#bed6ff",
+    "#cccccc",
+]
+background = "#2d2d2d"
+brights = [
+    "#777777",
+    "#ff7f7b",
+    "#beda78",
+    "#ffd67c",
+    "#90bee1",
+    "#efb3f7",
+    "#bed6ff",
+    "#ffffff",
+]
+cursor_bg = "#cccccc"
+cursor_border = "#cccccc"
+cursor_fg = "#2d2d2d"
+foreground = "#cccccc"
+selection_bg = "#cccccc"
+selection_fg = "#2d2d2d"
+
+[colors.indexed]
+16 = "#ffbf70"
+17 = "#ff93b3"
+18 = "#393939"
+19 = "#515151"
+20 = "#b4b7b4"
+21 = "#e0e0e0"
+
+[metadata]
+aliases = []
+author = "Alex Mirrington (https://github.com/alexmirrington)"
+name = "Decaf (base16)"
+origin_url = "https://github.com/alexmirrington/base16-espresso-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_DEEP_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d70005",
+    "#1cd915",
+    "#d9bd26",
+    "#5665ff",
+    "#b052da",
+    "#50d2da",
+    "#e0e0e0",
+]
+background = "#090909"
+brights = [
+    "#535353",
+    "#fb0007",
+    "#22ff18",
+    "#fedc2b",
+    "#9fa9ff",
+    "#e09aff",
+    "#8df9ff",
+    "#ffffff",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#151515"
+foreground = "#cdcdcd"
+selection_bg = "#780002"
+selection_fg = "#ececec"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "deep"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_DEFAULT_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151515",
+    "#ac4142",
+    "#90a959",
+    "#f4bf75",
+    "#6a9fb5",
+    "#aa759f",
+    "#75b5aa",
+    "#d0d0d0",
+]
+background = "#151515"
+brights = [
+    "#505050",
+    "#ac4142",
+    "#90a959",
+    "#f4bf75",
+    "#6a9fb5",
+    "#aa759f",
+    "#75b5aa",
+    "#f5f5f5",
+]
+foreground = "#d0d0d0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Default (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_DEFAULT_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151515",
+    "#ac4142",
+    "#90a959",
+    "#f4bf75",
+    "#6a9fb5",
+    "#aa759f",
+    "#75b5aa",
+    "#d0d0d0",
+]
+background = "#f5f5f5"
+brights = [
+    "#505050",
+    "#ac4142",
+    "#90a959",
+    "#f4bf75",
+    "#6a9fb5",
+    "#aa759f",
+    "#75b5aa",
+    "#f5f5f5",
+]
+foreground = "#303030"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Default (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -98543,6 +98995,224 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Darcula-to-Darkside built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_darkside_gogh_to_default_light_builtin_color_schemes() {
+        let cases = [
+            (
+                "Darkside (Gogh)",
+                Color::Rgb(186, 186, 186),
+                Color::Rgb(34, 35, 36),
+                Color::Rgb(186, 186, 186),
+                Some(Color::Rgb(34, 35, 36)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(232, 52, 28),
+                Color::Rgb(104, 194, 86),
+                Color::Rgb(242, 212, 44),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(186, 186, 186),
+                None,
+            ),
+            (
+                "Darktooth (base16)",
+                Color::Rgb(168, 153, 132),
+                Color::Rgb(29, 32, 33),
+                Color::Rgb(168, 153, 132),
+                Some(Color::Rgb(29, 32, 33)),
+                Some(Color::Rgb(168, 153, 132)),
+                Some(Some(Color::Rgb(29, 32, 33))),
+                Color::Rgb(29, 32, 33),
+                Color::Rgb(251, 84, 63),
+                Color::Rgb(149, 192, 133),
+                Color::Rgb(250, 192, 59),
+                Color::Rgb(102, 92, 84),
+                Color::Rgb(253, 244, 193),
+                Some(Color::Rgb(254, 134, 37)),
+            ),
+            (
+                "Dawn (terminal.sexy)",
+                Color::Rgb(155, 144, 129),
+                Color::Rgb(24, 27, 32),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(53, 53, 53),
+                Color::Rgb(116, 75, 64),
+                Color::Rgb(109, 97, 55),
+                Color::Rgb(118, 86, 54),
+                Color::Rgb(95, 95, 95),
+                Color::Rgb(205, 205, 205),
+                None,
+            ),
+            (
+                "dawnfox",
+                Color::Rgb(87, 82, 121),
+                Color::Rgb(250, 244, 237),
+                Color::Rgb(87, 82, 121),
+                Some(Color::Rgb(250, 244, 237)),
+                Some(Color::Rgb(208, 216, 216)),
+                Some(Some(Color::Rgb(87, 82, 121))),
+                Color::Rgb(87, 82, 121),
+                Color::Rgb(180, 99, 122),
+                Color::Rgb(97, 135, 116),
+                Color::Rgb(234, 157, 52),
+                Color::Rgb(95, 86, 149),
+                Color::Rgb(230, 235, 243),
+                Some(Color::Rgb(214, 133, 175)),
+            ),
+            (
+                "dayfox",
+                Color::Rgb(61, 43, 90),
+                Color::Rgb(246, 242, 238),
+                Color::Rgb(61, 43, 90),
+                Some(Color::Rgb(246, 242, 238)),
+                Some(Color::Rgb(231, 210, 190)),
+                Some(Some(Color::Rgb(61, 43, 90))),
+                Color::Rgb(53, 44, 36),
+                Color::Rgb(165, 34, 47),
+                Color::Rgb(57, 104, 71),
+                Color::Rgb(172, 84, 2),
+                Color::Rgb(83, 76, 69),
+                Color::Rgb(244, 236, 230),
+                None,
+            ),
+            (
+                "Deafened (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(61, 62, 61),
+                Color::Rgb(117, 90, 91),
+                Color::Rgb(104, 117, 90),
+                Color::Rgb(117, 110, 90),
+                Color::Rgb(90, 91, 92),
+                Color::Rgb(248, 248, 242),
+                None,
+            ),
+            (
+                "Decaf (base16)",
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(45, 45, 45),
+                Color::Rgb(204, 204, 204),
+                Some(Color::Rgb(45, 45, 45)),
+                Some(Color::Rgb(204, 204, 204)),
+                Some(Some(Color::Rgb(45, 45, 45))),
+                Color::Rgb(45, 45, 45),
+                Color::Rgb(255, 127, 123),
+                Color::Rgb(190, 218, 120),
+                Color::Rgb(255, 214, 124),
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(255, 191, 112)),
+            ),
+            (
+                "deep",
+                Color::Rgb(205, 205, 205),
+                Color::Rgb(9, 9, 9),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(21, 21, 21)),
+                Some(Color::Rgb(120, 0, 2)),
+                Some(Some(Color::Rgb(236, 236, 236))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(215, 0, 5),
+                Color::Rgb(28, 217, 21),
+                Color::Rgb(217, 189, 38),
+                Color::Rgb(83, 83, 83),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Default (dark) (terminal.sexy)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(21, 21, 21),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(172, 65, 66),
+                Color::Rgb(144, 169, 89),
+                Color::Rgb(244, 191, 117),
+                Color::Rgb(80, 80, 80),
+                Color::Rgb(245, 245, 245),
+                None,
+            ),
+            (
+                "Default (light) (terminal.sexy)",
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(245, 245, 245),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(172, 65, 66),
+                Color::Rgb(144, 169, 89),
+                Color::Rgb(244, 191, 117),
+                Color::Rgb(80, 80, 80),
+                Color::Rgb(245, 245, 245),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Darkside Gogh-to-Default Light built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

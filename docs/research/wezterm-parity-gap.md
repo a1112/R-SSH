@@ -3618,7 +3618,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `DanQing Light (base16)`, `Darcula (base16)`,
   `Dark Ocean (terminal.sexy)`, `Dark Pastel`, `Dark Pastel (Gogh)`,
   `Dark Violet (base16)`, `Dark+`, `darkermatrix`, `darkmatrix`,
-  `darkmoss (base16)`, `Darkside`, `Builtin Dark`, `Builtin Light`,
+  `darkmoss (base16)`, `Darkside`, `Darkside (Gogh)`,
+  `Darktooth (base16)`, `Dawn (terminal.sexy)`, `dawnfox`, `dayfox`,
+  `Deafened (terminal.sexy)`, `Decaf (base16)`, `deep`,
+  `Default (dark) (terminal.sexy)`, `Default (light) (terminal.sexy)`,
+  `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
