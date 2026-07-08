@@ -10014,6 +10014,15 @@ fn lua_tab_title_condition_from_expression(
         return Some(NativeLuaTabTitleCondition::ActivePaneProgressFieldPresent { field });
     }
 
+    if let Some(name) = lua_tab_title_active_pane_user_var_present_condition(
+        condition,
+        tab_param,
+        static_source,
+        outer_static_source,
+    ) {
+        return Some(NativeLuaTabTitleCondition::ActivePaneUserVarPresent { name });
+    }
+
     for (field, parsed) in [
         ("is_active", NativeLuaTabTitleCondition::IsActive),
         ("is_last_active", NativeLuaTabTitleCondition::IsLastActive),
@@ -10194,6 +10203,75 @@ fn lua_tab_title_progress_field_present_rest(rest: &str) -> Option<NativeLuaTabT
         return None;
     }
     Some(parsed)
+}
+
+fn lua_tab_title_active_pane_user_var_present_condition(
+    condition: &str,
+    tab_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<String> {
+    let user_vars = format!("{tab_param}.active_pane.user_vars");
+    if let Some(rest) = condition.strip_prefix(&user_vars) {
+        return lua_tab_title_user_var_present_rest(static_source, outer_static_source, rest);
+    }
+
+    let receiver = lua_identifier_literal_from_query(condition)?;
+    let rest = condition.get(receiver.len()..)?;
+    if lua_tab_title_active_pane_alias_before_offset(
+        static_source,
+        outer_static_source,
+        receiver,
+        tab_param,
+    ) == Some(true)
+    {
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = rest.strip_prefix("user_vars")?;
+        return lua_tab_title_user_var_present_rest(static_source, outer_static_source, rest);
+    }
+
+    if lua_tab_title_active_pane_user_vars_alias_before_offset(
+        static_source,
+        outer_static_source,
+        receiver,
+        tab_param,
+    ) == Some(true)
+    {
+        return lua_tab_title_user_var_present_rest(static_source, outer_static_source, rest);
+    }
+
+    None
+}
+
+fn lua_tab_title_user_var_present_rest(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    rest: &str,
+) -> Option<String> {
+    let (name, rest) =
+        lua_tab_title_user_var_name_and_rest_from_rest(static_source, outer_static_source, rest)?;
+    let rest = lua_trim_start_comments(rest)?.strip_prefix("~=")?;
+    let rest = lua_trim_start_comments(rest)?.strip_prefix("nil")?;
+    lua_static_identifier_value_rest_is_statement_end(rest).then_some(name)
+}
+
+fn lua_tab_title_user_var_name_and_rest_from_rest<'a>(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    rest: &'a str,
+) -> Option<(String, &'a str)> {
+    let rest = lua_trim_start_comments(rest)?;
+    if let Some(rest) = rest.strip_prefix('.') {
+        let name = lua_identifier_literal_from_query(rest)?;
+        return Some((name.to_owned(), rest.get(name.len()..)?));
+    }
+
+    let rest = rest.strip_prefix('[')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (name, rest) =
+        lua_static_pane_user_var_bracket_key_from_query(static_source, outer_static_source, rest)?;
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(']')?;
+    Some((name, rest))
 }
 
 fn lua_tab_title_event_field_return_from_statement(
@@ -30888,7 +30966,7 @@ struct NativeLuaTabTitleConditionalBranch {
     title: NativeLuaTabTitle,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaTabTitleCondition {
     IsActive,
     IsLastActive,
@@ -30898,12 +30976,15 @@ enum NativeLuaTabTitleCondition {
     ActivePaneProgressFieldPresent {
         field: NativeLuaTabTitleProgressField,
     },
+    ActivePaneUserVarPresent {
+        name: String,
+    },
     TabCountGreaterThan(usize),
     PaneCountGreaterThan(usize),
 }
 
 impl NativeLuaTabTitleCondition {
-    fn matches(self, event: &NativeTabTitleFormat) -> bool {
+    fn matches(&self, event: &NativeTabTitleFormat) -> bool {
         match self {
             Self::IsActive => event.is_active,
             Self::IsLastActive => event.is_last_active,
@@ -30914,7 +30995,7 @@ impl NativeLuaTabTitleCondition {
             }
             Self::ActivePaneProgressFieldPresent { field } => {
                 matches!(
-                    (field, event.active_pane_info.progress),
+                    (*field, event.active_pane_info.progress),
                     (
                         NativeLuaTabTitleProgressField::Percentage,
                         PaneProgress::Percentage(_)
@@ -30924,8 +31005,11 @@ impl NativeLuaTabTitleCondition {
                     )
                 )
             }
-            Self::TabCountGreaterThan(count) => event.tab_count > count,
-            Self::PaneCountGreaterThan(count) => event.pane_count > count,
+            Self::ActivePaneUserVarPresent { name } => {
+                event.active_pane_info.user_vars.contains_key(name)
+            }
+            Self::TabCountGreaterThan(count) => event.tab_count > *count,
+            Self::PaneCountGreaterThan(count) => event.pane_count > *count,
         }
     }
 }
@@ -102857,6 +102941,35 @@ mod tests {
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("prog=psh"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_local_user_var_condition() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local pane = tab.active_pane
+              local vars = pane.user_vars
+              if vars['WEZTERM-PROG'] ~= nil then
+                return 'prog=' .. vars['WEZTERM-PROG']
+              end
+
+              return 'prog=none'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title local user var condition");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM-PROG=cHNo\x07")
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("prog=psh"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("prog=none"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
