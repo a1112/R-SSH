@@ -10005,6 +10005,15 @@ fn lua_tab_title_condition_from_expression(
         return Some(NativeLuaTabTitleCondition::ActivePaneProgressIndeterminate);
     }
 
+    if let Some(field) = lua_tab_title_active_pane_progress_field_present_condition(
+        condition,
+        tab_param,
+        static_source,
+        outer_static_source,
+    ) {
+        return Some(NativeLuaTabTitleCondition::ActivePaneProgressFieldPresent { field });
+    }
+
     for (field, parsed) in [
         ("is_active", NativeLuaTabTitleCondition::IsActive),
         ("is_last_active", NativeLuaTabTitleCondition::IsLastActive),
@@ -10118,6 +10127,49 @@ fn lua_tab_title_progress_indeterminate_rest_is_complete(rest: &str) -> bool {
     value == "Indeterminate"
         && lua_trim_start_comments(rest.get(literal.len()..).unwrap_or_default())
             .is_some_and(str::is_empty)
+}
+
+fn lua_tab_title_active_pane_progress_field_present_condition(
+    condition: &str,
+    tab_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaTabTitleProgressField> {
+    let progress = format!("{tab_param}.active_pane.progress");
+    if let Some(rest) = condition.strip_prefix(&progress) {
+        return lua_tab_title_progress_field_present_rest(rest);
+    }
+
+    let receiver = lua_identifier_literal_from_query(condition)?;
+    let rest = condition.get(receiver.len()..)?;
+    if !lua_tab_title_active_pane_alias_before_offset(
+        static_source,
+        outer_static_source,
+        receiver,
+        tab_param,
+    )? {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = rest.strip_prefix("progress")?;
+    lua_tab_title_progress_field_present_rest(rest)
+}
+
+fn lua_tab_title_progress_field_present_rest(rest: &str) -> Option<NativeLuaTabTitleProgressField> {
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let field = lua_identifier_literal_from_query(rest)?;
+    let parsed = match field {
+        "Percentage" => NativeLuaTabTitleProgressField::Percentage,
+        "Error" => NativeLuaTabTitleProgressField::Error,
+        _ => return None,
+    };
+    let rest = lua_trim_start_comments(rest.get(field.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix("~=")?)?;
+    let rest = rest.strip_prefix("nil")?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    Some(parsed)
 }
 
 fn lua_tab_title_event_field_return_from_statement(
@@ -30701,6 +30753,9 @@ enum NativeLuaTabTitleCondition {
     IsHover,
     ActivePaneIsZoomed,
     ActivePaneProgressIndeterminate,
+    ActivePaneProgressFieldPresent {
+        field: NativeLuaTabTitleProgressField,
+    },
     TabCountGreaterThan(usize),
     PaneCountGreaterThan(usize),
 }
@@ -30714,6 +30769,18 @@ impl NativeLuaTabTitleCondition {
             Self::ActivePaneIsZoomed => event.active_pane_info.is_zoomed,
             Self::ActivePaneProgressIndeterminate => {
                 event.active_pane_info.progress == PaneProgress::Indeterminate
+            }
+            Self::ActivePaneProgressFieldPresent { field } => {
+                matches!(
+                    (field, event.active_pane_info.progress),
+                    (
+                        NativeLuaTabTitleProgressField::Percentage,
+                        PaneProgress::Percentage(_)
+                    ) | (
+                        NativeLuaTabTitleProgressField::Error,
+                        PaneProgress::Error(_)
+                    )
+                )
             }
             Self::TabCountGreaterThan(count) => event.tab_count > count,
             Self::PaneCountGreaterThan(count) => event.pane_count > count,
@@ -102667,6 +102734,39 @@ mod tests {
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("pct=42"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_active_pane_alias_progress_percentage_condition()
+     {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local pane = tab.active_pane
+              if pane.progress.Percentage ~= nil then
+                return 'pct=' .. pane.progress.Percentage
+              end
+
+              return 'progress=idle'
+            end)
+            "#,
+        )
+        .expect(
+            "expected static WezTerm format-tab-title active pane alias progress percentage condition",
+        );
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]9;4;1;42\x07").unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("pct=42"), "tab bar was {tab_bar:?}");
+        assert!(
+            !tab_bar.contains("progress=idle"),
+            "tab bar was {tab_bar:?}"
+        );
     }
 
     #[test]
