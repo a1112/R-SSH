@@ -2659,6 +2659,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.on('format-window-title', function(...) return 'title' end)` and
   `wezterm['on'](...)` callbacks with literal or top-level static
   string-variable/concatenated event names,
+  honoring WezTerm's first-handler-wins rule for multiple static
+  `format-window-title` registrations,
   Lua comments inside the anonymous callback parameter list, top-level named
   function callbacks registered by name, top-level static function-valued
   callback variables, top-level `local wt = require 'wezterm'` module aliases,

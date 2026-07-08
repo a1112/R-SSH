@@ -6597,15 +6597,14 @@ fn lua_static_wezterm_user_var_changed_event_from_statement(
 fn lua_static_wezterm_window_title_return_event_from_query(
     source: &str,
 ) -> Option<NativeLuaWindowTitle> {
-    let mut selected = None;
     for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
         if let Some(value) =
             lua_static_wezterm_window_title_return_event_from_statement(source, start)
         {
-            selected = Some(value);
+            return Some(value);
         }
     }
-    selected
+    None
 }
 
 fn lua_static_wezterm_window_title_return_event_from_statement(
@@ -106786,6 +106785,28 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_uses_first_static_wezterm_format_window_title_handler() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'FIRST LUA TITLE'
+            end)
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'SECOND LUA TITLE'
+            end)
+            "#,
+        )
+        .expect("expected first static WezTerm format-window-title handler");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "FIRST LUA TITLE");
     }
 
     #[test]
