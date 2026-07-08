@@ -19194,6 +19194,7 @@ fn apply_builtin_color_scheme_overrides(
 
 fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
     match color_scheme {
+        "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
         "Builtin Solarized Dark" | "iTerm2 Solarized Dark" => {
             Some(BUILTIN_SOLARIZED_DARK_COLOR_SCHEME_TOML)
         }
@@ -19208,6 +19209,45 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         _ => None,
     }
 }
+
+const BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4f4f4f",
+    "#ff6c60",
+    "#a8ff60",
+    "#ffffb6",
+    "#96cbfe",
+    "#ff73fd",
+    "#c6c5fe",
+    "#eeeeee",
+]
+background = "#000000"
+brights = [
+    "#7c7c7c",
+    "#ffb6b0",
+    "#ceffac",
+    "#ffffcc",
+    "#b5dcff",
+    "#ff9cfe",
+    "#dfdffe",
+    "#ffffff",
+]
+cursor_bg = "#ffa560"
+cursor_border = "#ffa560"
+cursor_fg = "#ffffff"
+foreground = "#bbbbbb"
+selection_bg = "#363983"
+selection_fg = "#f2f2f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Builtin Pastel Dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
 
 const BUILTIN_SOLARIZED_DARK_COLOR_SCHEME_TOML: &str = r##"
 [colors]
@@ -84527,6 +84567,37 @@ mod tests {
         assert_eq!(ansi[1], Color::Rgb(220, 50, 47));
         assert_eq!(ansi[8], Color::Rgb(0, 43, 54));
         assert_eq!(ansi[15], Color::Rgb(253, 246, 227));
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_builtin_pastel_dark_color_scheme() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.color_scheme = 'Builtin Pastel Dark'
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm built-in Pastel Dark color_scheme config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.color_scheme.as_deref(),
+            Some("Builtin Pastel Dark")
+        );
+        assert_eq!(effective.foreground_color, Color::Rgb(187, 187, 187));
+        assert_eq!(effective.background_color, Color::Rgb(0, 0, 0));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(255, 165, 96));
+        assert_eq!(effective.cursor_fg_color, Some(Color::Rgb(255, 255, 255)));
+        let ansi = effective.ansi_palette.expect("expected ANSI palette");
+        assert_eq!(ansi[0], Color::Rgb(79, 79, 79));
+        assert_eq!(ansi[1], Color::Rgb(255, 108, 96));
+        assert_eq!(ansi[8], Color::Rgb(124, 124, 124));
+        assert_eq!(ansi[15], Color::Rgb(255, 255, 255));
     }
 
     #[test]
