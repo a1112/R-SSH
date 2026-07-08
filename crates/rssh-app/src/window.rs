@@ -10234,6 +10234,13 @@ fn lua_tab_title_text_part_from_expression(
         return Some(NativeLuaTabTitleTextPart::ActivePaneUserVar { name });
     }
 
+    let active_pane_progress = format!("{tab_param}.active_pane.progress");
+    if let Some(rest) = expression.strip_prefix(&active_pane_progress)
+        && lua_tab_title_active_pane_progress_percentage_rest_is_complete(rest)
+    {
+        return Some(NativeLuaTabTitleTextPart::ActivePaneProgressPercentage);
+    }
+
     for (field, part) in lua_tab_title_active_pane_text_parts() {
         let path = format!("{tab_param}.active_pane.{field}");
         if let Some(rest) = expression.strip_prefix(&path)
@@ -10269,6 +10276,18 @@ fn lua_tab_title_text_part_from_expression(
     }
 
     None
+}
+
+fn lua_tab_title_active_pane_progress_percentage_rest_is_complete(rest: &str) -> bool {
+    let Some(rest) = lua_trim_start_comments(rest).and_then(|rest| rest.strip_prefix('.')) else {
+        return false;
+    };
+    let Some(field) = lua_identifier_literal_from_query(rest) else {
+        return false;
+    };
+    field == "Percentage"
+        && lua_trim_start_comments(rest.get(field.len()..).unwrap_or_default())
+            .is_some_and(str::is_empty)
 }
 
 fn lua_tab_title_active_pane_text_parts() -> [(&'static str, NativeLuaTabTitleTextPart); 6] {
@@ -30619,6 +30638,7 @@ enum NativeLuaTabTitleTextPart {
     ActivePaneUserVar {
         name: String,
     },
+    ActivePaneProgressPercentage,
     ActivePaneDomainName,
     ActivePaneForegroundProcessName,
     ActivePaneCurrentWorkingDir,
@@ -30673,6 +30693,10 @@ impl NativeLuaTabTitleTextPart {
             Self::WindowTitle => Some(event.window_title.clone()),
             Self::ActivePaneId => Some(event.active_pane_info.pane_id.get().to_string()),
             Self::ActivePaneUserVar { name } => event.active_pane_info.user_vars.get(name).cloned(),
+            Self::ActivePaneProgressPercentage => match event.active_pane_info.progress {
+                PaneProgress::Percentage(value) => Some(value.to_string()),
+                _ => None,
+            },
             Self::ActivePaneDomainName => Some(event.active_pane_info.domain_name.clone()),
             Self::ActivePaneForegroundProcessName => {
                 Some(event.active_pane_info.foreground_process_name.clone())
@@ -102457,6 +102481,27 @@ mod tests {
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("prog=psh"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_active_pane_progress_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return 'pct=' .. tab.active_pane.progress.Percentage
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title active pane progress return");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]9;4;1;42\x07").unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("pct=42"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
