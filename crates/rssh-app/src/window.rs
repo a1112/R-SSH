@@ -19407,6 +19407,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "C64 (Gogh)" => Some(BUILTIN_C64_GOGH_COLOR_SCHEME_TOML),
         "Cai (Gogh)" => Some(BUILTIN_CAI_GOGH_COLOR_SCHEME_TOML),
         "Calamity" => Some(BUILTIN_CALAMITY_COLOR_SCHEME_TOML),
+        "Campbell (Gogh)" => Some(BUILTIN_CAMPBELL_GOGH_COLOR_SCHEME_TOML),
+        "Canvased Pastel (terminal.sexy)" => {
+            Some(BUILTIN_CANVASED_PASTEL_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "carbonfox" => Some(BUILTIN_CARBONFOX_COLOR_SCHEME_TOML),
+        "Catch Me If You Can (terminal.sexy)" => {
+            Some(BUILTIN_CATCH_ME_IF_YOU_CAN_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Catppuccin Frappe" => Some(BUILTIN_CATPPUCCIN_FRAPPE_COLOR_SCHEME_TOML),
+        "Catppuccin Frapp\u{e9} (Gogh)" => Some(BUILTIN_CATPPUCCIN_FRAPPE_GOGH_COLOR_SCHEME_TOML),
+        "Catppuccin Latte" => Some(BUILTIN_CATPPUCCIN_LATTE_COLOR_SCHEME_TOML),
+        "Catppuccin Latte (Gogh)" => Some(BUILTIN_CATPPUCCIN_LATTE_GOGH_COLOR_SCHEME_TOML),
+        "Catppuccin Macchiato" => Some(BUILTIN_CATPPUCCIN_MACCHIATO_COLOR_SCHEME_TOML),
+        "Catppuccin Macchiato (Gogh)" => Some(BUILTIN_CATPPUCCIN_MACCHIATO_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -25299,6 +25313,591 @@ aliases = []
 name = "Calamity"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_CAMPBELL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0c0c0c",
+    "#c50f1f",
+    "#13a10e",
+    "#c19c00",
+    "#0037da",
+    "#881798",
+    "#3a96dd",
+    "#cccccc",
+]
+background = "#0c0c0c"
+brights = [
+    "#767676",
+    "#e74856",
+    "#16c60c",
+    "#f9f1a5",
+    "#3b78ff",
+    "#b4009e",
+    "#61d6d6",
+    "#f2f2f2",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#0c0c0c"
+foreground = "#cccccc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Campbell (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_CANVASED_PASTEL_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#26251c",
+    "#323027",
+    "#3d4339",
+    "#443b2c",
+    "#534d35",
+    "#646756",
+    "#7b8574",
+    "#837b61",
+]
+background = "#170f0d"
+brights = [
+    "#999f91",
+    "#9b9773",
+    "#b2b08c",
+    "#c4bb8c",
+    "#c4b67a",
+    "#cfc995",
+    "#d3d4b6",
+    "#d6d3ac",
+]
+foreground = "#746c48"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "dkeg"
+name = "Canvased Pastel (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CARBONFOX_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282828",
+    "#ee5396",
+    "#25be6a",
+    "#08bdba",
+    "#78a9ff",
+    "#be95ff",
+    "#33b1ff",
+    "#dfdfe0",
+]
+background = "#161616"
+brights = [
+    "#484848",
+    "#f16da6",
+    "#46c880",
+    "#2dc7c4",
+    "#8cb6ff",
+    "#c8a5ff",
+    "#52bdff",
+    "#e4e4e5",
+]
+compose_cursor = "#3ddbd9"
+cursor_bg = "#f2f4f8"
+cursor_border = "#f2f4f8"
+cursor_fg = "#161616"
+foreground = "#f2f4f8"
+scrollbar_thumb = "#7b7c7e"
+selection_bg = "#2a2a2a"
+selection_fg = "#f2f4f8"
+split = "#0c0c0c"
+visual_bell = "#f2f4f8"
+
+[colors.indexed]
+16 = "#ff7eb6"
+17 = "#3ddbd9"
+
+[colors.tab_bar]
+background = "#0c0c0c"
+inactive_tab_edge = "#0c0c0c"
+inactive_tab_edge_hover = "#252525"
+
+[colors.tab_bar.active_tab]
+bg_color = "#7b7c7e"
+fg_color = "#161616"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#252525"
+fg_color = "#b6b8bb"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#353535"
+fg_color = "#f2f4f8"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#161616"
+fg_color = "#b6b8bb"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#353535"
+fg_color = "#f2f4f8"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+author = "EdenEast"
+name = "carbonfox"
+origin_url = "https://github.com/EdenEast/nightfox.nvim"
+wezterm_version = "20220903-194523-3bb1ed61"
+"##;
+
+const BUILTIN_CATCH_ME_IF_YOU_CAN_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#130f0c",
+    "#604c38",
+    "#8d7f85",
+    "#907256",
+    "#aa8d70",
+    "#b9a38d",
+    "#c4bfbf",
+    "#c4ae99",
+]
+background = "#170f0d"
+brights = [
+    "#c69f77",
+    "#cab9a8",
+    "#d5c6b8",
+    "#dcd1c7",
+    "#e0e0e2",
+    "#e4dad2",
+    "#eae3dc",
+    "#f6f2f0",
+]
+foreground = "#f9f9f9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "dkeg"
+name = "Catch Me If You Can (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CATPPUCCIN_FRAPPE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#51576d",
+    "#e78284",
+    "#a6d189",
+    "#e5c890",
+    "#8caaee",
+    "#f4b8e4",
+    "#81c8be",
+    "#b5bfe2",
+]
+background = "#303446"
+brights = [
+    "#626880",
+    "#e78284",
+    "#a6d189",
+    "#e5c890",
+    "#8caaee",
+    "#f4b8e4",
+    "#81c8be",
+    "#a5adce",
+]
+compose_cursor = "#eebebe"
+cursor_bg = "#f2d5cf"
+cursor_border = "#f2d5cf"
+cursor_fg = "#232634"
+foreground = "#c6d0f5"
+scrollbar_thumb = "#626880"
+selection_bg = "#626880"
+selection_fg = "#c6d0f5"
+split = "#737994"
+visual_bell = "#414559"
+
+[colors.indexed]
+16 = "#ef9f76"
+17 = "#f2d5cf"
+
+[colors.tab_bar]
+background = "#232634"
+inactive_tab_edge = "#414559"
+
+[colors.tab_bar.active_tab]
+bg_color = "#ca9ee6"
+fg_color = "#232634"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#292c3c"
+fg_color = "#c6d0f5"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#303446"
+fg_color = "#c6d0f5"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#414559"
+fg_color = "#c6d0f5"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#51576d"
+fg_color = "#c6d0f5"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = [
+    "Catppuccin Frapp\u00e9 (Gogh)",
+    "catppuccin-frappe",
+]
+author = "Catppuccin Org"
+name = "Catppuccin Frappe"
+origin_url = "https://github.com/catppuccin/wezterm"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CATPPUCCIN_FRAPPE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#51576d",
+    "#e78284",
+    "#a6d189",
+    "#e5c890",
+    "#8caaee",
+    "#f4b8e4",
+    "#81c8be",
+    "#b5bfe2",
+]
+background = "#303446"
+brights = [
+    "#626880",
+    "#e78284",
+    "#a6d189",
+    "#e5c890",
+    "#8caaee",
+    "#f4b8e4",
+    "#81c8be",
+    "#a5adce",
+]
+cursor_bg = "#c6d0f5"
+cursor_border = "#c6d0f5"
+cursor_fg = "#303446"
+foreground = "#c6d0f5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Catppuccin Frapp\u00e9 (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_CATPPUCCIN_LATTE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#bcc0cc",
+    "#d20f39",
+    "#40a02b",
+    "#df8e1d",
+    "#1e66f5",
+    "#ea76cb",
+    "#179299",
+    "#5c5f77",
+]
+background = "#eff1f5"
+brights = [
+    "#acb0be",
+    "#d20f39",
+    "#40a02b",
+    "#df8e1d",
+    "#1e66f5",
+    "#ea76cb",
+    "#179299",
+    "#6c6f85",
+]
+compose_cursor = "#dd7878"
+cursor_bg = "#dc8a78"
+cursor_border = "#dc8a78"
+cursor_fg = "#dce0e8"
+foreground = "#4c4f69"
+scrollbar_thumb = "#acb0be"
+selection_bg = "#acb0be"
+selection_fg = "#4c4f69"
+split = "#9ca0b0"
+visual_bell = "#ccd0da"
+
+[colors.indexed]
+16 = "#fe640b"
+17 = "#dc8a78"
+
+[colors.tab_bar]
+background = "#dce0e8"
+inactive_tab_edge = "#ccd0da"
+
+[colors.tab_bar.active_tab]
+bg_color = "#8839ef"
+fg_color = "#dce0e8"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#e6e9ef"
+fg_color = "#4c4f69"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#eff1f5"
+fg_color = "#4c4f69"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#ccd0da"
+fg_color = "#4c4f69"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#bcc0cc"
+fg_color = "#4c4f69"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+author = "Catppuccin Org"
+name = "Catppuccin Latte"
+origin_url = "https://github.com/catppuccin/wezterm"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CATPPUCCIN_LATTE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#5c5f77",
+    "#d20f39",
+    "#40a02b",
+    "#df8e1d",
+    "#1e66f5",
+    "#ea76cb",
+    "#179299",
+    "#acb0be",
+]
+background = "#eff1f5"
+brights = [
+    "#6c6f85",
+    "#d20f39",
+    "#40a02b",
+    "#df8e1d",
+    "#1e66f5",
+    "#ea76cb",
+    "#179299",
+    "#bcc0cc",
+]
+cursor_bg = "#4c4f69"
+cursor_border = "#4c4f69"
+cursor_fg = "#eff1f5"
+foreground = "#4c4f69"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Catppuccin Latte (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_CATPPUCCIN_MACCHIATO_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#494d64",
+    "#ed8796",
+    "#a6da95",
+    "#eed49f",
+    "#8aadf4",
+    "#f5bde6",
+    "#8bd5ca",
+    "#b8c0e0",
+]
+background = "#24273a"
+brights = [
+    "#5b6078",
+    "#ed8796",
+    "#a6da95",
+    "#eed49f",
+    "#8aadf4",
+    "#f5bde6",
+    "#8bd5ca",
+    "#a5adcb",
+]
+compose_cursor = "#f0c6c6"
+cursor_bg = "#f4dbd6"
+cursor_border = "#f4dbd6"
+cursor_fg = "#181926"
+foreground = "#cad3f5"
+scrollbar_thumb = "#5b6078"
+selection_bg = "#5b6078"
+selection_fg = "#cad3f5"
+split = "#6e738d"
+visual_bell = "#363a4f"
+
+[colors.indexed]
+16 = "#f5a97f"
+17 = "#f4dbd6"
+
+[colors.tab_bar]
+background = "#181926"
+inactive_tab_edge = "#363a4f"
+
+[colors.tab_bar.active_tab]
+bg_color = "#c6a0f6"
+fg_color = "#181926"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#1e2030"
+fg_color = "#cad3f5"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#24273a"
+fg_color = "#cad3f5"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#363a4f"
+fg_color = "#cad3f5"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#494d64"
+fg_color = "#cad3f5"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = [
+    "Catppuccin Macchiato (Gogh)",
+    "catppuccin-macchiato",
+]
+author = "Catppuccin Org"
+name = "Catppuccin Macchiato"
+origin_url = "https://github.com/catppuccin/wezterm"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CATPPUCCIN_MACCHIATO_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#494d64",
+    "#ed8796",
+    "#a6da95",
+    "#eed49f",
+    "#8aadf4",
+    "#f5bde6",
+    "#8bd5ca",
+    "#b8c0e0",
+]
+background = "#24273a"
+brights = [
+    "#5b6078",
+    "#ed8796",
+    "#a6da95",
+    "#eed49f",
+    "#8aadf4",
+    "#f5bde6",
+    "#8bd5ca",
+    "#a5adcb",
+]
+cursor_bg = "#cad3f5"
+cursor_border = "#cad3f5"
+cursor_fg = "#24273a"
+foreground = "#cad3f5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Catppuccin Macchiato (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -93917,6 +94516,226 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Brogrammer-to-Calamity built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_campbell_to_catppuccin_macchiato_builtin_color_schemes() {
+        let cases = [
+            (
+                "Campbell (Gogh)",
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(12, 12, 12),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(12, 12, 12)),
+                None,
+                None,
+                Color::Rgb(12, 12, 12),
+                Color::Rgb(197, 15, 31),
+                Color::Rgb(19, 161, 14),
+                Color::Rgb(193, 156, 0),
+                Color::Rgb(118, 118, 118),
+                Color::Rgb(242, 242, 242),
+                None,
+            ),
+            (
+                "Canvased Pastel (terminal.sexy)",
+                Color::Rgb(116, 108, 72),
+                Color::Rgb(23, 15, 13),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(38, 37, 28),
+                Color::Rgb(50, 48, 39),
+                Color::Rgb(61, 67, 57),
+                Color::Rgb(68, 59, 44),
+                Color::Rgb(153, 159, 145),
+                Color::Rgb(214, 211, 172),
+                None,
+            ),
+            (
+                "carbonfox",
+                Color::Rgb(242, 244, 248),
+                Color::Rgb(22, 22, 22),
+                Color::Rgb(242, 244, 248),
+                Some(Color::Rgb(22, 22, 22)),
+                Some(Color::Rgb(42, 42, 42)),
+                Some(Some(Color::Rgb(242, 244, 248))),
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(238, 83, 150),
+                Color::Rgb(37, 190, 106),
+                Color::Rgb(8, 189, 186),
+                Color::Rgb(72, 72, 72),
+                Color::Rgb(228, 228, 229),
+                Some(Color::Rgb(255, 126, 182)),
+            ),
+            (
+                "Catch Me If You Can (terminal.sexy)",
+                Color::Rgb(249, 249, 249),
+                Color::Rgb(23, 15, 13),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(19, 15, 12),
+                Color::Rgb(96, 76, 56),
+                Color::Rgb(141, 127, 133),
+                Color::Rgb(144, 114, 86),
+                Color::Rgb(198, 159, 119),
+                Color::Rgb(246, 242, 240),
+                None,
+            ),
+            (
+                "Catppuccin Frappe",
+                Color::Rgb(198, 208, 245),
+                Color::Rgb(48, 52, 70),
+                Color::Rgb(242, 213, 207),
+                Some(Color::Rgb(35, 38, 52)),
+                Some(Color::Rgb(98, 104, 128)),
+                Some(Some(Color::Rgb(198, 208, 245))),
+                Color::Rgb(81, 87, 109),
+                Color::Rgb(231, 130, 132),
+                Color::Rgb(166, 209, 137),
+                Color::Rgb(229, 200, 144),
+                Color::Rgb(98, 104, 128),
+                Color::Rgb(165, 173, 206),
+                Some(Color::Rgb(239, 159, 118)),
+            ),
+            (
+                "Catppuccin Frapp\u{e9} (Gogh)",
+                Color::Rgb(198, 208, 245),
+                Color::Rgb(48, 52, 70),
+                Color::Rgb(198, 208, 245),
+                Some(Color::Rgb(48, 52, 70)),
+                None,
+                None,
+                Color::Rgb(81, 87, 109),
+                Color::Rgb(231, 130, 132),
+                Color::Rgb(166, 209, 137),
+                Color::Rgb(229, 200, 144),
+                Color::Rgb(98, 104, 128),
+                Color::Rgb(165, 173, 206),
+                None,
+            ),
+            (
+                "Catppuccin Latte",
+                Color::Rgb(76, 79, 105),
+                Color::Rgb(239, 241, 245),
+                Color::Rgb(220, 138, 120),
+                Some(Color::Rgb(220, 224, 232)),
+                Some(Color::Rgb(172, 176, 190)),
+                Some(Some(Color::Rgb(76, 79, 105))),
+                Color::Rgb(188, 192, 204),
+                Color::Rgb(210, 15, 57),
+                Color::Rgb(64, 160, 43),
+                Color::Rgb(223, 142, 29),
+                Color::Rgb(172, 176, 190),
+                Color::Rgb(108, 111, 133),
+                Some(Color::Rgb(254, 100, 11)),
+            ),
+            (
+                "Catppuccin Latte (Gogh)",
+                Color::Rgb(76, 79, 105),
+                Color::Rgb(239, 241, 245),
+                Color::Rgb(76, 79, 105),
+                Some(Color::Rgb(239, 241, 245)),
+                None,
+                None,
+                Color::Rgb(92, 95, 119),
+                Color::Rgb(210, 15, 57),
+                Color::Rgb(64, 160, 43),
+                Color::Rgb(223, 142, 29),
+                Color::Rgb(108, 111, 133),
+                Color::Rgb(188, 192, 204),
+                None,
+            ),
+            (
+                "Catppuccin Macchiato",
+                Color::Rgb(202, 211, 245),
+                Color::Rgb(36, 39, 58),
+                Color::Rgb(244, 219, 214),
+                Some(Color::Rgb(24, 25, 38)),
+                Some(Color::Rgb(91, 96, 120)),
+                Some(Some(Color::Rgb(202, 211, 245))),
+                Color::Rgb(73, 77, 100),
+                Color::Rgb(237, 135, 150),
+                Color::Rgb(166, 218, 149),
+                Color::Rgb(238, 212, 159),
+                Color::Rgb(91, 96, 120),
+                Color::Rgb(165, 173, 203),
+                Some(Color::Rgb(245, 169, 127)),
+            ),
+            (
+                "Catppuccin Macchiato (Gogh)",
+                Color::Rgb(202, 211, 245),
+                Color::Rgb(36, 39, 58),
+                Color::Rgb(202, 211, 245),
+                Some(Color::Rgb(36, 39, 58)),
+                None,
+                None,
+                Color::Rgb(73, 77, 100),
+                Color::Rgb(237, 135, 150),
+                Color::Rgb(166, 218, 149),
+                Color::Rgb(238, 212, 159),
+                Color::Rgb(91, 96, 120),
+                Color::Rgb(165, 173, 203),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect(
+                "expected WezTerm Campbell-to-Catppuccin Macchiato built-in color_scheme config",
+            );
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

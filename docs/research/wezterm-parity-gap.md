@@ -3593,7 +3593,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Broadcast`, `Broadcast (Gogh)`, `Brogrammer`, `Brogrammer (base16)`,
   `Brogrammer (Gogh)`, `Brush Trees (base16)`,
   `Brush Trees Dark (base16)`, `Butrin (Gogh)`, `C64`, `C64 (Gogh)`,
-  `Cai (Gogh)`, `Calamity`, `Builtin Dark`, `Builtin Light`,
+  `Cai (Gogh)`, `Calamity`, `Campbell (Gogh)`,
+  `Canvased Pastel (terminal.sexy)`, `carbonfox`,
+  `Catch Me If You Can (terminal.sexy)`, `Catppuccin Frappe`,
+  `Catppuccin Frappé (Gogh)`, `Catppuccin Latte`,
+  `Catppuccin Latte (Gogh)`, `Catppuccin Macchiato`,
+  `Catppuccin Macchiato (Gogh)`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
