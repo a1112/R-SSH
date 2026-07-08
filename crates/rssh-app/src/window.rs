@@ -21972,7 +21972,7 @@ fn lua_table_map_field_key_from_query_with_static_source<'a>(
     let after_open = lua_trim_start_comments(query.strip_prefix('[')?)?;
     let key = lua_identifier_literal_from_query(after_open)?;
     let rest = lua_trim_start_comments(after_open.get(key.len()..)?)?;
-    let rest = lua_trim_start_comments(rest.strip_prefix(']')?)?;
+    let rest = rest.strip_prefix(']')?;
     let key = lua_static_string_assignment_value_before_offset_from_query(
         static_source.source,
         key,
@@ -59344,33 +59344,45 @@ fn lua_static_wezterm_emit_alias_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_static_wezterm_emit_alias_value_from_query(value);
+        selected = lua_static_wezterm_emit_alias_value_from_query(source, start, value);
     }
 
     Some(selected)
 }
 
-fn lua_static_wezterm_emit_alias_value_from_query(value: &str) -> bool {
+fn lua_static_wezterm_emit_alias_value_from_query(
+    source: &str,
+    max_start: usize,
+    value: &str,
+) -> bool {
     let Some(value) = lua_trim_start_comments(value) else {
         return false;
     };
     if let Some(rest) = value.strip_prefix("wezterm") {
         if !rest.chars().next().is_some_and(is_lua_identifier_character) {
-            return lua_static_wezterm_emit_alias_receiver_rest_is_statement_end(rest);
+            return lua_static_wezterm_emit_alias_receiver_rest_is_statement_end(
+                source, max_start, rest,
+            );
         }
     }
     let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) else {
         return false;
     };
-    lua_static_wezterm_emit_alias_receiver_rest_is_statement_end(rest)
+    lua_static_wezterm_emit_alias_receiver_rest_is_statement_end(source, max_start, rest)
 }
 
-fn lua_static_wezterm_emit_alias_receiver_rest_is_statement_end(rest: &str) -> bool {
+fn lua_static_wezterm_emit_alias_receiver_rest_is_statement_end(
+    source: &str,
+    max_start: usize,
+    rest: &str,
+) -> bool {
     let Some(rest) = lua_trim_start_comments(rest) else {
         return false;
     };
-    let Some((field, rest)) = lua_table_map_field_key_from_query_with_static_source(None, rest)
-    else {
+    let Some((field, rest)) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource { source, max_start }),
+        rest,
+    ) else {
         return false;
     };
     field == "emit" && lua_static_identifier_value_rest_is_statement_end(rest)
@@ -122772,6 +122784,42 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello-bracket-alias");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_emits_static_event_static_key_alias() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local emit_key = 'emit'
+            local emit = wezterm[emit_key]
+
+            wezterm.on('send-greeting', function(window, pane)
+              emit('write-greeting', window, pane)
+            end)
+
+            wezterm.on('write-greeting', function(window, pane)
+              window:perform_action(act.SendString 'hello-static-key', pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler static-key alias config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello-static-key");
     }
 
     #[test]
