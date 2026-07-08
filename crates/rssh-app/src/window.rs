@@ -8007,6 +8007,10 @@ fn lua_static_window_title_conditional_return_from_function_body(
                 pane_param,
                 tabs_param,
                 panes_param,
+                Some(LuaStaticSource {
+                    source: body,
+                    max_start: start,
+                }),
             )?;
             let parts = lua_static_window_title_first_return_parts_from_nested_body(
                 body,
@@ -8507,6 +8511,10 @@ fn lua_window_title_conditional_assignment_parts_before_offset(
                 pane_param,
                 tabs_param,
                 panes_param,
+                Some(LuaStaticSource {
+                    source,
+                    max_start: start,
+                }),
             ) else {
                 continue 'statements;
             };
@@ -8746,6 +8754,7 @@ fn lua_window_title_condition_from_expression(
     pane_param: &str,
     tabs_param: &str,
     panes_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowTitleCondition> {
     let condition = lua_trim_start_comments(condition.trim())?;
     for zoomed in [
@@ -8756,6 +8765,24 @@ fn lua_window_title_condition_from_expression(
             && lua_static_identifier_value_rest_is_statement_end(rest)
         {
             return Some(NativeLuaWindowTitleCondition::ActivePaneIsZoomed);
+        }
+    }
+
+    if let Some(receiver) = lua_identifier_literal_from_query(condition) {
+        let rest = condition.get(receiver.len()..)?;
+        if lua_window_title_active_pane_alias_before_offset(
+            static_source,
+            receiver,
+            tab_param,
+            pane_param,
+        )
+        .unwrap_or(false)
+        {
+            let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+            let rest = rest.strip_prefix("is_zoomed")?;
+            if lua_static_identifier_value_rest_is_statement_end(rest) {
+                return Some(NativeLuaWindowTitleCondition::ActivePaneIsZoomed);
+            }
         }
     }
 
@@ -107168,6 +107195,41 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-window-title pane zoomed condition");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "zoomed:Window Fallback");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_pane_alias_zoomed_condition() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: app.active_pane_id(),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::SetPaneZoomState {
+            pane: app.active_pane_id(),
+            zoomed: true,
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local active = pane
+              if active.is_zoomed then
+                return 'zoomed:' .. tab.window_title
+              end
+
+              return 'plain:' .. tab.window_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title pane alias zoomed condition");
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "zoomed:Window Fallback");
