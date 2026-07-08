@@ -10469,6 +10469,18 @@ fn lua_tab_title_text_part_from_expression(
         }
     }
 
+    if lua_tab_title_active_pane_user_vars_alias_before_offset(
+        static_source,
+        outer_static_source,
+        receiver,
+        tab_param,
+    ) == Some(true)
+        && let Some(name) =
+            lua_static_pane_user_var_name_from_rest(static_source, outer_static_source, rest)
+    {
+        return Some(NativeLuaTabTitleTextPart::ActivePaneUserVar { name });
+    }
+
     if lua_tab_title_active_pane_progress_alias_before_offset(
         static_source,
         outer_static_source,
@@ -10537,6 +10549,54 @@ fn lua_tab_title_active_pane_alias_before_offset(
         static_source.max_start,
     )?;
     Some(value.trim() == format!("{tab_param}.active_pane"))
+}
+
+fn lua_tab_title_active_pane_user_vars_alias_before_offset(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    alias: &str,
+    tab_param: &str,
+) -> Option<bool> {
+    let static_source = static_source?;
+    let value = lua_static_expression_variable_assignment_before_offset_from_query(
+        static_source.source,
+        alias,
+        static_source.max_start,
+    )?;
+    lua_tab_title_active_pane_user_vars_expression_from_query(
+        value,
+        tab_param,
+        Some(static_source),
+        outer_static_source,
+    )
+}
+
+fn lua_tab_title_active_pane_user_vars_expression_from_query(
+    expression: &str,
+    tab_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<bool> {
+    let expression = lua_trim_start_comments(expression.trim())?;
+    let active_pane_user_vars = format!("{tab_param}.active_pane.user_vars");
+    if let Some(rest) = expression.strip_prefix(&active_pane_user_vars) {
+        return Some(lua_static_identifier_value_rest_is_statement_end(rest));
+    }
+
+    let receiver = lua_identifier_literal_from_query(expression)?;
+    let rest = expression.get(receiver.len()..)?;
+    if lua_tab_title_active_pane_alias_before_offset(
+        static_source,
+        outer_static_source,
+        receiver,
+        tab_param,
+    ) != Some(true)
+    {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = rest.strip_prefix("user_vars")?;
+    Some(lua_static_identifier_value_rest_is_statement_end(rest))
 }
 
 fn lua_tab_title_active_pane_progress_alias_before_offset(
@@ -102766,6 +102826,30 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-tab-title active pane alias user var return");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM-PROG=cHNo\x07")
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("prog=psh"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_local_user_vars_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local pane = tab.active_pane
+              local vars = pane.user_vars
+              return 'prog=' .. vars['WEZTERM-PROG']
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title local user vars return");
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM-PROG=cHNo\x07")
             .unwrap();
