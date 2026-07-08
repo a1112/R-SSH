@@ -3637,6 +3637,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Ef-Dream`, `Ef-Duo-Dark`, `Ef-Duo-Light`, `Ef-Elea-Dark`,
   `Ef-Elea-Light`, `Ef-Frost`, `Ef-Kassio`, `Ef-Light`,
   `Ef-Maris-Dark`, `Ef-Maris-Light`,
+  `Ef-Melissa-Dark`, `Ef-Melissa-Light`, `Ef-Night`, `Ef-Reverie`,
+  `Ef-Rosa`, `Ef-Spring`, `Ef-Summer`, `Ef-Symbiosis`,
+  `Ef-Trio-Dark`, `Ef-Trio-Light`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
