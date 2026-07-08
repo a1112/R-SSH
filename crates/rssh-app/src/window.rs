@@ -19292,6 +19292,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Atelierlakeside (light) (terminal.sexy)" => {
             Some(BUILTIN_ATELIERLAKESIDE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
+        "Atelierseaside (dark) (terminal.sexy)" => {
+            Some(BUILTIN_ATELIERSEASIDE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Atelierseaside (light) (terminal.sexy)" => {
+            Some(BUILTIN_ATELIERSEASIDE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "AtelierSulphurpool" => Some(BUILTIN_ATELIERSULPHURPOOL_COLOR_SCHEME_TOML),
+        "Atlas (base16)" => Some(BUILTIN_ATLAS_BASE16_COLOR_SCHEME_TOML),
+        "Atom" => Some(BUILTIN_ATOM_COLOR_SCHEME_TOML),
+        "Atom (Gogh)" => Some(BUILTIN_ATOM_GOGH_COLOR_SCHEME_TOML),
+        "AtomOneLight" => Some(BUILTIN_ATOMONELIGHT_COLOR_SCHEME_TOML),
+        "Aura (Gogh)" => Some(BUILTIN_AURA_GOGH_COLOR_SCHEME_TOML),
+        "Aurora" => Some(BUILTIN_AURORA_COLOR_SCHEME_TOML),
+        "ayu" => Some(BUILTIN_AYU_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -21828,6 +21842,391 @@ author = "Chris Kempson"
 name = "Atelierlakeside (light) (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIERSEASIDE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#131513",
+    "#e6193c",
+    "#29a329",
+    "#c3c322",
+    "#3d62f5",
+    "#ad2bee",
+    "#1999b3",
+    "#8ca68c",
+]
+background = "#131513"
+brights = [
+    "#687d68",
+    "#e6193c",
+    "#29a329",
+    "#c3c322",
+    "#3d62f5",
+    "#ad2bee",
+    "#1999b3",
+    "#f0fff0",
+]
+foreground = "#8ca68c"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Atelierseaside (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIERSEASIDE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#131513",
+    "#e6193c",
+    "#29a329",
+    "#c3c322",
+    "#3d62f5",
+    "#ad2bee",
+    "#1999b3",
+    "#8ca68c",
+]
+background = "#f0fff0"
+brights = [
+    "#687d68",
+    "#e6193c",
+    "#29a329",
+    "#c3c322",
+    "#3d62f5",
+    "#ad2bee",
+    "#1999b3",
+    "#f0fff0",
+]
+foreground = "#5e6e5e"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Atelierseaside (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATELIERSULPHURPOOL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#202746",
+    "#c94922",
+    "#ac9739",
+    "#c08b30",
+    "#3d8fd1",
+    "#6679cc",
+    "#22a2c9",
+    "#979db4",
+]
+background = "#202746"
+brights = [
+    "#6b7394",
+    "#c76b29",
+    "#293256",
+    "#5e6687",
+    "#898ea4",
+    "#dfe2f1",
+    "#9c637a",
+    "#f5f7ff",
+]
+cursor_bg = "#979db4"
+cursor_border = "#979db4"
+cursor_fg = "#202746"
+foreground = "#979db4"
+selection_bg = "#5e6687"
+selection_fg = "#979db4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "AtelierSulphurpool"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ATLAS_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#002635",
+    "#ff5a67",
+    "#7fc06e",
+    "#ffcc1b",
+    "#14747e",
+    "#9a70a4",
+    "#5dd7b9",
+    "#a1a19a",
+]
+background = "#002635"
+brights = [
+    "#6c8b91",
+    "#ff5a67",
+    "#7fc06e",
+    "#ffcc1b",
+    "#14747e",
+    "#9a70a4",
+    "#5dd7b9",
+    "#fafaf8",
+]
+cursor_bg = "#a1a19a"
+cursor_border = "#a1a19a"
+cursor_fg = "#002635"
+foreground = "#a1a19a"
+selection_bg = "#a1a19a"
+selection_fg = "#002635"
+
+[colors.indexed]
+16 = "#f08e48"
+17 = "#c43060"
+18 = "#00384d"
+19 = "#517f8d"
+20 = "#869696"
+21 = "#e6e6dc"
+
+[metadata]
+aliases = []
+author = "Alex Lende (https://ajlende.com)"
+name = "Atlas (base16)"
+origin_url = "https://github.com/ajlende/base16-atlas-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ATOM_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#fd5ff1",
+    "#87c38a",
+    "#ffd7b1",
+    "#85befd",
+    "#b9b6fc",
+    "#85befd",
+    "#e0e0e0",
+]
+background = "#161719"
+brights = [
+    "#000000",
+    "#fd5ff1",
+    "#94fa36",
+    "#f5ffa8",
+    "#96cbfe",
+    "#b9b6fc",
+    "#85befd",
+    "#e0e0e0",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#151515"
+foreground = "#c5c8c6"
+selection_bg = "#444444"
+selection_fg = "#c5c8c6"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Atom (Gogh)"]
+name = "Atom"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ATOM_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#fd5ff1",
+    "#87c38a",
+    "#ffd7b1",
+    "#85befd",
+    "#b9b6fc",
+    "#85befd",
+    "#e0e0e0",
+]
+background = "#161719"
+brights = [
+    "#000000",
+    "#fd5ff1",
+    "#94fa36",
+    "#f5ffa8",
+    "#96cbfe",
+    "#b9b6fc",
+    "#85befd",
+    "#e0e0e0",
+]
+cursor_bg = "#c5c8c6"
+cursor_border = "#c5c8c6"
+cursor_fg = "#161719"
+foreground = "#c5c8c6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Atom (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_ATOMONELIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#de3e35",
+    "#3f953a",
+    "#d2b67c",
+    "#2f5af3",
+    "#950095",
+    "#3f953a",
+    "#bbbbbb",
+]
+background = "#f9f9f9"
+brights = [
+    "#000000",
+    "#de3e35",
+    "#3f953a",
+    "#d2b67c",
+    "#2f5af3",
+    "#a00095",
+    "#3f953a",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#2a2c33"
+selection_bg = "#ededed"
+selection_fg = "#2a2c33"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "AtomOneLight"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_AURA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#110f18",
+    "#ff6767",
+    "#61ffca",
+    "#ffca85",
+    "#a277ff",
+    "#a277ff",
+    "#61ffca",
+    "#edecee",
+]
+background = "#15141b"
+brights = [
+    "#6d6d6d",
+    "#ffca85",
+    "#a277ff",
+    "#ffca85",
+    "#a277ff",
+    "#a277ff",
+    "#61ffca",
+    "#edecee",
+]
+cursor_bg = "#edecee"
+cursor_border = "#edecee"
+cursor_fg = "#15141b"
+foreground = "#edecee"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Aura (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_AURORA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#23262e",
+    "#f0266f",
+    "#8fd46d",
+    "#ffe66d",
+    "#0321d7",
+    "#ee5d43",
+    "#03d6b8",
+    "#c74ded",
+]
+background = "#23262e"
+brights = [
+    "#292e38",
+    "#f92672",
+    "#8fd46d",
+    "#ffe66d",
+    "#03d6b8",
+    "#ee5d43",
+    "#03d6b8",
+    "#c74ded",
+]
+cursor_bg = "#ee5d43"
+cursor_border = "#ee5d43"
+cursor_fg = "#ffd29c"
+foreground = "#ffca28"
+selection_bg = "#292e38"
+selection_fg = "#00e8c6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Aurora"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_AYU_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff3333",
+    "#b8cc52",
+    "#e7c547",
+    "#36a3d9",
+    "#f07178",
+    "#95e6cb",
+    "#ffffff",
+]
+background = "#0f1419"
+brights = [
+    "#323232",
+    "#ff6565",
+    "#eafe84",
+    "#fff779",
+    "#68d5ff",
+    "#ffa3aa",
+    "#c7fffd",
+    "#ffffff",
+]
+cursor_bg = "#f29718"
+cursor_border = "#f29718"
+cursor_fg = "#e6e1cf"
+foreground = "#e6e1cf"
+selection_bg = "#253340"
+selection_fg = "#e6e1cf"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "ayu"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -88696,6 +89095,200 @@ mod tests {
             .expect(
                 "expected WezTerm Atelier Sulphurpool/terminal.sexy built-in color_scheme config",
             );
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_atelierseaside_to_ayu_builtin_color_schemes() {
+        let cases = [
+            (
+                "Atelierseaside (dark) (terminal.sexy)",
+                Color::Rgb(140, 166, 140),
+                Color::Rgb(19, 21, 19),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(19, 21, 19),
+                Color::Rgb(230, 25, 60),
+                Color::Rgb(104, 125, 104),
+                Color::Rgb(240, 255, 240),
+                None,
+            ),
+            (
+                "Atelierseaside (light) (terminal.sexy)",
+                Color::Rgb(94, 110, 94),
+                Color::Rgb(240, 255, 240),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(19, 21, 19),
+                Color::Rgb(230, 25, 60),
+                Color::Rgb(104, 125, 104),
+                Color::Rgb(240, 255, 240),
+                None,
+            ),
+            (
+                "AtelierSulphurpool",
+                Color::Rgb(151, 157, 180),
+                Color::Rgb(32, 39, 70),
+                Color::Rgb(151, 157, 180),
+                Some(Color::Rgb(32, 39, 70)),
+                Some(Color::Rgb(94, 102, 135)),
+                Some(Some(Color::Rgb(151, 157, 180))),
+                Color::Rgb(32, 39, 70),
+                Color::Rgb(201, 73, 34),
+                Color::Rgb(107, 115, 148),
+                Color::Rgb(245, 247, 255),
+                None,
+            ),
+            (
+                "Atlas (base16)",
+                Color::Rgb(161, 161, 154),
+                Color::Rgb(0, 38, 53),
+                Color::Rgb(161, 161, 154),
+                Some(Color::Rgb(0, 38, 53)),
+                Some(Color::Rgb(161, 161, 154)),
+                Some(Some(Color::Rgb(0, 38, 53))),
+                Color::Rgb(0, 38, 53),
+                Color::Rgb(255, 90, 103),
+                Color::Rgb(108, 139, 145),
+                Color::Rgb(250, 250, 248),
+                Some(Color::Rgb(240, 142, 72)),
+            ),
+            (
+                "Atom",
+                Color::Rgb(197, 200, 198),
+                Color::Rgb(22, 23, 25),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(21, 21, 21)),
+                Some(Color::Rgb(68, 68, 68)),
+                Some(Some(Color::Rgb(197, 200, 198))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(253, 95, 241),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(224, 224, 224),
+                None,
+            ),
+            (
+                "Atom (Gogh)",
+                Color::Rgb(197, 200, 198),
+                Color::Rgb(22, 23, 25),
+                Color::Rgb(197, 200, 198),
+                Some(Color::Rgb(22, 23, 25)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(253, 95, 241),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(224, 224, 224),
+                None,
+            ),
+            (
+                "AtomOneLight",
+                Color::Rgb(42, 44, 51),
+                Color::Rgb(249, 249, 249),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(237, 237, 237)),
+                Some(Some(Color::Rgb(42, 44, 51))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(222, 62, 53),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Aura (Gogh)",
+                Color::Rgb(237, 236, 238),
+                Color::Rgb(21, 20, 27),
+                Color::Rgb(237, 236, 238),
+                Some(Color::Rgb(21, 20, 27)),
+                None,
+                None,
+                Color::Rgb(17, 15, 24),
+                Color::Rgb(255, 103, 103),
+                Color::Rgb(109, 109, 109),
+                Color::Rgb(237, 236, 238),
+                None,
+            ),
+            (
+                "Aurora",
+                Color::Rgb(255, 202, 40),
+                Color::Rgb(35, 38, 46),
+                Color::Rgb(238, 93, 67),
+                Some(Color::Rgb(255, 210, 156)),
+                Some(Color::Rgb(41, 46, 56)),
+                Some(Some(Color::Rgb(0, 232, 198))),
+                Color::Rgb(35, 38, 46),
+                Color::Rgb(240, 38, 111),
+                Color::Rgb(41, 46, 56),
+                Color::Rgb(199, 77, 237),
+                None,
+            ),
+            (
+                "ayu",
+                Color::Rgb(230, 225, 207),
+                Color::Rgb(15, 20, 25),
+                Color::Rgb(242, 151, 24),
+                Some(Color::Rgb(230, 225, 207)),
+                Some(Color::Rgb(37, 51, 64)),
+                Some(Some(Color::Rgb(230, 225, 207))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 51, 51),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Atelierseaside-to-ayu built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();
