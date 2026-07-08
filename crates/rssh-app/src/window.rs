@@ -19201,6 +19201,10 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         | "Solarized Light (Gogh)"
         | "SolarizedLight (Gogh)"
         | "iTerm2 Solarized Light" => Some(BUILTIN_SOLARIZED_LIGHT_COLOR_SCHEME_TOML),
+        "Builtin Tango Dark" | "Gnometerm (terminal.sexy)" => {
+            Some(BUILTIN_TANGO_DARK_COLOR_SCHEME_TOML)
+        }
+        "Builtin Tango Light" => Some(BUILTIN_TANGO_LIGHT_COLOR_SCHEME_TOML),
         _ => None,
     }
 }
@@ -19283,6 +19287,84 @@ aliases = [
     "iTerm2 Solarized Light",
 ]
 name = "Builtin Solarized Light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TANGO_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc0000",
+    "#4e9a06",
+    "#c4a000",
+    "#3465a4",
+    "#75507b",
+    "#06989a",
+    "#d3d7cf",
+]
+background = "#000000"
+brights = [
+    "#555753",
+    "#ef2929",
+    "#8ae234",
+    "#fce94f",
+    "#729fcf",
+    "#ad7fa8",
+    "#34e2e2",
+    "#eeeeec",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Gnometerm (terminal.sexy)"]
+name = "Builtin Tango Dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TANGO_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc0000",
+    "#4e9a06",
+    "#c4a000",
+    "#3465a4",
+    "#75507b",
+    "#06989a",
+    "#d3d7cf",
+]
+background = "#ffffff"
+brights = [
+    "#555753",
+    "#ef2929",
+    "#8ae234",
+    "#fce94f",
+    "#729fcf",
+    "#ad7fa8",
+    "#34e2e2",
+    "#eeeeec",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#ffffff"
+foreground = "#000000"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Builtin Tango Light"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
 "##;
@@ -84475,6 +84557,60 @@ mod tests {
             assert_eq!(ansi[1], Color::Rgb(220, 50, 47));
             assert_eq!(ansi[8], Color::Rgb(0, 43, 54));
             assert_eq!(ansi[15], Color::Rgb(253, 246, 227));
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_builtin_tango_color_schemes() {
+        let cases = [
+            (
+                "Builtin Tango Dark",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+            ),
+            (
+                "Gnometerm (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+            ),
+            (
+                "Builtin Tango Light",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 255)),
+            ),
+        ];
+
+        for (color_scheme, foreground, background, cursor_bg, cursor_fg) in cases {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm built-in Tango color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[1], Color::Rgb(204, 0, 0));
+            assert_eq!(ansi[8], Color::Rgb(85, 87, 83));
+            assert_eq!(ansi[15], Color::Rgb(238, 238, 236));
         }
     }
 
