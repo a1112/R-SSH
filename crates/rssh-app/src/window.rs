@@ -8745,10 +8745,12 @@ fn lua_window_title_explicit_title_fallback_parts_from_function_body(
     let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
     for (position, start) in starts.iter().enumerate() {
         let statement = lua_trim_start_comments(body.get(*start..)?)?;
-        let Some((condition, if_body)) =
-            lua_static_if_condition_and_body_branches_from_statement(statement)
-                .and_then(|(branches, _)| branches.first().copied())
+        let Some((branches, else_body, _)) =
+            lua_static_if_condition_and_body_branches_and_else_from_statement(statement)
         else {
+            continue;
+        };
+        let Some((condition, if_body)) = branches.first().copied() else {
             continue;
         };
         let Some(condition_variable) = lua_tab_title_non_empty_condition_variable(condition) else {
@@ -8790,37 +8792,56 @@ fn lua_window_title_explicit_title_fallback_parts_from_function_body(
             continue;
         }
 
-        for fallback_start in starts.iter().skip(position + 1) {
-            let fallback_statement = lua_trim_start_comments(body.get(*fallback_start..)?)?;
-            let Some(fallback_expression) =
-                lua_static_return_expression_from_statement(fallback_statement)
-            else {
-                continue;
-            };
-            let fallback_static_source = LuaStaticSource {
-                source: body,
-                max_start: *fallback_start,
-            };
-            let Some(fallback_parts) = lua_window_title_text_parts_from_expression_with_depth(
-                fallback_expression,
+        let fallback_parts = if let Some(else_body) = else_body {
+            lua_static_window_title_first_return_parts_from_nested_body(
+                body,
+                else_body,
                 tab_param,
                 pane_param,
                 tabs_param,
                 panes_param,
-                Some(fallback_static_source),
                 outer_static_source,
-                depth + 1,
-            ) else {
-                continue;
-            };
-            if matches!(
-                fallback_parts.as_slice(),
-                [NativeLuaWindowTitlePart::ActivePaneTitle]
-            ) {
-                return Some(vec![
-                    NativeLuaWindowTitlePart::ActiveTabTitleOrActivePaneTitle,
-                ]);
+            )
+        } else {
+            let mut fallback_parts = None;
+            for fallback_start in starts.iter().skip(position + 1) {
+                let fallback_statement = lua_trim_start_comments(body.get(*fallback_start..)?)?;
+                let Some(fallback_expression) =
+                    lua_static_return_expression_from_statement(fallback_statement)
+                else {
+                    continue;
+                };
+                let fallback_static_source = LuaStaticSource {
+                    source: body,
+                    max_start: *fallback_start,
+                };
+                fallback_parts = lua_window_title_text_parts_from_expression_with_depth(
+                    fallback_expression,
+                    tab_param,
+                    pane_param,
+                    tabs_param,
+                    panes_param,
+                    Some(fallback_static_source),
+                    outer_static_source,
+                    depth + 1,
+                );
+                if fallback_parts.is_some() {
+                    break;
+                }
             }
+            fallback_parts
+        };
+
+        let Some(fallback_parts) = fallback_parts else {
+            continue;
+        };
+        if matches!(
+            fallback_parts.as_slice(),
+            [NativeLuaWindowTitlePart::ActivePaneTitle]
+        ) {
+            return Some(vec![
+                NativeLuaWindowTitlePart::ActiveTabTitleOrActivePaneTitle,
+            ]);
         }
     }
 
@@ -107539,6 +107560,38 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-window-title inline explicit-title fallback");
+        app.set_config_overrides(overrides);
+        assert_eq!(app.effective_window_title(), "Pane Title");
+
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "Explicit Tab".to_owned(),
+        })
+        .unwrap();
+
+        assert_eq!(app.effective_window_title(), "Explicit Tab");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_inline_else_explicit_title_fallback() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local title = tab.tab_title
+              if title and #title > 0 then
+                return title
+              else
+                return tab.active_pane.title
+              end
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title inline else explicit-title fallback");
         app.set_config_overrides(overrides);
         assert_eq!(app.effective_window_title(), "Pane Title");
 
