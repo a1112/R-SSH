@@ -46254,7 +46254,7 @@ impl NativeWindowApp {
                 window_id: self.app_window_id,
                 pane: self.app_shell.active_pane_id(),
                 button,
-                default_action: (button == MouseButton::Left).then_some(WindowCommand::NewTab),
+                default_action: Self::new_tab_button_default_action(button),
             };
             if !self.dispatch_new_tab_button_click(&event) {
                 return true;
@@ -46325,6 +46325,14 @@ impl NativeWindowApp {
             return false;
         };
         column >= start && column < start.saturating_add(width)
+    }
+
+    fn new_tab_button_default_action(button: MouseButton) -> Option<WindowCommand> {
+        match button {
+            MouseButton::Left => Some(WindowCommand::NewTab),
+            MouseButton::Right => Some(WindowCommand::ShowLauncher),
+            _ => None,
+        }
     }
 
     fn new_tab_button_tab_bar_items(&self, hovered: bool) -> Vec<NativeFormatItem> {
@@ -106288,7 +106296,7 @@ mod tests {
     }
 
     #[test]
-    fn window_app_new_tab_button_click_handler_receives_right_click_without_default_action() {
+    fn window_app_new_tab_button_click_handler_receives_right_click_with_launcher_default_action() {
         let clicks = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&clicks);
         let mut app = NativeWindowApp::new(None);
@@ -106323,11 +106331,16 @@ mod tests {
                 window_id: rssh_core::WindowId::new(1),
                 pane: rssh_core::PaneId::new(1),
                 button: MouseButton::Right,
-                default_action: None,
+                default_action: Some(WindowCommand::ShowLauncher),
             }]
         );
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));
         assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
+        let palette = app
+            .command_palette
+            .as_ref()
+            .expect("right-clicking the new-tab button should open launcher");
+        assert_eq!(palette.title(), "Launcher");
     }
 
     #[test]
