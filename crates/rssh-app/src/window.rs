@@ -19306,6 +19306,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Aura (Gogh)" => Some(BUILTIN_AURA_GOGH_COLOR_SCHEME_TOML),
         "Aurora" => Some(BUILTIN_AURORA_COLOR_SCHEME_TOML),
         "ayu" => Some(BUILTIN_AYU_COLOR_SCHEME_TOML),
+        "Ayu Dark (Gogh)" => Some(BUILTIN_AYU_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Ayu Light (Gogh)" => Some(BUILTIN_AYU_LIGHT_GOGH_COLOR_SCHEME_TOML),
+        "Ayu Mirage" => Some(BUILTIN_AYU_MIRAGE_COLOR_SCHEME_TOML),
+        "Ayu Mirage (Gogh)" => Some(BUILTIN_AYU_MIRAGE_GOGH_COLOR_SCHEME_TOML),
+        "ayu_light" => Some(BUILTIN_AYU_LIGHT_COLOR_SCHEME_TOML),
+        "Azu (Gogh)" => Some(BUILTIN_AZU_GOGH_COLOR_SCHEME_TOML),
+        "Bamboo" => Some(BUILTIN_BAMBOO_COLOR_SCHEME_TOML),
+        "Bamboo Light" => Some(BUILTIN_BAMBOO_LIGHT_COLOR_SCHEME_TOML),
+        "Bamboo Multiplex" => Some(BUILTIN_BAMBOO_MULTIPLEX_COLOR_SCHEME_TOML),
+        "Banana Blueberry" => Some(BUILTIN_BANANA_BLUEBERRY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -22225,6 +22235,535 @@ selection_fg = "#e6e1cf"
 [metadata]
 aliases = []
 name = "ayu"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_AYU_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0a0e14",
+    "#ff3333",
+    "#c2d94c",
+    "#ff8f40",
+    "#59c2ff",
+    "#ffee99",
+    "#95e6cb",
+    "#b3b1ad",
+]
+background = "#0a0e14"
+brights = [
+    "#4d5566",
+    "#ff3333",
+    "#c2d94c",
+    "#ff8f40",
+    "#59c2ff",
+    "#ffee99",
+    "#95e6cb",
+    "#b3b1ad",
+]
+cursor_bg = "#e6b450"
+cursor_border = "#e6b450"
+cursor_fg = "#0a0e14"
+foreground = "#b3b1ad"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["AyuDark (Gogh)"]
+name = "Ayu Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_AYU_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#575f66",
+    "#f51818",
+    "#86b300",
+    "#f2ae49",
+    "#399ee6",
+    "#a37acc",
+    "#4cbf99",
+    "#fafafa",
+]
+background = "#fafafa"
+brights = [
+    "#8a9199",
+    "#f51818",
+    "#86b300",
+    "#f2ae49",
+    "#399ee6",
+    "#a37acc",
+    "#4cbf99",
+    "#fafafa",
+]
+cursor_bg = "#ff9940"
+cursor_border = "#ff9940"
+cursor_fg = "#fafafa"
+foreground = "#575f66"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["AyuLight (Gogh)"]
+name = "Ayu Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_AYU_MIRAGE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#191e2a",
+    "#ed8274",
+    "#a6cc70",
+    "#fad07b",
+    "#6dcbfa",
+    "#cfbafa",
+    "#90e1c6",
+    "#c7c7c7",
+]
+background = "#1f2430"
+brights = [
+    "#686868",
+    "#f28779",
+    "#bae67e",
+    "#ffd580",
+    "#73d0ff",
+    "#d4bfff",
+    "#95e6cb",
+    "#ffffff",
+]
+cursor_bg = "#ffcc66"
+cursor_border = "#ffcc66"
+cursor_fg = "#1f2430"
+foreground = "#cbccc6"
+selection_bg = "#33415e"
+selection_fg = "#cbccc6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Ayu Mirage"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_AYU_MIRAGE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1f2430",
+    "#ff3333",
+    "#bae67e",
+    "#ffa759",
+    "#73d0ff",
+    "#d4bfff",
+    "#95e6cb",
+    "#cbccc6",
+]
+background = "#1f2430"
+brights = [
+    "#707a8c",
+    "#ff3333",
+    "#bae67e",
+    "#ffa759",
+    "#73d0ff",
+    "#d4bfff",
+    "#95e6cb",
+    "#cbccc6",
+]
+cursor_bg = "#ffcc66"
+cursor_border = "#ffcc66"
+cursor_fg = "#1f2430"
+foreground = "#cbccc6"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["AyuMirage (Gogh)"]
+name = "Ayu Mirage (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_AYU_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff3333",
+    "#86b300",
+    "#f29718",
+    "#41a6d9",
+    "#f07178",
+    "#4dbf99",
+    "#ffffff",
+]
+background = "#fafafa"
+brights = [
+    "#323232",
+    "#ff6565",
+    "#b8e532",
+    "#ffc94a",
+    "#73d8ff",
+    "#ffa3aa",
+    "#7ff1cb",
+    "#ffffff",
+]
+cursor_bg = "#ff6a00"
+cursor_border = "#ff6a00"
+cursor_fg = "#5c6773"
+foreground = "#5c6773"
+selection_bg = "#f0eee4"
+selection_fg = "#5c6773"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "ayu_light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_AZU_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ac6d74",
+    "#74ac6d",
+    "#aca46d",
+    "#6d74ac",
+    "#a46dac",
+    "#6daca4",
+    "#e6e6e6",
+]
+background = "#09111a"
+brights = [
+    "#262626",
+    "#d6b8bc",
+    "#bcd6b8",
+    "#d6d3b8",
+    "#b8bcd6",
+    "#d3b8d6",
+    "#b8d6d3",
+    "#ffffff",
+]
+cursor_bg = "#d9e6f2"
+cursor_border = "#d9e6f2"
+cursor_fg = "#09111a"
+foreground = "#d9e6f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Azu (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BAMBOO_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1e1b",
+    "#e75a7c",
+    "#8fb573",
+    "#dbb651",
+    "#57a5e5",
+    "#aaaaff",
+    "#70c2be",
+    "#f1e9d2",
+]
+background = "#252623"
+brights = [
+    "#5b5e5a",
+    "#e75a7c",
+    "#8fb573",
+    "#dbb651",
+    "#57a5e5",
+    "#aaaaff",
+    "#70c2be",
+    "#fff8f0",
+]
+compose_cursor = "#ff9966"
+cursor_bg = "#fff8f0"
+cursor_border = "#fff8f0"
+cursor_fg = "#0f0800"
+foreground = "#f1e9d2"
+scrollbar_thumb = "#1c1e1b"
+selection_bg = "#5b5e5a"
+selection_fg = "#f1e9d2"
+split = "#838781"
+visual_bell = "#383b35"
+
+[colors.indexed]
+
+[colors.tab_bar]
+background = "#1c1e1b"
+inactive_tab_edge = "#3a3d37"
+
+[colors.tab_bar.active_tab]
+bg_color = "#f1e9d2"
+fg_color = "#111210"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#3a3d37"
+fg_color = "#5b5e5a"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#2f312c"
+fg_color = "#838781"
+intensity = "Normal"
+italic = true
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#5b5e5a"
+fg_color = "#f1e9d2"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#838781"
+fg_color = "#f1e9d2"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+author = "Riley Bruins"
+name = "Bamboo"
+origin_url = "https://github.com/ribru17/bamboo.nvim"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_BAMBOO_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#dadac2",
+    "#c72a3c",
+    "#27850b",
+    "#a77b00",
+    "#1745d5",
+    "#8a4adf",
+    "#188a9e",
+    "#3a4238",
+]
+background = "#fafae0"
+brights = [
+    "#c7c7af",
+    "#c72a3c",
+    "#27850b",
+    "#a77b00",
+    "#1745d5",
+    "#8a4adf",
+    "#188a9e",
+    "#252623",
+]
+compose_cursor = "#df5926"
+cursor_bg = "#0f0800"
+cursor_border = "#0f0800"
+cursor_fg = "#fff8f0"
+foreground = "#3a4238"
+scrollbar_thumb = "#c7c7af"
+selection_bg = "#a1a7a0"
+selection_fg = "#3a4238"
+split = "#838781"
+visual_bell = "#e4e4cc"
+
+[colors.indexed]
+
+[colors.tab_bar]
+background = "#e4e4cc"
+inactive_tab_edge = "#dadac2"
+
+[colors.tab_bar.active_tab]
+bg_color = "#3a4238"
+fg_color = "#fafae0"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#c7c7af"
+fg_color = "#5b5e5a"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#838781"
+fg_color = "#dadac2"
+intensity = "Normal"
+italic = true
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#a1a7a0"
+fg_color = "#dadac2"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#838781"
+fg_color = "#3a4238"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+author = "Riley Bruins"
+name = "Bamboo Light"
+origin_url = "https://github.com/ribru17/bamboo.nvim"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_BAMBOO_MULTIPLEX_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#171f17",
+    "#dc4f62",
+    "#81af58",
+    "#ceba49",
+    "#409cdc",
+    "#a09af8",
+    "#68baae",
+    "#ece1c0",
+]
+background = "#232923"
+brights = [
+    "#5a5e5a",
+    "#dc4f62",
+    "#81af58",
+    "#ceba49",
+    "#409cdc",
+    "#a09af8",
+    "#68baae",
+    "#fff8f0",
+]
+compose_cursor = "#ef9946"
+cursor_bg = "#fff8f0"
+cursor_border = "#fff8f0"
+cursor_fg = "#0f0800"
+foreground = "#ece1c0"
+scrollbar_thumb = "#171f17"
+selection_bg = "#5a5e5a"
+selection_fg = "#ece1c0"
+split = "#818781"
+visual_bell = "#363b35"
+
+[colors.indexed]
+
+[colors.tab_bar]
+background = "#171f17"
+inactive_tab_edge = "#383d37"
+
+[colors.tab_bar.active_tab]
+bg_color = "#ece1c0"
+fg_color = "#101210"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#383d37"
+fg_color = "#5a5e5a"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#2d312c"
+fg_color = "#818781"
+intensity = "Normal"
+italic = true
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#5a5e5a"
+fg_color = "#ece1c0"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#818781"
+fg_color = "#ece1c0"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+author = "Riley Bruins"
+name = "Bamboo Multiplex"
+origin_url = "https://github.com/ribru17/bamboo.nvim"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_BANANA_BLUEBERRY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#17141f",
+    "#ff6b7f",
+    "#00bd9c",
+    "#e6c62f",
+    "#22e8df",
+    "#dc396a",
+    "#56b6c2",
+    "#f1f1f1",
+]
+background = "#191323"
+brights = [
+    "#495162",
+    "#fe9ea1",
+    "#98c379",
+    "#f9e46b",
+    "#91fff4",
+    "#da70d6",
+    "#bcf3ff",
+    "#ffffff",
+]
+cursor_bg = "#e07d13"
+cursor_border = "#e07d13"
+cursor_fg = "#ffffff"
+foreground = "#cccccc"
+selection_bg = "#220525"
+selection_fg = "#f4f4f4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Banana Blueberry"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
 "##;
@@ -89289,6 +89828,200 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Atelierseaside-to-ayu built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_ayu_bamboo_builtin_color_schemes() {
+        let cases = [
+            (
+                "Ayu Dark (Gogh)",
+                Color::Rgb(179, 177, 173),
+                Color::Rgb(10, 14, 20),
+                Color::Rgb(230, 180, 80),
+                Some(Color::Rgb(10, 14, 20)),
+                None,
+                None,
+                Color::Rgb(10, 14, 20),
+                Color::Rgb(255, 51, 51),
+                Color::Rgb(77, 85, 102),
+                Color::Rgb(179, 177, 173),
+                None,
+            ),
+            (
+                "Ayu Light (Gogh)",
+                Color::Rgb(87, 95, 102),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(255, 153, 64),
+                Some(Color::Rgb(250, 250, 250)),
+                None,
+                None,
+                Color::Rgb(87, 95, 102),
+                Color::Rgb(245, 24, 24),
+                Color::Rgb(138, 145, 153),
+                Color::Rgb(250, 250, 250),
+                None,
+            ),
+            (
+                "Ayu Mirage",
+                Color::Rgb(203, 204, 198),
+                Color::Rgb(31, 36, 48),
+                Color::Rgb(255, 204, 102),
+                Some(Color::Rgb(31, 36, 48)),
+                Some(Color::Rgb(51, 65, 94)),
+                Some(Some(Color::Rgb(203, 204, 198))),
+                Color::Rgb(25, 30, 42),
+                Color::Rgb(237, 130, 116),
+                Color::Rgb(104, 104, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Ayu Mirage (Gogh)",
+                Color::Rgb(203, 204, 198),
+                Color::Rgb(31, 36, 48),
+                Color::Rgb(255, 204, 102),
+                Some(Color::Rgb(31, 36, 48)),
+                None,
+                None,
+                Color::Rgb(31, 36, 48),
+                Color::Rgb(255, 51, 51),
+                Color::Rgb(112, 122, 140),
+                Color::Rgb(203, 204, 198),
+                None,
+            ),
+            (
+                "ayu_light",
+                Color::Rgb(92, 103, 115),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(255, 106, 0),
+                Some(Color::Rgb(92, 103, 115)),
+                Some(Color::Rgb(240, 238, 228)),
+                Some(Some(Color::Rgb(92, 103, 115))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 51, 51),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Azu (Gogh)",
+                Color::Rgb(217, 230, 242),
+                Color::Rgb(9, 17, 26),
+                Color::Rgb(217, 230, 242),
+                Some(Color::Rgb(9, 17, 26)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(172, 109, 116),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Bamboo",
+                Color::Rgb(241, 233, 210),
+                Color::Rgb(37, 38, 35),
+                Color::Rgb(255, 248, 240),
+                Some(Color::Rgb(15, 8, 0)),
+                Some(Color::Rgb(91, 94, 90)),
+                Some(Some(Color::Rgb(241, 233, 210))),
+                Color::Rgb(28, 30, 27),
+                Color::Rgb(231, 90, 124),
+                Color::Rgb(91, 94, 90),
+                Color::Rgb(255, 248, 240),
+                None,
+            ),
+            (
+                "Bamboo Light",
+                Color::Rgb(58, 66, 56),
+                Color::Rgb(250, 250, 224),
+                Color::Rgb(15, 8, 0),
+                Some(Color::Rgb(255, 248, 240)),
+                Some(Color::Rgb(161, 167, 160)),
+                Some(Some(Color::Rgb(58, 66, 56))),
+                Color::Rgb(218, 218, 194),
+                Color::Rgb(199, 42, 60),
+                Color::Rgb(199, 199, 175),
+                Color::Rgb(37, 38, 35),
+                None,
+            ),
+            (
+                "Bamboo Multiplex",
+                Color::Rgb(236, 225, 192),
+                Color::Rgb(35, 41, 35),
+                Color::Rgb(255, 248, 240),
+                Some(Color::Rgb(15, 8, 0)),
+                Some(Color::Rgb(90, 94, 90)),
+                Some(Some(Color::Rgb(236, 225, 192))),
+                Color::Rgb(23, 31, 23),
+                Color::Rgb(220, 79, 98),
+                Color::Rgb(90, 94, 90),
+                Color::Rgb(255, 248, 240),
+                None,
+            ),
+            (
+                "Banana Blueberry",
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(25, 19, 35),
+                Color::Rgb(224, 125, 19),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(34, 5, 37)),
+                Some(Some(Color::Rgb(244, 244, 244))),
+                Color::Rgb(23, 20, 31),
+                Color::Rgb(255, 107, 127),
+                Color::Rgb(73, 81, 98),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Ayu/Bamboo built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

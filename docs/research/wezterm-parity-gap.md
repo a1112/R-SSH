@@ -3568,10 +3568,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Atelierseaside (dark) (terminal.sexy)`,
   `Atelierseaside (light) (terminal.sexy)`, `AtelierSulphurpool`,
   `Atlas (base16)`, `Atom`, `Atom (Gogh)`, `AtomOneLight`, `Aura (Gogh)`,
-  `Aurora`, `ayu`, `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
-  `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
-  `Builtin Tango Light`, and their WezTerm aliases using WezTerm's built-in
-  TOML palette data. The broader built-in scheme catalog,
+  `Aurora`, `ayu`, `Ayu Dark (Gogh)`, `Ayu Light (Gogh)`, `Ayu Mirage`,
+  `Ayu Mirage (Gogh)`, `ayu_light`, `Azu (Gogh)`, `Bamboo`, `Bamboo Light`,
+  `Bamboo Multiplex`, `Banana Blueberry`, `Builtin Dark`, `Builtin Light`,
+  `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
+  `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
+  WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
   richer dynamic `load_scheme` composition, and full dynamic Lua scheme
   construction remain later parity work.
 - Native terminal rendering applies WezTerm-style `colors.background` as the
