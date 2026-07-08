@@ -59258,6 +59258,10 @@ fn lua_callback_statement_emit_call_args_query<'a>(
     if let Some(rest) = lua_callback_statement_wezterm_emit_call_args_query(statement) {
         return Some(rest);
     }
+    if let Some(rest) = lua_callback_statement_wezterm_emit_call_args_from_require_query(statement)
+    {
+        return Some(rest);
+    }
 
     let alias = lua_identifier_literal_from_query(statement)?;
     let rest = statement.get(alias.len()..)?;
@@ -59298,6 +59302,13 @@ fn lua_callback_statement_wezterm_emit_call_args_query(statement: &str) -> Optio
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
+    lua_callback_statement_wezterm_emit_call_args_from_receiver_rest(rest)
+}
+
+fn lua_callback_statement_wezterm_emit_call_args_from_require_query(
+    statement: &str,
+) -> Option<&str> {
+    let rest = lua_static_wezterm_require_receiver_rest_from_query(statement)?;
     lua_callback_statement_wezterm_emit_call_args_from_receiver_rest(rest)
 }
 
@@ -122708,6 +122719,40 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello-module-alias");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_emits_static_event_require_receiver() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+
+            wezterm.on('send-greeting', function(window, pane)
+              require('wezterm').emit('write-greeting', window, pane)
+            end)
+
+            wezterm.on('write-greeting', function(window, pane)
+              window:perform_action(act.SendString 'hello-require', pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler require receiver config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello-require");
     }
 
     #[test]
