@@ -6676,13 +6676,17 @@ fn lua_static_wezterm_tab_title_return_event_from_statement(
 }
 
 fn lua_static_wezterm_open_uri_event_from_query(source: &str) -> Option<NativeLuaOpenUri> {
-    let mut selected = None;
+    let mut handlers = Vec::new();
     for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
         if let Some(value) = lua_static_wezterm_open_uri_event_from_statement(source, start) {
-            selected = Some(value);
+            handlers.push(value);
         }
     }
-    selected
+    match handlers.len() {
+        0 => None,
+        1 => handlers.pop(),
+        _ => Some(NativeLuaOpenUri::Sequence(handlers)),
+    }
 }
 
 fn lua_static_wezterm_open_uri_event_from_statement(
@@ -34861,6 +34865,7 @@ enum NativeLuaKeyboardModifiersStatusPart {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaOpenUri {
+    Sequence(Vec<NativeLuaOpenUri>),
     Static {
         allow_default: bool,
     },
@@ -34885,6 +34890,9 @@ enum NativeLuaOpenUriArg {
 impl NativeLuaOpenUri {
     fn allows_default(&self, event: &NativeWindowOpenUri) -> bool {
         match self {
+            Self::Sequence(handlers) => {
+                handlers.iter().all(|handler| handler.allows_default(event))
+            }
             Self::Static { allow_default } => *allow_default,
             Self::UriPrefix {
                 prefix,
@@ -34902,6 +34910,17 @@ impl NativeLuaOpenUri {
 
     fn command_for_event(&self, event: &NativeWindowOpenUri) -> Option<WindowCommand> {
         match self {
+            Self::Sequence(handlers) => {
+                for handler in handlers {
+                    if let Some(command) = handler.command_for_event(event) {
+                        return Some(command);
+                    }
+                    if !handler.allows_default(event) {
+                        return None;
+                    }
+                }
+                None
+            }
             Self::Static { .. } => None,
             Self::UriPrefix {
                 prefix,
@@ -113697,6 +113716,52 @@ mod tests {
             app.command_palette_execute(WindowCommand::OpenUri(
                 "mailto:ops@example.com".to_owned()
             ))
+        );
+        assert!(
+            app.command_palette_execute(WindowCommand::OpenUri("https://example.com".to_owned()))
+        );
+
+        assert_eq!(opened.lock().unwrap().as_slice(), ["https://example.com"]);
+    }
+
+    #[test]
+    fn window_app_parses_multiple_static_wezterm_open_uri_prefix_handlers() {
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let recorded_open = Arc::clone(&opened);
+        let mut app = NativeWindowApp::new(None);
+        app.hyperlink_opener = Box::new(move |url: &str| {
+            recorded_open.lock().unwrap().push(url.to_owned());
+            true
+        });
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('open-uri', function(window, pane, uri)
+              local start, match_end = uri:find 'mailto:'
+              if start == 1 then
+                return false
+              end
+            end)
+
+            wezterm.on('open-uri', function(window, pane, uri)
+              local start, match_end = uri:find 'ssh:'
+              if start == 1 then
+                return false
+              end
+            end)
+            "#,
+        )
+        .expect("expected multiple static WezTerm open-uri prefix handlers");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::OpenUri(
+                "mailto:ops@example.com".to_owned()
+            ))
+        );
+        assert!(
+            app.command_palette_execute(WindowCommand::OpenUri("ssh://example.com".to_owned()))
         );
         assert!(
             app.command_palette_execute(WindowCommand::OpenUri("https://example.com".to_owned()))
