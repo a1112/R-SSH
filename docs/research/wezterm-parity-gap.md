@@ -1350,9 +1350,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   calls, including callback-local static action variables that resolve through
   top-level `wezterm.action` aliases, or parenthesized and single-string
   `pane:send_text(<static-text>)` / `pane:send_paste(<static-text>)` calls,
-  with `send_paste` using native paste newline and bracketed-paste encoding,
-  are retained, and matching `EmitEvent` names run those native commands in
-  order after dispatching the typed native event. Top-level
+  including through callback-local aliases assigned from `pane`, with
+  `send_paste` using native paste newline and bracketed-paste encoding, are
+  retained, and matching `EmitEvent` names run those native commands in order
+  after dispatching the typed native event. Top-level
   `wezterm.emit(<static-event-name>, window, pane)` calls from those handlers
   re-enter matching static handlers, including through a top-level static
   `local <alias> = wezterm.emit` alias whose dotted helper path may contain Lua

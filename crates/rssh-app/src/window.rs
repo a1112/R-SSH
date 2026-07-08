@@ -59153,8 +59153,14 @@ fn lua_callback_statement_sends_pane_input(
     pane_param: &str,
 ) -> Option<WindowCommand> {
     let statement = lua_trim_start_comments(statement)?;
-    let rest = statement.strip_prefix(pane_param)?;
-    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+    let pane = lua_identifier_literal_from_query(statement)?;
+    let rest = statement.get(pane.len()..)?;
+    let is_pane = if let Some(static_source) = static_source {
+        lua_callback_expression_is_pane_param(pane, pane_param, static_source, outer_static_source)
+    } else {
+        lua_static_identifier_expression_matches(pane, pane_param)
+    };
+    if !is_pane {
         return None;
     }
     let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
@@ -122483,6 +122489,36 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_sends_pane_text_alias() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('send-greeting', function(window, pane)
+              local target = pane
+              target:send_text('hello-alias')
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler pane alias config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello-alias");
     }
 
     #[test]
