@@ -19397,6 +19397,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Bright Lights" => Some(BUILTIN_BRIGHT_LIGHTS_COLOR_SCHEME_TOML),
         "Broadcast" => Some(BUILTIN_BROADCAST_COLOR_SCHEME_TOML),
         "Broadcast (Gogh)" => Some(BUILTIN_BROADCAST_GOGH_COLOR_SCHEME_TOML),
+        "Brogrammer" => Some(BUILTIN_BROGRAMMER_COLOR_SCHEME_TOML),
+        "Brogrammer (base16)" => Some(BUILTIN_BROGRAMMER_BASE16_COLOR_SCHEME_TOML),
+        "Brogrammer (Gogh)" => Some(BUILTIN_BROGRAMMER_GOGH_COLOR_SCHEME_TOML),
+        "Brush Trees (base16)" => Some(BUILTIN_BRUSH_TREES_BASE16_COLOR_SCHEME_TOML),
+        "Brush Trees Dark (base16)" => Some(BUILTIN_BRUSH_TREES_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Butrin (Gogh)" => Some(BUILTIN_BUTRIN_GOGH_COLOR_SCHEME_TOML),
+        "C64" => Some(BUILTIN_C64_COLOR_SCHEME_TOML),
+        "C64 (Gogh)" => Some(BUILTIN_C64_GOGH_COLOR_SCHEME_TOML),
+        "Cai (Gogh)" => Some(BUILTIN_CAI_GOGH_COLOR_SCHEME_TOML),
+        "Calamity" => Some(BUILTIN_CALAMITY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -24885,6 +24895,410 @@ aliases = []
 name = "Broadcast (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_BROGRAMMER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1f1f1f",
+    "#f81118",
+    "#2dc55e",
+    "#ecba0f",
+    "#2a84d2",
+    "#4e5ab7",
+    "#1081d6",
+    "#d6dbe5",
+]
+background = "#131313"
+brights = [
+    "#d6dbe5",
+    "#de352e",
+    "#1dd361",
+    "#f3bd09",
+    "#1081d6",
+    "#5350b9",
+    "#0f7ddb",
+    "#ffffff",
+]
+cursor_bg = "#b9b9b9"
+cursor_border = "#b9b9b9"
+cursor_fg = "#101010"
+foreground = "#d6dbe5"
+selection_bg = "#1f1f1f"
+selection_fg = "#d6dbe5"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Brogrammer (Gogh)"]
+name = "Brogrammer"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BROGRAMMER_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1f1f1f",
+    "#d6dbe5",
+    "#f3bd09",
+    "#1dd361",
+    "#5350b9",
+    "#0f7ddb",
+    "#1081d6",
+    "#4e5ab7",
+]
+background = "#1f1f1f"
+brights = [
+    "#ecba0f",
+    "#d6dbe5",
+    "#f3bd09",
+    "#1dd361",
+    "#5350b9",
+    "#0f7ddb",
+    "#1081d6",
+    "#d6dbe5",
+]
+cursor_bg = "#4e5ab7"
+cursor_border = "#4e5ab7"
+cursor_fg = "#1f1f1f"
+foreground = "#4e5ab7"
+selection_bg = "#4e5ab7"
+selection_fg = "#1f1f1f"
+
+[colors.indexed]
+16 = "#de352e"
+17 = "#ffffff"
+18 = "#f81118"
+19 = "#2dc55e"
+20 = "#2a84d2"
+21 = "#1081d6"
+
+[metadata]
+aliases = []
+author = "Vik Ramanujam (http://github.com/piggyslasher)"
+name = "Brogrammer (base16)"
+origin_url = "https://github.com/piggyslasher/base16-brogrammer-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BROGRAMMER_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1f1f1f",
+    "#f81118",
+    "#2dc55e",
+    "#ecba0f",
+    "#2a84d2",
+    "#4e5ab7",
+    "#1081d6",
+    "#d6dbe5",
+]
+background = "#131313"
+brights = [
+    "#d6dbe5",
+    "#de352e",
+    "#1dd361",
+    "#f3bd09",
+    "#1081d6",
+    "#5350b9",
+    "#0f7ddb",
+    "#ffffff",
+]
+cursor_bg = "#d6dbe5"
+cursor_border = "#d6dbe5"
+cursor_fg = "#131313"
+foreground = "#d6dbe5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Brogrammer (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_BRUSH_TREES_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#e3efef",
+    "#b38686",
+    "#87b386",
+    "#aab386",
+    "#868cb3",
+    "#b386b2",
+    "#86b3b3",
+    "#6d828e",
+]
+background = "#e3efef"
+brights = [
+    "#98afb5",
+    "#b38686",
+    "#87b386",
+    "#aab386",
+    "#868cb3",
+    "#b386b2",
+    "#86b3b3",
+    "#485867",
+]
+cursor_bg = "#6d828e"
+cursor_border = "#6d828e"
+cursor_fg = "#e3efef"
+foreground = "#6d828e"
+selection_bg = "#6d828e"
+selection_fg = "#e3efef"
+
+[colors.indexed]
+16 = "#d8bba2"
+17 = "#b39f9f"
+18 = "#c9dbdc"
+19 = "#b0c5c8"
+20 = "#8299a1"
+21 = "#5a6d7a"
+
+[metadata]
+aliases = []
+author = "Abraham White <abelincoln.white@gmail.com>"
+name = "Brush Trees (base16)"
+origin_url = "https://github.com/WhiteAbeLincoln/base16-brushtrees-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BRUSH_TREES_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#485867",
+    "#b38686",
+    "#87b386",
+    "#aab386",
+    "#868cb3",
+    "#b386b2",
+    "#86b3b3",
+    "#b0c5c8",
+]
+background = "#485867"
+brights = [
+    "#8299a1",
+    "#b38686",
+    "#87b386",
+    "#aab386",
+    "#868cb3",
+    "#b386b2",
+    "#86b3b3",
+    "#e3efef",
+]
+cursor_bg = "#b0c5c8"
+cursor_border = "#b0c5c8"
+cursor_fg = "#485867"
+foreground = "#b0c5c8"
+selection_bg = "#b0c5c8"
+selection_fg = "#485867"
+
+[colors.indexed]
+16 = "#d8bba2"
+17 = "#b39f9f"
+18 = "#5a6d7a"
+19 = "#6d828e"
+20 = "#98afb5"
+21 = "#c9dbdc"
+
+[metadata]
+aliases = []
+author = "Abraham White <abelincoln.white@gmail.com>"
+name = "Brush Trees Dark (base16)"
+origin_url = "https://github.com/WhiteAbeLincoln/base16-brushtrees-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BUTRIN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#8c7e78",
+    "#e68a8a",
+    "#99cc99",
+    "#fad7a0",
+    "#6699cc",
+    "#c8a2c8",
+    "#6fc3b2",
+    "#e2cebe",
+]
+background = "#4b3b3c"
+brights = [
+    "#bfaca4",
+    "#f2b1b1",
+    "#b2d8b2",
+    "#f7dcb4",
+    "#87cefa",
+    "#d8bfd8",
+    "#64dbdb",
+    "#f2f2f2",
+]
+cursor_bg = "#e39d93"
+cursor_border = "#e39d93"
+cursor_fg = "#4b3b3c"
+foreground = "#f2f2f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Butrin (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_C64_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#090300",
+    "#883932",
+    "#55a049",
+    "#bfce72",
+    "#40318d",
+    "#8b3f96",
+    "#67b6bd",
+    "#ffffff",
+]
+background = "#40318d"
+brights = [
+    "#000000",
+    "#883932",
+    "#55a049",
+    "#bfce72",
+    "#40318d",
+    "#8b3f96",
+    "#67b6bd",
+    "#f7f7f7",
+]
+cursor_bg = "#7869c4"
+cursor_border = "#7869c4"
+cursor_fg = "#40318d"
+foreground = "#7869c4"
+selection_bg = "#7869c4"
+selection_fg = "#40318d"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["C64 (Gogh)"]
+author = "Jan T. Sott"
+name = "C64"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_C64_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#090300",
+    "#883932",
+    "#55a049",
+    "#bfce72",
+    "#40318d",
+    "#8b3f96",
+    "#67b6bd",
+    "#ffffff",
+]
+background = "#40318d"
+brights = [
+    "#000000",
+    "#883932",
+    "#55a049",
+    "#bfce72",
+    "#40318d",
+    "#8b3f96",
+    "#67b6bd",
+    "#f7f7f7",
+]
+cursor_bg = "#7869c4"
+cursor_border = "#7869c4"
+cursor_fg = "#40318d"
+foreground = "#7869c4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "C64 (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_CAI_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ca274d",
+    "#4dca27",
+    "#caa427",
+    "#274dca",
+    "#a427ca",
+    "#27caa4",
+    "#808080",
+]
+background = "#09111a"
+brights = [
+    "#808080",
+    "#e98da3",
+    "#a3e98d",
+    "#e9d48d",
+    "#8da3e9",
+    "#d48de9",
+    "#8de9d4",
+    "#ffffff",
+]
+cursor_bg = "#d9e6f2"
+cursor_border = "#d9e6f2"
+cursor_fg = "#09111a"
+foreground = "#d9e6f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Cai (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CALAMITY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2f2833",
+    "#fc644d",
+    "#a5f69c",
+    "#e9d7a5",
+    "#3b79c7",
+    "#f92672",
+    "#74d3de",
+    "#d5ced9",
+]
+background = "#2f2833"
+brights = [
+    "#7e6c88",
+    "#fc644d",
+    "#a5f69c",
+    "#e9d7a5",
+    "#3b79c7",
+    "#f92672",
+    "#74d3de",
+    "#ffffff",
+]
+cursor_bg = "#d5ced9"
+cursor_border = "#d5ced9"
+cursor_fg = "#2f2833"
+foreground = "#d5ced9"
+selection_bg = "#7e6c88"
+selection_fg = "#d5ced9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Calamity"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -93285,6 +93699,224 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Breath Light-to-Broadcast built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_brogrammer_to_calamity_builtin_color_schemes() {
+        let cases = [
+            (
+                "Brogrammer",
+                Color::Rgb(214, 219, 229),
+                Color::Rgb(19, 19, 19),
+                Color::Rgb(185, 185, 185),
+                Some(Color::Rgb(16, 16, 16)),
+                Some(Color::Rgb(31, 31, 31)),
+                Some(Some(Color::Rgb(214, 219, 229))),
+                Color::Rgb(31, 31, 31),
+                Color::Rgb(248, 17, 24),
+                Color::Rgb(45, 197, 94),
+                Color::Rgb(236, 186, 15),
+                Color::Rgb(214, 219, 229),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Brogrammer (base16)",
+                Color::Rgb(78, 90, 183),
+                Color::Rgb(31, 31, 31),
+                Color::Rgb(78, 90, 183),
+                Some(Color::Rgb(31, 31, 31)),
+                Some(Color::Rgb(78, 90, 183)),
+                Some(Some(Color::Rgb(31, 31, 31))),
+                Color::Rgb(31, 31, 31),
+                Color::Rgb(214, 219, 229),
+                Color::Rgb(243, 189, 9),
+                Color::Rgb(29, 211, 97),
+                Color::Rgb(236, 186, 15),
+                Color::Rgb(214, 219, 229),
+                Some(Color::Rgb(222, 53, 46)),
+            ),
+            (
+                "Brogrammer (Gogh)",
+                Color::Rgb(214, 219, 229),
+                Color::Rgb(19, 19, 19),
+                Color::Rgb(214, 219, 229),
+                Some(Color::Rgb(19, 19, 19)),
+                None,
+                None,
+                Color::Rgb(31, 31, 31),
+                Color::Rgb(248, 17, 24),
+                Color::Rgb(45, 197, 94),
+                Color::Rgb(236, 186, 15),
+                Color::Rgb(214, 219, 229),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Brush Trees (base16)",
+                Color::Rgb(109, 130, 142),
+                Color::Rgb(227, 239, 239),
+                Color::Rgb(109, 130, 142),
+                Some(Color::Rgb(227, 239, 239)),
+                Some(Color::Rgb(109, 130, 142)),
+                Some(Some(Color::Rgb(227, 239, 239))),
+                Color::Rgb(227, 239, 239),
+                Color::Rgb(179, 134, 134),
+                Color::Rgb(135, 179, 134),
+                Color::Rgb(170, 179, 134),
+                Color::Rgb(152, 175, 181),
+                Color::Rgb(72, 88, 103),
+                Some(Color::Rgb(216, 187, 162)),
+            ),
+            (
+                "Brush Trees Dark (base16)",
+                Color::Rgb(176, 197, 200),
+                Color::Rgb(72, 88, 103),
+                Color::Rgb(176, 197, 200),
+                Some(Color::Rgb(72, 88, 103)),
+                Some(Color::Rgb(176, 197, 200)),
+                Some(Some(Color::Rgb(72, 88, 103))),
+                Color::Rgb(72, 88, 103),
+                Color::Rgb(179, 134, 134),
+                Color::Rgb(135, 179, 134),
+                Color::Rgb(170, 179, 134),
+                Color::Rgb(130, 153, 161),
+                Color::Rgb(227, 239, 239),
+                Some(Color::Rgb(216, 187, 162)),
+            ),
+            (
+                "Butrin (Gogh)",
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(75, 59, 60),
+                Color::Rgb(227, 157, 147),
+                Some(Color::Rgb(75, 59, 60)),
+                None,
+                None,
+                Color::Rgb(140, 126, 120),
+                Color::Rgb(230, 138, 138),
+                Color::Rgb(153, 204, 153),
+                Color::Rgb(250, 215, 160),
+                Color::Rgb(191, 172, 164),
+                Color::Rgb(242, 242, 242),
+                None,
+            ),
+            (
+                "C64",
+                Color::Rgb(120, 105, 196),
+                Color::Rgb(64, 49, 141),
+                Color::Rgb(120, 105, 196),
+                Some(Color::Rgb(64, 49, 141)),
+                Some(Color::Rgb(120, 105, 196)),
+                Some(Some(Color::Rgb(64, 49, 141))),
+                Color::Rgb(9, 3, 0),
+                Color::Rgb(136, 57, 50),
+                Color::Rgb(85, 160, 73),
+                Color::Rgb(191, 206, 114),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(247, 247, 247),
+                None,
+            ),
+            (
+                "C64 (Gogh)",
+                Color::Rgb(120, 105, 196),
+                Color::Rgb(64, 49, 141),
+                Color::Rgb(120, 105, 196),
+                Some(Color::Rgb(64, 49, 141)),
+                None,
+                None,
+                Color::Rgb(9, 3, 0),
+                Color::Rgb(136, 57, 50),
+                Color::Rgb(85, 160, 73),
+                Color::Rgb(191, 206, 114),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(247, 247, 247),
+                None,
+            ),
+            (
+                "Cai (Gogh)",
+                Color::Rgb(217, 230, 242),
+                Color::Rgb(9, 17, 26),
+                Color::Rgb(217, 230, 242),
+                Some(Color::Rgb(9, 17, 26)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(202, 39, 77),
+                Color::Rgb(77, 202, 39),
+                Color::Rgb(202, 164, 39),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Calamity",
+                Color::Rgb(213, 206, 217),
+                Color::Rgb(47, 40, 51),
+                Color::Rgb(213, 206, 217),
+                Some(Color::Rgb(47, 40, 51)),
+                Some(Color::Rgb(126, 108, 136)),
+                Some(Some(Color::Rgb(213, 206, 217))),
+                Color::Rgb(47, 40, 51),
+                Color::Rgb(252, 100, 77),
+                Color::Rgb(165, 246, 156),
+                Color::Rgb(233, 215, 165),
+                Color::Rgb(126, 108, 136),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Brogrammer-to-Calamity built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

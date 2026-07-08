@@ -3590,7 +3590,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Breath Silverfox (Gogh)`, `Breeze`, `Breeze (Gogh)`,
   `Brewer (base16)`, `Brewer (dark) (terminal.sexy)`,
   `Brewer (light) (terminal.sexy)`, `Bright (base16)`, `Bright Lights`,
-  `Broadcast`, `Broadcast (Gogh)`, `Builtin Dark`, `Builtin Light`,
+  `Broadcast`, `Broadcast (Gogh)`, `Brogrammer`, `Brogrammer (base16)`,
+  `Brogrammer (Gogh)`, `Brush Trees (base16)`,
+  `Brush Trees Dark (base16)`, `Butrin (Gogh)`, `C64`, `C64 (Gogh)`,
+  `Cai (Gogh)`, `Calamity`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
