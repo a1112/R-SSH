@@ -10005,13 +10005,15 @@ fn lua_tab_title_condition_from_expression(
         return Some(NativeLuaTabTitleCondition::ActivePaneProgressIndeterminate);
     }
 
-    if let Some(field) = lua_tab_title_active_pane_progress_field_present_condition(
+    if let Some((field, present)) = lua_tab_title_active_pane_progress_field_presence_condition(
         condition,
         tab_param,
         static_source,
         outer_static_source,
     ) {
-        return Some(NativeLuaTabTitleCondition::ActivePaneProgressFieldPresent { field });
+        return Some(
+            NativeLuaTabTitleCondition::ActivePaneProgressFieldPresence { field, present },
+        );
     }
 
     if let Some((name, present)) = lua_tab_title_active_pane_user_var_presence_condition(
@@ -10150,15 +10152,15 @@ fn lua_tab_title_progress_indeterminate_rest_is_complete(rest: &str) -> bool {
             .is_some_and(str::is_empty)
 }
 
-fn lua_tab_title_active_pane_progress_field_present_condition(
+fn lua_tab_title_active_pane_progress_field_presence_condition(
     condition: &str,
     tab_param: &str,
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
-) -> Option<NativeLuaTabTitleProgressField> {
+) -> Option<(NativeLuaTabTitleProgressField, bool)> {
     let progress = format!("{tab_param}.active_pane.progress");
     if let Some(rest) = condition.strip_prefix(&progress) {
-        return lua_tab_title_progress_field_present_rest(rest);
+        return lua_tab_title_progress_field_presence_rest(rest);
     }
 
     let receiver = lua_identifier_literal_from_query(condition)?;
@@ -10172,7 +10174,7 @@ fn lua_tab_title_active_pane_progress_field_present_condition(
     {
         let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
         let rest = rest.strip_prefix("progress")?;
-        return lua_tab_title_progress_field_present_rest(rest);
+        return lua_tab_title_progress_field_presence_rest(rest);
     }
 
     if lua_tab_title_active_pane_progress_alias_before_offset(
@@ -10182,13 +10184,15 @@ fn lua_tab_title_active_pane_progress_field_present_condition(
         tab_param,
     ) == Some(true)
     {
-        return lua_tab_title_progress_field_present_rest(rest);
+        return lua_tab_title_progress_field_presence_rest(rest);
     }
 
     None
 }
 
-fn lua_tab_title_progress_field_present_rest(rest: &str) -> Option<NativeLuaTabTitleProgressField> {
+fn lua_tab_title_progress_field_presence_rest(
+    rest: &str,
+) -> Option<(NativeLuaTabTitleProgressField, bool)> {
     let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
     let field = lua_identifier_literal_from_query(rest)?;
     let parsed = match field {
@@ -10197,12 +10201,19 @@ fn lua_tab_title_progress_field_present_rest(rest: &str) -> Option<NativeLuaTabT
         _ => return None,
     };
     let rest = lua_trim_start_comments(rest.get(field.len()..)?)?;
-    let rest = lua_trim_start_comments(rest.strip_prefix("~=")?)?;
+    let (rest, present) = if let Some(rest) = rest.strip_prefix("~=") {
+        (rest, true)
+    } else if let Some(rest) = rest.strip_prefix("==") {
+        (rest, false)
+    } else {
+        return None;
+    };
+    let rest = lua_trim_start_comments(rest)?;
     let rest = rest.strip_prefix("nil")?;
     if !lua_static_identifier_value_rest_is_statement_end(rest) {
         return None;
     }
-    Some(parsed)
+    Some((parsed, present))
 }
 
 fn lua_tab_title_active_pane_user_var_presence_condition(
@@ -30980,8 +30991,9 @@ enum NativeLuaTabTitleCondition {
     IsHover,
     ActivePaneIsZoomed,
     ActivePaneProgressIndeterminate,
-    ActivePaneProgressFieldPresent {
+    ActivePaneProgressFieldPresence {
         field: NativeLuaTabTitleProgressField,
+        present: bool,
     },
     ActivePaneUserVarPresence {
         name: String,
@@ -31001,7 +31013,7 @@ impl NativeLuaTabTitleCondition {
             Self::ActivePaneProgressIndeterminate => {
                 event.active_pane_info.progress == PaneProgress::Indeterminate
             }
-            Self::ActivePaneProgressFieldPresent { field } => {
+            Self::ActivePaneProgressFieldPresence { field, present } => {
                 matches!(
                     (*field, event.active_pane_info.progress),
                     (
@@ -31011,7 +31023,7 @@ impl NativeLuaTabTitleCondition {
                         NativeLuaTabTitleProgressField::Error,
                         PaneProgress::Error(_)
                     )
-                )
+                ) == *present
             }
             Self::ActivePaneUserVarPresence { name, present } => {
                 event.active_pane_info.user_vars.contains_key(name) == *present
@@ -103111,6 +103123,32 @@ mod tests {
             !tab_bar.contains("progress=idle"),
             "tab bar was {tab_bar:?}"
         );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_missing_progress_percentage_condition() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local pane = tab.active_pane
+              local progress = pane.progress
+              if progress.Percentage == nil then
+                return 'progress=idle'
+              end
+
+              return 'pct=' .. progress.Percentage
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title missing progress percentage condition");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("progress=idle"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
