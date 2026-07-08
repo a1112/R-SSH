@@ -3060,8 +3060,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   native default action exactly once, including when callback-local aliases
   assigned from `default_action` are used for the guard or performed action and
   callback-local aliases assigned from `window` or `pane` are used for
-  `perform_action`; arbitrary Lua event execution and dynamic return logic
-  remain open.
+  `perform_action`, and the equivalent Lua dot-call form
+  `window.perform_action(window, default_action, pane)`; arbitrary Lua event
+  execution and dynamic return logic remain open.
 - Native window now dispatches a typed open-uri hook for ctrl-clicked OSC 8
   hyperlinks before invoking the default opener, carrying the window id, active
   pane id, and URI. Returning `false` suppresses the default opener. The command

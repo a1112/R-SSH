@@ -58890,14 +58890,19 @@ fn lua_callback_statement_perform_action_query<'a>(
     window_param: &str,
     pane_param: &str,
 ) -> Option<&'a str> {
-    let (window, action, pane) = lua_callback_statement_perform_action_parts_query(statement)?;
-    if !lua_static_identifier_expression_matches(window, window_param) {
+    let parts = lua_callback_statement_perform_action_parts_query(statement)?;
+    if !lua_static_identifier_expression_matches(parts.window, window_param) {
         return None;
     }
-    if !lua_static_identifier_expression_matches(pane, pane_param) {
+    if let Some(explicit_self) = parts.explicit_self {
+        if !lua_static_identifier_expression_matches(explicit_self, window_param) {
+            return None;
+        }
+    }
+    if !lua_static_identifier_expression_matches(parts.pane, pane_param) {
         return None;
     }
-    Some(action)
+    Some(parts.action)
 }
 
 fn lua_callback_statement_perform_action_query_with_static_sources<'a>(
@@ -58907,29 +58912,57 @@ fn lua_callback_statement_perform_action_query_with_static_sources<'a>(
     static_source: LuaStaticSource<'_>,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<&'a str> {
-    let (window, action, pane) = lua_callback_statement_perform_action_parts_query(statement)?;
+    let parts = lua_callback_statement_perform_action_parts_query(statement)?;
     if !lua_callback_expression_is_window_param(
-        window,
+        parts.window,
         window_param,
         static_source,
         outer_static_source,
     ) {
         return None;
     }
-    if !lua_callback_expression_is_pane_param(pane, pane_param, static_source, outer_static_source)
-    {
+    if let Some(explicit_self) = parts.explicit_self {
+        if !lua_callback_expression_is_window_param(
+            explicit_self,
+            window_param,
+            static_source,
+            outer_static_source,
+        ) {
+            return None;
+        }
+    }
+    if !lua_callback_expression_is_pane_param(
+        parts.pane,
+        pane_param,
+        static_source,
+        outer_static_source,
+    ) {
         return None;
     }
-    Some(action)
+    Some(parts.action)
+}
+
+struct LuaCallbackPerformActionParts<'a> {
+    window: &'a str,
+    explicit_self: Option<&'a str>,
+    action: &'a str,
+    pane: &'a str,
 }
 
 fn lua_callback_statement_perform_action_parts_query<'a>(
     statement: &'a str,
-) -> Option<(&'a str, &'a str, &'a str)> {
+) -> Option<LuaCallbackPerformActionParts<'a>> {
     let statement = lua_trim_start_comments(statement)?;
     let window = lua_identifier_literal_from_query(statement)?;
     let rest = statement.get(window.len()..)?;
-    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (has_explicit_self, rest) = if let Some(rest) = rest.strip_prefix(':') {
+        (false, rest)
+    } else if let Some(rest) = rest.strip_prefix('.') {
+        (true, rest)
+    } else {
+        return None;
+    };
     let rest = lua_trim_start_comments(rest)?;
     if !rest.starts_with("perform_action")
         || !lua_config_assignment_field_has_boundaries(rest, 0, "perform_action")
@@ -58940,14 +58973,30 @@ fn lua_callback_statement_perform_action_parts_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
     let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
     let arguments = split_lua_top_level_arguments(arguments)?;
-    let [action, pane] = arguments.as_slice() else {
-        return None;
-    };
-    let pane = lua_trim_start_comments(pane.trim())?;
     if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
         return None;
     }
-    Some((window, action.trim(), pane))
+    if has_explicit_self {
+        let [explicit_self, action, pane] = arguments.as_slice() else {
+            return None;
+        };
+        return Some(LuaCallbackPerformActionParts {
+            window,
+            explicit_self: Some(lua_trim_start_comments(explicit_self.trim())?),
+            action: action.trim(),
+            pane: lua_trim_start_comments(pane.trim())?,
+        });
+    }
+
+    let [action, pane] = arguments.as_slice() else {
+        return None;
+    };
+    Some(LuaCallbackPerformActionParts {
+        window,
+        explicit_self: None,
+        action: action.trim(),
+        pane: lua_trim_start_comments(pane.trim())?,
+    })
 }
 
 fn lua_callback_expression_is_window_param(
@@ -107480,6 +107529,48 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm new-tab-button-click window alias default action");
+        app.set_config_overrides(overrides);
+
+        let tab_width = tab_bar_tab_label(
+            0,
+            rssh_core::TabId::new(1),
+            1,
+            true,
+            None,
+            rssh_core::app_shell::PaneProgress::None,
+        )
+        .chars()
+        .count();
+        let new_tab_column = app.tab_bar_workspace_label().chars().count() + tab_width + 1;
+        let x = u32::try_from(new_tab_column).unwrap_or(0) * CELL_WIDTH;
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 2);
+    }
+
+    #[test]
+    fn window_app_parses_new_tab_button_click_dot_perform_action_default_action() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('new-tab-button-click', function(window, pane, button, default_action)
+              if default_action then
+                window.perform_action(window, default_action, pane)
+              end
+              return false
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm new-tab-button-click dot perform_action default action");
         app.set_config_overrides(overrides);
 
         let tab_width = tab_bar_tab_label(
