@@ -20288,25 +20288,37 @@ fn lua_static_wezterm_font_alias_kind_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_static_wezterm_font_alias_kind_from_value_query(value);
+        selected = lua_static_wezterm_font_alias_kind_from_value_query(source, start, value);
     }
 
     Some(selected)
 }
 
 fn lua_static_wezterm_font_alias_kind_from_value_query(
+    source: &str,
+    max_start: usize,
     value: &str,
 ) -> Option<LuaStaticWeztermFontAliasKind> {
-    let font = lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.font")
-        .is_some_and(lua_static_identifier_value_rest_is_statement_end);
-    if font {
-        return Some(LuaStaticWeztermFontAliasKind::Font);
+    let value = lua_trim_start_comments(value)?;
+    let rest = if let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) {
+        rest
+    } else {
+        lua_static_wezterm_receiver_rest_from_query(source, max_start, value)?
+    };
+    let rest = lua_trim_start_comments(rest)?;
+    let (field, rest) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource { source, max_start }),
+        rest,
+    )?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
     }
 
-    let font_with_fallback =
-        lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.font_with_fallback")
-            .is_some_and(lua_static_identifier_value_rest_is_statement_end);
-    font_with_fallback.then_some(LuaStaticWeztermFontAliasKind::FontWithFallback)
+    match field.as_str() {
+        "font" => Some(LuaStaticWeztermFontAliasKind::Font),
+        "font_with_fallback" => Some(LuaStaticWeztermFontAliasKind::FontWithFallback),
+        _ => None,
+    }
 }
 
 #[allow(dead_code)]
@@ -138611,6 +138623,44 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_font_static_alias_static_key_module() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wt = require 'wezterm'
+            local config = {}
+            local font_key = 'font'
+            local font = wt[font_key]
+
+            config.font = font('JetBrains Mono', {
+              weight = 'Bold',
+              style = 'Italic',
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font static-key alias config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(
+            effective.font_attributes,
+            NativeFontAttributes {
+                weight: Some("Bold".to_owned()),
+                stretch: None,
+                style: Some("Italic".to_owned()),
+                harfbuzz_features: Vec::new(),
+                assume_emoji_presentation: None,
+                freetype_load_target: None,
+                freetype_render_target: None,
+                freetype_load_flags: None,
+            }
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_font_static_alias_comment_call() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -139014,6 +139064,32 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm font_with_fallback alias config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(effective.font_fallbacks, vec!["Noto Color Emoji"]);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_with_fallback_static_alias_static_key_module() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wt = require 'wezterm'
+            local config = {}
+            local fallback_key = 'font_with_fallback'
+            local font_with_fallback = wt[fallback_key]
+
+            config.font = font_with_fallback {
+              'JetBrains Mono',
+              'Noto Color Emoji',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font_with_fallback static-key alias config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
