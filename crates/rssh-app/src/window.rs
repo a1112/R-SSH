@@ -19316,6 +19316,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Bamboo Light" => Some(BUILTIN_BAMBOO_LIGHT_COLOR_SCHEME_TOML),
         "Bamboo Multiplex" => Some(BUILTIN_BAMBOO_MULTIPLEX_COLOR_SCHEME_TOML),
         "Banana Blueberry" => Some(BUILTIN_BANANA_BLUEBERRY_COLOR_SCHEME_TOML),
+        "Batman" => Some(BUILTIN_BATMAN_COLOR_SCHEME_TOML),
+        "Belafonte Day" => Some(BUILTIN_BELAFONTE_DAY_COLOR_SCHEME_TOML),
+        "Belafonte Day (Gogh)" => Some(BUILTIN_BELAFONTE_DAY_GOGH_COLOR_SCHEME_TOML),
+        "Belafonte Night" => Some(BUILTIN_BELAFONTE_NIGHT_COLOR_SCHEME_TOML),
+        "Belafonte Night (Gogh)" => Some(BUILTIN_BELAFONTE_NIGHT_GOGH_COLOR_SCHEME_TOML),
+        "Belge (terminal.sexy)" => Some(BUILTIN_BELGE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Bespin (base16)" => Some(BUILTIN_BESPIN_BASE16_COLOR_SCHEME_TOML),
+        "Bespin (dark) (terminal.sexy)" => {
+            Some(BUILTIN_BESPIN_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Bespin (light) (terminal.sexy)" => {
+            Some(BUILTIN_BESPIN_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Bim (Gogh)" => Some(BUILTIN_BIM_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -22766,6 +22780,393 @@ aliases = []
 name = "Banana Blueberry"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_BATMAN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1d1e",
+    "#e6dc44",
+    "#c8be46",
+    "#f4fd22",
+    "#737174",
+    "#747271",
+    "#62605f",
+    "#c6c5bf",
+]
+background = "#1b1d1e"
+brights = [
+    "#505354",
+    "#fff78e",
+    "#fff27d",
+    "#feed6c",
+    "#919495",
+    "#9a9a9d",
+    "#a3a3a6",
+    "#dadbd6",
+]
+cursor_bg = "#fcef0c"
+cursor_border = "#fcef0c"
+cursor_fg = "#000000"
+foreground = "#6f6f6f"
+selection_bg = "#4d504c"
+selection_fg = "#f0e04a"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Batman"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BELAFONTE_DAY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#20111b",
+    "#be100e",
+    "#858162",
+    "#eaa549",
+    "#426a79",
+    "#97522c",
+    "#989a9c",
+    "#968c83",
+]
+background = "#d5ccba"
+brights = [
+    "#5e5252",
+    "#be100e",
+    "#858162",
+    "#eaa549",
+    "#426a79",
+    "#97522c",
+    "#989a9c",
+    "#d5ccba",
+]
+cursor_bg = "#45373c"
+cursor_border = "#45373c"
+cursor_fg = "#d5ccba"
+foreground = "#45373c"
+selection_bg = "#968c83"
+selection_fg = "#45373c"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Belafonte Day (Gogh)",
+    "BelafonteDay (Gogh)",
+]
+author = "Jan T. Sott"
+name = "Belafonte Day"
+origin_url = "https://github.com/idleberg/Zissou-iTerm2"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BELAFONTE_DAY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#20111b",
+    "#be100e",
+    "#858162",
+    "#eaa549",
+    "#426a79",
+    "#97522c",
+    "#989a9c",
+    "#968c83",
+]
+background = "#d5ccba"
+brights = [
+    "#5e5252",
+    "#be100e",
+    "#858162",
+    "#eaa549",
+    "#426a79",
+    "#97522c",
+    "#989a9c",
+    "#d5ccba",
+]
+cursor_bg = "#45373c"
+cursor_border = "#45373c"
+cursor_fg = "#d5ccba"
+foreground = "#45373c"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Belafonte Day (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_BELAFONTE_NIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#20111b",
+    "#be100e",
+    "#858162",
+    "#eaa549",
+    "#426a79",
+    "#97522c",
+    "#989a9c",
+    "#968c83",
+]
+background = "#20111b"
+brights = [
+    "#5e5252",
+    "#be100e",
+    "#858162",
+    "#eaa549",
+    "#426a79",
+    "#97522c",
+    "#989a9c",
+    "#d5ccba",
+]
+cursor_bg = "#968c83"
+cursor_border = "#968c83"
+cursor_fg = "#20111b"
+foreground = "#968c83"
+selection_bg = "#45373c"
+selection_fg = "#968c83"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Belafonte Night (Gogh)",
+    "BelafonteNight (Gogh)",
+]
+author = "Jan T. Sott"
+name = "Belafonte Night"
+origin_url = "https://github.com/idleberg/Zissou-iTerm2"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BELAFONTE_NIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#20111b",
+    "#be100e",
+    "#858162",
+    "#eaa549",
+    "#426a79",
+    "#97522c",
+    "#989a9c",
+    "#968c83",
+]
+background = "#20111b"
+brights = [
+    "#5e5252",
+    "#be100e",
+    "#858162",
+    "#eaa549",
+    "#426a79",
+    "#97522c",
+    "#989a9c",
+    "#d5ccba",
+]
+cursor_bg = "#968c83"
+cursor_border = "#968c83"
+cursor_fg = "#20111b"
+foreground = "#968c83"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Belafonte Night (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_BELGE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#252525",
+    "#ef6769",
+    "#a6e22e",
+    "#fd971f",
+    "#6495ed",
+    "#deb887",
+    "#b0c4de",
+    "#dbdcdc",
+]
+background = "#000000"
+brights = [
+    "#454545",
+    "#fc7ca5",
+    "#b6e354",
+    "#fd971f",
+    "#87ceeb",
+    "#996600",
+    "#87ceeb",
+    "#fdfdfd",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Belge (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BESPIN_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#28211c",
+    "#cf6a4c",
+    "#54be0d",
+    "#f9ee98",
+    "#5ea6ea",
+    "#9b859d",
+    "#afc4db",
+    "#8a8986",
+]
+background = "#28211c"
+brights = [
+    "#666666",
+    "#cf6a4c",
+    "#54be0d",
+    "#f9ee98",
+    "#5ea6ea",
+    "#9b859d",
+    "#afc4db",
+    "#baae9e",
+]
+cursor_bg = "#8a8986"
+cursor_border = "#8a8986"
+cursor_fg = "#28211c"
+foreground = "#8a8986"
+selection_bg = "#8a8986"
+selection_fg = "#28211c"
+
+[colors.indexed]
+16 = "#cf7d34"
+17 = "#937121"
+18 = "#36312e"
+19 = "#5e5d5c"
+20 = "#797977"
+21 = "#9d9b97"
+
+[metadata]
+aliases = ["Bespin (dark) (terminal.sexy)"]
+author = "Jan T. Sott"
+name = "Bespin (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BESPIN_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#28211c",
+    "#cf6a4c",
+    "#54be0d",
+    "#f9ee98",
+    "#5ea6ea",
+    "#9b859d",
+    "#afc4db",
+    "#8a8986",
+]
+background = "#28211c"
+brights = [
+    "#666666",
+    "#cf6a4c",
+    "#54be0d",
+    "#f9ee98",
+    "#5ea6ea",
+    "#9b859d",
+    "#afc4db",
+    "#baae9e",
+]
+foreground = "#8a8986"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Bespin (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_BESPIN_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#28211c",
+    "#cf6a4c",
+    "#54be0d",
+    "#f9ee98",
+    "#5ea6ea",
+    "#9b859d",
+    "#afc4db",
+    "#8a8986",
+]
+background = "#baae9e"
+brights = [
+    "#666666",
+    "#cf6a4c",
+    "#54be0d",
+    "#f9ee98",
+    "#5ea6ea",
+    "#9b859d",
+    "#afc4db",
+    "#baae9e",
+]
+foreground = "#5e5d5c"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Bespin (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BIM_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2c2423",
+    "#f557a0",
+    "#a9ee55",
+    "#f5a255",
+    "#5ea2ec",
+    "#a957ec",
+    "#5eeea0",
+    "#918988",
+]
+background = "#012849"
+brights = [
+    "#918988",
+    "#f579b2",
+    "#bbee78",
+    "#f5b378",
+    "#81b3ec",
+    "#bb79ec",
+    "#81eeb2",
+    "#f5eeec",
+]
+cursor_bg = "#a9bed8"
+cursor_border = "#a9bed8"
+cursor_fg = "#012849"
+foreground = "#a9bed8"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Bim (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -90022,6 +90423,200 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Ayu/Bamboo built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_batman_bespin_builtin_color_schemes() {
+        let cases = [
+            (
+                "Batman",
+                Color::Rgb(111, 111, 111),
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(252, 239, 12),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(77, 80, 76)),
+                Some(Some(Color::Rgb(240, 224, 74))),
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(230, 220, 68),
+                Color::Rgb(80, 83, 84),
+                Color::Rgb(218, 219, 214),
+                None,
+            ),
+            (
+                "Belafonte Day",
+                Color::Rgb(69, 55, 60),
+                Color::Rgb(213, 204, 186),
+                Color::Rgb(69, 55, 60),
+                Some(Color::Rgb(213, 204, 186)),
+                Some(Color::Rgb(150, 140, 131)),
+                Some(Some(Color::Rgb(69, 55, 60))),
+                Color::Rgb(32, 17, 27),
+                Color::Rgb(190, 16, 14),
+                Color::Rgb(94, 82, 82),
+                Color::Rgb(213, 204, 186),
+                None,
+            ),
+            (
+                "Belafonte Day (Gogh)",
+                Color::Rgb(69, 55, 60),
+                Color::Rgb(213, 204, 186),
+                Color::Rgb(69, 55, 60),
+                Some(Color::Rgb(213, 204, 186)),
+                None,
+                None,
+                Color::Rgb(32, 17, 27),
+                Color::Rgb(190, 16, 14),
+                Color::Rgb(94, 82, 82),
+                Color::Rgb(213, 204, 186),
+                None,
+            ),
+            (
+                "Belafonte Night",
+                Color::Rgb(150, 140, 131),
+                Color::Rgb(32, 17, 27),
+                Color::Rgb(150, 140, 131),
+                Some(Color::Rgb(32, 17, 27)),
+                Some(Color::Rgb(69, 55, 60)),
+                Some(Some(Color::Rgb(150, 140, 131))),
+                Color::Rgb(32, 17, 27),
+                Color::Rgb(190, 16, 14),
+                Color::Rgb(94, 82, 82),
+                Color::Rgb(213, 204, 186),
+                None,
+            ),
+            (
+                "Belafonte Night (Gogh)",
+                Color::Rgb(150, 140, 131),
+                Color::Rgb(32, 17, 27),
+                Color::Rgb(150, 140, 131),
+                Some(Color::Rgb(32, 17, 27)),
+                None,
+                None,
+                Color::Rgb(32, 17, 27),
+                Color::Rgb(190, 16, 14),
+                Color::Rgb(94, 82, 82),
+                Color::Rgb(213, 204, 186),
+                None,
+            ),
+            (
+                "Belge (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(37, 37, 37),
+                Color::Rgb(239, 103, 105),
+                Color::Rgb(69, 69, 69),
+                Color::Rgb(253, 253, 253),
+                None,
+            ),
+            (
+                "Bespin (base16)",
+                Color::Rgb(138, 137, 134),
+                Color::Rgb(40, 33, 28),
+                Color::Rgb(138, 137, 134),
+                Some(Color::Rgb(40, 33, 28)),
+                Some(Color::Rgb(138, 137, 134)),
+                Some(Some(Color::Rgb(40, 33, 28))),
+                Color::Rgb(40, 33, 28),
+                Color::Rgb(207, 106, 76),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(186, 174, 158),
+                Some(Color::Rgb(207, 125, 52)),
+            ),
+            (
+                "Bespin (dark) (terminal.sexy)",
+                Color::Rgb(138, 137, 134),
+                Color::Rgb(40, 33, 28),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(40, 33, 28),
+                Color::Rgb(207, 106, 76),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(186, 174, 158),
+                None,
+            ),
+            (
+                "Bespin (light) (terminal.sexy)",
+                Color::Rgb(94, 93, 92),
+                Color::Rgb(186, 174, 158),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(40, 33, 28),
+                Color::Rgb(207, 106, 76),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(186, 174, 158),
+                None,
+            ),
+            (
+                "Bim (Gogh)",
+                Color::Rgb(169, 190, 216),
+                Color::Rgb(1, 40, 73),
+                Color::Rgb(169, 190, 216),
+                Some(Color::Rgb(1, 40, 73)),
+                None,
+                None,
+                Color::Rgb(44, 36, 35),
+                Color::Rgb(245, 87, 160),
+                Color::Rgb(145, 137, 136),
+                Color::Rgb(245, 238, 236),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Batman/Bespin built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();
