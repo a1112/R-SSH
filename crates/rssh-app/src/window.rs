@@ -9989,10 +9989,16 @@ fn lua_new_tab_button_click_condition_is_default_action(
 ) -> Option<bool> {
     let condition = lua_trim_start_comments(condition.trim())?;
     let name = lua_identifier_literal_from_query(condition)?;
-    Some(
-        name == default_action_param
-            && lua_static_identifier_value_rest_is_statement_end(condition.get(name.len()..)?),
-    )
+    if name != default_action_param {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(condition.get(name.len()..)?)?;
+    if lua_static_identifier_value_rest_is_statement_end(rest) {
+        return Some(true);
+    }
+    let rest = rest.strip_prefix("~=")?;
+    let rest = lua_trim_start_comments(rest)?.strip_prefix("nil")?;
+    Some(lua_static_identifier_value_rest_is_statement_end(rest))
 }
 
 fn lua_new_tab_button_click_button_condition(
@@ -106914,6 +106920,48 @@ mod tests {
             "#,
         )
         .expect("expected documented static WezTerm new-tab-button-click default action");
+        app.set_config_overrides(overrides);
+
+        let tab_width = tab_bar_tab_label(
+            0,
+            rssh_core::TabId::new(1),
+            1,
+            true,
+            None,
+            rssh_core::app_shell::PaneProgress::None,
+        )
+        .chars()
+        .count();
+        let new_tab_column = app.tab_bar_workspace_label().chars().count() + tab_width + 1;
+        let x = u32::try_from(new_tab_column).unwrap_or(0) * CELL_WIDTH;
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 2);
+    }
+
+    #[test]
+    fn window_app_parses_new_tab_button_click_non_nil_default_action_guard() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('new-tab-button-click', function(window, pane, button, default_action)
+              if default_action ~= nil then
+                window:perform_action(default_action, pane)
+              end
+              return false
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm new-tab-button-click non-nil default action guard");
         app.set_config_overrides(overrides);
 
         let tab_width = tab_bar_tab_label(
