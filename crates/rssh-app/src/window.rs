@@ -19194,6 +19194,8 @@ fn apply_builtin_color_scheme_overrides(
 
 fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
     match color_scheme {
+        "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
+        "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
         "Builtin Solarized Dark" | "iTerm2 Solarized Dark" => {
             Some(BUILTIN_SOLARIZED_DARK_COLOR_SCHEME_TOML)
@@ -19209,6 +19211,84 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         _ => None,
     }
 }
+
+const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#bb0000",
+    "#00bb00",
+    "#bbbb00",
+    "#0000bb",
+    "#bb00bb",
+    "#00bbbb",
+    "#bbbbbb",
+]
+background = "#000000"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#55ff55",
+    "#ffff55",
+    "#5555ff",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#bbbbbb"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Builtin Dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#bb0000",
+    "#00bb00",
+    "#bbbb00",
+    "#0000bb",
+    "#bb00bb",
+    "#00bbbb",
+    "#bbbbbb",
+]
+background = "#ffffff"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#55ff55",
+    "#ffff55",
+    "#5555ff",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#ffffff"
+foreground = "#000000"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Builtin Light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
 
 const BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML: &str = r##"
 [colors]
@@ -84598,6 +84678,53 @@ mod tests {
         assert_eq!(ansi[1], Color::Rgb(255, 108, 96));
         assert_eq!(ansi[8], Color::Rgb(124, 124, 124));
         assert_eq!(ansi[15], Color::Rgb(255, 255, 255));
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_builtin_dark_and_light_color_schemes() {
+        let cases = [
+            (
+                "Builtin Dark",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+            ),
+            (
+                "Builtin Light",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 255)),
+            ),
+        ];
+
+        for (color_scheme, foreground, background, cursor_bg, cursor_fg) in cases {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm built-in dark/light color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[1], Color::Rgb(187, 0, 0));
+            assert_eq!(ansi[8], Color::Rgb(85, 85, 85));
+            assert_eq!(ansi[15], Color::Rgb(255, 255, 255));
+        }
     }
 
     #[test]
