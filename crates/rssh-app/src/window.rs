@@ -19443,6 +19443,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Ciapre" => Some(BUILTIN_CIAPRE_COLOR_SCHEME_TOML),
         "Ciapre (Gogh)" => Some(BUILTIN_CIAPRE_GOGH_COLOR_SCHEME_TOML),
         "Circus (base16)" => Some(BUILTIN_CIRCUS_BASE16_COLOR_SCHEME_TOML),
+        "City Lights (Gogh)" => Some(BUILTIN_CITY_LIGHTS_GOGH_COLOR_SCHEME_TOML),
+        "City Streets (terminal.sexy)" => {
+            Some(BUILTIN_CITY_STREETS_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Classic Dark (base16)" => Some(BUILTIN_CLASSIC_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Classic Light (base16)" => Some(BUILTIN_CLASSIC_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Clone Of Ubuntu (Gogh)" => Some(BUILTIN_CLONE_OF_UBUNTU_GOGH_COLOR_SCHEME_TOML),
+        "Cloud (terminal.sexy)" => Some(BUILTIN_CLOUD_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "CLRS" => Some(BUILTIN_CLRS_COLOR_SCHEME_TOML),
+        "Clrs (Gogh)" => Some(BUILTIN_CLRS_GOGH_COLOR_SCHEME_TOML),
+        "Cobalt 2 (Gogh)" => Some(BUILTIN_COBALT_2_GOGH_COLOR_SCHEME_TOML),
+        "Cobalt Neon" => Some(BUILTIN_COBALT_NEON_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -26750,6 +26762,397 @@ author = "Stephan Boyer (https://github.com/stepchowfun) and Esther Wang (https:
 name = "Circus (base16)"
 origin_url = "https://github.com/stepchowfun/base16-circus-scheme"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CITY_LIGHTS_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#41505e",
+    "#d95468",
+    "#8bd49c",
+    "#ebbf83",
+    "#539afc",
+    "#b62d65",
+    "#70e1e8",
+    "#ffffff",
+]
+background = "#171d23"
+brights = [
+    "#41505e",
+    "#d95468",
+    "#8bd49c",
+    "#ebbf83",
+    "#539afc",
+    "#b62d65",
+    "#70e1e8",
+    "#ffffff",
+]
+cursor_bg = "#008b94"
+cursor_border = "#008b94"
+cursor_fg = "#171d23"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "City Lights (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_CITY_STREETS_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#201e24",
+    "#2d2b30",
+    "#3f3d40",
+    "#413c3e",
+    "#423e41",
+    "#4e4a4b",
+    "#6e6765",
+    "#837e81",
+]
+background = "#000000"
+brights = [
+    "#837c78",
+    "#89827d",
+    "#a7a099",
+    "#c2bec1",
+    "#c3bcb2",
+    "#cbc5ba",
+    "#e3ddd2",
+    "#efe8dc",
+]
+foreground = "#d3d3d3"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "dkeg"
+name = "City Streets (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CLASSIC_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151515",
+    "#ac4142",
+    "#90a959",
+    "#f4bf75",
+    "#6a9fb5",
+    "#aa759f",
+    "#75b5aa",
+    "#d0d0d0",
+]
+background = "#151515"
+brights = [
+    "#505050",
+    "#ac4142",
+    "#90a959",
+    "#f4bf75",
+    "#6a9fb5",
+    "#aa759f",
+    "#75b5aa",
+    "#f5f5f5",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#151515"
+foreground = "#d0d0d0"
+selection_bg = "#d0d0d0"
+selection_fg = "#151515"
+
+[colors.indexed]
+16 = "#d28445"
+17 = "#8f5536"
+18 = "#202020"
+19 = "#303030"
+20 = "#b0b0b0"
+21 = "#e0e0e0"
+
+[metadata]
+aliases = ["Default (dark) (terminal.sexy)"]
+author = "Jason Heeris (http://heeris.id.au)"
+name = "Classic Dark (base16)"
+origin_url = "https://github.com/detly/base16-classic-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CLASSIC_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f5f5f5",
+    "#ac4142",
+    "#90a959",
+    "#f4bf75",
+    "#6a9fb5",
+    "#aa759f",
+    "#75b5aa",
+    "#303030",
+]
+background = "#f5f5f5"
+brights = [
+    "#b0b0b0",
+    "#ac4142",
+    "#90a959",
+    "#f4bf75",
+    "#6a9fb5",
+    "#aa759f",
+    "#75b5aa",
+    "#151515",
+]
+cursor_bg = "#303030"
+cursor_border = "#303030"
+cursor_fg = "#f5f5f5"
+foreground = "#303030"
+selection_bg = "#303030"
+selection_fg = "#f5f5f5"
+
+[colors.indexed]
+16 = "#d28445"
+17 = "#8f5536"
+18 = "#e0e0e0"
+19 = "#d0d0d0"
+20 = "#505050"
+21 = "#202020"
+
+[metadata]
+aliases = []
+author = "Jason Heeris (http://heeris.id.au)"
+name = "Classic Light (base16)"
+origin_url = "https://github.com/detly/base16-classic-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CLONE_OF_UBUNTU_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e3436",
+    "#cc0000",
+    "#4e9a06",
+    "#c4a000",
+    "#3465a4",
+    "#75507b",
+    "#06989a",
+    "#d3d7cf",
+]
+background = "#300a24"
+brights = [
+    "#555753",
+    "#ef2929",
+    "#8ae234",
+    "#fce94f",
+    "#729fcf",
+    "#ad7fa8",
+    "#34e2e2",
+    "#eeeeec",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#300a24"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["CloneofUbuntu (Gogh)"]
+name = "Clone Of Ubuntu (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CLOUD_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#222827",
+    "#d5a8e3",
+    "#9c75dd",
+    "#9898ae",
+    "#654a96",
+    "#625566",
+    "#a9d1df",
+    "#e6ebe5",
+]
+background = "#000000"
+brights = [
+    "#5d6f74",
+    "#cd749c",
+    "#63b0b0",
+    "#c0c0dd",
+    "#5786bc",
+    "#3f3442",
+    "#849da2",
+    "#d9d6cf",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Cloud (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_CLRS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#f8282a",
+    "#328a5d",
+    "#fa701d",
+    "#135cd0",
+    "#9f00bd",
+    "#33c3c1",
+    "#b3b3b3",
+]
+background = "#ffffff"
+brights = [
+    "#555753",
+    "#fb0416",
+    "#2cc631",
+    "#fdd727",
+    "#1670ff",
+    "#e900b0",
+    "#3ad5ce",
+    "#eeeeec",
+]
+cursor_bg = "#6fd3fc"
+cursor_border = "#6fd3fc"
+cursor_fg = "#ffffff"
+foreground = "#262626"
+selection_bg = "#6fd3fc"
+selection_fg = "#041730"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Clrs (Gogh)"]
+name = "CLRS"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_CLRS_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#f8282a",
+    "#328a5d",
+    "#fa701d",
+    "#135cd0",
+    "#9f00bd",
+    "#33c3c1",
+    "#b3b3b3",
+]
+background = "#ffffff"
+brights = [
+    "#555753",
+    "#fb0416",
+    "#2cc631",
+    "#fdd727",
+    "#1670ff",
+    "#e900b0",
+    "#3ad5ce",
+    "#eeeeec",
+]
+cursor_bg = "#262626"
+cursor_border = "#262626"
+cursor_fg = "#ffffff"
+foreground = "#262626"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Clrs (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_COBALT_2_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff0000",
+    "#38de21",
+    "#ffe50a",
+    "#1460d2",
+    "#ff005d",
+    "#00bbbb",
+    "#bbbbbb",
+]
+background = "#132738"
+brights = [
+    "#555555",
+    "#f40e17",
+    "#3bd01d",
+    "#edc809",
+    "#5555ff",
+    "#ff55ff",
+    "#6ae3fa",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#132738"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Cobalt 2 (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_COBALT_NEON_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#142631",
+    "#ff2320",
+    "#3ba5ff",
+    "#e9e75c",
+    "#8ff586",
+    "#781aa0",
+    "#8ff586",
+    "#ba46b2",
+]
+background = "#142838"
+brights = [
+    "#fff688",
+    "#d4312e",
+    "#8ff586",
+    "#e9f06d",
+    "#3c7dd2",
+    "#8230a7",
+    "#6cbc67",
+    "#8ff586",
+]
+cursor_bg = "#c4206f"
+cursor_border = "#c4206f"
+cursor_fg = "#8ff586"
+foreground = "#8ff586"
+selection_bg = "#094fb1"
+selection_fg = "#8ff586"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Cobalt Neon (Gogh)",
+    "CobaltNeon (Gogh)",
+]
+name = "Cobalt Neon"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -96024,6 +96427,224 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm Chalk Gogh-to-Circus built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_city_lights_to_cobalt_neon_builtin_color_schemes() {
+        let cases = [
+            (
+                "City Lights (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(23, 29, 35),
+                Color::Rgb(0, 139, 148),
+                Some(Color::Rgb(23, 29, 35)),
+                None,
+                None,
+                Color::Rgb(65, 80, 94),
+                Color::Rgb(217, 84, 104),
+                Color::Rgb(139, 212, 156),
+                Color::Rgb(235, 191, 131),
+                Color::Rgb(65, 80, 94),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "City Streets (terminal.sexy)",
+                Color::Rgb(211, 211, 211),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(32, 30, 36),
+                Color::Rgb(45, 43, 48),
+                Color::Rgb(63, 61, 64),
+                Color::Rgb(65, 60, 62),
+                Color::Rgb(131, 124, 120),
+                Color::Rgb(239, 232, 220),
+                None,
+            ),
+            (
+                "Classic Dark (base16)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(21, 21, 21)),
+                Some(Color::Rgb(208, 208, 208)),
+                Some(Some(Color::Rgb(21, 21, 21))),
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(172, 65, 66),
+                Color::Rgb(144, 169, 89),
+                Color::Rgb(244, 191, 117),
+                Color::Rgb(80, 80, 80),
+                Color::Rgb(245, 245, 245),
+                Some(Color::Rgb(210, 132, 69)),
+            ),
+            (
+                "Classic Light (base16)",
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(245, 245, 245),
+                Color::Rgb(48, 48, 48),
+                Some(Color::Rgb(245, 245, 245)),
+                Some(Color::Rgb(48, 48, 48)),
+                Some(Some(Color::Rgb(245, 245, 245))),
+                Color::Rgb(245, 245, 245),
+                Color::Rgb(172, 65, 66),
+                Color::Rgb(144, 169, 89),
+                Color::Rgb(244, 191, 117),
+                Color::Rgb(176, 176, 176),
+                Color::Rgb(21, 21, 21),
+                Some(Color::Rgb(210, 132, 69)),
+            ),
+            (
+                "Clone Of Ubuntu (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(48, 10, 36),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(48, 10, 36)),
+                None,
+                None,
+                Color::Rgb(46, 52, 54),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(78, 154, 6),
+                Color::Rgb(196, 160, 0),
+                Color::Rgb(85, 87, 83),
+                Color::Rgb(238, 238, 236),
+                None,
+            ),
+            (
+                "Cloud (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(34, 40, 39),
+                Color::Rgb(213, 168, 227),
+                Color::Rgb(156, 117, 221),
+                Color::Rgb(152, 152, 174),
+                Color::Rgb(93, 111, 116),
+                Color::Rgb(217, 214, 207),
+                None,
+            ),
+            (
+                "CLRS",
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(111, 211, 252),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(111, 211, 252)),
+                Some(Some(Color::Rgb(4, 23, 48))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(248, 40, 42),
+                Color::Rgb(50, 138, 93),
+                Color::Rgb(250, 112, 29),
+                Color::Rgb(85, 87, 83),
+                Color::Rgb(238, 238, 236),
+                None,
+            ),
+            (
+                "Clrs (Gogh)",
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(38, 38, 38),
+                Some(Color::Rgb(255, 255, 255)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(248, 40, 42),
+                Color::Rgb(50, 138, 93),
+                Color::Rgb(250, 112, 29),
+                Color::Rgb(85, 87, 83),
+                Color::Rgb(238, 238, 236),
+                None,
+            ),
+            (
+                "Cobalt 2 (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(19, 39, 56),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(19, 39, 56)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 0, 0),
+                Color::Rgb(56, 222, 33),
+                Color::Rgb(255, 229, 10),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Cobalt Neon",
+                Color::Rgb(143, 245, 134),
+                Color::Rgb(20, 40, 56),
+                Color::Rgb(196, 32, 111),
+                Some(Color::Rgb(143, 245, 134)),
+                Some(Color::Rgb(9, 79, 177)),
+                Some(Some(Color::Rgb(143, 245, 134))),
+                Color::Rgb(20, 38, 49),
+                Color::Rgb(255, 35, 32),
+                Color::Rgb(59, 165, 255),
+                Color::Rgb(233, 231, 92),
+                Color::Rgb(255, 246, 136),
+                Color::Rgb(143, 245, 134),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm City Lights-to-Cobalt Neon built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

@@ -3604,7 +3604,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Chalk (base16)`, `Chalk (dark) (terminal.sexy)`, `Chalk (Gogh)`,
   `Chalk (light) (terminal.sexy)`, `Chalkboard`, `Chalkboard (Gogh)`,
   `ChallengerDeep`, `Chameleon (Gogh)`, `Chester`, `Ciapre`,
-  `Ciapre (Gogh)`, `Circus (base16)`, `Builtin Dark`, `Builtin Light`,
+  `Ciapre (Gogh)`, `Circus (base16)`, `City Lights (Gogh)`,
+  `City Streets (terminal.sexy)`, `Classic Dark (base16)`,
+  `Classic Light (base16)`, `Clone Of Ubuntu (Gogh)`,
+  `Cloud (terminal.sexy)`, `CLRS`, `Clrs (Gogh)`, `Cobalt 2 (Gogh)`,
+  `Cobalt Neon`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
