@@ -6758,6 +6758,9 @@ fn lua_static_wezterm_new_tab_button_click_event_from_statement(
         body,
         window_param,
         pane_param,
+        params
+            .get(2)
+            .and_then(|param| lua_function_param_identifier(param)),
         default_action_param,
         Some(LuaStaticSource {
             source,
@@ -9794,10 +9797,15 @@ fn lua_static_new_tab_button_click_return_from_function_body(
     body: &str,
     window_param: Option<&str>,
     pane_param: Option<&str>,
+    button_param: Option<&str>,
     default_action_param: Option<&str>,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaNewTabButtonClick> {
-    let allow_default = lua_static_bool_return_from_function_body(body, outer_static_source)?;
+    let allow_default = lua_static_new_tab_button_click_allow_default_from_function_body(
+        body,
+        button_param,
+        outer_static_source,
+    )?;
     let perform_default_action = match (window_param, pane_param, default_action_param) {
         (Some(window_param), Some(pane_param), Some(default_action_param)) => {
             lua_static_new_tab_button_click_performs_default_action(
@@ -9813,6 +9821,54 @@ fn lua_static_new_tab_button_click_return_from_function_body(
         allow_default,
         perform_default_action,
     })
+}
+
+fn lua_static_new_tab_button_click_allow_default_from_function_body(
+    body: &str,
+    button_param: Option<&str>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaNewTabButtonClickAllowDefault> {
+    if let Some(allow_default) =
+        lua_static_bool_return_from_function_body(body, outer_static_source)
+    {
+        return Some(NativeLuaNewTabButtonClickAllowDefault::Static(
+            allow_default,
+        ));
+    }
+
+    let button_param = button_param?;
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        let Some((branches, else_body, rest_after_if)) =
+            lua_static_if_condition_and_body_branches_and_else_from_statement(statement)
+        else {
+            continue;
+        };
+        if !lua_trim_end_statement_separator(rest_after_if)?
+            .trim()
+            .is_empty()
+        {
+            continue;
+        }
+        let [(condition, if_body)] = branches.as_slice() else {
+            continue;
+        };
+        let button = lua_new_tab_button_click_button_condition(condition, button_param)?;
+        let allow_default =
+            lua_static_bool_return_from_function_body(if_body, outer_static_source)?;
+        let else_allow_default = else_body
+            .and_then(|else_body| {
+                lua_static_bool_return_from_function_body(else_body, outer_static_source)
+            })
+            .unwrap_or(true);
+        return Some(NativeLuaNewTabButtonClickAllowDefault::ButtonEquals {
+            button,
+            allow_default,
+            else_allow_default,
+        });
+    }
+
+    None
 }
 
 fn lua_static_new_tab_button_click_performs_default_action(
@@ -9881,6 +9937,33 @@ fn lua_new_tab_button_click_condition_is_default_action(
         name == default_action_param
             && lua_static_identifier_value_rest_is_statement_end(condition.get(name.len()..)?),
     )
+}
+
+fn lua_new_tab_button_click_button_condition(
+    condition: &str,
+    button_param: &str,
+) -> Option<MouseButton> {
+    let condition = lua_trim_start_comments(condition.trim())?;
+    let (left, right) = condition.split_once("==")?;
+    let left = lua_trim_start_comments(left.trim())?;
+    let right = lua_trim_start_comments(right.trim())?;
+
+    if left == button_param {
+        return lua_new_tab_button_click_button_from_expression(right);
+    }
+    if right == button_param {
+        return lua_new_tab_button_click_button_from_expression(left);
+    }
+    None
+}
+
+fn lua_new_tab_button_click_button_from_expression(expression: &str) -> Option<MouseButton> {
+    match lua_static_string_value_from_expression(None, None, expression)?.as_str() {
+        "Left" | "left" => Some(MouseButton::Left),
+        "Right" | "right" => Some(MouseButton::Right),
+        "Middle" | "middle" => Some(MouseButton::Middle),
+        _ => None,
+    }
 }
 
 fn lua_new_tab_button_click_action_is_default(
@@ -34984,17 +35067,46 @@ impl NativeLuaOpenUriArg {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NativeLuaNewTabButtonClick {
-    allow_default: bool,
+    allow_default: NativeLuaNewTabButtonClickAllowDefault,
     perform_default_action: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaNewTabButtonClickAllowDefault {
+    Static(bool),
+    ButtonEquals {
+        button: MouseButton,
+        allow_default: bool,
+        else_allow_default: bool,
+    },
+}
+
 impl NativeLuaNewTabButtonClick {
-    const fn allows_default(self) -> bool {
-        self.allow_default
+    fn allows_default(self, event: &NativeWindowNewTabButtonClick) -> bool {
+        self.allow_default.allows_default(event)
     }
 
     const fn performs_default_action(self) -> bool {
         self.perform_default_action
+    }
+}
+
+impl NativeLuaNewTabButtonClickAllowDefault {
+    fn allows_default(self, event: &NativeWindowNewTabButtonClick) -> bool {
+        match self {
+            Self::Static(allow_default) => allow_default,
+            Self::ButtonEquals {
+                button,
+                allow_default,
+                else_allow_default,
+            } => {
+                if event.button == button {
+                    allow_default
+                } else {
+                    else_allow_default
+                }
+            }
+        }
     }
 }
 
@@ -51000,7 +51112,7 @@ impl NativeWindowApp {
         {
             self.command_palette_execute(command);
         }
-        handler.allows_default()
+        handler.allows_default(event)
     }
 
     fn dispatch_update_status(&mut self) {
@@ -77455,26 +77567,26 @@ mod tests {
         NativeIntegratedTitleButton, NativeIntegratedTitleButtonAlignment,
         NativeIntegratedTitleButtonColor, NativeIntegratedTitleButtonStyle, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
-        NativeLuaNewTabButtonClick, NativeLuaOpenUri, NativeLuaTabTitle, NativeLuaWindowStatusText,
-        NativeLuaWindowStatusUpdate, NativeLuaWindowTitle, NativeMouseAssignmentAltScreen,
-        NativeMouseAssignmentButton, NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind,
-        NativeNotificationHandling, NativePalette, NativePromptInputLine, NativeQuoteDroppedFiles,
-        NativeRenderFrontEnd, NativeResolvedPalette, NativeScrollBarHeight, NativeSerialDomain,
-        NativeShellAssumption, NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain,
-        NativeSshMultiplexing, NativeStrikethroughPosition, NativeTabBarItemColors,
-        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
-        NativeTlsClientDomain, NativeTlsServerDomain, NativeUiKeyCapRendering,
-        NativeUnderlinePosition, NativeUnderlineThickness, NativeUnixDomain,
-        NativeUserKeyAssignment, NativeUserMouseAssignment, NativeVerticalContentAlignment,
-        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
-        NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop, NativeWindowApp,
-        NativeWindowBackgroundGradient, NativeWindowBackgroundGradientBlend,
-        NativeWindowBackgroundGradientInterpolation, NativeWindowBackgroundGradientOrientation,
-        NativeWindowBackgroundGradientPreset, NativeWindowBackgroundGradientSegment,
-        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
-        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
-        NativeWindowFocusChange, NativeWindowFrameAppearance, NativeWindowLevel,
-        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeLuaNewTabButtonClick, NativeLuaNewTabButtonClickAllowDefault, NativeLuaOpenUri,
+        NativeLuaTabTitle, NativeLuaWindowStatusText, NativeLuaWindowStatusUpdate,
+        NativeLuaWindowTitle, NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton,
+        NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind, NativeNotificationHandling,
+        NativePalette, NativePromptInputLine, NativeQuoteDroppedFiles, NativeRenderFrontEnd,
+        NativeResolvedPalette, NativeScrollBarHeight, NativeSerialDomain, NativeShellAssumption,
+        NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain, NativeSshMultiplexing,
+        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
+        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeTlsClientDomain,
+        NativeTlsServerDomain, NativeUiKeyCapRendering, NativeUnderlinePosition,
+        NativeUnderlineThickness, NativeUnixDomain, NativeUserKeyAssignment,
+        NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
+        NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
+        NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBackgroundGradient,
+        NativeWindowBackgroundGradientBlend, NativeWindowBackgroundGradientInterpolation,
+        NativeWindowBackgroundGradientOrientation, NativeWindowBackgroundGradientPreset,
+        NativeWindowBackgroundGradientSegment, NativeWindowBell, NativeWindowCloseConfirmation,
+        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
+        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowFrameAppearance,
+        NativeWindowLevel, NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
         NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
         NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
         NativeWslDomain, PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection,
@@ -106244,6 +106356,49 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm new-tab-button-click false return without params");
+        app.set_config_overrides(overrides);
+
+        let tab_width = tab_bar_tab_label(
+            0,
+            rssh_core::TabId::new(1),
+            1,
+            true,
+            None,
+            rssh_core::app_shell::PaneProgress::None,
+        )
+        .chars()
+        .count();
+        let new_tab_column = app.tab_bar_workspace_label().chars().count() + tab_width + 1;
+        let x = u32::try_from(new_tab_column).unwrap_or(0) * CELL_WIDTH;
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_new_tab_button_click_left_button_condition() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('new-tab-button-click', function(window, pane, button, default_action)
+              if button == 'Left' then
+                return false
+              else
+                return true
+              end
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm new-tab-button-click left-button condition");
         app.set_config_overrides(overrides);
 
         let tab_width = tab_bar_tab_label(
@@ -147215,7 +147370,7 @@ act.Confirmation {
                 allow_default: false,
             }),
             lua_new_tab_button_click: Some(NativeLuaNewTabButtonClick {
-                allow_default: false,
+                allow_default: NativeLuaNewTabButtonClickAllowDefault::Static(false),
                 perform_default_action: false,
             }),
             lua_command_palette_entries: None,
