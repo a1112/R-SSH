@@ -10297,6 +10297,12 @@ fn lua_tab_title_text_part_from_expression(
             return Some(NativeLuaTabTitleTextPart::ActivePaneUserVar { name });
         }
 
+        if let Some(rest) = rest.strip_prefix("progress")
+            && let Some(field) = lua_tab_title_active_pane_progress_field_from_rest(rest)
+        {
+            return Some(NativeLuaTabTitleTextPart::ActivePaneProgress { field });
+        }
+
         for (field, part) in lua_tab_title_active_pane_text_parts() {
             if let Some(rest) = rest.strip_prefix(field)
                 && lua_static_identifier_value_rest_is_statement_end(rest)
@@ -102552,6 +102558,28 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-tab-title active pane progress return");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]9;4;1;42\x07").unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("pct=42"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_active_pane_alias_progress_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local pane = tab.active_pane
+              return 'pct=' .. pane.progress.Percentage
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title active pane alias progress return");
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"\x1b]9;4;1;42\x07").unwrap();
 
