@@ -19378,6 +19378,25 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Breadog (Gogh)" => Some(BUILTIN_BREADOG_GOGH_COLOR_SCHEME_TOML),
         "Breath (Gogh)" => Some(BUILTIN_BREATH_GOGH_COLOR_SCHEME_TOML),
         "Breath Darker (Gogh)" => Some(BUILTIN_BREATH_DARKER_GOGH_COLOR_SCHEME_TOML),
+        "Breath Light (Gogh)" | "BreathLight (Gogh)" => {
+            Some(BUILTIN_BREATH_LIGHT_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Breath Silverfox (Gogh)" | "BreathSilverfox (Gogh)" => {
+            Some(BUILTIN_BREATH_SILVERFOX_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Breeze" => Some(BUILTIN_BREEZE_COLOR_SCHEME_TOML),
+        "Breeze (Gogh)" => Some(BUILTIN_BREEZE_GOGH_COLOR_SCHEME_TOML),
+        "Brewer (base16)" => Some(BUILTIN_BREWER_BASE16_COLOR_SCHEME_TOML),
+        "Brewer (dark) (terminal.sexy)" => {
+            Some(BUILTIN_BREWER_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Brewer (light) (terminal.sexy)" => {
+            Some(BUILTIN_BREWER_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Bright (base16)" => Some(BUILTIN_BRIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Bright Lights" => Some(BUILTIN_BRIGHT_LIGHTS_COLOR_SCHEME_TOML),
+        "Broadcast" => Some(BUILTIN_BROADCAST_COLOR_SCHEME_TOML),
+        "Broadcast (Gogh)" => Some(BUILTIN_BROADCAST_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -24439,6 +24458,433 @@ aliases = []
 name = "Breath Darker (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_BREATH_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#e8e8e8",
+    "#ed1515",
+    "#c0392b",
+    "#f67400",
+    "#1d99f3",
+    "#9b59b6",
+    "#1abc9c",
+    "#fcfcfc",
+]
+background = "#e8e8e8"
+brights = [
+    "#7f8c8d",
+    "#c0392b",
+    "#55a649",
+    "#fdbc4b",
+    "#3daee9",
+    "#8e44ad",
+    "#16a085",
+    "#ffffff",
+]
+cursor_bg = "#292f34"
+cursor_border = "#292f34"
+cursor_fg = "#e8e8e8"
+foreground = "#292f34"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["BreathLight (Gogh)"]
+name = "Breath Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_BREATH_SILVERFOX_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e2229",
+    "#ed1515",
+    "#44853a",
+    "#f67400",
+    "#1d99f3",
+    "#9b59b6",
+    "#1abc9c",
+    "#fcfcfc",
+]
+background = "#1e2229"
+brights = [
+    "#7f8c8d",
+    "#c0392b",
+    "#55a649",
+    "#fdbc4b",
+    "#3daee9",
+    "#8e44ad",
+    "#16a085",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#1e2229"
+foreground = "#bbbbbb"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["BreathSilverfox (Gogh)"]
+name = "Breath Silverfox (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_BREEZE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#31363b",
+    "#ed1515",
+    "#11d116",
+    "#f67400",
+    "#1d99f3",
+    "#9b59b6",
+    "#1abc9c",
+    "#eff0f1",
+]
+background = "#31363b"
+brights = [
+    "#7f8c8d",
+    "#c0392b",
+    "#1cdc9a",
+    "#fdbc4b",
+    "#3daee9",
+    "#8e44ad",
+    "#16a085",
+    "#fcfcfc",
+]
+cursor_bg = "#eff0f1"
+cursor_border = "#eff0f1"
+cursor_fg = "#31363b"
+foreground = "#eff0f1"
+selection_bg = "#eff0f1"
+selection_fg = "#31363b"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Breeze"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BREEZE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#232627",
+    "#ed1515",
+    "#11d116",
+    "#f67400",
+    "#1d99f3",
+    "#9b59b6",
+    "#1abc9c",
+    "#fcfcfc",
+]
+background = "#232627"
+brights = [
+    "#7f8c8d",
+    "#c0392b",
+    "#1cdc9a",
+    "#fdbc4b",
+    "#3daee9",
+    "#8e44ad",
+    "#16a085",
+    "#ffffff",
+]
+cursor_bg = "#fcfcfc"
+cursor_border = "#fcfcfc"
+cursor_fg = "#232627"
+foreground = "#fcfcfc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Breeze (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_BREWER_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0c0d0e",
+    "#e31a1c",
+    "#31a354",
+    "#dca060",
+    "#3182bd",
+    "#756bb1",
+    "#80b1d3",
+    "#b7b8b9",
+]
+background = "#0c0d0e"
+brights = [
+    "#737475",
+    "#e31a1c",
+    "#31a354",
+    "#dca060",
+    "#3182bd",
+    "#756bb1",
+    "#80b1d3",
+    "#fcfdfe",
+]
+cursor_bg = "#b7b8b9"
+cursor_border = "#b7b8b9"
+cursor_fg = "#0c0d0e"
+foreground = "#b7b8b9"
+selection_bg = "#b7b8b9"
+selection_fg = "#0c0d0e"
+
+[colors.indexed]
+16 = "#e6550d"
+17 = "#b15928"
+18 = "#2e2f30"
+19 = "#515253"
+20 = "#959697"
+21 = "#dadbdc"
+
+[metadata]
+aliases = ["Brewer (dark) (terminal.sexy)"]
+author = "Timoth\u00e9e Poisot (http://github.com/tpoisot)"
+name = "Brewer (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BREWER_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0c0d0e",
+    "#e31a1c",
+    "#31a354",
+    "#dca060",
+    "#3182bd",
+    "#756bb1",
+    "#80b1d3",
+    "#b7b8b9",
+]
+background = "#0c0d0e"
+brights = [
+    "#737475",
+    "#e31a1c",
+    "#31a354",
+    "#dca060",
+    "#3182bd",
+    "#756bb1",
+    "#80b1d3",
+    "#fcfdfe",
+]
+foreground = "#b7b8b9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Brewer (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_BREWER_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0c0d0e",
+    "#e31a1c",
+    "#31a354",
+    "#dca060",
+    "#3182bd",
+    "#756bb1",
+    "#80b1d3",
+    "#b7b8b9",
+]
+background = "#fcfdfe"
+brights = [
+    "#737475",
+    "#e31a1c",
+    "#31a354",
+    "#dca060",
+    "#3182bd",
+    "#756bb1",
+    "#80b1d3",
+    "#fcfdfe",
+]
+foreground = "#515253"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Brewer (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BRIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#fb0120",
+    "#a1c659",
+    "#fda331",
+    "#6fb3d2",
+    "#d381c3",
+    "#76c7b7",
+    "#e0e0e0",
+]
+background = "#000000"
+brights = [
+    "#b0b0b0",
+    "#fb0120",
+    "#a1c659",
+    "#fda331",
+    "#6fb3d2",
+    "#d381c3",
+    "#76c7b7",
+    "#ffffff",
+]
+cursor_bg = "#e0e0e0"
+cursor_border = "#e0e0e0"
+cursor_fg = "#000000"
+foreground = "#e0e0e0"
+selection_bg = "#e0e0e0"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#fc6d24"
+17 = "#be643c"
+18 = "#303030"
+19 = "#505050"
+20 = "#d0d0d0"
+21 = "#f5f5f5"
+
+[metadata]
+aliases = []
+author = "Chris Kempson (http://chriskempson.com)"
+name = "Bright (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_BRIGHT_LIGHTS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#191919",
+    "#ff355b",
+    "#b7e876",
+    "#ffc251",
+    "#76d4ff",
+    "#ba76e7",
+    "#6cbfb5",
+    "#c2c8d7",
+]
+background = "#191919"
+brights = [
+    "#191919",
+    "#ff355b",
+    "#b7e876",
+    "#ffc251",
+    "#76d5ff",
+    "#ba76e7",
+    "#6cbfb5",
+    "#c2c8d7",
+]
+cursor_bg = "#f34b00"
+cursor_border = "#f34b00"
+cursor_fg = "#002831"
+foreground = "#b3c9d7"
+selection_bg = "#b3c9d7"
+selection_fg = "#191919"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Bright Lights"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BROADCAST_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#da4939",
+    "#519f50",
+    "#ffd24a",
+    "#6d9cbe",
+    "#d0d0ff",
+    "#6e9cbe",
+    "#ffffff",
+]
+background = "#2b2b2b"
+brights = [
+    "#323232",
+    "#ff7b6b",
+    "#83d182",
+    "#ffff7c",
+    "#9fcef0",
+    "#ffffff",
+    "#a0cef0",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#e6e1dc"
+foreground = "#e6e1dc"
+selection_bg = "#5a647e"
+selection_fg = "#e6e1dc"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Broadcast (Gogh)"]
+name = "Broadcast"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_BROADCAST_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#da4939",
+    "#519f50",
+    "#ffd24a",
+    "#6d9cbe",
+    "#d0d0ff",
+    "#6e9cbe",
+    "#ffffff",
+]
+background = "#2b2b2b"
+brights = [
+    "#323232",
+    "#ff7b6b",
+    "#83d182",
+    "#ffff7c",
+    "#9fcef0",
+    "#ffffff",
+    "#a0cef0",
+    "#ffffff",
+]
+cursor_bg = "#e6e1dc"
+cursor_border = "#e6e1dc"
+cursor_fg = "#2b2b2b"
+foreground = "#e6e1dc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Broadcast (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -92573,6 +93019,272 @@ mod tests {
                 color_scheme
             ))
             .expect("expected WezTerm BlueDolphin-to-Breath Darker built-in color_scheme config");
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_breath_light_to_broadcast_builtin_color_schemes() {
+        let cases = [
+            (
+                "Breath Light (Gogh)",
+                Color::Rgb(41, 47, 52),
+                Color::Rgb(232, 232, 232),
+                Color::Rgb(41, 47, 52),
+                Some(Color::Rgb(232, 232, 232)),
+                None,
+                None,
+                Color::Rgb(232, 232, 232),
+                Color::Rgb(237, 21, 21),
+                Color::Rgb(192, 57, 43),
+                Color::Rgb(246, 116, 0),
+                Color::Rgb(127, 140, 141),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "BreathLight (Gogh)",
+                Color::Rgb(41, 47, 52),
+                Color::Rgb(232, 232, 232),
+                Color::Rgb(41, 47, 52),
+                Some(Color::Rgb(232, 232, 232)),
+                None,
+                None,
+                Color::Rgb(232, 232, 232),
+                Color::Rgb(237, 21, 21),
+                Color::Rgb(192, 57, 43),
+                Color::Rgb(246, 116, 0),
+                Color::Rgb(127, 140, 141),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Breath Silverfox (Gogh)",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(30, 34, 41),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(30, 34, 41)),
+                None,
+                None,
+                Color::Rgb(30, 34, 41),
+                Color::Rgb(237, 21, 21),
+                Color::Rgb(68, 133, 58),
+                Color::Rgb(246, 116, 0),
+                Color::Rgb(127, 140, 141),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "BreathSilverfox (Gogh)",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(30, 34, 41),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(30, 34, 41)),
+                None,
+                None,
+                Color::Rgb(30, 34, 41),
+                Color::Rgb(237, 21, 21),
+                Color::Rgb(68, 133, 58),
+                Color::Rgb(246, 116, 0),
+                Color::Rgb(127, 140, 141),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Breeze",
+                Color::Rgb(239, 240, 241),
+                Color::Rgb(49, 54, 59),
+                Color::Rgb(239, 240, 241),
+                Some(Color::Rgb(49, 54, 59)),
+                Some(Color::Rgb(239, 240, 241)),
+                Some(Some(Color::Rgb(49, 54, 59))),
+                Color::Rgb(49, 54, 59),
+                Color::Rgb(237, 21, 21),
+                Color::Rgb(17, 209, 22),
+                Color::Rgb(246, 116, 0),
+                Color::Rgb(127, 140, 141),
+                Color::Rgb(252, 252, 252),
+                None,
+            ),
+            (
+                "Breeze (Gogh)",
+                Color::Rgb(252, 252, 252),
+                Color::Rgb(35, 38, 39),
+                Color::Rgb(252, 252, 252),
+                Some(Color::Rgb(35, 38, 39)),
+                None,
+                None,
+                Color::Rgb(35, 38, 39),
+                Color::Rgb(237, 21, 21),
+                Color::Rgb(17, 209, 22),
+                Color::Rgb(246, 116, 0),
+                Color::Rgb(127, 140, 141),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Brewer (base16)",
+                Color::Rgb(183, 184, 185),
+                Color::Rgb(12, 13, 14),
+                Color::Rgb(183, 184, 185),
+                Some(Color::Rgb(12, 13, 14)),
+                Some(Color::Rgb(183, 184, 185)),
+                Some(Some(Color::Rgb(12, 13, 14))),
+                Color::Rgb(12, 13, 14),
+                Color::Rgb(227, 26, 28),
+                Color::Rgb(49, 163, 84),
+                Color::Rgb(220, 160, 96),
+                Color::Rgb(115, 116, 117),
+                Color::Rgb(252, 253, 254),
+                Some(Color::Rgb(230, 85, 13)),
+            ),
+            (
+                "Brewer (dark) (terminal.sexy)",
+                Color::Rgb(183, 184, 185),
+                Color::Rgb(12, 13, 14),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(12, 13, 14),
+                Color::Rgb(227, 26, 28),
+                Color::Rgb(49, 163, 84),
+                Color::Rgb(220, 160, 96),
+                Color::Rgb(115, 116, 117),
+                Color::Rgb(252, 253, 254),
+                None,
+            ),
+            (
+                "Brewer (light) (terminal.sexy)",
+                Color::Rgb(81, 82, 83),
+                Color::Rgb(252, 253, 254),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(12, 13, 14),
+                Color::Rgb(227, 26, 28),
+                Color::Rgb(49, 163, 84),
+                Color::Rgb(220, 160, 96),
+                Color::Rgb(115, 116, 117),
+                Color::Rgb(252, 253, 254),
+                None,
+            ),
+            (
+                "Bright (base16)",
+                Color::Rgb(224, 224, 224),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(224, 224, 224),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(224, 224, 224)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(251, 1, 32),
+                Color::Rgb(161, 198, 89),
+                Color::Rgb(253, 163, 49),
+                Color::Rgb(176, 176, 176),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(252, 109, 36)),
+            ),
+            (
+                "Bright Lights",
+                Color::Rgb(179, 201, 215),
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(243, 75, 0),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Color::Rgb(179, 201, 215)),
+                Some(Some(Color::Rgb(25, 25, 25))),
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(255, 53, 91),
+                Color::Rgb(183, 232, 118),
+                Color::Rgb(255, 194, 81),
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(194, 200, 215),
+                None,
+            ),
+            (
+                "Broadcast",
+                Color::Rgb(230, 225, 220),
+                Color::Rgb(43, 43, 43),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(230, 225, 220)),
+                Some(Color::Rgb(90, 100, 126)),
+                Some(Some(Color::Rgb(230, 225, 220))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(218, 73, 57),
+                Color::Rgb(81, 159, 80),
+                Color::Rgb(255, 210, 74),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Broadcast (Gogh)",
+                Color::Rgb(230, 225, 220),
+                Color::Rgb(43, 43, 43),
+                Color::Rgb(230, 225, 220),
+                Some(Color::Rgb(43, 43, 43)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(218, 73, 57),
+                Color::Rgb(81, 159, 80),
+                Color::Rgb(255, 210, 74),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .expect("expected WezTerm Breath Light-to-Broadcast built-in color_scheme config");
             app.set_config_overrides(overrides);
 
             let effective = app.native_effective_config();

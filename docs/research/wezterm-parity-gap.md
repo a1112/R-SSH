@@ -3586,7 +3586,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `BlueBerryPie`, `BlueDolphin`, `Bluloco Light (Gogh)`,
   `Bluloco Zsh Light (Gogh)`, `BlulocoDark`, `BlulocoLight`, `Borland`,
   `Borland (Gogh)`, `Breadog (Gogh)`, `Breath (Gogh)`,
-  `Breath Darker (Gogh)`, `Builtin Dark`, `Builtin Light`,
+  `Breath Darker (Gogh)`, `Breath Light (Gogh)`,
+  `Breath Silverfox (Gogh)`, `Breeze`, `Breeze (Gogh)`,
+  `Brewer (base16)`, `Brewer (dark) (terminal.sexy)`,
+  `Brewer (light) (terminal.sexy)`, `Bright (base16)`, `Bright Lights`,
+  `Broadcast`, `Broadcast (Gogh)`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
