@@ -59358,14 +59358,16 @@ fn lua_static_wezterm_emit_alias_value_from_query(
     let Some(value) = lua_trim_start_comments(value) else {
         return false;
     };
-    if let Some(rest) = value.strip_prefix("wezterm") {
-        if !rest.chars().next().is_some_and(is_lua_identifier_character) {
-            return lua_static_wezterm_emit_alias_receiver_rest_is_statement_end(
-                source, max_start, rest,
-            );
-        }
-    }
-    let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) else {
+    let rest = if let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) {
+        rest
+    } else if let Some(rest) = lua_static_wezterm_receiver_rest_from_query(source, max_start, value)
+    {
+        rest
+    } else {
+        return false;
+    };
+    if value.starts_with("wezterm") && rest.chars().next().is_some_and(is_lua_identifier_character)
+    {
         return false;
     };
     lua_static_wezterm_emit_alias_receiver_rest_is_statement_end(source, max_start, rest)
@@ -122854,6 +122856,44 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello-module-alias");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_emits_static_event_module_emit_alias() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wt = require 'wezterm'
+            local act = wt.action
+            local emit = wt.emit
+
+            wt.on('send-greeting', function(window, pane)
+              emit('write-greeting', window, pane)
+            end)
+
+            wt.on('write-greeting', function(window, pane)
+              window:perform_action(act.SendString 'hello-module-emit-alias', pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler module emit-alias config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(
+            written.lock().unwrap().as_slice(),
+            b"hello-module-emit-alias"
+        );
     }
 
     #[test]

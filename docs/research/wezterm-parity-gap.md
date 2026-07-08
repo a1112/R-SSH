@@ -1360,7 +1360,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `local <alias> = require 'wezterm'` module alias receiver or a top-level static
   direct `require('wezterm').emit(...)` receiver or a top-level static
   `local <alias> = wezterm.emit`, `local <alias> = wezterm['emit']`,
-  `local <key> = 'emit'; local <alias> = wezterm[<key>]`, or
+  `local <key> = 'emit'; local <alias> = wezterm[<key>]`,
+  `local <module> = require 'wezterm'; local <alias> = <module>.emit`, or
   `local <alias> = require('wezterm').emit` alias whose dotted helper path may
   contain Lua comments, callback-local aliases assigned from `window` or
   `pane`, and callback-local or top-level static string event-name variables,
