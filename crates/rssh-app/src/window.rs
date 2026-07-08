@@ -59222,15 +59222,24 @@ fn lua_callback_statement_emits_event(
         return None;
     };
     let window = lua_trim_start_comments(window.trim())?;
-    let window_name = lua_identifier_literal_from_query(window)?;
     let pane = lua_trim_start_comments(pane.trim())?;
-    let pane_name = lua_identifier_literal_from_query(pane)?;
-    if window_name != window_param
-        || !lua_static_identifier_value_rest_is_statement_end(window.get(window_name.len()..)?)
-        || pane_name != pane_param
-        || !lua_static_identifier_value_rest_is_statement_end(pane.get(pane_name.len()..)?)
-        || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
-    {
+    let args_match = if let Some(static_source) = static_source {
+        lua_callback_expression_is_window_param(
+            window,
+            window_param,
+            static_source,
+            outer_static_source,
+        ) && lua_callback_expression_is_pane_param(
+            pane,
+            pane_param,
+            static_source,
+            outer_static_source,
+        )
+    } else {
+        lua_static_identifier_expression_matches(window, window_param)
+            && lua_static_identifier_expression_matches(pane, pane_param)
+    };
+    if !args_match || !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
         return None;
     }
     let name = lua_static_string_value_from_expression(
@@ -122719,6 +122728,42 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_emits_static_event_window_pane_aliases() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+
+            wezterm.on('send-greeting', function(window, pane)
+              local win = window
+              local target_pane = pane
+              wezterm.emit('write-greeting', win, target_pane)
+            end)
+
+            wezterm.on('write-greeting', function(window, pane)
+              window:perform_action(act.SendString 'hello-alias', pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler window/pane alias config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello-alias");
     }
 
     #[test]
