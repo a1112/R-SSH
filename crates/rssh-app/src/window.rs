@@ -19611,6 +19611,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Espresso (Gogh)" => Some(BUILTIN_ESPRESSO_GOGH_COLOR_SCHEME_TOML),
         "Espresso Libre" => Some(BUILTIN_ESPRESSO_LIBRE_COLOR_SCHEME_TOML),
         "Espresso Libre (Gogh)" => Some(BUILTIN_ESPRESSO_LIBRE_GOGH_COLOR_SCHEME_TOML),
+        "Euphrasia (terminal.sexy)" => Some(BUILTIN_EUPHRASIA_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Eva (base16)" => Some(BUILTIN_EVA_BASE16_COLOR_SCHEME_TOML),
+        "Eva Dim (base16)" => Some(BUILTIN_EVA_DIM_BASE16_COLOR_SCHEME_TOML),
+        "Everblush" => Some(BUILTIN_EVERBLUSH_COLOR_SCHEME_TOML),
+        "Everblush (Gogh)" => Some(BUILTIN_EVERBLUSH_GOGH_COLOR_SCHEME_TOML),
+        "Everforest Dark (Gogh)" => Some(BUILTIN_EVERFOREST_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Everforest Dark Hard (Gogh)" => Some(BUILTIN_EVERFOREST_DARK_HARD_GOGH_COLOR_SCHEME_TOML),
+        "Everforest Dark Medium (Gogh)" => {
+            Some(BUILTIN_EVERFOREST_DARK_MEDIUM_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Everforest Dark Soft (Gogh)" => Some(BUILTIN_EVERFOREST_DARK_SOFT_GOGH_COLOR_SCHEME_TOML),
+        "Everforest Light (Gogh)" => Some(BUILTIN_EVERFOREST_LIGHT_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -32661,6 +32673,394 @@ aliases = []
 name = "Espresso Libre (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_EUPHRASIA_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#192033",
+    "#a62a3e",
+    "#38912b",
+    "#b27d12",
+    "#355c9a",
+    "#7c4f9f",
+    "#258f8f",
+    "#77858c",
+]
+background = "#cfcfd9"
+brights = [
+    "#666666",
+    "#f04758",
+    "#93c724",
+    "#ddb62b",
+    "#45a3e6",
+    "#c953ef",
+    "#60c6c8",
+    "#c0c0c0",
+]
+foreground = "#1c2027"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Euphrasia (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_EVA_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2a3b4d",
+    "#c4676c",
+    "#66ff66",
+    "#ffff66",
+    "#15f4ee",
+    "#9c6cd3",
+    "#4b8f77",
+    "#9fa2a6",
+]
+background = "#2a3b4d"
+brights = [
+    "#55799c",
+    "#c4676c",
+    "#66ff66",
+    "#ffff66",
+    "#15f4ee",
+    "#9c6cd3",
+    "#4b8f77",
+    "#ffffff",
+]
+cursor_bg = "#9fa2a6"
+cursor_border = "#9fa2a6"
+cursor_fg = "#2a3b4d"
+foreground = "#9fa2a6"
+selection_bg = "#9fa2a6"
+selection_fg = "#2a3b4d"
+
+[colors.indexed]
+16 = "#ff9966"
+17 = "#bb64a9"
+18 = "#3d566f"
+19 = "#4b6988"
+20 = "#7e90a3"
+21 = "#d6d7d9"
+
+[metadata]
+aliases = []
+author = "kjakapat (https://github.com/kjakapat)"
+name = "Eva (base16)"
+origin_url = "https://github.com/kjakapat/base16-eva-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_EVA_DIM_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2a3b4d",
+    "#c4676c",
+    "#5de561",
+    "#cfd05d",
+    "#1ae1dc",
+    "#9c6cd3",
+    "#4b8f77",
+    "#9fa2a6",
+]
+background = "#2a3b4d"
+brights = [
+    "#55799c",
+    "#c4676c",
+    "#5de561",
+    "#cfd05d",
+    "#1ae1dc",
+    "#9c6cd3",
+    "#4b8f77",
+    "#ffffff",
+]
+cursor_bg = "#9fa2a6"
+cursor_border = "#9fa2a6"
+cursor_fg = "#2a3b4d"
+foreground = "#9fa2a6"
+selection_bg = "#9fa2a6"
+selection_fg = "#2a3b4d"
+
+[colors.indexed]
+16 = "#ff9966"
+17 = "#bb64a9"
+18 = "#3d566f"
+19 = "#4b6988"
+20 = "#7e90a3"
+21 = "#d6d7d9"
+
+[metadata]
+aliases = []
+author = "kjakapat (https://github.com/kjakapat)"
+name = "Eva Dim (base16)"
+origin_url = "https://github.com/kjakapat/base16-eva-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_EVERBLUSH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#232a2d",
+    "#e57474",
+    "#8ccf7e",
+    "#e5c76b",
+    "#67b0e8",
+    "#c47fd5",
+    "#6cbfbf",
+    "#b3b9b8",
+]
+background = "#141b1e"
+brights = [
+    "#2d3437",
+    "#ef7e7e",
+    "#96d988",
+    "#f4d67a",
+    "#71baf2",
+    "#ce89df",
+    "#67cbe7",
+    "#bdc3c2",
+]
+cursor_bg = "#dadada"
+cursor_border = "#dadada"
+cursor_fg = "#141b1e"
+foreground = "#dadada"
+selection_bg = "#141b1e"
+selection_fg = "#dadada"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Everblush (Gogh)"]
+name = "Everblush"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_EVERBLUSH_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#232a2d",
+    "#e57474",
+    "#8ccf7e",
+    "#e5c76b",
+    "#67b0e8",
+    "#c47fd5",
+    "#6cbfbf",
+    "#b3b9b8",
+]
+background = "#141b1e"
+brights = [
+    "#2d3437",
+    "#ef7e7e",
+    "#96d988",
+    "#f4d67a",
+    "#71baf2",
+    "#ce89df",
+    "#67cbe7",
+    "#bdc3c2",
+]
+cursor_bg = "#dadada"
+cursor_border = "#dadada"
+cursor_fg = "#141b1e"
+foreground = "#dadada"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Everblush (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_EVERFOREST_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4b565c",
+    "#e67e80",
+    "#a7c080",
+    "#dbbc7f",
+    "#7fbbb3",
+    "#d699b6",
+    "#83c092",
+    "#d3c6aa",
+]
+background = "#2d353b"
+brights = [
+    "#5c6a72",
+    "#f85552",
+    "#8da101",
+    "#dfa000",
+    "#3a94c5",
+    "#df69ba",
+    "#35a77c",
+    "#dfddc8",
+]
+cursor_bg = "#d3c6aa"
+cursor_border = "#d3c6aa"
+cursor_fg = "#2d353b"
+foreground = "#d3c6aa"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["EverforestDark (Gogh)"]
+name = "Everforest Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_EVERFOREST_DARK_HARD_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e383c",
+    "#e67e80",
+    "#a7c080",
+    "#dbbc7f",
+    "#7fbbb3",
+    "#d699b6",
+    "#83c092",
+    "#d3c6aa",
+]
+background = "#272e33"
+brights = [
+    "#5c6a72",
+    "#f85552",
+    "#8da101",
+    "#dfa000",
+    "#3a94c5",
+    "#df69ba",
+    "#35a77c",
+    "#dfddc8",
+]
+cursor_bg = "#d3c6aa"
+cursor_border = "#d3c6aa"
+cursor_fg = "#272e33"
+foreground = "#d3c6aa"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Everforest Dark Hard (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_EVERFOREST_DARK_MEDIUM_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#343f44",
+    "#e67e80",
+    "#a7c080",
+    "#dbbc7f",
+    "#7fbbb3",
+    "#d699b6",
+    "#83c092",
+    "#d3c6aa",
+]
+background = "#2d353b"
+brights = [
+    "#5c6a72",
+    "#f85552",
+    "#8da101",
+    "#dfa000",
+    "#3a94c5",
+    "#df69ba",
+    "#35a77c",
+    "#dfddc8",
+]
+cursor_bg = "#d3c6aa"
+cursor_border = "#d3c6aa"
+cursor_fg = "#2d353b"
+foreground = "#d3c6aa"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Everforest Dark Medium (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_EVERFOREST_DARK_SOFT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3a464c",
+    "#e67e80",
+    "#a7c080",
+    "#dbbc7f",
+    "#7fbbb3",
+    "#d699b6",
+    "#83c092",
+    "#d3c6aa",
+]
+background = "#333c43"
+brights = [
+    "#5c6a72",
+    "#f85552",
+    "#8da101",
+    "#dfa000",
+    "#3a94c5",
+    "#df69ba",
+    "#35a77c",
+    "#dfddc8",
+]
+cursor_bg = "#d3c6aa"
+cursor_border = "#d3c6aa"
+cursor_fg = "#333c43"
+foreground = "#d3c6aa"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Everforest Dark Soft (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_EVERFOREST_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#5c6a72",
+    "#f85552",
+    "#8da101",
+    "#dfa000",
+    "#3a94c5",
+    "#df69ba",
+    "#35a77c",
+    "#dfddc8",
+]
+background = "#fdf6e3"
+brights = [
+    "#4b565c",
+    "#e67e80",
+    "#a7c080",
+    "#dbbc7f",
+    "#7fbbb3",
+    "#d699b6",
+    "#83c092",
+    "#d3c6aa",
+]
+cursor_bg = "#5c6a72"
+cursor_border = "#5c6a72"
+cursor_fg = "#fdf6e3"
+foreground = "#5c6a72"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["EverforestLight (Gogh)"]
+name = "Everforest Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230320-124340-559cb7b0"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -105022,6 +105422,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Equilibrium-to-Espresso Libre Gogh built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_euphrasia_to_everforest_light_gogh_builtin_color_schemes() {
+        let cases = [
+            (
+                "Euphrasia (terminal.sexy)",
+                Color::Rgb(28, 32, 39),
+                Color::Rgb(207, 207, 217),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(25, 32, 51),
+                Color::Rgb(166, 42, 62),
+                Color::Rgb(56, 145, 43),
+                Color::Rgb(178, 125, 18),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(192, 192, 192),
+                None,
+            ),
+            (
+                "Eva (base16)",
+                Color::Rgb(159, 162, 166),
+                Color::Rgb(42, 59, 77),
+                Color::Rgb(159, 162, 166),
+                Some(Color::Rgb(42, 59, 77)),
+                Some(Color::Rgb(159, 162, 166)),
+                Some(Some(Color::Rgb(42, 59, 77))),
+                Color::Rgb(42, 59, 77),
+                Color::Rgb(196, 103, 108),
+                Color::Rgb(102, 255, 102),
+                Color::Rgb(255, 255, 102),
+                Color::Rgb(85, 121, 156),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(255, 153, 102)),
+            ),
+            (
+                "Eva Dim (base16)",
+                Color::Rgb(159, 162, 166),
+                Color::Rgb(42, 59, 77),
+                Color::Rgb(159, 162, 166),
+                Some(Color::Rgb(42, 59, 77)),
+                Some(Color::Rgb(159, 162, 166)),
+                Some(Some(Color::Rgb(42, 59, 77))),
+                Color::Rgb(42, 59, 77),
+                Color::Rgb(196, 103, 108),
+                Color::Rgb(93, 229, 97),
+                Color::Rgb(207, 208, 93),
+                Color::Rgb(85, 121, 156),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(255, 153, 102)),
+            ),
+            (
+                "Everblush",
+                Color::Rgb(218, 218, 218),
+                Color::Rgb(20, 27, 30),
+                Color::Rgb(218, 218, 218),
+                Some(Color::Rgb(20, 27, 30)),
+                Some(Color::Rgb(20, 27, 30)),
+                Some(Some(Color::Rgb(218, 218, 218))),
+                Color::Rgb(35, 42, 45),
+                Color::Rgb(229, 116, 116),
+                Color::Rgb(140, 207, 126),
+                Color::Rgb(229, 199, 107),
+                Color::Rgb(45, 52, 55),
+                Color::Rgb(189, 195, 194),
+                None,
+            ),
+            (
+                "Everblush (Gogh)",
+                Color::Rgb(218, 218, 218),
+                Color::Rgb(20, 27, 30),
+                Color::Rgb(218, 218, 218),
+                Some(Color::Rgb(20, 27, 30)),
+                None,
+                None,
+                Color::Rgb(35, 42, 45),
+                Color::Rgb(229, 116, 116),
+                Color::Rgb(140, 207, 126),
+                Color::Rgb(229, 199, 107),
+                Color::Rgb(45, 52, 55),
+                Color::Rgb(189, 195, 194),
+                None,
+            ),
+            (
+                "Everforest Dark (Gogh)",
+                Color::Rgb(211, 198, 170),
+                Color::Rgb(45, 53, 59),
+                Color::Rgb(211, 198, 170),
+                Some(Color::Rgb(45, 53, 59)),
+                None,
+                None,
+                Color::Rgb(75, 86, 92),
+                Color::Rgb(230, 126, 128),
+                Color::Rgb(167, 192, 128),
+                Color::Rgb(219, 188, 127),
+                Color::Rgb(92, 106, 114),
+                Color::Rgb(223, 221, 200),
+                None,
+            ),
+            (
+                "Everforest Dark Hard (Gogh)",
+                Color::Rgb(211, 198, 170),
+                Color::Rgb(39, 46, 51),
+                Color::Rgb(211, 198, 170),
+                Some(Color::Rgb(39, 46, 51)),
+                None,
+                None,
+                Color::Rgb(46, 56, 60),
+                Color::Rgb(230, 126, 128),
+                Color::Rgb(167, 192, 128),
+                Color::Rgb(219, 188, 127),
+                Color::Rgb(92, 106, 114),
+                Color::Rgb(223, 221, 200),
+                None,
+            ),
+            (
+                "Everforest Dark Medium (Gogh)",
+                Color::Rgb(211, 198, 170),
+                Color::Rgb(45, 53, 59),
+                Color::Rgb(211, 198, 170),
+                Some(Color::Rgb(45, 53, 59)),
+                None,
+                None,
+                Color::Rgb(52, 63, 68),
+                Color::Rgb(230, 126, 128),
+                Color::Rgb(167, 192, 128),
+                Color::Rgb(219, 188, 127),
+                Color::Rgb(92, 106, 114),
+                Color::Rgb(223, 221, 200),
+                None,
+            ),
+            (
+                "Everforest Dark Soft (Gogh)",
+                Color::Rgb(211, 198, 170),
+                Color::Rgb(51, 60, 67),
+                Color::Rgb(211, 198, 170),
+                Some(Color::Rgb(51, 60, 67)),
+                None,
+                None,
+                Color::Rgb(58, 70, 76),
+                Color::Rgb(230, 126, 128),
+                Color::Rgb(167, 192, 128),
+                Color::Rgb(219, 188, 127),
+                Color::Rgb(92, 106, 114),
+                Color::Rgb(223, 221, 200),
+                None,
+            ),
+            (
+                "Everforest Light (Gogh)",
+                Color::Rgb(92, 106, 114),
+                Color::Rgb(253, 246, 227),
+                Color::Rgb(92, 106, 114),
+                Some(Color::Rgb(253, 246, 227)),
+                None,
+                None,
+                Color::Rgb(92, 106, 114),
+                Color::Rgb(248, 85, 82),
+                Color::Rgb(141, 161, 1),
+                Color::Rgb(223, 160, 0),
+                Color::Rgb(75, 86, 92),
+                Color::Rgb(211, 198, 170),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Euphrasia-to-Everforest Light Gogh built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

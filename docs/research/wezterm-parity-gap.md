@@ -3652,6 +3652,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Equilibrium Gray Light (base16)`, `Equilibrium Light (base16)`,
   `Erebus (terminal.sexy)`, `Espresso`, `Espresso (base16)`,
   `Espresso (Gogh)`, `Espresso Libre`, `Espresso Libre (Gogh)`,
+  `Euphrasia (terminal.sexy)`, `Eva (base16)`, `Eva Dim (base16)`,
+  `Everblush`, `Everblush (Gogh)`, `Everforest Dark (Gogh)`,
+  `Everforest Dark Hard (Gogh)`, `Everforest Dark Medium (Gogh)`,
+  `Everforest Dark Soft (Gogh)`, `Everforest Light (Gogh)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
