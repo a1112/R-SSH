@@ -3777,6 +3777,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `nordfox`, `Nova (base16)`, `Novel`, `Novel (Gogh)`,
   `Nucolors (terminal.sexy)`, `Nudge (terminal.sexy)`,
   `Numix Darkest (terminal.sexy)`, `NvimDark`, `NvimLight`, `Obsidian`,
+  `Obsidian (Gogh)`, `Ocean`, `Ocean (base16)`,
+  `Ocean (dark) (terminal.sexy)`, `Ocean (light) (terminal.sexy)`,
+  `Ocean Dark (Gogh)`, `Oceanic Next (Gogh)`, `Oceanic-Next`,
   `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
   `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
   `Builtin Tango Light`, and already mapped non-conflicting WezTerm aliases

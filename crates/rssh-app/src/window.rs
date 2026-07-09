@@ -20055,6 +20055,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "NvimDark" => Some(BUILTIN_NVIMDARK_COLOR_SCHEME_TOML),
         "NvimLight" => Some(BUILTIN_NVIMLIGHT_COLOR_SCHEME_TOML),
         "Obsidian" => Some(BUILTIN_OBSIDIAN_COLOR_SCHEME_TOML),
+        "Obsidian (Gogh)" => Some(BUILTIN_OBSIDIAN_GOGH_COLOR_SCHEME_TOML),
+        "Ocean" => Some(BUILTIN_OCEAN_COLOR_SCHEME_TOML),
+        "Ocean (base16)" => Some(BUILTIN_OCEAN_BASE16_COLOR_SCHEME_TOML),
+        "Ocean (dark) (terminal.sexy)" => Some(BUILTIN_OCEAN_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Ocean (light) (terminal.sexy)" => {
+            Some(BUILTIN_OCEAN_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Ocean Dark (Gogh)" | "OceanDark (Gogh)" => Some(BUILTIN_OCEAN_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Oceanic Next (Gogh)" => Some(BUILTIN_OCEANIC_NEXT_GOGH_COLOR_SCHEME_TOML),
+        "Oceanic-Next" | "OceanicNext (Gogh)" => Some(BUILTIN_OCEANIC_NEXT_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -46349,6 +46359,314 @@ selection_fg = "#dfe1e2"
 [metadata]
 aliases = ["Obsidian (Gogh)"]
 name = "Obsidian"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_OBSIDIAN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#a60001",
+    "#00bb00",
+    "#fecd22",
+    "#3a9bdb",
+    "#bb00bb",
+    "#00bbbb",
+    "#bbbbbb",
+]
+background = "#283033"
+brights = [
+    "#555555",
+    "#ff0003",
+    "#93c863",
+    "#fef874",
+    "#a1d7ff",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#cdcdcd"
+cursor_border = "#cdcdcd"
+cursor_fg = "#283033"
+foreground = "#cdcdcd"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Obsidian (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_OCEAN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#990000",
+    "#00a600",
+    "#999900",
+    "#0000b2",
+    "#b200b2",
+    "#00a6b2",
+    "#bfbfbf",
+]
+background = "#224fbc"
+brights = [
+    "#666666",
+    "#e50000",
+    "#00d900",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#7f7f7f"
+cursor_border = "#7f7f7f"
+cursor_fg = "#ffffff"
+foreground = "#ffffff"
+selection_bg = "#216dff"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Homebrew Ocean (Gogh)"]
+name = "Ocean"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_OCEAN_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2b303b",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#8fa1b3",
+    "#b48ead",
+    "#96b5b4",
+    "#c0c5ce",
+]
+background = "#2b303b"
+brights = [
+    "#65737e",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#8fa1b3",
+    "#b48ead",
+    "#96b5b4",
+    "#eff1f5",
+]
+cursor_bg = "#c0c5ce"
+cursor_border = "#c0c5ce"
+cursor_fg = "#2b303b"
+foreground = "#c0c5ce"
+selection_bg = "#c0c5ce"
+selection_fg = "#2b303b"
+
+[colors.indexed]
+16 = "#d08770"
+17 = "#ab7967"
+18 = "#343d46"
+19 = "#4f5b66"
+20 = "#a7adba"
+21 = "#dfe1e8"
+
+[metadata]
+aliases = ["Ocean (dark) (terminal.sexy)"]
+author = "Chris Kempson (http://chriskempson.com)"
+name = "Ocean (base16)"
+origin_url = "https://github.com/chriskempson/base16-default-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_OCEAN_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2b303b",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#8fa1b3",
+    "#b48ead",
+    "#96b5b4",
+    "#c0c5ce",
+]
+background = "#2b303b"
+brights = [
+    "#65737e",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#8fa1b3",
+    "#b48ead",
+    "#96b5b4",
+    "#eff1f5",
+]
+foreground = "#c0c5ce"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Ocean (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_OCEAN_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2b303b",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#8fa1b3",
+    "#b48ead",
+    "#96b5b4",
+    "#c0c5ce",
+]
+background = "#eff1f5"
+brights = [
+    "#65737e",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#8fa1b3",
+    "#b48ead",
+    "#96b5b4",
+    "#eff1f5",
+]
+foreground = "#4f5b66"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Ocean (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_OCEAN_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4f4f4f",
+    "#af4b57",
+    "#afd383",
+    "#e5c079",
+    "#7d90a4",
+    "#a4799d",
+    "#85a6a5",
+    "#eeedee",
+]
+background = "#1c1f27"
+brights = [
+    "#7b7b7b",
+    "#af4b57",
+    "#ceffab",
+    "#fffecc",
+    "#b5dcfe",
+    "#fb9bfe",
+    "#dfdffd",
+    "#fefffe",
+]
+cursor_bg = "#979cac"
+cursor_border = "#979cac"
+cursor_fg = "#1c1f27"
+foreground = "#979cac"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["OceanDark (Gogh)"]
+name = "Ocean Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_OCEANIC_NEXT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#121c21",
+    "#e44754",
+    "#89bd82",
+    "#f7bd51",
+    "#5486c0",
+    "#b77eb8",
+    "#50a5a4",
+    "#ffffff",
+]
+background = "#121b21"
+brights = [
+    "#52606b",
+    "#e44754",
+    "#89bd82",
+    "#f7bd51",
+    "#5486c0",
+    "#b77eb8",
+    "#50a5a4",
+    "#ffffff",
+]
+cursor_bg = "#b3b8c3"
+cursor_border = "#b3b8c3"
+cursor_fg = "#121b21"
+foreground = "#b3b8c3"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Oceanic Next (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_OCEANIC_NEXT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#121c21",
+    "#e44754",
+    "#89bd82",
+    "#f7bd51",
+    "#5486c0",
+    "#b77eb8",
+    "#50a5a4",
+    "#ffffff",
+]
+background = "#121b21"
+brights = [
+    "#52606b",
+    "#e44754",
+    "#89bd82",
+    "#f7bd51",
+    "#5486c0",
+    "#b77eb8",
+    "#50a5a4",
+    "#ffffff",
+]
+cursor_bg = "#b3b8c3"
+cursor_border = "#b3b8c3"
+cursor_fg = "#121c21"
+foreground = "#b3b8c3"
+selection_bg = "#3e4953"
+selection_fg = "#b3b8c3"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Oceanic Next (Gogh)",
+    "OceanicNext (Gogh)",
+]
+name = "Oceanic-Next"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
 "##;
@@ -126804,6 +127122,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Novel-to-Obsidian built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_obsidian_gogh_to_oceanic_next_builtin_color_schemes() {
+        let cases = [
+            (
+                "Obsidian (Gogh)",
+                Color::Rgb(205, 205, 205),
+                Color::Rgb(40, 48, 51),
+                Color::Rgb(205, 205, 205),
+                Some(Color::Rgb(40, 48, 51)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(166, 0, 1),
+                Color::Rgb(0, 187, 0),
+                Color::Rgb(254, 205, 34),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Ocean",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(34, 79, 188),
+                Color::Rgb(127, 127, 127),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(33, 109, 255)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(153, 0, 0),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(153, 153, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Ocean (base16)",
+                Color::Rgb(192, 197, 206),
+                Color::Rgb(43, 48, 59),
+                Color::Rgb(192, 197, 206),
+                Some(Color::Rgb(43, 48, 59)),
+                Some(Color::Rgb(192, 197, 206)),
+                Some(Some(Color::Rgb(43, 48, 59))),
+                Color::Rgb(43, 48, 59),
+                Color::Rgb(191, 97, 106),
+                Color::Rgb(163, 190, 140),
+                Color::Rgb(235, 203, 139),
+                Color::Rgb(101, 115, 126),
+                Color::Rgb(239, 241, 245),
+                Some(Color::Rgb(208, 135, 112)),
+            ),
+            (
+                "Ocean (dark) (terminal.sexy)",
+                Color::Rgb(192, 197, 206),
+                Color::Rgb(43, 48, 59),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(43, 48, 59),
+                Color::Rgb(191, 97, 106),
+                Color::Rgb(163, 190, 140),
+                Color::Rgb(235, 203, 139),
+                Color::Rgb(101, 115, 126),
+                Color::Rgb(239, 241, 245),
+                None,
+            ),
+            (
+                "Ocean (light) (terminal.sexy)",
+                Color::Rgb(79, 91, 102),
+                Color::Rgb(239, 241, 245),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(43, 48, 59),
+                Color::Rgb(191, 97, 106),
+                Color::Rgb(163, 190, 140),
+                Color::Rgb(235, 203, 139),
+                Color::Rgb(101, 115, 126),
+                Color::Rgb(239, 241, 245),
+                None,
+            ),
+            (
+                "Ocean Dark (Gogh)",
+                Color::Rgb(151, 156, 172),
+                Color::Rgb(28, 31, 39),
+                Color::Rgb(151, 156, 172),
+                Some(Color::Rgb(28, 31, 39)),
+                None,
+                None,
+                Color::Rgb(79, 79, 79),
+                Color::Rgb(175, 75, 87),
+                Color::Rgb(175, 211, 131),
+                Color::Rgb(229, 192, 121),
+                Color::Rgb(123, 123, 123),
+                Color::Rgb(254, 255, 254),
+                None,
+            ),
+            (
+                "OceanDark (Gogh)",
+                Color::Rgb(151, 156, 172),
+                Color::Rgb(28, 31, 39),
+                Color::Rgb(151, 156, 172),
+                Some(Color::Rgb(28, 31, 39)),
+                None,
+                None,
+                Color::Rgb(79, 79, 79),
+                Color::Rgb(175, 75, 87),
+                Color::Rgb(175, 211, 131),
+                Color::Rgb(229, 192, 121),
+                Color::Rgb(123, 123, 123),
+                Color::Rgb(254, 255, 254),
+                None,
+            ),
+            (
+                "Oceanic Next (Gogh)",
+                Color::Rgb(179, 184, 195),
+                Color::Rgb(18, 27, 33),
+                Color::Rgb(179, 184, 195),
+                Some(Color::Rgb(18, 27, 33)),
+                None,
+                None,
+                Color::Rgb(18, 28, 33),
+                Color::Rgb(228, 71, 84),
+                Color::Rgb(137, 189, 130),
+                Color::Rgb(247, 189, 81),
+                Color::Rgb(82, 96, 107),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Oceanic-Next",
+                Color::Rgb(179, 184, 195),
+                Color::Rgb(18, 27, 33),
+                Color::Rgb(179, 184, 195),
+                Some(Color::Rgb(18, 28, 33)),
+                Some(Color::Rgb(62, 73, 83)),
+                Some(Some(Color::Rgb(179, 184, 195))),
+                Color::Rgb(18, 28, 33),
+                Color::Rgb(228, 71, 84),
+                Color::Rgb(137, 189, 130),
+                Color::Rgb(247, 189, 81),
+                Color::Rgb(82, 96, 107),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "OceanicNext (Gogh)",
+                Color::Rgb(179, 184, 195),
+                Color::Rgb(18, 27, 33),
+                Color::Rgb(179, 184, 195),
+                Some(Color::Rgb(18, 28, 33)),
+                Some(Color::Rgb(62, 73, 83)),
+                Some(Some(Color::Rgb(179, 184, 195))),
+                Color::Rgb(18, 28, 33),
+                Color::Rgb(228, 71, 84),
+                Color::Rgb(137, 189, 130),
+                Color::Rgb(247, 189, 81),
+                Color::Rgb(82, 96, 107),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Obsidian-Gogh-to-Oceanic-Next built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
