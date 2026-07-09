@@ -19960,6 +19960,42 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Modus-Vivendi-Tritanopia" => Some(BUILTIN_MODUS_VIVENDI_TRITANOPIA_COLOR_SCHEME_TOML),
         "Molokai" => Some(BUILTIN_MOLOKAI_COLOR_SCHEME_TOML),
         "Molokai (Gogh)" => Some(BUILTIN_MOLOKAI_GOGH_COLOR_SCHEME_TOML),
+        "Mona Lisa (Gogh)" => Some(BUILTIN_MONA_LISA_GOGH_COLOR_SCHEME_TOML),
+        "MonaLisa" => Some(BUILTIN_MONALISA_COLOR_SCHEME_TOML),
+        "Mono (terminal.sexy)" => Some(BUILTIN_MONO_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Mono Amber (Gogh)" | "mono-amber (Gogh)" => {
+            Some(BUILTIN_MONO_AMBER_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Mono Cyan (Gogh)" | "mono-cyan (Gogh)" => Some(BUILTIN_MONO_CYAN_GOGH_COLOR_SCHEME_TOML),
+        "Mono Green (Gogh)" | "mono-green (Gogh)" => {
+            Some(BUILTIN_MONO_GREEN_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Mono Red (Gogh)" | "mono-red (Gogh)" => Some(BUILTIN_MONO_RED_GOGH_COLOR_SCHEME_TOML),
+        "Mono Theme (terminal.sexy)" => Some(BUILTIN_MONO_THEME_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Mono White (Gogh)" | "mono-white (Gogh)" => {
+            Some(BUILTIN_MONO_WHITE_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Mono Yellow (Gogh)" | "mono-yellow (Gogh)" => {
+            Some(BUILTIN_MONO_YELLOW_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Monokai (base16)" => Some(BUILTIN_MONOKAI_BASE16_COLOR_SCHEME_TOML),
+        "Monokai (dark) (terminal.sexy)" => {
+            Some(BUILTIN_MONOKAI_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Monokai (light) (terminal.sexy)" => {
+            Some(BUILTIN_MONOKAI_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Monokai (terminal.sexy)" => Some(BUILTIN_MONOKAI_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Monokai Dark (Gogh)" | "MonokaiDark (Gogh)" => {
+            Some(BUILTIN_MONOKAI_DARK_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Monokai Pro (Gogh)" | "MonokaiPro (Gogh)" => {
+            Some(BUILTIN_MONOKAI_PRO_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Monokai Pro Ristretto (Gogh)" | "MonokaiProRistretto (Gogh)" => {
+            Some(BUILTIN_MONOKAI_PRO_RISTRETTO_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Monokai Remastered" => Some(BUILTIN_MONOKAI_REMASTERED_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -43662,6 +43698,675 @@ aliases = []
 name = "Molokai (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONA_LISA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#351b0e",
+    "#9b291c",
+    "#636232",
+    "#c36e28",
+    "#515c5d",
+    "#9b1d29",
+    "#588056",
+    "#f7d75c",
+]
+background = "#120b0d"
+brights = [
+    "#874228",
+    "#ff4331",
+    "#b4b264",
+    "#ff9566",
+    "#9eb2b4",
+    "#ff5b6a",
+    "#8acd8f",
+    "#ffe598",
+]
+cursor_bg = "#f7d66a"
+cursor_border = "#f7d66a"
+cursor_fg = "#120b0d"
+foreground = "#f7d66a"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Mona Lisa (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_MONALISA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#351b0e",
+    "#9b291c",
+    "#636232",
+    "#c36e28",
+    "#515c5d",
+    "#9b1d29",
+    "#588056",
+    "#f7d75c",
+]
+background = "#120b0d"
+brights = [
+    "#874228",
+    "#ff4331",
+    "#b4b264",
+    "#ff9566",
+    "#9eb2b4",
+    "#ff5b6a",
+    "#8acd8f",
+    "#ffe598",
+]
+cursor_bg = "#c46c32"
+cursor_border = "#c46c32"
+cursor_fg = "#120b0d"
+foreground = "#f7d66a"
+selection_bg = "#f7d66a"
+selection_fg = "#120b0d"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Mona Lisa (Gogh)"]
+name = "MonaLisa"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MONO_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#111111",
+    "#222222",
+    "#333333",
+    "#444444",
+    "#555555",
+    "#666666",
+    "#777777",
+]
+background = "#000000"
+brights = [
+    "#090909",
+    "#181818",
+    "#272727",
+    "#393939",
+    "#484848",
+    "#595959",
+    "#707070",
+    "#818181",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Muzieca"
+name = "Mono (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONO_AMBER_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#402500",
+    "#ff9400",
+    "#ff9400",
+    "#ff9400",
+    "#ff9400",
+    "#ff9400",
+    "#ff9400",
+    "#ff9400",
+]
+background = "#2b1900"
+brights = [
+    "#ff9400",
+    "#ff9400",
+    "#ff9400",
+    "#ff9400",
+    "#ff9400",
+    "#ff9400",
+    "#ff9400",
+    "#ff9400",
+]
+cursor_bg = "#ff9400"
+cursor_border = "#ff9400"
+cursor_fg = "#2b1900"
+foreground = "#ff9400"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["mono-amber (Gogh)"]
+name = "Mono Amber (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONO_CYAN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#003340",
+    "#00ccff",
+    "#00ccff",
+    "#00ccff",
+    "#00ccff",
+    "#00ccff",
+    "#00ccff",
+    "#00ccff",
+]
+background = "#00222b"
+brights = [
+    "#00ccff",
+    "#00ccff",
+    "#00ccff",
+    "#00ccff",
+    "#00ccff",
+    "#00ccff",
+    "#00ccff",
+    "#00ccff",
+]
+cursor_bg = "#00ccff"
+cursor_border = "#00ccff"
+cursor_fg = "#00222b"
+foreground = "#00ccff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["mono-cyan (Gogh)"]
+name = "Mono Cyan (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONO_GREEN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#034000",
+    "#0bff00",
+    "#0bff00",
+    "#0bff00",
+    "#0bff00",
+    "#0bff00",
+    "#0bff00",
+    "#0bff00",
+]
+background = "#022b00"
+brights = [
+    "#0bff00",
+    "#0bff00",
+    "#0bff00",
+    "#0bff00",
+    "#0bff00",
+    "#0bff00",
+    "#0bff00",
+    "#0bff00",
+]
+cursor_bg = "#0bff00"
+cursor_border = "#0bff00"
+cursor_fg = "#022b00"
+foreground = "#0bff00"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["mono-green (Gogh)"]
+name = "Mono Green (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONO_RED_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#401200",
+    "#ff3600",
+    "#ff3600",
+    "#ff3600",
+    "#ff3600",
+    "#ff3600",
+    "#ff3600",
+    "#ff3600",
+]
+background = "#2b0c00"
+brights = [
+    "#ff3600",
+    "#ff3600",
+    "#ff3600",
+    "#ff3600",
+    "#ff3600",
+    "#ff3600",
+    "#ff3600",
+    "#ff3600",
+]
+cursor_bg = "#ff3600"
+cursor_border = "#ff3600"
+cursor_fg = "#2b0c00"
+foreground = "#ff3600"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["mono-red (Gogh)"]
+name = "Mono Red (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONO_THEME_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#6b6b6b",
+    "#c4c4c4",
+    "#b3b3b3",
+    "#999999",
+    "#717171",
+    "#8a8a8a",
+    "#b5cabb",
+]
+background = "#000000"
+brights = [
+    "#202020",
+    "#464646",
+    "#f8f8f8",
+    "#eeeeee",
+    "#7c7c7c",
+    "#adadad",
+    "#c0c0c0",
+    "#99ac9e",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Mono Theme (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONO_WHITE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3b3b3b",
+    "#fafafa",
+    "#fafafa",
+    "#fafafa",
+    "#fafafa",
+    "#fafafa",
+    "#fafafa",
+    "#fafafa",
+]
+background = "#262626"
+brights = [
+    "#fafafa",
+    "#fafafa",
+    "#fafafa",
+    "#fafafa",
+    "#fafafa",
+    "#fafafa",
+    "#fafafa",
+    "#fafafa",
+]
+cursor_bg = "#fafafa"
+cursor_border = "#fafafa"
+cursor_fg = "#262626"
+foreground = "#fafafa"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["mono-white (Gogh)"]
+name = "Mono White (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONO_YELLOW_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#403500",
+    "#ffd300",
+    "#ffd300",
+    "#ffd300",
+    "#ffd300",
+    "#ffd300",
+    "#ffd300",
+    "#ffd300",
+]
+background = "#2b2400"
+brights = [
+    "#ffd300",
+    "#ffd300",
+    "#ffd300",
+    "#ffd300",
+    "#ffd300",
+    "#ffd300",
+    "#ffd300",
+    "#ffd300",
+]
+cursor_bg = "#ffd300"
+cursor_border = "#ffd300"
+cursor_fg = "#2b2400"
+foreground = "#ffd300"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["mono-yellow (Gogh)"]
+name = "Mono Yellow (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONOKAI_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#272822",
+    "#f92672",
+    "#a6e22e",
+    "#f4bf75",
+    "#66d9ef",
+    "#ae81ff",
+    "#a1efe4",
+    "#f8f8f2",
+]
+background = "#272822"
+brights = [
+    "#75715e",
+    "#f92672",
+    "#a6e22e",
+    "#f4bf75",
+    "#66d9ef",
+    "#ae81ff",
+    "#a1efe4",
+    "#f9f8f5",
+]
+cursor_bg = "#f8f8f2"
+cursor_border = "#f8f8f2"
+cursor_fg = "#272822"
+foreground = "#f8f8f2"
+selection_bg = "#f8f8f2"
+selection_fg = "#272822"
+
+[colors.indexed]
+16 = "#fd971f"
+17 = "#cc6633"
+18 = "#383830"
+19 = "#49483e"
+20 = "#a59f85"
+21 = "#f5f4f1"
+
+[metadata]
+aliases = ["Monokai (dark) (terminal.sexy)"]
+author = "Wimer Hazenberg (http://www.monokai.nl)"
+name = "Monokai (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONOKAI_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#272822",
+    "#f92672",
+    "#a6e22e",
+    "#f4bf75",
+    "#66d9ef",
+    "#ae81ff",
+    "#a1efe4",
+    "#f8f8f2",
+]
+background = "#272822"
+brights = [
+    "#75715e",
+    "#f92672",
+    "#a6e22e",
+    "#f4bf75",
+    "#66d9ef",
+    "#ae81ff",
+    "#a1efe4",
+    "#f9f8f5",
+]
+foreground = "#f8f8f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Monokai (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_MONOKAI_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#272822",
+    "#f92672",
+    "#a6e22e",
+    "#f4bf75",
+    "#66d9ef",
+    "#ae81ff",
+    "#a1efe4",
+    "#f8f8f2",
+]
+background = "#f9f8f5"
+brights = [
+    "#75715e",
+    "#f92672",
+    "#a6e22e",
+    "#f4bf75",
+    "#66d9ef",
+    "#ae81ff",
+    "#a1efe4",
+    "#f9f8f5",
+]
+foreground = "#49483e"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Monokai (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONOKAI_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#48483e",
+    "#dc2566",
+    "#8fc029",
+    "#d4c96e",
+    "#55bcce",
+    "#9358fe",
+    "#56b7a5",
+    "#acada1",
+]
+background = "#272822"
+brights = [
+    "#76715e",
+    "#fa2772",
+    "#a7e22e",
+    "#e7db75",
+    "#66d9ee",
+    "#ae82ff",
+    "#66efd5",
+    "#cfd0c2",
+]
+foreground = "#f1ebeb"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Cacodaimon"
+name = "Monokai (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONOKAI_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#75715e",
+    "#f92672",
+    "#a6e22e",
+    "#f4bf75",
+    "#66d9ef",
+    "#ae81ff",
+    "#2aa198",
+    "#f9f8f5",
+]
+background = "#272822"
+brights = [
+    "#272822",
+    "#f92672",
+    "#a6e22e",
+    "#f4bf75",
+    "#66d9ef",
+    "#ae81ff",
+    "#2aa198",
+    "#f8f8f2",
+]
+cursor_bg = "#f8f8f2"
+cursor_border = "#f8f8f2"
+cursor_fg = "#272822"
+foreground = "#f8f8f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["MonokaiDark (Gogh)"]
+name = "Monokai Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONOKAI_PRO_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#363537",
+    "#ff6188",
+    "#a9dc76",
+    "#ffd866",
+    "#fc9867",
+    "#ab9df2",
+    "#78dce8",
+    "#fdf9f3",
+]
+background = "#363537"
+brights = [
+    "#908e8f",
+    "#ff6188",
+    "#a9dc76",
+    "#ffd866",
+    "#fc9867",
+    "#ab9df2",
+    "#78dce8",
+    "#fdf9f3",
+]
+cursor_bg = "#fdf9f3"
+cursor_border = "#fdf9f3"
+cursor_fg = "#363537"
+foreground = "#fdf9f3"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["MonokaiPro (Gogh)"]
+name = "Monokai Pro (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONOKAI_PRO_RISTRETTO_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3e3838",
+    "#df7484",
+    "#bbd87e",
+    "#edce73",
+    "#dc9373",
+    "#a9aae9",
+    "#a4d7cc",
+    "#fbf2f3",
+]
+background = "#3e3838"
+brights = [
+    "#70696a",
+    "#df7484",
+    "#bbd87e",
+    "#edce73",
+    "#dc9373",
+    "#a9aae9",
+    "#a4d7cc",
+    "#fbf2f3",
+]
+cursor_bg = "#fbf2f3"
+cursor_border = "#fbf2f3"
+cursor_fg = "#3e3838"
+foreground = "#fbf2f3"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["MonokaiProRistretto (Gogh)"]
+name = "Monokai Pro Ristretto (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MONOKAI_REMASTERED_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1a1a1a",
+    "#f4005f",
+    "#98e024",
+    "#fd971f",
+    "#9d65ff",
+    "#f4005f",
+    "#58d1eb",
+    "#c4c5b5",
+]
+background = "#0c0c0c"
+brights = [
+    "#625e4c",
+    "#f4005f",
+    "#98e024",
+    "#e0d561",
+    "#9d65ff",
+    "#f4005f",
+    "#58d1eb",
+    "#f6f6ef",
+]
+cursor_bg = "#fc971f"
+cursor_border = "#fc971f"
+cursor_fg = "#000000"
+foreground = "#d9d9d9"
+selection_bg = "#343434"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Monokai Remastered"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -122415,6 +123120,500 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Mocha-to-Molokai built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_mona_lisa_to_monokai_remastered_builtin_color_schemes() {
+        let cases = [
+            (
+                "Mona Lisa (Gogh)",
+                Color::Rgb(247, 214, 106),
+                Color::Rgb(18, 11, 13),
+                Color::Rgb(247, 214, 106),
+                Some(Color::Rgb(18, 11, 13)),
+                None,
+                None,
+                Color::Rgb(53, 27, 14),
+                Color::Rgb(155, 41, 28),
+                Color::Rgb(99, 98, 50),
+                Color::Rgb(195, 110, 40),
+                Color::Rgb(135, 66, 40),
+                Color::Rgb(255, 229, 152),
+                None,
+            ),
+            (
+                "MonaLisa",
+                Color::Rgb(247, 214, 106),
+                Color::Rgb(18, 11, 13),
+                Color::Rgb(196, 108, 50),
+                Some(Color::Rgb(18, 11, 13)),
+                Some(Color::Rgb(247, 214, 106)),
+                Some(Some(Color::Rgb(18, 11, 13))),
+                Color::Rgb(53, 27, 14),
+                Color::Rgb(155, 41, 28),
+                Color::Rgb(99, 98, 50),
+                Color::Rgb(195, 110, 40),
+                Color::Rgb(135, 66, 40),
+                Color::Rgb(255, 229, 152),
+                None,
+            ),
+            (
+                "Mono (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(17, 17, 17),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(9, 9, 9),
+                Color::Rgb(129, 129, 129),
+                None,
+            ),
+            (
+                "Mono Amber (Gogh)",
+                Color::Rgb(255, 148, 0),
+                Color::Rgb(43, 25, 0),
+                Color::Rgb(255, 148, 0),
+                Some(Color::Rgb(43, 25, 0)),
+                None,
+                None,
+                Color::Rgb(64, 37, 0),
+                Color::Rgb(255, 148, 0),
+                Color::Rgb(255, 148, 0),
+                Color::Rgb(255, 148, 0),
+                Color::Rgb(255, 148, 0),
+                Color::Rgb(255, 148, 0),
+                None,
+            ),
+            (
+                "mono-amber (Gogh)",
+                Color::Rgb(255, 148, 0),
+                Color::Rgb(43, 25, 0),
+                Color::Rgb(255, 148, 0),
+                Some(Color::Rgb(43, 25, 0)),
+                None,
+                None,
+                Color::Rgb(64, 37, 0),
+                Color::Rgb(255, 148, 0),
+                Color::Rgb(255, 148, 0),
+                Color::Rgb(255, 148, 0),
+                Color::Rgb(255, 148, 0),
+                Color::Rgb(255, 148, 0),
+                None,
+            ),
+            (
+                "Mono Cyan (Gogh)",
+                Color::Rgb(0, 204, 255),
+                Color::Rgb(0, 34, 43),
+                Color::Rgb(0, 204, 255),
+                Some(Color::Rgb(0, 34, 43)),
+                None,
+                None,
+                Color::Rgb(0, 51, 64),
+                Color::Rgb(0, 204, 255),
+                Color::Rgb(0, 204, 255),
+                Color::Rgb(0, 204, 255),
+                Color::Rgb(0, 204, 255),
+                Color::Rgb(0, 204, 255),
+                None,
+            ),
+            (
+                "mono-cyan (Gogh)",
+                Color::Rgb(0, 204, 255),
+                Color::Rgb(0, 34, 43),
+                Color::Rgb(0, 204, 255),
+                Some(Color::Rgb(0, 34, 43)),
+                None,
+                None,
+                Color::Rgb(0, 51, 64),
+                Color::Rgb(0, 204, 255),
+                Color::Rgb(0, 204, 255),
+                Color::Rgb(0, 204, 255),
+                Color::Rgb(0, 204, 255),
+                Color::Rgb(0, 204, 255),
+                None,
+            ),
+            (
+                "Mono Green (Gogh)",
+                Color::Rgb(11, 255, 0),
+                Color::Rgb(2, 43, 0),
+                Color::Rgb(11, 255, 0),
+                Some(Color::Rgb(2, 43, 0)),
+                None,
+                None,
+                Color::Rgb(3, 64, 0),
+                Color::Rgb(11, 255, 0),
+                Color::Rgb(11, 255, 0),
+                Color::Rgb(11, 255, 0),
+                Color::Rgb(11, 255, 0),
+                Color::Rgb(11, 255, 0),
+                None,
+            ),
+            (
+                "mono-green (Gogh)",
+                Color::Rgb(11, 255, 0),
+                Color::Rgb(2, 43, 0),
+                Color::Rgb(11, 255, 0),
+                Some(Color::Rgb(2, 43, 0)),
+                None,
+                None,
+                Color::Rgb(3, 64, 0),
+                Color::Rgb(11, 255, 0),
+                Color::Rgb(11, 255, 0),
+                Color::Rgb(11, 255, 0),
+                Color::Rgb(11, 255, 0),
+                Color::Rgb(11, 255, 0),
+                None,
+            ),
+            (
+                "Mono Red (Gogh)",
+                Color::Rgb(255, 54, 0),
+                Color::Rgb(43, 12, 0),
+                Color::Rgb(255, 54, 0),
+                Some(Color::Rgb(43, 12, 0)),
+                None,
+                None,
+                Color::Rgb(64, 18, 0),
+                Color::Rgb(255, 54, 0),
+                Color::Rgb(255, 54, 0),
+                Color::Rgb(255, 54, 0),
+                Color::Rgb(255, 54, 0),
+                Color::Rgb(255, 54, 0),
+                None,
+            ),
+            (
+                "mono-red (Gogh)",
+                Color::Rgb(255, 54, 0),
+                Color::Rgb(43, 12, 0),
+                Color::Rgb(255, 54, 0),
+                Some(Color::Rgb(43, 12, 0)),
+                None,
+                None,
+                Color::Rgb(64, 18, 0),
+                Color::Rgb(255, 54, 0),
+                Color::Rgb(255, 54, 0),
+                Color::Rgb(255, 54, 0),
+                Color::Rgb(255, 54, 0),
+                Color::Rgb(255, 54, 0),
+                None,
+            ),
+            (
+                "Mono Theme (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(107, 107, 107),
+                Color::Rgb(196, 196, 196),
+                Color::Rgb(179, 179, 179),
+                Color::Rgb(32, 32, 32),
+                Color::Rgb(153, 172, 158),
+                None,
+            ),
+            (
+                "Mono White (Gogh)",
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(250, 250, 250),
+                Some(Color::Rgb(38, 38, 38)),
+                None,
+                None,
+                Color::Rgb(59, 59, 59),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(250, 250, 250),
+                None,
+            ),
+            (
+                "mono-white (Gogh)",
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(250, 250, 250),
+                Some(Color::Rgb(38, 38, 38)),
+                None,
+                None,
+                Color::Rgb(59, 59, 59),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(250, 250, 250),
+                None,
+            ),
+            (
+                "Mono Yellow (Gogh)",
+                Color::Rgb(255, 211, 0),
+                Color::Rgb(43, 36, 0),
+                Color::Rgb(255, 211, 0),
+                Some(Color::Rgb(43, 36, 0)),
+                None,
+                None,
+                Color::Rgb(64, 53, 0),
+                Color::Rgb(255, 211, 0),
+                Color::Rgb(255, 211, 0),
+                Color::Rgb(255, 211, 0),
+                Color::Rgb(255, 211, 0),
+                Color::Rgb(255, 211, 0),
+                None,
+            ),
+            (
+                "mono-yellow (Gogh)",
+                Color::Rgb(255, 211, 0),
+                Color::Rgb(43, 36, 0),
+                Color::Rgb(255, 211, 0),
+                Some(Color::Rgb(43, 36, 0)),
+                None,
+                None,
+                Color::Rgb(64, 53, 0),
+                Color::Rgb(255, 211, 0),
+                Color::Rgb(255, 211, 0),
+                Color::Rgb(255, 211, 0),
+                Color::Rgb(255, 211, 0),
+                Color::Rgb(255, 211, 0),
+                None,
+            ),
+            (
+                "Monokai (base16)",
+                Color::Rgb(248, 248, 242),
+                Color::Rgb(39, 40, 34),
+                Color::Rgb(248, 248, 242),
+                Some(Color::Rgb(39, 40, 34)),
+                Some(Color::Rgb(248, 248, 242)),
+                Some(Some(Color::Rgb(39, 40, 34))),
+                Color::Rgb(39, 40, 34),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(166, 226, 46),
+                Color::Rgb(244, 191, 117),
+                Color::Rgb(117, 113, 94),
+                Color::Rgb(249, 248, 245),
+                Some(Color::Rgb(253, 151, 31)),
+            ),
+            (
+                "Monokai (dark) (terminal.sexy)",
+                Color::Rgb(248, 248, 242),
+                Color::Rgb(39, 40, 34),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(39, 40, 34),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(166, 226, 46),
+                Color::Rgb(244, 191, 117),
+                Color::Rgb(117, 113, 94),
+                Color::Rgb(249, 248, 245),
+                None,
+            ),
+            (
+                "Monokai (light) (terminal.sexy)",
+                Color::Rgb(73, 72, 62),
+                Color::Rgb(249, 248, 245),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(39, 40, 34),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(166, 226, 46),
+                Color::Rgb(244, 191, 117),
+                Color::Rgb(117, 113, 94),
+                Color::Rgb(249, 248, 245),
+                None,
+            ),
+            (
+                "Monokai (terminal.sexy)",
+                Color::Rgb(241, 235, 235),
+                Color::Rgb(39, 40, 34),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(72, 72, 62),
+                Color::Rgb(220, 37, 102),
+                Color::Rgb(143, 192, 41),
+                Color::Rgb(212, 201, 110),
+                Color::Rgb(118, 113, 94),
+                Color::Rgb(207, 208, 194),
+                None,
+            ),
+            (
+                "Monokai Dark (Gogh)",
+                Color::Rgb(248, 248, 242),
+                Color::Rgb(39, 40, 34),
+                Color::Rgb(248, 248, 242),
+                Some(Color::Rgb(39, 40, 34)),
+                None,
+                None,
+                Color::Rgb(117, 113, 94),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(166, 226, 46),
+                Color::Rgb(244, 191, 117),
+                Color::Rgb(39, 40, 34),
+                Color::Rgb(248, 248, 242),
+                None,
+            ),
+            (
+                "MonokaiDark (Gogh)",
+                Color::Rgb(248, 248, 242),
+                Color::Rgb(39, 40, 34),
+                Color::Rgb(248, 248, 242),
+                Some(Color::Rgb(39, 40, 34)),
+                None,
+                None,
+                Color::Rgb(117, 113, 94),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(166, 226, 46),
+                Color::Rgb(244, 191, 117),
+                Color::Rgb(39, 40, 34),
+                Color::Rgb(248, 248, 242),
+                None,
+            ),
+            (
+                "Monokai Pro (Gogh)",
+                Color::Rgb(253, 249, 243),
+                Color::Rgb(54, 53, 55),
+                Color::Rgb(253, 249, 243),
+                Some(Color::Rgb(54, 53, 55)),
+                None,
+                None,
+                Color::Rgb(54, 53, 55),
+                Color::Rgb(255, 97, 136),
+                Color::Rgb(169, 220, 118),
+                Color::Rgb(255, 216, 102),
+                Color::Rgb(144, 142, 143),
+                Color::Rgb(253, 249, 243),
+                None,
+            ),
+            (
+                "MonokaiPro (Gogh)",
+                Color::Rgb(253, 249, 243),
+                Color::Rgb(54, 53, 55),
+                Color::Rgb(253, 249, 243),
+                Some(Color::Rgb(54, 53, 55)),
+                None,
+                None,
+                Color::Rgb(54, 53, 55),
+                Color::Rgb(255, 97, 136),
+                Color::Rgb(169, 220, 118),
+                Color::Rgb(255, 216, 102),
+                Color::Rgb(144, 142, 143),
+                Color::Rgb(253, 249, 243),
+                None,
+            ),
+            (
+                "Monokai Pro Ristretto (Gogh)",
+                Color::Rgb(251, 242, 243),
+                Color::Rgb(62, 56, 56),
+                Color::Rgb(251, 242, 243),
+                Some(Color::Rgb(62, 56, 56)),
+                None,
+                None,
+                Color::Rgb(62, 56, 56),
+                Color::Rgb(223, 116, 132),
+                Color::Rgb(187, 216, 126),
+                Color::Rgb(237, 206, 115),
+                Color::Rgb(112, 105, 106),
+                Color::Rgb(251, 242, 243),
+                None,
+            ),
+            (
+                "MonokaiProRistretto (Gogh)",
+                Color::Rgb(251, 242, 243),
+                Color::Rgb(62, 56, 56),
+                Color::Rgb(251, 242, 243),
+                Some(Color::Rgb(62, 56, 56)),
+                None,
+                None,
+                Color::Rgb(62, 56, 56),
+                Color::Rgb(223, 116, 132),
+                Color::Rgb(187, 216, 126),
+                Color::Rgb(237, 206, 115),
+                Color::Rgb(112, 105, 106),
+                Color::Rgb(251, 242, 243),
+                None,
+            ),
+            (
+                "Monokai Remastered",
+                Color::Rgb(217, 217, 217),
+                Color::Rgb(12, 12, 12),
+                Color::Rgb(252, 151, 31),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(52, 52, 52)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(26, 26, 26),
+                Color::Rgb(244, 0, 95),
+                Color::Rgb(152, 224, 36),
+                Color::Rgb(253, 151, 31),
+                Color::Rgb(98, 94, 76),
+                Color::Rgb(246, 246, 239),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Mona-Lisa-to-Monokai-Remastered built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

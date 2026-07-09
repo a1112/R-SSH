@@ -3755,7 +3755,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Modus-Operandi-Tinted`, `Modus-Vivendi`,
   `Modus-Vivendi-Deuteranopia`, `Modus-Vivendi-Tinted`,
   `Modus-Vivendi-Tritanopia`, `Molokai`, `Molokai (Gogh)`,
-  `Builtin Dark`, `Builtin Light`,
+  `Mona Lisa (Gogh)`, `MonaLisa`, `Mono (terminal.sexy)`,
+  `Mono Amber (Gogh)`, `Mono Cyan (Gogh)`, `Mono Green (Gogh)`,
+  `Mono Red (Gogh)`, `Mono Theme (terminal.sexy)`,
+  `Mono White (Gogh)`, `Mono Yellow (Gogh)`, `Monokai (base16)`,
+  `Monokai (dark) (terminal.sexy)`, `Monokai (light) (terminal.sexy)`,
+  `Monokai (terminal.sexy)`, `Monokai Dark (Gogh)`,
+  `Monokai Pro (Gogh)`, `Monokai Pro Ristretto (Gogh)`,
+  `Monokai Remastered`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting
   WezTerm aliases using WezTerm's built-in TOML palette data. The broader
