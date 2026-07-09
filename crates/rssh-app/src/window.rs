@@ -19679,6 +19679,24 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "GJM (terminal.sexy)" => Some(BUILTIN_GJM_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Glacier" => Some(BUILTIN_GLACIER_COLOR_SCHEME_TOML),
         "Gnometerm (terminal.sexy)" => Some(BUILTIN_GNOMETERM_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Gogh (Gogh)" => Some(BUILTIN_GOGH_GOGH_COLOR_SCHEME_TOML),
+        "Gooey (Gogh)" | "gooey (Gogh)" => Some(BUILTIN_GOOEY_GOGH_COLOR_SCHEME_TOML),
+        "Google (dark) (terminal.sexy)" => {
+            Some(BUILTIN_GOOGLE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Google (light) (terminal.sexy)" => {
+            Some(BUILTIN_GOOGLE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Google Dark (base16)" => Some(BUILTIN_GOOGLE_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Google Dark (Gogh)" | "GoogleDark (Gogh)" => {
+            Some(BUILTIN_GOOGLE_DARK_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Google Light (base16)" => Some(BUILTIN_GOOGLE_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Google Light (Gogh)" | "GoogleLight (Gogh)" => {
+            Some(BUILTIN_GOOGLE_LIGHT_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Gotham (Gogh)" | "gotham (Gogh)" => Some(BUILTIN_GOTHAM_GOGH_COLOR_SCHEME_TOML),
+        "Gotham (terminal.sexy)" => Some(BUILTIN_GOTHAM_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -35056,6 +35074,391 @@ foreground = "#ffffff"
 aliases = []
 author = ""
 name = "Gnometerm (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_GOGH_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#292d3e",
+    "#f07178",
+    "#62de84",
+    "#ffcb6b",
+    "#75a1ff",
+    "#f580ff",
+    "#60baec",
+    "#abb2bf",
+]
+background = "#292d3e"
+brights = [
+    "#959dcb",
+    "#f07178",
+    "#c3e88d",
+    "#ff5572",
+    "#82aaff",
+    "#ffcb6b",
+    "#676e95",
+    "#fffefe",
+]
+cursor_bg = "#bfc7d5"
+cursor_border = "#bfc7d5"
+cursor_fg = "#292d3e"
+foreground = "#bfc7d5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Gogh (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GOOEY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000009",
+    "#bb4f6c",
+    "#72ccae",
+    "#c65e3d",
+    "#58b6ca",
+    "#6488c4",
+    "#8d84c6",
+    "#858893",
+]
+background = "#0d101b"
+brights = [
+    "#1f222d",
+    "#ee829f",
+    "#a5ffe1",
+    "#f99170",
+    "#8be9fd",
+    "#97bbf7",
+    "#c0b7f9",
+    "#ffffff",
+]
+cursor_bg = "#ebeef9"
+cursor_border = "#ebeef9"
+cursor_fg = "#0d101b"
+foreground = "#ebeef9"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["gooey (Gogh)"]
+name = "Gooey (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GOOGLE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d1f21",
+    "#cc342b",
+    "#198844",
+    "#fba922",
+    "#3971ed",
+    "#a36ac7",
+    "#3971ed",
+    "#c5c8c6",
+]
+background = "#1d1f21"
+brights = [
+    "#969896",
+    "#cc342b",
+    "#198844",
+    "#fba922",
+    "#3971ed",
+    "#a36ac7",
+    "#3971ed",
+    "#ffffff",
+]
+foreground = "#c5c8c6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Google (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_GOOGLE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d1f21",
+    "#cc342b",
+    "#198844",
+    "#fba922",
+    "#3971ed",
+    "#a36ac7",
+    "#3971ed",
+    "#c5c8c6",
+]
+background = "#ffffff"
+brights = [
+    "#969896",
+    "#cc342b",
+    "#198844",
+    "#fba922",
+    "#3971ed",
+    "#a36ac7",
+    "#3971ed",
+    "#ffffff",
+]
+foreground = "#373b41"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Google (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GOOGLE_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d1f21",
+    "#cc342b",
+    "#198844",
+    "#fba922",
+    "#3971ed",
+    "#a36ac7",
+    "#3971ed",
+    "#c5c8c6",
+]
+background = "#1d1f21"
+brights = [
+    "#969896",
+    "#cc342b",
+    "#198844",
+    "#fba922",
+    "#3971ed",
+    "#a36ac7",
+    "#3971ed",
+    "#ffffff",
+]
+cursor_bg = "#c5c8c6"
+cursor_border = "#c5c8c6"
+cursor_fg = "#1d1f21"
+foreground = "#c5c8c6"
+selection_bg = "#c5c8c6"
+selection_fg = "#1d1f21"
+
+[colors.indexed]
+16 = "#f96a38"
+17 = "#3971ed"
+18 = "#282a2e"
+19 = "#373b41"
+20 = "#b4b7b4"
+21 = "#e0e0e0"
+
+[metadata]
+aliases = ["Google (dark) (terminal.sexy)"]
+author = "Seth Wright (http://sethawright.com)"
+name = "Google Dark (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GOOGLE_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#202124",
+    "#ea4335",
+    "#34a853",
+    "#fbbc04",
+    "#4285f4",
+    "#a142f4",
+    "#24c1e0",
+    "#e8eaed",
+]
+background = "#202124"
+brights = [
+    "#5f6368",
+    "#ea4335",
+    "#34a853",
+    "#fbbc05",
+    "#4285f4",
+    "#a142f4",
+    "#24c1e0",
+    "#ffffff",
+]
+cursor_bg = "#e8eaed"
+cursor_border = "#e8eaed"
+cursor_fg = "#202124"
+foreground = "#e8eaed"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["GoogleDark (Gogh)"]
+name = "Google Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GOOGLE_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#ffffff",
+    "#cc342b",
+    "#198844",
+    "#fba922",
+    "#3971ed",
+    "#a36ac7",
+    "#3971ed",
+    "#373b41",
+]
+background = "#ffffff"
+brights = [
+    "#b4b7b4",
+    "#cc342b",
+    "#198844",
+    "#fba922",
+    "#3971ed",
+    "#a36ac7",
+    "#3971ed",
+    "#1d1f21",
+]
+cursor_bg = "#373b41"
+cursor_border = "#373b41"
+cursor_fg = "#ffffff"
+foreground = "#373b41"
+selection_bg = "#373b41"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+16 = "#f96a38"
+17 = "#3971ed"
+18 = "#e0e0e0"
+19 = "#c5c8c6"
+20 = "#969896"
+21 = "#282a2e"
+
+[metadata]
+aliases = []
+author = "Seth Wright (http://sethawright.com)"
+name = "Google Light (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GOOGLE_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#202124",
+    "#ea4335",
+    "#34a853",
+    "#fbbc04",
+    "#4285f4",
+    "#a142f4",
+    "#24c1e0",
+    "#e8eaed",
+]
+background = "#ffffff"
+brights = [
+    "#5f6368",
+    "#ea4335",
+    "#34a853",
+    "#fbbc05",
+    "#4285f4",
+    "#a142f4",
+    "#24c1e0",
+    "#ffffff",
+]
+cursor_bg = "#5f6368"
+cursor_border = "#5f6368"
+cursor_fg = "#ffffff"
+foreground = "#5f6368"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["GoogleLight (Gogh)"]
+name = "Google Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GOTHAM_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0a0f14",
+    "#c33027",
+    "#26a98b",
+    "#edb54b",
+    "#195465",
+    "#4e5165",
+    "#33859d",
+    "#98d1ce",
+]
+background = "#0a0f14"
+brights = [
+    "#10151b",
+    "#d26939",
+    "#081f2d",
+    "#245361",
+    "#093748",
+    "#888ba5",
+    "#599caa",
+    "#d3ebe9",
+]
+cursor_bg = "#98d1ce"
+cursor_border = "#98d1ce"
+cursor_fg = "#0a0f14"
+foreground = "#98d1ce"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Gotham (terminal.sexy)",
+    "gotham (Gogh)",
+]
+name = "Gotham (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GOTHAM_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0a0f14",
+    "#c33027",
+    "#26a98b",
+    "#edb54b",
+    "#195465",
+    "#4e5165",
+    "#33859d",
+    "#98d1ce",
+]
+background = "#0a0f14"
+brights = [
+    "#10151b",
+    "#d26939",
+    "#081f2d",
+    "#245361",
+    "#093748",
+    "#888ba5",
+    "#599caa",
+    "#d3ebe9",
+]
+foreground = "#98d1ce"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "whatyouhide"
+name = "Gotham (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20230712-072601-f4abf8fd"
 "##;
@@ -108774,6 +109177,300 @@ mod tests {
                 effective.indexed_palette.and_then(|indexed| indexed[16]),
                 indexed_16
             );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_gogh_to_gotham_builtin_color_schemes() {
+        let cases = [
+            (
+                "Gogh (Gogh)",
+                Color::Rgb(191, 199, 213),
+                Color::Rgb(41, 45, 62),
+                Color::Rgb(191, 199, 213),
+                Some(Color::Rgb(41, 45, 62)),
+                None,
+                None,
+                Color::Rgb(41, 45, 62),
+                Color::Rgb(240, 113, 120),
+                Color::Rgb(98, 222, 132),
+                Color::Rgb(255, 203, 107),
+                Color::Rgb(149, 157, 203),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+            (
+                "Gooey (Gogh)",
+                Color::Rgb(235, 238, 249),
+                Color::Rgb(13, 16, 27),
+                Color::Rgb(235, 238, 249),
+                Some(Color::Rgb(13, 16, 27)),
+                None,
+                None,
+                Color::Rgb(0, 0, 9),
+                Color::Rgb(187, 79, 108),
+                Color::Rgb(114, 204, 174),
+                Color::Rgb(198, 94, 61),
+                Color::Rgb(31, 34, 45),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Google (dark) (terminal.sexy)",
+                Color::Rgb(197, 200, 198),
+                Color::Rgb(29, 31, 33),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(29, 31, 33),
+                Color::Rgb(204, 52, 43),
+                Color::Rgb(25, 136, 68),
+                Color::Rgb(251, 169, 34),
+                Color::Rgb(150, 152, 150),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Google (light) (terminal.sexy)",
+                Color::Rgb(55, 59, 65),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(29, 31, 33),
+                Color::Rgb(204, 52, 43),
+                Color::Rgb(25, 136, 68),
+                Color::Rgb(251, 169, 34),
+                Color::Rgb(150, 152, 150),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Google Dark (base16)",
+                Color::Rgb(197, 200, 198),
+                Color::Rgb(29, 31, 33),
+                Color::Rgb(197, 200, 198),
+                Some(Color::Rgb(29, 31, 33)),
+                Some(Color::Rgb(197, 200, 198)),
+                Some(Some(Color::Rgb(29, 31, 33))),
+                Color::Rgb(29, 31, 33),
+                Color::Rgb(204, 52, 43),
+                Color::Rgb(25, 136, 68),
+                Color::Rgb(251, 169, 34),
+                Color::Rgb(150, 152, 150),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(249, 106, 56)),
+            ),
+            (
+                "Google Dark (Gogh)",
+                Color::Rgb(232, 234, 237),
+                Color::Rgb(32, 33, 36),
+                Color::Rgb(232, 234, 237),
+                Some(Color::Rgb(32, 33, 36)),
+                None,
+                None,
+                Color::Rgb(32, 33, 36),
+                Color::Rgb(234, 67, 53),
+                Color::Rgb(52, 168, 83),
+                Color::Rgb(251, 188, 4),
+                Color::Rgb(95, 99, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Google Light (base16)",
+                Color::Rgb(55, 59, 65),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(55, 59, 65),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(55, 59, 65)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(204, 52, 43),
+                Color::Rgb(25, 136, 68),
+                Color::Rgb(251, 169, 34),
+                Color::Rgb(180, 183, 180),
+                Color::Rgb(29, 31, 33),
+                Some(Color::Rgb(249, 106, 56)),
+            ),
+            (
+                "Google Light (Gogh)",
+                Color::Rgb(95, 99, 104),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(95, 99, 104),
+                Some(Color::Rgb(255, 255, 255)),
+                None,
+                None,
+                Color::Rgb(32, 33, 36),
+                Color::Rgb(234, 67, 53),
+                Color::Rgb(52, 168, 83),
+                Color::Rgb(251, 188, 4),
+                Color::Rgb(95, 99, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Gotham (Gogh)",
+                Color::Rgb(152, 209, 206),
+                Color::Rgb(10, 15, 20),
+                Color::Rgb(152, 209, 206),
+                Some(Color::Rgb(10, 15, 20)),
+                None,
+                None,
+                Color::Rgb(10, 15, 20),
+                Color::Rgb(195, 48, 39),
+                Color::Rgb(38, 169, 139),
+                Color::Rgb(237, 181, 75),
+                Color::Rgb(16, 21, 27),
+                Color::Rgb(211, 235, 233),
+                None,
+            ),
+            (
+                "Gotham (terminal.sexy)",
+                Color::Rgb(152, 209, 206),
+                Color::Rgb(10, 15, 20),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(10, 15, 20),
+                Color::Rgb(195, 48, 39),
+                Color::Rgb(38, 169, 139),
+                Color::Rgb(237, 181, 75),
+                Color::Rgb(16, 21, 27),
+                Color::Rgb(211, 235, 233),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Gogh-to-Gotham built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_gogh_to_gotham_builtin_color_scheme_aliases() {
+        let cases = [
+            (
+                "gooey (Gogh)",
+                Color::Rgb(235, 238, 249),
+                Color::Rgb(13, 16, 27),
+                Color::Rgb(235, 238, 249),
+                Some(Color::Rgb(13, 16, 27)),
+                Color::Rgb(0, 0, 9),
+                Color::Rgb(255, 255, 255),
+            ),
+            (
+                "GoogleDark (Gogh)",
+                Color::Rgb(232, 234, 237),
+                Color::Rgb(32, 33, 36),
+                Color::Rgb(232, 234, 237),
+                Some(Color::Rgb(32, 33, 36)),
+                Color::Rgb(32, 33, 36),
+                Color::Rgb(255, 255, 255),
+            ),
+            (
+                "GoogleLight (Gogh)",
+                Color::Rgb(95, 99, 104),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(95, 99, 104),
+                Some(Color::Rgb(255, 255, 255)),
+                Color::Rgb(32, 33, 36),
+                Color::Rgb(255, 255, 255),
+            ),
+            (
+                "gotham (Gogh)",
+                Color::Rgb(152, 209, 206),
+                Color::Rgb(10, 15, 20),
+                Color::Rgb(152, 209, 206),
+                Some(Color::Rgb(10, 15, 20)),
+                Color::Rgb(10, 15, 20),
+                Color::Rgb(211, 235, 233),
+            ),
+        ];
+
+        for (color_scheme, foreground, background, cursor_bg, cursor_fg, ansi_0, ansi_15) in cases {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Gogh-to-Gotham built-in color_scheme alias config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[15], ansi_15);
         }
     }
 

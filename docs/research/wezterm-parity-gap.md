@@ -3673,6 +3673,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Gigavolt (base16)`, `Github`, `Github (base16)`, `Github (Gogh)`,
   `GitHub Dark`, `Github Dark (Gogh)`, `Github Light (Gogh)`,
   `GJM (terminal.sexy)`, `Glacier`, `Gnometerm (terminal.sexy)`,
+  `Gogh (Gogh)`, `Gooey (Gogh)`, `Google (dark) (terminal.sexy)`,
+  `Google (light) (terminal.sexy)`, `Google Dark (base16)`,
+  `Google Dark (Gogh)`, `Google Light (base16)`, `Google Light (Gogh)`,
+  `Gotham (Gogh)`, `Gotham (terminal.sexy)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and the existing WezTerm aliases using
