@@ -20037,6 +20037,14 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Nightlion V2 (Gogh)" => Some(BUILTIN_NIGHTLION_V2_GOGH_COLOR_SCHEME_TOML),
         "Nighty (Gogh)" | "nighty (Gogh)" => Some(BUILTIN_NIGHTY_GOGH_COLOR_SCHEME_TOML),
         "niji" => Some(BUILTIN_NIJI_COLOR_SCHEME_TOML),
+        "Nocturnal Winter" => Some(BUILTIN_NOCTURNAL_WINTER_COLOR_SCHEME_TOML),
+        "nord" => Some(BUILTIN_NORD_COLOR_SCHEME_TOML),
+        "Nord (base16)" => Some(BUILTIN_NORD_BASE16_COLOR_SCHEME_TOML),
+        "Nord (Gogh)" => Some(BUILTIN_NORD_GOGH_COLOR_SCHEME_TOML),
+        "Nord Light (Gogh)" | "NordLight (Gogh)" => Some(BUILTIN_NORD_LIGHT_GOGH_COLOR_SCHEME_TOML),
+        "nord-light" => Some(BUILTIN_NORD_LIGHT_COLOR_SCHEME_TOML),
+        "nordfox" => Some(BUILTIN_NORDFOX_COLOR_SCHEME_TOML),
+        "Nova (base16)" => Some(BUILTIN_NOVA_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -45661,6 +45669,380 @@ aliases = []
 name = "niji"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_NOCTURNAL_WINTER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4d4d4d",
+    "#f12d52",
+    "#09cd7e",
+    "#f5f17a",
+    "#3182e0",
+    "#ff2b6d",
+    "#09c87a",
+    "#fcfcfc",
+]
+background = "#0d0d17"
+brights = [
+    "#808080",
+    "#f16d86",
+    "#0ae78d",
+    "#fffc67",
+    "#6096ff",
+    "#ff78a2",
+    "#0ae78d",
+    "#ffffff",
+]
+cursor_bg = "#e6e5e5"
+cursor_border = "#e6e5e5"
+cursor_fg = "#ffffff"
+foreground = "#e6e5e5"
+selection_bg = "#adbdd0"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Nocturnal Winter"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_NORD_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3b4252",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#81a1c1",
+    "#b48ead",
+    "#88c0d0",
+    "#e5e9f0",
+]
+background = "#2e3440"
+brights = [
+    "#4c566a",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#81a1c1",
+    "#b48ead",
+    "#8fbcbb",
+    "#eceff4",
+]
+cursor_bg = "#eceff4"
+cursor_border = "#eceff4"
+cursor_fg = "#282828"
+foreground = "#d8dee9"
+selection_bg = "#eceff4"
+selection_fg = "#4c566a"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Nord (Gogh)"]
+name = "nord"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_NORD_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e3440",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#81a1c1",
+    "#b48ead",
+    "#88c0d0",
+    "#e5e9f0",
+]
+background = "#2e3440"
+brights = [
+    "#4c566a",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#81a1c1",
+    "#b48ead",
+    "#88c0d0",
+    "#8fbcbb",
+]
+cursor_bg = "#e5e9f0"
+cursor_border = "#e5e9f0"
+cursor_fg = "#2e3440"
+foreground = "#e5e9f0"
+selection_bg = "#e5e9f0"
+selection_fg = "#2e3440"
+
+[colors.indexed]
+16 = "#d08770"
+17 = "#5e81ac"
+18 = "#3b4252"
+19 = "#434c5e"
+20 = "#d8dee9"
+21 = "#eceff4"
+
+[metadata]
+aliases = []
+author = "arcticicestudio"
+name = "Nord (base16)"
+origin_url = "https://github.com/spejamchr/base16-nord-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NORD_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3b4252",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#81a1c1",
+    "#b48ead",
+    "#88c0d0",
+    "#e5e9f0",
+]
+background = "#2e3440"
+brights = [
+    "#4c566a",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#81a1c1",
+    "#b48ead",
+    "#8fbcbb",
+    "#eceff4",
+]
+cursor_bg = "#d8dee9"
+cursor_border = "#d8dee9"
+cursor_fg = "#2e3440"
+foreground = "#d8dee9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Nord (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_NORD_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#003b4e",
+    "#e64569",
+    "#069f5f",
+    "#dab752",
+    "#439ecf",
+    "#d961dc",
+    "#00b1be",
+    "#b3b3b3",
+]
+background = "#ebeaf2"
+brights = [
+    "#3e89a1",
+    "#e4859a",
+    "#a2cca1",
+    "#e1e387",
+    "#6fbbe2",
+    "#e586e7",
+    "#96dcda",
+    "#dedede",
+]
+cursor_bg = "#439ecf"
+cursor_border = "#439ecf"
+cursor_fg = "#ebeaf2"
+foreground = "#004f7c"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["NordLight (Gogh)"]
+name = "Nord Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NORD_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3b4252",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#81a1c1",
+    "#b48ead",
+    "#88c0d0",
+    "#d8dee9",
+]
+background = "#e5e9f0"
+brights = [
+    "#4c566a",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#81a1c1",
+    "#b48ead",
+    "#8fbcbb",
+    "#eceff4",
+]
+cursor_bg = "#88c0d0"
+cursor_border = "#88c0d0"
+cursor_fg = "#3b4252"
+foreground = "#414858"
+selection_bg = "#d8dee9"
+selection_fg = "#4c556a"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "nord-light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_NORDFOX_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3b4252",
+    "#bf616a",
+    "#a3be8c",
+    "#ebcb8b",
+    "#81a1c1",
+    "#b48ead",
+    "#88c0d0",
+    "#e5e9f0",
+]
+background = "#2e3440"
+brights = [
+    "#465780",
+    "#d06f79",
+    "#b1d196",
+    "#f0d399",
+    "#8cafd2",
+    "#c895bf",
+    "#93ccdc",
+    "#e7ecf4",
+]
+compose_cursor = "#c9826b"
+cursor_bg = "#cdcecf"
+cursor_border = "#cdcecf"
+cursor_fg = "#2e3440"
+foreground = "#cdcecf"
+scrollbar_thumb = "#7e8188"
+selection_bg = "#3e4a5b"
+selection_fg = "#cdcecf"
+split = "#232831"
+visual_bell = "#cdcecf"
+
+[colors.indexed]
+16 = "#bf88bc"
+17 = "#c9826b"
+
+[colors.tab_bar]
+background = "#232831"
+inactive_tab_edge = "#232831"
+inactive_tab_edge_hover = "#39404f"
+
+[colors.tab_bar.active_tab]
+bg_color = "#7e8188"
+fg_color = "#2e3440"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#39404f"
+fg_color = "#abb1bb"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#444c5e"
+fg_color = "#cdcecf"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#2e3440"
+fg_color = "#abb1bb"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#444c5e"
+fg_color = "#cdcecf"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+author = "EdenEast"
+name = "nordfox"
+origin_url = "https://github.com/EdenEast/nightfox.nvim"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NOVA_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3c4c55",
+    "#83afe5",
+    "#7fc1ca",
+    "#a8ce93",
+    "#83afe5",
+    "#9a93e1",
+    "#f2c38f",
+    "#c5d4dd",
+]
+background = "#3c4c55"
+brights = [
+    "#899ba6",
+    "#83afe5",
+    "#7fc1ca",
+    "#a8ce93",
+    "#83afe5",
+    "#9a93e1",
+    "#f2c38f",
+    "#556873",
+]
+cursor_bg = "#c5d4dd"
+cursor_border = "#c5d4dd"
+cursor_fg = "#3c4c55"
+foreground = "#c5d4dd"
+selection_bg = "#c5d4dd"
+selection_fg = "#3c4c55"
+
+[colors.indexed]
+16 = "#7fc1ca"
+17 = "#f2c38f"
+18 = "#556873"
+19 = "#6a7d89"
+20 = "#899ba6"
+21 = "#899ba6"
+
+[metadata]
+aliases = []
+author = "George Essig (https://github.com/gessig), Trevor D. Miller (https://trevordmiller.com)"
+name = "Nova (base16)"
+origin_url = "https://github.com/gessig/base16-nova-scheme"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -125718,6 +126100,212 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Nightfly-to-niji built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_nocturnal_winter_to_nova_builtin_color_schemes() {
+        let cases = [
+            (
+                "Nocturnal Winter",
+                Color::Rgb(230, 229, 229),
+                Color::Rgb(13, 13, 23),
+                Color::Rgb(230, 229, 229),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(173, 189, 208)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(77, 77, 77),
+                Color::Rgb(241, 45, 82),
+                Color::Rgb(9, 205, 126),
+                Color::Rgb(245, 241, 122),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "nord",
+                Color::Rgb(216, 222, 233),
+                Color::Rgb(46, 52, 64),
+                Color::Rgb(236, 239, 244),
+                Some(Color::Rgb(40, 40, 40)),
+                Some(Color::Rgb(236, 239, 244)),
+                Some(Some(Color::Rgb(76, 86, 106))),
+                Color::Rgb(59, 66, 82),
+                Color::Rgb(191, 97, 106),
+                Color::Rgb(163, 190, 140),
+                Color::Rgb(235, 203, 139),
+                Color::Rgb(76, 86, 106),
+                Color::Rgb(236, 239, 244),
+                None,
+            ),
+            (
+                "Nord (base16)",
+                Color::Rgb(229, 233, 240),
+                Color::Rgb(46, 52, 64),
+                Color::Rgb(229, 233, 240),
+                Some(Color::Rgb(46, 52, 64)),
+                Some(Color::Rgb(229, 233, 240)),
+                Some(Some(Color::Rgb(46, 52, 64))),
+                Color::Rgb(46, 52, 64),
+                Color::Rgb(191, 97, 106),
+                Color::Rgb(163, 190, 140),
+                Color::Rgb(235, 203, 139),
+                Color::Rgb(76, 86, 106),
+                Color::Rgb(143, 188, 187),
+                Some(Color::Rgb(208, 135, 112)),
+            ),
+            (
+                "Nord (Gogh)",
+                Color::Rgb(216, 222, 233),
+                Color::Rgb(46, 52, 64),
+                Color::Rgb(216, 222, 233),
+                Some(Color::Rgb(46, 52, 64)),
+                None,
+                None,
+                Color::Rgb(59, 66, 82),
+                Color::Rgb(191, 97, 106),
+                Color::Rgb(163, 190, 140),
+                Color::Rgb(235, 203, 139),
+                Color::Rgb(76, 86, 106),
+                Color::Rgb(236, 239, 244),
+                None,
+            ),
+            (
+                "Nord Light (Gogh)",
+                Color::Rgb(0, 79, 124),
+                Color::Rgb(235, 234, 242),
+                Color::Rgb(67, 158, 207),
+                Some(Color::Rgb(235, 234, 242)),
+                None,
+                None,
+                Color::Rgb(0, 59, 78),
+                Color::Rgb(230, 69, 105),
+                Color::Rgb(6, 159, 95),
+                Color::Rgb(218, 183, 82),
+                Color::Rgb(62, 137, 161),
+                Color::Rgb(222, 222, 222),
+                None,
+            ),
+            (
+                "NordLight (Gogh)",
+                Color::Rgb(0, 79, 124),
+                Color::Rgb(235, 234, 242),
+                Color::Rgb(67, 158, 207),
+                Some(Color::Rgb(235, 234, 242)),
+                None,
+                None,
+                Color::Rgb(0, 59, 78),
+                Color::Rgb(230, 69, 105),
+                Color::Rgb(6, 159, 95),
+                Color::Rgb(218, 183, 82),
+                Color::Rgb(62, 137, 161),
+                Color::Rgb(222, 222, 222),
+                None,
+            ),
+            (
+                "nord-light",
+                Color::Rgb(65, 72, 88),
+                Color::Rgb(229, 233, 240),
+                Color::Rgb(136, 192, 208),
+                Some(Color::Rgb(59, 66, 82)),
+                Some(Color::Rgb(216, 222, 233)),
+                Some(Some(Color::Rgb(76, 85, 106))),
+                Color::Rgb(59, 66, 82),
+                Color::Rgb(191, 97, 106),
+                Color::Rgb(163, 190, 140),
+                Color::Rgb(235, 203, 139),
+                Color::Rgb(76, 86, 106),
+                Color::Rgb(236, 239, 244),
+                None,
+            ),
+            (
+                "nordfox",
+                Color::Rgb(205, 206, 207),
+                Color::Rgb(46, 52, 64),
+                Color::Rgb(205, 206, 207),
+                Some(Color::Rgb(46, 52, 64)),
+                Some(Color::Rgb(62, 74, 91)),
+                Some(Some(Color::Rgb(205, 206, 207))),
+                Color::Rgb(59, 66, 82),
+                Color::Rgb(191, 97, 106),
+                Color::Rgb(163, 190, 140),
+                Color::Rgb(235, 203, 139),
+                Color::Rgb(70, 87, 128),
+                Color::Rgb(231, 236, 244),
+                Some(Color::Rgb(191, 136, 188)),
+            ),
+            (
+                "Nova (base16)",
+                Color::Rgb(197, 212, 221),
+                Color::Rgb(60, 76, 85),
+                Color::Rgb(197, 212, 221),
+                Some(Color::Rgb(60, 76, 85)),
+                Some(Color::Rgb(197, 212, 221)),
+                Some(Some(Color::Rgb(60, 76, 85))),
+                Color::Rgb(60, 76, 85),
+                Color::Rgb(131, 175, 229),
+                Color::Rgb(127, 193, 202),
+                Color::Rgb(168, 206, 147),
+                Color::Rgb(137, 155, 166),
+                Color::Rgb(85, 104, 115),
+                Some(Color::Rgb(127, 193, 202)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Nocturnal-Winter-to-Nova built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
