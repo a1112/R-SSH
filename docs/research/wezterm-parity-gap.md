@@ -3801,9 +3801,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Poimandres`, `Poimandres Storm`, `Pop (base16)`,
   `Popping and Locking`, `Porple (base16)`, `Powershell (Gogh)`,
   `Predawn (Gogh)`, `Pretty and Pastel (terminal.sexy)`, `primary`, `Pro`,
-  `Pro (Gogh)`, `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
-  `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
-  `Builtin Tango Light`, and
+  `Pro (Gogh)`, `Pro Light`, `Pulp (terminal.sexy)`,
+  `Purple People Eater (Gogh)`, `Purple Rain`, `Purpledream (base16)`,
+  `purplepeter`, `Qualia (base16)`, `Quiet (Gogh)`, `Builtin Dark`,
+  `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
+  `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
   palette data. The broader built-in scheme catalog, richer dynamic
   `load_scheme` composition, and full dynamic Lua scheme

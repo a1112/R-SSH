@@ -20146,6 +20146,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "primary" => Some(BUILTIN_PRIMARY_COLOR_SCHEME_TOML),
         "Pro" => Some(BUILTIN_PRO_COLOR_SCHEME_TOML),
         "Pro (Gogh)" => Some(BUILTIN_PRO_GOGH_COLOR_SCHEME_TOML),
+        "Pro Light" => Some(BUILTIN_PRO_LIGHT_COLOR_SCHEME_TOML),
+        "Pulp (terminal.sexy)" => Some(BUILTIN_PULP_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Purple People Eater (Gogh)" | "PurplePeopleEater (Gogh)" => {
+            Some(BUILTIN_PURPLE_PEOPLE_EATER_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Purple Rain" => Some(BUILTIN_PURPLE_RAIN_COLOR_SCHEME_TOML),
+        "Purpledream (base16)" => Some(BUILTIN_PURPLEDREAM_BASE16_COLOR_SCHEME_TOML),
+        "purplepeter" => Some(BUILTIN_PURPLEPETER_COLOR_SCHEME_TOML),
+        "Qualia (base16)" => Some(BUILTIN_QUALIA_BASE16_COLOR_SCHEME_TOML),
+        "Quiet (Gogh)" => Some(BUILTIN_QUIET_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -49330,6 +49340,324 @@ aliases = []
 name = "Pro (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_PRO_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#e5492b",
+    "#50d148",
+    "#c6c440",
+    "#3b75ff",
+    "#ed66e8",
+    "#4ed2de",
+    "#dcdcdc",
+]
+background = "#ffffff"
+brights = [
+    "#9f9f9f",
+    "#ff6640",
+    "#61ef57",
+    "#f2f156",
+    "#0082ff",
+    "#ff7eff",
+    "#61f7f8",
+    "#f2f2f2",
+]
+cursor_bg = "#4d4d4d"
+cursor_border = "#4d4d4d"
+cursor_fg = "#f2f2f2"
+foreground = "#191919"
+selection_bg = "#c1ddff"
+selection_fg = "#191919"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Pro Light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_PULP_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#86817e",
+    "#d75756",
+    "#688c7d",
+    "#ffb365",
+    "#68778c",
+    "#fdb3b2",
+    "#86abd9",
+    "#f7f8f2",
+]
+background = "#000000"
+brights = [
+    "#86817e",
+    "#a63a3a",
+    "#688c7d",
+    "#ffb365",
+    "#68778c",
+    "#8c686a",
+    "#86abd9",
+    "#f7f8f2",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Pulp (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PURPLE_PEOPLE_EATER_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0d1117",
+    "#e34c26",
+    "#238636",
+    "#ed9a51",
+    "#a5d6ff",
+    "#6eb0e8",
+    "#c09aeb",
+    "#c9d1d9",
+]
+background = "#161b22"
+brights = [
+    "#0d1117",
+    "#ff7b72",
+    "#3bab4a",
+    "#ffa657",
+    "#a5d6ff",
+    "#79c0ff",
+    "#b694df",
+    "#c9d1d9",
+]
+cursor_bg = "#c9d1d9"
+cursor_border = "#c9d1d9"
+cursor_fg = "#161b22"
+foreground = "#c9d1d9"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["PurplePeopleEater (Gogh)"]
+name = "Purple People Eater (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PURPLE_RAIN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff260e",
+    "#9be205",
+    "#ffc400",
+    "#00a2fa",
+    "#815bb5",
+    "#00deef",
+    "#ffffff",
+]
+background = "#21084a"
+brights = [
+    "#565656",
+    "#ff4250",
+    "#b8e36e",
+    "#ffd852",
+    "#00a6ff",
+    "#ac7bf0",
+    "#74fdf3",
+    "#ffffff",
+]
+cursor_bg = "#ff271d"
+cursor_border = "#ff271d"
+cursor_fg = "#ff271d"
+foreground = "#fffbf6"
+selection_bg = "#287691"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Purple Rain"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_PURPLEDREAM_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#100510",
+    "#ff1d0d",
+    "#14cc64",
+    "#f000a0",
+    "#00a0f0",
+    "#b000d0",
+    "#0075b0",
+    "#ddd0dd",
+]
+background = "#100510"
+brights = [
+    "#605060",
+    "#ff1d0d",
+    "#14cc64",
+    "#f000a0",
+    "#00a0f0",
+    "#b000d0",
+    "#0075b0",
+    "#fff0ff",
+]
+cursor_bg = "#ddd0dd"
+cursor_border = "#ddd0dd"
+cursor_fg = "#100510"
+foreground = "#ddd0dd"
+selection_bg = "#ddd0dd"
+selection_fg = "#100510"
+
+[colors.indexed]
+16 = "#ccae14"
+17 = "#6a2a3c"
+18 = "#302030"
+19 = "#403040"
+20 = "#bbb0bb"
+21 = "#eee0ee"
+
+[metadata]
+aliases = []
+author = "malet"
+name = "Purpledream (base16)"
+origin_url = "https://github.com/archmalet/base16-purpledream-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PURPLEPETER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0a0520",
+    "#ff796d",
+    "#99b481",
+    "#efdfac",
+    "#66d9ef",
+    "#e78fcd",
+    "#ba8cff",
+    "#ffba81",
+]
+background = "#2a1a4a"
+brights = [
+    "#100b23",
+    "#f99f92",
+    "#b4be8f",
+    "#f2e9bf",
+    "#79daed",
+    "#ba91d4",
+    "#a0a0d6",
+    "#b9aed3",
+]
+cursor_bg = "#c7c7c7"
+cursor_border = "#c7c7c7"
+cursor_fg = "#ffffff"
+foreground = "#ece7fa"
+selection_bg = "#8689c2"
+selection_fg = "#271c50"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "purplepeter"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_QUALIA_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#101010",
+    "#efa6a2",
+    "#80c990",
+    "#e6a3dc",
+    "#50cacd",
+    "#e0af85",
+    "#c8c874",
+    "#c0c0c0",
+]
+background = "#101010"
+brights = [
+    "#454545",
+    "#efa6a2",
+    "#80c990",
+    "#e6a3dc",
+    "#50cacd",
+    "#e0af85",
+    "#c8c874",
+    "#454545",
+]
+cursor_bg = "#c0c0c0"
+cursor_border = "#c0c0c0"
+cursor_fg = "#101010"
+foreground = "#c0c0c0"
+selection_bg = "#c0c0c0"
+selection_fg = "#101010"
+
+[colors.indexed]
+16 = "#a3b8ef"
+17 = "#808080"
+18 = "#454545"
+19 = "#454545"
+20 = "#808080"
+21 = "#c0c0c0"
+
+[metadata]
+aliases = []
+author = "isaacwhanson"
+name = "Qualia (base16)"
+origin_url = "https://github.com/isaacwhanson/base16-qualia-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_QUIET_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#141414",
+    "#c16262",
+    "#49b685",
+    "#c5b76d",
+    "#4992b6",
+    "#815bbe",
+    "#41a4a4",
+    "#c5c5c5",
+]
+background = "#141414"
+brights = [
+    "#505050",
+    "#ed5e7a",
+    "#7ece7e",
+    "#dbdb70",
+    "#4dbfff",
+    "#c067e4",
+    "#70dbd8",
+    "#f0f0f0",
+]
+cursor_bg = "#a0a0a0"
+cursor_border = "#a0a0a0"
+cursor_fg = "#141414"
+foreground = "#b9b9b9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Quiet (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -131653,6 +131981,212 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Popping-to-Pro-Gogh built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_pro_light_to_quiet_builtin_color_schemes() {
+        let cases = [
+            (
+                "Pro Light",
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(77, 77, 77),
+                Some(Color::Rgb(242, 242, 242)),
+                Some(Color::Rgb(193, 221, 255)),
+                Some(Some(Color::Rgb(25, 25, 25))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 73, 43),
+                Color::Rgb(80, 209, 72),
+                Color::Rgb(198, 196, 64),
+                Color::Rgb(159, 159, 159),
+                Color::Rgb(242, 242, 242),
+                None,
+            ),
+            (
+                "Pulp (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(134, 129, 126),
+                Color::Rgb(215, 87, 86),
+                Color::Rgb(104, 140, 125),
+                Color::Rgb(255, 179, 101),
+                Color::Rgb(134, 129, 126),
+                Color::Rgb(247, 248, 242),
+                None,
+            ),
+            (
+                "Purple People Eater (Gogh)",
+                Color::Rgb(201, 209, 217),
+                Color::Rgb(22, 27, 34),
+                Color::Rgb(201, 209, 217),
+                Some(Color::Rgb(22, 27, 34)),
+                None,
+                None,
+                Color::Rgb(13, 17, 23),
+                Color::Rgb(227, 76, 38),
+                Color::Rgb(35, 134, 54),
+                Color::Rgb(237, 154, 81),
+                Color::Rgb(13, 17, 23),
+                Color::Rgb(201, 209, 217),
+                None,
+            ),
+            (
+                "PurplePeopleEater (Gogh)",
+                Color::Rgb(201, 209, 217),
+                Color::Rgb(22, 27, 34),
+                Color::Rgb(201, 209, 217),
+                Some(Color::Rgb(22, 27, 34)),
+                None,
+                None,
+                Color::Rgb(13, 17, 23),
+                Color::Rgb(227, 76, 38),
+                Color::Rgb(35, 134, 54),
+                Color::Rgb(237, 154, 81),
+                Color::Rgb(13, 17, 23),
+                Color::Rgb(201, 209, 217),
+                None,
+            ),
+            (
+                "Purple Rain",
+                Color::Rgb(255, 251, 246),
+                Color::Rgb(33, 8, 74),
+                Color::Rgb(255, 39, 29),
+                Some(Color::Rgb(255, 39, 29)),
+                Some(Color::Rgb(40, 118, 145)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 38, 14),
+                Color::Rgb(155, 226, 5),
+                Color::Rgb(255, 196, 0),
+                Color::Rgb(86, 86, 86),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Purpledream (base16)",
+                Color::Rgb(221, 208, 221),
+                Color::Rgb(16, 5, 16),
+                Color::Rgb(221, 208, 221),
+                Some(Color::Rgb(16, 5, 16)),
+                Some(Color::Rgb(221, 208, 221)),
+                Some(Some(Color::Rgb(16, 5, 16))),
+                Color::Rgb(16, 5, 16),
+                Color::Rgb(255, 29, 13),
+                Color::Rgb(20, 204, 100),
+                Color::Rgb(240, 0, 160),
+                Color::Rgb(96, 80, 96),
+                Color::Rgb(255, 240, 255),
+                Some(Color::Rgb(204, 174, 20)),
+            ),
+            (
+                "purplepeter",
+                Color::Rgb(236, 231, 250),
+                Color::Rgb(42, 26, 74),
+                Color::Rgb(199, 199, 199),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(134, 137, 194)),
+                Some(Some(Color::Rgb(39, 28, 80))),
+                Color::Rgb(10, 5, 32),
+                Color::Rgb(255, 121, 109),
+                Color::Rgb(153, 180, 129),
+                Color::Rgb(239, 223, 172),
+                Color::Rgb(16, 11, 35),
+                Color::Rgb(185, 174, 211),
+                None,
+            ),
+            (
+                "Qualia (base16)",
+                Color::Rgb(192, 192, 192),
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(192, 192, 192),
+                Some(Color::Rgb(16, 16, 16)),
+                Some(Color::Rgb(192, 192, 192)),
+                Some(Some(Color::Rgb(16, 16, 16))),
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(239, 166, 162),
+                Color::Rgb(128, 201, 144),
+                Color::Rgb(230, 163, 220),
+                Color::Rgb(69, 69, 69),
+                Color::Rgb(69, 69, 69),
+                Some(Color::Rgb(163, 184, 239)),
+            ),
+            (
+                "Quiet (Gogh)",
+                Color::Rgb(185, 185, 185),
+                Color::Rgb(20, 20, 20),
+                Color::Rgb(160, 160, 160),
+                Some(Color::Rgb(20, 20, 20)),
+                None,
+                None,
+                Color::Rgb(20, 20, 20),
+                Color::Rgb(193, 98, 98),
+                Color::Rgb(73, 182, 133),
+                Color::Rgb(197, 183, 109),
+                Color::Rgb(80, 80, 80),
+                Color::Rgb(240, 240, 240),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Pro-Light-to-Quiet built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
