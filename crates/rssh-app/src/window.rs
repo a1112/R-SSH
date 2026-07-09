@@ -19914,6 +19914,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Material (base16)" => Some(BUILTIN_MATERIAL_BASE16_COLOR_SCHEME_TOML),
         "Material (Gogh)" => Some(BUILTIN_MATERIAL_GOGH_COLOR_SCHEME_TOML),
         "Material (terminal.sexy)" => Some(BUILTIN_MATERIAL_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Material Darker (base16)" => Some(BUILTIN_MATERIAL_DARKER_BASE16_COLOR_SCHEME_TOML),
+        "Material Lighter (base16)" => Some(BUILTIN_MATERIAL_LIGHTER_BASE16_COLOR_SCHEME_TOML),
+        "Material Palenight (base16)" => Some(BUILTIN_MATERIAL_PALENIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Material Vivid (base16)" => Some(BUILTIN_MATERIAL_VIVID_BASE16_COLOR_SCHEME_TOML),
+        "MaterialDark" => Some(BUILTIN_MATERIALDARK_COLOR_SCHEME_TOML),
+        "MaterialDarker" => Some(BUILTIN_MATERIALDARKER_COLOR_SCHEME_TOML),
+        "MaterialDesignColors" => Some(BUILTIN_MATERIALDESIGNCOLORS_COLOR_SCHEME_TOML),
+        "MaterialOcean" => Some(BUILTIN_MATERIALOCEAN_COLOR_SCHEME_TOML),
+        "Mathias" => Some(BUILTIN_MATHIAS_COLOR_SCHEME_TOML),
+        "Mathias (Gogh)" => Some(BUILTIN_MATHIAS_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -42037,6 +42047,422 @@ author = ""
 name = "Material (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MATERIAL_DARKER_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#212121",
+    "#f07178",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#eeffff",
+]
+background = "#212121"
+brights = [
+    "#4a4a4a",
+    "#f07178",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#ffffff",
+]
+cursor_bg = "#eeffff"
+cursor_border = "#eeffff"
+cursor_fg = "#212121"
+foreground = "#eeffff"
+selection_bg = "#eeffff"
+selection_fg = "#212121"
+
+[colors.indexed]
+16 = "#f78c6c"
+17 = "#ff5370"
+18 = "#303030"
+19 = "#353535"
+20 = "#b2ccd6"
+21 = "#eeffff"
+
+[metadata]
+aliases = []
+author = "Nate Peterson"
+name = "Material Darker (base16)"
+origin_url = "https://github.com/ntpeters/base16-materialtheme-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MATERIAL_LIGHTER_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#fafafa",
+    "#ff5370",
+    "#91b859",
+    "#ffb62c",
+    "#6182b8",
+    "#7c4dff",
+    "#39adb5",
+    "#80cbc4",
+]
+background = "#fafafa"
+brights = [
+    "#ccd7da",
+    "#ff5370",
+    "#91b859",
+    "#ffb62c",
+    "#6182b8",
+    "#7c4dff",
+    "#39adb5",
+    "#ffffff",
+]
+cursor_bg = "#80cbc4"
+cursor_border = "#80cbc4"
+cursor_fg = "#fafafa"
+foreground = "#80cbc4"
+selection_bg = "#80cbc4"
+selection_fg = "#fafafa"
+
+[colors.indexed]
+16 = "#f76d47"
+17 = "#e53935"
+18 = "#e7eaec"
+19 = "#cceae7"
+20 = "#8796b0"
+21 = "#80cbc4"
+
+[metadata]
+aliases = []
+author = "Nate Peterson"
+name = "Material Lighter (base16)"
+origin_url = "https://github.com/ntpeters/base16-materialtheme-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MATERIAL_PALENIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#292d3e",
+    "#f07178",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#959dcb",
+]
+background = "#292d3e"
+brights = [
+    "#676e95",
+    "#f07178",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#ffffff",
+]
+cursor_bg = "#959dcb"
+cursor_border = "#959dcb"
+cursor_fg = "#292d3e"
+foreground = "#959dcb"
+selection_bg = "#959dcb"
+selection_fg = "#292d3e"
+
+[colors.indexed]
+16 = "#f78c6c"
+17 = "#ff5370"
+18 = "#444267"
+19 = "#32374d"
+20 = "#8796b0"
+21 = "#959dcb"
+
+[metadata]
+aliases = []
+author = "Nate Peterson"
+name = "Material Palenight (base16)"
+origin_url = "https://github.com/ntpeters/base16-materialtheme-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MATERIAL_VIVID_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#202124",
+    "#f44336",
+    "#00e676",
+    "#ffeb3b",
+    "#2196f3",
+    "#673ab7",
+    "#00bcd4",
+    "#80868b",
+]
+background = "#202124"
+brights = [
+    "#44464d",
+    "#f44336",
+    "#00e676",
+    "#ffeb3b",
+    "#2196f3",
+    "#673ab7",
+    "#00bcd4",
+    "#ffffff",
+]
+cursor_bg = "#80868b"
+cursor_border = "#80868b"
+cursor_fg = "#202124"
+foreground = "#80868b"
+selection_bg = "#80868b"
+selection_fg = "#202124"
+
+[colors.indexed]
+16 = "#ff9800"
+17 = "#8d6e63"
+18 = "#27292c"
+19 = "#323639"
+20 = "#676c71"
+21 = "#9e9e9e"
+
+[metadata]
+aliases = []
+author = "joshyrobot"
+name = "Material Vivid (base16)"
+origin_url = "https://github.com/joshyrobot/base16-material-vivid-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MATERIALDARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#212121",
+    "#b7141f",
+    "#457b24",
+    "#f6981e",
+    "#134eb2",
+    "#560088",
+    "#0e717c",
+    "#efefef",
+]
+background = "#232322"
+brights = [
+    "#424242",
+    "#e83b3f",
+    "#7aba3a",
+    "#ffea2e",
+    "#54a4f3",
+    "#aa4dbc",
+    "#26bbd1",
+    "#d9d9d9",
+]
+cursor_bg = "#16afca"
+cursor_border = "#16afca"
+cursor_fg = "#dfdfdf"
+foreground = "#e5e5e5"
+selection_bg = "#dfdfdf"
+selection_fg = "#3d3d3d"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "MaterialDark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MATERIALDARKER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff5370",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#ffffff",
+]
+background = "#212121"
+brights = [
+    "#545454",
+    "#ff5370",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#ffffff"
+foreground = "#eeffff"
+selection_bg = "#eeffff"
+selection_fg = "#545454"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "MaterialDarker"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MATERIALDESIGNCOLORS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#435b67",
+    "#fc3841",
+    "#5cf19e",
+    "#fed032",
+    "#37b6ff",
+    "#fc226e",
+    "#59ffd1",
+    "#ffffff",
+]
+background = "#1d262a"
+brights = [
+    "#a1b0b8",
+    "#fc746d",
+    "#adf7be",
+    "#fee16c",
+    "#70cfff",
+    "#fc669b",
+    "#9affe6",
+    "#ffffff",
+]
+cursor_bg = "#eaeaea"
+cursor_border = "#eaeaea"
+cursor_fg = "#000000"
+foreground = "#e7ebed"
+selection_bg = "#4e6a78"
+selection_fg = "#e7ebed"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "MaterialDesignColors"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MATERIALOCEAN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#546e7a",
+    "#ff5370",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#ffffff",
+]
+background = "#0f111a"
+brights = [
+    "#546e7a",
+    "#ff5370",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#ffffff",
+]
+cursor_bg = "#ffcc00"
+cursor_border = "#ffcc00"
+cursor_fg = "#0f111a"
+foreground = "#8f93a2"
+selection_bg = "#1f2233"
+selection_fg = "#8f93a2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "MaterialOcean"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MATHIAS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#e52222",
+    "#a6e32d",
+    "#fc951e",
+    "#c48dff",
+    "#fa2573",
+    "#67d9f0",
+    "#f2f2f2",
+]
+background = "#000000"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#55ff55",
+    "#ffff55",
+    "#5555ff",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#bbbbbb"
+selection_bg = "#555555"
+selection_fg = "#f2f2f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Mathias (Gogh)"]
+name = "Mathias"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MATHIAS_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#e52222",
+    "#a6e32d",
+    "#fc951e",
+    "#c48dff",
+    "#fa2573",
+    "#67d9f0",
+    "#f2f2f2",
+]
+background = "#000000"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#55ff55",
+    "#ffff55",
+    "#5555ff",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#000000"
+foreground = "#bbbbbb"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Mathias (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -119948,6 +120374,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Mar-to-Material built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_material_darker_to_mathias_builtin_color_schemes() {
+        let cases = [
+            (
+                "Material Darker (base16)",
+                Color::Rgb(238, 255, 255),
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(238, 255, 255),
+                Some(Color::Rgb(33, 33, 33)),
+                Some(Color::Rgb(238, 255, 255)),
+                Some(Some(Color::Rgb(33, 33, 33))),
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(240, 113, 120),
+                Color::Rgb(195, 232, 141),
+                Color::Rgb(255, 203, 107),
+                Color::Rgb(74, 74, 74),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(247, 140, 108)),
+            ),
+            (
+                "Material Lighter (base16)",
+                Color::Rgb(128, 203, 196),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(128, 203, 196),
+                Some(Color::Rgb(250, 250, 250)),
+                Some(Color::Rgb(128, 203, 196)),
+                Some(Some(Color::Rgb(250, 250, 250))),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(255, 83, 112),
+                Color::Rgb(145, 184, 89),
+                Color::Rgb(255, 182, 44),
+                Color::Rgb(204, 215, 218),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(247, 109, 71)),
+            ),
+            (
+                "Material Palenight (base16)",
+                Color::Rgb(149, 157, 203),
+                Color::Rgb(41, 45, 62),
+                Color::Rgb(149, 157, 203),
+                Some(Color::Rgb(41, 45, 62)),
+                Some(Color::Rgb(149, 157, 203)),
+                Some(Some(Color::Rgb(41, 45, 62))),
+                Color::Rgb(41, 45, 62),
+                Color::Rgb(240, 113, 120),
+                Color::Rgb(195, 232, 141),
+                Color::Rgb(255, 203, 107),
+                Color::Rgb(103, 110, 149),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(247, 140, 108)),
+            ),
+            (
+                "Material Vivid (base16)",
+                Color::Rgb(128, 134, 139),
+                Color::Rgb(32, 33, 36),
+                Color::Rgb(128, 134, 139),
+                Some(Color::Rgb(32, 33, 36)),
+                Some(Color::Rgb(128, 134, 139)),
+                Some(Some(Color::Rgb(32, 33, 36))),
+                Color::Rgb(32, 33, 36),
+                Color::Rgb(244, 67, 54),
+                Color::Rgb(0, 230, 118),
+                Color::Rgb(255, 235, 59),
+                Color::Rgb(68, 70, 77),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(255, 152, 0)),
+            ),
+            (
+                "MaterialDark",
+                Color::Rgb(229, 229, 229),
+                Color::Rgb(35, 35, 34),
+                Color::Rgb(22, 175, 202),
+                Some(Color::Rgb(223, 223, 223)),
+                Some(Color::Rgb(223, 223, 223)),
+                Some(Some(Color::Rgb(61, 61, 61))),
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(183, 20, 31),
+                Color::Rgb(69, 123, 36),
+                Color::Rgb(246, 152, 30),
+                Color::Rgb(66, 66, 66),
+                Color::Rgb(217, 217, 217),
+                None,
+            ),
+            (
+                "MaterialDarker",
+                Color::Rgb(238, 255, 255),
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(238, 255, 255)),
+                Some(Some(Color::Rgb(84, 84, 84))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 83, 112),
+                Color::Rgb(195, 232, 141),
+                Color::Rgb(255, 203, 107),
+                Color::Rgb(84, 84, 84),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "MaterialDesignColors",
+                Color::Rgb(231, 235, 237),
+                Color::Rgb(29, 38, 42),
+                Color::Rgb(234, 234, 234),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(78, 106, 120)),
+                Some(Some(Color::Rgb(231, 235, 237))),
+                Color::Rgb(67, 91, 103),
+                Color::Rgb(252, 56, 65),
+                Color::Rgb(92, 241, 158),
+                Color::Rgb(254, 208, 50),
+                Color::Rgb(161, 176, 184),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "MaterialOcean",
+                Color::Rgb(143, 147, 162),
+                Color::Rgb(15, 17, 26),
+                Color::Rgb(255, 204, 0),
+                Some(Color::Rgb(15, 17, 26)),
+                Some(Color::Rgb(31, 34, 51)),
+                Some(Some(Color::Rgb(143, 147, 162))),
+                Color::Rgb(84, 110, 122),
+                Color::Rgb(255, 83, 112),
+                Color::Rgb(195, 232, 141),
+                Color::Rgb(255, 203, 107),
+                Color::Rgb(84, 110, 122),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Mathias",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(85, 85, 85)),
+                Some(Some(Color::Rgb(242, 242, 242))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 34, 34),
+                Color::Rgb(166, 227, 45),
+                Color::Rgb(252, 149, 30),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Mathias (Gogh)",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 34, 34),
+                Color::Rgb(166, 227, 45),
+                Color::Rgb(252, 149, 30),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Material-Darker-to-Mathias built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

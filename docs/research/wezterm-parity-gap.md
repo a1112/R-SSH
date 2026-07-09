@@ -3739,7 +3739,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Marrakesh (light) (terminal.sexy)`,
   `Mashup Colors (terminal.sexy)`, `Materia (base16)`, `Material`,
   `Material (base16)`, `Material (Gogh)`, `Material (terminal.sexy)`,
-  `Builtin Dark`, `Builtin Light`,
+  `Material Darker (base16)`, `Material Lighter (base16)`,
+  `Material Palenight (base16)`, `Material Vivid (base16)`,
+  `MaterialDark`, `MaterialDarker`, `MaterialDesignColors`,
+  `MaterialOcean`, `Mathias`, `Mathias (Gogh)`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting
   WezTerm aliases using WezTerm's built-in TOML palette data. The broader
