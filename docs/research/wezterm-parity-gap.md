@@ -3730,7 +3730,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `LiquidCarbon`, `LiquidCarbonTransparent`,
   `LiquidCarbonTransparentInverse`, `London Tube (base16)`,
   `Londontube (dark) (terminal.sexy)`,
-  `Londontube (light) (terminal.sexy)`,
+  `Londontube (light) (terminal.sexy)`, `Lost Woods (terminal.sexy)`,
+  `lovelace`, `Low Contrast (terminal.sexy)`, `Lumifoo (terminal.sexy)`,
+  `Lunaria Dark (Gogh)`, `Lunaria Eclipse (Gogh)`,
+  `Lunaria Light (Gogh)`, `Macintosh (base16)`, `Maia (Gogh)`,
+  `Man Page`, `Man Page (Gogh)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting

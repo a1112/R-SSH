@@ -19878,6 +19878,25 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Londontube (light) (terminal.sexy)" => {
             Some(BUILTIN_LONDONTUBE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
+        "Lost Woods (terminal.sexy)" => Some(BUILTIN_LOST_WOODS_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "lovelace" => Some(BUILTIN_LOVELACE_COLOR_SCHEME_TOML),
+        "Low Contrast (terminal.sexy)" => {
+            Some(BUILTIN_LOW_CONTRAST_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Lumifoo (terminal.sexy)" => Some(BUILTIN_LUMIFOO_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Lunaria Dark (Gogh)" | "LunariaDark (Gogh)" => {
+            Some(BUILTIN_LUNARIA_DARK_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Lunaria Eclipse (Gogh)" | "LunariaEclipse (Gogh)" => {
+            Some(BUILTIN_LUNARIA_ECLIPSE_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Lunaria Light (Gogh)" | "LunariaLight (Gogh)" => {
+            Some(BUILTIN_LUNARIA_LIGHT_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Macintosh (base16)" => Some(BUILTIN_MACINTOSH_BASE16_COLOR_SCHEME_TOML),
+        "Maia (Gogh)" => Some(BUILTIN_MAIA_GOGH_COLOR_SCHEME_TOML),
+        "Man Page" | "ManPage (Gogh)" => Some(BUILTIN_MAN_PAGE_COLOR_SCHEME_TOML),
+        "Man Page (Gogh)" => Some(BUILTIN_MAN_PAGE_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -41154,6 +41173,423 @@ author = "Chris Kempson"
 name = "Londontube (light) (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_LOST_WOODS_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#303030",
+    "#a13a38",
+    "#00715d",
+    "#006f32",
+    "#a43261",
+    "#913e88",
+    "#007086",
+    "#c6c6c6",
+]
+background = "#000000"
+brights = [
+    "#5e5e5e",
+    "#ffa59a",
+    "#24dfc4",
+    "#73db95",
+    "#ff9fc9",
+    "#ffa7f6",
+    "#00ddf4",
+    "#ffffff",
+]
+foreground = "#919191"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Baskerville"
+name = "Lost Woods (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_LOVELACE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282a36",
+    "#f37f97",
+    "#5adecd",
+    "#f2a272",
+    "#8897f4",
+    "#c574dd",
+    "#79e6f3",
+    "#fdfdfd",
+]
+background = "#1d1f28"
+brights = [
+    "#414458",
+    "#ff4971",
+    "#18e3c8",
+    "#ff8037",
+    "#556fff",
+    "#b043d1",
+    "#3fdcee",
+    "#bebec1",
+]
+cursor_bg = "#c574dd"
+cursor_border = "#c574dd"
+cursor_fg = "#ffffff"
+foreground = "#fdfdfd"
+selection_bg = "#c1deff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "lovelace"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_LOW_CONTRAST_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#5f5f5f",
+    "#d96468",
+    "#a2d964",
+    "#d9c964",
+    "#64a2d9",
+    "#9a64d9",
+    "#64d9d5",
+    "#989898",
+]
+background = "#3c3b37"
+brights = [
+    "#828282",
+    "#d98f93",
+    "#b8d98f",
+    "#d9cf8f",
+    "#8f99d9",
+    "#b08fd9",
+    "#8fd9d5",
+    "#c5c5c5",
+]
+foreground = "#93a1a1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Muzieca"
+name = "Low Contrast (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_LUMIFOO_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#515151",
+    "#bf6382",
+    "#65a446",
+    "#ad8a43",
+    "#6b85c2",
+    "#9e6bb8",
+    "#5c9d88",
+    "#919191",
+]
+background = "#1e2021"
+brights = [
+    "#707172",
+    "#eaaec2",
+    "#aed49b",
+    "#d4c3a0",
+    "#afc4e9",
+    "#d2b1e2",
+    "#a4d0c1",
+    "#d0d0d0",
+]
+foreground = "#888a8c"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Gutterslob"
+name = "Lumifoo (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_LUNARIA_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#36464e",
+    "#846560",
+    "#809984",
+    "#a79a79",
+    "#555673",
+    "#866c83",
+    "#7e98b4",
+    "#caced8",
+]
+background = "#36464e"
+brights = [
+    "#404f56",
+    "#bb928b",
+    "#bfdcc2",
+    "#f1dfb6",
+    "#777798",
+    "#bf9db9",
+    "#bddcff",
+    "#dfe2ed",
+]
+cursor_bg = "#caced8"
+cursor_border = "#caced8"
+cursor_fg = "#36464e"
+foreground = "#caced8"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["LunariaDark (Gogh)"]
+name = "Lunaria Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_LUNARIA_ECLIPSE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#323f46",
+    "#83615b",
+    "#7f9781",
+    "#a69875",
+    "#53516f",
+    "#856880",
+    "#7d96b2",
+    "#c9cdd7",
+]
+background = "#323f46"
+brights = [
+    "#3d4950",
+    "#ba9088",
+    "#bedbc1",
+    "#f1dfb4",
+    "#767495",
+    "#be9cb8",
+    "#bcdbff",
+    "#dfe2ed",
+]
+cursor_bg = "#c9cdd7"
+cursor_border = "#c9cdd7"
+cursor_fg = "#323f46"
+foreground = "#c9cdd7"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["LunariaEclipse (Gogh)"]
+name = "Lunaria Eclipse (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_LUNARIA_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3e3c3d",
+    "#783c1f",
+    "#497d46",
+    "#8f750b",
+    "#3f3566",
+    "#793f62",
+    "#3778a9",
+    "#d5cfcc",
+]
+background = "#ebe4e1"
+brights = [
+    "#484646",
+    "#b06240",
+    "#7bc175",
+    "#dcb735",
+    "#5c4f89",
+    "#b56895",
+    "#64baff",
+    "#ebe4e1",
+]
+cursor_bg = "#484646"
+cursor_border = "#484646"
+cursor_fg = "#ebe4e1"
+foreground = "#484646"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["LunariaLight (Gogh)"]
+name = "Lunaria Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MACINTOSH_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#dd0907",
+    "#1fb714",
+    "#fbf305",
+    "#0000d3",
+    "#4700a5",
+    "#02abea",
+    "#c0c0c0",
+]
+background = "#000000"
+brights = [
+    "#808080",
+    "#dd0907",
+    "#1fb714",
+    "#fbf305",
+    "#0000d3",
+    "#4700a5",
+    "#02abea",
+    "#ffffff",
+]
+cursor_bg = "#c0c0c0"
+cursor_border = "#c0c0c0"
+cursor_fg = "#000000"
+foreground = "#c0c0c0"
+selection_bg = "#c0c0c0"
+selection_fg = "#000000"
+
+[colors.indexed]
+"16" = "#ff6403"
+"17" = "#90713a"
+"18" = "#404040"
+"19" = "#404040"
+"20" = "#808080"
+"21" = "#c0c0c0"
+
+[metadata]
+aliases = []
+author = "Rebecca Bettencourt (http://www.kreativekorp.com)"
+name = "Macintosh (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MAIA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#232423",
+    "#ba2922",
+    "#7e807e",
+    "#4c4f4d",
+    "#16a085",
+    "#43746a",
+    "#00cccc",
+    "#e0e0e0",
+]
+background = "#31363b"
+brights = [
+    "#282928",
+    "#cc372c",
+    "#8d8f8d",
+    "#4e524f",
+    "#13bf9d",
+    "#487d72",
+    "#00d1d1",
+    "#e8e8e8",
+]
+cursor_bg = "#bdc3c7"
+cursor_border = "#bdc3c7"
+cursor_fg = "#31363b"
+foreground = "#bdc3c7"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Maia (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MAN_PAGE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc0000",
+    "#00a600",
+    "#999900",
+    "#0000b2",
+    "#b200b2",
+    "#00a6b2",
+    "#cccccc",
+]
+background = "#fef49c"
+brights = [
+    "#666666",
+    "#e50000",
+    "#00d900",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#7f7f7f"
+cursor_border = "#7f7f7f"
+cursor_fg = "#000000"
+foreground = "#000000"
+selection_bg = "#a4c9cd"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Man Page (Gogh)",
+    "ManPage (Gogh)",
+]
+name = "Man Page"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MAN_PAGE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc0000",
+    "#00a600",
+    "#999900",
+    "#0000b2",
+    "#b200b2",
+    "#00a6b2",
+    "#cccccc",
+]
+background = "#fef49c"
+brights = [
+    "#666666",
+    "#e50000",
+    "#00d900",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#fef49c"
+foreground = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Man Page (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -118525,6 +118961,308 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Lavandula-to-Londontube built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_lost_woods_to_man_page_builtin_color_schemes() {
+        let cases = [
+            (
+                "Lost Woods (terminal.sexy)",
+                Color::Rgb(145, 145, 145),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(161, 58, 56),
+                Color::Rgb(0, 113, 93),
+                Color::Rgb(0, 111, 50),
+                Color::Rgb(94, 94, 94),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "lovelace",
+                Color::Rgb(253, 253, 253),
+                Color::Rgb(29, 31, 40),
+                Color::Rgb(197, 116, 221),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(193, 222, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(40, 42, 54),
+                Color::Rgb(243, 127, 151),
+                Color::Rgb(90, 222, 205),
+                Color::Rgb(242, 162, 114),
+                Color::Rgb(65, 68, 88),
+                Color::Rgb(190, 190, 193),
+                None,
+            ),
+            (
+                "Low Contrast (terminal.sexy)",
+                Color::Rgb(147, 161, 161),
+                Color::Rgb(60, 59, 55),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(95, 95, 95),
+                Color::Rgb(217, 100, 104),
+                Color::Rgb(162, 217, 100),
+                Color::Rgb(217, 201, 100),
+                Color::Rgb(130, 130, 130),
+                Color::Rgb(197, 197, 197),
+                None,
+            ),
+            (
+                "Lumifoo (terminal.sexy)",
+                Color::Rgb(136, 138, 140),
+                Color::Rgb(30, 32, 33),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(81, 81, 81),
+                Color::Rgb(191, 99, 130),
+                Color::Rgb(101, 164, 70),
+                Color::Rgb(173, 138, 67),
+                Color::Rgb(112, 113, 114),
+                Color::Rgb(208, 208, 208),
+                None,
+            ),
+            (
+                "Lunaria Dark (Gogh)",
+                Color::Rgb(202, 206, 216),
+                Color::Rgb(54, 70, 78),
+                Color::Rgb(202, 206, 216),
+                Some(Color::Rgb(54, 70, 78)),
+                None,
+                None,
+                Color::Rgb(54, 70, 78),
+                Color::Rgb(132, 101, 96),
+                Color::Rgb(128, 153, 132),
+                Color::Rgb(167, 154, 121),
+                Color::Rgb(64, 79, 86),
+                Color::Rgb(223, 226, 237),
+                None,
+            ),
+            (
+                "LunariaDark (Gogh)",
+                Color::Rgb(202, 206, 216),
+                Color::Rgb(54, 70, 78),
+                Color::Rgb(202, 206, 216),
+                Some(Color::Rgb(54, 70, 78)),
+                None,
+                None,
+                Color::Rgb(54, 70, 78),
+                Color::Rgb(132, 101, 96),
+                Color::Rgb(128, 153, 132),
+                Color::Rgb(167, 154, 121),
+                Color::Rgb(64, 79, 86),
+                Color::Rgb(223, 226, 237),
+                None,
+            ),
+            (
+                "Lunaria Eclipse (Gogh)",
+                Color::Rgb(201, 205, 215),
+                Color::Rgb(50, 63, 70),
+                Color::Rgb(201, 205, 215),
+                Some(Color::Rgb(50, 63, 70)),
+                None,
+                None,
+                Color::Rgb(50, 63, 70),
+                Color::Rgb(131, 97, 91),
+                Color::Rgb(127, 151, 129),
+                Color::Rgb(166, 152, 117),
+                Color::Rgb(61, 73, 80),
+                Color::Rgb(223, 226, 237),
+                None,
+            ),
+            (
+                "LunariaEclipse (Gogh)",
+                Color::Rgb(201, 205, 215),
+                Color::Rgb(50, 63, 70),
+                Color::Rgb(201, 205, 215),
+                Some(Color::Rgb(50, 63, 70)),
+                None,
+                None,
+                Color::Rgb(50, 63, 70),
+                Color::Rgb(131, 97, 91),
+                Color::Rgb(127, 151, 129),
+                Color::Rgb(166, 152, 117),
+                Color::Rgb(61, 73, 80),
+                Color::Rgb(223, 226, 237),
+                None,
+            ),
+            (
+                "Lunaria Light (Gogh)",
+                Color::Rgb(72, 70, 70),
+                Color::Rgb(235, 228, 225),
+                Color::Rgb(72, 70, 70),
+                Some(Color::Rgb(235, 228, 225)),
+                None,
+                None,
+                Color::Rgb(62, 60, 61),
+                Color::Rgb(120, 60, 31),
+                Color::Rgb(73, 125, 70),
+                Color::Rgb(143, 117, 11),
+                Color::Rgb(72, 70, 70),
+                Color::Rgb(235, 228, 225),
+                None,
+            ),
+            (
+                "LunariaLight (Gogh)",
+                Color::Rgb(72, 70, 70),
+                Color::Rgb(235, 228, 225),
+                Color::Rgb(72, 70, 70),
+                Some(Color::Rgb(235, 228, 225)),
+                None,
+                None,
+                Color::Rgb(62, 60, 61),
+                Color::Rgb(120, 60, 31),
+                Color::Rgb(73, 125, 70),
+                Color::Rgb(143, 117, 11),
+                Color::Rgb(72, 70, 70),
+                Color::Rgb(235, 228, 225),
+                None,
+            ),
+            (
+                "Macintosh (base16)",
+                Color::Rgb(192, 192, 192),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(192, 192, 192),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(192, 192, 192)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(221, 9, 7),
+                Color::Rgb(31, 183, 20),
+                Color::Rgb(251, 243, 5),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(255, 100, 3)),
+            ),
+            (
+                "Maia (Gogh)",
+                Color::Rgb(189, 195, 199),
+                Color::Rgb(49, 54, 59),
+                Color::Rgb(189, 195, 199),
+                Some(Color::Rgb(49, 54, 59)),
+                None,
+                None,
+                Color::Rgb(35, 36, 35),
+                Color::Rgb(186, 41, 34),
+                Color::Rgb(126, 128, 126),
+                Color::Rgb(76, 79, 77),
+                Color::Rgb(40, 41, 40),
+                Color::Rgb(232, 232, 232),
+                None,
+            ),
+            (
+                "Man Page",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(254, 244, 156),
+                Color::Rgb(127, 127, 127),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(164, 201, 205)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(153, 153, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "ManPage (Gogh)",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(254, 244, 156),
+                Color::Rgb(127, 127, 127),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(164, 201, 205)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(153, 153, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Man Page (Gogh)",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(254, 244, 156),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(254, 244, 156)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(153, 153, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Lost-Woods-to-Man-Page built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
