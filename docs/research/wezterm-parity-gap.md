@@ -3794,9 +3794,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Paraiso Dark`, `Paraiso Dark (Gogh)`,
   `Parker Brothers (terminal.sexy)`, `Pasque (base16)`,
   `Pastel White (terminal.sexy)`, `Paul Millr (Gogh)`, `PaulMillr`,
-  `Pencil Dark (Gogh)`, `Builtin Dark`, `Builtin Light`,
-  `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
-  `Builtin Tango Dark`, `Builtin Tango Light`, and
+  `Pencil Dark (Gogh)`, `Pencil Light (Gogh)`, `PencilDark`,
+  `PencilLight`, `Peppermint`, `Peppermint (Gogh)`, `PhD (base16)`,
+  `Phrak1 (terminal.sexy)`, `Piatto Light`, `Builtin Dark`,
+  `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
+  `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
   palette data. The broader built-in scheme catalog, richer dynamic
   `load_scheme` composition, and full dynamic Lua scheme

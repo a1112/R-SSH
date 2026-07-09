@@ -20118,6 +20118,14 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Paul Millr (Gogh)" | "PaulMillr (Gogh)" => Some(BUILTIN_PAUL_MILLR_GOGH_COLOR_SCHEME_TOML),
         "PaulMillr" => Some(BUILTIN_PAULMILLR_COLOR_SCHEME_TOML),
         "Pencil Dark (Gogh)" => Some(BUILTIN_PENCIL_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Pencil Light (Gogh)" => Some(BUILTIN_PENCIL_LIGHT_GOGH_COLOR_SCHEME_TOML),
+        "PencilDark" => Some(BUILTIN_PENCILDARK_COLOR_SCHEME_TOML),
+        "PencilLight" => Some(BUILTIN_PENCILLIGHT_COLOR_SCHEME_TOML),
+        "Peppermint" => Some(BUILTIN_PEPPERMINT_COLOR_SCHEME_TOML),
+        "Peppermint (Gogh)" => Some(BUILTIN_PEPPERMINT_GOGH_COLOR_SCHEME_TOML),
+        "PhD (base16)" => Some(BUILTIN_PHD_BASE16_COLOR_SCHEME_TOML),
+        "Phrak1 (terminal.sexy)" => Some(BUILTIN_PHRAK1_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Piatto Light" => Some(BUILTIN_PIATTO_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -48253,6 +48261,317 @@ aliases = []
 name = "Pencil Dark (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_PENCIL_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#212121",
+    "#c30771",
+    "#10a778",
+    "#a89c14",
+    "#008ec4",
+    "#523c79",
+    "#20a5ba",
+    "#d9d9d9",
+]
+background = "#f1f1f1"
+brights = [
+    "#424242",
+    "#fb007a",
+    "#5fd7af",
+    "#f3e430",
+    "#20bbfc",
+    "#6855de",
+    "#4fb8cc",
+    "#f1f1f1",
+]
+cursor_bg = "#424242"
+cursor_border = "#424242"
+cursor_fg = "#f1f1f1"
+foreground = "#424242"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Pencil Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_PENCILDARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#212121",
+    "#c30771",
+    "#10a778",
+    "#a89c14",
+    "#008ec4",
+    "#523c79",
+    "#20a5ba",
+    "#d9d9d9",
+]
+background = "#212121"
+brights = [
+    "#424242",
+    "#fb007a",
+    "#5fd7af",
+    "#f3e430",
+    "#20bbfc",
+    "#6855de",
+    "#4fb8cc",
+    "#f1f1f1",
+]
+cursor_bg = "#20bbfc"
+cursor_border = "#20bbfc"
+cursor_fg = "#f1f1f1"
+foreground = "#f1f1f1"
+selection_bg = "#b6d6fd"
+selection_fg = "#f1f1f1"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Pencil Dark (Gogh)"]
+name = "PencilDark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_PENCILLIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#212121",
+    "#c30771",
+    "#10a778",
+    "#a89c14",
+    "#008ec4",
+    "#523c79",
+    "#20a5ba",
+    "#d9d9d9",
+]
+background = "#f1f1f1"
+brights = [
+    "#424242",
+    "#fb007a",
+    "#5fd7af",
+    "#f3e430",
+    "#20bbfc",
+    "#6855de",
+    "#4fb8cc",
+    "#f1f1f1",
+]
+cursor_bg = "#20bbfc"
+cursor_border = "#20bbfc"
+cursor_fg = "#424242"
+foreground = "#424242"
+selection_bg = "#b6d6fd"
+selection_fg = "#424242"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Pencil Light (Gogh)"]
+name = "PencilLight"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_PEPPERMINT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#353535",
+    "#e74669",
+    "#89d287",
+    "#dab853",
+    "#449fd0",
+    "#da62dc",
+    "#65aaaf",
+    "#b4b4b4",
+]
+background = "#000000"
+brights = [
+    "#535353",
+    "#e4859b",
+    "#a3cca2",
+    "#e1e487",
+    "#6fbce2",
+    "#e586e7",
+    "#96dcdb",
+    "#dfdfdf",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#c8c8c8"
+selection_bg = "#e6e6e6"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Peppermint"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_PEPPERMINT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#353535",
+    "#e64569",
+    "#89d287",
+    "#dab752",
+    "#439ecf",
+    "#d961dc",
+    "#64aaaf",
+    "#b3b3b3",
+]
+background = "#000000"
+brights = [
+    "#535353",
+    "#e4859a",
+    "#a2cca1",
+    "#e1e387",
+    "#6fbbe2",
+    "#e586e7",
+    "#96dcda",
+    "#dedede",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#000000"
+foreground = "#c7c7c7"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Peppermint (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PHD_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#061229",
+    "#d07346",
+    "#99bf52",
+    "#fbd461",
+    "#5299bf",
+    "#9989cc",
+    "#72b9bf",
+    "#b8bbc2",
+]
+background = "#061229"
+brights = [
+    "#717885",
+    "#d07346",
+    "#99bf52",
+    "#fbd461",
+    "#5299bf",
+    "#9989cc",
+    "#72b9bf",
+    "#ffffff",
+]
+cursor_bg = "#b8bbc2"
+cursor_border = "#b8bbc2"
+cursor_fg = "#061229"
+foreground = "#b8bbc2"
+selection_bg = "#b8bbc2"
+selection_fg = "#061229"
+
+[colors.indexed]
+16 = "#f0a000"
+17 = "#b08060"
+18 = "#2a3448"
+19 = "#4d5666"
+20 = "#9a99a3"
+21 = "#dbdde0"
+
+[metadata]
+aliases = []
+author = "Hennig Hasemann (http://leetless.de/vim.html)"
+name = "PhD (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PHRAK1_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#a80000",
+    "#00a800",
+    "#a85400",
+    "#0000a8",
+    "#a800a8",
+    "#00a8a8",
+    "#a8a8a8",
+]
+background = "#000000"
+brights = [
+    "#545054",
+    "#f85450",
+    "#50fc50",
+    "#f8fc50",
+    "#5054f8",
+    "#f854f8",
+    "#50fcf8",
+    "#f8fcf8",
+]
+foreground = "#a8a8a8"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Phrak1 (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PIATTO_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#414141",
+    "#b23771",
+    "#66781e",
+    "#cd6f34",
+    "#3c5ea8",
+    "#a454b2",
+    "#66781e",
+    "#ffffff",
+]
+background = "#ffffff"
+brights = [
+    "#3f3f3f",
+    "#db3365",
+    "#829429",
+    "#cd6f34",
+    "#3c5ea8",
+    "#a454b2",
+    "#829429",
+    "#f2f2f2",
+]
+cursor_bg = "#5e77c8"
+cursor_border = "#5e77c8"
+cursor_fg = "#abbee5"
+foreground = "#414141"
+selection_bg = "#706b4e"
+selection_fg = "#acbcdc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Piatto Light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -129990,6 +130309,196 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Paraiso-Dark-to-Pencil-Dark built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_pencil_light_to_piatto_light_builtin_color_schemes() {
+        let cases = [
+            (
+                "Pencil Light (Gogh)",
+                Color::Rgb(66, 66, 66),
+                Color::Rgb(241, 241, 241),
+                Color::Rgb(66, 66, 66),
+                Some(Color::Rgb(241, 241, 241)),
+                None,
+                None,
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(195, 7, 113),
+                Color::Rgb(16, 167, 120),
+                Color::Rgb(168, 156, 20),
+                Color::Rgb(66, 66, 66),
+                Color::Rgb(241, 241, 241),
+                None,
+            ),
+            (
+                "PencilDark",
+                Color::Rgb(241, 241, 241),
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(32, 187, 252),
+                Some(Color::Rgb(241, 241, 241)),
+                Some(Color::Rgb(182, 214, 253)),
+                Some(Some(Color::Rgb(241, 241, 241))),
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(195, 7, 113),
+                Color::Rgb(16, 167, 120),
+                Color::Rgb(168, 156, 20),
+                Color::Rgb(66, 66, 66),
+                Color::Rgb(241, 241, 241),
+                None,
+            ),
+            (
+                "PencilLight",
+                Color::Rgb(66, 66, 66),
+                Color::Rgb(241, 241, 241),
+                Color::Rgb(32, 187, 252),
+                Some(Color::Rgb(66, 66, 66)),
+                Some(Color::Rgb(182, 214, 253)),
+                Some(Some(Color::Rgb(66, 66, 66))),
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(195, 7, 113),
+                Color::Rgb(16, 167, 120),
+                Color::Rgb(168, 156, 20),
+                Color::Rgb(66, 66, 66),
+                Color::Rgb(241, 241, 241),
+                None,
+            ),
+            (
+                "Peppermint",
+                Color::Rgb(200, 200, 200),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(230, 230, 230)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(53, 53, 53),
+                Color::Rgb(231, 70, 105),
+                Color::Rgb(137, 210, 135),
+                Color::Rgb(218, 184, 83),
+                Color::Rgb(83, 83, 83),
+                Color::Rgb(223, 223, 223),
+                None,
+            ),
+            (
+                "Peppermint (Gogh)",
+                Color::Rgb(199, 199, 199),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(53, 53, 53),
+                Color::Rgb(230, 69, 105),
+                Color::Rgb(137, 210, 135),
+                Color::Rgb(218, 183, 82),
+                Color::Rgb(83, 83, 83),
+                Color::Rgb(222, 222, 222),
+                None,
+            ),
+            (
+                "PhD (base16)",
+                Color::Rgb(184, 187, 194),
+                Color::Rgb(6, 18, 41),
+                Color::Rgb(184, 187, 194),
+                Some(Color::Rgb(6, 18, 41)),
+                Some(Color::Rgb(184, 187, 194)),
+                Some(Some(Color::Rgb(6, 18, 41))),
+                Color::Rgb(6, 18, 41),
+                Color::Rgb(208, 115, 70),
+                Color::Rgb(153, 191, 82),
+                Color::Rgb(251, 212, 97),
+                Color::Rgb(113, 120, 133),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(240, 160, 0)),
+            ),
+            (
+                "Phrak1 (terminal.sexy)",
+                Color::Rgb(168, 168, 168),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(168, 0, 0),
+                Color::Rgb(0, 168, 0),
+                Color::Rgb(168, 84, 0),
+                Color::Rgb(84, 80, 84),
+                Color::Rgb(248, 252, 248),
+                None,
+            ),
+            (
+                "Piatto Light",
+                Color::Rgb(65, 65, 65),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(94, 119, 200),
+                Some(Color::Rgb(171, 190, 229)),
+                Some(Color::Rgb(112, 107, 78)),
+                Some(Some(Color::Rgb(172, 188, 220))),
+                Color::Rgb(65, 65, 65),
+                Color::Rgb(178, 55, 113),
+                Color::Rgb(102, 120, 30),
+                Color::Rgb(205, 111, 52),
+                Color::Rgb(63, 63, 63),
+                Color::Rgb(242, 242, 242),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Pencil-Light-to-Piatto-Light built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
