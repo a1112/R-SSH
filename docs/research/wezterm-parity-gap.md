@@ -3747,7 +3747,15 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Mellifluous`, `Mellow Purple (base16)`, `Mexico Light (base16)`,
   `midnight-in-mojave`, `Mikado (terminal.sexy)`,
   `Mikazuki (terminal.sexy)`, `Mirage`, `Miramare (Gogh)`,
-  `Misterioso`, `Misterioso (Gogh)`, `Builtin Dark`, `Builtin Light`,
+  `Misterioso`, `Misterioso (Gogh)`, `Mocha (base16)`,
+  `Mocha (dark) (terminal.sexy)`, `Mocha (light) (terminal.sexy)`,
+  `Modus Operandi (Gogh)`, `Modus Operandi Tinted (Gogh)`,
+  `Modus Vivendi (Gogh)`, `Modus Vivendi Tinted (Gogh)`,
+  `Modus-Operandi`, `Modus-Operandi-Deuteranopia`,
+  `Modus-Operandi-Tinted`, `Modus-Vivendi`,
+  `Modus-Vivendi-Deuteranopia`, `Modus-Vivendi-Tinted`,
+  `Modus-Vivendi-Tritanopia`, `Molokai`, `Molokai (Gogh)`,
+  `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting
   WezTerm aliases using WezTerm's built-in TOML palette data. The broader

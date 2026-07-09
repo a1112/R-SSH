@@ -19938,6 +19938,28 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Miramare (Gogh)" => Some(BUILTIN_MIRAMARE_GOGH_COLOR_SCHEME_TOML),
         "Misterioso" => Some(BUILTIN_MISTERIOSO_COLOR_SCHEME_TOML),
         "Misterioso (Gogh)" => Some(BUILTIN_MISTERIOSO_GOGH_COLOR_SCHEME_TOML),
+        "Mocha (base16)" => Some(BUILTIN_MOCHA_BASE16_COLOR_SCHEME_TOML),
+        "Mocha (dark) (terminal.sexy)" => Some(BUILTIN_MOCHA_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Mocha (light) (terminal.sexy)" => {
+            Some(BUILTIN_MOCHA_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Modus Operandi (Gogh)" => Some(BUILTIN_MODUS_OPERANDI_GOGH_COLOR_SCHEME_TOML),
+        "Modus Operandi Tinted (Gogh)" => {
+            Some(BUILTIN_MODUS_OPERANDI_TINTED_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Modus Vivendi (Gogh)" => Some(BUILTIN_MODUS_VIVENDI_GOGH_COLOR_SCHEME_TOML),
+        "Modus Vivendi Tinted (Gogh)" => Some(BUILTIN_MODUS_VIVENDI_TINTED_GOGH_COLOR_SCHEME_TOML),
+        "Modus-Operandi" => Some(BUILTIN_MODUS_OPERANDI_COLOR_SCHEME_TOML),
+        "Modus-Operandi-Deuteranopia" | "Modus-Operandi-Tritanopia" => {
+            Some(BUILTIN_MODUS_OPERANDI_DEUTERANOPIA_COLOR_SCHEME_TOML)
+        }
+        "Modus-Operandi-Tinted" => Some(BUILTIN_MODUS_OPERANDI_TINTED_COLOR_SCHEME_TOML),
+        "Modus-Vivendi" => Some(BUILTIN_MODUS_VIVENDI_COLOR_SCHEME_TOML),
+        "Modus-Vivendi-Deuteranopia" => Some(BUILTIN_MODUS_VIVENDI_DEUTERANOPIA_COLOR_SCHEME_TOML),
+        "Modus-Vivendi-Tinted" => Some(BUILTIN_MODUS_VIVENDI_TINTED_COLOR_SCHEME_TOML),
+        "Modus-Vivendi-Tritanopia" => Some(BUILTIN_MODUS_VIVENDI_TRITANOPIA_COLOR_SCHEME_TOML),
+        "Molokai" => Some(BUILTIN_MOLOKAI_COLOR_SCHEME_TOML),
+        "Molokai (Gogh)" => Some(BUILTIN_MOLOKAI_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -43020,6 +43042,626 @@ aliases = []
 name = "Misterioso (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_MOCHA_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3b3228",
+    "#cb6077",
+    "#beb55b",
+    "#f4bc87",
+    "#8ab3b5",
+    "#a89bb9",
+    "#7bbda4",
+    "#d0c8c6",
+]
+background = "#3b3228"
+brights = [
+    "#7e705a",
+    "#cb6077",
+    "#beb55b",
+    "#f4bc87",
+    "#8ab3b5",
+    "#a89bb9",
+    "#7bbda4",
+    "#f5eeeb",
+]
+cursor_bg = "#d0c8c6"
+cursor_border = "#d0c8c6"
+cursor_fg = "#3b3228"
+foreground = "#d0c8c6"
+selection_bg = "#d0c8c6"
+selection_fg = "#3b3228"
+
+[colors.indexed]
+16 = "#d28b71"
+17 = "#bb9584"
+18 = "#534636"
+19 = "#645240"
+20 = "#b8afad"
+21 = "#e9e1dd"
+
+[metadata]
+aliases = ["Mocha (dark) (terminal.sexy)"]
+author = "Chris Kempson (http://chriskempson.com)"
+name = "Mocha (base16)"
+origin_url = "https://github.com/chriskempson/base16-default-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MOCHA_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3b3228",
+    "#cb6077",
+    "#beb55b",
+    "#f4bc87",
+    "#8ab3b5",
+    "#a89bb9",
+    "#7bbda4",
+    "#d0c8c6",
+]
+background = "#3b3228"
+brights = [
+    "#7e705a",
+    "#cb6077",
+    "#beb55b",
+    "#f4bc87",
+    "#8ab3b5",
+    "#a89bb9",
+    "#7bbda4",
+    "#f5eeeb",
+]
+foreground = "#d0c8c6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Mocha (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_MOCHA_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3b3228",
+    "#cb6077",
+    "#beb55b",
+    "#f4bc87",
+    "#8ab3b5",
+    "#a89bb9",
+    "#7bbda4",
+    "#d0c8c6",
+]
+background = "#f5eeeb"
+brights = [
+    "#7e705a",
+    "#cb6077",
+    "#beb55b",
+    "#f4bc87",
+    "#8ab3b5",
+    "#a89bb9",
+    "#7bbda4",
+    "#f5eeeb",
+]
+foreground = "#645240"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Mocha (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MODUS_OPERANDI_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#ffffff",
+    "#a60000",
+    "#006800",
+    "#6f5500",
+    "#0031a9",
+    "#721045",
+    "#005e8b",
+    "#000000",
+]
+background = "#ffffff"
+brights = [
+    "#f2f2f2",
+    "#d00000",
+    "#008900",
+    "#808000",
+    "#0000ff",
+    "#dd22dd",
+    "#008899",
+    "#595959",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#ffffff"
+foreground = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Modus Operandi (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_MODUS_OPERANDI_TINTED_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#fbf7f0",
+    "#a60000",
+    "#006800",
+    "#6f5500",
+    "#0031a9",
+    "#721045",
+    "#005e8b",
+    "#000000",
+]
+background = "#fbf7f0"
+brights = [
+    "#efe9dd",
+    "#d00000",
+    "#008900",
+    "#808000",
+    "#0000ff",
+    "#dd22dd",
+    "#008899",
+    "#595959",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#fbf7f0"
+foreground = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Modus Operandi Tinted (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_MODUS_VIVENDI_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff5f59",
+    "#44bc44",
+    "#d0bc00",
+    "#2fafff",
+    "#feacd0",
+    "#00d3d0",
+    "#ffffff",
+]
+background = "#000000"
+brights = [
+    "#1e1e1e",
+    "#ff5f5f",
+    "#44df44",
+    "#efef00",
+    "#338fff",
+    "#ff66ff",
+    "#00eff0",
+    "#989898",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Modus Vivendi (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_MODUS_VIVENDI_TINTED_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0d0e1c",
+    "#ff5f59",
+    "#44bc44",
+    "#d0bc00",
+    "#2fafff",
+    "#feacd0",
+    "#00d3d0",
+    "#ffffff",
+]
+background = "#0d0e1c"
+brights = [
+    "#1d2235",
+    "#ff5f5f",
+    "#44df44",
+    "#efef00",
+    "#338fff",
+    "#ff66ff",
+    "#00eff0",
+    "#989898",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#0d0e1c"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Modus Vivendi Tinted (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_MODUS_OPERANDI_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f2f2f2",
+    "#a60000",
+    "#006800",
+    "#6f5500",
+    "#0031a9",
+    "#721045",
+    "#005e8b",
+    "#000000",
+]
+background = "#ffffff"
+brights = [
+    "#c4c4c4",
+    "#a0132f",
+    "#00663f",
+    "#7a4f2f",
+    "#0000b0",
+    "#531ab6",
+    "#005f5f",
+    "#595959",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#ffffff"
+foreground = "#000000"
+selection_bg = "#bdbdbd"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Modus-Operandi"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/modus-operandi-theme.el"
+wezterm_version = "20230408-112425-69ae8472"
+"##;
+
+const BUILTIN_MODUS_OPERANDI_DEUTERANOPIA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f2f2f2",
+    "#a60000",
+    "#006800",
+    "#695500",
+    "#0031a9",
+    "#721045",
+    "#005e8b",
+    "#000000",
+]
+background = "#ffffff"
+brights = [
+    "#c4c4c4",
+    "#a0132f",
+    "#00663f",
+    "#77492f",
+    "#0000b0",
+    "#531ab6",
+    "#005f5f",
+    "#595959",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#ffffff"
+foreground = "#000000"
+selection_bg = "#bdbdbd"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Modus-Operandi-Tritanopia"]
+author = "anhsirk0"
+name = "Modus-Operandi-Deuteranopia"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/modus-operandi-deuteranopia-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_MODUS_OPERANDI_TINTED_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#efe9dd",
+    "#a60000",
+    "#006800",
+    "#6f5500",
+    "#0031a9",
+    "#721045",
+    "#005e8b",
+    "#000000",
+]
+background = "#fbf7f0"
+brights = [
+    "#c9b9b0",
+    "#a0132f",
+    "#00663f",
+    "#7a4f2f",
+    "#0000b0",
+    "#531ab6",
+    "#005f5f",
+    "#595959",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#fbf7f0"
+foreground = "#000000"
+selection_bg = "#c2bcb5"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Modus-Operandi-Tinted"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/modus-operandi-tinted-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_MODUS_VIVENDI_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e1e1e",
+    "#ff5f59",
+    "#44bc44",
+    "#d0bc00",
+    "#2fafff",
+    "#feacd0",
+    "#00d3d0",
+    "#ffffff",
+]
+background = "#000000"
+brights = [
+    "#535353",
+    "#ff7f9f",
+    "#00c06f",
+    "#dfaf7a",
+    "#00bcff",
+    "#b6a0ff",
+    "#6ae4b9",
+    "#989898",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+selection_bg = "#5a5a5a"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Modus-Vivendi"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/modus-vivendi-theme.el"
+wezterm_version = "20230408-112425-69ae8472"
+"##;
+
+const BUILTIN_MODUS_VIVENDI_DEUTERANOPIA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e1e1e",
+    "#ff5f59",
+    "#44bc44",
+    "#cabf00",
+    "#2fafff",
+    "#feacd0",
+    "#00d3d0",
+    "#ffffff",
+]
+background = "#000000"
+brights = [
+    "#535353",
+    "#ff7f9f",
+    "#00c06f",
+    "#d8af7a",
+    "#00bcff",
+    "#b6a0ff",
+    "#6ae4b9",
+    "#989898",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+selection_bg = "#5a5a5a"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Modus-Vivendi-Deuteranopia"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/modus-vivendi-deuteranopia-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_MODUS_VIVENDI_TINTED_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d2235",
+    "#ff5f59",
+    "#44bc44",
+    "#d0bc00",
+    "#2fafff",
+    "#feacd0",
+    "#00d3d0",
+    "#ffffff",
+]
+background = "#0d0e1c"
+brights = [
+    "#4a4f69",
+    "#ff7f9f",
+    "#00c06f",
+    "#dfaf7a",
+    "#00bcff",
+    "#b6a0ff",
+    "#6ae4b9",
+    "#989898",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#0d0e1c"
+foreground = "#ffffff"
+selection_bg = "#555a66"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Modus-Vivendi-Tinted"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/modus-vivendi-tinted-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_MODUS_VIVENDI_TRITANOPIA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e1e1e",
+    "#ff5f59",
+    "#44bc44",
+    "#cabf00",
+    "#2fafff",
+    "#feacd0",
+    "#00d3d0",
+    "#ffffff",
+]
+background = "#000000"
+brights = [
+    "#535353",
+    "#ff6f9f",
+    "#00c06f",
+    "#d8af7a",
+    "#00bcff",
+    "#b6a0ff",
+    "#6ae4b9",
+    "#989898",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+selection_bg = "#5a5a5a"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "anhsirk0"
+name = "Modus-Vivendi-Tritanopia"
+origin_url = "https://git.sr.ht/~protesilaos/ef-themes/tree/main/item/modus-vivendi-tritanopia-theme.el"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_MOLOKAI_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#121212",
+    "#fa2573",
+    "#98e123",
+    "#dfd460",
+    "#1080d0",
+    "#8700ff",
+    "#43a8d0",
+    "#bbbbbb",
+]
+background = "#121212"
+brights = [
+    "#555555",
+    "#f6669d",
+    "#b1e05f",
+    "#fff26d",
+    "#00afff",
+    "#af87ff",
+    "#51ceff",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#bbbbbb"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Molokai"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MOLOKAI_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1d1e",
+    "#7325fa",
+    "#23e298",
+    "#60d4df",
+    "#d08010",
+    "#ff0087",
+    "#d0a843",
+    "#bbbbbb",
+]
+background = "#1b1d1e"
+brights = [
+    "#555555",
+    "#9d66f6",
+    "#5fe0b1",
+    "#6df2ff",
+    "#ffaf00",
+    "#ff87af",
+    "#ffce51",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#1b1d1e"
+foreground = "#bbbbbb"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Molokai (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -121439,6 +122081,340 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Matrix-to-Misterioso built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_mocha_to_molokai_builtin_color_schemes() {
+        let cases = [
+            (
+                "Mocha (base16)",
+                Color::Rgb(208, 200, 198),
+                Color::Rgb(59, 50, 40),
+                Color::Rgb(208, 200, 198),
+                Some(Color::Rgb(59, 50, 40)),
+                Some(Color::Rgb(208, 200, 198)),
+                Some(Some(Color::Rgb(59, 50, 40))),
+                Color::Rgb(59, 50, 40),
+                Color::Rgb(203, 96, 119),
+                Color::Rgb(190, 181, 91),
+                Color::Rgb(244, 188, 135),
+                Color::Rgb(126, 112, 90),
+                Color::Rgb(245, 238, 235),
+                Some(Color::Rgb(210, 139, 113)),
+            ),
+            (
+                "Mocha (dark) (terminal.sexy)",
+                Color::Rgb(208, 200, 198),
+                Color::Rgb(59, 50, 40),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(59, 50, 40),
+                Color::Rgb(203, 96, 119),
+                Color::Rgb(190, 181, 91),
+                Color::Rgb(244, 188, 135),
+                Color::Rgb(126, 112, 90),
+                Color::Rgb(245, 238, 235),
+                None,
+            ),
+            (
+                "Mocha (light) (terminal.sexy)",
+                Color::Rgb(100, 82, 64),
+                Color::Rgb(245, 238, 235),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(59, 50, 40),
+                Color::Rgb(203, 96, 119),
+                Color::Rgb(190, 181, 91),
+                Color::Rgb(244, 188, 135),
+                Color::Rgb(126, 112, 90),
+                Color::Rgb(245, 238, 235),
+                None,
+            ),
+            (
+                "Modus Operandi (Gogh)",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 255)),
+                None,
+                None,
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(166, 0, 0),
+                Color::Rgb(0, 104, 0),
+                Color::Rgb(111, 85, 0),
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(89, 89, 89),
+                None,
+            ),
+            (
+                "Modus Operandi Tinted (Gogh)",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(251, 247, 240),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(251, 247, 240)),
+                None,
+                None,
+                Color::Rgb(251, 247, 240),
+                Color::Rgb(166, 0, 0),
+                Color::Rgb(0, 104, 0),
+                Color::Rgb(111, 85, 0),
+                Color::Rgb(239, 233, 221),
+                Color::Rgb(89, 89, 89),
+                None,
+            ),
+            (
+                "Modus Vivendi (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 95, 89),
+                Color::Rgb(68, 188, 68),
+                Color::Rgb(208, 188, 0),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(152, 152, 152),
+                None,
+            ),
+            (
+                "Modus Vivendi Tinted (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(13, 14, 28),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(13, 14, 28)),
+                None,
+                None,
+                Color::Rgb(13, 14, 28),
+                Color::Rgb(255, 95, 89),
+                Color::Rgb(68, 188, 68),
+                Color::Rgb(208, 188, 0),
+                Color::Rgb(29, 34, 53),
+                Color::Rgb(152, 152, 152),
+                None,
+            ),
+            (
+                "Modus-Operandi",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(189, 189, 189)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(166, 0, 0),
+                Color::Rgb(0, 104, 0),
+                Color::Rgb(111, 85, 0),
+                Color::Rgb(196, 196, 196),
+                Color::Rgb(89, 89, 89),
+                None,
+            ),
+            (
+                "Modus-Operandi-Deuteranopia",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(189, 189, 189)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(166, 0, 0),
+                Color::Rgb(0, 104, 0),
+                Color::Rgb(105, 85, 0),
+                Color::Rgb(196, 196, 196),
+                Color::Rgb(89, 89, 89),
+                None,
+            ),
+            (
+                "Modus-Operandi-Tritanopia",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(189, 189, 189)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(166, 0, 0),
+                Color::Rgb(0, 104, 0),
+                Color::Rgb(105, 85, 0),
+                Color::Rgb(196, 196, 196),
+                Color::Rgb(89, 89, 89),
+                None,
+            ),
+            (
+                "Modus-Operandi-Tinted",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(251, 247, 240),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(251, 247, 240)),
+                Some(Color::Rgb(194, 188, 181)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(239, 233, 221),
+                Color::Rgb(166, 0, 0),
+                Color::Rgb(0, 104, 0),
+                Color::Rgb(111, 85, 0),
+                Color::Rgb(201, 185, 176),
+                Color::Rgb(89, 89, 89),
+                None,
+            ),
+            (
+                "Modus-Vivendi",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(90, 90, 90)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(255, 95, 89),
+                Color::Rgb(68, 188, 68),
+                Color::Rgb(208, 188, 0),
+                Color::Rgb(83, 83, 83),
+                Color::Rgb(152, 152, 152),
+                None,
+            ),
+            (
+                "Modus-Vivendi-Deuteranopia",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(90, 90, 90)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(255, 95, 89),
+                Color::Rgb(68, 188, 68),
+                Color::Rgb(202, 191, 0),
+                Color::Rgb(83, 83, 83),
+                Color::Rgb(152, 152, 152),
+                None,
+            ),
+            (
+                "Modus-Vivendi-Tinted",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(13, 14, 28),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(13, 14, 28)),
+                Some(Color::Rgb(85, 90, 102)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(29, 34, 53),
+                Color::Rgb(255, 95, 89),
+                Color::Rgb(68, 188, 68),
+                Color::Rgb(208, 188, 0),
+                Color::Rgb(74, 79, 105),
+                Color::Rgb(152, 152, 152),
+                None,
+            ),
+            (
+                "Modus-Vivendi-Tritanopia",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(90, 90, 90)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(255, 95, 89),
+                Color::Rgb(68, 188, 68),
+                Color::Rgb(202, 191, 0),
+                Color::Rgb(83, 83, 83),
+                Color::Rgb(152, 152, 152),
+                None,
+            ),
+            (
+                "Molokai",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(18, 18, 18),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(181, 213, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(18, 18, 18),
+                Color::Rgb(250, 37, 115),
+                Color::Rgb(152, 225, 35),
+                Color::Rgb(223, 212, 96),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Molokai (Gogh)",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(27, 29, 30)),
+                None,
+                None,
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(115, 37, 250),
+                Color::Rgb(35, 226, 152),
+                Color::Rgb(96, 212, 223),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Mocha-to-Molokai built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
