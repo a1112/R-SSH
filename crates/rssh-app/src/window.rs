@@ -20190,6 +20190,19 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Rosé Pine Dawn (Gogh)" => Some(BUILTIN_ROSE_PINE_DAWN_GOGH_COLOR_SCHEME_TOML),
         "Rosé Pine Moon (base16)" => Some(BUILTIN_ROSE_PINE_MOON_BASE16_COLOR_SCHEME_TOML),
         "Rosé Pine Moon (Gogh)" => Some(BUILTIN_ROSE_PINE_MOON_GOGH_COLOR_SCHEME_TOML),
+        "Rouge 2" => Some(BUILTIN_ROUGE_2_COLOR_SCHEME_TOML),
+        "Royal" => Some(BUILTIN_ROYAL_COLOR_SCHEME_TOML),
+        "Royal (Gogh)" => Some(BUILTIN_ROYAL_GOGH_COLOR_SCHEME_TOML),
+        "Rydgel (terminal.sexy)" => Some(BUILTIN_RYDGEL_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Ryuuko" => Some(BUILTIN_RYUUKO_COLOR_SCHEME_TOML),
+        "s3r0 modified (terminal.sexy)" => {
+            Some(BUILTIN_S3R0_MODIFIED_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Sagelight (base16)" => Some(BUILTIN_SAGELIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Sakura" => Some(BUILTIN_SAKURA_COLOR_SCHEME_TOML),
+        "Sakura (base16)" => Some(BUILTIN_SAKURA_BASE16_COLOR_SCHEME_TOML),
+        "Sandcastle (base16)" => Some(BUILTIN_SANDCASTLE_BASE16_COLOR_SCHEME_TOML),
+        "Sat (Gogh)" => Some(BUILTIN_SAT_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -50878,6 +50891,444 @@ aliases = []
 name = "Rosé Pine Moon (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_ROUGE_2_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#5d5d6b",
+    "#c6797e",
+    "#969e92",
+    "#dbcdab",
+    "#6e94b9",
+    "#4c4e78",
+    "#8ab6c1",
+    "#e8e8ea",
+]
+background = "#17182b"
+brights = [
+    "#616274",
+    "#c6797e",
+    "#e6dcc4",
+    "#e6dcc4",
+    "#98b3cd",
+    "#8283a1",
+    "#abcbd3",
+    "#e8e8ea",
+]
+cursor_bg = "#969e92"
+cursor_border = "#969e92"
+cursor_fg = "#ffffff"
+foreground = "#a2a3aa"
+selection_bg = "#5d5d6b"
+selection_fg = "#dfe5ee"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Rouge 2"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ROYAL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#241f2b",
+    "#91284c",
+    "#23801c",
+    "#b49d27",
+    "#6580b0",
+    "#674d96",
+    "#8aaabe",
+    "#524966",
+]
+background = "#100815"
+brights = [
+    "#312d3d",
+    "#d5356c",
+    "#2cd946",
+    "#fde83b",
+    "#90baf9",
+    "#a479e3",
+    "#acd4eb",
+    "#9e8cbd",
+]
+cursor_bg = "#524966"
+cursor_border = "#524966"
+cursor_fg = "#100613"
+foreground = "#514968"
+selection_bg = "#1f1d2b"
+selection_fg = "#a593cd"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Royal (Gogh)"]
+name = "Royal"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ROYAL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#241f2b",
+    "#91284c",
+    "#23801c",
+    "#b49d27",
+    "#6580b0",
+    "#674d96",
+    "#8aaabe",
+    "#524966",
+]
+background = "#100815"
+brights = [
+    "#312d3d",
+    "#d5356c",
+    "#2cd946",
+    "#fde83b",
+    "#90baf9",
+    "#a479e3",
+    "#acd4eb",
+    "#9e8cbd",
+]
+cursor_bg = "#514968"
+cursor_border = "#514968"
+cursor_fg = "#100815"
+foreground = "#514968"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Royal (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_RYDGEL_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#303430",
+    "#bf7979",
+    "#97b26b",
+    "#cdcdc1",
+    "#86a2be",
+    "#d9b798",
+    "#a1b5cd",
+    "#ffffff",
+]
+background = "#000000"
+brights = [
+    "#cdb5cd",
+    "#f4a45f",
+    "#c5f779",
+    "#ffffed",
+    "#98afd9",
+    "#d7d998",
+    "#a1b5cd",
+    "#dedede",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Rydgel (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_RYUUKO_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2c3941",
+    "#865f5b",
+    "#66907d",
+    "#b1a990",
+    "#6a8e95",
+    "#b18a73",
+    "#88b2ac",
+    "#ececec",
+]
+background = "#2c3941"
+brights = [
+    "#5d7079",
+    "#865f5b",
+    "#66907d",
+    "#b1a990",
+    "#6a8e95",
+    "#b18a73",
+    "#88b2ac",
+    "#ececec",
+]
+cursor_bg = "#ececec"
+cursor_border = "#ececec"
+cursor_fg = "#002831"
+foreground = "#ececec"
+selection_bg = "#002831"
+selection_fg = "#819090"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Ryuuko"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_S3R0_MODIFIED_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4a3637",
+    "#d17b49",
+    "#7b8748",
+    "#af865a",
+    "#535c5c",
+    "#775759",
+    "#6d715e",
+    "#c0b18b",
+]
+background = "#1f1f1f"
+brights = [
+    "#4a3637",
+    "#d17b49",
+    "#7b8748",
+    "#af865a",
+    "#535c5c",
+    "#775759",
+    "#6d715e",
+    "#c0b18b",
+]
+foreground = "#c0b18b"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "earsplit"
+name = "s3r0 modified (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SAGELIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f8f8f8",
+    "#fa8480",
+    "#a0d2c8",
+    "#ffdc61",
+    "#a0a7d2",
+    "#c8a0d2",
+    "#a2d6f5",
+    "#383838",
+]
+background = "#f8f8f8"
+brights = [
+    "#b8b8b8",
+    "#fa8480",
+    "#a0d2c8",
+    "#ffdc61",
+    "#a0a7d2",
+    "#c8a0d2",
+    "#a2d6f5",
+    "#181818",
+]
+cursor_bg = "#383838"
+cursor_border = "#383838"
+cursor_fg = "#f8f8f8"
+foreground = "#383838"
+selection_bg = "#383838"
+selection_fg = "#f8f8f8"
+
+[colors.indexed]
+16 = "#ffaa61"
+17 = "#d2b2a0"
+18 = "#e8e8e8"
+19 = "#d8d8d8"
+20 = "#585858"
+21 = "#282828"
+
+[metadata]
+aliases = []
+author = "Carter Veldhuizen"
+name = "Sagelight (base16)"
+origin_url = "https://github.com/cveldy/base16-sagelight-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SAKURA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d52370",
+    "#41af1a",
+    "#bc7053",
+    "#6964ab",
+    "#c71fbf",
+    "#939393",
+    "#998eac",
+]
+background = "#18131e"
+brights = [
+    "#786d69",
+    "#f41d99",
+    "#22e529",
+    "#f59574",
+    "#9892f1",
+    "#e90cdd",
+    "#eeeeee",
+    "#cbb6ff",
+]
+cursor_bg = "#ff65fd"
+cursor_border = "#ff65fd"
+cursor_fg = "#24242e"
+foreground = "#dd7bdc"
+selection_bg = "#c05cbf"
+selection_fg = "#24242e"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Sakura"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SAKURA_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#feedf3",
+    "#df2d52",
+    "#2e916d",
+    "#c29461",
+    "#006e93",
+    "#5e2180",
+    "#1d8991",
+    "#564448",
+]
+background = "#feedf3"
+brights = [
+    "#755f64",
+    "#df2d52",
+    "#2e916d",
+    "#c29461",
+    "#006e93",
+    "#5e2180",
+    "#1d8991",
+    "#33292b",
+]
+cursor_bg = "#564448"
+cursor_border = "#564448"
+cursor_fg = "#feedf3"
+foreground = "#564448"
+selection_bg = "#564448"
+selection_fg = "#feedf3"
+
+[colors.indexed]
+16 = "#f6661e"
+17 = "#ba0d35"
+18 = "#f8e2e7"
+19 = "#e0ccd1"
+20 = "#665055"
+21 = "#42383a"
+
+[metadata]
+aliases = []
+author = "Misterio77 (http://github.com/Misterio77)"
+name = "Sakura (base16)"
+origin_url = "https://github.com/Misterio77/base16-sakura-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SANDCASTLE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282c34",
+    "#83a598",
+    "#528b8b",
+    "#a07e3b",
+    "#83a598",
+    "#d75f5f",
+    "#83a598",
+    "#a89984",
+]
+background = "#282c34"
+brights = [
+    "#665c54",
+    "#83a598",
+    "#528b8b",
+    "#a07e3b",
+    "#83a598",
+    "#d75f5f",
+    "#83a598",
+    "#fdf4c1",
+]
+cursor_bg = "#a89984"
+cursor_border = "#a89984"
+cursor_fg = "#282c34"
+foreground = "#a89984"
+selection_bg = "#a89984"
+selection_fg = "#282c34"
+
+[colors.indexed]
+16 = "#a07e3b"
+17 = "#a87322"
+18 = "#2c323b"
+19 = "#3e4451"
+20 = "#928374"
+21 = "#d5c4a1"
+
+[metadata]
+aliases = []
+author = "George Essig (https://github.com/gessig)"
+name = "Sandcastle (base16)"
+origin_url = "https://github.com/gessig/base16-sandcastle-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SAT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#dd0007",
+    "#07dd00",
+    "#ddd600",
+    "#0007dd",
+    "#d600dd",
+    "#00ddd6",
+    "#f2f2f2",
+]
+background = "#758480"
+brights = [
+    "#7d7d7d",
+    "#ff7478",
+    "#78ff74",
+    "#fffa74",
+    "#7478ff",
+    "#fa74ff",
+    "#74fffa",
+    "#ffffff",
+]
+cursor_bg = "#23476a"
+cursor_border = "#23476a"
+cursor_fg = "#758480"
+foreground = "#23476a"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Sat (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -134153,6 +134604,244 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Retro-to-Rose-Pine built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_rouge_to_sat_gogh_builtin_color_schemes() {
+        let cases = [
+            (
+                "Rouge 2",
+                Color::Rgb(162, 163, 170),
+                Color::Rgb(23, 24, 43),
+                Color::Rgb(150, 158, 146),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(93, 93, 107)),
+                Some(Some(Color::Rgb(223, 229, 238))),
+                Color::Rgb(93, 93, 107),
+                Color::Rgb(198, 121, 126),
+                Color::Rgb(150, 158, 146),
+                Color::Rgb(219, 205, 171),
+                Color::Rgb(97, 98, 116),
+                Color::Rgb(232, 232, 234),
+                None,
+            ),
+            (
+                "Royal",
+                Color::Rgb(81, 73, 104),
+                Color::Rgb(16, 8, 21),
+                Color::Rgb(82, 73, 102),
+                Some(Color::Rgb(16, 6, 19)),
+                Some(Color::Rgb(31, 29, 43)),
+                Some(Some(Color::Rgb(165, 147, 205))),
+                Color::Rgb(36, 31, 43),
+                Color::Rgb(145, 40, 76),
+                Color::Rgb(35, 128, 28),
+                Color::Rgb(180, 157, 39),
+                Color::Rgb(49, 45, 61),
+                Color::Rgb(158, 140, 189),
+                None,
+            ),
+            (
+                "Royal (Gogh)",
+                Color::Rgb(81, 73, 104),
+                Color::Rgb(16, 8, 21),
+                Color::Rgb(81, 73, 104),
+                Some(Color::Rgb(16, 8, 21)),
+                None,
+                None,
+                Color::Rgb(36, 31, 43),
+                Color::Rgb(145, 40, 76),
+                Color::Rgb(35, 128, 28),
+                Color::Rgb(180, 157, 39),
+                Color::Rgb(49, 45, 61),
+                Color::Rgb(158, 140, 189),
+                None,
+            ),
+            (
+                "Rydgel (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(48, 52, 48),
+                Color::Rgb(191, 121, 121),
+                Color::Rgb(151, 178, 107),
+                Color::Rgb(205, 205, 193),
+                Color::Rgb(205, 181, 205),
+                Color::Rgb(222, 222, 222),
+                None,
+            ),
+            (
+                "Ryuuko",
+                Color::Rgb(236, 236, 236),
+                Color::Rgb(44, 57, 65),
+                Color::Rgb(236, 236, 236),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Some(Color::Rgb(129, 144, 144))),
+                Color::Rgb(44, 57, 65),
+                Color::Rgb(134, 95, 91),
+                Color::Rgb(102, 144, 125),
+                Color::Rgb(177, 169, 144),
+                Color::Rgb(93, 112, 121),
+                Color::Rgb(236, 236, 236),
+                None,
+            ),
+            (
+                "s3r0 modified (terminal.sexy)",
+                Color::Rgb(192, 177, 139),
+                Color::Rgb(31, 31, 31),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(74, 54, 55),
+                Color::Rgb(209, 123, 73),
+                Color::Rgb(123, 135, 72),
+                Color::Rgb(175, 134, 90),
+                Color::Rgb(74, 54, 55),
+                Color::Rgb(192, 177, 139),
+                None,
+            ),
+            (
+                "Sagelight (base16)",
+                Color::Rgb(56, 56, 56),
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(56, 56, 56),
+                Some(Color::Rgb(248, 248, 248)),
+                Some(Color::Rgb(56, 56, 56)),
+                Some(Some(Color::Rgb(248, 248, 248))),
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(250, 132, 128),
+                Color::Rgb(160, 210, 200),
+                Color::Rgb(255, 220, 97),
+                Color::Rgb(184, 184, 184),
+                Color::Rgb(24, 24, 24),
+                Some(Color::Rgb(255, 170, 97)),
+            ),
+            (
+                "Sakura",
+                Color::Rgb(221, 123, 220),
+                Color::Rgb(24, 19, 30),
+                Color::Rgb(255, 101, 253),
+                Some(Color::Rgb(36, 36, 46)),
+                Some(Color::Rgb(192, 92, 191)),
+                Some(Some(Color::Rgb(36, 36, 46))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(213, 35, 112),
+                Color::Rgb(65, 175, 26),
+                Color::Rgb(188, 112, 83),
+                Color::Rgb(120, 109, 105),
+                Color::Rgb(203, 182, 255),
+                None,
+            ),
+            (
+                "Sakura (base16)",
+                Color::Rgb(86, 68, 72),
+                Color::Rgb(254, 237, 243),
+                Color::Rgb(86, 68, 72),
+                Some(Color::Rgb(254, 237, 243)),
+                Some(Color::Rgb(86, 68, 72)),
+                Some(Some(Color::Rgb(254, 237, 243))),
+                Color::Rgb(254, 237, 243),
+                Color::Rgb(223, 45, 82),
+                Color::Rgb(46, 145, 109),
+                Color::Rgb(194, 148, 97),
+                Color::Rgb(117, 95, 100),
+                Color::Rgb(51, 41, 43),
+                Some(Color::Rgb(246, 102, 30)),
+            ),
+            (
+                "Sandcastle (base16)",
+                Color::Rgb(168, 153, 132),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(168, 153, 132),
+                Some(Color::Rgb(40, 44, 52)),
+                Some(Color::Rgb(168, 153, 132)),
+                Some(Some(Color::Rgb(40, 44, 52))),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(131, 165, 152),
+                Color::Rgb(82, 139, 139),
+                Color::Rgb(160, 126, 59),
+                Color::Rgb(102, 92, 84),
+                Color::Rgb(253, 244, 193),
+                Some(Color::Rgb(160, 126, 59)),
+            ),
+            (
+                "Sat (Gogh)",
+                Color::Rgb(35, 71, 106),
+                Color::Rgb(117, 132, 128),
+                Color::Rgb(35, 71, 106),
+                Some(Color::Rgb(117, 132, 128)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(221, 0, 7),
+                Color::Rgb(7, 221, 0),
+                Color::Rgb(221, 214, 0),
+                Color::Rgb(125, 125, 125),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Rouge-to-Sat built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
