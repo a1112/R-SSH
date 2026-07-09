@@ -3677,11 +3677,16 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Google (light) (terminal.sexy)`, `Google Dark (base16)`,
   `Google Dark (Gogh)`, `Google Light (base16)`, `Google Light (Gogh)`,
   `Gotham (Gogh)`, `Gotham (terminal.sexy)`,
+  `Grandshell (terminal.sexy)`, `Grape`, `Grape (Gogh)`, `Grass`,
+  `Grass (Gogh)`, `Grayscale (dark) (terminal.sexy)`,
+  `Grayscale (light) (terminal.sexy)`, `Grayscale Dark (base16)`,
+  `Grayscale Light (base16)`, `Green Screen (base16)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
-  `Builtin Tango Dark`, `Builtin Tango Light`, and the existing WezTerm aliases using
-  WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
-  richer dynamic `load_scheme` composition, and full dynamic Lua scheme
+  `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting
+  WezTerm aliases using WezTerm's built-in TOML palette data. The broader
+  built-in scheme catalog, richer dynamic `load_scheme` composition, and full
+  dynamic Lua scheme
   construction remain later parity work.
 - Native terminal rendering applies WezTerm-style `colors.background` as the
   default framebuffer background for full and damage renders. Static

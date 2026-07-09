@@ -19697,6 +19697,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Gotham (Gogh)" | "gotham (Gogh)" => Some(BUILTIN_GOTHAM_GOGH_COLOR_SCHEME_TOML),
         "Gotham (terminal.sexy)" => Some(BUILTIN_GOTHAM_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Grandshell (terminal.sexy)" => Some(BUILTIN_GRANDSHELL_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Grape" => Some(BUILTIN_GRAPE_COLOR_SCHEME_TOML),
+        "Grape (Gogh)" => Some(BUILTIN_GRAPE_GOGH_COLOR_SCHEME_TOML),
+        "Grass" => Some(BUILTIN_GRASS_COLOR_SCHEME_TOML),
+        "Grass (Gogh)" => Some(BUILTIN_GRASS_GOGH_COLOR_SCHEME_TOML),
+        "Grayscale (dark) (terminal.sexy)" => {
+            Some(BUILTIN_GRAYSCALE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Grayscale (light) (terminal.sexy)" => {
+            Some(BUILTIN_GRAYSCALE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Grayscale Dark (base16)" => Some(BUILTIN_GRAYSCALE_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Grayscale Light (base16)" => Some(BUILTIN_GRAYSCALE_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Green Screen (base16)" => Some(BUILTIN_GREEN_SCREEN_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -35461,6 +35475,401 @@ author = "whatyouhide"
 name = "Gotham (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_GRANDSHELL_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#f25a5a",
+    "#77bb33",
+    "#efc334",
+    "#5555dd",
+    "#c350ff",
+    "#5af2ee",
+    "#bebebe",
+]
+background = "#000000"
+brights = [
+    "#222222",
+    "#ffbbbb",
+    "#dcf692",
+    "#f6df92",
+    "#b2baf6",
+    "#f09fff",
+    "#5af2ee",
+    "#eeeeee",
+]
+foreground = "#bebebe"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Grandshell (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GRAPE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2d283f",
+    "#ed2261",
+    "#1fa91b",
+    "#8ddc20",
+    "#487df4",
+    "#8d35c9",
+    "#3bdeed",
+    "#9e9ea0",
+]
+background = "#171423"
+brights = [
+    "#59516a",
+    "#f0729a",
+    "#53aa5e",
+    "#b2dc87",
+    "#a9bcec",
+    "#ad81c2",
+    "#9de3eb",
+    "#a288f7",
+]
+cursor_bg = "#a288f7"
+cursor_border = "#a288f7"
+cursor_fg = "#171422"
+foreground = "#9f9fa1"
+selection_bg = "#493d70"
+selection_fg = "#171422"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Grape (Gogh)"]
+name = "Grape"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_GRAPE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2d283f",
+    "#ed2261",
+    "#1fa91b",
+    "#8ddc20",
+    "#487df4",
+    "#8d35c9",
+    "#3bdeed",
+    "#9e9ea0",
+]
+background = "#171423"
+brights = [
+    "#59516a",
+    "#f0729a",
+    "#53aa5e",
+    "#b2dc87",
+    "#a9bcec",
+    "#ad81c2",
+    "#9de3eb",
+    "#a288f7",
+]
+cursor_bg = "#9f9fa1"
+cursor_border = "#9f9fa1"
+cursor_fg = "#171423"
+foreground = "#9f9fa1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Grape (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_GRASS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#bb0000",
+    "#00bb00",
+    "#e7b000",
+    "#0000a3",
+    "#950062",
+    "#00bbbb",
+    "#bbbbbb",
+]
+background = "#13773d"
+brights = [
+    "#555555",
+    "#bb0000",
+    "#00bb00",
+    "#e7b000",
+    "#0000bb",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#8c2800"
+cursor_border = "#8c2800"
+cursor_fg = "#ffffff"
+foreground = "#fff0a5"
+selection_bg = "#b64926"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Grass (Gogh)"]
+name = "Grass"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_GRASS_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#bb0000",
+    "#00bb00",
+    "#e7b000",
+    "#0000a3",
+    "#950062",
+    "#00bbbb",
+    "#bbbbbb",
+]
+background = "#13773d"
+brights = [
+    "#555555",
+    "#bb0000",
+    "#00bb00",
+    "#e7b000",
+    "#0000bb",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#fff0a5"
+cursor_border = "#fff0a5"
+cursor_fg = "#13773d"
+foreground = "#fff0a5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Grass (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_GRAYSCALE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#101010",
+    "#7c7c7c",
+    "#8e8e8e",
+    "#a0a0a0",
+    "#686868",
+    "#747474",
+    "#868686",
+    "#b9b9b9",
+]
+background = "#101010"
+brights = [
+    "#525252",
+    "#7c7c7c",
+    "#8e8e8e",
+    "#a0a0a0",
+    "#686868",
+    "#747474",
+    "#868686",
+    "#f7f7f7",
+]
+foreground = "#b9b9b9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Grayscale (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_GRAYSCALE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#101010",
+    "#7c7c7c",
+    "#8e8e8e",
+    "#a0a0a0",
+    "#686868",
+    "#747474",
+    "#868686",
+    "#b9b9b9",
+]
+background = "#f7f7f7"
+brights = [
+    "#525252",
+    "#7c7c7c",
+    "#8e8e8e",
+    "#a0a0a0",
+    "#686868",
+    "#747474",
+    "#868686",
+    "#f7f7f7",
+]
+foreground = "#464646"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Grayscale (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GRAYSCALE_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#101010",
+    "#7c7c7c",
+    "#8e8e8e",
+    "#a0a0a0",
+    "#686868",
+    "#747474",
+    "#868686",
+    "#b9b9b9",
+]
+background = "#101010"
+brights = [
+    "#525252",
+    "#7c7c7c",
+    "#8e8e8e",
+    "#a0a0a0",
+    "#686868",
+    "#747474",
+    "#868686",
+    "#f7f7f7",
+]
+cursor_bg = "#b9b9b9"
+cursor_border = "#b9b9b9"
+cursor_fg = "#101010"
+foreground = "#b9b9b9"
+selection_bg = "#b9b9b9"
+selection_fg = "#101010"
+
+[colors.indexed]
+16 = "#999999"
+17 = "#5e5e5e"
+18 = "#252525"
+19 = "#464646"
+20 = "#ababab"
+21 = "#e3e3e3"
+
+[metadata]
+aliases = ["Grayscale (dark) (terminal.sexy)"]
+author = "Alexandre Gavioli (https://github.com/Alexx2/)"
+name = "Grayscale Dark (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GRAYSCALE_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f7f7f7",
+    "#7c7c7c",
+    "#8e8e8e",
+    "#a0a0a0",
+    "#686868",
+    "#747474",
+    "#868686",
+    "#464646",
+]
+background = "#f7f7f7"
+brights = [
+    "#ababab",
+    "#7c7c7c",
+    "#8e8e8e",
+    "#a0a0a0",
+    "#686868",
+    "#747474",
+    "#868686",
+    "#101010",
+]
+cursor_bg = "#464646"
+cursor_border = "#464646"
+cursor_fg = "#f7f7f7"
+foreground = "#464646"
+selection_bg = "#464646"
+selection_fg = "#f7f7f7"
+
+[colors.indexed]
+16 = "#999999"
+17 = "#5e5e5e"
+18 = "#e3e3e3"
+19 = "#b9b9b9"
+20 = "#525252"
+21 = "#252525"
+
+[metadata]
+aliases = []
+author = "Alexandre Gavioli (https://github.com/Alexx2/)"
+name = "Grayscale Light (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GREEN_SCREEN_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#001100",
+    "#007700",
+    "#00bb00",
+    "#007700",
+    "#009900",
+    "#00bb00",
+    "#005500",
+    "#00bb00",
+]
+background = "#001100"
+brights = [
+    "#007700",
+    "#007700",
+    "#00bb00",
+    "#007700",
+    "#009900",
+    "#00bb00",
+    "#005500",
+    "#00ff00",
+]
+cursor_bg = "#00bb00"
+cursor_border = "#00bb00"
+cursor_fg = "#001100"
+foreground = "#00bb00"
+selection_bg = "#00bb00"
+selection_fg = "#001100"
+
+[colors.indexed]
+16 = "#009900"
+17 = "#005500"
+18 = "#003300"
+19 = "#005500"
+20 = "#009900"
+21 = "#00dd00"
+
+[metadata]
+aliases = ["Greenscreen (dark) (terminal.sexy)"]
+author = "Chris Kempson (http://chriskempson.com)"
+name = "Green Screen (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -109471,6 +109880,228 @@ mod tests {
             let ansi = effective.ansi_palette.expect("expected ANSI palette");
             assert_eq!(ansi[0], ansi_0);
             assert_eq!(ansi[15], ansi_15);
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_grandshell_to_green_screen_builtin_color_schemes() {
+        let cases = [
+            (
+                "Grandshell (terminal.sexy)",
+                Color::Rgb(190, 190, 190),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(242, 90, 90),
+                Color::Rgb(119, 187, 51),
+                Color::Rgb(239, 195, 52),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(238, 238, 238),
+                None,
+            ),
+            (
+                "Grape",
+                Color::Rgb(159, 159, 161),
+                Color::Rgb(23, 20, 35),
+                Color::Rgb(162, 136, 247),
+                Some(Color::Rgb(23, 20, 34)),
+                Some(Color::Rgb(73, 61, 112)),
+                Some(Some(Color::Rgb(23, 20, 34))),
+                Color::Rgb(45, 40, 63),
+                Color::Rgb(237, 34, 97),
+                Color::Rgb(31, 169, 27),
+                Color::Rgb(141, 220, 32),
+                Color::Rgb(89, 81, 106),
+                Color::Rgb(162, 136, 247),
+                None,
+            ),
+            (
+                "Grape (Gogh)",
+                Color::Rgb(159, 159, 161),
+                Color::Rgb(23, 20, 35),
+                Color::Rgb(159, 159, 161),
+                Some(Color::Rgb(23, 20, 35)),
+                None,
+                None,
+                Color::Rgb(45, 40, 63),
+                Color::Rgb(237, 34, 97),
+                Color::Rgb(31, 169, 27),
+                Color::Rgb(141, 220, 32),
+                Color::Rgb(89, 81, 106),
+                Color::Rgb(162, 136, 247),
+                None,
+            ),
+            (
+                "Grass",
+                Color::Rgb(255, 240, 165),
+                Color::Rgb(19, 119, 61),
+                Color::Rgb(140, 40, 0),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(182, 73, 38)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(187, 0, 0),
+                Color::Rgb(0, 187, 0),
+                Color::Rgb(231, 176, 0),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Grass (Gogh)",
+                Color::Rgb(255, 240, 165),
+                Color::Rgb(19, 119, 61),
+                Color::Rgb(255, 240, 165),
+                Some(Color::Rgb(19, 119, 61)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(187, 0, 0),
+                Color::Rgb(0, 187, 0),
+                Color::Rgb(231, 176, 0),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Grayscale (dark) (terminal.sexy)",
+                Color::Rgb(185, 185, 185),
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(124, 124, 124),
+                Color::Rgb(142, 142, 142),
+                Color::Rgb(160, 160, 160),
+                Color::Rgb(82, 82, 82),
+                Color::Rgb(247, 247, 247),
+                None,
+            ),
+            (
+                "Grayscale (light) (terminal.sexy)",
+                Color::Rgb(70, 70, 70),
+                Color::Rgb(247, 247, 247),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(124, 124, 124),
+                Color::Rgb(142, 142, 142),
+                Color::Rgb(160, 160, 160),
+                Color::Rgb(82, 82, 82),
+                Color::Rgb(247, 247, 247),
+                None,
+            ),
+            (
+                "Grayscale Dark (base16)",
+                Color::Rgb(185, 185, 185),
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(185, 185, 185),
+                Some(Color::Rgb(16, 16, 16)),
+                Some(Color::Rgb(185, 185, 185)),
+                Some(Some(Color::Rgb(16, 16, 16))),
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(124, 124, 124),
+                Color::Rgb(142, 142, 142),
+                Color::Rgb(160, 160, 160),
+                Color::Rgb(82, 82, 82),
+                Color::Rgb(247, 247, 247),
+                Some(Color::Rgb(153, 153, 153)),
+            ),
+            (
+                "Grayscale Light (base16)",
+                Color::Rgb(70, 70, 70),
+                Color::Rgb(247, 247, 247),
+                Color::Rgb(70, 70, 70),
+                Some(Color::Rgb(247, 247, 247)),
+                Some(Color::Rgb(70, 70, 70)),
+                Some(Some(Color::Rgb(247, 247, 247))),
+                Color::Rgb(247, 247, 247),
+                Color::Rgb(124, 124, 124),
+                Color::Rgb(142, 142, 142),
+                Color::Rgb(160, 160, 160),
+                Color::Rgb(171, 171, 171),
+                Color::Rgb(16, 16, 16),
+                Some(Color::Rgb(153, 153, 153)),
+            ),
+            (
+                "Green Screen (base16)",
+                Color::Rgb(0, 187, 0),
+                Color::Rgb(0, 17, 0),
+                Color::Rgb(0, 187, 0),
+                Some(Color::Rgb(0, 17, 0)),
+                Some(Color::Rgb(0, 187, 0)),
+                Some(Some(Color::Rgb(0, 17, 0))),
+                Color::Rgb(0, 17, 0),
+                Color::Rgb(0, 119, 0),
+                Color::Rgb(0, 187, 0),
+                Color::Rgb(0, 119, 0),
+                Color::Rgb(0, 119, 0),
+                Color::Rgb(0, 255, 0),
+                Some(Color::Rgb(0, 153, 0)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Grandshell-to-Green Screen built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
         }
     }
 
