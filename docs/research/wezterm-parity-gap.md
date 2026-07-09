@@ -3707,6 +3707,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Ibm3270 (Gogh)`, `Ic Green Ppl (Gogh)`, `Ic Orange Ppl (Gogh)`,
   `IC_Green_PPL`, `IC_Orange_PPL`, `Iceberg (Gogh)`, `iceberg-dark`,
   `iceberg-light`, `Icy Dark (base16)`, `idea`,
+  `Idle Toes (Gogh)`, `idleToes`, `Iiamblack (terminal.sexy)`,
+  `Insignificato (terminal.sexy)`, `Invisibone (terminal.sexy)`,
+  `IR Black (base16)`, `Ir Black (Gogh)`, `IR_Black`,
+  `Isotope (base16)`, `Isotope (dark) (terminal.sexy)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting

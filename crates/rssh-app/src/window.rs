@@ -19801,6 +19801,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "iceberg-light" => Some(BUILTIN_ICEBERG_LIGHT_COLOR_SCHEME_TOML),
         "Icy Dark (base16)" => Some(BUILTIN_ICY_DARK_BASE16_COLOR_SCHEME_TOML),
         "idea" => Some(BUILTIN_IDEA_COLOR_SCHEME_TOML),
+        "Idle Toes (Gogh)" => Some(BUILTIN_IDLE_TOES_GOGH_COLOR_SCHEME_TOML),
+        "idleToes" | "IdleToes (Gogh)" => Some(BUILTIN_IDLETOES_COLOR_SCHEME_TOML),
+        "Iiamblack (terminal.sexy)" => Some(BUILTIN_IIAMBLACK_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Insignificato (terminal.sexy)" => {
+            Some(BUILTIN_INSIGNIFICATO_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Invisibone (terminal.sexy)" => Some(BUILTIN_INVISIBONE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "IR Black (base16)" => Some(BUILTIN_IR_BLACK_BASE16_COLOR_SCHEME_TOML),
+        "Ir Black (Gogh)" | "IrBlack (Gogh)" => Some(BUILTIN_IR_BLACK_GOGH_COLOR_SCHEME_TOML),
+        "IR_Black" => Some(BUILTIN_IR_BLACK_COLOR_SCHEME_TOML),
+        "Isotope (base16)" => Some(BUILTIN_ISOTOPE_BASE16_COLOR_SCHEME_TOML),
+        "Isotope (dark) (terminal.sexy)" => {
+            Some(BUILTIN_ISOTOPE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -38825,6 +38839,393 @@ aliases = []
 name = "idea"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_IDLE_TOES_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#323232",
+    "#d25252",
+    "#7fe173",
+    "#ffc66d",
+    "#4099ff",
+    "#f680ff",
+    "#bed6ff",
+    "#eeeeec",
+]
+background = "#323232"
+brights = [
+    "#535353",
+    "#f07070",
+    "#9dff91",
+    "#ffe48b",
+    "#5eb7f7",
+    "#ff9dff",
+    "#dcf4ff",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#323232"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Idle Toes (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_IDLETOES_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#323232",
+    "#d25252",
+    "#7fe173",
+    "#ffc66d",
+    "#4099ff",
+    "#f680ff",
+    "#bed6ff",
+    "#eeeeec",
+]
+background = "#323232"
+brights = [
+    "#535353",
+    "#f07070",
+    "#9dff91",
+    "#ffe48b",
+    "#5eb7f7",
+    "#ff9dff",
+    "#dcf4ff",
+    "#ffffff",
+]
+cursor_bg = "#d6d6d6"
+cursor_border = "#d6d6d6"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+selection_bg = "#5b5b5b"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Idle Toes (Gogh)",
+    "IdleToes (Gogh)",
+]
+name = "idleToes"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_IIAMBLACK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#393939",
+    "#da4939",
+    "#519f50",
+    "#cc7833",
+    "#6d9cbe",
+    "#9f5079",
+    "#435d75",
+    "#dddddd",
+]
+background = "#000000"
+brights = [
+    "#474747",
+    "#ff6c5c",
+    "#a5c261",
+    "#bc9458",
+    "#d0d0ff",
+    "#a761c2",
+    "#6e98a4",
+    "#dddddd",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "iiamblack"
+name = "Iiamblack (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_INSIGNIFICATO_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3d3e3d",
+    "#755a5b",
+    "#68755a",
+    "#756e5a",
+    "#5b6976",
+    "#755b76",
+    "#5b7674",
+    "#808080",
+]
+background = "#000000"
+brights = [
+    "#5a5b5c",
+    "#a37679",
+    "#87a376",
+    "#a39b76",
+    "#758ba3",
+    "#9f76a3",
+    "#75a3a1",
+    "#aeafb0",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Insignificato (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_INVISIBONE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#303030",
+    "#d370a3",
+    "#6d9e3f",
+    "#b58858",
+    "#6095c5",
+    "#ac7bde",
+    "#3ba275",
+    "#cfcfcf",
+]
+background = "#232323"
+brights = [
+    "#686868",
+    "#ffa7da",
+    "#a3d572",
+    "#efbd8b",
+    "#98cbfe",
+    "#e5b0ff",
+    "#75daa9",
+    "#ffffff",
+]
+foreground = "#a0a0a0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Baskerville"
+name = "Invisibone (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_IR_BLACK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff6c60",
+    "#a8ff60",
+    "#ffffb6",
+    "#96cbfe",
+    "#ff73fd",
+    "#c6c5fe",
+    "#b5b3aa",
+]
+background = "#000000"
+brights = [
+    "#6c6c66",
+    "#ff6c60",
+    "#a8ff60",
+    "#ffffb6",
+    "#96cbfe",
+    "#ff73fd",
+    "#c6c5fe",
+    "#fdfbee",
+]
+cursor_bg = "#b5b3aa"
+cursor_border = "#b5b3aa"
+cursor_fg = "#000000"
+foreground = "#b5b3aa"
+selection_bg = "#b5b3aa"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#e9c062"
+17 = "#b18a3d"
+18 = "#242422"
+19 = "#484844"
+20 = "#918f88"
+21 = "#d9d7cc"
+
+[metadata]
+aliases = []
+author = "Timothée Poisot (http://timotheepoisot.fr)"
+name = "IR Black (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_IR_BLACK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4e4e4e",
+    "#ff6c60",
+    "#a8ff60",
+    "#ffffb6",
+    "#69cbfe",
+    "#ff73fd",
+    "#c6c5fe",
+    "#eeeeee",
+]
+background = "#000000"
+brights = [
+    "#7c7c7c",
+    "#ffb6b0",
+    "#ceffac",
+    "#ffffcb",
+    "#b5dcfe",
+    "#ff9cfe",
+    "#dfdffe",
+    "#ffffff",
+]
+cursor_bg = "#ffa560"
+cursor_border = "#ffa560"
+cursor_fg = "#000000"
+foreground = "#eeeeee"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["IrBlack (Gogh)"]
+name = "Ir Black (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_IR_BLACK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4f4f4f",
+    "#fa6c60",
+    "#a8ff60",
+    "#fffeb7",
+    "#96cafe",
+    "#fa73fd",
+    "#c6c5fe",
+    "#efedef",
+]
+background = "#000000"
+brights = [
+    "#7b7b7b",
+    "#fcb6b0",
+    "#cfffab",
+    "#ffffcc",
+    "#b5dcff",
+    "#fb9cfe",
+    "#e0e0fe",
+    "#ffffff",
+]
+cursor_bg = "#808080"
+cursor_border = "#808080"
+cursor_fg = "#ffffff"
+foreground = "#f1f1f1"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "IR_Black"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ISOTOPE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff0000",
+    "#33ff00",
+    "#ff0099",
+    "#0066ff",
+    "#cc00ff",
+    "#00ffff",
+    "#d0d0d0",
+]
+background = "#000000"
+brights = [
+    "#808080",
+    "#ff0000",
+    "#33ff00",
+    "#ff0099",
+    "#0066ff",
+    "#cc00ff",
+    "#00ffff",
+    "#ffffff",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#000000"
+foreground = "#d0d0d0"
+selection_bg = "#d0d0d0"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#ff9900"
+17 = "#3300ff"
+18 = "#404040"
+19 = "#606060"
+20 = "#c0c0c0"
+21 = "#e0e0e0"
+
+[metadata]
+aliases = ["Isotope (dark) (terminal.sexy)"]
+author = "Jan T. Sott"
+name = "Isotope (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ISOTOPE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff0000",
+    "#33ff00",
+    "#ff0099",
+    "#0066ff",
+    "#cc00ff",
+    "#00ffff",
+    "#d0d0d0",
+]
+background = "#000000"
+brights = [
+    "#808080",
+    "#ff0000",
+    "#33ff00",
+    "#ff0099",
+    "#0066ff",
+    "#cc00ff",
+    "#00ffff",
+    "#ffffff",
+]
+foreground = "#d0d0d0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Isotope (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -114768,6 +115169,260 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm IBM3270-to-idea built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_idle_toes_to_isotope_dark_builtin_color_schemes() {
+        let cases = [
+            (
+                "Idle Toes (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(50, 50, 50)),
+                None,
+                None,
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(210, 82, 82),
+                Color::Rgb(127, 225, 115),
+                Color::Rgb(255, 198, 109),
+                Color::Rgb(83, 83, 83),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "idleToes",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(214, 214, 214),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(91, 91, 91)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(210, 82, 82),
+                Color::Rgb(127, 225, 115),
+                Color::Rgb(255, 198, 109),
+                Color::Rgb(83, 83, 83),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "IdleToes (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(214, 214, 214),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(91, 91, 91)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(210, 82, 82),
+                Color::Rgb(127, 225, 115),
+                Color::Rgb(255, 198, 109),
+                Color::Rgb(83, 83, 83),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Iiamblack (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(57, 57, 57),
+                Color::Rgb(218, 73, 57),
+                Color::Rgb(81, 159, 80),
+                Color::Rgb(204, 120, 51),
+                Color::Rgb(71, 71, 71),
+                Color::Rgb(221, 221, 221),
+                None,
+            ),
+            (
+                "Insignificato (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(61, 62, 61),
+                Color::Rgb(117, 90, 91),
+                Color::Rgb(104, 117, 90),
+                Color::Rgb(117, 110, 90),
+                Color::Rgb(90, 91, 92),
+                Color::Rgb(174, 175, 176),
+                None,
+            ),
+            (
+                "Invisibone (terminal.sexy)",
+                Color::Rgb(160, 160, 160),
+                Color::Rgb(35, 35, 35),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(211, 112, 163),
+                Color::Rgb(109, 158, 63),
+                Color::Rgb(181, 136, 88),
+                Color::Rgb(104, 104, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "IR Black (base16)",
+                Color::Rgb(181, 179, 170),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(181, 179, 170),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(181, 179, 170)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 108, 96),
+                Color::Rgb(168, 255, 96),
+                Color::Rgb(255, 255, 182),
+                Color::Rgb(108, 108, 102),
+                Color::Rgb(253, 251, 238),
+                Some(Color::Rgb(233, 192, 98)),
+            ),
+            (
+                "Ir Black (Gogh)",
+                Color::Rgb(238, 238, 238),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 165, 96),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(78, 78, 78),
+                Color::Rgb(255, 108, 96),
+                Color::Rgb(168, 255, 96),
+                Color::Rgb(255, 255, 182),
+                Color::Rgb(124, 124, 124),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "IrBlack (Gogh)",
+                Color::Rgb(238, 238, 238),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 165, 96),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(78, 78, 78),
+                Color::Rgb(255, 108, 96),
+                Color::Rgb(168, 255, 96),
+                Color::Rgb(255, 255, 182),
+                Color::Rgb(124, 124, 124),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "IR_Black",
+                Color::Rgb(241, 241, 241),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(128, 128, 128),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(181, 213, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(79, 79, 79),
+                Color::Rgb(250, 108, 96),
+                Color::Rgb(168, 255, 96),
+                Color::Rgb(255, 254, 183),
+                Color::Rgb(123, 123, 123),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Isotope (base16)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(208, 208, 208)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 0, 0),
+                Color::Rgb(51, 255, 0),
+                Color::Rgb(255, 0, 153),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(255, 153, 0)),
+            ),
+            (
+                "Isotope (dark) (terminal.sexy)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 0, 0),
+                Color::Rgb(51, 255, 0),
+                Color::Rgb(255, 0, 153),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Idle-Toes-to-Isotope-Dark built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
