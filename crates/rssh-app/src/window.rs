@@ -20074,6 +20074,14 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "One Half Black (Gogh)" | "OneHalfBlack (Gogh)" => {
             Some(BUILTIN_ONE_HALF_BLACK_GOGH_COLOR_SCHEME_TOML)
         }
+        "One Light (base16)" => Some(BUILTIN_ONE_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "One Light (Gogh)" | "OneLight (Gogh)" => Some(BUILTIN_ONE_LIGHT_GOGH_COLOR_SCHEME_TOML),
+        "OneDark (base16)" => Some(BUILTIN_ONEDARK_BASE16_COLOR_SCHEME_TOML),
+        "OneHalfDark" => Some(BUILTIN_ONEHALFDARK_COLOR_SCHEME_TOML),
+        "OneHalfLight" => Some(BUILTIN_ONEHALFLIGHT_COLOR_SCHEME_TOML),
+        "Operator Mono Dark" => Some(BUILTIN_OPERATOR_MONO_DARK_COLOR_SCHEME_TOML),
+        "Orangish (terminal.sexy)" => Some(BUILTIN_ORANGISH_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Outrun Dark (base16)" => Some(BUILTIN_OUTRUN_DARK_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -46949,6 +46957,335 @@ foreground = "#dcdfe4"
 aliases = ["OneHalfBlack (Gogh)"]
 name = "One Half Black (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ONE_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#fafafa",
+    "#ca1243",
+    "#50a14f",
+    "#c18401",
+    "#4078f2",
+    "#a626a4",
+    "#0184bc",
+    "#383a42",
+]
+background = "#fafafa"
+brights = [
+    "#a0a1a7",
+    "#ca1243",
+    "#50a14f",
+    "#c18401",
+    "#4078f2",
+    "#a626a4",
+    "#0184bc",
+    "#090a0b",
+]
+cursor_bg = "#383a42"
+cursor_border = "#383a42"
+cursor_fg = "#fafafa"
+foreground = "#383a42"
+selection_bg = "#383a42"
+selection_fg = "#fafafa"
+
+[colors.indexed]
+16 = "#d75f00"
+17 = "#986801"
+18 = "#f0f0f1"
+19 = "#e5e5e6"
+20 = "#696c77"
+21 = "#202227"
+
+[metadata]
+aliases = []
+author = "Daniel Pfeifer (http://github.com/purpleKarrot)"
+name = "One Light (base16)"
+origin_url = "https://github.com/purpleKarrot/base16-one-light-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ONE_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#da3e39",
+    "#41933e",
+    "#855504",
+    "#315eee",
+    "#930092",
+    "#0e6fad",
+    "#8e8f96",
+]
+background = "#f8f8f8"
+brights = [
+    "#2a2b32",
+    "#da3e39",
+    "#41933e",
+    "#855504",
+    "#315eee",
+    "#930092",
+    "#0e6fad",
+    "#fffefe",
+]
+cursor_bg = "#2a2b32"
+cursor_border = "#2a2b32"
+cursor_fg = "#f8f8f8"
+foreground = "#2a2b32"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["OneLight (Gogh)"]
+name = "One Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ONEDARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282c34",
+    "#e06c75",
+    "#98c379",
+    "#e5c07b",
+    "#61afef",
+    "#c678dd",
+    "#56b6c2",
+    "#abb2bf",
+]
+background = "#282c34"
+brights = [
+    "#545862",
+    "#e06c75",
+    "#98c379",
+    "#e5c07b",
+    "#61afef",
+    "#c678dd",
+    "#56b6c2",
+    "#c8ccd4",
+]
+cursor_bg = "#abb2bf"
+cursor_border = "#abb2bf"
+cursor_fg = "#282c34"
+foreground = "#abb2bf"
+selection_bg = "#abb2bf"
+selection_fg = "#282c34"
+
+[colors.indexed]
+16 = "#d19a66"
+17 = "#be5046"
+18 = "#353b45"
+19 = "#3e4451"
+20 = "#565c64"
+21 = "#b6bdca"
+
+[metadata]
+aliases = []
+author = "Lalit Magant (http://github.com/tilal6991)"
+name = "OneDark (base16)"
+origin_url = "https://github.com/tilal6991/base16-onedark-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ONEHALFDARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282c34",
+    "#e06c75",
+    "#98c379",
+    "#e5c07b",
+    "#61afef",
+    "#c678dd",
+    "#56b6c2",
+    "#dcdfe4",
+]
+background = "#282c34"
+brights = [
+    "#282c34",
+    "#e06c75",
+    "#98c379",
+    "#e5c07b",
+    "#61afef",
+    "#c678dd",
+    "#56b6c2",
+    "#dcdfe4",
+]
+cursor_bg = "#a3b3cc"
+cursor_border = "#a3b3cc"
+cursor_fg = "#dcdfe4"
+foreground = "#dcdfe4"
+selection_bg = "#474e5d"
+selection_fg = "#dcdfe4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Son A. Pham <sp@sonpham.me>"
+name = "OneHalfDark"
+origin_url = "https://github.com/sonph/onehalf"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ONEHALFLIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#383a42",
+    "#e45649",
+    "#50a14f",
+    "#c18401",
+    "#0184bc",
+    "#a626a4",
+    "#0997b3",
+    "#fafafa",
+]
+background = "#fafafa"
+brights = [
+    "#4f525e",
+    "#e06c75",
+    "#98c379",
+    "#e5c07b",
+    "#61afef",
+    "#c678dd",
+    "#56b6c2",
+    "#ffffff",
+]
+cursor_bg = "#bfceff"
+cursor_border = "#bfceff"
+cursor_fg = "#383a42"
+foreground = "#383a42"
+selection_bg = "#bfceff"
+selection_fg = "#383a42"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Son A. Pham <sp@sonpham.me>"
+name = "OneHalfLight"
+origin_url = "https://github.com/sonph/onehalf"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_OPERATOR_MONO_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#5a5a5a",
+    "#ca372d",
+    "#4d7b3a",
+    "#d4d697",
+    "#4387cf",
+    "#b86cb4",
+    "#72d5c6",
+    "#ced4cd",
+]
+background = "#191919"
+brights = [
+    "#9a9b99",
+    "#c37d62",
+    "#83d0a2",
+    "#fdfdc5",
+    "#89d3f6",
+    "#ff2c7a",
+    "#82eada",
+    "#fdfdf6",
+]
+cursor_bg = "#fcdc08"
+cursor_border = "#fcdc08"
+cursor_fg = "#161616"
+foreground = "#c3cac2"
+selection_bg = "#19273b"
+selection_fg = "#dde5dc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Operator Mono Dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ORANGISH_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#251f1f",
+    "#eb4509",
+    "#94e76b",
+    "#ffac18",
+    "#46aede",
+    "#e32c57",
+    "#d6dbac",
+    "#efefef",
+]
+background = "#000000"
+brights = [
+    "#5e5e5e",
+    "#eb4509",
+    "#95e76b",
+    "#ffac18",
+    "#46aede",
+    "#e32c57",
+    "#d6dbac",
+    "#efefef",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Orangish (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_OUTRUN_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#00002a",
+    "#ff4242",
+    "#59f176",
+    "#f3e877",
+    "#66b0ff",
+    "#f10596",
+    "#0ef0f0",
+    "#d0d0fa",
+]
+background = "#00002a"
+brights = [
+    "#50507a",
+    "#ff4242",
+    "#59f176",
+    "#f3e877",
+    "#66b0ff",
+    "#f10596",
+    "#0ef0f0",
+    "#f5f5ff",
+]
+cursor_bg = "#d0d0fa"
+cursor_border = "#d0d0fa"
+cursor_fg = "#00002a"
+foreground = "#d0d0fa"
+selection_bg = "#d0d0fa"
+selection_fg = "#00002a"
+
+[colors.indexed]
+16 = "#fc8d28"
+17 = "#f003ef"
+18 = "#20204a"
+19 = "#30305a"
+20 = "#b0b0da"
+21 = "#e0e0ff"
+
+[metadata]
+aliases = []
+author = "Hugo Delahousse (http://github.com/hugodelahousse/)"
+name = "Outrun Dark (base16)"
+origin_url = "https://github.com/hugodelahousse/base16-outrun-schemes"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -127831,6 +128168,212 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm OceanicMaterial-to-One-Half-Black built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_one_light_to_outrun_dark_builtin_color_schemes() {
+        let cases = [
+            (
+                "One Light (base16)",
+                Color::Rgb(56, 58, 66),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(56, 58, 66),
+                Some(Color::Rgb(250, 250, 250)),
+                Some(Color::Rgb(56, 58, 66)),
+                Some(Some(Color::Rgb(250, 250, 250))),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(202, 18, 67),
+                Color::Rgb(80, 161, 79),
+                Color::Rgb(193, 132, 1),
+                Color::Rgb(160, 161, 167),
+                Color::Rgb(9, 10, 11),
+                Some(Color::Rgb(215, 95, 0)),
+            ),
+            (
+                "One Light (Gogh)",
+                Color::Rgb(42, 43, 50),
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(42, 43, 50),
+                Some(Color::Rgb(248, 248, 248)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(218, 62, 57),
+                Color::Rgb(65, 147, 62),
+                Color::Rgb(133, 85, 4),
+                Color::Rgb(42, 43, 50),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+            (
+                "OneLight (Gogh)",
+                Color::Rgb(42, 43, 50),
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(42, 43, 50),
+                Some(Color::Rgb(248, 248, 248)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(218, 62, 57),
+                Color::Rgb(65, 147, 62),
+                Color::Rgb(133, 85, 4),
+                Color::Rgb(42, 43, 50),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+            (
+                "OneDark (base16)",
+                Color::Rgb(171, 178, 191),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(171, 178, 191),
+                Some(Color::Rgb(40, 44, 52)),
+                Some(Color::Rgb(171, 178, 191)),
+                Some(Some(Color::Rgb(40, 44, 52))),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(224, 108, 117),
+                Color::Rgb(152, 195, 121),
+                Color::Rgb(229, 192, 123),
+                Color::Rgb(84, 88, 98),
+                Color::Rgb(200, 204, 212),
+                Some(Color::Rgb(209, 154, 102)),
+            ),
+            (
+                "OneHalfDark",
+                Color::Rgb(220, 223, 228),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(163, 179, 204),
+                Some(Color::Rgb(220, 223, 228)),
+                Some(Color::Rgb(71, 78, 93)),
+                Some(Some(Color::Rgb(220, 223, 228))),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(224, 108, 117),
+                Color::Rgb(152, 195, 121),
+                Color::Rgb(229, 192, 123),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(220, 223, 228),
+                None,
+            ),
+            (
+                "OneHalfLight",
+                Color::Rgb(56, 58, 66),
+                Color::Rgb(250, 250, 250),
+                Color::Rgb(191, 206, 255),
+                Some(Color::Rgb(56, 58, 66)),
+                Some(Color::Rgb(191, 206, 255)),
+                Some(Some(Color::Rgb(56, 58, 66))),
+                Color::Rgb(56, 58, 66),
+                Color::Rgb(228, 86, 73),
+                Color::Rgb(80, 161, 79),
+                Color::Rgb(193, 132, 1),
+                Color::Rgb(79, 82, 94),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Operator Mono Dark",
+                Color::Rgb(195, 202, 194),
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(252, 220, 8),
+                Some(Color::Rgb(22, 22, 22)),
+                Some(Color::Rgb(25, 39, 59)),
+                Some(Some(Color::Rgb(221, 229, 220))),
+                Color::Rgb(90, 90, 90),
+                Color::Rgb(202, 55, 45),
+                Color::Rgb(77, 123, 58),
+                Color::Rgb(212, 214, 151),
+                Color::Rgb(154, 155, 153),
+                Color::Rgb(253, 253, 246),
+                None,
+            ),
+            (
+                "Orangish (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(37, 31, 31),
+                Color::Rgb(235, 69, 9),
+                Color::Rgb(148, 231, 107),
+                Color::Rgb(255, 172, 24),
+                Color::Rgb(94, 94, 94),
+                Color::Rgb(239, 239, 239),
+                None,
+            ),
+            (
+                "Outrun Dark (base16)",
+                Color::Rgb(208, 208, 250),
+                Color::Rgb(0, 0, 42),
+                Color::Rgb(208, 208, 250),
+                Some(Color::Rgb(0, 0, 42)),
+                Some(Color::Rgb(208, 208, 250)),
+                Some(Some(Color::Rgb(0, 0, 42))),
+                Color::Rgb(0, 0, 42),
+                Color::Rgb(255, 66, 66),
+                Color::Rgb(89, 241, 118),
+                Color::Rgb(243, 232, 119),
+                Color::Rgb(80, 80, 122),
+                Color::Rgb(245, 245, 255),
+                Some(Color::Rgb(252, 141, 40)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm One-Light-to-Outrun-Dark built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

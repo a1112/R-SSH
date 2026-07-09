@@ -3781,7 +3781,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Ocean (dark) (terminal.sexy)`, `Ocean (light) (terminal.sexy)`,
   `Ocean Dark (Gogh)`, `Oceanic Next (Gogh)`, `Oceanic-Next`,
   `OceanicMaterial`, `OceanicNext (base16)`, `Ollie`, `Ollie (Gogh)`,
-  `Omni (Gogh)`, `One Dark (Gogh)`, `One Half Black (Gogh)`, `Builtin Dark`,
+  `Omni (Gogh)`, `One Dark (Gogh)`, `One Half Black (Gogh)`,
+  `One Light (base16)`, `One Light (Gogh)`, `OneDark (base16)`,
+  `OneHalfDark`, `OneHalfLight`, `Operator Mono Dark`,
+  `Orangish (terminal.sexy)`, `Outrun Dark (base16)`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
