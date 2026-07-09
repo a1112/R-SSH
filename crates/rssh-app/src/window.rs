@@ -19727,6 +19727,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Gruvbox dark, pale (base16)" => Some(BUILTIN_GRUVBOX_DARK_PALE_BASE16_COLOR_SCHEME_TOML),
         "Gruvbox dark, soft (base16)" => Some(BUILTIN_GRUVBOX_DARK_SOFT_BASE16_COLOR_SCHEME_TOML),
+        "Gruvbox light, hard (base16)" => Some(BUILTIN_GRUVBOX_LIGHT_HARD_BASE16_COLOR_SCHEME_TOML),
+        "Gruvbox light, medium (base16)" => {
+            Some(BUILTIN_GRUVBOX_LIGHT_MEDIUM_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Gruvbox light, soft (base16)" => Some(BUILTIN_GRUVBOX_LIGHT_SOFT_BASE16_COLOR_SCHEME_TOML),
+        "Gruvbox Material (Gogh)" => Some(BUILTIN_GRUVBOX_MATERIAL_GOGH_COLOR_SCHEME_TOML),
+        "GruvboxDark" => Some(BUILTIN_GRUVBOXDARK_COLOR_SCHEME_TOML),
+        "GruvboxDarkHard" => Some(BUILTIN_GRUVBOXDARKHARD_COLOR_SCHEME_TOML),
+        "GruvboxLight" | "Gruvbox Light" => Some(BUILTIN_GRUVBOXLIGHT_COLOR_SCHEME_TOML),
+        "Guezwhoz" => Some(BUILTIN_GUEZWHOZ_COLOR_SCHEME_TOML),
+        "Hacktober" => Some(BUILTIN_HACKTOBER_COLOR_SCHEME_TOML),
+        "Hardcore" => Some(BUILTIN_HARDCORE_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -36299,6 +36311,415 @@ author = "Dawid Kurek (dawikur@gmail.com), morhetz (https://github.com/morhetz/g
 name = "Gruvbox dark, soft (base16)"
 origin_url = "https://github.com/dawikur/base16-gruvbox-scheme"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GRUVBOX_LIGHT_HARD_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f9f5d7",
+    "#9d0006",
+    "#79740e",
+    "#b57614",
+    "#076678",
+    "#8f3f71",
+    "#427b58",
+    "#504945",
+]
+background = "#f9f5d7"
+brights = [
+    "#bdae93",
+    "#9d0006",
+    "#79740e",
+    "#b57614",
+    "#076678",
+    "#8f3f71",
+    "#427b58",
+    "#282828",
+]
+cursor_bg = "#504945"
+cursor_border = "#504945"
+cursor_fg = "#f9f5d7"
+foreground = "#504945"
+selection_bg = "#504945"
+selection_fg = "#f9f5d7"
+
+[colors.indexed]
+16 = "#af3a03"
+17 = "#d65d0e"
+18 = "#ebdbb2"
+19 = "#d5c4a1"
+20 = "#665c54"
+21 = "#3c3836"
+
+[metadata]
+aliases = []
+author = "Dawid Kurek (dawikur@gmail.com), morhetz (https://github.com/morhetz/gruvbox)"
+name = "Gruvbox light, hard (base16)"
+origin_url = "https://github.com/dawikur/base16-gruvbox-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GRUVBOX_LIGHT_MEDIUM_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#fbf1c7",
+    "#9d0006",
+    "#79740e",
+    "#b57614",
+    "#076678",
+    "#8f3f71",
+    "#427b58",
+    "#504945",
+]
+background = "#fbf1c7"
+brights = [
+    "#bdae93",
+    "#9d0006",
+    "#79740e",
+    "#b57614",
+    "#076678",
+    "#8f3f71",
+    "#427b58",
+    "#282828",
+]
+cursor_bg = "#504945"
+cursor_border = "#504945"
+cursor_fg = "#fbf1c7"
+foreground = "#504945"
+selection_bg = "#504945"
+selection_fg = "#fbf1c7"
+
+[colors.indexed]
+16 = "#af3a03"
+17 = "#d65d0e"
+18 = "#ebdbb2"
+19 = "#d5c4a1"
+20 = "#665c54"
+21 = "#3c3836"
+
+[metadata]
+aliases = []
+author = "Dawid Kurek (dawikur@gmail.com), morhetz (https://github.com/morhetz/gruvbox)"
+name = "Gruvbox light, medium (base16)"
+origin_url = "https://github.com/dawikur/base16-gruvbox-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GRUVBOX_LIGHT_SOFT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f2e5bc",
+    "#9d0006",
+    "#79740e",
+    "#b57614",
+    "#076678",
+    "#8f3f71",
+    "#427b58",
+    "#504945",
+]
+background = "#f2e5bc"
+brights = [
+    "#bdae93",
+    "#9d0006",
+    "#79740e",
+    "#b57614",
+    "#076678",
+    "#8f3f71",
+    "#427b58",
+    "#282828",
+]
+cursor_bg = "#504945"
+cursor_border = "#504945"
+cursor_fg = "#f2e5bc"
+foreground = "#504945"
+selection_bg = "#504945"
+selection_fg = "#f2e5bc"
+
+[colors.indexed]
+16 = "#af3a03"
+17 = "#d65d0e"
+18 = "#ebdbb2"
+19 = "#d5c4a1"
+20 = "#665c54"
+21 = "#3c3836"
+
+[metadata]
+aliases = []
+author = "Dawid Kurek (dawikur@gmail.com), morhetz (https://github.com/morhetz/gruvbox)"
+name = "Gruvbox light, soft (base16)"
+origin_url = "https://github.com/dawikur/base16-gruvbox-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GRUVBOX_MATERIAL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3c3836",
+    "#ea6962",
+    "#a9b665",
+    "#d8a657",
+    "#7daea3",
+    "#d3869b",
+    "#89b482",
+    "#d4be98",
+]
+background = "#282828"
+brights = [
+    "#3c3836",
+    "#ea6962",
+    "#a9b665",
+    "#d8a657",
+    "#7daea3",
+    "#d3869b",
+    "#89b482",
+    "#d4be98",
+]
+cursor_bg = "#d4be98"
+cursor_border = "#d4be98"
+cursor_fg = "#282828"
+foreground = "#d4be98"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Gruvbox Material (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230408-112425-69ae8472"
+"##;
+
+const BUILTIN_GRUVBOXDARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282828",
+    "#cc241d",
+    "#98971a",
+    "#d79921",
+    "#458588",
+    "#b16286",
+    "#689d6a",
+    "#a89984",
+]
+background = "#282828"
+brights = [
+    "#928374",
+    "#fb4934",
+    "#b8bb26",
+    "#fabd2f",
+    "#83a598",
+    "#d3869b",
+    "#8ec07c",
+    "#ebdbb2",
+]
+cursor_bg = "#ebdbb2"
+cursor_border = "#ebdbb2"
+cursor_fg = "#282828"
+foreground = "#ebdbb2"
+selection_bg = "#665c54"
+selection_fg = "#ebdbb2"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Gruvbox Dark (Gogh)"]
+name = "GruvboxDark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_GRUVBOXDARKHARD_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1b1b",
+    "#cc241d",
+    "#98971a",
+    "#d79921",
+    "#458588",
+    "#b16286",
+    "#689d6a",
+    "#a89984",
+]
+background = "#1b1b1b"
+brights = [
+    "#928374",
+    "#fb4934",
+    "#b8bb26",
+    "#fabd2f",
+    "#83a598",
+    "#d3869b",
+    "#8ec07c",
+    "#ebdbb2",
+]
+cursor_bg = "#ebdbb2"
+cursor_border = "#ebdbb2"
+cursor_fg = "#1b1b1b"
+foreground = "#ebdbb2"
+selection_bg = "#665c54"
+selection_fg = "#ebdbb2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "GruvboxDarkHard"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_GRUVBOXLIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#fbf1c7",
+    "#9d0006",
+    "#79740e",
+    "#b57614",
+    "#076678",
+    "#8f3f71",
+    "#427b58",
+    "#3c3836",
+]
+background = "#fbf1c7"
+brights = [
+    "#9d8374",
+    "#cc241d",
+    "#98971a",
+    "#d79921",
+    "#458588",
+    "#b16186",
+    "#689d69",
+    "#7c6f64",
+]
+cursor_bg = "#282828"
+cursor_border = "#282828"
+cursor_fg = "#fbf1c7"
+foreground = "#282828"
+selection_bg = "#d5c4a1"
+selection_fg = "#665c54"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Gruvbox Light"]
+name = "GruvboxLight"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_GUEZWHOZ_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#080808",
+    "#ff5f5f",
+    "#87d7af",
+    "#d7d787",
+    "#5fafd7",
+    "#afafff",
+    "#5fd7d7",
+    "#dadada",
+]
+background = "#1c1c1c"
+brights = [
+    "#8a8a8a",
+    "#d75f5f",
+    "#afd7af",
+    "#d7d7af",
+    "#87afd7",
+    "#afafd7",
+    "#87d7d7",
+    "#dadada",
+]
+cursor_bg = "#eeeeee"
+cursor_border = "#eeeeee"
+cursor_fg = "#eeeeee"
+foreground = "#d0d0d0"
+selection_bg = "#005f5f"
+selection_fg = "#eeeeee"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Guezwhoz"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HACKTOBER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#191918",
+    "#b34538",
+    "#587744",
+    "#d08949",
+    "#206ec5",
+    "#864651",
+    "#ac9166",
+    "#f1eee7",
+]
+background = "#141414"
+brights = [
+    "#2c2b2a",
+    "#b33323",
+    "#42824a",
+    "#c75a22",
+    "#5389c5",
+    "#e795a5",
+    "#ebc587",
+    "#ffffff",
+]
+cursor_bg = "#c9c9c9"
+cursor_border = "#c9c9c9"
+cursor_fg = "#141414"
+foreground = "#c9c9c9"
+selection_bg = "#141414"
+selection_fg = "#c9c9c9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Hacktober"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HARDCORE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1d1e",
+    "#f92672",
+    "#a6e22e",
+    "#fd971f",
+    "#66d9ef",
+    "#9e6ffe",
+    "#5e7175",
+    "#ccccc6",
+]
+background = "#121212"
+brights = [
+    "#505354",
+    "#ff669d",
+    "#beed5f",
+    "#e6db74",
+    "#66d9ef",
+    "#9e6ffe",
+    "#a3babf",
+    "#f8f8f2",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#a0a0a0"
+selection_bg = "#453b39"
+selection_fg = "#b6bbc0"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Hardcore (Gogh)"]
+name = "Hardcore"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -110754,6 +111175,264 @@ mod tests {
                 indexed_16
             );
         }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_gruvbox_light_to_hardcore_builtin_color_schemes() {
+        let cases = [
+            (
+                "Gruvbox light, hard (base16)",
+                Color::Rgb(80, 73, 69),
+                Color::Rgb(249, 245, 215),
+                Color::Rgb(80, 73, 69),
+                Some(Color::Rgb(249, 245, 215)),
+                Some(Color::Rgb(80, 73, 69)),
+                Some(Some(Color::Rgb(249, 245, 215))),
+                Color::Rgb(249, 245, 215),
+                Color::Rgb(157, 0, 6),
+                Color::Rgb(121, 116, 14),
+                Color::Rgb(181, 118, 20),
+                Color::Rgb(189, 174, 147),
+                Color::Rgb(40, 40, 40),
+                Some(Color::Rgb(175, 58, 3)),
+            ),
+            (
+                "Gruvbox light, medium (base16)",
+                Color::Rgb(80, 73, 69),
+                Color::Rgb(251, 241, 199),
+                Color::Rgb(80, 73, 69),
+                Some(Color::Rgb(251, 241, 199)),
+                Some(Color::Rgb(80, 73, 69)),
+                Some(Some(Color::Rgb(251, 241, 199))),
+                Color::Rgb(251, 241, 199),
+                Color::Rgb(157, 0, 6),
+                Color::Rgb(121, 116, 14),
+                Color::Rgb(181, 118, 20),
+                Color::Rgb(189, 174, 147),
+                Color::Rgb(40, 40, 40),
+                Some(Color::Rgb(175, 58, 3)),
+            ),
+            (
+                "Gruvbox light, soft (base16)",
+                Color::Rgb(80, 73, 69),
+                Color::Rgb(242, 229, 188),
+                Color::Rgb(80, 73, 69),
+                Some(Color::Rgb(242, 229, 188)),
+                Some(Color::Rgb(80, 73, 69)),
+                Some(Some(Color::Rgb(242, 229, 188))),
+                Color::Rgb(242, 229, 188),
+                Color::Rgb(157, 0, 6),
+                Color::Rgb(121, 116, 14),
+                Color::Rgb(181, 118, 20),
+                Color::Rgb(189, 174, 147),
+                Color::Rgb(40, 40, 40),
+                Some(Color::Rgb(175, 58, 3)),
+            ),
+            (
+                "Gruvbox Material (Gogh)",
+                Color::Rgb(212, 190, 152),
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(212, 190, 152),
+                Some(Color::Rgb(40, 40, 40)),
+                None,
+                None,
+                Color::Rgb(60, 56, 54),
+                Color::Rgb(234, 105, 98),
+                Color::Rgb(169, 182, 101),
+                Color::Rgb(216, 166, 87),
+                Color::Rgb(60, 56, 54),
+                Color::Rgb(212, 190, 152),
+                None,
+            ),
+            (
+                "GruvboxDark",
+                Color::Rgb(235, 219, 178),
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(235, 219, 178),
+                Some(Color::Rgb(40, 40, 40)),
+                Some(Color::Rgb(102, 92, 84)),
+                Some(Some(Color::Rgb(235, 219, 178))),
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(204, 36, 29),
+                Color::Rgb(152, 151, 26),
+                Color::Rgb(215, 153, 33),
+                Color::Rgb(146, 131, 116),
+                Color::Rgb(235, 219, 178),
+                None,
+            ),
+            (
+                "GruvboxDarkHard",
+                Color::Rgb(235, 219, 178),
+                Color::Rgb(27, 27, 27),
+                Color::Rgb(235, 219, 178),
+                Some(Color::Rgb(27, 27, 27)),
+                Some(Color::Rgb(102, 92, 84)),
+                Some(Some(Color::Rgb(235, 219, 178))),
+                Color::Rgb(27, 27, 27),
+                Color::Rgb(204, 36, 29),
+                Color::Rgb(152, 151, 26),
+                Color::Rgb(215, 153, 33),
+                Color::Rgb(146, 131, 116),
+                Color::Rgb(235, 219, 178),
+                None,
+            ),
+            (
+                "GruvboxLight",
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(251, 241, 199),
+                Color::Rgb(40, 40, 40),
+                Some(Color::Rgb(251, 241, 199)),
+                Some(Color::Rgb(213, 196, 161)),
+                Some(Some(Color::Rgb(102, 92, 84))),
+                Color::Rgb(251, 241, 199),
+                Color::Rgb(157, 0, 6),
+                Color::Rgb(121, 116, 14),
+                Color::Rgb(181, 118, 20),
+                Color::Rgb(157, 131, 116),
+                Color::Rgb(124, 111, 100),
+                None,
+            ),
+            (
+                "Guezwhoz",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(238, 238, 238),
+                Some(Color::Rgb(238, 238, 238)),
+                Some(Color::Rgb(0, 95, 95)),
+                Some(Some(Color::Rgb(238, 238, 238))),
+                Color::Rgb(8, 8, 8),
+                Color::Rgb(255, 95, 95),
+                Color::Rgb(135, 215, 175),
+                Color::Rgb(215, 215, 135),
+                Color::Rgb(138, 138, 138),
+                Color::Rgb(218, 218, 218),
+                None,
+            ),
+            (
+                "Hacktober",
+                Color::Rgb(201, 201, 201),
+                Color::Rgb(20, 20, 20),
+                Color::Rgb(201, 201, 201),
+                Some(Color::Rgb(20, 20, 20)),
+                Some(Color::Rgb(20, 20, 20)),
+                Some(Some(Color::Rgb(201, 201, 201))),
+                Color::Rgb(25, 25, 24),
+                Color::Rgb(179, 69, 56),
+                Color::Rgb(88, 119, 68),
+                Color::Rgb(208, 137, 73),
+                Color::Rgb(44, 43, 42),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Hardcore",
+                Color::Rgb(160, 160, 160),
+                Color::Rgb(18, 18, 18),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(69, 59, 57)),
+                Some(Some(Color::Rgb(182, 187, 192))),
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(166, 226, 46),
+                Color::Rgb(253, 151, 31),
+                Color::Rgb(80, 83, 84),
+                Color::Rgb(248, 248, 242),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Gruvbox light-to-Hardcore built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_gruvbox_light_builtin_color_scheme_alias() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.color_scheme = 'Gruvbox Light'
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm Gruvbox Light built-in color_scheme alias config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.color_scheme.as_deref(), Some("Gruvbox Light"));
+        assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.background_color, Color::Rgb(251, 241, 199));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.cursor_fg_color, Some(Color::Rgb(251, 241, 199)));
+        assert_eq!(
+            effective.selection_bg_color,
+            Some(Color::Rgb(213, 196, 161))
+        );
+        assert_eq!(
+            effective.selection_fg_color,
+            Some(Some(Color::Rgb(102, 92, 84)))
+        );
+        let ansi = effective.ansi_palette.expect("expected ANSI palette");
+        assert_eq!(ansi[0], Color::Rgb(251, 241, 199));
+        assert_eq!(ansi[1], Color::Rgb(157, 0, 6));
+        assert_eq!(ansi[8], Color::Rgb(157, 131, 116));
+        assert_eq!(ansi[15], Color::Rgb(124, 111, 100));
     }
 
     #[test]
