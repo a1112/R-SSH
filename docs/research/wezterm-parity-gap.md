@@ -3681,6 +3681,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Grass (Gogh)`, `Grayscale (dark) (terminal.sexy)`,
   `Grayscale (light) (terminal.sexy)`, `Grayscale Dark (base16)`,
   `Grayscale Light (base16)`, `Green Screen (base16)`,
+  `Greenscreen (dark) (terminal.sexy)`,
+  `Greenscreen (light) (terminal.sexy)`, `Grey-green`,
+  `Gruber (base16)`, `Gruvbox (Gogh)`, `Gruvbox Dark (Gogh)`,
+  `Gruvbox dark, hard (base16)`, `Gruvbox dark, medium (base16)`,
+  `Gruvbox dark, pale (base16)`, `Gruvbox dark, soft (base16)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting

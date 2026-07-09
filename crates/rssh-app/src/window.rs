@@ -19711,6 +19711,22 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Grayscale Dark (base16)" => Some(BUILTIN_GRAYSCALE_DARK_BASE16_COLOR_SCHEME_TOML),
         "Grayscale Light (base16)" => Some(BUILTIN_GRAYSCALE_LIGHT_BASE16_COLOR_SCHEME_TOML),
         "Green Screen (base16)" => Some(BUILTIN_GREEN_SCREEN_BASE16_COLOR_SCHEME_TOML),
+        "Greenscreen (dark) (terminal.sexy)" => {
+            Some(BUILTIN_GREENSCREEN_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Greenscreen (light) (terminal.sexy)" => {
+            Some(BUILTIN_GREENSCREEN_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Grey-green" => Some(BUILTIN_GREY_GREEN_COLOR_SCHEME_TOML),
+        "Gruber (base16)" => Some(BUILTIN_GRUBER_BASE16_COLOR_SCHEME_TOML),
+        "Gruvbox (Gogh)" => Some(BUILTIN_GRUVBOX_GOGH_COLOR_SCHEME_TOML),
+        "Gruvbox Dark (Gogh)" => Some(BUILTIN_GRUVBOX_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Gruvbox dark, hard (base16)" => Some(BUILTIN_GRUVBOX_DARK_HARD_BASE16_COLOR_SCHEME_TOML),
+        "Gruvbox dark, medium (base16)" => {
+            Some(BUILTIN_GRUVBOX_DARK_MEDIUM_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Gruvbox dark, pale (base16)" => Some(BUILTIN_GRUVBOX_DARK_PALE_BASE16_COLOR_SCHEME_TOML),
+        "Gruvbox dark, soft (base16)" => Some(BUILTIN_GRUVBOX_DARK_SOFT_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -35869,6 +35885,419 @@ aliases = ["Greenscreen (dark) (terminal.sexy)"]
 author = "Chris Kempson (http://chriskempson.com)"
 name = "Green Screen (base16)"
 origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GREENSCREEN_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#001100",
+    "#007700",
+    "#00bb00",
+    "#007700",
+    "#009900",
+    "#00bb00",
+    "#005500",
+    "#00bb00",
+]
+background = "#001100"
+brights = [
+    "#007700",
+    "#007700",
+    "#00bb00",
+    "#007700",
+    "#009900",
+    "#00bb00",
+    "#005500",
+    "#00ff00",
+]
+foreground = "#00bb00"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Greenscreen (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_GREENSCREEN_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#001100",
+    "#007700",
+    "#00bb00",
+    "#007700",
+    "#009900",
+    "#00bb00",
+    "#005500",
+    "#00bb00",
+]
+background = "#00ff00"
+brights = [
+    "#007700",
+    "#007700",
+    "#00bb00",
+    "#007700",
+    "#009900",
+    "#00bb00",
+    "#005500",
+    "#00ff00",
+]
+foreground = "#005500"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Greenscreen (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GREY_GREEN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#fe1414",
+    "#74ff00",
+    "#f1ff01",
+    "#00deff",
+    "#ff00f0",
+    "#00ffbc",
+    "#ffffff",
+]
+background = "#002a1a"
+brights = [
+    "#666666",
+    "#ff3939",
+    "#00ff44",
+    "#ffd100",
+    "#00afff",
+    "#ff008a",
+    "#00ffd3",
+    "#f5ecec",
+]
+cursor_bg = "#fff400"
+cursor_border = "#fff400"
+cursor_fg = "#e1e4e3"
+foreground = "#ffffff"
+selection_bg = "#517e50"
+selection_fg = "#e2e2e2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Grey-green"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_GRUBER_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#181818",
+    "#f43841",
+    "#73c936",
+    "#ffdd33",
+    "#96a6c8",
+    "#9e95c7",
+    "#95a99f",
+    "#f4f4ff",
+]
+background = "#181818"
+brights = [
+    "#9dae93",
+    "#f43841",
+    "#73c936",
+    "#ffdd33",
+    "#96a6c8",
+    "#9e95c7",
+    "#95a99f",
+    "#e4e4ef",
+]
+cursor_bg = "#f4f4ff"
+cursor_border = "#f4f4ff"
+cursor_fg = "#181818"
+foreground = "#f4f4ff"
+selection_bg = "#f4f4ff"
+selection_fg = "#181818"
+
+[colors.indexed]
+16 = "#c73c3f"
+17 = "#cc8c3c"
+18 = "#453d41"
+19 = "#665c7f"
+20 = "#e4e4ef"
+21 = "#f5f5f5"
+
+[metadata]
+aliases = []
+author = "Patel, Nimai <nimai.m.patel@gmail.com>, colors from www.github.com/rexim/gruber-darker-theme"
+name = "Gruber (base16)"
+origin_url = "https://github.com/nimaipatel/base16-gruber"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GRUVBOX_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#fbf1c7",
+    "#cc241d",
+    "#98971a",
+    "#d79921",
+    "#458588",
+    "#b16286",
+    "#689d6a",
+    "#7c6f64",
+]
+background = "#fbf1c7"
+brights = [
+    "#928374",
+    "#9d0006",
+    "#79740e",
+    "#b57614",
+    "#076678",
+    "#8f3f71",
+    "#427b58",
+    "#3c3836",
+]
+cursor_bg = "#3c3836"
+cursor_border = "#3c3836"
+cursor_fg = "#fbf1c7"
+foreground = "#3c3836"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Gruvbox (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GRUVBOX_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282828",
+    "#cc241d",
+    "#98971a",
+    "#d79921",
+    "#458588",
+    "#b16286",
+    "#689d6a",
+    "#a89984",
+]
+background = "#282828"
+brights = [
+    "#928374",
+    "#fb4934",
+    "#b8bb26",
+    "#fabd2f",
+    "#83a598",
+    "#d3869b",
+    "#8ec07c",
+    "#ebdbb2",
+]
+cursor_bg = "#ebdbb2"
+cursor_border = "#ebdbb2"
+cursor_fg = "#282828"
+foreground = "#ebdbb2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Gruvbox Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_GRUVBOX_DARK_HARD_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d2021",
+    "#fb4934",
+    "#b8bb26",
+    "#fabd2f",
+    "#83a598",
+    "#d3869b",
+    "#8ec07c",
+    "#d5c4a1",
+]
+background = "#1d2021"
+brights = [
+    "#665c54",
+    "#fb4934",
+    "#b8bb26",
+    "#fabd2f",
+    "#83a598",
+    "#d3869b",
+    "#8ec07c",
+    "#fbf1c7",
+]
+cursor_bg = "#d5c4a1"
+cursor_border = "#d5c4a1"
+cursor_fg = "#1d2021"
+foreground = "#d5c4a1"
+selection_bg = "#d5c4a1"
+selection_fg = "#1d2021"
+
+[colors.indexed]
+16 = "#fe8019"
+17 = "#d65d0e"
+18 = "#3c3836"
+19 = "#504945"
+20 = "#bdae93"
+21 = "#ebdbb2"
+
+[metadata]
+aliases = []
+author = "Dawid Kurek (dawikur@gmail.com), morhetz (https://github.com/morhetz/gruvbox)"
+name = "Gruvbox dark, hard (base16)"
+origin_url = "https://github.com/dawikur/base16-gruvbox-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GRUVBOX_DARK_MEDIUM_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282828",
+    "#fb4934",
+    "#b8bb26",
+    "#fabd2f",
+    "#83a598",
+    "#d3869b",
+    "#8ec07c",
+    "#d5c4a1",
+]
+background = "#282828"
+brights = [
+    "#665c54",
+    "#fb4934",
+    "#b8bb26",
+    "#fabd2f",
+    "#83a598",
+    "#d3869b",
+    "#8ec07c",
+    "#fbf1c7",
+]
+cursor_bg = "#d5c4a1"
+cursor_border = "#d5c4a1"
+cursor_fg = "#282828"
+foreground = "#d5c4a1"
+selection_bg = "#d5c4a1"
+selection_fg = "#282828"
+
+[colors.indexed]
+16 = "#fe8019"
+17 = "#d65d0e"
+18 = "#3c3836"
+19 = "#504945"
+20 = "#bdae93"
+21 = "#ebdbb2"
+
+[metadata]
+aliases = []
+author = "Dawid Kurek (dawikur@gmail.com), morhetz (https://github.com/morhetz/gruvbox)"
+name = "Gruvbox dark, medium (base16)"
+origin_url = "https://github.com/dawikur/base16-gruvbox-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GRUVBOX_DARK_PALE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#262626",
+    "#d75f5f",
+    "#afaf00",
+    "#ffaf00",
+    "#83adad",
+    "#d485ad",
+    "#85ad85",
+    "#dab997",
+]
+background = "#262626"
+brights = [
+    "#8a8a8a",
+    "#d75f5f",
+    "#afaf00",
+    "#ffaf00",
+    "#83adad",
+    "#d485ad",
+    "#85ad85",
+    "#ebdbb2",
+]
+cursor_bg = "#dab997"
+cursor_border = "#dab997"
+cursor_fg = "#262626"
+foreground = "#dab997"
+selection_bg = "#dab997"
+selection_fg = "#262626"
+
+[colors.indexed]
+16 = "#ff8700"
+17 = "#d65d0e"
+18 = "#3a3a3a"
+19 = "#4e4e4e"
+20 = "#949494"
+21 = "#d5c4a1"
+
+[metadata]
+aliases = []
+author = "Dawid Kurek (dawikur@gmail.com), morhetz (https://github.com/morhetz/gruvbox)"
+name = "Gruvbox dark, pale (base16)"
+origin_url = "https://github.com/dawikur/base16-gruvbox-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GRUVBOX_DARK_SOFT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#32302f",
+    "#fb4934",
+    "#b8bb26",
+    "#fabd2f",
+    "#83a598",
+    "#d3869b",
+    "#8ec07c",
+    "#d5c4a1",
+]
+background = "#32302f"
+brights = [
+    "#665c54",
+    "#fb4934",
+    "#b8bb26",
+    "#fabd2f",
+    "#83a598",
+    "#d3869b",
+    "#8ec07c",
+    "#fbf1c7",
+]
+cursor_bg = "#d5c4a1"
+cursor_border = "#d5c4a1"
+cursor_fg = "#32302f"
+foreground = "#d5c4a1"
+selection_bg = "#d5c4a1"
+selection_fg = "#32302f"
+
+[colors.indexed]
+16 = "#fe8019"
+17 = "#d65d0e"
+18 = "#3c3836"
+19 = "#504945"
+20 = "#bdae93"
+21 = "#ebdbb2"
+
+[metadata]
+aliases = []
+author = "Dawid Kurek (dawikur@gmail.com), morhetz (https://github.com/morhetz/gruvbox)"
+name = "Gruvbox dark, soft (base16)"
+origin_url = "https://github.com/dawikur/base16-gruvbox-scheme"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -110079,6 +110508,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Grandshell-to-Green Screen built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_greenscreen_to_gruvbox_dark_soft_builtin_color_schemes() {
+        let cases = [
+            (
+                "Greenscreen (dark) (terminal.sexy)",
+                Color::Rgb(0, 187, 0),
+                Color::Rgb(0, 17, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 17, 0),
+                Color::Rgb(0, 119, 0),
+                Color::Rgb(0, 187, 0),
+                Color::Rgb(0, 119, 0),
+                Color::Rgb(0, 119, 0),
+                Color::Rgb(0, 255, 0),
+                None,
+            ),
+            (
+                "Greenscreen (light) (terminal.sexy)",
+                Color::Rgb(0, 85, 0),
+                Color::Rgb(0, 255, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 17, 0),
+                Color::Rgb(0, 119, 0),
+                Color::Rgb(0, 187, 0),
+                Color::Rgb(0, 119, 0),
+                Color::Rgb(0, 119, 0),
+                Color::Rgb(0, 255, 0),
+                None,
+            ),
+            (
+                "Grey-green",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 42, 26),
+                Color::Rgb(255, 244, 0),
+                Some(Color::Rgb(225, 228, 227)),
+                Some(Color::Rgb(81, 126, 80)),
+                Some(Some(Color::Rgb(226, 226, 226))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(254, 20, 20),
+                Color::Rgb(116, 255, 0),
+                Color::Rgb(241, 255, 1),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(245, 236, 236),
+                None,
+            ),
+            (
+                "Gruber (base16)",
+                Color::Rgb(244, 244, 255),
+                Color::Rgb(24, 24, 24),
+                Color::Rgb(244, 244, 255),
+                Some(Color::Rgb(24, 24, 24)),
+                Some(Color::Rgb(244, 244, 255)),
+                Some(Some(Color::Rgb(24, 24, 24))),
+                Color::Rgb(24, 24, 24),
+                Color::Rgb(244, 56, 65),
+                Color::Rgb(115, 201, 54),
+                Color::Rgb(255, 221, 51),
+                Color::Rgb(157, 174, 147),
+                Color::Rgb(228, 228, 239),
+                Some(Color::Rgb(199, 60, 63)),
+            ),
+            (
+                "Gruvbox (Gogh)",
+                Color::Rgb(60, 56, 54),
+                Color::Rgb(251, 241, 199),
+                Color::Rgb(60, 56, 54),
+                Some(Color::Rgb(251, 241, 199)),
+                None,
+                None,
+                Color::Rgb(251, 241, 199),
+                Color::Rgb(204, 36, 29),
+                Color::Rgb(152, 151, 26),
+                Color::Rgb(215, 153, 33),
+                Color::Rgb(146, 131, 116),
+                Color::Rgb(60, 56, 54),
+                None,
+            ),
+            (
+                "Gruvbox Dark (Gogh)",
+                Color::Rgb(235, 219, 178),
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(235, 219, 178),
+                Some(Color::Rgb(40, 40, 40)),
+                None,
+                None,
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(204, 36, 29),
+                Color::Rgb(152, 151, 26),
+                Color::Rgb(215, 153, 33),
+                Color::Rgb(146, 131, 116),
+                Color::Rgb(235, 219, 178),
+                None,
+            ),
+            (
+                "Gruvbox dark, hard (base16)",
+                Color::Rgb(213, 196, 161),
+                Color::Rgb(29, 32, 33),
+                Color::Rgb(213, 196, 161),
+                Some(Color::Rgb(29, 32, 33)),
+                Some(Color::Rgb(213, 196, 161)),
+                Some(Some(Color::Rgb(29, 32, 33))),
+                Color::Rgb(29, 32, 33),
+                Color::Rgb(251, 73, 52),
+                Color::Rgb(184, 187, 38),
+                Color::Rgb(250, 189, 47),
+                Color::Rgb(102, 92, 84),
+                Color::Rgb(251, 241, 199),
+                Some(Color::Rgb(254, 128, 25)),
+            ),
+            (
+                "Gruvbox dark, medium (base16)",
+                Color::Rgb(213, 196, 161),
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(213, 196, 161),
+                Some(Color::Rgb(40, 40, 40)),
+                Some(Color::Rgb(213, 196, 161)),
+                Some(Some(Color::Rgb(40, 40, 40))),
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(251, 73, 52),
+                Color::Rgb(184, 187, 38),
+                Color::Rgb(250, 189, 47),
+                Color::Rgb(102, 92, 84),
+                Color::Rgb(251, 241, 199),
+                Some(Color::Rgb(254, 128, 25)),
+            ),
+            (
+                "Gruvbox dark, pale (base16)",
+                Color::Rgb(218, 185, 151),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(218, 185, 151),
+                Some(Color::Rgb(38, 38, 38)),
+                Some(Color::Rgb(218, 185, 151)),
+                Some(Some(Color::Rgb(38, 38, 38))),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(215, 95, 95),
+                Color::Rgb(175, 175, 0),
+                Color::Rgb(255, 175, 0),
+                Color::Rgb(138, 138, 138),
+                Color::Rgb(235, 219, 178),
+                Some(Color::Rgb(255, 135, 0)),
+            ),
+            (
+                "Gruvbox dark, soft (base16)",
+                Color::Rgb(213, 196, 161),
+                Color::Rgb(50, 48, 47),
+                Color::Rgb(213, 196, 161),
+                Some(Color::Rgb(50, 48, 47)),
+                Some(Color::Rgb(213, 196, 161)),
+                Some(Some(Color::Rgb(50, 48, 47))),
+                Color::Rgb(50, 48, 47),
+                Color::Rgb(251, 73, 52),
+                Color::Rgb(184, 187, 38),
+                Color::Rgb(250, 189, 47),
+                Color::Rgb(102, 92, 84),
+                Color::Rgb(251, 241, 199),
+                Some(Color::Rgb(254, 128, 25)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Greenscreen-to-Gruvbox dark soft built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
