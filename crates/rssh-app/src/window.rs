@@ -20168,6 +20168,15 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Raycast_Dark" => Some(BUILTIN_RAYCAST_DARK_COLOR_SCHEME_TOML),
         "Raycast_Light" => Some(BUILTIN_RAYCAST_LIGHT_COLOR_SCHEME_TOML),
         "rebecca" => Some(BUILTIN_REBECCA_COLOR_SCHEME_TOML),
+        "Rebecca (base16)" => Some(BUILTIN_REBECCA_BASE16_COLOR_SCHEME_TOML),
+        "Red Alert" | "RedAlert (Gogh)" => Some(BUILTIN_RED_ALERT_COLOR_SCHEME_TOML),
+        "Red Alert (Gogh)" => Some(BUILTIN_RED_ALERT_GOGH_COLOR_SCHEME_TOML),
+        "Red Phoenix (terminal.sexy)" => Some(BUILTIN_RED_PHOENIX_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Red Planet" => Some(BUILTIN_RED_PLANET_COLOR_SCHEME_TOML),
+        "Red Sands" | "RedSands (Gogh)" => Some(BUILTIN_RED_SANDS_COLOR_SCHEME_TOML),
+        "Red Sands (Gogh)" => Some(BUILTIN_RED_SANDS_GOGH_COLOR_SCHEME_TOML),
+        "Relaxed" => Some(BUILTIN_RELAXED_COLOR_SCHEME_TOML),
+        "Relaxed (Gogh)" => Some(BUILTIN_RELAXED_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -49977,6 +49986,360 @@ aliases = []
 name = "rebecca"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_REBECCA_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#292a44",
+    "#a0a0c5",
+    "#6dfedf",
+    "#ae81ff",
+    "#2de0a7",
+    "#7aa5ff",
+    "#8eaee0",
+    "#f1eff8",
+]
+background = "#292a44"
+brights = [
+    "#666699",
+    "#a0a0c5",
+    "#6dfedf",
+    "#ae81ff",
+    "#2de0a7",
+    "#7aa5ff",
+    "#8eaee0",
+    "#53495d",
+]
+cursor_bg = "#f1eff8"
+cursor_border = "#f1eff8"
+cursor_fg = "#292a44"
+foreground = "#f1eff8"
+selection_bg = "#f1eff8"
+selection_fg = "#292a44"
+
+[colors.indexed]
+16 = "#efe4a1"
+17 = "#ff79c6"
+18 = "#663399"
+19 = "#383a62"
+20 = "#a0a0c5"
+21 = "#ccccff"
+
+[metadata]
+aliases = []
+author = "Victor Borja (http://github.com/vic) based on Rebecca Theme (http://github.com/vic/rebecca-theme)"
+name = "Rebecca (base16)"
+origin_url = "https://github.com/vic/base16-rebecca"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_RED_ALERT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d62e4e",
+    "#71be6b",
+    "#beb86b",
+    "#489bee",
+    "#e979d7",
+    "#6bbeb8",
+    "#d6d6d6",
+]
+background = "#762423"
+brights = [
+    "#262626",
+    "#e02553",
+    "#aff08c",
+    "#dfddb7",
+    "#65aaf1",
+    "#ddb7df",
+    "#b7dfdd",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#762423"
+foreground = "#ffffff"
+selection_bg = "#073642"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Red Alert (Gogh)",
+    "RedAlert (Gogh)",
+]
+name = "Red Alert"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_RED_ALERT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d62e4e",
+    "#71be6b",
+    "#beb86b",
+    "#489bee",
+    "#e979d7",
+    "#6bbeb8",
+    "#d6d6d6",
+]
+background = "#762423"
+brights = [
+    "#262626",
+    "#e02553",
+    "#aff08c",
+    "#dfddb7",
+    "#65aaf1",
+    "#ddb7df",
+    "#b7dfdd",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#762423"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Red Alert (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_RED_PHOENIX_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#131313",
+    "#2d2d2d",
+    "#4c3a3d",
+    "#4e4e4e",
+    "#6f6f6f",
+    "#909090",
+    "#aaa998",
+    "#b1b1b1",
+]
+background = "#111111"
+brights = [
+    "#d1d1d1",
+    "#d2c3ad",
+    "#df9767",
+    "#e1e1e1",
+    "#ededed",
+    "#ed4b19",
+    "#f2361e",
+    "#fa390f",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "dkeg"
+name = "Red Phoenix (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_RED_PLANET_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#202020",
+    "#8c3432",
+    "#728271",
+    "#e8bf6a",
+    "#69819e",
+    "#896492",
+    "#5b8390",
+    "#b9aa99",
+]
+background = "#222222"
+brights = [
+    "#676767",
+    "#b55242",
+    "#869985",
+    "#ebeb91",
+    "#60827e",
+    "#de4974",
+    "#38add8",
+    "#d6bfb8",
+]
+cursor_bg = "#c2b790"
+cursor_border = "#c2b790"
+cursor_fg = "#202020"
+foreground = "#c2b790"
+selection_bg = "#1b324a"
+selection_fg = "#bcb291"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Red Planet"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_RED_SANDS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff3f00",
+    "#00bb00",
+    "#e7b000",
+    "#0072ff",
+    "#bb00bb",
+    "#00bbbb",
+    "#bbbbbb",
+]
+background = "#7a251e"
+brights = [
+    "#555555",
+    "#bb0000",
+    "#00bb00",
+    "#e7b000",
+    "#0072ae",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#d7c9a7"
+selection_bg = "#a4a390"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Red Sands (Gogh)",
+    "RedSands (Gogh)",
+]
+name = "Red Sands"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_RED_SANDS_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff3f00",
+    "#00bb00",
+    "#e7b000",
+    "#0072ff",
+    "#bb00bb",
+    "#00bbbb",
+    "#bbbbbb",
+]
+background = "#7a251e"
+brights = [
+    "#555555",
+    "#bb0000",
+    "#00bb00",
+    "#e7b000",
+    "#0072ae",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#d7c9a7"
+cursor_border = "#d7c9a7"
+cursor_fg = "#7a251e"
+foreground = "#d7c9a7"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Red Sands (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_RELAXED_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151515",
+    "#bc5653",
+    "#909d63",
+    "#ebc17a",
+    "#6a8799",
+    "#b06698",
+    "#c9dfff",
+    "#d9d9d9",
+]
+background = "#353a44"
+brights = [
+    "#636363",
+    "#bc5653",
+    "#a0ac77",
+    "#ebc17a",
+    "#7eaac7",
+    "#b06698",
+    "#acbbd0",
+    "#f7f7f7",
+]
+cursor_bg = "#d9d9d9"
+cursor_border = "#d9d9d9"
+cursor_fg = "#1b1b1b"
+foreground = "#d9d9d9"
+selection_bg = "#6a7985"
+selection_fg = "#d9d9d9"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Relaxed (Gogh)"]
+name = "Relaxed"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_RELAXED_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151515",
+    "#bc5653",
+    "#909d63",
+    "#ebc17a",
+    "#6a8799",
+    "#b06698",
+    "#c9dfff",
+    "#d9d9d9",
+]
+background = "#353a44"
+brights = [
+    "#636363",
+    "#bc5653",
+    "#a0ac77",
+    "#ebc17a",
+    "#7eaac7",
+    "#b06698",
+    "#acbbd0",
+    "#f7f7f7",
+]
+cursor_bg = "#d9d9d9"
+cursor_border = "#d9d9d9"
+cursor_fg = "#353a44"
+foreground = "#d9d9d9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Relaxed (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -132696,6 +133059,244 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Railscasts-to-Rebecca built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_rebecca_base16_to_relaxed_gogh_builtin_color_schemes() {
+        let cases = [
+            (
+                "Rebecca (base16)",
+                Color::Rgb(241, 239, 248),
+                Color::Rgb(41, 42, 68),
+                Color::Rgb(241, 239, 248),
+                Some(Color::Rgb(41, 42, 68)),
+                Some(Color::Rgb(241, 239, 248)),
+                Some(Some(Color::Rgb(41, 42, 68))),
+                Color::Rgb(41, 42, 68),
+                Color::Rgb(160, 160, 197),
+                Color::Rgb(109, 254, 223),
+                Color::Rgb(174, 129, 255),
+                Color::Rgb(102, 102, 153),
+                Color::Rgb(83, 73, 93),
+                Some(Color::Rgb(239, 228, 161)),
+            ),
+            (
+                "Red Alert",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(118, 36, 35),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(118, 36, 35)),
+                Some(Color::Rgb(7, 54, 66)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(214, 46, 78),
+                Color::Rgb(113, 190, 107),
+                Color::Rgb(190, 184, 107),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "RedAlert (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(118, 36, 35),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(118, 36, 35)),
+                Some(Color::Rgb(7, 54, 66)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(214, 46, 78),
+                Color::Rgb(113, 190, 107),
+                Color::Rgb(190, 184, 107),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Red Alert (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(118, 36, 35),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(118, 36, 35)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(214, 46, 78),
+                Color::Rgb(113, 190, 107),
+                Color::Rgb(190, 184, 107),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Red Phoenix (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(17, 17, 17),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(19, 19, 19),
+                Color::Rgb(45, 45, 45),
+                Color::Rgb(76, 58, 61),
+                Color::Rgb(78, 78, 78),
+                Color::Rgb(209, 209, 209),
+                Color::Rgb(250, 57, 15),
+                None,
+            ),
+            (
+                "Red Planet",
+                Color::Rgb(194, 183, 144),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(194, 183, 144),
+                Some(Color::Rgb(32, 32, 32)),
+                Some(Color::Rgb(27, 50, 74)),
+                Some(Some(Color::Rgb(188, 178, 145))),
+                Color::Rgb(32, 32, 32),
+                Color::Rgb(140, 52, 50),
+                Color::Rgb(114, 130, 113),
+                Color::Rgb(232, 191, 106),
+                Color::Rgb(103, 103, 103),
+                Color::Rgb(214, 191, 184),
+                None,
+            ),
+            (
+                "Red Sands",
+                Color::Rgb(215, 201, 167),
+                Color::Rgb(122, 37, 30),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(164, 163, 144)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 63, 0),
+                Color::Rgb(0, 187, 0),
+                Color::Rgb(231, 176, 0),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "RedSands (Gogh)",
+                Color::Rgb(215, 201, 167),
+                Color::Rgb(122, 37, 30),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(164, 163, 144)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 63, 0),
+                Color::Rgb(0, 187, 0),
+                Color::Rgb(231, 176, 0),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Red Sands (Gogh)",
+                Color::Rgb(215, 201, 167),
+                Color::Rgb(122, 37, 30),
+                Color::Rgb(215, 201, 167),
+                Some(Color::Rgb(122, 37, 30)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 63, 0),
+                Color::Rgb(0, 187, 0),
+                Color::Rgb(231, 176, 0),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Relaxed",
+                Color::Rgb(217, 217, 217),
+                Color::Rgb(53, 58, 68),
+                Color::Rgb(217, 217, 217),
+                Some(Color::Rgb(27, 27, 27)),
+                Some(Color::Rgb(106, 121, 133)),
+                Some(Some(Color::Rgb(217, 217, 217))),
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(188, 86, 83),
+                Color::Rgb(144, 157, 99),
+                Color::Rgb(235, 193, 122),
+                Color::Rgb(99, 99, 99),
+                Color::Rgb(247, 247, 247),
+                None,
+            ),
+            (
+                "Relaxed (Gogh)",
+                Color::Rgb(217, 217, 217),
+                Color::Rgb(53, 58, 68),
+                Color::Rgb(217, 217, 217),
+                Some(Color::Rgb(53, 58, 68)),
+                None,
+                None,
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(188, 86, 83),
+                Color::Rgb(144, 157, 99),
+                Color::Rgb(235, 193, 122),
+                Color::Rgb(99, 99, 99),
+                Color::Rgb(247, 247, 247),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Rebecca-to-Relaxed built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

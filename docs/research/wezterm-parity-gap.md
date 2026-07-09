@@ -3807,9 +3807,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Railscasts (base16)`, `Railscasts (dark) (terminal.sexy)`,
   `Railscasts (light) (terminal.sexy)`, `Rapture`,
   `Rasi (terminal.sexy)`, `Raycast_Dark`, `Raycast_Light`, `rebecca`,
-  `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
-  `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
-  `Builtin Tango Light`, and
+  `Rebecca (base16)`, `Red Alert`, `Red Alert (Gogh)`,
+  `Red Phoenix (terminal.sexy)`, `Red Planet`, `Red Sands`,
+  `Red Sands (Gogh)`, `Relaxed`, `Relaxed (Gogh)`, `Builtin Dark`,
+  `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
+  `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
   palette data. The broader built-in scheme catalog, richer dynamic
   `load_scheme` composition, and full dynamic Lua scheme
