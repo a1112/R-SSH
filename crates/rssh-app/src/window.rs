@@ -20045,6 +20045,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "nord-light" => Some(BUILTIN_NORD_LIGHT_COLOR_SCHEME_TOML),
         "nordfox" => Some(BUILTIN_NORDFOX_COLOR_SCHEME_TOML),
         "Nova (base16)" => Some(BUILTIN_NOVA_BASE16_COLOR_SCHEME_TOML),
+        "Novel" => Some(BUILTIN_NOVEL_COLOR_SCHEME_TOML),
+        "Novel (Gogh)" => Some(BUILTIN_NOVEL_GOGH_COLOR_SCHEME_TOML),
+        "Nucolors (terminal.sexy)" => Some(BUILTIN_NUCOLORS_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Nudge (terminal.sexy)" => Some(BUILTIN_NUDGE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Numix Darkest (terminal.sexy)" => {
+            Some(BUILTIN_NUMIX_DARKEST_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "NvimDark" => Some(BUILTIN_NVIMDARK_COLOR_SCHEME_TOML),
+        "NvimLight" => Some(BUILTIN_NVIMLIGHT_COLOR_SCHEME_TOML),
+        "Obsidian" => Some(BUILTIN_OBSIDIAN_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -46043,6 +46053,304 @@ author = "George Essig (https://github.com/gessig), Trevor D. Miller (https://tr
 name = "Nova (base16)"
 origin_url = "https://github.com/gessig/base16-nova-scheme"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NOVEL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc0000",
+    "#009600",
+    "#d06b00",
+    "#0000cc",
+    "#cc00cc",
+    "#0087cc",
+    "#cccccc",
+]
+background = "#dfdbc3"
+brights = [
+    "#808080",
+    "#cc0000",
+    "#009600",
+    "#d06b00",
+    "#0000cc",
+    "#cc00cc",
+    "#0087cc",
+    "#ffffff",
+]
+cursor_bg = "#73635a"
+cursor_border = "#73635a"
+cursor_fg = "#000000"
+foreground = "#3b2322"
+selection_bg = "#a4a390"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Novel (Gogh)"]
+name = "Novel"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_NOVEL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc0000",
+    "#009600",
+    "#d06b00",
+    "#0000cc",
+    "#cc00cc",
+    "#0087cc",
+    "#cccccc",
+]
+background = "#dfdbc3"
+brights = [
+    "#808080",
+    "#cc0000",
+    "#009600",
+    "#d06b00",
+    "#0000cc",
+    "#cc00cc",
+    "#0087cc",
+    "#ffffff",
+]
+cursor_bg = "#3b2322"
+cursor_border = "#3b2322"
+cursor_fg = "#dfdbc3"
+foreground = "#3b2322"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Novel (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_NUCOLORS_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#393939",
+    "#ff9f95",
+    "#e2ffc7",
+    "#ffffb9",
+    "#a8ceea",
+    "#e2b5cc",
+    "#c2efff",
+    "#dddddd",
+]
+background = "#000000"
+brights = [
+    "#474747",
+    "#ff8d80",
+    "#dbffb3",
+    "#ffbe64",
+    "#7eb6ff",
+    "#e296ff",
+    "#9ce9ff",
+    "#dddddd",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Nucolors (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NUDGE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#658280",
+    "#822f5d",
+    "#184a31",
+    "#9d4500",
+    "#304465",
+    "#330801",
+    "#175552",
+    "#110005",
+]
+background = "#000000"
+brights = [
+    "#8ca8a6",
+    "#a24b76",
+    "#28634d",
+    "#9d5823",
+    "#415c77",
+    "#532706",
+    "#3a6868",
+    "#330801",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Nudge (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NUMIX_DARKEST_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#555555",
+    "#9c3528",
+    "#61bc3b",
+    "#f3b43a",
+    "#0d68a8",
+    "#744560",
+    "#288e9c",
+    "#a2a2a2",
+]
+background = "#282828"
+brights = [
+    "#888888",
+    "#d64937",
+    "#86df5d",
+    "#fdd75a",
+    "#0f75bd",
+    "#9e5e83",
+    "#37c3d6",
+    "#f9f9f9",
+]
+foreground = "#a2a2a2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Numix Darkest (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NVIMDARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#07080d",
+    "#ffc0b9",
+    "#b3f6c0",
+    "#fce094",
+    "#a6dbff",
+    "#ffcaff",
+    "#8cf8f7",
+    "#eef1f8",
+]
+background = "#14161b"
+brights = [
+    "#4f5258",
+    "#ffc0b9",
+    "#b3f6c0",
+    "#fce094",
+    "#a6dbff",
+    "#ffcaff",
+    "#8cf8f7",
+    "#eef1f8",
+]
+cursor_bg = "#9b9ea4"
+cursor_border = "#9b9ea4"
+cursor_fg = "#e0e2ea"
+foreground = "#e0e2ea"
+selection_bg = "#4f5258"
+selection_fg = "#e0e2ea"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "NvimDark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_NVIMLIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#07080d",
+    "#590008",
+    "#005523",
+    "#6b5300",
+    "#004c73",
+    "#470045",
+    "#007373",
+    "#eef1f8",
+]
+background = "#e0e2ea"
+brights = [
+    "#4f5258",
+    "#590008",
+    "#005523",
+    "#6b5300",
+    "#004c73",
+    "#470045",
+    "#007373",
+    "#eef1f8",
+]
+cursor_bg = "#9b9ea4"
+cursor_border = "#9b9ea4"
+cursor_fg = "#14161b"
+foreground = "#14161b"
+selection_bg = "#9b9ea4"
+selection_fg = "#14161b"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "NvimLight"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_OBSIDIAN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#a60001",
+    "#00bb00",
+    "#fecd22",
+    "#3a9bdb",
+    "#bb00bb",
+    "#00bbbb",
+    "#bbbbbb",
+]
+background = "#283033"
+brights = [
+    "#555555",
+    "#ff0003",
+    "#93c863",
+    "#fef874",
+    "#a1d7ff",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#c0cad0"
+cursor_border = "#c0cad0"
+cursor_fg = "#cdcdcd"
+foreground = "#cdcdcd"
+selection_bg = "#3e4c4f"
+selection_fg = "#dfe1e2"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Obsidian (Gogh)"]
+name = "Obsidian"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -126306,6 +126614,196 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Nocturnal-Winter-to-Nova built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_novel_to_obsidian_builtin_color_schemes() {
+        let cases = [
+            (
+                "Novel",
+                Color::Rgb(59, 35, 34),
+                Color::Rgb(223, 219, 195),
+                Color::Rgb(115, 99, 90),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(164, 163, 144)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(0, 150, 0),
+                Color::Rgb(208, 107, 0),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Novel (Gogh)",
+                Color::Rgb(59, 35, 34),
+                Color::Rgb(223, 219, 195),
+                Color::Rgb(59, 35, 34),
+                Some(Color::Rgb(223, 219, 195)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(0, 150, 0),
+                Color::Rgb(208, 107, 0),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Nucolors (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(57, 57, 57),
+                Color::Rgb(255, 159, 149),
+                Color::Rgb(226, 255, 199),
+                Color::Rgb(255, 255, 185),
+                Color::Rgb(71, 71, 71),
+                Color::Rgb(221, 221, 221),
+                None,
+            ),
+            (
+                "Nudge (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(101, 130, 128),
+                Color::Rgb(130, 47, 93),
+                Color::Rgb(24, 74, 49),
+                Color::Rgb(157, 69, 0),
+                Color::Rgb(140, 168, 166),
+                Color::Rgb(51, 8, 1),
+                None,
+            ),
+            (
+                "Numix Darkest (terminal.sexy)",
+                Color::Rgb(162, 162, 162),
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(156, 53, 40),
+                Color::Rgb(97, 188, 59),
+                Color::Rgb(243, 180, 58),
+                Color::Rgb(136, 136, 136),
+                Color::Rgb(249, 249, 249),
+                None,
+            ),
+            (
+                "NvimDark",
+                Color::Rgb(224, 226, 234),
+                Color::Rgb(20, 22, 27),
+                Color::Rgb(155, 158, 164),
+                Some(Color::Rgb(224, 226, 234)),
+                Some(Color::Rgb(79, 82, 88)),
+                Some(Some(Color::Rgb(224, 226, 234))),
+                Color::Rgb(7, 8, 13),
+                Color::Rgb(255, 192, 185),
+                Color::Rgb(179, 246, 192),
+                Color::Rgb(252, 224, 148),
+                Color::Rgb(79, 82, 88),
+                Color::Rgb(238, 241, 248),
+                None,
+            ),
+            (
+                "NvimLight",
+                Color::Rgb(20, 22, 27),
+                Color::Rgb(224, 226, 234),
+                Color::Rgb(155, 158, 164),
+                Some(Color::Rgb(20, 22, 27)),
+                Some(Color::Rgb(155, 158, 164)),
+                Some(Some(Color::Rgb(20, 22, 27))),
+                Color::Rgb(7, 8, 13),
+                Color::Rgb(89, 0, 8),
+                Color::Rgb(0, 85, 35),
+                Color::Rgb(107, 83, 0),
+                Color::Rgb(79, 82, 88),
+                Color::Rgb(238, 241, 248),
+                None,
+            ),
+            (
+                "Obsidian",
+                Color::Rgb(205, 205, 205),
+                Color::Rgb(40, 48, 51),
+                Color::Rgb(192, 202, 208),
+                Some(Color::Rgb(205, 205, 205)),
+                Some(Color::Rgb(62, 76, 79)),
+                Some(Some(Color::Rgb(223, 225, 226))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(166, 0, 1),
+                Color::Rgb(0, 187, 0),
+                Color::Rgb(254, 205, 34),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Novel-to-Obsidian built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

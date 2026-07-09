@@ -3774,12 +3774,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `NightLion v1`, `Nightlion V1 (Gogh)`, `NightLion v2`,
   `Nightlion V2 (Gogh)`, `Nighty (Gogh)`, `niji`, `Nocturnal Winter`, `nord`,
   `Nord (base16)`, `Nord (Gogh)`, `Nord Light (Gogh)`, `nord-light`,
-  `nordfox`, `Nova (base16)`, `Builtin Dark`, `Builtin Light`,
-  `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
-  `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped
-  non-conflicting WezTerm aliases using WezTerm's built-in TOML palette data.
-  The broader built-in scheme catalog, richer dynamic `load_scheme`
-  composition, and full dynamic Lua scheme
+  `nordfox`, `Nova (base16)`, `Novel`, `Novel (Gogh)`,
+  `Nucolors (terminal.sexy)`, `Nudge (terminal.sexy)`,
+  `Numix Darkest (terminal.sexy)`, `NvimDark`, `NvimLight`, `Obsidian`,
+  `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
+  `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
+  `Builtin Tango Light`, and already mapped non-conflicting WezTerm aliases
+  using WezTerm's built-in TOML palette data. The broader built-in scheme
+  catalog, richer dynamic `load_scheme` composition, and full dynamic Lua scheme
   construction remain later parity work.
 - Native terminal rendering applies WezTerm-style `colors.background` as the
   default framebuffer background for full and damage renders. Static
