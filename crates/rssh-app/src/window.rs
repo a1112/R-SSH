@@ -19597,6 +19597,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "ENCOM" => Some(BUILTIN_ENCOM_COLOR_SCHEME_TOML),
         "Epiphany (terminal.sexy)" => Some(BUILTIN_EPIPHANY_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Eqie6 (terminal.sexy)" => Some(BUILTIN_EQIE6_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Equilibrium Dark (base16)" => Some(BUILTIN_EQUILIBRIUM_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Equilibrium Gray Dark (base16)" => {
+            Some(BUILTIN_EQUILIBRIUM_GRAY_DARK_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Equilibrium Gray Light (base16)" => {
+            Some(BUILTIN_EQUILIBRIUM_GRAY_LIGHT_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Equilibrium Light (base16)" => Some(BUILTIN_EQUILIBRIUM_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Erebus (terminal.sexy)" => Some(BUILTIN_EREBUS_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Espresso" => Some(BUILTIN_ESPRESSO_COLOR_SCHEME_TOML),
+        "Espresso (base16)" => Some(BUILTIN_ESPRESSO_BASE16_COLOR_SCHEME_TOML),
+        "Espresso (Gogh)" => Some(BUILTIN_ESPRESSO_GOGH_COLOR_SCHEME_TOML),
+        "Espresso Libre" => Some(BUILTIN_ESPRESSO_LIBRE_COLOR_SCHEME_TOML),
+        "Espresso Libre (Gogh)" => Some(BUILTIN_ESPRESSO_LIBRE_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -32227,6 +32241,426 @@ author = ""
 name = "Eqie6 (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_EQUILIBRIUM_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0c1118",
+    "#f04339",
+    "#7f8b00",
+    "#bb8801",
+    "#008dd1",
+    "#6a7fd2",
+    "#00948b",
+    "#afaba2",
+]
+background = "#0c1118"
+brights = [
+    "#7b776e",
+    "#f04339",
+    "#7f8b00",
+    "#bb8801",
+    "#008dd1",
+    "#6a7fd2",
+    "#00948b",
+    "#e7e2d9",
+]
+cursor_bg = "#afaba2"
+cursor_border = "#afaba2"
+cursor_fg = "#0c1118"
+foreground = "#afaba2"
+selection_bg = "#afaba2"
+selection_fg = "#0c1118"
+
+[colors.indexed]
+16 = "#df5923"
+17 = "#e3488e"
+18 = "#181c22"
+19 = "#22262d"
+20 = "#949088"
+21 = "#cac6bd"
+
+[metadata]
+aliases = []
+author = "Carlo Abelli"
+name = "Equilibrium Dark (base16)"
+origin_url = "https://github.com/carloabelli/base16-equilibrium-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_EQUILIBRIUM_GRAY_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#111111",
+    "#f04339",
+    "#7f8b00",
+    "#bb8801",
+    "#008dd1",
+    "#6a7fd2",
+    "#00948b",
+    "#ababab",
+]
+background = "#111111"
+brights = [
+    "#777777",
+    "#f04339",
+    "#7f8b00",
+    "#bb8801",
+    "#008dd1",
+    "#6a7fd2",
+    "#00948b",
+    "#e2e2e2",
+]
+cursor_bg = "#ababab"
+cursor_border = "#ababab"
+cursor_fg = "#111111"
+foreground = "#ababab"
+selection_bg = "#ababab"
+selection_fg = "#111111"
+
+[colors.indexed]
+16 = "#df5923"
+17 = "#e3488e"
+18 = "#1b1b1b"
+19 = "#262626"
+20 = "#919191"
+21 = "#c6c6c6"
+
+[metadata]
+aliases = []
+author = "Carlo Abelli"
+name = "Equilibrium Gray Dark (base16)"
+origin_url = "https://github.com/carloabelli/base16-equilibrium-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_EQUILIBRIUM_GRAY_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f1f1f1",
+    "#d02023",
+    "#637200",
+    "#9d6f00",
+    "#0073b5",
+    "#4e66b6",
+    "#007a72",
+    "#474747",
+]
+background = "#f1f1f1"
+brights = [
+    "#777777",
+    "#d02023",
+    "#637200",
+    "#9d6f00",
+    "#0073b5",
+    "#4e66b6",
+    "#007a72",
+    "#1b1b1b",
+]
+cursor_bg = "#474747"
+cursor_border = "#474747"
+cursor_fg = "#f1f1f1"
+foreground = "#474747"
+selection_bg = "#474747"
+selection_fg = "#f1f1f1"
+
+[colors.indexed]
+16 = "#bf3e05"
+17 = "#c42775"
+18 = "#e2e2e2"
+19 = "#d4d4d4"
+20 = "#5e5e5e"
+21 = "#303030"
+
+[metadata]
+aliases = []
+author = "Carlo Abelli"
+name = "Equilibrium Gray Light (base16)"
+origin_url = "https://github.com/carloabelli/base16-equilibrium-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_EQUILIBRIUM_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f5f0e7",
+    "#d02023",
+    "#637200",
+    "#9d6f00",
+    "#0073b5",
+    "#4e66b6",
+    "#007a72",
+    "#43474e",
+]
+background = "#f5f0e7"
+brights = [
+    "#73777f",
+    "#d02023",
+    "#637200",
+    "#9d6f00",
+    "#0073b5",
+    "#4e66b6",
+    "#007a72",
+    "#181c22",
+]
+cursor_bg = "#43474e"
+cursor_border = "#43474e"
+cursor_fg = "#f5f0e7"
+foreground = "#43474e"
+selection_bg = "#43474e"
+selection_fg = "#f5f0e7"
+
+[colors.indexed]
+16 = "#bf3e05"
+17 = "#c42775"
+18 = "#e7e2d9"
+19 = "#d8d4cb"
+20 = "#5a5f66"
+21 = "#2c3138"
+
+[metadata]
+aliases = []
+author = "Carlo Abelli"
+name = "Equilibrium Light (base16)"
+origin_url = "https://github.com/carloabelli/base16-equilibrium-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_EREBUS_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#757575",
+    "#ff5f5f",
+    "#de8a36",
+    "#d78787",
+    "#af5fd7",
+    "#ff87d7",
+    "#dea3e5",
+    "#b8b8b8",
+]
+background = "#000000"
+brights = [
+    "#b8b8b8",
+    "#d78787",
+    "#ff9f6f",
+    "#ff5f5f",
+    "#dea3e5",
+    "#d7afaf",
+    "#af5fd7",
+    "#757575",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Erebus (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ESPRESSO_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#353535",
+    "#d25252",
+    "#a5c261",
+    "#ffc66d",
+    "#6c99bb",
+    "#d197d9",
+    "#bed6ff",
+    "#eeeeec",
+]
+background = "#323232"
+brights = [
+    "#535353",
+    "#f00c0c",
+    "#c2e075",
+    "#e1e48b",
+    "#8ab7d9",
+    "#efb5f7",
+    "#dcf4ff",
+    "#ffffff",
+]
+cursor_bg = "#d6d6d6"
+cursor_border = "#d6d6d6"
+cursor_fg = "#ffffff"
+foreground = "#ffffff"
+selection_bg = "#5b5b5b"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Espresso (Gogh)"]
+name = "Espresso"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ESPRESSO_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2d2d2d",
+    "#d25252",
+    "#a5c261",
+    "#ffc66d",
+    "#6c99bb",
+    "#d197d9",
+    "#bed6ff",
+    "#cccccc",
+]
+background = "#2d2d2d"
+brights = [
+    "#777777",
+    "#d25252",
+    "#a5c261",
+    "#ffc66d",
+    "#6c99bb",
+    "#d197d9",
+    "#bed6ff",
+    "#ffffff",
+]
+cursor_bg = "#cccccc"
+cursor_border = "#cccccc"
+cursor_fg = "#2d2d2d"
+foreground = "#cccccc"
+selection_bg = "#cccccc"
+selection_fg = "#2d2d2d"
+
+[colors.indexed]
+16 = "#f9a959"
+17 = "#f97394"
+18 = "#393939"
+19 = "#515151"
+20 = "#b4b7b4"
+21 = "#e0e0e0"
+
+[metadata]
+aliases = []
+author = "Unknown. Maintained by Alex Mirrington (https://github.com/alexmirrington)"
+name = "Espresso (base16)"
+origin_url = "https://github.com/alexmirrington/base16-espresso-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ESPRESSO_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#353535",
+    "#d25252",
+    "#a5c261",
+    "#ffc66d",
+    "#6c99bb",
+    "#d197d9",
+    "#bed6ff",
+    "#eeeeec",
+]
+background = "#323232"
+brights = [
+    "#535353",
+    "#f00c0c",
+    "#c2e075",
+    "#e1e48b",
+    "#8ab7d9",
+    "#efb5f7",
+    "#dcf4ff",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#323232"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Espresso (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_ESPRESSO_LIBRE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc0000",
+    "#1a921c",
+    "#f0e53a",
+    "#0066ff",
+    "#c5656b",
+    "#06989a",
+    "#d3d7cf",
+]
+background = "#2a211c"
+brights = [
+    "#555753",
+    "#ef2929",
+    "#9aff87",
+    "#fffb5c",
+    "#43a8ed",
+    "#ff818a",
+    "#34e2e2",
+    "#eeeeec",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#b8a898"
+selection_bg = "#c3dcff"
+selection_fg = "#b8a898"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Espresso Libre (Gogh)",
+    "EspressoLibre (Gogh)",
+]
+name = "Espresso Libre"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ESPRESSO_LIBRE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc0000",
+    "#1a921c",
+    "#f0e53a",
+    "#0066ff",
+    "#c5656b",
+    "#06989a",
+    "#d3d7cf",
+]
+background = "#2a211c"
+brights = [
+    "#555753",
+    "#ef2929",
+    "#9aff87",
+    "#fffb5c",
+    "#43a8ed",
+    "#ff818a",
+    "#34e2e2",
+    "#eeeeec",
+]
+cursor_bg = "#b8a898"
+cursor_border = "#b8a898"
+cursor_fg = "#2a211c"
+foreground = "#b8a898"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Espresso Libre (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -104366,6 +104800,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Elementary-to-Eqie6 built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_equilibrium_to_espresso_libre_gogh_builtin_color_schemes() {
+        let cases = [
+            (
+                "Equilibrium Dark (base16)",
+                Color::Rgb(175, 171, 162),
+                Color::Rgb(12, 17, 24),
+                Color::Rgb(175, 171, 162),
+                Some(Color::Rgb(12, 17, 24)),
+                Some(Color::Rgb(175, 171, 162)),
+                Some(Some(Color::Rgb(12, 17, 24))),
+                Color::Rgb(12, 17, 24),
+                Color::Rgb(240, 67, 57),
+                Color::Rgb(127, 139, 0),
+                Color::Rgb(187, 136, 1),
+                Color::Rgb(123, 119, 110),
+                Color::Rgb(231, 226, 217),
+                Some(Color::Rgb(223, 89, 35)),
+            ),
+            (
+                "Equilibrium Gray Dark (base16)",
+                Color::Rgb(171, 171, 171),
+                Color::Rgb(17, 17, 17),
+                Color::Rgb(171, 171, 171),
+                Some(Color::Rgb(17, 17, 17)),
+                Some(Color::Rgb(171, 171, 171)),
+                Some(Some(Color::Rgb(17, 17, 17))),
+                Color::Rgb(17, 17, 17),
+                Color::Rgb(240, 67, 57),
+                Color::Rgb(127, 139, 0),
+                Color::Rgb(187, 136, 1),
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(226, 226, 226),
+                Some(Color::Rgb(223, 89, 35)),
+            ),
+            (
+                "Equilibrium Gray Light (base16)",
+                Color::Rgb(71, 71, 71),
+                Color::Rgb(241, 241, 241),
+                Color::Rgb(71, 71, 71),
+                Some(Color::Rgb(241, 241, 241)),
+                Some(Color::Rgb(71, 71, 71)),
+                Some(Some(Color::Rgb(241, 241, 241))),
+                Color::Rgb(241, 241, 241),
+                Color::Rgb(208, 32, 35),
+                Color::Rgb(99, 114, 0),
+                Color::Rgb(157, 111, 0),
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(27, 27, 27),
+                Some(Color::Rgb(191, 62, 5)),
+            ),
+            (
+                "Equilibrium Light (base16)",
+                Color::Rgb(67, 71, 78),
+                Color::Rgb(245, 240, 231),
+                Color::Rgb(67, 71, 78),
+                Some(Color::Rgb(245, 240, 231)),
+                Some(Color::Rgb(67, 71, 78)),
+                Some(Some(Color::Rgb(245, 240, 231))),
+                Color::Rgb(245, 240, 231),
+                Color::Rgb(208, 32, 35),
+                Color::Rgb(99, 114, 0),
+                Color::Rgb(157, 111, 0),
+                Color::Rgb(115, 119, 127),
+                Color::Rgb(24, 28, 34),
+                Some(Color::Rgb(191, 62, 5)),
+            ),
+            (
+                "Erebus (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(117, 117, 117),
+                Color::Rgb(255, 95, 95),
+                Color::Rgb(222, 138, 54),
+                Color::Rgb(215, 135, 135),
+                Color::Rgb(184, 184, 184),
+                Color::Rgb(117, 117, 117),
+                None,
+            ),
+            (
+                "Espresso",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(214, 214, 214),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(91, 91, 91)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(53, 53, 53),
+                Color::Rgb(210, 82, 82),
+                Color::Rgb(165, 194, 97),
+                Color::Rgb(255, 198, 109),
+                Color::Rgb(83, 83, 83),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Espresso (base16)",
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(45, 45, 45),
+                Color::Rgb(204, 204, 204),
+                Some(Color::Rgb(45, 45, 45)),
+                Some(Color::Rgb(204, 204, 204)),
+                Some(Some(Color::Rgb(45, 45, 45))),
+                Color::Rgb(45, 45, 45),
+                Color::Rgb(210, 82, 82),
+                Color::Rgb(165, 194, 97),
+                Color::Rgb(255, 198, 109),
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(249, 169, 89)),
+            ),
+            (
+                "Espresso (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(50, 50, 50)),
+                None,
+                None,
+                Color::Rgb(53, 53, 53),
+                Color::Rgb(210, 82, 82),
+                Color::Rgb(165, 194, 97),
+                Color::Rgb(255, 198, 109),
+                Color::Rgb(83, 83, 83),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Espresso Libre",
+                Color::Rgb(184, 168, 152),
+                Color::Rgb(42, 33, 28),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(195, 220, 255)),
+                Some(Some(Color::Rgb(184, 168, 152))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(26, 146, 28),
+                Color::Rgb(240, 229, 58),
+                Color::Rgb(85, 87, 83),
+                Color::Rgb(238, 238, 236),
+                None,
+            ),
+            (
+                "Espresso Libre (Gogh)",
+                Color::Rgb(184, 168, 152),
+                Color::Rgb(42, 33, 28),
+                Color::Rgb(184, 168, 152),
+                Some(Color::Rgb(42, 33, 28)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(26, 146, 28),
+                Color::Rgb(240, 229, 58),
+                Color::Rgb(85, 87, 83),
+                Color::Rgb(238, 238, 236),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Equilibrium-to-Espresso Libre Gogh built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
