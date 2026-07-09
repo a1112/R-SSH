@@ -3715,7 +3715,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `iTerm2 Default`, `iTerm2 Light Background`,
   `iTerm2 Pastel Dark Background`, `iTerm2 Smoooooth`,
   `iTerm2 Tango Dark`, `iTerm2 Tango Light`, `Ivory Dark (terminal.sexy)`,
-  `Ivory Light (terminal.sexy)`,
+  `Ivory Light (terminal.sexy)`, `Jackie Brown`, `Jackie Brown (Gogh)`,
+  `Japanesque`, `Japanesque (Gogh)`, `Jason Wryan (terminal.sexy)`,
+  `Jellybeans`, `Jellybeans (Gogh)`, `JetBrains Darcula`,
+  `jmbi (terminal.sexy)`, `jubi`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting

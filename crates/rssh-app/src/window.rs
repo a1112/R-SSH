@@ -19829,6 +19829,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "iTerm2 Tango Light" => Some(BUILTIN_ITERM2_TANGO_LIGHT_COLOR_SCHEME_TOML),
         "Ivory Dark (terminal.sexy)" => Some(BUILTIN_IVORY_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Ivory Light (terminal.sexy)" => Some(BUILTIN_IVORY_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Jackie Brown" | "JackieBrown (Gogh)" => Some(BUILTIN_JACKIE_BROWN_COLOR_SCHEME_TOML),
+        "Jackie Brown (Gogh)" => Some(BUILTIN_JACKIE_BROWN_GOGH_COLOR_SCHEME_TOML),
+        "Japanesque" => Some(BUILTIN_JAPANESQUE_COLOR_SCHEME_TOML),
+        "Japanesque (Gogh)" => Some(BUILTIN_JAPANESQUE_GOGH_COLOR_SCHEME_TOML),
+        "Jason Wryan (terminal.sexy)" => Some(BUILTIN_JASON_WRYAN_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Jellybeans" => Some(BUILTIN_JELLYBEANS_COLOR_SCHEME_TOML),
+        "Jellybeans (Gogh)" => Some(BUILTIN_JELLYBEANS_GOGH_COLOR_SCHEME_TOML),
+        "JetBrains Darcula" => Some(BUILTIN_JETBRAINS_DARCULA_COLOR_SCHEME_TOML),
+        "jmbi (terminal.sexy)" => Some(BUILTIN_JMBI_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "jubi" => Some(BUILTIN_JUBI_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -39618,6 +39628,385 @@ author = "Baskerville"
 name = "Ivory Light (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_JACKIE_BROWN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2c1d16",
+    "#ef5734",
+    "#2baf2b",
+    "#bebf00",
+    "#246eb2",
+    "#d05ec1",
+    "#00acee",
+    "#bfbfbf",
+]
+background = "#2c1d16"
+brights = [
+    "#666666",
+    "#e50000",
+    "#86a93e",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#23ff18"
+cursor_border = "#23ff18"
+cursor_fg = "#ff0018"
+foreground = "#ffcc2f"
+selection_bg = "#af8d21"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Jackie Brown (Gogh)",
+    "JackieBrown (Gogh)",
+]
+name = "Jackie Brown"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_JACKIE_BROWN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2c1d16",
+    "#ef5734",
+    "#2baf2b",
+    "#bebf00",
+    "#246eb2",
+    "#d05ec1",
+    "#00acee",
+    "#bfbfbf",
+]
+background = "#2c1d16"
+brights = [
+    "#666666",
+    "#e50000",
+    "#86a93e",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#ffcc2f"
+cursor_border = "#ffcc2f"
+cursor_fg = "#2c1d16"
+foreground = "#ffcc2f"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Jackie Brown (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_JAPANESQUE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#343935",
+    "#cf3f61",
+    "#7bb75b",
+    "#e9b32a",
+    "#4c9ad4",
+    "#a57fc4",
+    "#389aad",
+    "#fafaf6",
+]
+background = "#1e1e1e"
+brights = [
+    "#595b59",
+    "#d18fa6",
+    "#767f2c",
+    "#78592f",
+    "#135979",
+    "#604291",
+    "#76bbca",
+    "#b2b5ae",
+]
+cursor_bg = "#edcf4f"
+cursor_border = "#edcf4f"
+cursor_fg = "#343935"
+foreground = "#f7f6ec"
+selection_bg = "#175877"
+selection_fg = "#f7f6ec"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Japanesque (Gogh)"]
+name = "Japanesque"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_JAPANESQUE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#343935",
+    "#cf3f61",
+    "#7bb75b",
+    "#e9b32a",
+    "#4c9ad4",
+    "#a57fc4",
+    "#389aad",
+    "#fafaf6",
+]
+background = "#1e1e1e"
+brights = [
+    "#595b59",
+    "#d18fa6",
+    "#767f2c",
+    "#78592f",
+    "#135979",
+    "#604291",
+    "#76bbca",
+    "#b2b5ae",
+]
+cursor_bg = "#f7f6ec"
+cursor_border = "#f7f6ec"
+cursor_fg = "#1e1e1e"
+foreground = "#f7f6ec"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Japanesque (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_JASON_WRYAN_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#222222",
+    "#9e5641",
+    "#6c7e55",
+    "#caaf2b",
+    "#4c8ea1",
+    "#956d9d",
+    "#7c9aa6",
+    "#909090",
+]
+background = "#000000"
+brights = [
+    "#454545",
+    "#cc896d",
+    "#7db37d",
+    "#bfb556",
+    "#6bc1d0",
+    "#c18fcb",
+    "#8fadbf",
+    "#ffffff",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Jason Wryan (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_JELLYBEANS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#929292",
+    "#e27373",
+    "#94b979",
+    "#ffba7b",
+    "#97bedc",
+    "#e1c0fa",
+    "#00988e",
+    "#dedede",
+]
+background = "#121212"
+brights = [
+    "#bdbdbd",
+    "#ffa1a1",
+    "#bddeab",
+    "#ffdca0",
+    "#b1d8f6",
+    "#fbdaff",
+    "#1ab2a8",
+    "#ffffff",
+]
+cursor_bg = "#ffa560"
+cursor_border = "#ffa560"
+cursor_fg = "#ffffff"
+foreground = "#dedede"
+selection_bg = "#474e91"
+selection_fg = "#f4f4f4"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Jellybeans (Gogh)"]
+name = "Jellybeans"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_JELLYBEANS_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#929292",
+    "#e27373",
+    "#94b979",
+    "#ffba7b",
+    "#97bedc",
+    "#e1c0fa",
+    "#00988e",
+    "#dedede",
+]
+background = "#121212"
+brights = [
+    "#bdbdbd",
+    "#ffa1a1",
+    "#bddeab",
+    "#ffdca0",
+    "#b1d8f6",
+    "#fbdaff",
+    "#1ab2a8",
+    "#ffffff",
+]
+cursor_bg = "#dedede"
+cursor_border = "#dedede"
+cursor_fg = "#121212"
+foreground = "#dedede"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Jellybeans (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_JETBRAINS_DARCULA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#fa5355",
+    "#126e00",
+    "#c2c300",
+    "#4581eb",
+    "#fa54ff",
+    "#33c2c1",
+    "#adadad",
+]
+background = "#202020"
+brights = [
+    "#555555",
+    "#fb7172",
+    "#67ff4f",
+    "#ffff00",
+    "#6d9df1",
+    "#fb82ff",
+    "#60d3d1",
+    "#eeeeee",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#adadad"
+selection_bg = "#1a3272"
+selection_fg = "#adadad"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "JetBrains Darcula"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_JMBI_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#5a7260",
+    "#8f423c",
+    "#bbbb88",
+    "#f9d25b",
+    "#e0ba69",
+    "#709289",
+    "#d13516",
+    "#efe2e0",
+]
+background = "#1e1e1e"
+brights = [
+    "#8da691",
+    "#eeaa88",
+    "#ccc68d",
+    "#eedd99",
+    "#c9b957",
+    "#ffcbab",
+    "#c25431",
+    "#f9f1ed",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "jmbi"
+name = "jmbi (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_JUBI_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3b3750",
+    "#cf7b98",
+    "#90a94b",
+    "#6ebfc0",
+    "#576ea6",
+    "#bc4f68",
+    "#75a7d2",
+    "#c3d3de",
+]
+background = "#262b33"
+brights = [
+    "#a874ce",
+    "#de90ab",
+    "#bcdd61",
+    "#87e9ea",
+    "#8c9fcd",
+    "#e16c87",
+    "#b7c9ef",
+    "#d5e5f1",
+]
+cursor_bg = "#c3d3de"
+cursor_border = "#c3d3de"
+cursor_fg = "#1e1b2e"
+foreground = "#c3d3de"
+selection_bg = "#5b5184"
+selection_fg = "#1e1b2e"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "jubi"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -116037,6 +116426,244 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Isotope-Light-to-Ivory-Light built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_jackie_brown_to_jubi_builtin_color_schemes() {
+        let cases = [
+            (
+                "Jackie Brown",
+                Color::Rgb(255, 204, 47),
+                Color::Rgb(44, 29, 22),
+                Color::Rgb(35, 255, 24),
+                Some(Color::Rgb(255, 0, 24)),
+                Some(Color::Rgb(175, 141, 33)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(44, 29, 22),
+                Color::Rgb(239, 87, 52),
+                Color::Rgb(43, 175, 43),
+                Color::Rgb(190, 191, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "JackieBrown (Gogh)",
+                Color::Rgb(255, 204, 47),
+                Color::Rgb(44, 29, 22),
+                Color::Rgb(35, 255, 24),
+                Some(Color::Rgb(255, 0, 24)),
+                Some(Color::Rgb(175, 141, 33)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(44, 29, 22),
+                Color::Rgb(239, 87, 52),
+                Color::Rgb(43, 175, 43),
+                Color::Rgb(190, 191, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Jackie Brown (Gogh)",
+                Color::Rgb(255, 204, 47),
+                Color::Rgb(44, 29, 22),
+                Color::Rgb(255, 204, 47),
+                Some(Color::Rgb(44, 29, 22)),
+                None,
+                None,
+                Color::Rgb(44, 29, 22),
+                Color::Rgb(239, 87, 52),
+                Color::Rgb(43, 175, 43),
+                Color::Rgb(190, 191, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Japanesque",
+                Color::Rgb(247, 246, 236),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(237, 207, 79),
+                Some(Color::Rgb(52, 57, 53)),
+                Some(Color::Rgb(23, 88, 119)),
+                Some(Some(Color::Rgb(247, 246, 236))),
+                Color::Rgb(52, 57, 53),
+                Color::Rgb(207, 63, 97),
+                Color::Rgb(123, 183, 91),
+                Color::Rgb(233, 179, 42),
+                Color::Rgb(89, 91, 89),
+                Color::Rgb(178, 181, 174),
+                None,
+            ),
+            (
+                "Japanesque (Gogh)",
+                Color::Rgb(247, 246, 236),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(247, 246, 236),
+                Some(Color::Rgb(30, 30, 30)),
+                None,
+                None,
+                Color::Rgb(52, 57, 53),
+                Color::Rgb(207, 63, 97),
+                Color::Rgb(123, 183, 91),
+                Color::Rgb(233, 179, 42),
+                Color::Rgb(89, 91, 89),
+                Color::Rgb(178, 181, 174),
+                None,
+            ),
+            (
+                "Jason Wryan (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(158, 86, 65),
+                Color::Rgb(108, 126, 85),
+                Color::Rgb(202, 175, 43),
+                Color::Rgb(69, 69, 69),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Jellybeans",
+                Color::Rgb(222, 222, 222),
+                Color::Rgb(18, 18, 18),
+                Color::Rgb(255, 165, 96),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(71, 78, 145)),
+                Some(Some(Color::Rgb(244, 244, 244))),
+                Color::Rgb(146, 146, 146),
+                Color::Rgb(226, 115, 115),
+                Color::Rgb(148, 185, 121),
+                Color::Rgb(255, 186, 123),
+                Color::Rgb(189, 189, 189),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Jellybeans (Gogh)",
+                Color::Rgb(222, 222, 222),
+                Color::Rgb(18, 18, 18),
+                Color::Rgb(222, 222, 222),
+                Some(Color::Rgb(18, 18, 18)),
+                None,
+                None,
+                Color::Rgb(146, 146, 146),
+                Color::Rgb(226, 115, 115),
+                Color::Rgb(148, 185, 121),
+                Color::Rgb(255, 186, 123),
+                Color::Rgb(189, 189, 189),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "JetBrains Darcula",
+                Color::Rgb(173, 173, 173),
+                Color::Rgb(32, 32, 32),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(26, 50, 114)),
+                Some(Some(Color::Rgb(173, 173, 173))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(250, 83, 85),
+                Color::Rgb(18, 110, 0),
+                Color::Rgb(194, 195, 0),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(238, 238, 238),
+                None,
+            ),
+            (
+                "jmbi (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(90, 114, 96),
+                Color::Rgb(143, 66, 60),
+                Color::Rgb(187, 187, 136),
+                Color::Rgb(249, 210, 91),
+                Color::Rgb(141, 166, 145),
+                Color::Rgb(249, 241, 237),
+                None,
+            ),
+            (
+                "jubi",
+                Color::Rgb(195, 211, 222),
+                Color::Rgb(38, 43, 51),
+                Color::Rgb(195, 211, 222),
+                Some(Color::Rgb(30, 27, 46)),
+                Some(Color::Rgb(91, 81, 132)),
+                Some(Some(Color::Rgb(30, 27, 46))),
+                Color::Rgb(59, 55, 80),
+                Color::Rgb(207, 123, 152),
+                Color::Rgb(144, 169, 75),
+                Color::Rgb(110, 191, 192),
+                Color::Rgb(168, 116, 206),
+                Color::Rgb(213, 229, 241),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Jackie-Brown-to-jubi built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
