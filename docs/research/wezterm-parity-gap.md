@@ -3762,7 +3762,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Monokai (dark) (terminal.sexy)`, `Monokai (light) (terminal.sexy)`,
   `Monokai (terminal.sexy)`, `Monokai Dark (Gogh)`,
   `Monokai Pro (Gogh)`, `Monokai Pro Ristretto (Gogh)`,
-  `Monokai Remastered`, `Builtin Dark`, `Builtin Light`,
+  `Monokai Remastered`, `Monokai Soda`, `Monokai Soda (Gogh)`,
+  `Monokai Vivid`, `Moonfly (Gogh)`, `Morada (Gogh)`,
+  `Mostly Bright (terminal.sexy)`, `Muse (terminal.sexy)`,
+  `N0tch2k`, `N0Tch2K (Gogh)`, `Nancy (terminal.sexy)`,
+  `Nature Suede (terminal.sexy)`, `Navy and Ivory (terminal.sexy)`,
+  `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting
   WezTerm aliases using WezTerm's built-in TOML palette data. The broader

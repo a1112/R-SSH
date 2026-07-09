@@ -19996,6 +19996,24 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
             Some(BUILTIN_MONOKAI_PRO_RISTRETTO_GOGH_COLOR_SCHEME_TOML)
         }
         "Monokai Remastered" => Some(BUILTIN_MONOKAI_REMASTERED_COLOR_SCHEME_TOML),
+        "Monokai Soda" | "MonokaiSoda (Gogh)" => Some(BUILTIN_MONOKAI_SODA_COLOR_SCHEME_TOML),
+        "Monokai Soda (Gogh)" => Some(BUILTIN_MONOKAI_SODA_GOGH_COLOR_SCHEME_TOML),
+        "Monokai Vivid" => Some(BUILTIN_MONOKAI_VIVID_COLOR_SCHEME_TOML),
+        "Moonfly (Gogh)" => Some(BUILTIN_MOONFLY_GOGH_COLOR_SCHEME_TOML),
+        "Morada (Gogh)" => Some(BUILTIN_MORADA_GOGH_COLOR_SCHEME_TOML),
+        "Mostly Bright (terminal.sexy)" => {
+            Some(BUILTIN_MOSTLY_BRIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Muse (terminal.sexy)" => Some(BUILTIN_MUSE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "N0tch2k" => Some(BUILTIN_N0TCH2K_COLOR_SCHEME_TOML),
+        "N0Tch2K (Gogh)" => Some(BUILTIN_N0TCH2K_GOGH_COLOR_SCHEME_TOML),
+        "Nancy (terminal.sexy)" => Some(BUILTIN_NANCY_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Nature Suede (terminal.sexy)" => {
+            Some(BUILTIN_NATURE_SUEDE_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Navy and Ivory (terminal.sexy)" => {
+            Some(BUILTIN_NAVY_AND_IVORY_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -44367,6 +44385,449 @@ aliases = []
 name = "Monokai Remastered"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_MONOKAI_SODA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1a1a1a",
+    "#f4005f",
+    "#98e024",
+    "#fa8419",
+    "#9d65ff",
+    "#f4005f",
+    "#58d1eb",
+    "#c4c5b5",
+]
+background = "#1a1a1a"
+brights = [
+    "#625e4c",
+    "#f4005f",
+    "#98e024",
+    "#e0d561",
+    "#9d65ff",
+    "#f4005f",
+    "#58d1eb",
+    "#f6f6ef",
+]
+cursor_bg = "#f6f7ec"
+cursor_border = "#f6f7ec"
+cursor_fg = "#c4c5b5"
+foreground = "#c4c5b5"
+selection_bg = "#343434"
+selection_fg = "#c4c5b5"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Monokai Soda (Gogh)",
+    "MonokaiSoda (Gogh)",
+]
+name = "Monokai Soda"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MONOKAI_SODA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1a1a1a",
+    "#f4005f",
+    "#98e024",
+    "#fa8419",
+    "#9d65ff",
+    "#f4005f",
+    "#58d1eb",
+    "#c4c5b5",
+]
+background = "#1a1a1a"
+brights = [
+    "#625e4c",
+    "#f4005f",
+    "#98e024",
+    "#e0d561",
+    "#9d65ff",
+    "#f4005f",
+    "#58d1eb",
+    "#f6f6ef",
+]
+cursor_bg = "#c4c5b5"
+cursor_border = "#c4c5b5"
+cursor_fg = "#1a1a1a"
+foreground = "#c4c5b5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Monokai Soda (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_MONOKAI_VIVID_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#121212",
+    "#fa2934",
+    "#98e123",
+    "#fff30a",
+    "#0443ff",
+    "#f800f8",
+    "#01b6ed",
+    "#ffffff",
+]
+background = "#121212"
+brights = [
+    "#838383",
+    "#f6669d",
+    "#b1e05f",
+    "#fff26d",
+    "#0443ff",
+    "#f200f6",
+    "#51ceff",
+    "#ffffff",
+]
+cursor_bg = "#fb0007"
+cursor_border = "#fb0007"
+cursor_fg = "#ea0009"
+foreground = "#f9f9f9"
+selection_bg = "#ffffff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Monokai Vivid"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MOONFLY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#323437",
+    "#ff5454",
+    "#8cc85f",
+    "#e3c78a",
+    "#80a0ff",
+    "#cf87e8",
+    "#79dac8",
+    "#c6c6c6",
+]
+background = "#080808"
+brights = [
+    "#949494",
+    "#ff5189",
+    "#36c692",
+    "#c2c292",
+    "#74b2ff",
+    "#ae81ff",
+    "#85dc85",
+    "#e4e4e4",
+]
+cursor_bg = "#9e9e9e"
+cursor_border = "#9e9e9e"
+cursor_fg = "#080808"
+foreground = "#bdbdbd"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Moonfly (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_MORADA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#040404",
+    "#0f49c4",
+    "#48b117",
+    "#e87324",
+    "#bc0116",
+    "#665b93",
+    "#70a699",
+    "#f5dcbe",
+]
+background = "#211f46"
+brights = [
+    "#4f7cbf",
+    "#1c96c7",
+    "#3bff6f",
+    "#efc31c",
+    "#fb605b",
+    "#975b5a",
+    "#1eff8e",
+    "#f6f5fb",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#211f46"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Morada (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MOSTLY_BRIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#d3d3d3",
+    "#ef6b7b",
+    "#a1d569",
+    "#f59335",
+    "#4ec2e8",
+    "#fec7cd",
+    "#95c1c0",
+    "#707070",
+]
+background = "#f3f3f3"
+brights = [
+    "#b3b3b3",
+    "#ed5466",
+    "#afdb80",
+    "#f59335",
+    "#5dc7ea",
+    "#d2a4b4",
+    "#75a1a0",
+    "#909090",
+]
+foreground = "#707070"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "m83"
+name = "Mostly Bright (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MUSE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e3436",
+    "#a31604",
+    "#447241",
+    "#c1951a",
+    "#425387",
+    "#965d98",
+    "#06989a",
+    "#d3d7cf",
+]
+background = "#000000"
+brights = [
+    "#555753",
+    "#c60001",
+    "#27a343",
+    "#d5a30e",
+    "#4a5a8d",
+    "#893c8c",
+    "#12bccb",
+    "#eeeeec",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Muse (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_N0TCH2K_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#383838",
+    "#a95551",
+    "#666666",
+    "#a98051",
+    "#657d3e",
+    "#767676",
+    "#c9c9c9",
+    "#d0b8a3",
+]
+background = "#222222"
+brights = [
+    "#474747",
+    "#a97775",
+    "#8c8c8c",
+    "#a99175",
+    "#98bd5e",
+    "#a3a3a3",
+    "#dcdcdc",
+    "#d8c8bb",
+]
+cursor_bg = "#aa9175"
+cursor_border = "#aa9175"
+cursor_fg = "#000000"
+foreground = "#a0a0a0"
+selection_bg = "#4d4d4d"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["N0Tch2K (Gogh)"]
+name = "N0tch2k"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_N0TCH2K_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#383838",
+    "#a95551",
+    "#666666",
+    "#a98051",
+    "#657d3e",
+    "#767676",
+    "#c9c9c9",
+    "#d0b8a3",
+]
+background = "#222222"
+brights = [
+    "#474747",
+    "#a97775",
+    "#8c8c8c",
+    "#a99175",
+    "#98bd5e",
+    "#a3a3a3",
+    "#dcdcdc",
+    "#d8c8bb",
+]
+cursor_bg = "#a0a0a0"
+cursor_border = "#a0a0a0"
+cursor_fg = "#222222"
+foreground = "#a0a0a0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "N0Tch2K (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_NANCY_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1d1e",
+    "#f92672",
+    "#82b414",
+    "#fd971f",
+    "#4e82aa",
+    "#8c54fe",
+    "#465457",
+    "#ccccc6",
+]
+background = "#010101"
+brights = [
+    "#505354",
+    "#ff5995",
+    "#b6e354",
+    "#feed6c",
+    "#0c73c2",
+    "#9e6ffe",
+    "#899ca1",
+    "#f8f8f2",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Nancy (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NATURE_SUEDE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#392925",
+    "#98724c",
+    "#908f32",
+    "#aa964c",
+    "#7b854e",
+    "#6b5644",
+    "#5c5142",
+    "#c8b55b",
+]
+background = "#170f0d"
+brights = [
+    "#544b2e",
+    "#af652f",
+    "#c3c13d",
+    "#c8b55b",
+    "#70a16c",
+    "#98724c",
+    "#778725",
+    "#e4dc8c",
+]
+foreground = "#746c48"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Gslob"
+name = "Nature Suede (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NAVY_AND_IVORY_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#032c36",
+    "#c2454e",
+    "#7cbf9e",
+    "#8a7a63",
+    "#2e3340",
+    "#ff5879",
+    "#44b5b1",
+    "#f2f1b9",
+]
+background = "#021b21"
+brights = [
+    "#065f73",
+    "#ef5847",
+    "#a2d9b1",
+    "#beb090",
+    "#61778d",
+    "#ff99a1",
+    "#9ed9d8",
+    "#f6f6c9",
+]
+foreground = "#e8dfd6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "hal"
+name = "Navy and Ivory (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -123614,6 +124075,276 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Mona-Lisa-to-Monokai-Remastered built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_monokai_soda_to_navy_ivory_builtin_color_schemes() {
+        let cases = [
+            (
+                "Monokai Soda",
+                Color::Rgb(196, 197, 181),
+                Color::Rgb(26, 26, 26),
+                Color::Rgb(246, 247, 236),
+                Some(Color::Rgb(196, 197, 181)),
+                Some(Color::Rgb(52, 52, 52)),
+                Some(Some(Color::Rgb(196, 197, 181))),
+                Color::Rgb(26, 26, 26),
+                Color::Rgb(244, 0, 95),
+                Color::Rgb(152, 224, 36),
+                Color::Rgb(250, 132, 25),
+                Color::Rgb(98, 94, 76),
+                Color::Rgb(246, 246, 239),
+                None,
+            ),
+            (
+                "MonokaiSoda (Gogh)",
+                Color::Rgb(196, 197, 181),
+                Color::Rgb(26, 26, 26),
+                Color::Rgb(246, 247, 236),
+                Some(Color::Rgb(196, 197, 181)),
+                Some(Color::Rgb(52, 52, 52)),
+                Some(Some(Color::Rgb(196, 197, 181))),
+                Color::Rgb(26, 26, 26),
+                Color::Rgb(244, 0, 95),
+                Color::Rgb(152, 224, 36),
+                Color::Rgb(250, 132, 25),
+                Color::Rgb(98, 94, 76),
+                Color::Rgb(246, 246, 239),
+                None,
+            ),
+            (
+                "Monokai Soda (Gogh)",
+                Color::Rgb(196, 197, 181),
+                Color::Rgb(26, 26, 26),
+                Color::Rgb(196, 197, 181),
+                Some(Color::Rgb(26, 26, 26)),
+                None,
+                None,
+                Color::Rgb(26, 26, 26),
+                Color::Rgb(244, 0, 95),
+                Color::Rgb(152, 224, 36),
+                Color::Rgb(250, 132, 25),
+                Color::Rgb(98, 94, 76),
+                Color::Rgb(246, 246, 239),
+                None,
+            ),
+            (
+                "Monokai Vivid",
+                Color::Rgb(249, 249, 249),
+                Color::Rgb(18, 18, 18),
+                Color::Rgb(251, 0, 7),
+                Some(Color::Rgb(234, 0, 9)),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(18, 18, 18),
+                Color::Rgb(250, 41, 52),
+                Color::Rgb(152, 225, 35),
+                Color::Rgb(255, 243, 10),
+                Color::Rgb(131, 131, 131),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Moonfly (Gogh)",
+                Color::Rgb(189, 189, 189),
+                Color::Rgb(8, 8, 8),
+                Color::Rgb(158, 158, 158),
+                Some(Color::Rgb(8, 8, 8)),
+                None,
+                None,
+                Color::Rgb(50, 52, 55),
+                Color::Rgb(255, 84, 84),
+                Color::Rgb(140, 200, 95),
+                Color::Rgb(227, 199, 138),
+                Color::Rgb(148, 148, 148),
+                Color::Rgb(228, 228, 228),
+                None,
+            ),
+            (
+                "Morada (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(33, 31, 70),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(33, 31, 70)),
+                None,
+                None,
+                Color::Rgb(4, 4, 4),
+                Color::Rgb(15, 73, 196),
+                Color::Rgb(72, 177, 23),
+                Color::Rgb(232, 115, 36),
+                Color::Rgb(79, 124, 191),
+                Color::Rgb(246, 245, 251),
+                None,
+            ),
+            (
+                "Mostly Bright (terminal.sexy)",
+                Color::Rgb(112, 112, 112),
+                Color::Rgb(243, 243, 243),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(211, 211, 211),
+                Color::Rgb(239, 107, 123),
+                Color::Rgb(161, 213, 105),
+                Color::Rgb(245, 147, 53),
+                Color::Rgb(179, 179, 179),
+                Color::Rgb(144, 144, 144),
+                None,
+            ),
+            (
+                "Muse (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(46, 52, 54),
+                Color::Rgb(163, 22, 4),
+                Color::Rgb(68, 114, 65),
+                Color::Rgb(193, 149, 26),
+                Color::Rgb(85, 87, 83),
+                Color::Rgb(238, 238, 236),
+                None,
+            ),
+            (
+                "N0tch2k",
+                Color::Rgb(160, 160, 160),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(170, 145, 117),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(77, 77, 77)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(56, 56, 56),
+                Color::Rgb(169, 85, 81),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(169, 128, 81),
+                Color::Rgb(71, 71, 71),
+                Color::Rgb(216, 200, 187),
+                None,
+            ),
+            (
+                "N0Tch2K (Gogh)",
+                Color::Rgb(160, 160, 160),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(160, 160, 160),
+                Some(Color::Rgb(34, 34, 34)),
+                None,
+                None,
+                Color::Rgb(56, 56, 56),
+                Color::Rgb(169, 85, 81),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(169, 128, 81),
+                Color::Rgb(71, 71, 71),
+                Color::Rgb(216, 200, 187),
+                None,
+            ),
+            (
+                "Nancy (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(1, 1, 1),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(130, 180, 20),
+                Color::Rgb(253, 151, 31),
+                Color::Rgb(80, 83, 84),
+                Color::Rgb(248, 248, 242),
+                None,
+            ),
+            (
+                "Nature Suede (terminal.sexy)",
+                Color::Rgb(116, 108, 72),
+                Color::Rgb(23, 15, 13),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(57, 41, 37),
+                Color::Rgb(152, 114, 76),
+                Color::Rgb(144, 143, 50),
+                Color::Rgb(170, 150, 76),
+                Color::Rgb(84, 75, 46),
+                Color::Rgb(228, 220, 140),
+                None,
+            ),
+            (
+                "Navy and Ivory (terminal.sexy)",
+                Color::Rgb(232, 223, 214),
+                Color::Rgb(2, 27, 33),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(3, 44, 54),
+                Color::Rgb(194, 69, 78),
+                Color::Rgb(124, 191, 158),
+                Color::Rgb(138, 122, 99),
+                Color::Rgb(6, 95, 115),
+                Color::Rgb(246, 246, 201),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Monokai-Soda-to-Navy-Ivory built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
