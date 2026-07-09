@@ -3663,6 +3663,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Fideloper`, `Firefly Traditional`, `FirefoxDev`, `Firewatch`,
   `Fishbone (terminal.sexy)`, `FishTank`, `Fishtank (Gogh)`, `Flat`,
   `Flat (base16)`, `Flat (Gogh)`,
+  `Flat Remix (Gogh)`, `Flatland`, `Flatland (Gogh)`, `flexoki-dark`,
+  `flexoki-light`, `Floraverse`, `ForestBlue`, `Foxnightly (Gogh)`,
+  `Framer`, `Framer (base16)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using

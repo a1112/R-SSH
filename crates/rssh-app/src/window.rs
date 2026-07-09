@@ -19649,6 +19649,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Flat" => Some(BUILTIN_FLAT_COLOR_SCHEME_TOML),
         "Flat (base16)" => Some(BUILTIN_FLAT_BASE16_COLOR_SCHEME_TOML),
         "Flat (Gogh)" => Some(BUILTIN_FLAT_GOGH_COLOR_SCHEME_TOML),
+        "Flat Remix (Gogh)" => Some(BUILTIN_FLAT_REMIX_GOGH_COLOR_SCHEME_TOML),
+        "Flatland" => Some(BUILTIN_FLATLAND_COLOR_SCHEME_TOML),
+        "Flatland (Gogh)" => Some(BUILTIN_FLATLAND_GOGH_COLOR_SCHEME_TOML),
+        "flexoki-dark" => Some(BUILTIN_FLEXOKI_DARK_COLOR_SCHEME_TOML),
+        "flexoki-light" => Some(BUILTIN_FLEXOKI_LIGHT_COLOR_SCHEME_TOML),
+        "Floraverse" => Some(BUILTIN_FLORAVERSE_COLOR_SCHEME_TOML),
+        "ForestBlue" => Some(BUILTIN_FORESTBLUE_COLOR_SCHEME_TOML),
+        "Foxnightly (Gogh)" => Some(BUILTIN_FOXNIGHTLY_GOGH_COLOR_SCHEME_TOML),
+        "Framer" => Some(BUILTIN_FRAMER_COLOR_SCHEME_TOML),
+        "Framer (base16)" => Some(BUILTIN_FRAMER_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -33851,6 +33861,397 @@ foreground = "#1abc9c"
 aliases = []
 name = "Flat (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_FLAT_REMIX_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1f2229",
+    "#d41919",
+    "#5ebdab",
+    "#fea44c",
+    "#367bf0",
+    "#bf2e5d",
+    "#49aee6",
+    "#e6e6e6",
+]
+background = "#272a34"
+brights = [
+    "#8c42ab",
+    "#ec0101",
+    "#47d4b9",
+    "#ff8a18",
+    "#277fff",
+    "#d71655",
+    "#05a1f7",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#272a34"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["FlatRemix (Gogh)"]
+name = "Flat Remix (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_FLATLAND_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d1d19",
+    "#f18339",
+    "#9fd364",
+    "#f4ef6d",
+    "#5096be",
+    "#695abc",
+    "#d63865",
+    "#ffffff",
+]
+background = "#1d1f21"
+brights = [
+    "#1d1d19",
+    "#d22a24",
+    "#a7d42c",
+    "#ff8949",
+    "#61b9d0",
+    "#695abc",
+    "#d63865",
+    "#ffffff",
+]
+cursor_bg = "#708284"
+cursor_border = "#708284"
+cursor_fg = "#002831"
+foreground = "#b8dbef"
+selection_bg = "#2b2a24"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Flatland (Gogh)"]
+name = "Flatland"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_FLATLAND_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d1d19",
+    "#f18339",
+    "#9fd364",
+    "#f4ef6d",
+    "#5096be",
+    "#695abc",
+    "#d63865",
+    "#ffffff",
+]
+background = "#1d1f21"
+brights = [
+    "#1d1d19",
+    "#d22a24",
+    "#a7d42c",
+    "#ff8949",
+    "#61b9d0",
+    "#695abc",
+    "#d63865",
+    "#ffffff",
+]
+cursor_bg = "#b8dbef"
+cursor_border = "#b8dbef"
+cursor_fg = "#1d1f21"
+foreground = "#b8dbef"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Flatland (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_FLEXOKI_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1b1a",
+    "#d14d41",
+    "#879a39",
+    "#d0a215",
+    "#4385be",
+    "#ce5d97",
+    "#3aa99f",
+    "#b7b5ac",
+]
+background = "#1c1b1a"
+brights = [
+    "#575653",
+    "#d14d41",
+    "#879a39",
+    "#d0a215",
+    "#4385be",
+    "#ce5d97",
+    "#3aa99f",
+    "#cecdc3",
+]
+cursor_bg = "#cecdc3"
+cursor_border = "#cecdc3"
+cursor_fg = "#1c1b1a"
+foreground = "#cecdc3"
+selection_bg = "#cecdc3"
+selection_fg = "#4385be"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "flexoki-dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_FLEXOKI_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#100f0f",
+    "#af3029",
+    "#66800b",
+    "#ad8301",
+    "#205ea6",
+    "#a02f6f",
+    "#24837b",
+    "#f2f0e5",
+]
+background = "#fffcf0"
+brights = [
+    "#575653",
+    "#d14d41",
+    "#879a39",
+    "#d0a215",
+    "#4385be",
+    "#ce5d97",
+    "#3aa99f",
+    "#fffcf0",
+]
+cursor_bg = "#100f0f"
+cursor_border = "#100f0f"
+cursor_fg = "#fffcf0"
+foreground = "#100f0f"
+selection_bg = "#cecdc3"
+selection_fg = "#100f0f"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "flexoki-light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_FLORAVERSE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#08002e",
+    "#64002c",
+    "#5d731a",
+    "#cd751c",
+    "#1d6da1",
+    "#b7077e",
+    "#42a38c",
+    "#f3e0b8",
+]
+background = "#0e0d15"
+brights = [
+    "#331e4d",
+    "#d02063",
+    "#b4ce59",
+    "#fac357",
+    "#40a4cf",
+    "#f12aae",
+    "#62caa8",
+    "#fff5db",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#dbd1b9"
+selection_bg = "#f3e0b8"
+selection_fg = "#08002e"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Floraverse"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_FORESTBLUE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#333333",
+    "#f8818e",
+    "#92d3a2",
+    "#1a8e63",
+    "#8ed0ce",
+    "#5e468c",
+    "#31658c",
+    "#e2d8cd",
+]
+background = "#051519"
+brights = [
+    "#3d3d3d",
+    "#fb3d66",
+    "#6bb48d",
+    "#30c85a",
+    "#39a7a2",
+    "#7e62b3",
+    "#6096bf",
+    "#e2d8cd",
+]
+cursor_bg = "#9e9ecb"
+cursor_border = "#9e9ecb"
+cursor_fg = "#000000"
+foreground = "#e2d8cd"
+selection_bg = "#4d4d4d"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "ForestBlue"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_FOXNIGHTLY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2a2a2e",
+    "#b98eff",
+    "#ff7de9",
+    "#729fcf",
+    "#66a05b",
+    "#75507b",
+    "#acacae",
+    "#ffffff",
+]
+background = "#2a2a2e"
+brights = [
+    "#a40000",
+    "#bf4040",
+    "#66a05b",
+    "#ffb86c",
+    "#729fcf",
+    "#8f5902",
+    "#c4a000",
+    "#5c3566",
+]
+cursor_bg = "#d7d7db"
+cursor_border = "#d7d7db"
+cursor_fg = "#2a2a2e"
+foreground = "#d7d7db"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Foxnightly (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_FRAMER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#141414",
+    "#ff5555",
+    "#98ec65",
+    "#ffcc33",
+    "#00aaff",
+    "#aa88ff",
+    "#88ddff",
+    "#cccccc",
+]
+background = "#111111"
+brights = [
+    "#414141",
+    "#ff8888",
+    "#b6f292",
+    "#ffd966",
+    "#33bbff",
+    "#cebbff",
+    "#bbecff",
+    "#ffffff",
+]
+cursor_bg = "#fcdc08"
+cursor_border = "#fcdc08"
+cursor_fg = "#161616"
+foreground = "#777777"
+selection_bg = "#666666"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Framer"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_FRAMER_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#181818",
+    "#fd886b",
+    "#32ccdc",
+    "#fecb6e",
+    "#20bcfc",
+    "#ba8cfc",
+    "#acddfd",
+    "#d0d0d0",
+]
+background = "#181818"
+brights = [
+    "#747474",
+    "#fd886b",
+    "#32ccdc",
+    "#fecb6e",
+    "#20bcfc",
+    "#ba8cfc",
+    "#acddfd",
+    "#eeeeee",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#181818"
+foreground = "#d0d0d0"
+selection_bg = "#d0d0d0"
+selection_fg = "#181818"
+
+[colors.indexed]
+16 = "#fc4769"
+17 = "#b15f4a"
+18 = "#151515"
+19 = "#464646"
+20 = "#b9b9b9"
+21 = "#e8e8e8"
+
+[metadata]
+aliases = []
+author = "Framer (Maintained by Jesse Hoyos)"
+name = "Framer (base16)"
+origin_url = "https://github.com/jssee/base16-framer-scheme"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -106879,6 +107280,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Fideloper-to-Flat Gogh built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_flat_remix_to_framer_base16_builtin_color_schemes() {
+        let cases = [
+            (
+                "Flat Remix (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(39, 42, 52),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(39, 42, 52)),
+                None,
+                None,
+                Color::Rgb(31, 34, 41),
+                Color::Rgb(212, 25, 25),
+                Color::Rgb(94, 189, 171),
+                Color::Rgb(254, 164, 76),
+                Color::Rgb(140, 66, 171),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Flatland",
+                Color::Rgb(184, 219, 239),
+                Color::Rgb(29, 31, 33),
+                Color::Rgb(112, 130, 132),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Color::Rgb(43, 42, 36)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(29, 29, 25),
+                Color::Rgb(241, 131, 57),
+                Color::Rgb(159, 211, 100),
+                Color::Rgb(244, 239, 109),
+                Color::Rgb(29, 29, 25),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Flatland (Gogh)",
+                Color::Rgb(184, 219, 239),
+                Color::Rgb(29, 31, 33),
+                Color::Rgb(184, 219, 239),
+                Some(Color::Rgb(29, 31, 33)),
+                None,
+                None,
+                Color::Rgb(29, 29, 25),
+                Color::Rgb(241, 131, 57),
+                Color::Rgb(159, 211, 100),
+                Color::Rgb(244, 239, 109),
+                Color::Rgb(29, 29, 25),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "flexoki-dark",
+                Color::Rgb(206, 205, 195),
+                Color::Rgb(28, 27, 26),
+                Color::Rgb(206, 205, 195),
+                Some(Color::Rgb(28, 27, 26)),
+                Some(Color::Rgb(206, 205, 195)),
+                Some(Some(Color::Rgb(67, 133, 190))),
+                Color::Rgb(28, 27, 26),
+                Color::Rgb(209, 77, 65),
+                Color::Rgb(135, 154, 57),
+                Color::Rgb(208, 162, 21),
+                Color::Rgb(87, 86, 83),
+                Color::Rgb(206, 205, 195),
+                None,
+            ),
+            (
+                "flexoki-light",
+                Color::Rgb(16, 15, 15),
+                Color::Rgb(255, 252, 240),
+                Color::Rgb(16, 15, 15),
+                Some(Color::Rgb(255, 252, 240)),
+                Some(Color::Rgb(206, 205, 195)),
+                Some(Some(Color::Rgb(16, 15, 15))),
+                Color::Rgb(16, 15, 15),
+                Color::Rgb(175, 48, 41),
+                Color::Rgb(102, 128, 11),
+                Color::Rgb(173, 131, 1),
+                Color::Rgb(87, 86, 83),
+                Color::Rgb(255, 252, 240),
+                None,
+            ),
+            (
+                "Floraverse",
+                Color::Rgb(219, 209, 185),
+                Color::Rgb(14, 13, 21),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(243, 224, 184)),
+                Some(Some(Color::Rgb(8, 0, 46))),
+                Color::Rgb(8, 0, 46),
+                Color::Rgb(100, 0, 44),
+                Color::Rgb(93, 115, 26),
+                Color::Rgb(205, 117, 28),
+                Color::Rgb(51, 30, 77),
+                Color::Rgb(255, 245, 219),
+                None,
+            ),
+            (
+                "ForestBlue",
+                Color::Rgb(226, 216, 205),
+                Color::Rgb(5, 21, 25),
+                Color::Rgb(158, 158, 203),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(77, 77, 77)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(248, 129, 142),
+                Color::Rgb(146, 211, 162),
+                Color::Rgb(26, 142, 99),
+                Color::Rgb(61, 61, 61),
+                Color::Rgb(226, 216, 205),
+                None,
+            ),
+            (
+                "Foxnightly (Gogh)",
+                Color::Rgb(215, 215, 219),
+                Color::Rgb(42, 42, 46),
+                Color::Rgb(215, 215, 219),
+                Some(Color::Rgb(42, 42, 46)),
+                None,
+                None,
+                Color::Rgb(42, 42, 46),
+                Color::Rgb(185, 142, 255),
+                Color::Rgb(255, 125, 233),
+                Color::Rgb(114, 159, 207),
+                Color::Rgb(164, 0, 0),
+                Color::Rgb(92, 53, 102),
+                None,
+            ),
+            (
+                "Framer",
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(17, 17, 17),
+                Color::Rgb(252, 220, 8),
+                Some(Color::Rgb(22, 22, 22)),
+                Some(Color::Rgb(102, 102, 102)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(20, 20, 20),
+                Color::Rgb(255, 85, 85),
+                Color::Rgb(152, 236, 101),
+                Color::Rgb(255, 204, 51),
+                Color::Rgb(65, 65, 65),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Framer (base16)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(24, 24, 24),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(24, 24, 24)),
+                Some(Color::Rgb(208, 208, 208)),
+                Some(Some(Color::Rgb(24, 24, 24))),
+                Color::Rgb(24, 24, 24),
+                Color::Rgb(253, 136, 107),
+                Color::Rgb(50, 204, 220),
+                Color::Rgb(254, 203, 110),
+                Color::Rgb(116, 116, 116),
+                Color::Rgb(238, 238, 238),
+                Some(Color::Rgb(252, 71, 105)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Flat Remix-to-Framer base16 built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
