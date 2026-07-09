@@ -19849,6 +19849,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Kibble (Gogh)" => Some(BUILTIN_KIBBLE_GOGH_COLOR_SCHEME_TOML),
         "Kimber (base16)" => Some(BUILTIN_KIMBER_BASE16_COLOR_SCHEME_TOML),
         "Kokuban (Gogh)" | "kokuban (Gogh)" => Some(BUILTIN_KOKUBAN_GOGH_COLOR_SCHEME_TOML),
+        "Kolorit" => Some(BUILTIN_KOLORIT_COLOR_SCHEME_TOML),
+        "Konsolas" => Some(BUILTIN_KONSOLAS_COLOR_SCHEME_TOML),
+        "kurokula" => Some(BUILTIN_KUROKULA_COLOR_SCHEME_TOML),
+        "Lab Fox" => Some(BUILTIN_LAB_FOX_COLOR_SCHEME_TOML),
+        "Laser" => Some(BUILTIN_LASER_COLOR_SCHEME_TOML),
+        "Laserwave (Gogh)" | "laserwave (Gogh)" => Some(BUILTIN_LASERWAVE_GOGH_COLOR_SCHEME_TOML),
+        "Later This Evening" | "LaterThisEvening (Gogh)" => {
+            Some(BUILTIN_LATER_THIS_EVENING_COLOR_SCHEME_TOML)
+        }
+        "Later This Evening (Gogh)" => Some(BUILTIN_LATER_THIS_EVENING_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -40396,6 +40406,317 @@ aliases = ["kokuban (Gogh)"]
 name = "Kokuban (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_KOLORIT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d1a1e",
+    "#ff5b82",
+    "#47d7a1",
+    "#e8e562",
+    "#5db4ee",
+    "#da6cda",
+    "#57e9eb",
+    "#ededed",
+]
+background = "#1d1a1e"
+brights = [
+    "#1d1a1e",
+    "#ff5b82",
+    "#47d7a1",
+    "#e8e562",
+    "#5db4ee",
+    "#da6cda",
+    "#57e9eb",
+    "#ededed",
+]
+cursor_bg = "#c7c7c7"
+cursor_border = "#c7c7c7"
+cursor_fg = "#ffffff"
+foreground = "#efecec"
+selection_bg = "#e1925c"
+selection_fg = "#1d1a1e"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Kolorit"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_KONSOLAS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#aa1717",
+    "#18b218",
+    "#ebae1f",
+    "#2323a5",
+    "#ad1edc",
+    "#42b0c8",
+    "#c8c1c1",
+]
+background = "#060606"
+brights = [
+    "#7b716e",
+    "#ff4141",
+    "#5fff5f",
+    "#ffff55",
+    "#4b4bff",
+    "#ff54ff",
+    "#69ffff",
+    "#ffffff",
+]
+cursor_bg = "#c8c1c1"
+cursor_border = "#c8c1c1"
+cursor_fg = "#060606"
+foreground = "#c8c1c1"
+selection_bg = "#060606"
+selection_fg = "#c8c1c1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Konsolas"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_KUROKULA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#333333",
+    "#b66056",
+    "#85b1a9",
+    "#dbbb43",
+    "#6890d7",
+    "#887aa3",
+    "#837369",
+    "#ddd0c4",
+]
+background = "#141515"
+brights = [
+    "#515151",
+    "#ffc663",
+    "#c1ffae",
+    "#fff700",
+    "#a1d9ff",
+    "#a994ff",
+    "#f9cfb9",
+    "#ffffff",
+]
+cursor_bg = "#702420"
+cursor_border = "#702420"
+cursor_fg = "#fefbf3"
+foreground = "#ddd0c4"
+selection_bg = "#515151"
+selection_fg = "#ffc663"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "kurokula"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_LAB_FOX_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e2e2e",
+    "#fc6d26",
+    "#3eb383",
+    "#fca121",
+    "#db3b21",
+    "#380d75",
+    "#6e49cb",
+    "#ffffff",
+]
+background = "#2e2e2e"
+brights = [
+    "#464646",
+    "#ff6517",
+    "#53eaa8",
+    "#fca013",
+    "#db501f",
+    "#441090",
+    "#7d53e7",
+    "#ffffff",
+]
+cursor_bg = "#7f7f7f"
+cursor_border = "#7f7f7f"
+cursor_fg = "#7f7f7f"
+foreground = "#ffffff"
+selection_bg = "#cb392e"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Lab Fox"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_LASER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#626262",
+    "#ff8373",
+    "#b4fb73",
+    "#09b4bd",
+    "#fed300",
+    "#ff90fe",
+    "#d1d1fe",
+    "#f1f1f1",
+]
+background = "#030d18"
+brights = [
+    "#8f8f8f",
+    "#ffc4be",
+    "#d6fcba",
+    "#fffed5",
+    "#f92883",
+    "#ffb2fe",
+    "#e6e7fe",
+    "#ffffff",
+]
+cursor_bg = "#00ff9c"
+cursor_border = "#00ff9c"
+cursor_fg = "#ffffff"
+foreground = "#f106e3"
+selection_bg = "#2e206a"
+selection_fg = "#f4f4f4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Laser"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_LASERWAVE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#39243a",
+    "#eb64b9",
+    "#afd686",
+    "#feae87",
+    "#40b4c4",
+    "#b381c5",
+    "#215969",
+    "#91889b",
+]
+background = "#1f1926"
+brights = [
+    "#716485",
+    "#fc2377",
+    "#50fa7b",
+    "#ffe261",
+    "#74dfc4",
+    "#6d75e0",
+    "#b4dce7",
+    "#ffffff",
+]
+cursor_bg = "#c7c7c7"
+cursor_border = "#c7c7c7"
+cursor_fg = "#1f1926"
+foreground = "#e0e0e0"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["laserwave (Gogh)"]
+name = "Laserwave (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_LATER_THIS_EVENING_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2b2b2b",
+    "#d45a60",
+    "#afba67",
+    "#e5d289",
+    "#a0bad6",
+    "#c092d6",
+    "#91bfb7",
+    "#3c3d3d",
+]
+background = "#222222"
+brights = [
+    "#454747",
+    "#d3232f",
+    "#aabb39",
+    "#e5be39",
+    "#6699d6",
+    "#ab53d6",
+    "#5fc0ae",
+    "#c1c2c2",
+]
+cursor_bg = "#424242"
+cursor_border = "#424242"
+cursor_fg = "#959595"
+foreground = "#959595"
+selection_bg = "#424242"
+selection_fg = "#959595"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Later This Evening (Gogh)",
+    "LaterThisEvening (Gogh)",
+]
+name = "Later This Evening"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_LATER_THIS_EVENING_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2b2b2b",
+    "#d45a60",
+    "#afba67",
+    "#e5d289",
+    "#a0bad6",
+    "#c092d6",
+    "#91bfb7",
+    "#3c3d3d",
+]
+background = "#222222"
+brights = [
+    "#454747",
+    "#d3232f",
+    "#aabb39",
+    "#e5be39",
+    "#6699d6",
+    "#ab53d6",
+    "#5fc0ae",
+    "#c1c2c2",
+]
+cursor_bg = "#959595"
+cursor_border = "#959595"
+cursor_fg = "#222222"
+foreground = "#959595"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Later This Evening (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -117307,6 +117628,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Jup-to-Kokuban built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_kolorit_to_later_evening_builtin_color_schemes() {
+        let cases = [
+            (
+                "Kolorit",
+                Color::Rgb(239, 236, 236),
+                Color::Rgb(29, 26, 30),
+                Color::Rgb(199, 199, 199),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(225, 146, 92)),
+                Some(Some(Color::Rgb(29, 26, 30))),
+                Color::Rgb(29, 26, 30),
+                Color::Rgb(255, 91, 130),
+                Color::Rgb(71, 215, 161),
+                Color::Rgb(232, 229, 98),
+                Color::Rgb(29, 26, 30),
+                Color::Rgb(237, 237, 237),
+                None,
+            ),
+            (
+                "Konsolas",
+                Color::Rgb(200, 193, 193),
+                Color::Rgb(6, 6, 6),
+                Color::Rgb(200, 193, 193),
+                Some(Color::Rgb(6, 6, 6)),
+                Some(Color::Rgb(6, 6, 6)),
+                Some(Some(Color::Rgb(200, 193, 193))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(170, 23, 23),
+                Color::Rgb(24, 178, 24),
+                Color::Rgb(235, 174, 31),
+                Color::Rgb(123, 113, 110),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "kurokula",
+                Color::Rgb(221, 208, 196),
+                Color::Rgb(20, 21, 21),
+                Color::Rgb(112, 36, 32),
+                Some(Color::Rgb(254, 251, 243)),
+                Some(Color::Rgb(81, 81, 81)),
+                Some(Some(Color::Rgb(255, 198, 99))),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(182, 96, 86),
+                Color::Rgb(133, 177, 169),
+                Color::Rgb(219, 187, 67),
+                Color::Rgb(81, 81, 81),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Lab Fox",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(46, 46, 46),
+                Color::Rgb(127, 127, 127),
+                Some(Color::Rgb(127, 127, 127)),
+                Some(Color::Rgb(203, 57, 46)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(46, 46, 46),
+                Color::Rgb(252, 109, 38),
+                Color::Rgb(62, 179, 131),
+                Color::Rgb(252, 161, 33),
+                Color::Rgb(70, 70, 70),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Laser",
+                Color::Rgb(241, 6, 227),
+                Color::Rgb(3, 13, 24),
+                Color::Rgb(0, 255, 156),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(46, 32, 106)),
+                Some(Some(Color::Rgb(244, 244, 244))),
+                Color::Rgb(98, 98, 98),
+                Color::Rgb(255, 131, 115),
+                Color::Rgb(180, 251, 115),
+                Color::Rgb(9, 180, 189),
+                Color::Rgb(143, 143, 143),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Laserwave (Gogh)",
+                Color::Rgb(224, 224, 224),
+                Color::Rgb(31, 25, 38),
+                Color::Rgb(199, 199, 199),
+                Some(Color::Rgb(31, 25, 38)),
+                None,
+                None,
+                Color::Rgb(57, 36, 58),
+                Color::Rgb(235, 100, 185),
+                Color::Rgb(175, 214, 134),
+                Color::Rgb(254, 174, 135),
+                Color::Rgb(113, 100, 133),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "laserwave (Gogh)",
+                Color::Rgb(224, 224, 224),
+                Color::Rgb(31, 25, 38),
+                Color::Rgb(199, 199, 199),
+                Some(Color::Rgb(31, 25, 38)),
+                None,
+                None,
+                Color::Rgb(57, 36, 58),
+                Color::Rgb(235, 100, 185),
+                Color::Rgb(175, 214, 134),
+                Color::Rgb(254, 174, 135),
+                Color::Rgb(113, 100, 133),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Later This Evening",
+                Color::Rgb(149, 149, 149),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(66, 66, 66),
+                Some(Color::Rgb(149, 149, 149)),
+                Some(Color::Rgb(66, 66, 66)),
+                Some(Some(Color::Rgb(149, 149, 149))),
+                Color::Rgb(43, 43, 43),
+                Color::Rgb(212, 90, 96),
+                Color::Rgb(175, 186, 103),
+                Color::Rgb(229, 210, 137),
+                Color::Rgb(69, 71, 71),
+                Color::Rgb(193, 194, 194),
+                None,
+            ),
+            (
+                "LaterThisEvening (Gogh)",
+                Color::Rgb(149, 149, 149),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(66, 66, 66),
+                Some(Color::Rgb(149, 149, 149)),
+                Some(Color::Rgb(66, 66, 66)),
+                Some(Some(Color::Rgb(149, 149, 149))),
+                Color::Rgb(43, 43, 43),
+                Color::Rgb(212, 90, 96),
+                Color::Rgb(175, 186, 103),
+                Color::Rgb(229, 210, 137),
+                Color::Rgb(69, 71, 71),
+                Color::Rgb(193, 194, 194),
+                None,
+            ),
+            (
+                "Later This Evening (Gogh)",
+                Color::Rgb(149, 149, 149),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(149, 149, 149),
+                Some(Color::Rgb(34, 34, 34)),
+                None,
+                None,
+                Color::Rgb(43, 43, 43),
+                Color::Rgb(212, 90, 96),
+                Color::Rgb(175, 186, 103),
+                Color::Rgb(229, 210, 137),
+                Color::Rgb(69, 71, 71),
+                Color::Rgb(193, 194, 194),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Kolorit-to-Later-Evening built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

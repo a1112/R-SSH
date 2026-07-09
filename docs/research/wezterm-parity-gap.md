@@ -3722,7 +3722,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `JWR dark (terminal.sexy)`, `Kanagawa (Gogh)`,
   `Kanagawa Dragon (Gogh)`, `kanagawabones`,
   `Kasugano (terminal.sexy)`, `Kibble`, `Kibble (Gogh)`,
-  `Kimber (base16)`, `Kokuban (Gogh)`,
+  `Kimber (base16)`, `Kokuban (Gogh)`, `Kolorit`, `Konsolas`,
+  `kurokula`, `Lab Fox`, `Laser`, `Laserwave (Gogh)`,
+  `Later This Evening`, `Later This Evening (Gogh)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting
