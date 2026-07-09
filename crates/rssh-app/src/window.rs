@@ -19815,6 +19815,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Isotope (dark) (terminal.sexy)" => {
             Some(BUILTIN_ISOTOPE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
+        "Isotope (light) (terminal.sexy)" => {
+            Some(BUILTIN_ISOTOPE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "iTerm2 Dark Background" => Some(BUILTIN_ITERM2_DARK_BACKGROUND_COLOR_SCHEME_TOML),
+        "iTerm2 Default" => Some(BUILTIN_ITERM2_DEFAULT_COLOR_SCHEME_TOML),
+        "iTerm2 Light Background" => Some(BUILTIN_ITERM2_LIGHT_BACKGROUND_COLOR_SCHEME_TOML),
+        "iTerm2 Pastel Dark Background" => {
+            Some(BUILTIN_ITERM2_PASTEL_DARK_BACKGROUND_COLOR_SCHEME_TOML)
+        }
+        "iTerm2 Smoooooth" => Some(BUILTIN_ITERM2_SMOOOOOTH_COLOR_SCHEME_TOML),
+        "iTerm2 Tango Dark" => Some(BUILTIN_ITERM2_TANGO_DARK_COLOR_SCHEME_TOML),
+        "iTerm2 Tango Light" => Some(BUILTIN_ITERM2_TANGO_LIGHT_COLOR_SCHEME_TOML),
+        "Ivory Dark (terminal.sexy)" => Some(BUILTIN_IVORY_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Ivory Light (terminal.sexy)" => Some(BUILTIN_IVORY_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -39226,6 +39240,384 @@ author = "Chris Kempson"
 name = "Isotope (dark) (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_ISOTOPE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff0000",
+    "#33ff00",
+    "#ff0099",
+    "#0066ff",
+    "#cc00ff",
+    "#00ffff",
+    "#d0d0d0",
+]
+background = "#ffffff"
+brights = [
+    "#808080",
+    "#ff0000",
+    "#33ff00",
+    "#ff0099",
+    "#0066ff",
+    "#cc00ff",
+    "#00ffff",
+    "#ffffff",
+]
+foreground = "#606060"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Isotope (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ITERM2_DARK_BACKGROUND_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c91b00",
+    "#00c200",
+    "#c7c400",
+    "#0225c7",
+    "#ca30c7",
+    "#00c5c7",
+    "#c7c7c7",
+]
+background = "#000000"
+brights = [
+    "#686868",
+    "#ff6e67",
+    "#5ffa68",
+    "#fffc67",
+    "#6871ff",
+    "#ff77ff",
+    "#60fdff",
+    "#ffffff",
+]
+cursor_bg = "#c7c7c7"
+cursor_border = "#c7c7c7"
+cursor_fg = "#ffffff"
+foreground = "#c7c7c7"
+selection_bg = "#c1deff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "iTerm2 Dark Background"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_ITERM2_DEFAULT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c91b00",
+    "#00c200",
+    "#c7c400",
+    "#2225c4",
+    "#ca30c7",
+    "#00c5c7",
+    "#ffffff",
+]
+background = "#000000"
+brights = [
+    "#686868",
+    "#ff6e67",
+    "#5ffa68",
+    "#fffc67",
+    "#6871ff",
+    "#ff77ff",
+    "#60fdff",
+    "#ffffff",
+]
+cursor_bg = "#e6e6e6"
+cursor_border = "#e6e6e6"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+selection_bg = "#c1deff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "iTerm2 Default"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_ITERM2_LIGHT_BACKGROUND_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c91b00",
+    "#00c200",
+    "#c7c400",
+    "#0225c7",
+    "#ca30c7",
+    "#00c5c7",
+    "#c7c7c7",
+]
+background = "#ffffff"
+brights = [
+    "#686868",
+    "#ff6e67",
+    "#5ffa68",
+    "#fffc67",
+    "#6871ff",
+    "#ff77ff",
+    "#60fdff",
+    "#ffffff",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#ffffff"
+foreground = "#000000"
+selection_bg = "#c1deff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "iTerm2 Light Background"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_ITERM2_PASTEL_DARK_BACKGROUND_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#626262",
+    "#ff8373",
+    "#b4fb73",
+    "#fffdc3",
+    "#a5d5fe",
+    "#ff90fe",
+    "#d1d1fe",
+    "#f1f1f1",
+]
+background = "#000000"
+brights = [
+    "#8f8f8f",
+    "#ffc4be",
+    "#d6fcba",
+    "#fffed5",
+    "#c2e3ff",
+    "#ffb2fe",
+    "#e6e6fe",
+    "#ffffff",
+]
+cursor_bg = "#ffb473"
+cursor_border = "#ffb473"
+cursor_fg = "#ffffff"
+foreground = "#c7c7c7"
+selection_bg = "#454d96"
+selection_fg = "#f4f4f4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "iTerm2 Pastel Dark Background"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_ITERM2_SMOOOOOTH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#14191e",
+    "#b43c2a",
+    "#00c200",
+    "#c7c400",
+    "#2744c7",
+    "#c040be",
+    "#00c5c7",
+    "#c7c7c7",
+]
+background = "#15191f"
+brights = [
+    "#686868",
+    "#dd7975",
+    "#58e790",
+    "#ece100",
+    "#a7abf2",
+    "#e17ee1",
+    "#60fdff",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#dcdcdc"
+selection_bg = "#b3d7ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "iTerm2 Smoooooth"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_ITERM2_TANGO_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d81e00",
+    "#5ea702",
+    "#cfae00",
+    "#427ab3",
+    "#89658e",
+    "#00a7aa",
+    "#dbded8",
+]
+background = "#000000"
+brights = [
+    "#686a66",
+    "#f54235",
+    "#99e343",
+    "#fdeb61",
+    "#84b0d8",
+    "#bc94b7",
+    "#37e6e8",
+    "#f1f1f0",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+selection_bg = "#c1deff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "iTerm2 Tango Dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_ITERM2_TANGO_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d81e00",
+    "#5ea702",
+    "#cfae00",
+    "#427ab3",
+    "#89658e",
+    "#00a7aa",
+    "#dbded8",
+]
+background = "#ffffff"
+brights = [
+    "#686a66",
+    "#f54235",
+    "#99e343",
+    "#fdeb61",
+    "#84b0d8",
+    "#bc94b7",
+    "#37e6e8",
+    "#f1f1f0",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#ffffff"
+foreground = "#000000"
+selection_bg = "#c1deff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "iTerm2 Tango Light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_IVORY_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#5b5955",
+    "#c4756e",
+    "#559a6a",
+    "#9b8a4b",
+    "#6a8dca",
+    "#b577ac",
+    "#019baa",
+    "#dbdde2",
+]
+background = "#2d2c28"
+brights = [
+    "#707277",
+    "#f6a299",
+    "#82c896",
+    "#cab775",
+    "#98bbfb",
+    "#e5a4db",
+    "#53cad9",
+    "#f7f9ff",
+]
+foreground = "#a4a6ab"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Baskerville"
+name = "Ivory Dark (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_IVORY_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#c5c1b4",
+    "#e75c58",
+    "#00a250",
+    "#a08a00",
+    "#208ffb",
+    "#d160c4",
+    "#00a4c1",
+    "#3e424d",
+]
+background = "#fef9ec"
+brights = [
+    "#a1a6b2",
+    "#b22b31",
+    "#007427",
+    "#715f00",
+    "#0065ca",
+    "#a03196",
+    "#007693",
+    "#282c36",
+]
+foreground = "#6d727e"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Baskerville"
+name = "Ivory Light (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -115423,6 +115815,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Idle-Toes-to-Isotope-Dark built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_isotope_light_to_ivory_light_builtin_color_schemes() {
+        let cases = [
+            (
+                "Isotope (light) (terminal.sexy)",
+                Color::Rgb(96, 96, 96),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 0, 0),
+                Color::Rgb(51, 255, 0),
+                Color::Rgb(255, 0, 153),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "iTerm2 Dark Background",
+                Color::Rgb(199, 199, 199),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(199, 199, 199),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(193, 222, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(201, 27, 0),
+                Color::Rgb(0, 194, 0),
+                Color::Rgb(199, 196, 0),
+                Color::Rgb(104, 104, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "iTerm2 Default",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(230, 230, 230),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(193, 222, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(201, 27, 0),
+                Color::Rgb(0, 194, 0),
+                Color::Rgb(199, 196, 0),
+                Color::Rgb(104, 104, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "iTerm2 Light Background",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(193, 222, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(201, 27, 0),
+                Color::Rgb(0, 194, 0),
+                Color::Rgb(199, 196, 0),
+                Color::Rgb(104, 104, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "iTerm2 Pastel Dark Background",
+                Color::Rgb(199, 199, 199),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 180, 115),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(69, 77, 150)),
+                Some(Some(Color::Rgb(244, 244, 244))),
+                Color::Rgb(98, 98, 98),
+                Color::Rgb(255, 131, 115),
+                Color::Rgb(180, 251, 115),
+                Color::Rgb(255, 253, 195),
+                Color::Rgb(143, 143, 143),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "iTerm2 Smoooooth",
+                Color::Rgb(220, 220, 220),
+                Color::Rgb(21, 25, 31),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(179, 215, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(20, 25, 30),
+                Color::Rgb(180, 60, 42),
+                Color::Rgb(0, 194, 0),
+                Color::Rgb(199, 196, 0),
+                Color::Rgb(104, 104, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "iTerm2 Tango Dark",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(193, 222, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(216, 30, 0),
+                Color::Rgb(94, 167, 2),
+                Color::Rgb(207, 174, 0),
+                Color::Rgb(104, 106, 102),
+                Color::Rgb(241, 241, 240),
+                None,
+            ),
+            (
+                "iTerm2 Tango Light",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(193, 222, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(216, 30, 0),
+                Color::Rgb(94, 167, 2),
+                Color::Rgb(207, 174, 0),
+                Color::Rgb(104, 106, 102),
+                Color::Rgb(241, 241, 240),
+                None,
+            ),
+            (
+                "Ivory Dark (terminal.sexy)",
+                Color::Rgb(164, 166, 171),
+                Color::Rgb(45, 44, 40),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(91, 89, 85),
+                Color::Rgb(196, 117, 110),
+                Color::Rgb(85, 154, 106),
+                Color::Rgb(155, 138, 75),
+                Color::Rgb(112, 114, 119),
+                Color::Rgb(247, 249, 255),
+                None,
+            ),
+            (
+                "Ivory Light (terminal.sexy)",
+                Color::Rgb(109, 114, 126),
+                Color::Rgb(254, 249, 236),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(197, 193, 180),
+                Color::Rgb(231, 92, 88),
+                Color::Rgb(0, 162, 80),
+                Color::Rgb(160, 138, 0),
+                Color::Rgb(161, 166, 178),
+                Color::Rgb(40, 44, 54),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Isotope-Light-to-Ivory-Light built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

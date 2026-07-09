@@ -3711,6 +3711,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Insignificato (terminal.sexy)`, `Invisibone (terminal.sexy)`,
   `IR Black (base16)`, `Ir Black (Gogh)`, `IR_Black`,
   `Isotope (base16)`, `Isotope (dark) (terminal.sexy)`,
+  `Isotope (light) (terminal.sexy)`, `iTerm2 Dark Background`,
+  `iTerm2 Default`, `iTerm2 Light Background`,
+  `iTerm2 Pastel Dark Background`, `iTerm2 Smoooooth`,
+  `iTerm2 Tango Dark`, `iTerm2 Tango Light`, `Ivory Dark (terminal.sexy)`,
+  `Ivory Light (terminal.sexy)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting
