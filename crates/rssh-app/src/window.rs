@@ -20014,6 +20014,21 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Navy and Ivory (terminal.sexy)" => {
             Some(BUILTIN_NAVY_AND_IVORY_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
+        "Nebula (base16)" => Some(BUILTIN_NEBULA_BASE16_COLOR_SCHEME_TOML),
+        "neobones_dark" => Some(BUILTIN_NEOBONES_DARK_COLOR_SCHEME_TOML),
+        "neobones_light" => Some(BUILTIN_NEOBONES_LIGHT_COLOR_SCHEME_TOML),
+        "Neon" => Some(BUILTIN_NEON_COLOR_SCHEME_TOML),
+        "Neon (terminal.sexy)" => Some(BUILTIN_NEON_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Neon Night (Gogh)" | "neon-night (Gogh)" => {
+            Some(BUILTIN_NEON_NIGHT_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Neopolitan" => Some(BUILTIN_NEOPOLITAN_COLOR_SCHEME_TOML),
+        "Neopolitan (Gogh)" => Some(BUILTIN_NEOPOLITAN_GOGH_COLOR_SCHEME_TOML),
+        "Nep (Gogh)" => Some(BUILTIN_NEP_GOGH_COLOR_SCHEME_TOML),
+        "Neutron" => Some(BUILTIN_NEUTRON_COLOR_SCHEME_TOML),
+        "Neutron (Gogh)" => Some(BUILTIN_NEUTRON_GOGH_COLOR_SCHEME_TOML),
+        "Night Owl (Gogh)" | "NightOwl (Gogh)" => Some(BUILTIN_NIGHT_OWL_GOGH_COLOR_SCHEME_TOML),
+        "Night Owlish Light" => Some(BUILTIN_NIGHT_OWLISH_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -44828,6 +44843,506 @@ author = "hal"
 name = "Navy and Ivory (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NEBULA_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#22273b",
+    "#777abc",
+    "#6562a8",
+    "#4f9062",
+    "#4d6bb6",
+    "#716cae",
+    "#226f68",
+    "#a4a6a9",
+]
+background = "#22273b"
+brights = [
+    "#6e6f72",
+    "#777abc",
+    "#6562a8",
+    "#4f9062",
+    "#4d6bb6",
+    "#716cae",
+    "#226f68",
+    "#8dbdaa",
+]
+cursor_bg = "#a4a6a9"
+cursor_border = "#a4a6a9"
+cursor_fg = "#22273b"
+foreground = "#a4a6a9"
+selection_bg = "#a4a6a9"
+selection_fg = "#22273b"
+
+[colors.indexed]
+16 = "#94929e"
+17 = "#8c70a7"
+18 = "#414f60"
+19 = "#5a8380"
+20 = "#87888b"
+21 = "#c7c9cd"
+
+[metadata]
+aliases = []
+author = "Gabriel Fontes (https://github.com/Misterio77)"
+name = "Nebula (base16)"
+origin_url = "https://github.com/Misterio77/base16-nebula-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NEOBONES_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0f191f",
+    "#de6e7c",
+    "#90ff6b",
+    "#b77e64",
+    "#8190d4",
+    "#b279a7",
+    "#66a5ad",
+    "#c6d5cf",
+]
+background = "#0f191f"
+brights = [
+    "#263945",
+    "#e8838f",
+    "#a0ff85",
+    "#d68c67",
+    "#92a0e2",
+    "#cf86c1",
+    "#65b8c1",
+    "#98a39e",
+]
+cursor_bg = "#ceddd7"
+cursor_border = "#ceddd7"
+cursor_fg = "#0f191f"
+foreground = "#c6d5cf"
+selection_bg = "#3a3e3d"
+selection_fg = "#c6d5cf"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "neobones_dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_NEOBONES_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#e5ede6",
+    "#a8334c",
+    "#567a30",
+    "#944927",
+    "#286486",
+    "#88507d",
+    "#3b8992",
+    "#202e18",
+]
+background = "#e5ede6"
+brights = [
+    "#b3c6b6",
+    "#94253e",
+    "#3f5a22",
+    "#803d1c",
+    "#1d5573",
+    "#7b3b70",
+    "#2b747c",
+    "#415934",
+]
+cursor_bg = "#202e18"
+cursor_border = "#202e18"
+cursor_fg = "#e5ede6"
+foreground = "#202e18"
+selection_bg = "#ade48c"
+selection_fg = "#202e18"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "neobones_light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_NEON_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff3045",
+    "#5ffa74",
+    "#fffc7e",
+    "#0208cb",
+    "#f924e7",
+    "#00fffc",
+    "#c7c7c7",
+]
+background = "#14161a"
+brights = [
+    "#686868",
+    "#ff5a5a",
+    "#75ff88",
+    "#fffd96",
+    "#3c40cb",
+    "#f15be5",
+    "#88fffe",
+    "#ffffff",
+]
+cursor_bg = "#c7c7c7"
+cursor_border = "#c7c7c7"
+cursor_fg = "#ffffff"
+foreground = "#00fffc"
+selection_bg = "#0013ff"
+selection_fg = "#08d2cf"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Neon"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_NEON_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#171717",
+    "#d81765",
+    "#97d01a",
+    "#ffa800",
+    "#16b1fb",
+    "#ff2491",
+    "#0fdcb6",
+    "#ebebeb",
+]
+background = "#171717"
+brights = [
+    "#38252c",
+    "#ff0000",
+    "#76b639",
+    "#e1a126",
+    "#289cd5",
+    "#ff2491",
+    "#0a9b81",
+    "#f8f8f8",
+]
+foreground = "#f8f8f8"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Neon (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NEON_NIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#20242d",
+    "#ff8e8e",
+    "#7efdd0",
+    "#fcad3f",
+    "#69b4f9",
+    "#dd92f6",
+    "#8ce8ff",
+    "#c9cccd",
+]
+background = "#20242d"
+brights = [
+    "#20242d",
+    "#ff8e8e",
+    "#7efdd0",
+    "#fcad3f",
+    "#69b4f9",
+    "#dd92f6",
+    "#8ce8ff",
+    "#c9cccd",
+]
+cursor_bg = "#c7c8ff"
+cursor_border = "#c7c8ff"
+cursor_fg = "#20242d"
+foreground = "#c7c8ff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["neon-night (Gogh)"]
+name = "Neon Night (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NEOPOLITAN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#800000",
+    "#61ce3c",
+    "#fbde2d",
+    "#253b76",
+    "#ff0080",
+    "#8da6ce",
+    "#f8f8f8",
+]
+background = "#271f19"
+brights = [
+    "#000000",
+    "#800000",
+    "#61ce3c",
+    "#fbde2d",
+    "#253b76",
+    "#ff0080",
+    "#8da6ce",
+    "#f8f8f8",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#ffffff"
+foreground = "#ffffff"
+selection_bg = "#253b76"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Neopolitan (Gogh)"]
+name = "Neopolitan"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_NEOPOLITAN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#800000",
+    "#61ce3c",
+    "#fbde2d",
+    "#253b76",
+    "#ff0080",
+    "#8da6ce",
+    "#f8f8f8",
+]
+background = "#271f19"
+brights = [
+    "#000000",
+    "#800000",
+    "#61ce3c",
+    "#fbde2d",
+    "#253b76",
+    "#ff0080",
+    "#8da6ce",
+    "#f8f8f8",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#271f19"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Neopolitan (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_NEP_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#dd6f00",
+    "#00dd6f",
+    "#6fdd00",
+    "#6f00dd",
+    "#dd006f",
+    "#006fdd",
+    "#f2f2f2",
+]
+background = "#758480"
+brights = [
+    "#7d7d7d",
+    "#ffb974",
+    "#74ffb9",
+    "#b9ff74",
+    "#b974ff",
+    "#ff74b9",
+    "#74b9ff",
+    "#ffffff",
+]
+cursor_bg = "#23476a"
+cursor_border = "#23476a"
+cursor_fg = "#758480"
+foreground = "#23476a"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Nep (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NEUTRON_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#23252b",
+    "#b54036",
+    "#5ab977",
+    "#deb566",
+    "#6a7c93",
+    "#a4799d",
+    "#3f94a8",
+    "#e6e8ef",
+]
+background = "#1c1e22"
+brights = [
+    "#23252b",
+    "#b54036",
+    "#5ab977",
+    "#deb566",
+    "#6a7c93",
+    "#a4799d",
+    "#3f94a8",
+    "#ebedf2",
+]
+cursor_bg = "#f6f7ec"
+cursor_border = "#f6f7ec"
+cursor_fg = "#c4c5b5"
+foreground = "#e6e8ef"
+selection_bg = "#2f363e"
+selection_fg = "#7d8fa4"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Neutron (Gogh)"]
+name = "Neutron"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_NEUTRON_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#23252b",
+    "#b54036",
+    "#5ab977",
+    "#deb566",
+    "#6a7c93",
+    "#a4799d",
+    "#3f94a8",
+    "#e6e8ef",
+]
+background = "#1c1e22"
+brights = [
+    "#23252b",
+    "#b54036",
+    "#5ab977",
+    "#deb566",
+    "#6a7c93",
+    "#a4799d",
+    "#3f94a8",
+    "#ebedf2",
+]
+cursor_bg = "#e6e8ef"
+cursor_border = "#e6e8ef"
+cursor_fg = "#1c1e22"
+foreground = "#e6e8ef"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Neutron (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_NIGHT_OWL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#011627",
+    "#ef5350",
+    "#22da6e",
+    "#addb67",
+    "#82aaff",
+    "#c792ea",
+    "#21c7a8",
+    "#ffffff",
+]
+background = "#011627"
+brights = [
+    "#575656",
+    "#ef5350",
+    "#22da6e",
+    "#ffeb95",
+    "#82aaff",
+    "#c792ea",
+    "#7fdbca",
+    "#ffffff",
+]
+cursor_bg = "#d6deeb"
+cursor_border = "#d6deeb"
+cursor_fg = "#011627"
+foreground = "#d6deeb"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["NightOwl (Gogh)"]
+name = "Night Owl (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NIGHT_OWLISH_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#011627",
+    "#d3423e",
+    "#2aa298",
+    "#daaa01",
+    "#4876d6",
+    "#403f53",
+    "#08916a",
+    "#7a8181",
+]
+background = "#ffffff"
+brights = [
+    "#7a8181",
+    "#f76e6e",
+    "#49d0c5",
+    "#dac26b",
+    "#5ca7e4",
+    "#697098",
+    "#00c990",
+    "#989fb1",
+]
+cursor_bg = "#403f53"
+cursor_border = "#403f53"
+cursor_fg = "#fbfbfb"
+foreground = "#403f53"
+selection_bg = "#f2f2f2"
+selection_fg = "#403f53"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Night Owlish Light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -124345,6 +124860,308 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Monokai-Soda-to-Navy-Ivory built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_nebula_to_night_owlish_light_builtin_color_schemes() {
+        let cases = [
+            (
+                "Nebula (base16)",
+                Color::Rgb(164, 166, 169),
+                Color::Rgb(34, 39, 59),
+                Color::Rgb(164, 166, 169),
+                Some(Color::Rgb(34, 39, 59)),
+                Some(Color::Rgb(164, 166, 169)),
+                Some(Some(Color::Rgb(34, 39, 59))),
+                Color::Rgb(34, 39, 59),
+                Color::Rgb(119, 122, 188),
+                Color::Rgb(101, 98, 168),
+                Color::Rgb(79, 144, 98),
+                Color::Rgb(110, 111, 114),
+                Color::Rgb(141, 189, 170),
+                Some(Color::Rgb(148, 146, 158)),
+            ),
+            (
+                "neobones_dark",
+                Color::Rgb(198, 213, 207),
+                Color::Rgb(15, 25, 31),
+                Color::Rgb(206, 221, 215),
+                Some(Color::Rgb(15, 25, 31)),
+                Some(Color::Rgb(58, 62, 61)),
+                Some(Some(Color::Rgb(198, 213, 207))),
+                Color::Rgb(15, 25, 31),
+                Color::Rgb(222, 110, 124),
+                Color::Rgb(144, 255, 107),
+                Color::Rgb(183, 126, 100),
+                Color::Rgb(38, 57, 69),
+                Color::Rgb(152, 163, 158),
+                None,
+            ),
+            (
+                "neobones_light",
+                Color::Rgb(32, 46, 24),
+                Color::Rgb(229, 237, 230),
+                Color::Rgb(32, 46, 24),
+                Some(Color::Rgb(229, 237, 230)),
+                Some(Color::Rgb(173, 228, 140)),
+                Some(Some(Color::Rgb(32, 46, 24))),
+                Color::Rgb(229, 237, 230),
+                Color::Rgb(168, 51, 76),
+                Color::Rgb(86, 122, 48),
+                Color::Rgb(148, 73, 39),
+                Color::Rgb(179, 198, 182),
+                Color::Rgb(65, 89, 52),
+                None,
+            ),
+            (
+                "Neon",
+                Color::Rgb(0, 255, 252),
+                Color::Rgb(20, 22, 26),
+                Color::Rgb(199, 199, 199),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(0, 19, 255)),
+                Some(Some(Color::Rgb(8, 210, 207))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 48, 69),
+                Color::Rgb(95, 250, 116),
+                Color::Rgb(255, 252, 126),
+                Color::Rgb(104, 104, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Neon (terminal.sexy)",
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(23, 23, 23),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(23, 23, 23),
+                Color::Rgb(216, 23, 101),
+                Color::Rgb(151, 208, 26),
+                Color::Rgb(255, 168, 0),
+                Color::Rgb(56, 37, 44),
+                Color::Rgb(248, 248, 248),
+                None,
+            ),
+            (
+                "Neon Night (Gogh)",
+                Color::Rgb(199, 200, 255),
+                Color::Rgb(32, 36, 45),
+                Color::Rgb(199, 200, 255),
+                Some(Color::Rgb(32, 36, 45)),
+                None,
+                None,
+                Color::Rgb(32, 36, 45),
+                Color::Rgb(255, 142, 142),
+                Color::Rgb(126, 253, 208),
+                Color::Rgb(252, 173, 63),
+                Color::Rgb(32, 36, 45),
+                Color::Rgb(201, 204, 205),
+                None,
+            ),
+            (
+                "neon-night (Gogh)",
+                Color::Rgb(199, 200, 255),
+                Color::Rgb(32, 36, 45),
+                Color::Rgb(199, 200, 255),
+                Some(Color::Rgb(32, 36, 45)),
+                None,
+                None,
+                Color::Rgb(32, 36, 45),
+                Color::Rgb(255, 142, 142),
+                Color::Rgb(126, 253, 208),
+                Color::Rgb(252, 173, 63),
+                Color::Rgb(32, 36, 45),
+                Color::Rgb(201, 204, 205),
+                None,
+            ),
+            (
+                "Neopolitan",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(39, 31, 25),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(37, 59, 118)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(128, 0, 0),
+                Color::Rgb(97, 206, 60),
+                Color::Rgb(251, 222, 45),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(248, 248, 248),
+                None,
+            ),
+            (
+                "Neopolitan (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(39, 31, 25),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(39, 31, 25)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(128, 0, 0),
+                Color::Rgb(97, 206, 60),
+                Color::Rgb(251, 222, 45),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(248, 248, 248),
+                None,
+            ),
+            (
+                "Nep (Gogh)",
+                Color::Rgb(35, 71, 106),
+                Color::Rgb(117, 132, 128),
+                Color::Rgb(35, 71, 106),
+                Some(Color::Rgb(117, 132, 128)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(221, 111, 0),
+                Color::Rgb(0, 221, 111),
+                Color::Rgb(111, 221, 0),
+                Color::Rgb(125, 125, 125),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Neutron",
+                Color::Rgb(230, 232, 239),
+                Color::Rgb(28, 30, 34),
+                Color::Rgb(246, 247, 236),
+                Some(Color::Rgb(196, 197, 181)),
+                Some(Color::Rgb(47, 54, 62)),
+                Some(Some(Color::Rgb(125, 143, 164))),
+                Color::Rgb(35, 37, 43),
+                Color::Rgb(181, 64, 54),
+                Color::Rgb(90, 185, 119),
+                Color::Rgb(222, 181, 102),
+                Color::Rgb(35, 37, 43),
+                Color::Rgb(235, 237, 242),
+                None,
+            ),
+            (
+                "Neutron (Gogh)",
+                Color::Rgb(230, 232, 239),
+                Color::Rgb(28, 30, 34),
+                Color::Rgb(230, 232, 239),
+                Some(Color::Rgb(28, 30, 34)),
+                None,
+                None,
+                Color::Rgb(35, 37, 43),
+                Color::Rgb(181, 64, 54),
+                Color::Rgb(90, 185, 119),
+                Color::Rgb(222, 181, 102),
+                Color::Rgb(35, 37, 43),
+                Color::Rgb(235, 237, 242),
+                None,
+            ),
+            (
+                "Night Owl (Gogh)",
+                Color::Rgb(214, 222, 235),
+                Color::Rgb(1, 22, 39),
+                Color::Rgb(214, 222, 235),
+                Some(Color::Rgb(1, 22, 39)),
+                None,
+                None,
+                Color::Rgb(1, 22, 39),
+                Color::Rgb(239, 83, 80),
+                Color::Rgb(34, 218, 110),
+                Color::Rgb(173, 219, 103),
+                Color::Rgb(87, 86, 86),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "NightOwl (Gogh)",
+                Color::Rgb(214, 222, 235),
+                Color::Rgb(1, 22, 39),
+                Color::Rgb(214, 222, 235),
+                Some(Color::Rgb(1, 22, 39)),
+                None,
+                None,
+                Color::Rgb(1, 22, 39),
+                Color::Rgb(239, 83, 80),
+                Color::Rgb(34, 218, 110),
+                Color::Rgb(173, 219, 103),
+                Color::Rgb(87, 86, 86),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Night Owlish Light",
+                Color::Rgb(64, 63, 83),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(64, 63, 83),
+                Some(Color::Rgb(251, 251, 251)),
+                Some(Color::Rgb(242, 242, 242)),
+                Some(Some(Color::Rgb(64, 63, 83))),
+                Color::Rgb(1, 22, 39),
+                Color::Rgb(211, 66, 62),
+                Color::Rgb(42, 162, 152),
+                Color::Rgb(218, 170, 1),
+                Color::Rgb(122, 129, 129),
+                Color::Rgb(152, 159, 177),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Nebula-to-Night-Owlish-Light built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

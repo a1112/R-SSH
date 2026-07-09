@@ -3767,7 +3767,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Mostly Bright (terminal.sexy)`, `Muse (terminal.sexy)`,
   `N0tch2k`, `N0Tch2K (Gogh)`, `Nancy (terminal.sexy)`,
   `Nature Suede (terminal.sexy)`, `Navy and Ivory (terminal.sexy)`,
-  `Builtin Dark`, `Builtin Light`,
+  `Nebula (base16)`, `neobones_dark`, `neobones_light`, `Neon`,
+  `Neon (terminal.sexy)`, `Neon Night (Gogh)`, `Neopolitan`,
+  `Neopolitan (Gogh)`, `Nep (Gogh)`, `Neutron`, `Neutron (Gogh)`,
+  `Night Owl (Gogh)`, `Night Owlish Light`, `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting
   WezTerm aliases using WezTerm's built-in TOML palette data. The broader
