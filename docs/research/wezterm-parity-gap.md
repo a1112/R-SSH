@@ -3718,7 +3718,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Ivory Light (terminal.sexy)`, `Jackie Brown`, `Jackie Brown (Gogh)`,
   `Japanesque`, `Japanesque (Gogh)`, `Jason Wryan (terminal.sexy)`,
   `Jellybeans`, `Jellybeans (Gogh)`, `JetBrains Darcula`,
-  `jmbi (terminal.sexy)`, `jubi`,
+  `jmbi (terminal.sexy)`, `jubi`, `Jup (Gogh)`,
+  `JWR dark (terminal.sexy)`, `Kanagawa (Gogh)`,
+  `Kanagawa Dragon (Gogh)`, `kanagawabones`,
+  `Kasugano (terminal.sexy)`, `Kibble`, `Kibble (Gogh)`,
+  `Kimber (base16)`, `Kokuban (Gogh)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting

@@ -19839,6 +19839,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "JetBrains Darcula" => Some(BUILTIN_JETBRAINS_DARCULA_COLOR_SCHEME_TOML),
         "jmbi (terminal.sexy)" => Some(BUILTIN_JMBI_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "jubi" => Some(BUILTIN_JUBI_COLOR_SCHEME_TOML),
+        "Jup (Gogh)" => Some(BUILTIN_JUP_GOGH_COLOR_SCHEME_TOML),
+        "JWR dark (terminal.sexy)" => Some(BUILTIN_JWR_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Kanagawa (Gogh)" | "kanagawa (Gogh)" => Some(BUILTIN_KANAGAWA_GOGH_COLOR_SCHEME_TOML),
+        "Kanagawa Dragon (Gogh)" => Some(BUILTIN_KANAGAWA_DRAGON_GOGH_COLOR_SCHEME_TOML),
+        "kanagawabones" => Some(BUILTIN_KANAGAWABONES_COLOR_SCHEME_TOML),
+        "Kasugano (terminal.sexy)" => Some(BUILTIN_KASUGANO_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Kibble" => Some(BUILTIN_KIBBLE_COLOR_SCHEME_TOML),
+        "Kibble (Gogh)" => Some(BUILTIN_KIBBLE_GOGH_COLOR_SCHEME_TOML),
+        "Kimber (base16)" => Some(BUILTIN_KIMBER_BASE16_COLOR_SCHEME_TOML),
+        "Kokuban (Gogh)" | "kokuban (Gogh)" => Some(BUILTIN_KOKUBAN_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -40007,6 +40017,385 @@ aliases = []
 name = "jubi"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_JUP_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#dd006f",
+    "#6fdd00",
+    "#dd6f00",
+    "#006fdd",
+    "#6f00dd",
+    "#00dd6f",
+    "#f2f2f2",
+]
+background = "#758480"
+brights = [
+    "#7d7d7d",
+    "#ff74b9",
+    "#b9ff74",
+    "#ffb974",
+    "#74b9ff",
+    "#b974ff",
+    "#74ffb9",
+    "#ffffff",
+]
+cursor_bg = "#23476a"
+cursor_border = "#23476a"
+cursor_fg = "#758480"
+foreground = "#23476a"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Jup (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_JWR_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#333333",
+    "#8c4665",
+    "#287373",
+    "#7c7c99",
+    "#395573",
+    "#5e468c",
+    "#31658c",
+    "#899ca1",
+]
+background = "#000000"
+brights = [
+    "#3d3d3d",
+    "#bf4d80",
+    "#53a6a6",
+    "#9e9ecb",
+    "#477ab3",
+    "#7e62b3",
+    "#6096bf",
+    "#c0c0c0",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "JWR dark (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_KANAGAWA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#090618",
+    "#c34043",
+    "#76946a",
+    "#c0a36e",
+    "#7e9cd8",
+    "#957fb8",
+    "#6a9589",
+    "#dcd7ba",
+]
+background = "#1f1f28"
+brights = [
+    "#727169",
+    "#e82424",
+    "#98bb6c",
+    "#e6c384",
+    "#7fb4ca",
+    "#938aa9",
+    "#7aa89f",
+    "#c8c093",
+]
+cursor_bg = "#dcd7ba"
+cursor_border = "#dcd7ba"
+cursor_fg = "#1f1f28"
+foreground = "#dcd7ba"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["kanagawa (Gogh)"]
+name = "Kanagawa (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_KANAGAWA_DRAGON_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0d0c0c",
+    "#c4746e",
+    "#8a9a7b",
+    "#c4b28a",
+    "#8ba4b0",
+    "#a292a3",
+    "#8ea4a2",
+    "#c8c093",
+]
+background = "#181616"
+brights = [
+    "#a6a69c",
+    "#e46876",
+    "#87a987",
+    "#e6c384",
+    "#7fb4ca",
+    "#938aa9",
+    "#7aa89f",
+    "#c5c9c5",
+]
+cursor_bg = "#c8c093"
+cursor_border = "#c8c093"
+cursor_fg = "#181616"
+foreground = "#c5c9c5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Kanagawa Dragon (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_KANAGAWABONES_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1f1f28",
+    "#e46a78",
+    "#98bc6d",
+    "#e5c283",
+    "#7eb3c9",
+    "#957fb8",
+    "#7eb3c9",
+    "#ddd8bb",
+]
+background = "#1f1f28"
+brights = [
+    "#3c3c51",
+    "#ec818c",
+    "#9ec967",
+    "#f1c982",
+    "#7bc2df",
+    "#a98fd2",
+    "#7bc2df",
+    "#a8a48d",
+]
+cursor_bg = "#e6e0c2"
+cursor_border = "#e6e0c2"
+cursor_fg = "#1f1f28"
+foreground = "#ddd8bb"
+selection_bg = "#49473e"
+selection_fg = "#ddd8bb"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "kanagawabones"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_KASUGANO_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3d3d3d",
+    "#6673bf",
+    "#3ea290",
+    "#b0ead9",
+    "#31658c",
+    "#596196",
+    "#8292b2",
+    "#c8cacc",
+]
+background = "#1b1b1b"
+brights = [
+    "#4d4d4d",
+    "#899aff",
+    "#52ad91",
+    "#98c9bb",
+    "#477ab3",
+    "#7882bf",
+    "#95a7cc",
+    "#edeff2",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Kori Ayakashi"
+name = "Kasugano (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_KIBBLE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4d4d4d",
+    "#c70031",
+    "#29cf13",
+    "#d8e30e",
+    "#3449d1",
+    "#8400ff",
+    "#0798ab",
+    "#e2d1e3",
+]
+background = "#0e100a"
+brights = [
+    "#5a5a5a",
+    "#f01578",
+    "#6ce05c",
+    "#f3f79e",
+    "#97a4f7",
+    "#c495f0",
+    "#68f2e0",
+    "#ffffff",
+]
+cursor_bg = "#9fda9c"
+cursor_border = "#9fda9c"
+cursor_fg = "#000000"
+foreground = "#f7f7f7"
+selection_bg = "#9ba787"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Kibble (Gogh)"]
+name = "Kibble"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_KIBBLE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4d4d4d",
+    "#c70031",
+    "#29cf13",
+    "#d8e30e",
+    "#3449d1",
+    "#8400ff",
+    "#0798ab",
+    "#e2d1e3",
+]
+background = "#0e100a"
+brights = [
+    "#5a5a5a",
+    "#f01578",
+    "#6ce05c",
+    "#f3f79e",
+    "#97a4f7",
+    "#c495f0",
+    "#68f2e0",
+    "#ffffff",
+]
+cursor_bg = "#f7f7f7"
+cursor_border = "#f7f7f7"
+cursor_fg = "#0e100a"
+foreground = "#f7f7f7"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Kibble (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_KIMBER_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#222222",
+    "#c88c8c",
+    "#99c899",
+    "#d8b56d",
+    "#537c9c",
+    "#86cacd",
+    "#78b4b4",
+    "#dedee7",
+]
+background = "#222222"
+brights = [
+    "#644646",
+    "#c88c8c",
+    "#99c899",
+    "#d8b56d",
+    "#537c9c",
+    "#86cacd",
+    "#78b4b4",
+    "#ffffe6",
+]
+cursor_bg = "#dedee7"
+cursor_border = "#dedee7"
+cursor_fg = "#222222"
+foreground = "#dedee7"
+selection_bg = "#dedee7"
+selection_fg = "#222222"
+
+[colors.indexed]
+"16" = "#476c88"
+"17" = "#704f4f"
+"18" = "#313131"
+"19" = "#555d55"
+"20" = "#5a5a5a"
+"21" = "#c3c3b4"
+
+[metadata]
+aliases = []
+author = "Mishka Nguyen (https://github.com/akhsiM)"
+name = "Kimber (base16)"
+origin_url = "https://github.com/akhsiM/base16-kimber-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_KOKUBAN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e8744",
+    "#d84e4c",
+    "#95da5a",
+    "#d6e264",
+    "#4b9ed7",
+    "#945fc5",
+    "#d89b25",
+    "#d8e2d7",
+]
+background = "#0d4a08"
+brights = [
+    "#34934f",
+    "#ff4f59",
+    "#aff56a",
+    "#fcff75",
+    "#57aeff",
+    "#ae63e9",
+    "#ffaa2b",
+    "#fffefe",
+]
+cursor_bg = "#d8e2d7"
+cursor_border = "#d8e2d7"
+cursor_fg = "#0d4a08"
+foreground = "#d8e2d7"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["kokuban (Gogh)"]
+name = "Kokuban (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -116664,6 +117053,260 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Jackie-Brown-to-jubi built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_jup_to_kokuban_builtin_color_schemes() {
+        let cases = [
+            (
+                "Jup (Gogh)",
+                Color::Rgb(35, 71, 106),
+                Color::Rgb(117, 132, 128),
+                Color::Rgb(35, 71, 106),
+                Some(Color::Rgb(117, 132, 128)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(221, 0, 111),
+                Color::Rgb(111, 221, 0),
+                Color::Rgb(221, 111, 0),
+                Color::Rgb(125, 125, 125),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "JWR dark (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(140, 70, 101),
+                Color::Rgb(40, 115, 115),
+                Color::Rgb(124, 124, 153),
+                Color::Rgb(61, 61, 61),
+                Color::Rgb(192, 192, 192),
+                None,
+            ),
+            (
+                "Kanagawa (Gogh)",
+                Color::Rgb(220, 215, 186),
+                Color::Rgb(31, 31, 40),
+                Color::Rgb(220, 215, 186),
+                Some(Color::Rgb(31, 31, 40)),
+                None,
+                None,
+                Color::Rgb(9, 6, 24),
+                Color::Rgb(195, 64, 67),
+                Color::Rgb(118, 148, 106),
+                Color::Rgb(192, 163, 110),
+                Color::Rgb(114, 113, 105),
+                Color::Rgb(200, 192, 147),
+                None,
+            ),
+            (
+                "kanagawa (Gogh)",
+                Color::Rgb(220, 215, 186),
+                Color::Rgb(31, 31, 40),
+                Color::Rgb(220, 215, 186),
+                Some(Color::Rgb(31, 31, 40)),
+                None,
+                None,
+                Color::Rgb(9, 6, 24),
+                Color::Rgb(195, 64, 67),
+                Color::Rgb(118, 148, 106),
+                Color::Rgb(192, 163, 110),
+                Color::Rgb(114, 113, 105),
+                Color::Rgb(200, 192, 147),
+                None,
+            ),
+            (
+                "Kanagawa Dragon (Gogh)",
+                Color::Rgb(197, 201, 197),
+                Color::Rgb(24, 22, 22),
+                Color::Rgb(200, 192, 147),
+                Some(Color::Rgb(24, 22, 22)),
+                None,
+                None,
+                Color::Rgb(13, 12, 12),
+                Color::Rgb(196, 116, 110),
+                Color::Rgb(138, 154, 123),
+                Color::Rgb(196, 178, 138),
+                Color::Rgb(166, 166, 156),
+                Color::Rgb(197, 201, 197),
+                None,
+            ),
+            (
+                "kanagawabones",
+                Color::Rgb(221, 216, 187),
+                Color::Rgb(31, 31, 40),
+                Color::Rgb(230, 224, 194),
+                Some(Color::Rgb(31, 31, 40)),
+                Some(Color::Rgb(73, 71, 62)),
+                Some(Some(Color::Rgb(221, 216, 187))),
+                Color::Rgb(31, 31, 40),
+                Color::Rgb(228, 106, 120),
+                Color::Rgb(152, 188, 109),
+                Color::Rgb(229, 194, 131),
+                Color::Rgb(60, 60, 81),
+                Color::Rgb(168, 164, 141),
+                None,
+            ),
+            (
+                "Kasugano (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(27, 27, 27),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(61, 61, 61),
+                Color::Rgb(102, 115, 191),
+                Color::Rgb(62, 162, 144),
+                Color::Rgb(176, 234, 217),
+                Color::Rgb(77, 77, 77),
+                Color::Rgb(237, 239, 242),
+                None,
+            ),
+            (
+                "Kibble",
+                Color::Rgb(247, 247, 247),
+                Color::Rgb(14, 16, 10),
+                Color::Rgb(159, 218, 156),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(155, 167, 135)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(77, 77, 77),
+                Color::Rgb(199, 0, 49),
+                Color::Rgb(41, 207, 19),
+                Color::Rgb(216, 227, 14),
+                Color::Rgb(90, 90, 90),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Kibble (Gogh)",
+                Color::Rgb(247, 247, 247),
+                Color::Rgb(14, 16, 10),
+                Color::Rgb(247, 247, 247),
+                Some(Color::Rgb(14, 16, 10)),
+                None,
+                None,
+                Color::Rgb(77, 77, 77),
+                Color::Rgb(199, 0, 49),
+                Color::Rgb(41, 207, 19),
+                Color::Rgb(216, 227, 14),
+                Color::Rgb(90, 90, 90),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Kimber (base16)",
+                Color::Rgb(222, 222, 231),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(222, 222, 231),
+                Some(Color::Rgb(34, 34, 34)),
+                Some(Color::Rgb(222, 222, 231)),
+                Some(Some(Color::Rgb(34, 34, 34))),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(200, 140, 140),
+                Color::Rgb(153, 200, 153),
+                Color::Rgb(216, 181, 109),
+                Color::Rgb(100, 70, 70),
+                Color::Rgb(255, 255, 230),
+                Some(Color::Rgb(71, 108, 136)),
+            ),
+            (
+                "Kokuban (Gogh)",
+                Color::Rgb(216, 226, 215),
+                Color::Rgb(13, 74, 8),
+                Color::Rgb(216, 226, 215),
+                Some(Color::Rgb(13, 74, 8)),
+                None,
+                None,
+                Color::Rgb(46, 135, 68),
+                Color::Rgb(216, 78, 76),
+                Color::Rgb(149, 218, 90),
+                Color::Rgb(214, 226, 100),
+                Color::Rgb(52, 147, 79),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+            (
+                "kokuban (Gogh)",
+                Color::Rgb(216, 226, 215),
+                Color::Rgb(13, 74, 8),
+                Color::Rgb(216, 226, 215),
+                Some(Color::Rgb(13, 74, 8)),
+                None,
+                None,
+                Color::Rgb(46, 135, 68),
+                Color::Rgb(216, 78, 76),
+                Color::Rgb(149, 218, 90),
+                Color::Rgb(214, 226, 100),
+                Color::Rgb(52, 147, 79),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Jup-to-Kokuban built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
