@@ -19659,6 +19659,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Foxnightly (Gogh)" => Some(BUILTIN_FOXNIGHTLY_GOGH_COLOR_SCHEME_TOML),
         "Framer" => Some(BUILTIN_FRAMER_COLOR_SCHEME_TOML),
         "Framer (base16)" => Some(BUILTIN_FRAMER_BASE16_COLOR_SCHEME_TOML),
+        "Freya (Gogh)" => Some(BUILTIN_FREYA_GOGH_COLOR_SCHEME_TOML),
+        "Frontend Delight (Gogh)" => Some(BUILTIN_FRONTEND_DELIGHT_GOGH_COLOR_SCHEME_TOML),
+        "Frontend Fun Forrest (Gogh)" => Some(BUILTIN_FRONTEND_FUN_FORREST_GOGH_COLOR_SCHEME_TOML),
+        "Frontend Galaxy (Gogh)" => Some(BUILTIN_FRONTEND_GALAXY_GOGH_COLOR_SCHEME_TOML),
+        "FrontEndDelight" => Some(BUILTIN_FRONTENDDELIGHT_COLOR_SCHEME_TOML),
+        "Fruit Soda (base16)" => Some(BUILTIN_FRUIT_SODA_BASE16_COLOR_SCHEME_TOML),
+        "FunForrest" => Some(BUILTIN_FUNFORREST_COLOR_SCHEME_TOML),
+        "Galaxy" => Some(BUILTIN_GALAXY_COLOR_SCHEME_TOML),
+        "Galizur" => Some(BUILTIN_GALIZUR_COLOR_SCHEME_TOML),
+        "Geohot (Gogh)" => Some(BUILTIN_GEOHOT_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -34252,6 +34262,403 @@ aliases = []
 author = "Framer (Maintained by Jesse Hoyos)"
 name = "Framer (base16)"
 origin_url = "https://github.com/jssee/base16-framer-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_FREYA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#073642",
+    "#dc322f",
+    "#859900",
+    "#b58900",
+    "#268bd2",
+    "#ec0048",
+    "#2aa198",
+    "#94a3a5",
+]
+background = "#252e32"
+brights = [
+    "#586e75",
+    "#cb4b16",
+    "#859900",
+    "#b58900",
+    "#268bd2",
+    "#d33682",
+    "#2aa198",
+    "#6c71c4",
+]
+cursor_bg = "#839496"
+cursor_border = "#839496"
+cursor_fg = "#252e32"
+foreground = "#94a3a5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Freya (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_FRONTEND_DELIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#242526",
+    "#f8511b",
+    "#565747",
+    "#fa771d",
+    "#2c70b7",
+    "#f02e4f",
+    "#3ca1a6",
+    "#adadad",
+]
+background = "#1b1c1d"
+brights = [
+    "#5fac6d",
+    "#f74319",
+    "#74ec4c",
+    "#fdc325",
+    "#3393ca",
+    "#e75e4f",
+    "#4fbce6",
+    "#8c735b",
+]
+cursor_bg = "#adadad"
+cursor_border = "#adadad"
+cursor_fg = "#1b1c1d"
+foreground = "#adadad"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Frontend Delight (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_FRONTEND_FUN_FORREST_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d6262b",
+    "#919c00",
+    "#be8a13",
+    "#4699a3",
+    "#8d4331",
+    "#da8213",
+    "#ddc265",
+]
+background = "#251200"
+brights = [
+    "#7f6a55",
+    "#e55a1c",
+    "#bfc65a",
+    "#ffcb1b",
+    "#7cc9cf",
+    "#d26349",
+    "#e6a96b",
+    "#ffeaa3",
+]
+cursor_bg = "#dec165"
+cursor_border = "#dec165"
+cursor_fg = "#251200"
+foreground = "#dec165"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Frontend Fun Forrest (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_FRONTEND_GALAXY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#f9555f",
+    "#21b089",
+    "#fef02a",
+    "#589df6",
+    "#944d95",
+    "#1f9ee7",
+    "#bbbbbb",
+]
+background = "#1d2837"
+brights = [
+    "#555555",
+    "#fa8c8f",
+    "#35bb9a",
+    "#ffff55",
+    "#589df6",
+    "#e75699",
+    "#3979bc",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#1d2837"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Frontend Galaxy (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_FRONTENDDELIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#242526",
+    "#f8511b",
+    "#565747",
+    "#fa771d",
+    "#2c70b7",
+    "#f02e4f",
+    "#3ca1a6",
+    "#adadad",
+]
+background = "#1b1c1d"
+brights = [
+    "#5fac6d",
+    "#f74319",
+    "#74ec4c",
+    "#fdc325",
+    "#3393ca",
+    "#e75e4f",
+    "#4fbce6",
+    "#8c735b",
+]
+cursor_bg = "#cdcdcd"
+cursor_border = "#cdcdcd"
+cursor_fg = "#1b1c1d"
+foreground = "#adadad"
+selection_bg = "#ea6154"
+selection_fg = "#1b1c1d"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Frontend Delight (Gogh)",
+    "FrontendDelight (Gogh)",
+]
+name = "FrontEndDelight"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_FRUIT_SODA_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f1ecf1",
+    "#fe3e31",
+    "#47f74c",
+    "#f7e203",
+    "#2931df",
+    "#611fce",
+    "#0f9cfd",
+    "#515151",
+]
+background = "#f1ecf1"
+brights = [
+    "#b5b4b6",
+    "#fe3e31",
+    "#47f74c",
+    "#f7e203",
+    "#2931df",
+    "#611fce",
+    "#0f9cfd",
+    "#2d2c2c",
+]
+cursor_bg = "#515151"
+cursor_border = "#515151"
+cursor_fg = "#f1ecf1"
+foreground = "#515151"
+selection_bg = "#515151"
+selection_fg = "#f1ecf1"
+
+[colors.indexed]
+16 = "#fe6d08"
+17 = "#b16f40"
+18 = "#e0dee0"
+19 = "#d8d5d5"
+20 = "#979598"
+21 = "#474545"
+
+[metadata]
+aliases = []
+author = "jozip"
+name = "Fruit Soda (base16)"
+origin_url = "https://github.com/jozip/base16-fruit-soda-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_FUNFORREST_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d6262b",
+    "#919c00",
+    "#be8a13",
+    "#4699a3",
+    "#8d4331",
+    "#da8213",
+    "#ddc265",
+]
+background = "#251200"
+brights = [
+    "#7f6a55",
+    "#e55a1c",
+    "#bfc65a",
+    "#ffcb1b",
+    "#7cc9cf",
+    "#d26349",
+    "#e6a96b",
+    "#ffeaa3",
+]
+cursor_bg = "#e5591c"
+cursor_border = "#e5591c"
+cursor_fg = "#000000"
+foreground = "#dec165"
+selection_bg = "#e5591c"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Frontend Fun Forrest (Gogh)",
+    "FrontendFunForrest (Gogh)",
+]
+name = "FunForrest"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_GALAXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#f9555f",
+    "#21b089",
+    "#fef02a",
+    "#589df6",
+    "#944d95",
+    "#1f9ee7",
+    "#bbbbbb",
+]
+background = "#1d2837"
+brights = [
+    "#555555",
+    "#fa8c8f",
+    "#35bb9a",
+    "#ffff55",
+    "#589df6",
+    "#e75699",
+    "#3979bc",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#ffffff"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Frontend Galaxy (Gogh)",
+    "FrontendGalaxy (Gogh)",
+]
+name = "Galaxy"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_GALIZUR_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#223344",
+    "#aa1122",
+    "#33aa11",
+    "#ccaa22",
+    "#2255cc",
+    "#7755aa",
+    "#22bbdd",
+    "#8899aa",
+]
+background = "#071317"
+brights = [
+    "#556677",
+    "#ff1133",
+    "#33ff11",
+    "#ffdd33",
+    "#3377ff",
+    "#aa77ff",
+    "#33ddff",
+    "#bbccdd",
+]
+cursor_bg = "#ddeeff"
+cursor_border = "#ddeeff"
+cursor_fg = "#071317"
+foreground = "#ddeeff"
+selection_bg = "#071317"
+selection_fg = "#ddeeff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Raziel Anarki (http://github.com/razielanarki)"
+name = "Galizur"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_GEOHOT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f9f5f5",
+    "#cc0000",
+    "#1f1e1f",
+    "#ada110",
+    "#ff004e",
+    "#75507b",
+    "#06919a",
+    "#ffffff",
+]
+background = "#1f1e1f"
+brights = [
+    "#555753",
+    "#ef2929",
+    "#ff0000",
+    "#ada110",
+    "#5f4aa6",
+    "#b74438",
+    "#408f0c",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#1f1e1f"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["GeoHot (Gogh)"]
+name = "Geohot (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -107502,6 +107909,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Flat Remix-to-Framer base16 built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_freya_to_geohot_gogh_builtin_color_schemes() {
+        let cases = [
+            (
+                "Freya (Gogh)",
+                Color::Rgb(148, 163, 165),
+                Color::Rgb(37, 46, 50),
+                Color::Rgb(131, 148, 150),
+                Some(Color::Rgb(37, 46, 50)),
+                None,
+                None,
+                Color::Rgb(7, 54, 66),
+                Color::Rgb(220, 50, 47),
+                Color::Rgb(133, 153, 0),
+                Color::Rgb(181, 137, 0),
+                Color::Rgb(88, 110, 117),
+                Color::Rgb(108, 113, 196),
+                None,
+            ),
+            (
+                "Frontend Delight (Gogh)",
+                Color::Rgb(173, 173, 173),
+                Color::Rgb(27, 28, 29),
+                Color::Rgb(173, 173, 173),
+                Some(Color::Rgb(27, 28, 29)),
+                None,
+                None,
+                Color::Rgb(36, 37, 38),
+                Color::Rgb(248, 81, 27),
+                Color::Rgb(86, 87, 71),
+                Color::Rgb(250, 119, 29),
+                Color::Rgb(95, 172, 109),
+                Color::Rgb(140, 115, 91),
+                None,
+            ),
+            (
+                "Frontend Fun Forrest (Gogh)",
+                Color::Rgb(222, 193, 101),
+                Color::Rgb(37, 18, 0),
+                Color::Rgb(222, 193, 101),
+                Some(Color::Rgb(37, 18, 0)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(214, 38, 43),
+                Color::Rgb(145, 156, 0),
+                Color::Rgb(190, 138, 19),
+                Color::Rgb(127, 106, 85),
+                Color::Rgb(255, 234, 163),
+                None,
+            ),
+            (
+                "Frontend Galaxy (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(29, 40, 55),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(29, 40, 55)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(249, 85, 95),
+                Color::Rgb(33, 176, 137),
+                Color::Rgb(254, 240, 42),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "FrontEndDelight",
+                Color::Rgb(173, 173, 173),
+                Color::Rgb(27, 28, 29),
+                Color::Rgb(205, 205, 205),
+                Some(Color::Rgb(27, 28, 29)),
+                Some(Color::Rgb(234, 97, 84)),
+                Some(Some(Color::Rgb(27, 28, 29))),
+                Color::Rgb(36, 37, 38),
+                Color::Rgb(248, 81, 27),
+                Color::Rgb(86, 87, 71),
+                Color::Rgb(250, 119, 29),
+                Color::Rgb(95, 172, 109),
+                Color::Rgb(140, 115, 91),
+                None,
+            ),
+            (
+                "Fruit Soda (base16)",
+                Color::Rgb(81, 81, 81),
+                Color::Rgb(241, 236, 241),
+                Color::Rgb(81, 81, 81),
+                Some(Color::Rgb(241, 236, 241)),
+                Some(Color::Rgb(81, 81, 81)),
+                Some(Some(Color::Rgb(241, 236, 241))),
+                Color::Rgb(241, 236, 241),
+                Color::Rgb(254, 62, 49),
+                Color::Rgb(71, 247, 76),
+                Color::Rgb(247, 226, 3),
+                Color::Rgb(181, 180, 182),
+                Color::Rgb(45, 44, 44),
+                Some(Color::Rgb(254, 109, 8)),
+            ),
+            (
+                "FunForrest",
+                Color::Rgb(222, 193, 101),
+                Color::Rgb(37, 18, 0),
+                Color::Rgb(229, 89, 28),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(229, 89, 28)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(214, 38, 43),
+                Color::Rgb(145, 156, 0),
+                Color::Rgb(190, 138, 19),
+                Color::Rgb(127, 106, 85),
+                Color::Rgb(255, 234, 163),
+                None,
+            ),
+            (
+                "Galaxy",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(29, 40, 55),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(181, 213, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(249, 85, 95),
+                Color::Rgb(33, 176, 137),
+                Color::Rgb(254, 240, 42),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Galizur",
+                Color::Rgb(221, 238, 255),
+                Color::Rgb(7, 19, 23),
+                Color::Rgb(221, 238, 255),
+                Some(Color::Rgb(7, 19, 23)),
+                Some(Color::Rgb(7, 19, 23)),
+                Some(Some(Color::Rgb(221, 238, 255))),
+                Color::Rgb(34, 51, 68),
+                Color::Rgb(170, 17, 34),
+                Color::Rgb(51, 170, 17),
+                Color::Rgb(204, 170, 34),
+                Color::Rgb(85, 102, 119),
+                Color::Rgb(187, 204, 221),
+                None,
+            ),
+            (
+                "Geohot (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(31, 30, 31),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(31, 30, 31)),
+                None,
+                None,
+                Color::Rgb(249, 245, 245),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(31, 30, 31),
+                Color::Rgb(173, 161, 16),
+                Color::Rgb(85, 87, 83),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Freya-to-Geohot Gogh built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

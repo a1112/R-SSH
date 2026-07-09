@@ -3666,6 +3666,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Flat Remix (Gogh)`, `Flatland`, `Flatland (Gogh)`, `flexoki-dark`,
   `flexoki-light`, `Floraverse`, `ForestBlue`, `Foxnightly (Gogh)`,
   `Framer`, `Framer (base16)`,
+  `Freya (Gogh)`, `Frontend Delight (Gogh)`,
+  `Frontend Fun Forrest (Gogh)`, `Frontend Galaxy (Gogh)`,
+  `FrontEndDelight`, `Fruit Soda (base16)`, `FunForrest`, `Galaxy`,
+  `Galizur`, `Geohot (Gogh)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
