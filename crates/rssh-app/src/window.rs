@@ -19789,6 +19789,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Ibm 3270 (High Contrast) (Gogh)" | "IBM3270(HighContrast) (Gogh)" => {
             Some(BUILTIN_IBM_3270_HIGH_CONTRAST_GOGH_COLOR_SCHEME_TOML)
         }
+        "Ibm3270 (Gogh)" | "ibm3270 (Gogh)" => Some(BUILTIN_IBM3270_GOGH_COLOR_SCHEME_TOML),
+        "Ic Green Ppl (Gogh)" | "ICGreenPPL (Gogh)" => {
+            Some(BUILTIN_IC_GREEN_PPL_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Ic Orange Ppl (Gogh)" => Some(BUILTIN_IC_ORANGE_PPL_GOGH_COLOR_SCHEME_TOML),
+        "IC_Green_PPL" => Some(BUILTIN_IC_GREEN_PPL_COLOR_SCHEME_TOML),
+        "IC_Orange_PPL" | "ICOrangePPL (Gogh)" => Some(BUILTIN_IC_ORANGE_PPL_COLOR_SCHEME_TOML),
+        "Iceberg (Gogh)" => Some(BUILTIN_ICEBERG_GOGH_COLOR_SCHEME_TOML),
+        "iceberg-dark" => Some(BUILTIN_ICEBERG_DARK_COLOR_SCHEME_TOML),
+        "iceberg-light" => Some(BUILTIN_ICEBERG_LIGHT_COLOR_SCHEME_TOML),
+        "Icy Dark (base16)" => Some(BUILTIN_ICY_DARK_BASE16_COLOR_SCHEME_TOML),
+        "idea" => Some(BUILTIN_IDEA_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -38421,6 +38433,398 @@ aliases = ["IBM3270(HighContrast) (Gogh)"]
 name = "Ibm 3270 (High Contrast) (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_IBM3270_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#222222",
+    "#f01818",
+    "#24d830",
+    "#f0d824",
+    "#7890f0",
+    "#f078d8",
+    "#54e4e4",
+    "#a5a5a5",
+]
+background = "#000000"
+brights = [
+    "#888888",
+    "#ef8383",
+    "#7ed684",
+    "#efe28b",
+    "#b3bfef",
+    "#efb3e3",
+    "#9ce2e2",
+    "#ffffff",
+]
+cursor_bg = "#fdfdfd"
+cursor_border = "#fdfdfd"
+cursor_fg = "#000000"
+foreground = "#fdfdfd"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["ibm3270 (Gogh)"]
+name = "Ibm3270 (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_IC_GREEN_PPL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1f1f1f",
+    "#fb002a",
+    "#339c24",
+    "#659b25",
+    "#149b45",
+    "#53b82c",
+    "#2cb868",
+    "#e0ffef",
+]
+background = "#3a3d3f"
+brights = [
+    "#032710",
+    "#a7ff3f",
+    "#9fff6d",
+    "#d2ff6d",
+    "#72ffb5",
+    "#50ff3e",
+    "#22ff71",
+    "#daefd0",
+]
+cursor_bg = "#d9efd3"
+cursor_border = "#d9efd3"
+cursor_fg = "#3a3d3f"
+foreground = "#d9efd3"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["ICGreenPPL (Gogh)"]
+name = "Ic Green Ppl (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_IC_ORANGE_PPL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c13900",
+    "#a4a900",
+    "#caaf00",
+    "#bd6d00",
+    "#fc5e00",
+    "#f79500",
+    "#ffc88a",
+]
+background = "#262626"
+brights = [
+    "#6a4f2a",
+    "#ff8c68",
+    "#f6ff40",
+    "#ffe36e",
+    "#ffbe55",
+    "#fc874f",
+    "#c69752",
+    "#fafaff",
+]
+cursor_bg = "#ffcb83"
+cursor_border = "#ffcb83"
+cursor_fg = "#262626"
+foreground = "#ffcb83"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Ic Orange Ppl (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_IC_GREEN_PPL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#014401",
+    "#ff2736",
+    "#41a638",
+    "#76a831",
+    "#2ec3b9",
+    "#50a096",
+    "#3ca078",
+    "#e6fef2",
+]
+background = "#2c2c2c"
+brights = [
+    "#035c03",
+    "#b4fa5c",
+    "#aefb86",
+    "#dafa87",
+    "#2efaeb",
+    "#50fafa",
+    "#3cfac8",
+    "#e0f1dc",
+]
+cursor_bg = "#47fa6b"
+cursor_border = "#47fa6b"
+cursor_fg = "#292929"
+foreground = "#e0f1dc"
+selection_bg = "#116b41"
+selection_fg = "#e0f1dc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "IC_Green_PPL"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_IC_ORANGE_PPL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c13900",
+    "#a4a900",
+    "#caaf00",
+    "#bd6d00",
+    "#fc5e00",
+    "#f79500",
+    "#ffc88a",
+]
+background = "#262626"
+brights = [
+    "#6a4f2a",
+    "#ff8c68",
+    "#f6ff40",
+    "#ffe36e",
+    "#ffbe55",
+    "#fc874f",
+    "#c69752",
+    "#fafaff",
+]
+cursor_bg = "#fc531d"
+cursor_border = "#fc531d"
+cursor_fg = "#ffc88a"
+foreground = "#ffcb83"
+selection_bg = "#c14020"
+selection_fg = "#ffc88a"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "ICOrangePPL (Gogh)",
+    "Ic Orange Ppl (Gogh)",
+]
+name = "IC_Orange_PPL"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ICEBERG_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#161821",
+    "#e27878",
+    "#b4be82",
+    "#e2a478",
+    "#84a0c6",
+    "#a093c7",
+    "#89b8c2",
+    "#c6c8d1",
+]
+background = "#161821"
+brights = [
+    "#6b7089",
+    "#e98989",
+    "#c0ca8e",
+    "#e9b189",
+    "#91acd1",
+    "#ada0d3",
+    "#95c4ce",
+    "#d2d4de",
+]
+cursor_bg = "#d2d4de"
+cursor_border = "#d2d4de"
+cursor_fg = "#161821"
+foreground = "#c6c8d1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Iceberg (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_ICEBERG_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e2132",
+    "#e27878",
+    "#b4be82",
+    "#e2a478",
+    "#84a0c6",
+    "#a093c7",
+    "#89b8c2",
+    "#c6c8d1",
+]
+background = "#161821"
+brights = [
+    "#6b7089",
+    "#e98989",
+    "#c0ca8e",
+    "#e9b189",
+    "#91acd1",
+    "#ada0d3",
+    "#95c4ce",
+    "#d2d4de",
+]
+cursor_bg = "#c6c8d1"
+cursor_border = "#c6c8d1"
+cursor_fg = "#161821"
+foreground = "#c6c8d1"
+selection_bg = "#c6c8d1"
+selection_fg = "#161821"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "iceberg-dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ICEBERG_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#dcdfe7",
+    "#cc517a",
+    "#668e3d",
+    "#c57339",
+    "#2d539e",
+    "#7759b4",
+    "#3f83a6",
+    "#33374c",
+]
+background = "#e8e9ec"
+brights = [
+    "#8389a3",
+    "#cc3768",
+    "#598030",
+    "#b6662d",
+    "#22478e",
+    "#6845ad",
+    "#327698",
+    "#262a3f",
+]
+cursor_bg = "#33374c"
+cursor_border = "#33374c"
+cursor_fg = "#e8e9ec"
+foreground = "#33374c"
+selection_bg = "#33374c"
+selection_fg = "#e8e9ec"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "iceberg-light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ICY_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#021012",
+    "#16c1d9",
+    "#4dd0e1",
+    "#80deea",
+    "#00bcd4",
+    "#00acc1",
+    "#26c6da",
+    "#095b67",
+]
+background = "#021012"
+brights = [
+    "#052e34",
+    "#16c1d9",
+    "#4dd0e1",
+    "#80deea",
+    "#00bcd4",
+    "#00acc1",
+    "#26c6da",
+    "#109cb0",
+]
+cursor_bg = "#095b67"
+cursor_border = "#095b67"
+cursor_fg = "#021012"
+foreground = "#095b67"
+selection_bg = "#095b67"
+selection_fg = "#021012"
+
+[colors.indexed]
+16 = "#b3ebf2"
+17 = "#0097a7"
+18 = "#031619"
+19 = "#041f23"
+20 = "#064048"
+21 = "#0c7c8c"
+
+[metadata]
+aliases = []
+author = "icyphox (https://icyphox.ga)"
+name = "Icy Dark (base16)"
+origin_url = "https://github.com/icyphox/base16-icy-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_IDEA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#adadad",
+    "#fc5256",
+    "#98b61c",
+    "#ccb444",
+    "#437ee7",
+    "#9d74b0",
+    "#248887",
+    "#181818",
+]
+background = "#202020"
+brights = [
+    "#ffffff",
+    "#fc7072",
+    "#98b61c",
+    "#ffff0b",
+    "#6c9ced",
+    "#fc7eff",
+    "#248887",
+    "#181818",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#adadad"
+selection_bg = "#44475a"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "idea"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -114094,6 +114498,276 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Horizon-Light-to-IBM3270 built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_ibm3270_to_idea_builtin_color_schemes() {
+        let cases = [
+            (
+                "Ibm3270 (Gogh)",
+                Color::Rgb(253, 253, 253),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(253, 253, 253),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(240, 24, 24),
+                Color::Rgb(36, 216, 48),
+                Color::Rgb(240, 216, 36),
+                Color::Rgb(136, 136, 136),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "ibm3270 (Gogh)",
+                Color::Rgb(253, 253, 253),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(253, 253, 253),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(240, 24, 24),
+                Color::Rgb(36, 216, 48),
+                Color::Rgb(240, 216, 36),
+                Color::Rgb(136, 136, 136),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Ic Green Ppl (Gogh)",
+                Color::Rgb(217, 239, 211),
+                Color::Rgb(58, 61, 63),
+                Color::Rgb(217, 239, 211),
+                Some(Color::Rgb(58, 61, 63)),
+                None,
+                None,
+                Color::Rgb(31, 31, 31),
+                Color::Rgb(251, 0, 42),
+                Color::Rgb(51, 156, 36),
+                Color::Rgb(101, 155, 37),
+                Color::Rgb(3, 39, 16),
+                Color::Rgb(218, 239, 208),
+                None,
+            ),
+            (
+                "ICGreenPPL (Gogh)",
+                Color::Rgb(217, 239, 211),
+                Color::Rgb(58, 61, 63),
+                Color::Rgb(217, 239, 211),
+                Some(Color::Rgb(58, 61, 63)),
+                None,
+                None,
+                Color::Rgb(31, 31, 31),
+                Color::Rgb(251, 0, 42),
+                Color::Rgb(51, 156, 36),
+                Color::Rgb(101, 155, 37),
+                Color::Rgb(3, 39, 16),
+                Color::Rgb(218, 239, 208),
+                None,
+            ),
+            (
+                "Ic Orange Ppl (Gogh)",
+                Color::Rgb(255, 203, 131),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(255, 203, 131),
+                Some(Color::Rgb(38, 38, 38)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 57, 0),
+                Color::Rgb(164, 169, 0),
+                Color::Rgb(202, 175, 0),
+                Color::Rgb(106, 79, 42),
+                Color::Rgb(250, 250, 255),
+                None,
+            ),
+            (
+                "IC_Green_PPL",
+                Color::Rgb(224, 241, 220),
+                Color::Rgb(44, 44, 44),
+                Color::Rgb(71, 250, 107),
+                Some(Color::Rgb(41, 41, 41)),
+                Some(Color::Rgb(17, 107, 65)),
+                Some(Some(Color::Rgb(224, 241, 220))),
+                Color::Rgb(1, 68, 1),
+                Color::Rgb(255, 39, 54),
+                Color::Rgb(65, 166, 56),
+                Color::Rgb(118, 168, 49),
+                Color::Rgb(3, 92, 3),
+                Color::Rgb(224, 241, 220),
+                None,
+            ),
+            (
+                "IC_Orange_PPL",
+                Color::Rgb(255, 203, 131),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(252, 83, 29),
+                Some(Color::Rgb(255, 200, 138)),
+                Some(Color::Rgb(193, 64, 32)),
+                Some(Some(Color::Rgb(255, 200, 138))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 57, 0),
+                Color::Rgb(164, 169, 0),
+                Color::Rgb(202, 175, 0),
+                Color::Rgb(106, 79, 42),
+                Color::Rgb(250, 250, 255),
+                None,
+            ),
+            (
+                "ICOrangePPL (Gogh)",
+                Color::Rgb(255, 203, 131),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(252, 83, 29),
+                Some(Color::Rgb(255, 200, 138)),
+                Some(Color::Rgb(193, 64, 32)),
+                Some(Some(Color::Rgb(255, 200, 138))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(193, 57, 0),
+                Color::Rgb(164, 169, 0),
+                Color::Rgb(202, 175, 0),
+                Color::Rgb(106, 79, 42),
+                Color::Rgb(250, 250, 255),
+                None,
+            ),
+            (
+                "Iceberg (Gogh)",
+                Color::Rgb(198, 200, 209),
+                Color::Rgb(22, 24, 33),
+                Color::Rgb(210, 212, 222),
+                Some(Color::Rgb(22, 24, 33)),
+                None,
+                None,
+                Color::Rgb(22, 24, 33),
+                Color::Rgb(226, 120, 120),
+                Color::Rgb(180, 190, 130),
+                Color::Rgb(226, 164, 120),
+                Color::Rgb(107, 112, 137),
+                Color::Rgb(210, 212, 222),
+                None,
+            ),
+            (
+                "iceberg-dark",
+                Color::Rgb(198, 200, 209),
+                Color::Rgb(22, 24, 33),
+                Color::Rgb(198, 200, 209),
+                Some(Color::Rgb(22, 24, 33)),
+                Some(Color::Rgb(198, 200, 209)),
+                Some(Some(Color::Rgb(22, 24, 33))),
+                Color::Rgb(30, 33, 50),
+                Color::Rgb(226, 120, 120),
+                Color::Rgb(180, 190, 130),
+                Color::Rgb(226, 164, 120),
+                Color::Rgb(107, 112, 137),
+                Color::Rgb(210, 212, 222),
+                None,
+            ),
+            (
+                "iceberg-light",
+                Color::Rgb(51, 55, 76),
+                Color::Rgb(232, 233, 236),
+                Color::Rgb(51, 55, 76),
+                Some(Color::Rgb(232, 233, 236)),
+                Some(Color::Rgb(51, 55, 76)),
+                Some(Some(Color::Rgb(232, 233, 236))),
+                Color::Rgb(220, 223, 231),
+                Color::Rgb(204, 81, 122),
+                Color::Rgb(102, 142, 61),
+                Color::Rgb(197, 115, 57),
+                Color::Rgb(131, 137, 163),
+                Color::Rgb(38, 42, 63),
+                None,
+            ),
+            (
+                "Icy Dark (base16)",
+                Color::Rgb(9, 91, 103),
+                Color::Rgb(2, 16, 18),
+                Color::Rgb(9, 91, 103),
+                Some(Color::Rgb(2, 16, 18)),
+                Some(Color::Rgb(9, 91, 103)),
+                Some(Some(Color::Rgb(2, 16, 18))),
+                Color::Rgb(2, 16, 18),
+                Color::Rgb(22, 193, 217),
+                Color::Rgb(77, 208, 225),
+                Color::Rgb(128, 222, 234),
+                Color::Rgb(5, 46, 52),
+                Color::Rgb(16, 156, 176),
+                Some(Color::Rgb(179, 235, 242)),
+            ),
+            (
+                "idea",
+                Color::Rgb(173, 173, 173),
+                Color::Rgb(32, 32, 32),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(68, 71, 90)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(173, 173, 173),
+                Color::Rgb(252, 82, 86),
+                Color::Rgb(152, 182, 28),
+                Color::Rgb(204, 180, 68),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(24, 24, 24),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm IBM3270-to-idea built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
