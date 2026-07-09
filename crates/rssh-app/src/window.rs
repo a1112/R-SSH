@@ -20029,6 +20029,14 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Neutron (Gogh)" => Some(BUILTIN_NEUTRON_GOGH_COLOR_SCHEME_TOML),
         "Night Owl (Gogh)" | "NightOwl (Gogh)" => Some(BUILTIN_NIGHT_OWL_GOGH_COLOR_SCHEME_TOML),
         "Night Owlish Light" => Some(BUILTIN_NIGHT_OWLISH_LIGHT_COLOR_SCHEME_TOML),
+        "Nightfly (Gogh)" => Some(BUILTIN_NIGHTFLY_GOGH_COLOR_SCHEME_TOML),
+        "nightfox" => Some(BUILTIN_NIGHTFOX_COLOR_SCHEME_TOML),
+        "NightLion v1" | "NightlionV1 (Gogh)" => Some(BUILTIN_NIGHTLION_V1_COLOR_SCHEME_TOML),
+        "Nightlion V1 (Gogh)" => Some(BUILTIN_NIGHTLION_V1_GOGH_COLOR_SCHEME_TOML),
+        "NightLion v2" | "NightlionV2 (Gogh)" => Some(BUILTIN_NIGHTLION_V2_COLOR_SCHEME_TOML),
+        "Nightlion V2 (Gogh)" => Some(BUILTIN_NIGHTLION_V2_GOGH_COLOR_SCHEME_TOML),
+        "Nighty (Gogh)" | "nighty (Gogh)" => Some(BUILTIN_NIGHTY_GOGH_COLOR_SCHEME_TOML),
+        "niji" => Some(BUILTIN_NIJI_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -45343,6 +45351,316 @@ aliases = []
 name = "Night Owlish Light"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_NIGHTFLY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d3b53",
+    "#fc514e",
+    "#a1cd5e",
+    "#e3d18a",
+    "#82aaff",
+    "#c792ea",
+    "#7fdbca",
+    "#a1aab8",
+]
+background = "#011627"
+brights = [
+    "#7c8f8f",
+    "#ff5874",
+    "#21c7a8",
+    "#ecc48d",
+    "#82aaff",
+    "#ae81ff",
+    "#7fdbca",
+    "#d6deeb",
+]
+cursor_bg = "#9ca1aa"
+cursor_border = "#9ca1aa"
+cursor_fg = "#011627"
+foreground = "#bdc1c6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Nightfly (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_NIGHTFOX_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#393b44",
+    "#c94f6d",
+    "#81b29a",
+    "#dbc074",
+    "#719cd6",
+    "#9d79d6",
+    "#63cdcf",
+    "#dfdfe0",
+]
+background = "#192330"
+brights = [
+    "#575860",
+    "#d16983",
+    "#8ebaa4",
+    "#e0c989",
+    "#86abdc",
+    "#baa1e2",
+    "#7ad5d6",
+    "#e4e4e5",
+]
+cursor_bg = "#cdcecf"
+cursor_border = "#cdcecf"
+cursor_fg = "#192330"
+foreground = "#cdcecf"
+selection_bg = "#2b3b51"
+selection_fg = "#cdcecf"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "nightfox"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NIGHTLION_V1_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4c4c4c",
+    "#bb0000",
+    "#5fde8f",
+    "#f3f167",
+    "#276bd8",
+    "#bb00bb",
+    "#00dadf",
+    "#bbbbbb",
+]
+background = "#000000"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#55ff55",
+    "#ffff55",
+    "#5555ff",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#bbbbbb"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Nightlion V1 (Gogh)",
+    "NightlionV1 (Gogh)",
+]
+name = "NightLion v1"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_NIGHTLION_V1_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4c4c4c",
+    "#bb0000",
+    "#5fde8f",
+    "#f3f167",
+    "#276bd8",
+    "#bb00bb",
+    "#00dadf",
+    "#bbbbbb",
+]
+background = "#000000"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#55ff55",
+    "#ffff55",
+    "#5555ff",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#000000"
+foreground = "#bbbbbb"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Nightlion V1 (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_NIGHTLION_V2_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4c4c4c",
+    "#bb0000",
+    "#04f623",
+    "#f3f167",
+    "#64d0f0",
+    "#ce6fdb",
+    "#00dadf",
+    "#bbbbbb",
+]
+background = "#171717"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#7df71d",
+    "#ffff55",
+    "#62cbe8",
+    "#ff9bf5",
+    "#00ccd8",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#bbbbbb"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Nightlion V2 (Gogh)",
+    "NightlionV2 (Gogh)",
+]
+name = "NightLion v2"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_NIGHTLION_V2_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4c4c4c",
+    "#bb0000",
+    "#04f623",
+    "#f3f167",
+    "#64d0f0",
+    "#ce6fdb",
+    "#00dadf",
+    "#bbbbbb",
+]
+background = "#171717"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#7df71d",
+    "#ffff55",
+    "#62cbe8",
+    "#ff9bf5",
+    "#00ccd8",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#171717"
+foreground = "#bbbbbb"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Nightlion V2 (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_NIGHTY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#373d48",
+    "#9b3e46",
+    "#095b32",
+    "#808020",
+    "#1d3e6f",
+    "#823065",
+    "#3a7458",
+    "#828282",
+]
+background = "#2f2f2f"
+brights = [
+    "#5c6370",
+    "#d0555f",
+    "#119955",
+    "#dfe048",
+    "#4674b8",
+    "#ed86c9",
+    "#70d2a4",
+    "#dfdfdf",
+]
+cursor_bg = "#dfdfdf"
+cursor_border = "#dfdfdf"
+cursor_fg = "#2f2f2f"
+foreground = "#dfdfdf"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["nighty (Gogh)"]
+name = "Nighty (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_NIJI_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#333333",
+    "#d23e08",
+    "#54ca74",
+    "#fff700",
+    "#2ab9ff",
+    "#ff50da",
+    "#1ef9f5",
+    "#ddd0c4",
+]
+background = "#141515"
+brights = [
+    "#515151",
+    "#ffb7b7",
+    "#c1ffae",
+    "#fcffb8",
+    "#8efff3",
+    "#ffa2ed",
+    "#bcffc7",
+    "#ffffff",
+]
+cursor_bg = "#ffc663"
+cursor_border = "#ffc663"
+cursor_fg = "#141515"
+foreground = "#ffffff"
+selection_bg = "#515151"
+selection_fg = "#ffc663"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "niji"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -125162,6 +125480,244 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Nebula-to-Night-Owlish-Light built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_nightfly_to_niji_builtin_color_schemes() {
+        let cases = [
+            (
+                "Nightfly (Gogh)",
+                Color::Rgb(189, 193, 198),
+                Color::Rgb(1, 22, 39),
+                Color::Rgb(156, 161, 170),
+                Some(Color::Rgb(1, 22, 39)),
+                None,
+                None,
+                Color::Rgb(29, 59, 83),
+                Color::Rgb(252, 81, 78),
+                Color::Rgb(161, 205, 94),
+                Color::Rgb(227, 209, 138),
+                Color::Rgb(124, 143, 143),
+                Color::Rgb(214, 222, 235),
+                None,
+            ),
+            (
+                "nightfox",
+                Color::Rgb(205, 206, 207),
+                Color::Rgb(25, 35, 48),
+                Color::Rgb(205, 206, 207),
+                Some(Color::Rgb(25, 35, 48)),
+                Some(Color::Rgb(43, 59, 81)),
+                Some(Some(Color::Rgb(205, 206, 207))),
+                Color::Rgb(57, 59, 68),
+                Color::Rgb(201, 79, 109),
+                Color::Rgb(129, 178, 154),
+                Color::Rgb(219, 192, 116),
+                Color::Rgb(87, 88, 96),
+                Color::Rgb(228, 228, 229),
+                None,
+            ),
+            (
+                "NightLion v1",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(181, 213, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(76, 76, 76),
+                Color::Rgb(187, 0, 0),
+                Color::Rgb(95, 222, 143),
+                Color::Rgb(243, 241, 103),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "NightlionV1 (Gogh)",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(181, 213, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(76, 76, 76),
+                Color::Rgb(187, 0, 0),
+                Color::Rgb(95, 222, 143),
+                Color::Rgb(243, 241, 103),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Nightlion V1 (Gogh)",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(76, 76, 76),
+                Color::Rgb(187, 0, 0),
+                Color::Rgb(95, 222, 143),
+                Color::Rgb(243, 241, 103),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "NightLion v2",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(23, 23, 23),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(181, 213, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(76, 76, 76),
+                Color::Rgb(187, 0, 0),
+                Color::Rgb(4, 246, 35),
+                Color::Rgb(243, 241, 103),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "NightlionV2 (Gogh)",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(23, 23, 23),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(181, 213, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(76, 76, 76),
+                Color::Rgb(187, 0, 0),
+                Color::Rgb(4, 246, 35),
+                Color::Rgb(243, 241, 103),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Nightlion V2 (Gogh)",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(23, 23, 23),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(23, 23, 23)),
+                None,
+                None,
+                Color::Rgb(76, 76, 76),
+                Color::Rgb(187, 0, 0),
+                Color::Rgb(4, 246, 35),
+                Color::Rgb(243, 241, 103),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Nighty (Gogh)",
+                Color::Rgb(223, 223, 223),
+                Color::Rgb(47, 47, 47),
+                Color::Rgb(223, 223, 223),
+                Some(Color::Rgb(47, 47, 47)),
+                None,
+                None,
+                Color::Rgb(55, 61, 72),
+                Color::Rgb(155, 62, 70),
+                Color::Rgb(9, 91, 50),
+                Color::Rgb(128, 128, 32),
+                Color::Rgb(92, 99, 112),
+                Color::Rgb(223, 223, 223),
+                None,
+            ),
+            (
+                "nighty (Gogh)",
+                Color::Rgb(223, 223, 223),
+                Color::Rgb(47, 47, 47),
+                Color::Rgb(223, 223, 223),
+                Some(Color::Rgb(47, 47, 47)),
+                None,
+                None,
+                Color::Rgb(55, 61, 72),
+                Color::Rgb(155, 62, 70),
+                Color::Rgb(9, 91, 50),
+                Color::Rgb(128, 128, 32),
+                Color::Rgb(92, 99, 112),
+                Color::Rgb(223, 223, 223),
+                None,
+            ),
+            (
+                "niji",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(20, 21, 21),
+                Color::Rgb(255, 198, 99),
+                Some(Color::Rgb(20, 21, 21)),
+                Some(Color::Rgb(81, 81, 81)),
+                Some(Some(Color::Rgb(255, 198, 99))),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(210, 62, 8),
+                Color::Rgb(84, 202, 116),
+                Color::Rgb(255, 247, 0),
+                Color::Rgb(81, 81, 81),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Nightfly-to-niji built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

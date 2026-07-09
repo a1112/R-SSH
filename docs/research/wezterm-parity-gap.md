@@ -3770,12 +3770,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Nebula (base16)`, `neobones_dark`, `neobones_light`, `Neon`,
   `Neon (terminal.sexy)`, `Neon Night (Gogh)`, `Neopolitan`,
   `Neopolitan (Gogh)`, `Nep (Gogh)`, `Neutron`, `Neutron (Gogh)`,
-  `Night Owl (Gogh)`, `Night Owlish Light`, `Builtin Dark`, `Builtin Light`,
-  `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
-  `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting
-  WezTerm aliases using WezTerm's built-in TOML palette data. The broader
-  built-in scheme catalog, richer dynamic `load_scheme` composition, and full
-  dynamic Lua scheme
+  `Night Owl (Gogh)`, `Night Owlish Light`, `Nightfly (Gogh)`, `nightfox`,
+  `NightLion v1`, `Nightlion V1 (Gogh)`, `NightLion v2`,
+  `Nightlion V2 (Gogh)`, `Nighty (Gogh)`, `niji`, `Builtin Dark`,
+  `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
+  `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
+  already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
+  palette data. The broader built-in scheme catalog, richer dynamic
+  `load_scheme` composition, and full dynamic Lua scheme
   construction remain later parity work.
 - Native terminal rendering applies WezTerm-style `colors.background` as the
   default framebuffer background for full and damage renders. Static
