@@ -3690,6 +3690,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Gruvbox light, soft (base16)`, `Gruvbox Material (Gogh)`,
   `GruvboxDark`, `GruvboxDarkHard`, `GruvboxLight`, `Guezwhoz`,
   `Hacktober`, `Hardcore`,
+  `Hardcore (base16)`, `Hardcore (Gogh)`, `hardhacker`,
+  `Harmonic16 Dark (base16)`, `Harmonic16 Light (base16)`, `Harper`,
+  `Harper (Gogh)`, `HaX0R_BLUE`, `HaX0R_GR33N`, `HaX0R_R3D`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting

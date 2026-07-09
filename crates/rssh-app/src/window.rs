@@ -19739,6 +19739,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Guezwhoz" => Some(BUILTIN_GUEZWHOZ_COLOR_SCHEME_TOML),
         "Hacktober" => Some(BUILTIN_HACKTOBER_COLOR_SCHEME_TOML),
         "Hardcore" => Some(BUILTIN_HARDCORE_COLOR_SCHEME_TOML),
+        "Hardcore (base16)" => Some(BUILTIN_HARDCORE_BASE16_COLOR_SCHEME_TOML),
+        "Hardcore (Gogh)" => Some(BUILTIN_HARDCORE_GOGH_COLOR_SCHEME_TOML),
+        "hardhacker" => Some(BUILTIN_HARDHACKER_COLOR_SCHEME_TOML),
+        "Harmonic16 Dark (base16)" => Some(BUILTIN_HARMONIC16_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Harmonic16 Light (base16)" => Some(BUILTIN_HARMONIC16_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Harper" => Some(BUILTIN_HARPER_COLOR_SCHEME_TOML),
+        "Harper (Gogh)" => Some(BUILTIN_HARPER_GOGH_COLOR_SCHEME_TOML),
+        "HaX0R_BLUE" => Some(BUILTIN_HAX0R_BLUE_COLOR_SCHEME_TOML),
+        "HaX0R_GR33N" => Some(BUILTIN_HAX0R_GR33N_COLOR_SCHEME_TOML),
+        "HaX0R_R3D" => Some(BUILTIN_HAX0R_R3D_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -36718,6 +36728,460 @@ selection_fg = "#b6bbc0"
 [metadata]
 aliases = ["Hardcore (Gogh)"]
 name = "Hardcore"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HARDCORE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#212121",
+    "#f92672",
+    "#a6e22e",
+    "#e6db74",
+    "#66d9ef",
+    "#9e6ffe",
+    "#708387",
+    "#cdcdcd",
+]
+background = "#212121"
+brights = [
+    "#4a4a4a",
+    "#f92672",
+    "#a6e22e",
+    "#e6db74",
+    "#66d9ef",
+    "#9e6ffe",
+    "#708387",
+    "#ffffff",
+]
+cursor_bg = "#cdcdcd"
+cursor_border = "#cdcdcd"
+cursor_fg = "#212121"
+foreground = "#cdcdcd"
+selection_bg = "#cdcdcd"
+selection_fg = "#212121"
+
+[colors.indexed]
+16 = "#fd971f"
+17 = "#e8b882"
+18 = "#303030"
+19 = "#353535"
+20 = "#707070"
+21 = "#e5e5e5"
+
+[metadata]
+aliases = []
+author = "Chris Caller"
+name = "Hardcore (base16)"
+origin_url = "https://github.com/callerc1/base16-hardcore-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HARDCORE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1d1e",
+    "#f92672",
+    "#a6e22e",
+    "#fd971f",
+    "#66d9ef",
+    "#9e6ffe",
+    "#5e7175",
+    "#ccccc6",
+]
+background = "#121212"
+brights = [
+    "#505354",
+    "#ff669d",
+    "#beed5f",
+    "#e6db74",
+    "#66d9ef",
+    "#9e6ffe",
+    "#a3babf",
+    "#f8f8f2",
+]
+cursor_bg = "#a0a0a0"
+cursor_border = "#a0a0a0"
+cursor_fg = "#121212"
+foreground = "#a0a0a0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Hardcore (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_HARDHACKER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282433",
+    "#e965a5",
+    "#b1f2a7",
+    "#ebde76",
+    "#b1baf4",
+    "#e192ef",
+    "#b3f4f3",
+    "#eee9fc",
+]
+background = "#282433"
+brights = [
+    "#3f3951",
+    "#e965a5",
+    "#b1f2a7",
+    "#ebde76",
+    "#b1baf4",
+    "#e192ef",
+    "#b3f4f3",
+    "#eee9fc",
+]
+compose_cursor = "#ebde76"
+cursor_bg = "#eee9fc"
+cursor_border = "#eee9fc"
+cursor_fg = "#eee9fc"
+foreground = "#eee9fc"
+scrollbar_thumb = "#3f3951"
+selection_bg = "#e965a5"
+selection_fg = "#eee9fc"
+split = "#938aad"
+
+[colors.indexed]
+
+[colors.tab_bar]
+background = "#282433"
+
+[colors.tab_bar.active_tab]
+bg_color = "#282433"
+fg_color = "#e965a5"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#282433"
+fg_color = "#938aad"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#e192ef"
+fg_color = "#eee9fc"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#282433"
+fg_color = "#938aad"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#e192ef"
+fg_color = "#eee9fc"
+intensity = "Normal"
+italic = true
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+name = "hardhacker"
+origin_url = "https://github.com/hardhackerlabs/theme-wezterm"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_HARMONIC16_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0b1c2c",
+    "#bf8b56",
+    "#56bf8b",
+    "#8bbf56",
+    "#8b56bf",
+    "#bf568b",
+    "#568bbf",
+    "#cbd6e2",
+]
+background = "#0b1c2c"
+brights = [
+    "#627e99",
+    "#bf8b56",
+    "#56bf8b",
+    "#8bbf56",
+    "#8b56bf",
+    "#bf568b",
+    "#568bbf",
+    "#f7f9fb",
+]
+cursor_bg = "#cbd6e2"
+cursor_border = "#cbd6e2"
+cursor_fg = "#0b1c2c"
+foreground = "#cbd6e2"
+selection_bg = "#cbd6e2"
+selection_fg = "#0b1c2c"
+
+[colors.indexed]
+16 = "#bfbf56"
+17 = "#bf5656"
+18 = "#223b54"
+19 = "#405c79"
+20 = "#aabcce"
+21 = "#e5ebf1"
+
+[metadata]
+aliases = []
+author = "Jannik Siebert (https://github.com/janniks)"
+name = "Harmonic16 Dark (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HARMONIC16_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f7f9fb",
+    "#bf8b56",
+    "#56bf8b",
+    "#8bbf56",
+    "#8b56bf",
+    "#bf568b",
+    "#568bbf",
+    "#405c79",
+]
+background = "#f7f9fb"
+brights = [
+    "#aabcce",
+    "#bf8b56",
+    "#56bf8b",
+    "#8bbf56",
+    "#8b56bf",
+    "#bf568b",
+    "#568bbf",
+    "#0b1c2c",
+]
+cursor_bg = "#405c79"
+cursor_border = "#405c79"
+cursor_fg = "#f7f9fb"
+foreground = "#405c79"
+selection_bg = "#405c79"
+selection_fg = "#f7f9fb"
+
+[colors.indexed]
+16 = "#bfbf56"
+17 = "#bf5656"
+18 = "#e5ebf1"
+19 = "#cbd6e2"
+20 = "#627e99"
+21 = "#223b54"
+
+[metadata]
+aliases = []
+author = "Jannik Siebert (https://github.com/janniks)"
+name = "Harmonic16 Light (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HARPER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#010101",
+    "#f8b63f",
+    "#7fb5e1",
+    "#d6da25",
+    "#489e48",
+    "#b296c6",
+    "#f5bfd7",
+    "#a8a49d",
+]
+background = "#010101"
+brights = [
+    "#726e6a",
+    "#f8b63f",
+    "#7fb5e1",
+    "#d6da25",
+    "#489e48",
+    "#b296c6",
+    "#f5bfd7",
+    "#fefbea",
+]
+cursor_bg = "#a8a49d"
+cursor_border = "#a8a49d"
+cursor_fg = "#010101"
+foreground = "#a8a49d"
+selection_bg = "#5a5753"
+selection_fg = "#a8a49d"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Harper (Gogh)"]
+author = "Jan T. Sott"
+name = "Harper"
+origin_url = "https://github.com/idleberg/Harper-iTerm2"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HARPER_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#010101",
+    "#f8b63f",
+    "#7fb5e1",
+    "#d6da25",
+    "#489e48",
+    "#b296c6",
+    "#f5bfd7",
+    "#a8a49d",
+]
+background = "#010101"
+brights = [
+    "#726e6a",
+    "#f8b63f",
+    "#7fb5e1",
+    "#d6da25",
+    "#489e48",
+    "#b296c6",
+    "#f5bfd7",
+    "#fefbea",
+]
+cursor_bg = "#a8a49d"
+cursor_border = "#a8a49d"
+cursor_fg = "#010101"
+foreground = "#a8a49d"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Harper (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_HAX0R_BLUE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#010921",
+    "#10b6ff",
+    "#10b6ff",
+    "#10b6ff",
+    "#10b6ff",
+    "#10b6ff",
+    "#10b6ff",
+    "#fafafa",
+]
+background = "#010515"
+brights = [
+    "#080117",
+    "#00b3f7",
+    "#00b3f7",
+    "#00b3f7",
+    "#00b3f7",
+    "#00b3f7",
+    "#00b3f7",
+    "#fefefe",
+]
+cursor_bg = "#10b6ff"
+cursor_border = "#10b6ff"
+cursor_fg = "#ffffff"
+foreground = "#11b7ff"
+selection_bg = "#c1e4ff"
+selection_fg = "#f6f6f6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "HaX0R_BLUE"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HAX0R_GR33N_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#001f0b",
+    "#15d00d",
+    "#15d00d",
+    "#15d00d",
+    "#15d00d",
+    "#15d00d",
+    "#15d00d",
+    "#fafafa",
+]
+background = "#020f01"
+brights = [
+    "#001510",
+    "#19e20e",
+    "#19e20e",
+    "#19e20e",
+    "#19e20e",
+    "#19e20e",
+    "#19e20e",
+    "#fefefe",
+]
+cursor_bg = "#15d00d"
+cursor_border = "#15d00d"
+cursor_fg = "#ffffff"
+foreground = "#16b10e"
+selection_bg = "#d4ffc1"
+selection_fg = "#fdfdfd"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "HaX0R_GR33N"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HAX0R_R3D_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1f0000",
+    "#b00d0d",
+    "#b00d0d",
+    "#b00d0d",
+    "#b00d0d",
+    "#b00d0d",
+    "#b00d0d",
+    "#fafafa",
+]
+background = "#200101"
+brights = [
+    "#150000",
+    "#ff1111",
+    "#ff1010",
+    "#ff1010",
+    "#ff1010",
+    "#ff1010",
+    "#ff1010",
+    "#fefefe",
+]
+cursor_bg = "#b00d0d"
+cursor_border = "#b00d0d"
+cursor_fg = "#ffffff"
+foreground = "#b10e0e"
+selection_bg = "#ebc1ff"
+selection_fg = "#fdfdfd"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "HaX0R_R3D"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
 "##;
@@ -111433,6 +111897,228 @@ mod tests {
         assert_eq!(ansi[1], Color::Rgb(157, 0, 6));
         assert_eq!(ansi[8], Color::Rgb(157, 131, 116));
         assert_eq!(ansi[15], Color::Rgb(124, 111, 100));
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_hardcore_base16_to_hax0r_builtin_color_schemes() {
+        let cases = [
+            (
+                "Hardcore (base16)",
+                Color::Rgb(205, 205, 205),
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(205, 205, 205),
+                Some(Color::Rgb(33, 33, 33)),
+                Some(Color::Rgb(205, 205, 205)),
+                Some(Some(Color::Rgb(33, 33, 33))),
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(166, 226, 46),
+                Color::Rgb(230, 219, 116),
+                Color::Rgb(74, 74, 74),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(253, 151, 31)),
+            ),
+            (
+                "Hardcore (Gogh)",
+                Color::Rgb(160, 160, 160),
+                Color::Rgb(18, 18, 18),
+                Color::Rgb(160, 160, 160),
+                Some(Color::Rgb(18, 18, 18)),
+                None,
+                None,
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(166, 226, 46),
+                Color::Rgb(253, 151, 31),
+                Color::Rgb(80, 83, 84),
+                Color::Rgb(248, 248, 242),
+                None,
+            ),
+            (
+                "hardhacker",
+                Color::Rgb(238, 233, 252),
+                Color::Rgb(40, 36, 51),
+                Color::Rgb(238, 233, 252),
+                Some(Color::Rgb(238, 233, 252)),
+                Some(Color::Rgb(233, 101, 165)),
+                Some(Some(Color::Rgb(238, 233, 252))),
+                Color::Rgb(40, 36, 51),
+                Color::Rgb(233, 101, 165),
+                Color::Rgb(177, 242, 167),
+                Color::Rgb(235, 222, 118),
+                Color::Rgb(63, 57, 81),
+                Color::Rgb(238, 233, 252),
+                None,
+            ),
+            (
+                "Harmonic16 Dark (base16)",
+                Color::Rgb(203, 214, 226),
+                Color::Rgb(11, 28, 44),
+                Color::Rgb(203, 214, 226),
+                Some(Color::Rgb(11, 28, 44)),
+                Some(Color::Rgb(203, 214, 226)),
+                Some(Some(Color::Rgb(11, 28, 44))),
+                Color::Rgb(11, 28, 44),
+                Color::Rgb(191, 139, 86),
+                Color::Rgb(86, 191, 139),
+                Color::Rgb(139, 191, 86),
+                Color::Rgb(98, 126, 153),
+                Color::Rgb(247, 249, 251),
+                Some(Color::Rgb(191, 191, 86)),
+            ),
+            (
+                "Harmonic16 Light (base16)",
+                Color::Rgb(64, 92, 121),
+                Color::Rgb(247, 249, 251),
+                Color::Rgb(64, 92, 121),
+                Some(Color::Rgb(247, 249, 251)),
+                Some(Color::Rgb(64, 92, 121)),
+                Some(Some(Color::Rgb(247, 249, 251))),
+                Color::Rgb(247, 249, 251),
+                Color::Rgb(191, 139, 86),
+                Color::Rgb(86, 191, 139),
+                Color::Rgb(139, 191, 86),
+                Color::Rgb(170, 188, 206),
+                Color::Rgb(11, 28, 44),
+                Some(Color::Rgb(191, 191, 86)),
+            ),
+            (
+                "Harper",
+                Color::Rgb(168, 164, 157),
+                Color::Rgb(1, 1, 1),
+                Color::Rgb(168, 164, 157),
+                Some(Color::Rgb(1, 1, 1)),
+                Some(Color::Rgb(90, 87, 83)),
+                Some(Some(Color::Rgb(168, 164, 157))),
+                Color::Rgb(1, 1, 1),
+                Color::Rgb(248, 182, 63),
+                Color::Rgb(127, 181, 225),
+                Color::Rgb(214, 218, 37),
+                Color::Rgb(114, 110, 106),
+                Color::Rgb(254, 251, 234),
+                None,
+            ),
+            (
+                "Harper (Gogh)",
+                Color::Rgb(168, 164, 157),
+                Color::Rgb(1, 1, 1),
+                Color::Rgb(168, 164, 157),
+                Some(Color::Rgb(1, 1, 1)),
+                None,
+                None,
+                Color::Rgb(1, 1, 1),
+                Color::Rgb(248, 182, 63),
+                Color::Rgb(127, 181, 225),
+                Color::Rgb(214, 218, 37),
+                Color::Rgb(114, 110, 106),
+                Color::Rgb(254, 251, 234),
+                None,
+            ),
+            (
+                "HaX0R_BLUE",
+                Color::Rgb(17, 183, 255),
+                Color::Rgb(1, 5, 21),
+                Color::Rgb(16, 182, 255),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(193, 228, 255)),
+                Some(Some(Color::Rgb(246, 246, 246))),
+                Color::Rgb(1, 9, 33),
+                Color::Rgb(16, 182, 255),
+                Color::Rgb(16, 182, 255),
+                Color::Rgb(16, 182, 255),
+                Color::Rgb(8, 1, 23),
+                Color::Rgb(254, 254, 254),
+                None,
+            ),
+            (
+                "HaX0R_GR33N",
+                Color::Rgb(22, 177, 14),
+                Color::Rgb(2, 15, 1),
+                Color::Rgb(21, 208, 13),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(212, 255, 193)),
+                Some(Some(Color::Rgb(253, 253, 253))),
+                Color::Rgb(0, 31, 11),
+                Color::Rgb(21, 208, 13),
+                Color::Rgb(21, 208, 13),
+                Color::Rgb(21, 208, 13),
+                Color::Rgb(0, 21, 16),
+                Color::Rgb(254, 254, 254),
+                None,
+            ),
+            (
+                "HaX0R_R3D",
+                Color::Rgb(177, 14, 14),
+                Color::Rgb(32, 1, 1),
+                Color::Rgb(176, 13, 13),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(235, 193, 255)),
+                Some(Some(Color::Rgb(253, 253, 253))),
+                Color::Rgb(31, 0, 0),
+                Color::Rgb(176, 13, 13),
+                Color::Rgb(176, 13, 13),
+                Color::Rgb(176, 13, 13),
+                Color::Rgb(21, 0, 0),
+                Color::Rgb(254, 254, 254),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Hardcore base16-to-HaX0R built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
     }
 
     #[test]
