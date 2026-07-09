@@ -20090,6 +20090,22 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Panda (Gogh)" => Some(BUILTIN_PANDA_GOGH_COLOR_SCHEME_TOML),
         "Pandora" => Some(BUILTIN_PANDORA_COLOR_SCHEME_TOML),
         "Panels (terminal.sexy)" => Some(BUILTIN_PANELS_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Paper (Gogh)" => Some(BUILTIN_PAPER_GOGH_COLOR_SCHEME_TOML),
+        "PaperColor Dark (base16)" => Some(BUILTIN_PAPERCOLOR_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Papercolor Dark (Gogh)" | "PaperColorDark (Gogh)" => {
+            Some(BUILTIN_PAPERCOLOR_DARK_GOGH_COLOR_SCHEME_TOML)
+        }
+        "PaperColor Light (base16)" => Some(BUILTIN_PAPERCOLOR_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Papercolor Light (Gogh)" | "PaperColorLight (Gogh)" => {
+            Some(BUILTIN_PAPERCOLOR_LIGHT_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Paraiso (base16)" => Some(BUILTIN_PARAISO_BASE16_COLOR_SCHEME_TOML),
+        "Paraiso (dark) (terminal.sexy)" => {
+            Some(BUILTIN_PARAISO_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Paraiso (light) (terminal.sexy)" => {
+            Some(BUILTIN_PARAISO_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -47593,6 +47609,325 @@ foreground = "#d3d3d3"
 aliases = []
 author = "dkeg"
 name = "Panels (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PAPER_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc3e28",
+    "#216609",
+    "#b58900",
+    "#1e6fcc",
+    "#5c21a5",
+    "#158c86",
+    "#aaaaaa",
+]
+background = "#f2eede"
+brights = [
+    "#555555",
+    "#cc3e28",
+    "#216609",
+    "#b58900",
+    "#1e6fcc",
+    "#5c21a5",
+    "#158c86",
+    "#aaaaaa",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#f2eede"
+foreground = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Paper (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_PAPERCOLOR_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1c1c",
+    "#585858",
+    "#af87d7",
+    "#afd700",
+    "#ff5faf",
+    "#00afaf",
+    "#ffaf00",
+    "#808080",
+]
+background = "#1c1c1c"
+brights = [
+    "#d7af5f",
+    "#585858",
+    "#af87d7",
+    "#afd700",
+    "#ff5faf",
+    "#00afaf",
+    "#ffaf00",
+    "#d0d0d0",
+]
+cursor_bg = "#808080"
+cursor_border = "#808080"
+cursor_fg = "#1c1c1c"
+foreground = "#808080"
+selection_bg = "#808080"
+selection_fg = "#1c1c1c"
+
+[colors.indexed]
+16 = "#5faf5f"
+17 = "#5f8787"
+18 = "#af005f"
+19 = "#5faf00"
+20 = "#5fafd7"
+21 = "#d7875f"
+
+[metadata]
+aliases = []
+author = "Jon Leopard (http://github.com/jonleopard) based on PaperColor Theme (https://github.com/NLKNguyen/papercolor-theme)"
+name = "PaperColor Dark (base16)"
+origin_url = "https://github.com/jonleopard/base16-papercolor-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PAPERCOLOR_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1c1c",
+    "#af005f",
+    "#5faf00",
+    "#d7af5f",
+    "#5fafd7",
+    "#808080",
+    "#d7875f",
+    "#d0d0d0",
+]
+background = "#1c1c1c"
+brights = [
+    "#585858",
+    "#5faf5f",
+    "#afd700",
+    "#af87d7",
+    "#ffaf00",
+    "#ff5faf",
+    "#00afaf",
+    "#5f8787",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#1c1c1c"
+foreground = "#d0d0d0"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["PaperColorDark (Gogh)"]
+name = "Papercolor Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PAPERCOLOR_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#eeeeee",
+    "#bcbcbc",
+    "#8700af",
+    "#d70087",
+    "#d75f00",
+    "#005faf",
+    "#d75f00",
+    "#444444",
+]
+background = "#eeeeee"
+brights = [
+    "#5f8700",
+    "#bcbcbc",
+    "#8700af",
+    "#d70087",
+    "#d75f00",
+    "#005faf",
+    "#d75f00",
+    "#878787",
+]
+cursor_bg = "#444444"
+cursor_border = "#444444"
+cursor_fg = "#eeeeee"
+foreground = "#444444"
+selection_bg = "#444444"
+selection_fg = "#eeeeee"
+
+[colors.indexed]
+16 = "#d70000"
+17 = "#005f87"
+18 = "#af0000"
+19 = "#008700"
+20 = "#0087af"
+21 = "#005f87"
+
+[metadata]
+aliases = []
+author = "Jon Leopard (http://github.com/jonleopard) based on PaperColor Theme (https://github.com/NLKNguyen/papercolor-theme)"
+name = "PaperColor Light (base16)"
+origin_url = "https://github.com/jonleopard/base16-papercolor-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PAPERCOLOR_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#eeeeee",
+    "#af0000",
+    "#008700",
+    "#5f8700",
+    "#0087af",
+    "#878787",
+    "#005f87",
+    "#444444",
+]
+background = "#eeeeee"
+brights = [
+    "#bcbcbc",
+    "#d70000",
+    "#d70087",
+    "#8700af",
+    "#d75f00",
+    "#d75f00",
+    "#005faf",
+    "#005f87",
+]
+cursor_bg = "#444444"
+cursor_border = "#444444"
+cursor_fg = "#eeeeee"
+foreground = "#444444"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["PaperColorLight (Gogh)"]
+name = "Papercolor Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PARAISO_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2f1e2e",
+    "#ef6155",
+    "#48b685",
+    "#fec418",
+    "#06b6ef",
+    "#815ba4",
+    "#5bc4bf",
+    "#a39e9b",
+]
+background = "#2f1e2e"
+brights = [
+    "#776e71",
+    "#ef6155",
+    "#48b685",
+    "#fec418",
+    "#06b6ef",
+    "#815ba4",
+    "#5bc4bf",
+    "#e7e9db",
+]
+cursor_bg = "#a39e9b"
+cursor_border = "#a39e9b"
+cursor_fg = "#2f1e2e"
+foreground = "#a39e9b"
+selection_bg = "#a39e9b"
+selection_fg = "#2f1e2e"
+
+[colors.indexed]
+16 = "#f99b15"
+17 = "#e96ba8"
+18 = "#41323f"
+19 = "#4f424c"
+20 = "#8d8687"
+21 = "#b9b6b0"
+
+[metadata]
+aliases = []
+author = "Jan T. Sott"
+name = "Paraiso (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_PARAISO_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2f1e2e",
+    "#ef6155",
+    "#48b685",
+    "#fec418",
+    "#06b6ef",
+    "#815ba4",
+    "#5bc4bf",
+    "#a39e9b",
+]
+background = "#2f1e2e"
+brights = [
+    "#776e71",
+    "#ef6155",
+    "#48b685",
+    "#fec418",
+    "#06b6ef",
+    "#815ba4",
+    "#5bc4bf",
+    "#e7e9db",
+]
+foreground = "#a39e9b"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Paraiso (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_PARAISO_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2f1e2e",
+    "#ef6155",
+    "#48b685",
+    "#fec418",
+    "#06b6ef",
+    "#815ba4",
+    "#5bc4bf",
+    "#a39e9b",
+]
+background = "#e7e9db"
+brights = [
+    "#776e71",
+    "#ef6155",
+    "#48b685",
+    "#fec418",
+    "#06b6ef",
+    "#815ba4",
+    "#5bc4bf",
+    "#e7e9db",
+]
+foreground = "#4f424c"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Paraiso (light) (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
@@ -128888,6 +129223,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Overnight-Slumber-to-Panels built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_paper_to_paraiso_light_builtin_color_schemes() {
+        let cases = [
+            (
+                "Paper (Gogh)",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(242, 238, 222),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(242, 238, 222)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(204, 62, 40),
+                Color::Rgb(33, 102, 9),
+                Color::Rgb(181, 137, 0),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(170, 170, 170),
+                None,
+            ),
+            (
+                "PaperColor Dark (base16)",
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(128, 128, 128),
+                Some(Color::Rgb(28, 28, 28)),
+                Some(Color::Rgb(128, 128, 128)),
+                Some(Some(Color::Rgb(28, 28, 28))),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(88, 88, 88),
+                Color::Rgb(175, 135, 215),
+                Color::Rgb(175, 215, 0),
+                Color::Rgb(215, 175, 95),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(95, 175, 95)),
+            ),
+            (
+                "Papercolor Dark (Gogh)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(28, 28, 28)),
+                None,
+                None,
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(175, 0, 95),
+                Color::Rgb(95, 175, 0),
+                Color::Rgb(215, 175, 95),
+                Color::Rgb(88, 88, 88),
+                Color::Rgb(95, 135, 135),
+                None,
+            ),
+            (
+                "PaperColorDark (Gogh)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(28, 28, 28)),
+                None,
+                None,
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(175, 0, 95),
+                Color::Rgb(95, 175, 0),
+                Color::Rgb(215, 175, 95),
+                Color::Rgb(88, 88, 88),
+                Color::Rgb(95, 135, 135),
+                None,
+            ),
+            (
+                "PaperColor Light (base16)",
+                Color::Rgb(68, 68, 68),
+                Color::Rgb(238, 238, 238),
+                Color::Rgb(68, 68, 68),
+                Some(Color::Rgb(238, 238, 238)),
+                Some(Color::Rgb(68, 68, 68)),
+                Some(Some(Color::Rgb(238, 238, 238))),
+                Color::Rgb(238, 238, 238),
+                Color::Rgb(188, 188, 188),
+                Color::Rgb(135, 0, 175),
+                Color::Rgb(215, 0, 135),
+                Color::Rgb(95, 135, 0),
+                Color::Rgb(135, 135, 135),
+                Some(Color::Rgb(215, 0, 0)),
+            ),
+            (
+                "Papercolor Light (Gogh)",
+                Color::Rgb(68, 68, 68),
+                Color::Rgb(238, 238, 238),
+                Color::Rgb(68, 68, 68),
+                Some(Color::Rgb(238, 238, 238)),
+                None,
+                None,
+                Color::Rgb(238, 238, 238),
+                Color::Rgb(175, 0, 0),
+                Color::Rgb(0, 135, 0),
+                Color::Rgb(95, 135, 0),
+                Color::Rgb(188, 188, 188),
+                Color::Rgb(0, 95, 135),
+                None,
+            ),
+            (
+                "PaperColorLight (Gogh)",
+                Color::Rgb(68, 68, 68),
+                Color::Rgb(238, 238, 238),
+                Color::Rgb(68, 68, 68),
+                Some(Color::Rgb(238, 238, 238)),
+                None,
+                None,
+                Color::Rgb(238, 238, 238),
+                Color::Rgb(175, 0, 0),
+                Color::Rgb(0, 135, 0),
+                Color::Rgb(95, 135, 0),
+                Color::Rgb(188, 188, 188),
+                Color::Rgb(0, 95, 135),
+                None,
+            ),
+            (
+                "Paraiso (base16)",
+                Color::Rgb(163, 158, 155),
+                Color::Rgb(47, 30, 46),
+                Color::Rgb(163, 158, 155),
+                Some(Color::Rgb(47, 30, 46)),
+                Some(Color::Rgb(163, 158, 155)),
+                Some(Some(Color::Rgb(47, 30, 46))),
+                Color::Rgb(47, 30, 46),
+                Color::Rgb(239, 97, 85),
+                Color::Rgb(72, 182, 133),
+                Color::Rgb(254, 196, 24),
+                Color::Rgb(119, 110, 113),
+                Color::Rgb(231, 233, 219),
+                Some(Color::Rgb(249, 155, 21)),
+            ),
+            (
+                "Paraiso (dark) (terminal.sexy)",
+                Color::Rgb(163, 158, 155),
+                Color::Rgb(47, 30, 46),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(47, 30, 46),
+                Color::Rgb(239, 97, 85),
+                Color::Rgb(72, 182, 133),
+                Color::Rgb(254, 196, 24),
+                Color::Rgb(119, 110, 113),
+                Color::Rgb(231, 233, 219),
+                None,
+            ),
+            (
+                "Paraiso (light) (terminal.sexy)",
+                Color::Rgb(79, 66, 76),
+                Color::Rgb(231, 233, 219),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(47, 30, 46),
+                Color::Rgb(239, 97, 85),
+                Color::Rgb(72, 182, 133),
+                Color::Rgb(254, 196, 24),
+                Color::Rgb(119, 110, 113),
+                Color::Rgb(231, 233, 219),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Paper-to-Paraiso-Light built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

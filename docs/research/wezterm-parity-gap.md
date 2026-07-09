@@ -3787,9 +3787,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Orangish (terminal.sexy)`, `Outrun Dark (base16)`,
   `Overnight Slumber`, `Oxocarbon Dark (Gogh)`, `Palenight (Gogh)`,
   `PaleNightHC`, `Pali (Gogh)`, `Panda (Gogh)`, `Pandora`,
-  `Panels (terminal.sexy)`, `Builtin Dark`, `Builtin Light`,
-  `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
-  `Builtin Tango Dark`, `Builtin Tango Light`, and
+  `Panels (terminal.sexy)`, `Paper (Gogh)`, `PaperColor Dark (base16)`,
+  `Papercolor Dark (Gogh)`, `PaperColor Light (base16)`,
+  `Papercolor Light (Gogh)`, `Paraiso (base16)`,
+  `Paraiso (dark) (terminal.sexy)`, `Paraiso (light) (terminal.sexy)`,
+  `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
+  `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
+  `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
   palette data. The broader built-in scheme catalog, richer dynamic
   `load_scheme` composition, and full dynamic Lua scheme
