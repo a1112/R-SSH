@@ -3660,6 +3660,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Everforest Light Soft (Gogh)`, `Fahrenheit`, `Fairy Floss (Gogh)`,
   `Fairy Floss Dark (Gogh)`, `Fairyfloss`, `farmhouse-dark`,
   `farmhouse-light`, `FarSide (terminal.sexy)`,
+  `Fideloper`, `Firefly Traditional`, `FirefoxDev`, `Firewatch`,
+  `Fishbone (terminal.sexy)`, `FishTank`, `Fishtank (Gogh)`, `Flat`,
+  `Flat (base16)`, `Flat (Gogh)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using

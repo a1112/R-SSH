@@ -19639,6 +19639,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "farmhouse-dark" => Some(BUILTIN_FARMHOUSE_DARK_COLOR_SCHEME_TOML),
         "farmhouse-light" => Some(BUILTIN_FARMHOUSE_LIGHT_COLOR_SCHEME_TOML),
         "FarSide (terminal.sexy)" => Some(BUILTIN_FARSIDE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Fideloper" => Some(BUILTIN_FIDELOPER_COLOR_SCHEME_TOML),
+        "Firefly Traditional" => Some(BUILTIN_FIREFLY_TRADITIONAL_COLOR_SCHEME_TOML),
+        "FirefoxDev" => Some(BUILTIN_FIREFOXDEV_COLOR_SCHEME_TOML),
+        "Firewatch" => Some(BUILTIN_FIREWATCH_COLOR_SCHEME_TOML),
+        "Fishbone (terminal.sexy)" => Some(BUILTIN_FISHBONE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "FishTank" => Some(BUILTIN_FISHTANK_COLOR_SCHEME_TOML),
+        "Fishtank (Gogh)" => Some(BUILTIN_FISHTANK_GOGH_COLOR_SCHEME_TOML),
+        "Flat" => Some(BUILTIN_FLAT_COLOR_SCHEME_TOML),
+        "Flat (base16)" => Some(BUILTIN_FLAT_BASE16_COLOR_SCHEME_TOML),
+        "Flat (Gogh)" => Some(BUILTIN_FLAT_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -33452,6 +33462,395 @@ aliases = []
 author = "Baskerville"
 name = "FarSide (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_FIDELOPER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#292f33",
+    "#cb1e2d",
+    "#edb8ac",
+    "#b7ab9b",
+    "#2e78c2",
+    "#c0236f",
+    "#309186",
+    "#eae3ce",
+]
+background = "#292f33"
+brights = [
+    "#092028",
+    "#d4605a",
+    "#d4605a",
+    "#a86671",
+    "#7c85c4",
+    "#5c5db2",
+    "#819090",
+    "#fcf4df",
+]
+cursor_bg = "#d4605a"
+cursor_border = "#d4605a"
+cursor_fg = "#fefff2"
+foreground = "#dbdae0"
+selection_bg = "#efb8ac"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Fideloper"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_FIREFLY_TRADITIONAL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c23720",
+    "#33bc26",
+    "#afad24",
+    "#5a63ff",
+    "#d53ad2",
+    "#33bbc7",
+    "#cccccc",
+]
+background = "#000000"
+brights = [
+    "#828282",
+    "#ff3b1e",
+    "#2ee720",
+    "#ecec16",
+    "#838dff",
+    "#ff5cfe",
+    "#29f0f0",
+    "#ebebeb",
+]
+cursor_bg = "#00f900"
+cursor_border = "#00f900"
+cursor_fg = "#ffffff"
+foreground = "#f5f5f5"
+selection_bg = "#cfeac6"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Firefly Traditional"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_FIREFOXDEV_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#002831",
+    "#e63853",
+    "#5eb83c",
+    "#a57706",
+    "#359ddf",
+    "#d75cff",
+    "#4b73a2",
+    "#dcdcdc",
+]
+background = "#0e1011"
+brights = [
+    "#001e27",
+    "#e1003f",
+    "#1d9000",
+    "#cd9409",
+    "#006fc0",
+    "#a200da",
+    "#005794",
+    "#e2e2e2",
+]
+cursor_bg = "#708284"
+cursor_border = "#708284"
+cursor_fg = "#002831"
+foreground = "#7c8fa4"
+selection_bg = "#163c61"
+selection_fg = "#f2f5f9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "FirefoxDev"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_FIREWATCH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#585f6d",
+    "#d95360",
+    "#5ab977",
+    "#dfb563",
+    "#4d89c4",
+    "#d55119",
+    "#44a8b6",
+    "#e6e5ff",
+]
+background = "#1e2027"
+brights = [
+    "#585f6d",
+    "#d95360",
+    "#5ab977",
+    "#dfb563",
+    "#4c89c5",
+    "#d55119",
+    "#44a8b6",
+    "#e6e5ff",
+]
+cursor_bg = "#f6f7ec"
+cursor_border = "#f6f7ec"
+cursor_fg = "#c4c5b5"
+foreground = "#9ba2b2"
+selection_bg = "#2f363e"
+selection_fg = "#7d8fa4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Firewatch"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_FISHBONE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#293b3b",
+    "#bf5357",
+    "#41a551",
+    "#aea64f",
+    "#416ea5",
+    "#bf6053",
+    "#714da5",
+    "#876868",
+]
+background = "#000000"
+brights = [
+    "#344040",
+    "#bf6367",
+    "#51a55f",
+    "#aea75d",
+    "#5177a5",
+    "#bf6e63",
+    "#7859a5",
+    "#876f6f",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Fishbone (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_FISHTANK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#03073c",
+    "#c6004a",
+    "#acf157",
+    "#fecd5e",
+    "#525fb8",
+    "#986f82",
+    "#968763",
+    "#ecf0fc",
+]
+background = "#232537"
+brights = [
+    "#6c5b30",
+    "#da4b8a",
+    "#dbffa9",
+    "#fee6a9",
+    "#b2befa",
+    "#fda5cd",
+    "#a5bd86",
+    "#f6ffec",
+]
+cursor_bg = "#fecd5e"
+cursor_border = "#fecd5e"
+cursor_fg = "#232537"
+foreground = "#ecf0fe"
+selection_bg = "#fcf7e9"
+selection_fg = "#232537"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Fishtank (Gogh)"]
+name = "FishTank"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_FISHTANK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#03073c",
+    "#c6004a",
+    "#acf157",
+    "#fecd5e",
+    "#525fb8",
+    "#986f82",
+    "#968763",
+    "#ecf0fc",
+]
+background = "#232537"
+brights = [
+    "#6c5b30",
+    "#da4b8a",
+    "#dbffa9",
+    "#fee6a9",
+    "#b2befa",
+    "#fda5cd",
+    "#a5bd86",
+    "#f6ffec",
+]
+cursor_bg = "#ecf0fe"
+cursor_border = "#ecf0fe"
+cursor_fg = "#232537"
+foreground = "#ecf0fe"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Fishtank (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_FLAT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#222d3f",
+    "#a82320",
+    "#32a548",
+    "#e58d11",
+    "#3167ac",
+    "#781aa0",
+    "#2c9370",
+    "#b0b6ba",
+]
+background = "#002240"
+brights = [
+    "#212c3c",
+    "#d4312e",
+    "#2d9440",
+    "#e5be0c",
+    "#3c7dd2",
+    "#8230a7",
+    "#35b387",
+    "#e7eced",
+]
+cursor_bg = "#e5be0c"
+cursor_border = "#e5be0c"
+cursor_fg = "#ffffff"
+foreground = "#2cc55d"
+selection_bg = "#792b9c"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Flat"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_FLAT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2c3e50",
+    "#e74c3c",
+    "#2ecc71",
+    "#f1c40f",
+    "#3498db",
+    "#9b59b6",
+    "#1abc9c",
+    "#e0e0e0",
+]
+background = "#2c3e50"
+brights = [
+    "#95a5a6",
+    "#e74c3c",
+    "#2ecc71",
+    "#f1c40f",
+    "#3498db",
+    "#9b59b6",
+    "#1abc9c",
+    "#ecf0f1",
+]
+cursor_bg = "#e0e0e0"
+cursor_border = "#e0e0e0"
+cursor_fg = "#2c3e50"
+foreground = "#e0e0e0"
+selection_bg = "#e0e0e0"
+selection_fg = "#2c3e50"
+
+[colors.indexed]
+16 = "#e67e22"
+17 = "#be643c"
+18 = "#34495e"
+19 = "#7f8c8d"
+20 = "#bdc3c7"
+21 = "#f5f5f5"
+
+[metadata]
+aliases = []
+author = "Chris Kempson (http://chriskempson.com)"
+name = "Flat (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_FLAT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2c3e50",
+    "#c0392b",
+    "#27ae60",
+    "#f39c12",
+    "#2980b9",
+    "#8e44ad",
+    "#16a085",
+    "#bdc3c7",
+]
+background = "#1f2d3a"
+brights = [
+    "#34495e",
+    "#e74c3c",
+    "#2ecc71",
+    "#f1c40f",
+    "#3498db",
+    "#9b59b6",
+    "#2aa198",
+    "#ecf0f1",
+]
+cursor_bg = "#1abc9c"
+cursor_border = "#1abc9c"
+cursor_fg = "#1f2d3a"
+foreground = "#1abc9c"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Flat (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -106258,6 +106657,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Everforest Light Hard-to-FarSide built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_fideloper_to_flat_gogh_builtin_color_schemes() {
+        let cases = [
+            (
+                "Fideloper",
+                Color::Rgb(219, 218, 224),
+                Color::Rgb(41, 47, 51),
+                Color::Rgb(212, 96, 90),
+                Some(Color::Rgb(254, 255, 242)),
+                Some(Color::Rgb(239, 184, 172)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(41, 47, 51),
+                Color::Rgb(203, 30, 45),
+                Color::Rgb(237, 184, 172),
+                Color::Rgb(183, 171, 155),
+                Color::Rgb(9, 32, 40),
+                Color::Rgb(252, 244, 223),
+                None,
+            ),
+            (
+                "Firefly Traditional",
+                Color::Rgb(245, 245, 245),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(0, 249, 0),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(207, 234, 198)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(194, 55, 32),
+                Color::Rgb(51, 188, 38),
+                Color::Rgb(175, 173, 36),
+                Color::Rgb(130, 130, 130),
+                Color::Rgb(235, 235, 235),
+                None,
+            ),
+            (
+                "FirefoxDev",
+                Color::Rgb(124, 143, 164),
+                Color::Rgb(14, 16, 17),
+                Color::Rgb(112, 130, 132),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Color::Rgb(22, 60, 97)),
+                Some(Some(Color::Rgb(242, 245, 249))),
+                Color::Rgb(0, 40, 49),
+                Color::Rgb(230, 56, 83),
+                Color::Rgb(94, 184, 60),
+                Color::Rgb(165, 119, 6),
+                Color::Rgb(0, 30, 39),
+                Color::Rgb(226, 226, 226),
+                None,
+            ),
+            (
+                "Firewatch",
+                Color::Rgb(155, 162, 178),
+                Color::Rgb(30, 32, 39),
+                Color::Rgb(246, 247, 236),
+                Some(Color::Rgb(196, 197, 181)),
+                Some(Color::Rgb(47, 54, 62)),
+                Some(Some(Color::Rgb(125, 143, 164))),
+                Color::Rgb(88, 95, 109),
+                Color::Rgb(217, 83, 96),
+                Color::Rgb(90, 185, 119),
+                Color::Rgb(223, 181, 99),
+                Color::Rgb(88, 95, 109),
+                Color::Rgb(230, 229, 255),
+                None,
+            ),
+            (
+                "Fishbone (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(41, 59, 59),
+                Color::Rgb(191, 83, 87),
+                Color::Rgb(65, 165, 81),
+                Color::Rgb(174, 166, 79),
+                Color::Rgb(52, 64, 64),
+                Color::Rgb(135, 111, 111),
+                None,
+            ),
+            (
+                "FishTank",
+                Color::Rgb(236, 240, 254),
+                Color::Rgb(35, 37, 55),
+                Color::Rgb(254, 205, 94),
+                Some(Color::Rgb(35, 37, 55)),
+                Some(Color::Rgb(252, 247, 233)),
+                Some(Some(Color::Rgb(35, 37, 55))),
+                Color::Rgb(3, 7, 60),
+                Color::Rgb(198, 0, 74),
+                Color::Rgb(172, 241, 87),
+                Color::Rgb(254, 205, 94),
+                Color::Rgb(108, 91, 48),
+                Color::Rgb(246, 255, 236),
+                None,
+            ),
+            (
+                "Fishtank (Gogh)",
+                Color::Rgb(236, 240, 254),
+                Color::Rgb(35, 37, 55),
+                Color::Rgb(236, 240, 254),
+                Some(Color::Rgb(35, 37, 55)),
+                None,
+                None,
+                Color::Rgb(3, 7, 60),
+                Color::Rgb(198, 0, 74),
+                Color::Rgb(172, 241, 87),
+                Color::Rgb(254, 205, 94),
+                Color::Rgb(108, 91, 48),
+                Color::Rgb(246, 255, 236),
+                None,
+            ),
+            (
+                "Flat",
+                Color::Rgb(44, 197, 93),
+                Color::Rgb(0, 34, 64),
+                Color::Rgb(229, 190, 12),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(121, 43, 156)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(34, 45, 63),
+                Color::Rgb(168, 35, 32),
+                Color::Rgb(50, 165, 72),
+                Color::Rgb(229, 141, 17),
+                Color::Rgb(33, 44, 60),
+                Color::Rgb(231, 236, 237),
+                None,
+            ),
+            (
+                "Flat (base16)",
+                Color::Rgb(224, 224, 224),
+                Color::Rgb(44, 62, 80),
+                Color::Rgb(224, 224, 224),
+                Some(Color::Rgb(44, 62, 80)),
+                Some(Color::Rgb(224, 224, 224)),
+                Some(Some(Color::Rgb(44, 62, 80))),
+                Color::Rgb(44, 62, 80),
+                Color::Rgb(231, 76, 60),
+                Color::Rgb(46, 204, 113),
+                Color::Rgb(241, 196, 15),
+                Color::Rgb(149, 165, 166),
+                Color::Rgb(236, 240, 241),
+                Some(Color::Rgb(230, 126, 34)),
+            ),
+            (
+                "Flat (Gogh)",
+                Color::Rgb(26, 188, 156),
+                Color::Rgb(31, 45, 58),
+                Color::Rgb(26, 188, 156),
+                Some(Color::Rgb(31, 45, 58)),
+                None,
+                None,
+                Color::Rgb(44, 62, 80),
+                Color::Rgb(192, 57, 43),
+                Color::Rgb(39, 174, 96),
+                Color::Rgb(243, 156, 18),
+                Color::Rgb(52, 73, 94),
+                Color::Rgb(236, 240, 241),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Fideloper-to-Flat Gogh built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
