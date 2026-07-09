@@ -20203,6 +20203,17 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Sakura (base16)" => Some(BUILTIN_SAKURA_BASE16_COLOR_SCHEME_TOML),
         "Sandcastle (base16)" => Some(BUILTIN_SANDCASTLE_BASE16_COLOR_SCHEME_TOML),
         "Sat (Gogh)" => Some(BUILTIN_SAT_GOGH_COLOR_SCHEME_TOML),
+        "Scarlet Protocol" => Some(BUILTIN_SCARLET_PROTOCOL_COLOR_SCHEME_TOML),
+        "Sea Shells (Gogh)" => Some(BUILTIN_SEA_SHELLS_GOGH_COLOR_SCHEME_TOML),
+        "Seafoam Pastel" | "SeafoamPastel (Gogh)" => Some(BUILTIN_SEAFOAM_PASTEL_COLOR_SCHEME_TOML),
+        "Seafoam Pastel (Gogh)" => Some(BUILTIN_SEAFOAM_PASTEL_GOGH_COLOR_SCHEME_TOML),
+        "SeaShells" => Some(BUILTIN_SEASHELLS_COLOR_SCHEME_TOML),
+        "Selenized Black (Gogh)" => Some(BUILTIN_SELENIZED_BLACK_GOGH_COLOR_SCHEME_TOML),
+        "Selenized Dark (Gogh)" => Some(BUILTIN_SELENIZED_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Selenized Light (Gogh)" => Some(BUILTIN_SELENIZED_LIGHT_GOGH_COLOR_SCHEME_TOML),
+        "Selenized White (Gogh)" => Some(BUILTIN_SELENIZED_WHITE_GOGH_COLOR_SCHEME_TOML),
+        "Seoul256 (Gogh)" => Some(BUILTIN_SEOUL256_GOGH_COLOR_SCHEME_TOML),
+        "Seoul256 Light (Gogh)" => Some(BUILTIN_SEOUL256_LIGHT_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -51329,6 +51340,422 @@ aliases = []
 name = "Sat (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SCARLET_PROTOCOL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#101116",
+    "#ff0051",
+    "#00dc84",
+    "#faf945",
+    "#0271b6",
+    "#ca30c7",
+    "#00c5c7",
+    "#c7c7c7",
+]
+background = "#1c153d"
+brights = [
+    "#686868",
+    "#ff6e67",
+    "#5ffa68",
+    "#fffc67",
+    "#6871ff",
+    "#bd35ec",
+    "#60fdff",
+    "#ffffff",
+]
+cursor_bg = "#76ff9f"
+cursor_border = "#76ff9f"
+cursor_fg = "#ffffff"
+foreground = "#e41951"
+selection_bg = "#c1deff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Scarlet Protocol"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SEA_SHELLS_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#17384c",
+    "#d15123",
+    "#027c9b",
+    "#fca02f",
+    "#1e4950",
+    "#68d4f1",
+    "#50a3b5",
+    "#deb88d",
+]
+background = "#09141b"
+brights = [
+    "#434b53",
+    "#d48678",
+    "#628d98",
+    "#fdd39f",
+    "#1bbcdd",
+    "#bbe3ee",
+    "#87acb4",
+    "#fee4ce",
+]
+cursor_bg = "#deb88d"
+cursor_border = "#deb88d"
+cursor_fg = "#09141b"
+foreground = "#deb88d"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Sea Shells (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SEAFOAM_PASTEL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#757575",
+    "#825d4d",
+    "#728c62",
+    "#ada16d",
+    "#4d7b82",
+    "#8a7267",
+    "#729494",
+    "#e0e0e0",
+]
+background = "#243435"
+brights = [
+    "#8a8a8a",
+    "#cf937a",
+    "#98d9aa",
+    "#fae79d",
+    "#7ac3cf",
+    "#d6b2a1",
+    "#ade0e0",
+    "#e0e0e0",
+]
+cursor_bg = "#57647a"
+cursor_border = "#57647a"
+cursor_fg = "#323232"
+foreground = "#d4e7d4"
+selection_bg = "#ffffff"
+selection_fg = "#9e8b13"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Seafoam Pastel (Gogh)",
+    "SeafoamPastel (Gogh)",
+]
+name = "Seafoam Pastel"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SEAFOAM_PASTEL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#757575",
+    "#825d4d",
+    "#728c62",
+    "#ada16d",
+    "#4d7b82",
+    "#8a7267",
+    "#729494",
+    "#e0e0e0",
+]
+background = "#243435"
+brights = [
+    "#8a8a8a",
+    "#cf937a",
+    "#98d9aa",
+    "#fae79d",
+    "#7ac3cf",
+    "#d6b2a1",
+    "#ade0e0",
+    "#e0e0e0",
+]
+cursor_bg = "#d4e7d4"
+cursor_border = "#d4e7d4"
+cursor_fg = "#243435"
+foreground = "#d4e7d4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Seafoam Pastel (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SEASHELLS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#17384c",
+    "#d15123",
+    "#027c9b",
+    "#fca02f",
+    "#1e4950",
+    "#68d4f1",
+    "#50a3b5",
+    "#deb88d",
+]
+background = "#09141b"
+brights = [
+    "#434b53",
+    "#d48678",
+    "#628d98",
+    "#fdd39f",
+    "#1bbcdd",
+    "#bbe3ee",
+    "#87acb4",
+    "#fee4ce",
+]
+cursor_bg = "#fca02f"
+cursor_border = "#fca02f"
+cursor_fg = "#08131a"
+foreground = "#deb88d"
+selection_bg = "#1e4962"
+selection_fg = "#fee4ce"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Sea Shells (Gogh)"]
+name = "SeaShells"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SELENIZED_BLACK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#252525",
+    "#ed4a46",
+    "#70b433",
+    "#dbb32d",
+    "#368aeb",
+    "#eb6eb7",
+    "#3fc5b7",
+    "#777777",
+]
+background = "#181818"
+brights = [
+    "#3b3b3b",
+    "#ff5e56",
+    "#83c746",
+    "#efc541",
+    "#4f9cfe",
+    "#ff81ca",
+    "#56d8c9",
+    "#dedede",
+]
+cursor_bg = "#dedede"
+cursor_border = "#dedede"
+cursor_fg = "#181818"
+foreground = "#b9b9b9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Selenized Black (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_SELENIZED_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#184956",
+    "#fa5750",
+    "#75b938",
+    "#dbb32d",
+    "#4695f7",
+    "#f275be",
+    "#41c7b9",
+    "#72898f",
+]
+background = "#103c48"
+brights = [
+    "#2d5b69",
+    "#ff665c",
+    "#84c747",
+    "#ebc13d",
+    "#58a3ff",
+    "#ff84cd",
+    "#53d6c7",
+    "#cad8d9",
+]
+cursor_bg = "#cad8d9"
+cursor_border = "#cad8d9"
+cursor_fg = "#103c48"
+foreground = "#adbcbc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Selenized Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_SELENIZED_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#ece3cc",
+    "#d2212d",
+    "#489100",
+    "#ad8900",
+    "#0072d4",
+    "#ca4898",
+    "#009c8f",
+    "#909995",
+]
+background = "#fbf3db"
+brights = [
+    "#d5cdb6",
+    "#cc1729",
+    "#428b00",
+    "#a78300",
+    "#006dce",
+    "#c44392",
+    "#00978a",
+    "#3a4d53",
+]
+cursor_bg = "#3a4d53"
+cursor_border = "#3a4d53"
+cursor_fg = "#fbf3db"
+foreground = "#53676d"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Selenized Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_SELENIZED_WHITE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#ebebeb",
+    "#d6000c",
+    "#1d9700",
+    "#c49700",
+    "#0064e4",
+    "#dd0f9d",
+    "#00ad9c",
+    "#878787",
+]
+background = "#ffffff"
+brights = [
+    "#cdcdcd",
+    "#bf0000",
+    "#008400",
+    "#af8500",
+    "#0054cf",
+    "#c7008b",
+    "#009a8a",
+    "#282828",
+]
+cursor_bg = "#282828"
+cursor_border = "#282828"
+cursor_fg = "#ffffff"
+foreground = "#474747"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Selenized White (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_SEOUL256_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4e4e4e",
+    "#d68787",
+    "#5f865f",
+    "#d8af5f",
+    "#85add4",
+    "#d7afaf",
+    "#87afaf",
+    "#d0d0d0",
+]
+background = "#3a3a3a"
+brights = [
+    "#626262",
+    "#d75f87",
+    "#87af87",
+    "#ffd787",
+    "#add4fb",
+    "#ffafaf",
+    "#87d7d7",
+    "#e4e4e4",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#3a3a3a"
+foreground = "#d0d0d0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Seoul256 (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_SEOUL256_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4e4e4e",
+    "#af5f5f",
+    "#5f885f",
+    "#af8760",
+    "#5f87ae",
+    "#875f87",
+    "#5f8787",
+    "#e4e4e4",
+]
+background = "#dadada"
+brights = [
+    "#3a3a3a",
+    "#870100",
+    "#005f00",
+    "#d8865f",
+    "#0087af",
+    "#87025f",
+    "#008787",
+    "#eeeeee",
+]
+cursor_bg = "#4e4e4e"
+cursor_border = "#4e4e4e"
+cursor_fg = "#dadada"
+foreground = "#4e4e4e"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Seoul256 Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -134842,6 +135269,260 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Rouge-to-Sat built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_scarlet_to_seoul256_light_builtin_color_schemes() {
+        let cases = [
+            (
+                "Scarlet Protocol",
+                Color::Rgb(228, 25, 81),
+                Color::Rgb(28, 21, 61),
+                Color::Rgb(118, 255, 159),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(193, 222, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(16, 17, 22),
+                Color::Rgb(255, 0, 81),
+                Color::Rgb(0, 220, 132),
+                Color::Rgb(250, 249, 69),
+                Color::Rgb(104, 104, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Sea Shells (Gogh)",
+                Color::Rgb(222, 184, 141),
+                Color::Rgb(9, 20, 27),
+                Color::Rgb(222, 184, 141),
+                Some(Color::Rgb(9, 20, 27)),
+                None,
+                None,
+                Color::Rgb(23, 56, 76),
+                Color::Rgb(209, 81, 35),
+                Color::Rgb(2, 124, 155),
+                Color::Rgb(252, 160, 47),
+                Color::Rgb(67, 75, 83),
+                Color::Rgb(254, 228, 206),
+                None,
+            ),
+            (
+                "Seafoam Pastel",
+                Color::Rgb(212, 231, 212),
+                Color::Rgb(36, 52, 53),
+                Color::Rgb(87, 100, 122),
+                Some(Color::Rgb(50, 50, 50)),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Some(Color::Rgb(158, 139, 19))),
+                Color::Rgb(117, 117, 117),
+                Color::Rgb(130, 93, 77),
+                Color::Rgb(114, 140, 98),
+                Color::Rgb(173, 161, 109),
+                Color::Rgb(138, 138, 138),
+                Color::Rgb(224, 224, 224),
+                None,
+            ),
+            (
+                "SeafoamPastel (Gogh)",
+                Color::Rgb(212, 231, 212),
+                Color::Rgb(36, 52, 53),
+                Color::Rgb(87, 100, 122),
+                Some(Color::Rgb(50, 50, 50)),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Some(Color::Rgb(158, 139, 19))),
+                Color::Rgb(117, 117, 117),
+                Color::Rgb(130, 93, 77),
+                Color::Rgb(114, 140, 98),
+                Color::Rgb(173, 161, 109),
+                Color::Rgb(138, 138, 138),
+                Color::Rgb(224, 224, 224),
+                None,
+            ),
+            (
+                "Seafoam Pastel (Gogh)",
+                Color::Rgb(212, 231, 212),
+                Color::Rgb(36, 52, 53),
+                Color::Rgb(212, 231, 212),
+                Some(Color::Rgb(36, 52, 53)),
+                None,
+                None,
+                Color::Rgb(117, 117, 117),
+                Color::Rgb(130, 93, 77),
+                Color::Rgb(114, 140, 98),
+                Color::Rgb(173, 161, 109),
+                Color::Rgb(138, 138, 138),
+                Color::Rgb(224, 224, 224),
+                None,
+            ),
+            (
+                "SeaShells",
+                Color::Rgb(222, 184, 141),
+                Color::Rgb(9, 20, 27),
+                Color::Rgb(252, 160, 47),
+                Some(Color::Rgb(8, 19, 26)),
+                Some(Color::Rgb(30, 73, 98)),
+                Some(Some(Color::Rgb(254, 228, 206))),
+                Color::Rgb(23, 56, 76),
+                Color::Rgb(209, 81, 35),
+                Color::Rgb(2, 124, 155),
+                Color::Rgb(252, 160, 47),
+                Color::Rgb(67, 75, 83),
+                Color::Rgb(254, 228, 206),
+                None,
+            ),
+            (
+                "Selenized Black (Gogh)",
+                Color::Rgb(185, 185, 185),
+                Color::Rgb(24, 24, 24),
+                Color::Rgb(222, 222, 222),
+                Some(Color::Rgb(24, 24, 24)),
+                None,
+                None,
+                Color::Rgb(37, 37, 37),
+                Color::Rgb(237, 74, 70),
+                Color::Rgb(112, 180, 51),
+                Color::Rgb(219, 179, 45),
+                Color::Rgb(59, 59, 59),
+                Color::Rgb(222, 222, 222),
+                None,
+            ),
+            (
+                "Selenized Dark (Gogh)",
+                Color::Rgb(173, 188, 188),
+                Color::Rgb(16, 60, 72),
+                Color::Rgb(202, 216, 217),
+                Some(Color::Rgb(16, 60, 72)),
+                None,
+                None,
+                Color::Rgb(24, 73, 86),
+                Color::Rgb(250, 87, 80),
+                Color::Rgb(117, 185, 56),
+                Color::Rgb(219, 179, 45),
+                Color::Rgb(45, 91, 105),
+                Color::Rgb(202, 216, 217),
+                None,
+            ),
+            (
+                "Selenized Light (Gogh)",
+                Color::Rgb(83, 103, 109),
+                Color::Rgb(251, 243, 219),
+                Color::Rgb(58, 77, 83),
+                Some(Color::Rgb(251, 243, 219)),
+                None,
+                None,
+                Color::Rgb(236, 227, 204),
+                Color::Rgb(210, 33, 45),
+                Color::Rgb(72, 145, 0),
+                Color::Rgb(173, 137, 0),
+                Color::Rgb(213, 205, 182),
+                Color::Rgb(58, 77, 83),
+                None,
+            ),
+            (
+                "Selenized White (Gogh)",
+                Color::Rgb(71, 71, 71),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(40, 40, 40),
+                Some(Color::Rgb(255, 255, 255)),
+                None,
+                None,
+                Color::Rgb(235, 235, 235),
+                Color::Rgb(214, 0, 12),
+                Color::Rgb(29, 151, 0),
+                Color::Rgb(196, 151, 0),
+                Color::Rgb(205, 205, 205),
+                Color::Rgb(40, 40, 40),
+                None,
+            ),
+            (
+                "Seoul256 (Gogh)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(58, 58, 58),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(58, 58, 58)),
+                None,
+                None,
+                Color::Rgb(78, 78, 78),
+                Color::Rgb(214, 135, 135),
+                Color::Rgb(95, 134, 95),
+                Color::Rgb(216, 175, 95),
+                Color::Rgb(98, 98, 98),
+                Color::Rgb(228, 228, 228),
+                None,
+            ),
+            (
+                "Seoul256 Light (Gogh)",
+                Color::Rgb(78, 78, 78),
+                Color::Rgb(218, 218, 218),
+                Color::Rgb(78, 78, 78),
+                Some(Color::Rgb(218, 218, 218)),
+                None,
+                None,
+                Color::Rgb(78, 78, 78),
+                Color::Rgb(175, 95, 95),
+                Color::Rgb(95, 136, 95),
+                Color::Rgb(175, 135, 96),
+                Color::Rgb(58, 58, 58),
+                Color::Rgb(238, 238, 238),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Scarlet-to-Seoul256 built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

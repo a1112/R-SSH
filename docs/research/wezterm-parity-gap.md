@@ -3817,9 +3817,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Rosé Pine Moon (base16)`, `Rosé Pine Moon (Gogh)`, `Rouge 2`, `Royal`,
   `Royal (Gogh)`, `Rydgel (terminal.sexy)`, `Ryuuko`,
   `s3r0 modified (terminal.sexy)`, `Sagelight (base16)`, `Sakura`,
-  `Sakura (base16)`, `Sandcastle (base16)`, `Sat (Gogh)`, `Builtin Dark`,
-  `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
-  `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
+  `Sakura (base16)`, `Sandcastle (base16)`, `Sat (Gogh)`,
+  `Scarlet Protocol`, `Sea Shells (Gogh)`, `Seafoam Pastel`,
+  `Seafoam Pastel (Gogh)`, `SeaShells`, `Selenized Black (Gogh)`,
+  `Selenized Dark (Gogh)`, `Selenized Light (Gogh)`,
+  `Selenized White (Gogh)`, `Seoul256 (Gogh)`, `Seoul256 Light (Gogh)`,
+  `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
+  `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
+  `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
   palette data. The broader built-in scheme catalog, richer dynamic
   `load_scheme` composition, and full dynamic Lua scheme
