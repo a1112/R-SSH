@@ -19924,6 +19924,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "MaterialOcean" => Some(BUILTIN_MATERIALOCEAN_COLOR_SCHEME_TOML),
         "Mathias" => Some(BUILTIN_MATHIAS_COLOR_SCHEME_TOML),
         "Mathias (Gogh)" => Some(BUILTIN_MATHIAS_GOGH_COLOR_SCHEME_TOML),
+        "matrix" => Some(BUILTIN_MATRIX_COLOR_SCHEME_TOML),
+        "Matrix (terminal.sexy)" => Some(BUILTIN_MATRIX_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Medallion" => Some(BUILTIN_MEDALLION_COLOR_SCHEME_TOML),
+        "Medallion (Gogh)" => Some(BUILTIN_MEDALLION_GOGH_COLOR_SCHEME_TOML),
+        "Mellifluous" => Some(BUILTIN_MELLIFLUOUS_COLOR_SCHEME_TOML),
+        "Mellow Purple (base16)" => Some(BUILTIN_MELLOW_PURPLE_BASE16_COLOR_SCHEME_TOML),
+        "Mexico Light (base16)" => Some(BUILTIN_MEXICO_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "midnight-in-mojave" => Some(BUILTIN_MIDNIGHT_IN_MOJAVE_COLOR_SCHEME_TOML),
+        "Mikado (terminal.sexy)" => Some(BUILTIN_MIKADO_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Mikazuki (terminal.sexy)" => Some(BUILTIN_MIKAZUKI_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Mirage" => Some(BUILTIN_MIRAGE_COLOR_SCHEME_TOML),
+        "Miramare (Gogh)" => Some(BUILTIN_MIRAMARE_GOGH_COLOR_SCHEME_TOML),
+        "Misterioso" => Some(BUILTIN_MISTERIOSO_COLOR_SCHEME_TOML),
+        "Misterioso (Gogh)" => Some(BUILTIN_MISTERIOSO_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -42461,6 +42475,549 @@ foreground = "#bbbbbb"
 [metadata]
 aliases = []
 name = "Mathias (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_MATRIX_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0f191c",
+    "#23755a",
+    "#82d967",
+    "#ffd700",
+    "#3f5242",
+    "#409931",
+    "#50b45a",
+    "#507350",
+]
+background = "#0f191c"
+brights = [
+    "#688060",
+    "#2fc079",
+    "#90d762",
+    "#faff00",
+    "#4f7e7e",
+    "#11ff25",
+    "#c1ff8a",
+    "#678c61",
+]
+cursor_bg = "#384545"
+cursor_border = "#384545"
+cursor_fg = "#00ff00"
+foreground = "#426644"
+selection_bg = "#18282e"
+selection_fg = "#00ff87"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "matrix"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MATRIX_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#55ff55",
+    "#00cc00",
+    "#00cc00",
+    "#005500",
+    "#55ff55",
+    "#00cc00",
+    "#00cc00",
+]
+background = "#000000"
+brights = [
+    "#000000",
+    "#55ff55",
+    "#55ff55",
+    "#55ff55",
+    "#005500",
+    "#55ff55",
+    "#55ff55",
+    "#00cc00",
+]
+foreground = "#00cc00"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "OK100"
+name = "Matrix (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MEDALLION_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#b64c00",
+    "#7c8b16",
+    "#d3bd26",
+    "#616bb0",
+    "#8c5a90",
+    "#916c25",
+    "#cac29a",
+]
+background = "#1d1908"
+brights = [
+    "#5e5219",
+    "#ff9149",
+    "#b2ca3b",
+    "#ffe54a",
+    "#acb8ff",
+    "#ffa0ff",
+    "#ffbc51",
+    "#fed698",
+]
+cursor_bg = "#d3ba30"
+cursor_border = "#d3ba30"
+cursor_fg = "#d2bc3d"
+foreground = "#cac296"
+selection_bg = "#626dac"
+selection_fg = "#cac29a"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Medallion (Gogh)"]
+name = "Medallion"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MEDALLION_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#b64c00",
+    "#7c8b16",
+    "#d3bd26",
+    "#616bb0",
+    "#8c5a90",
+    "#916c25",
+    "#cac29a",
+]
+background = "#1d1908"
+brights = [
+    "#5e5219",
+    "#ff9149",
+    "#b2ca3b",
+    "#ffe54a",
+    "#acb8ff",
+    "#ffa0ff",
+    "#ffbc51",
+    "#fed698",
+]
+cursor_bg = "#cac296"
+cursor_border = "#cac296"
+cursor_fg = "#1d1908"
+foreground = "#cac296"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Medallion (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_MELLIFLUOUS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1a1a1a",
+    "#d29393",
+    "#b3b393",
+    "#cbaa89",
+    "#a8a1be",
+    "#b39fb0",
+    "#c0af8c",
+    "#dadada",
+]
+background = "#1a1a1a"
+brights = [
+    "#5b5b5b",
+    "#c95954",
+    "#828040",
+    "#a6794c",
+    "#5a6599",
+    "#9c6995",
+    "#74a39e",
+    "#ffffff",
+]
+cursor_bg = "#bfad9e"
+cursor_border = "#bfad9e"
+cursor_fg = "#1a1a1a"
+foreground = "#dadada"
+selection_bg = "#2d2d2d"
+selection_fg = "#c0af8c"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "rektdeckard (http://github.com/rektdeckard)"
+name = "Mellifluous"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_MELLOW_PURPLE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e0528",
+    "#00d9e9",
+    "#05cb0d",
+    "#955ae7",
+    "#550068",
+    "#8991bb",
+    "#b900b1",
+    "#ffeeff",
+]
+background = "#1e0528"
+brights = [
+    "#320f55",
+    "#00d9e9",
+    "#05cb0d",
+    "#955ae7",
+    "#550068",
+    "#8991bb",
+    "#b900b1",
+    "#f8c0ff",
+]
+cursor_bg = "#ffeeff"
+cursor_border = "#ffeeff"
+cursor_fg = "#1e0528"
+foreground = "#ffeeff"
+selection_bg = "#ffeeff"
+selection_fg = "#1e0528"
+
+[colors.indexed]
+16 = "#aa00a3"
+17 = "#4d6fff"
+18 = "#1a092d"
+19 = "#331354"
+20 = "#873582"
+21 = "#ffeeff"
+
+[metadata]
+aliases = []
+author = "gidsi"
+name = "Mellow Purple (base16)"
+origin_url = "https://github.com/gidsi/base16-mellow-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MEXICO_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f8f8f8",
+    "#ab4642",
+    "#538947",
+    "#f79a0e",
+    "#7cafc2",
+    "#96609e",
+    "#4b8093",
+    "#383838",
+]
+background = "#f8f8f8"
+brights = [
+    "#b8b8b8",
+    "#ab4642",
+    "#538947",
+    "#f79a0e",
+    "#7cafc2",
+    "#96609e",
+    "#4b8093",
+    "#181818",
+]
+cursor_bg = "#383838"
+cursor_border = "#383838"
+cursor_fg = "#f8f8f8"
+foreground = "#383838"
+selection_bg = "#383838"
+selection_fg = "#f8f8f8"
+
+[colors.indexed]
+16 = "#dc9656"
+17 = "#a16946"
+18 = "#e8e8e8"
+19 = "#d8d8d8"
+20 = "#585858"
+21 = "#282828"
+
+[metadata]
+aliases = []
+author = "Sheldon Johnson"
+name = "Mexico Light (base16)"
+origin_url = "https://github.com/drzel/base16-mexico-light-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MIDNIGHT_IN_MOJAVE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e1e1e",
+    "#ff453a",
+    "#32d74b",
+    "#ffd60a",
+    "#0a84ff",
+    "#bf5af2",
+    "#5ac8fa",
+    "#ffffff",
+]
+background = "#1e1e1e"
+brights = [
+    "#1e1e1e",
+    "#ff453a",
+    "#32d74b",
+    "#ffd60a",
+    "#0a84ff",
+    "#bf5af2",
+    "#5ac8fa",
+    "#ffffff",
+]
+cursor_bg = "#32d74b"
+cursor_border = "#32d74b"
+cursor_fg = "#1c1c1c"
+foreground = "#ffffff"
+selection_bg = "#4a504d"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "midnight-in-mojave"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MIKADO_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#322a2c",
+    "#a04363",
+    "#9b9329",
+    "#bf7a29",
+    "#6a8c8c",
+    "#856774",
+    "#757978",
+    "#bcbcaf",
+]
+background = "#000000"
+brights = [
+    "#46423b",
+    "#ae837a",
+    "#b4aa30",
+    "#c7a551",
+    "#74999e",
+    "#9c818e",
+    "#9fa590",
+    "#c1c4bc",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Mikado (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MIKAZUKI_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2a1d17",
+    "#da1657",
+    "#3ea250",
+    "#e3d33d",
+    "#3ea290",
+    "#ff850d",
+    "#8c16da",
+    "#e9e9e9",
+]
+background = "#000000"
+brights = [
+    "#4f362b",
+    "#da4375",
+    "#6cb87a",
+    "#e3da84",
+    "#8ca8a3",
+    "#ffa64f",
+    "#a167c7",
+    "#fdfdfd",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Mikazuki (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MIRAGE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#011627",
+    "#ff9999",
+    "#85cc95",
+    "#ffd700",
+    "#7fb5ff",
+    "#ddb3ff",
+    "#21c7a8",
+    "#ffffff",
+]
+background = "#1b2738"
+brights = [
+    "#575656",
+    "#ff9999",
+    "#85cc95",
+    "#ffd700",
+    "#7fb5ff",
+    "#ddb3ff",
+    "#85cc95",
+    "#ffffff",
+]
+cursor_bg = "#ddb3ff"
+cursor_border = "#ddb3ff"
+cursor_fg = "#ffffff"
+foreground = "#a6b2c0"
+selection_bg = "#273951"
+selection_fg = "#d3dbe5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Mirage"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MIRAMARE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#242021",
+    "#e68183",
+    "#a7c080",
+    "#d9bb80",
+    "#89beba",
+    "#d3a0bc",
+    "#87c095",
+    "#d8caac",
+]
+background = "#2a2426"
+brights = [
+    "#444444",
+    "#e39b7b",
+    "#a7c080",
+    "#d9bb80",
+    "#89beba",
+    "#d3a0bc",
+    "#87c095",
+    "#e6d6ac",
+]
+cursor_bg = "#e6d6ac"
+cursor_border = "#e6d6ac"
+cursor_fg = "#2a2426"
+foreground = "#e6d6ac"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Miramare (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_MISTERIOSO_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff4242",
+    "#74af68",
+    "#ffad29",
+    "#338f86",
+    "#9414e6",
+    "#23d7d7",
+    "#e1e1e0",
+]
+background = "#2d3743"
+brights = [
+    "#555555",
+    "#ff3242",
+    "#74cd68",
+    "#ffb929",
+    "#23d7d7",
+    "#ff37ff",
+    "#00ede1",
+    "#ffffff",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#ffffff"
+foreground = "#e1e1e0"
+selection_bg = "#2d37ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Misterioso (Gogh)"]
+name = "Misterioso"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MISTERIOSO_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff4242",
+    "#74af68",
+    "#ffad29",
+    "#338f86",
+    "#9414e6",
+    "#23d7d7",
+    "#e1e1e0",
+]
+background = "#2d3743"
+brights = [
+    "#555555",
+    "#ff3242",
+    "#74cd68",
+    "#ffb929",
+    "#23d7d7",
+    "#ff37ff",
+    "#00ede1",
+    "#ffffff",
+]
+cursor_bg = "#e1e1e0"
+cursor_border = "#e1e1e0"
+cursor_fg = "#2d3743"
+foreground = "#e1e1e0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Misterioso (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
 "##;
@@ -120596,6 +121153,292 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Material-Darker-to-Mathias built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_matrix_to_misterioso_builtin_color_schemes() {
+        let cases = [
+            (
+                "matrix",
+                Color::Rgb(66, 102, 68),
+                Color::Rgb(15, 25, 28),
+                Color::Rgb(56, 69, 69),
+                Some(Color::Rgb(0, 255, 0)),
+                Some(Color::Rgb(24, 40, 46)),
+                Some(Some(Color::Rgb(0, 255, 135))),
+                Color::Rgb(15, 25, 28),
+                Color::Rgb(35, 117, 90),
+                Color::Rgb(130, 217, 103),
+                Color::Rgb(255, 215, 0),
+                Color::Rgb(104, 128, 96),
+                Color::Rgb(103, 140, 97),
+                None,
+            ),
+            (
+                "Matrix (terminal.sexy)",
+                Color::Rgb(0, 204, 0),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(85, 255, 85),
+                Color::Rgb(0, 204, 0),
+                Color::Rgb(0, 204, 0),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(0, 204, 0),
+                None,
+            ),
+            (
+                "Medallion",
+                Color::Rgb(202, 194, 150),
+                Color::Rgb(29, 25, 8),
+                Color::Rgb(211, 186, 48),
+                Some(Color::Rgb(210, 188, 61)),
+                Some(Color::Rgb(98, 109, 172)),
+                Some(Some(Color::Rgb(202, 194, 154))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(182, 76, 0),
+                Color::Rgb(124, 139, 22),
+                Color::Rgb(211, 189, 38),
+                Color::Rgb(94, 82, 25),
+                Color::Rgb(254, 214, 152),
+                None,
+            ),
+            (
+                "Medallion (Gogh)",
+                Color::Rgb(202, 194, 150),
+                Color::Rgb(29, 25, 8),
+                Color::Rgb(202, 194, 150),
+                Some(Color::Rgb(29, 25, 8)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(182, 76, 0),
+                Color::Rgb(124, 139, 22),
+                Color::Rgb(211, 189, 38),
+                Color::Rgb(94, 82, 25),
+                Color::Rgb(254, 214, 152),
+                None,
+            ),
+            (
+                "Mellifluous",
+                Color::Rgb(218, 218, 218),
+                Color::Rgb(26, 26, 26),
+                Color::Rgb(191, 173, 158),
+                Some(Color::Rgb(26, 26, 26)),
+                Some(Color::Rgb(45, 45, 45)),
+                Some(Some(Color::Rgb(192, 175, 140))),
+                Color::Rgb(26, 26, 26),
+                Color::Rgb(210, 147, 147),
+                Color::Rgb(179, 179, 147),
+                Color::Rgb(203, 170, 137),
+                Color::Rgb(91, 91, 91),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Mellow Purple (base16)",
+                Color::Rgb(255, 238, 255),
+                Color::Rgb(30, 5, 40),
+                Color::Rgb(255, 238, 255),
+                Some(Color::Rgb(30, 5, 40)),
+                Some(Color::Rgb(255, 238, 255)),
+                Some(Some(Color::Rgb(30, 5, 40))),
+                Color::Rgb(30, 5, 40),
+                Color::Rgb(0, 217, 233),
+                Color::Rgb(5, 203, 13),
+                Color::Rgb(149, 90, 231),
+                Color::Rgb(50, 15, 85),
+                Color::Rgb(248, 192, 255),
+                Some(Color::Rgb(170, 0, 163)),
+            ),
+            (
+                "Mexico Light (base16)",
+                Color::Rgb(56, 56, 56),
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(56, 56, 56),
+                Some(Color::Rgb(248, 248, 248)),
+                Some(Color::Rgb(56, 56, 56)),
+                Some(Some(Color::Rgb(248, 248, 248))),
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(171, 70, 66),
+                Color::Rgb(83, 137, 71),
+                Color::Rgb(247, 154, 14),
+                Color::Rgb(184, 184, 184),
+                Color::Rgb(24, 24, 24),
+                Some(Color::Rgb(220, 150, 86)),
+            ),
+            (
+                "midnight-in-mojave",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(50, 215, 75),
+                Some(Color::Rgb(28, 28, 28)),
+                Some(Color::Rgb(74, 80, 77)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(255, 69, 58),
+                Color::Rgb(50, 215, 75),
+                Color::Rgb(255, 214, 10),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Mikado (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(50, 42, 44),
+                Color::Rgb(160, 67, 99),
+                Color::Rgb(155, 147, 41),
+                Color::Rgb(191, 122, 41),
+                Color::Rgb(70, 66, 59),
+                Color::Rgb(193, 196, 188),
+                None,
+            ),
+            (
+                "Mikazuki (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(42, 29, 23),
+                Color::Rgb(218, 22, 87),
+                Color::Rgb(62, 162, 80),
+                Color::Rgb(227, 211, 61),
+                Color::Rgb(79, 54, 43),
+                Color::Rgb(253, 253, 253),
+                None,
+            ),
+            (
+                "Mirage",
+                Color::Rgb(166, 178, 192),
+                Color::Rgb(27, 39, 56),
+                Color::Rgb(221, 179, 255),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(39, 57, 81)),
+                Some(Some(Color::Rgb(211, 219, 229))),
+                Color::Rgb(1, 22, 39),
+                Color::Rgb(255, 153, 153),
+                Color::Rgb(133, 204, 149),
+                Color::Rgb(255, 215, 0),
+                Color::Rgb(87, 86, 86),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Miramare (Gogh)",
+                Color::Rgb(230, 214, 172),
+                Color::Rgb(42, 36, 38),
+                Color::Rgb(230, 214, 172),
+                Some(Color::Rgb(42, 36, 38)),
+                None,
+                None,
+                Color::Rgb(36, 32, 33),
+                Color::Rgb(230, 129, 131),
+                Color::Rgb(167, 192, 128),
+                Color::Rgb(217, 187, 128),
+                Color::Rgb(68, 68, 68),
+                Color::Rgb(230, 214, 172),
+                None,
+            ),
+            (
+                "Misterioso",
+                Color::Rgb(225, 225, 224),
+                Color::Rgb(45, 55, 67),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(45, 55, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 66, 66),
+                Color::Rgb(116, 175, 104),
+                Color::Rgb(255, 173, 41),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Misterioso (Gogh)",
+                Color::Rgb(225, 225, 224),
+                Color::Rgb(45, 55, 67),
+                Color::Rgb(225, 225, 224),
+                Some(Color::Rgb(45, 55, 67)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 66, 66),
+                Color::Rgb(116, 175, 104),
+                Color::Rgb(255, 173, 41),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Matrix-to-Misterioso built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
