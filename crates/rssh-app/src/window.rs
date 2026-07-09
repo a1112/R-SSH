@@ -20065,6 +20065,15 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Ocean Dark (Gogh)" | "OceanDark (Gogh)" => Some(BUILTIN_OCEAN_DARK_GOGH_COLOR_SCHEME_TOML),
         "Oceanic Next (Gogh)" => Some(BUILTIN_OCEANIC_NEXT_GOGH_COLOR_SCHEME_TOML),
         "Oceanic-Next" | "OceanicNext (Gogh)" => Some(BUILTIN_OCEANIC_NEXT_COLOR_SCHEME_TOML),
+        "OceanicMaterial" => Some(BUILTIN_OCEANICMATERIAL_COLOR_SCHEME_TOML),
+        "OceanicNext (base16)" => Some(BUILTIN_OCEANICNEXT_BASE16_COLOR_SCHEME_TOML),
+        "Ollie" => Some(BUILTIN_OLLIE_COLOR_SCHEME_TOML),
+        "Ollie (Gogh)" => Some(BUILTIN_OLLIE_GOGH_COLOR_SCHEME_TOML),
+        "Omni (Gogh)" => Some(BUILTIN_OMNI_GOGH_COLOR_SCHEME_TOML),
+        "One Dark (Gogh)" | "OneDark (Gogh)" => Some(BUILTIN_ONE_DARK_GOGH_COLOR_SCHEME_TOML),
+        "One Half Black (Gogh)" | "OneHalfBlack (Gogh)" => {
+            Some(BUILTIN_ONE_HALF_BLACK_GOGH_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -46669,6 +46678,278 @@ aliases = [
 name = "Oceanic-Next"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_OCEANICMATERIAL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ee2b2a",
+    "#40a33f",
+    "#ffea2e",
+    "#1e80f0",
+    "#8800a0",
+    "#16afca",
+    "#a4a4a4",
+]
+background = "#1c262b"
+brights = [
+    "#777777",
+    "#dc5c60",
+    "#70be71",
+    "#fff163",
+    "#54a4f3",
+    "#aa4dbc",
+    "#42c7da",
+    "#ffffff",
+]
+cursor_bg = "#b3b8c3"
+cursor_border = "#b3b8c3"
+cursor_fg = "#ffffff"
+foreground = "#c2c8d7"
+selection_bg = "#6dc2b8"
+selection_fg = "#c2c8d7"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "OceanicMaterial"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_OCEANICNEXT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b2b34",
+    "#ec5f67",
+    "#99c794",
+    "#fac863",
+    "#6699cc",
+    "#c594c5",
+    "#5fb3b3",
+    "#c0c5ce",
+]
+background = "#1b2b34"
+brights = [
+    "#65737e",
+    "#ec5f67",
+    "#99c794",
+    "#fac863",
+    "#6699cc",
+    "#c594c5",
+    "#5fb3b3",
+    "#d8dee9",
+]
+cursor_bg = "#c0c5ce"
+cursor_border = "#c0c5ce"
+cursor_fg = "#1b2b34"
+foreground = "#c0c5ce"
+selection_bg = "#c0c5ce"
+selection_fg = "#1b2b34"
+
+[colors.indexed]
+16 = "#f99157"
+17 = "#ab7967"
+18 = "#343d46"
+19 = "#4f5b66"
+20 = "#a7adba"
+21 = "#cdd3de"
+
+[metadata]
+aliases = []
+author = "https://github.com/voronianski/oceanic-next-color-scheme"
+name = "OceanicNext (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_OLLIE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ac2e31",
+    "#31ac61",
+    "#ac4300",
+    "#2d57ac",
+    "#b08528",
+    "#1fa6ac",
+    "#8a8eac",
+]
+background = "#222125"
+brights = [
+    "#5b3725",
+    "#ff3d48",
+    "#3bff99",
+    "#ff5e1e",
+    "#4488ff",
+    "#ffc21d",
+    "#1ffaff",
+    "#5b6ea7",
+]
+cursor_bg = "#5b6ea7"
+cursor_border = "#5b6ea7"
+cursor_fg = "#2a292d"
+foreground = "#8a8dae"
+selection_bg = "#1e3a66"
+selection_fg = "#8a8eac"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Ollie (Gogh)"]
+name = "Ollie"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_OLLIE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ac2e31",
+    "#31ac61",
+    "#ac4300",
+    "#2d57ac",
+    "#b08528",
+    "#1fa6ac",
+    "#8a8eac",
+]
+background = "#222125"
+brights = [
+    "#5b3725",
+    "#ff3d48",
+    "#3bff99",
+    "#ff5e1e",
+    "#4488ff",
+    "#ffc21d",
+    "#1ffaff",
+    "#5b6ea7",
+]
+cursor_bg = "#8a8dae"
+cursor_border = "#8a8dae"
+cursor_fg = "#222125"
+foreground = "#8a8dae"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Ollie (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_OMNI_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#191622",
+    "#e96379",
+    "#67e480",
+    "#e89e64",
+    "#78d1e1",
+    "#988bc7",
+    "#ff79c6",
+    "#abb2bf",
+]
+background = "#191622"
+brights = [
+    "#000000",
+    "#e96379",
+    "#67e480",
+    "#e89e64",
+    "#78d1e1",
+    "#988bc7",
+    "#ff79c6",
+    "#ffffff",
+]
+cursor_bg = "#abb2bf"
+cursor_border = "#abb2bf"
+cursor_fg = "#191622"
+foreground = "#abb2bf"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Omni (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ONE_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#e06c75",
+    "#98c379",
+    "#d19a66",
+    "#61afef",
+    "#c678dd",
+    "#56b6c2",
+    "#abb2bf",
+]
+background = "#1e2127"
+brights = [
+    "#5c6370",
+    "#e06c75",
+    "#98c379",
+    "#d19a66",
+    "#61afef",
+    "#c678dd",
+    "#56b6c2",
+    "#fffefe",
+]
+cursor_bg = "#5c6370"
+cursor_border = "#5c6370"
+cursor_fg = "#1e2127"
+foreground = "#5c6370"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["OneDark (Gogh)"]
+name = "One Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ONE_HALF_BLACK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282c34",
+    "#e06c75",
+    "#98c379",
+    "#e5c07b",
+    "#61afef",
+    "#c678dd",
+    "#56b6c2",
+    "#dcdfe4",
+]
+background = "#000000"
+brights = [
+    "#282c34",
+    "#e06c75",
+    "#98c379",
+    "#e5c07b",
+    "#61afef",
+    "#c678dd",
+    "#56b6c2",
+    "#dcdfe4",
+]
+cursor_bg = "#dcdfe4"
+cursor_border = "#dcdfe4"
+cursor_fg = "#000000"
+foreground = "#dcdfe4"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["OneHalfBlack (Gogh)"]
+name = "One Half Black (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -127344,6 +127625,212 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Obsidian-Gogh-to-Oceanic-Next built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_oceanic_material_to_one_half_black_builtin_color_schemes() {
+        let cases = [
+            (
+                "OceanicMaterial",
+                Color::Rgb(194, 200, 215),
+                Color::Rgb(28, 38, 43),
+                Color::Rgb(179, 184, 195),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(109, 194, 184)),
+                Some(Some(Color::Rgb(194, 200, 215))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(238, 43, 42),
+                Color::Rgb(64, 163, 63),
+                Color::Rgb(255, 234, 46),
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "OceanicNext (base16)",
+                Color::Rgb(192, 197, 206),
+                Color::Rgb(27, 43, 52),
+                Color::Rgb(192, 197, 206),
+                Some(Color::Rgb(27, 43, 52)),
+                Some(Color::Rgb(192, 197, 206)),
+                Some(Some(Color::Rgb(27, 43, 52))),
+                Color::Rgb(27, 43, 52),
+                Color::Rgb(236, 95, 103),
+                Color::Rgb(153, 199, 148),
+                Color::Rgb(250, 200, 99),
+                Color::Rgb(101, 115, 126),
+                Color::Rgb(216, 222, 233),
+                Some(Color::Rgb(249, 145, 87)),
+            ),
+            (
+                "Ollie",
+                Color::Rgb(138, 141, 174),
+                Color::Rgb(34, 33, 37),
+                Color::Rgb(91, 110, 167),
+                Some(Color::Rgb(42, 41, 45)),
+                Some(Color::Rgb(30, 58, 102)),
+                Some(Some(Color::Rgb(138, 142, 172))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(172, 46, 49),
+                Color::Rgb(49, 172, 97),
+                Color::Rgb(172, 67, 0),
+                Color::Rgb(91, 55, 37),
+                Color::Rgb(91, 110, 167),
+                None,
+            ),
+            (
+                "Ollie (Gogh)",
+                Color::Rgb(138, 141, 174),
+                Color::Rgb(34, 33, 37),
+                Color::Rgb(138, 141, 174),
+                Some(Color::Rgb(34, 33, 37)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(172, 46, 49),
+                Color::Rgb(49, 172, 97),
+                Color::Rgb(172, 67, 0),
+                Color::Rgb(91, 55, 37),
+                Color::Rgb(91, 110, 167),
+                None,
+            ),
+            (
+                "Omni (Gogh)",
+                Color::Rgb(171, 178, 191),
+                Color::Rgb(25, 22, 34),
+                Color::Rgb(171, 178, 191),
+                Some(Color::Rgb(25, 22, 34)),
+                None,
+                None,
+                Color::Rgb(25, 22, 34),
+                Color::Rgb(233, 99, 121),
+                Color::Rgb(103, 228, 128),
+                Color::Rgb(232, 158, 100),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "One Dark (Gogh)",
+                Color::Rgb(92, 99, 112),
+                Color::Rgb(30, 33, 39),
+                Color::Rgb(92, 99, 112),
+                Some(Color::Rgb(30, 33, 39)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(224, 108, 117),
+                Color::Rgb(152, 195, 121),
+                Color::Rgb(209, 154, 102),
+                Color::Rgb(92, 99, 112),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+            (
+                "OneDark (Gogh)",
+                Color::Rgb(92, 99, 112),
+                Color::Rgb(30, 33, 39),
+                Color::Rgb(92, 99, 112),
+                Some(Color::Rgb(30, 33, 39)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(224, 108, 117),
+                Color::Rgb(152, 195, 121),
+                Color::Rgb(209, 154, 102),
+                Color::Rgb(92, 99, 112),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+            (
+                "One Half Black (Gogh)",
+                Color::Rgb(220, 223, 228),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(220, 223, 228),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(224, 108, 117),
+                Color::Rgb(152, 195, 121),
+                Color::Rgb(229, 192, 123),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(220, 223, 228),
+                None,
+            ),
+            (
+                "OneHalfBlack (Gogh)",
+                Color::Rgb(220, 223, 228),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(220, 223, 228),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(224, 108, 117),
+                Color::Rgb(152, 195, 121),
+                Color::Rgb(229, 192, 123),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(220, 223, 228),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm OceanicMaterial-to-One-Half-Black built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

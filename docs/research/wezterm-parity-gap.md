@@ -3780,11 +3780,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Obsidian (Gogh)`, `Ocean`, `Ocean (base16)`,
   `Ocean (dark) (terminal.sexy)`, `Ocean (light) (terminal.sexy)`,
   `Ocean Dark (Gogh)`, `Oceanic Next (Gogh)`, `Oceanic-Next`,
-  `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
-  `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
-  `Builtin Tango Light`, and already mapped non-conflicting WezTerm aliases
-  using WezTerm's built-in TOML palette data. The broader built-in scheme
-  catalog, richer dynamic `load_scheme` composition, and full dynamic Lua scheme
+  `OceanicMaterial`, `OceanicNext (base16)`, `Ollie`, `Ollie (Gogh)`,
+  `Omni (Gogh)`, `One Dark (Gogh)`, `One Half Black (Gogh)`, `Builtin Dark`,
+  `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
+  `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
+  already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
+  palette data. The broader built-in scheme catalog, richer dynamic
+  `load_scheme` composition, and full dynamic Lua scheme
   construction remain later parity work.
 - Native terminal rendering applies WezTerm-style `colors.background` as the
   default framebuffer background for full and damage renders. Static
