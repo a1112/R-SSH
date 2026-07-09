@@ -3693,6 +3693,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Hardcore (base16)`, `Hardcore (Gogh)`, `hardhacker`,
   `Harmonic16 Dark (base16)`, `Harmonic16 Light (base16)`, `Harper`,
   `Harper (Gogh)`, `HaX0R_BLUE`, `HaX0R_GR33N`, `HaX0R_R3D`,
+  `Heetch Dark (base16)`, `Heetch Light (base16)`, `Helios (base16)`,
+  `Hemisu Dark (Gogh)`, `Hemisu Light (Gogh)`, `Highway`,
+  `Highway (Gogh)`, `Hipster Green`, `Hipster Green (Gogh)`, `Hivacruz`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting

@@ -19749,6 +19749,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "HaX0R_BLUE" => Some(BUILTIN_HAX0R_BLUE_COLOR_SCHEME_TOML),
         "HaX0R_GR33N" => Some(BUILTIN_HAX0R_GR33N_COLOR_SCHEME_TOML),
         "HaX0R_R3D" => Some(BUILTIN_HAX0R_R3D_COLOR_SCHEME_TOML),
+        "Heetch Dark (base16)" => Some(BUILTIN_HEETCH_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Heetch Light (base16)" => Some(BUILTIN_HEETCH_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Helios (base16)" => Some(BUILTIN_HELIOS_BASE16_COLOR_SCHEME_TOML),
+        "Hemisu Dark (Gogh)" | "HemisuDark (Gogh)" => {
+            Some(BUILTIN_HEMISU_DARK_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Hemisu Light (Gogh)" | "HemisuLight (Gogh)" => {
+            Some(BUILTIN_HEMISU_LIGHT_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Highway" => Some(BUILTIN_HIGHWAY_COLOR_SCHEME_TOML),
+        "Highway (Gogh)" => Some(BUILTIN_HIGHWAY_GOGH_COLOR_SCHEME_TOML),
+        "Hipster Green" | "HipsterGreen (Gogh)" => Some(BUILTIN_HIPSTER_GREEN_COLOR_SCHEME_TOML),
+        "Hipster Green (Gogh)" => Some(BUILTIN_HIPSTER_GREEN_GOGH_COLOR_SCHEME_TOML),
+        "Hivacruz" => Some(BUILTIN_HIVACRUZ_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -37182,6 +37196,412 @@ selection_fg = "#fdfdfd"
 [metadata]
 aliases = []
 name = "HaX0R_R3D"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HEETCH_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#190134",
+    "#27d9d5",
+    "#c33678",
+    "#8f6c97",
+    "#bd0152",
+    "#82034c",
+    "#f80059",
+    "#bdb6c5",
+]
+background = "#190134"
+brights = [
+    "#7b6d8b",
+    "#27d9d5",
+    "#c33678",
+    "#8f6c97",
+    "#bd0152",
+    "#82034c",
+    "#f80059",
+    "#feffff",
+]
+cursor_bg = "#bdb6c5"
+cursor_border = "#bdb6c5"
+cursor_fg = "#190134"
+foreground = "#bdb6c5"
+selection_bg = "#bdb6c5"
+selection_fg = "#190134"
+
+[colors.indexed]
+16 = "#5ba2b6"
+17 = "#470546"
+18 = "#392551"
+19 = "#5a496e"
+20 = "#9c92a8"
+21 = "#dedae2"
+
+[metadata]
+aliases = []
+author = "Geoffrey Teale (tealeg@gmail.com)"
+name = "Heetch Dark (base16)"
+origin_url = "https://github.com/tealeg/base16-heetch-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HEETCH_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#feffff",
+    "#27d9d5",
+    "#f80059",
+    "#5ba2b6",
+    "#47f9f5",
+    "#bd0152",
+    "#c33678",
+    "#5a496e",
+]
+background = "#feffff"
+brights = [
+    "#9c92a8",
+    "#27d9d5",
+    "#f80059",
+    "#5ba2b6",
+    "#47f9f5",
+    "#bd0152",
+    "#c33678",
+    "#190134",
+]
+cursor_bg = "#5a496e"
+cursor_border = "#5a496e"
+cursor_fg = "#feffff"
+foreground = "#5a496e"
+selection_bg = "#5a496e"
+selection_fg = "#feffff"
+
+[colors.indexed]
+16 = "#bdb6c5"
+17 = "#dedae2"
+18 = "#392551"
+19 = "#7b6d8b"
+20 = "#ddd6e5"
+21 = "#470546"
+
+[metadata]
+aliases = []
+author = "Geoffrey Teale (tealeg@gmail.com)"
+name = "Heetch Light (base16)"
+origin_url = "https://github.com/tealeg/base16-heetch-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HELIOS_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d2021",
+    "#d72638",
+    "#88b92d",
+    "#f19d1a",
+    "#1e8bac",
+    "#be4264",
+    "#1ba595",
+    "#d5d5d5",
+]
+background = "#1d2021"
+brights = [
+    "#6f7579",
+    "#d72638",
+    "#88b92d",
+    "#f19d1a",
+    "#1e8bac",
+    "#be4264",
+    "#1ba595",
+    "#e5e5e5",
+]
+cursor_bg = "#d5d5d5"
+cursor_border = "#d5d5d5"
+cursor_fg = "#1d2021"
+foreground = "#d5d5d5"
+selection_bg = "#d5d5d5"
+selection_fg = "#1d2021"
+
+[colors.indexed]
+16 = "#eb8413"
+17 = "#c85e0d"
+18 = "#383c3e"
+19 = "#53585b"
+20 = "#cdcdcd"
+21 = "#dddddd"
+
+[metadata]
+aliases = []
+author = "Alex Meyer (https://github.com/reyemxela)"
+name = "Helios (base16)"
+origin_url = "https://github.com/reyemxela/base16-helios-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HEMISU_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#444444",
+    "#ff0054",
+    "#b1d630",
+    "#9d895e",
+    "#67bee3",
+    "#b576bc",
+    "#569a9f",
+    "#ededed",
+]
+background = "#000000"
+brights = [
+    "#777777",
+    "#d65e75",
+    "#baffaa",
+    "#ece1c8",
+    "#9fd3e5",
+    "#deb3df",
+    "#b6e0e5",
+    "#ffffff",
+]
+cursor_bg = "#baffaa"
+cursor_border = "#baffaa"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["HemisuDark (Gogh)"]
+name = "Hemisu Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HEMISU_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#777777",
+    "#ff0055",
+    "#739100",
+    "#503d15",
+    "#538091",
+    "#5b345e",
+    "#538091",
+    "#999999",
+]
+background = "#efefef"
+brights = [
+    "#999999",
+    "#d65e76",
+    "#9cc700",
+    "#947555",
+    "#9db3cd",
+    "#a184a4",
+    "#85b2aa",
+    "#bababa",
+]
+cursor_bg = "#ff0054"
+cursor_border = "#ff0054"
+cursor_fg = "#efefef"
+foreground = "#444444"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["HemisuLight (Gogh)"]
+name = "Hemisu Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HIGHWAY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d00e18",
+    "#138034",
+    "#ffcb3e",
+    "#006bb3",
+    "#6b2775",
+    "#384564",
+    "#ededed",
+]
+background = "#222225"
+brights = [
+    "#5d504a",
+    "#f07e18",
+    "#b1d130",
+    "#fff120",
+    "#4fc2fd",
+    "#de0071",
+    "#5d504a",
+    "#ffffff",
+]
+cursor_bg = "#e0d9b9"
+cursor_border = "#e0d9b9"
+cursor_fg = "#1f192a"
+foreground = "#ededed"
+selection_bg = "#384564"
+selection_fg = "#ededed"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Highway (Gogh)"]
+name = "Highway"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HIGHWAY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d00e18",
+    "#138034",
+    "#ffcb3e",
+    "#006bb3",
+    "#6b2775",
+    "#384564",
+    "#ededed",
+]
+background = "#222225"
+brights = [
+    "#5d504a",
+    "#f07e18",
+    "#b1d130",
+    "#fff120",
+    "#4fc2fd",
+    "#de0071",
+    "#5d504a",
+    "#ffffff",
+]
+cursor_bg = "#ededed"
+cursor_border = "#ededed"
+cursor_fg = "#222225"
+foreground = "#ededed"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Highway (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_HIPSTER_GREEN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#b6214a",
+    "#00a600",
+    "#bfbf00",
+    "#246eb2",
+    "#b200b2",
+    "#00a6b2",
+    "#bfbfbf",
+]
+background = "#100b05"
+brights = [
+    "#666666",
+    "#e50000",
+    "#86a93e",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#23ff18"
+cursor_border = "#23ff18"
+cursor_fg = "#ff0018"
+foreground = "#84c138"
+selection_bg = "#083905"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Hipster Green (Gogh)",
+    "HipsterGreen (Gogh)",
+]
+name = "Hipster Green"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HIPSTER_GREEN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#b6214a",
+    "#00a600",
+    "#bfbf00",
+    "#246eb2",
+    "#b200b2",
+    "#00a6b2",
+    "#bfbfbf",
+]
+background = "#100b05"
+brights = [
+    "#666666",
+    "#e50000",
+    "#86a93e",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#84c138"
+cursor_border = "#84c138"
+cursor_fg = "#100b05"
+foreground = "#84c138"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Hipster Green (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_HIVACRUZ_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#202746",
+    "#c94922",
+    "#ac9739",
+    "#c08b30",
+    "#3d8fd1",
+    "#6679cc",
+    "#22a2c9",
+    "#979db4",
+]
+background = "#132638"
+brights = [
+    "#6b7394",
+    "#c76b29",
+    "#73ad43",
+    "#5e6687",
+    "#898ea4",
+    "#dfe2f1",
+    "#9c637a",
+    "#f5f7ff",
+]
+cursor_bg = "#979db4"
+cursor_border = "#979db4"
+cursor_fg = "#202746"
+foreground = "#ede4e4"
+selection_bg = "#5e6687"
+selection_fg = "#979db4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Hivacruz"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
 "##;
@@ -112095,6 +112515,276 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Hardcore base16-to-HaX0R built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_heetch_to_hivacruz_builtin_color_schemes() {
+        let cases = [
+            (
+                "Heetch Dark (base16)",
+                Color::Rgb(189, 182, 197),
+                Color::Rgb(25, 1, 52),
+                Color::Rgb(189, 182, 197),
+                Some(Color::Rgb(25, 1, 52)),
+                Some(Color::Rgb(189, 182, 197)),
+                Some(Some(Color::Rgb(25, 1, 52))),
+                Color::Rgb(25, 1, 52),
+                Color::Rgb(39, 217, 213),
+                Color::Rgb(195, 54, 120),
+                Color::Rgb(143, 108, 151),
+                Color::Rgb(123, 109, 139),
+                Color::Rgb(254, 255, 255),
+                Some(Color::Rgb(91, 162, 182)),
+            ),
+            (
+                "Heetch Light (base16)",
+                Color::Rgb(90, 73, 110),
+                Color::Rgb(254, 255, 255),
+                Color::Rgb(90, 73, 110),
+                Some(Color::Rgb(254, 255, 255)),
+                Some(Color::Rgb(90, 73, 110)),
+                Some(Some(Color::Rgb(254, 255, 255))),
+                Color::Rgb(254, 255, 255),
+                Color::Rgb(39, 217, 213),
+                Color::Rgb(248, 0, 89),
+                Color::Rgb(91, 162, 182),
+                Color::Rgb(156, 146, 168),
+                Color::Rgb(25, 1, 52),
+                Some(Color::Rgb(189, 182, 197)),
+            ),
+            (
+                "Helios (base16)",
+                Color::Rgb(213, 213, 213),
+                Color::Rgb(29, 32, 33),
+                Color::Rgb(213, 213, 213),
+                Some(Color::Rgb(29, 32, 33)),
+                Some(Color::Rgb(213, 213, 213)),
+                Some(Some(Color::Rgb(29, 32, 33))),
+                Color::Rgb(29, 32, 33),
+                Color::Rgb(215, 38, 56),
+                Color::Rgb(136, 185, 45),
+                Color::Rgb(241, 157, 26),
+                Color::Rgb(111, 117, 121),
+                Color::Rgb(229, 229, 229),
+                Some(Color::Rgb(235, 132, 19)),
+            ),
+            (
+                "Hemisu Dark (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(186, 255, 170),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(68, 68, 68),
+                Color::Rgb(255, 0, 84),
+                Color::Rgb(177, 214, 48),
+                Color::Rgb(157, 137, 94),
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "HemisuDark (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(186, 255, 170),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(68, 68, 68),
+                Color::Rgb(255, 0, 84),
+                Color::Rgb(177, 214, 48),
+                Color::Rgb(157, 137, 94),
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Hemisu Light (Gogh)",
+                Color::Rgb(68, 68, 68),
+                Color::Rgb(239, 239, 239),
+                Color::Rgb(255, 0, 84),
+                Some(Color::Rgb(239, 239, 239)),
+                None,
+                None,
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(255, 0, 85),
+                Color::Rgb(115, 145, 0),
+                Color::Rgb(80, 61, 21),
+                Color::Rgb(153, 153, 153),
+                Color::Rgb(186, 186, 186),
+                None,
+            ),
+            (
+                "HemisuLight (Gogh)",
+                Color::Rgb(68, 68, 68),
+                Color::Rgb(239, 239, 239),
+                Color::Rgb(255, 0, 84),
+                Some(Color::Rgb(239, 239, 239)),
+                None,
+                None,
+                Color::Rgb(119, 119, 119),
+                Color::Rgb(255, 0, 85),
+                Color::Rgb(115, 145, 0),
+                Color::Rgb(80, 61, 21),
+                Color::Rgb(153, 153, 153),
+                Color::Rgb(186, 186, 186),
+                None,
+            ),
+            (
+                "Highway",
+                Color::Rgb(237, 237, 237),
+                Color::Rgb(34, 34, 37),
+                Color::Rgb(224, 217, 185),
+                Some(Color::Rgb(31, 25, 42)),
+                Some(Color::Rgb(56, 69, 100)),
+                Some(Some(Color::Rgb(237, 237, 237))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(208, 14, 24),
+                Color::Rgb(19, 128, 52),
+                Color::Rgb(255, 203, 62),
+                Color::Rgb(93, 80, 74),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Highway (Gogh)",
+                Color::Rgb(237, 237, 237),
+                Color::Rgb(34, 34, 37),
+                Color::Rgb(237, 237, 237),
+                Some(Color::Rgb(34, 34, 37)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(208, 14, 24),
+                Color::Rgb(19, 128, 52),
+                Color::Rgb(255, 203, 62),
+                Color::Rgb(93, 80, 74),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Hipster Green",
+                Color::Rgb(132, 193, 56),
+                Color::Rgb(16, 11, 5),
+                Color::Rgb(35, 255, 24),
+                Some(Color::Rgb(255, 0, 24)),
+                Some(Color::Rgb(8, 57, 5)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(182, 33, 74),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(191, 191, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "HipsterGreen (Gogh)",
+                Color::Rgb(132, 193, 56),
+                Color::Rgb(16, 11, 5),
+                Color::Rgb(35, 255, 24),
+                Some(Color::Rgb(255, 0, 24)),
+                Some(Color::Rgb(8, 57, 5)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(182, 33, 74),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(191, 191, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Hipster Green (Gogh)",
+                Color::Rgb(132, 193, 56),
+                Color::Rgb(16, 11, 5),
+                Color::Rgb(132, 193, 56),
+                Some(Color::Rgb(16, 11, 5)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(182, 33, 74),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(191, 191, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Hivacruz",
+                Color::Rgb(237, 228, 228),
+                Color::Rgb(19, 38, 56),
+                Color::Rgb(151, 157, 180),
+                Some(Color::Rgb(32, 39, 70)),
+                Some(Color::Rgb(94, 102, 135)),
+                Some(Some(Color::Rgb(151, 157, 180))),
+                Color::Rgb(32, 39, 70),
+                Color::Rgb(201, 73, 34),
+                Color::Rgb(172, 151, 57),
+                Color::Rgb(192, 139, 48),
+                Color::Rgb(107, 115, 148),
+                Color::Rgb(245, 247, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Heetch-to-Hivacruz built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
