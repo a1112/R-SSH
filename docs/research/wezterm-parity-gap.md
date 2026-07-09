@@ -3734,7 +3734,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `lovelace`, `Low Contrast (terminal.sexy)`, `Lumifoo (terminal.sexy)`,
   `Lunaria Dark (Gogh)`, `Lunaria Eclipse (Gogh)`,
   `Lunaria Light (Gogh)`, `Macintosh (base16)`, `Maia (Gogh)`,
-  `Man Page`, `Man Page (Gogh)`,
+  `Man Page`, `Man Page (Gogh)`, `Mar (Gogh)`, `Mariana`,
+  `Marrakesh (base16)`, `Marrakesh (dark) (terminal.sexy)`,
+  `Marrakesh (light) (terminal.sexy)`,
+  `Mashup Colors (terminal.sexy)`, `Materia (base16)`, `Material`,
+  `Material (base16)`, `Material (Gogh)`, `Material (terminal.sexy)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting

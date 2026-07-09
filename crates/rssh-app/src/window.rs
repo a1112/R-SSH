@@ -19897,6 +19897,23 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Maia (Gogh)" => Some(BUILTIN_MAIA_GOGH_COLOR_SCHEME_TOML),
         "Man Page" | "ManPage (Gogh)" => Some(BUILTIN_MAN_PAGE_COLOR_SCHEME_TOML),
         "Man Page (Gogh)" => Some(BUILTIN_MAN_PAGE_GOGH_COLOR_SCHEME_TOML),
+        "Mar (Gogh)" => Some(BUILTIN_MAR_GOGH_COLOR_SCHEME_TOML),
+        "Mariana" => Some(BUILTIN_MARIANA_COLOR_SCHEME_TOML),
+        "Marrakesh (base16)" => Some(BUILTIN_MARRAKESH_BASE16_COLOR_SCHEME_TOML),
+        "Marrakesh (dark) (terminal.sexy)" => {
+            Some(BUILTIN_MARRAKESH_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Marrakesh (light) (terminal.sexy)" => {
+            Some(BUILTIN_MARRAKESH_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Mashup Colors (terminal.sexy)" => {
+            Some(BUILTIN_MASHUP_COLORS_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Materia (base16)" => Some(BUILTIN_MATERIA_BASE16_COLOR_SCHEME_TOML),
+        "Material" => Some(BUILTIN_MATERIAL_COLOR_SCHEME_TOML),
+        "Material (base16)" => Some(BUILTIN_MATERIAL_BASE16_COLOR_SCHEME_TOML),
+        "Material (Gogh)" => Some(BUILTIN_MATERIAL_GOGH_COLOR_SCHEME_TOML),
+        "Material (terminal.sexy)" => Some(BUILTIN_MATERIAL_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -41590,6 +41607,436 @@ aliases = []
 name = "Man Page (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_MAR_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#b5407b",
+    "#7bb540",
+    "#b57b40",
+    "#407bb5",
+    "#7b40b5",
+    "#40b57b",
+    "#f8f8f8",
+]
+background = "#ffffff"
+brights = [
+    "#737373",
+    "#cd73a0",
+    "#a0cd73",
+    "#cda073",
+    "#73a0cd",
+    "#a073cd",
+    "#73cda0",
+    "#ffffff",
+]
+cursor_bg = "#23476a"
+cursor_border = "#23476a"
+cursor_fg = "#ffffff"
+foreground = "#23476a"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Mar (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MARIANA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ec5f66",
+    "#99c794",
+    "#f9ae58",
+    "#6699cc",
+    "#c695c6",
+    "#5fb4b4",
+    "#f7f7f7",
+]
+background = "#343d46"
+brights = [
+    "#333333",
+    "#f97b58",
+    "#acd1a8",
+    "#fac761",
+    "#85add6",
+    "#d8b6d8",
+    "#82c4c4",
+    "#ffffff",
+]
+cursor_bg = "#fcbb6a"
+cursor_border = "#fcbb6a"
+cursor_fg = "#ffffff"
+foreground = "#d8dee9"
+selection_bg = "#4e5a65"
+selection_fg = "#d8dee9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Mariana"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MARRAKESH_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#201602",
+    "#c35359",
+    "#18974e",
+    "#a88339",
+    "#477ca1",
+    "#8868b3",
+    "#75a738",
+    "#948e48",
+]
+background = "#201602"
+brights = [
+    "#6c6823",
+    "#c35359",
+    "#18974e",
+    "#a88339",
+    "#477ca1",
+    "#8868b3",
+    "#75a738",
+    "#faf0a5",
+]
+cursor_bg = "#948e48"
+cursor_border = "#948e48"
+cursor_fg = "#201602"
+foreground = "#948e48"
+selection_bg = "#948e48"
+selection_fg = "#201602"
+
+[colors.indexed]
+"16" = "#b36144"
+"17" = "#b3588e"
+"18" = "#302e00"
+"19" = "#5f5b17"
+"20" = "#86813b"
+"21" = "#ccc37a"
+
+[metadata]
+aliases = ["Marrakesh (dark) (terminal.sexy)"]
+author = "Alexandre Gavioli (http://github.com/Alexx2/)"
+name = "Marrakesh (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MARRAKESH_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#201602",
+    "#c35359",
+    "#18974e",
+    "#a88339",
+    "#477ca1",
+    "#8868b3",
+    "#75a738",
+    "#948e48",
+]
+background = "#201602"
+brights = [
+    "#6c6823",
+    "#c35359",
+    "#18974e",
+    "#a88339",
+    "#477ca1",
+    "#8868b3",
+    "#75a738",
+    "#faf0a5",
+]
+foreground = "#948e48"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Marrakesh (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_MARRAKESH_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#201602",
+    "#c35359",
+    "#18974e",
+    "#a88339",
+    "#477ca1",
+    "#8868b3",
+    "#75a738",
+    "#948e48",
+]
+background = "#faf0a5"
+brights = [
+    "#6c6823",
+    "#c35359",
+    "#18974e",
+    "#a88339",
+    "#477ca1",
+    "#8868b3",
+    "#75a738",
+    "#faf0a5",
+]
+foreground = "#5f5b17"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Marrakesh (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MASHUP_COLORS_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#202020",
+    "#bf3f34",
+    "#707d22",
+    "#bf7a29",
+    "#627a92",
+    "#75507b",
+    "#757978",
+    "#b2a191",
+]
+background = "#171717"
+brights = [
+    "#404040",
+    "#ff6c5f",
+    "#b8ca4b",
+    "#c7a551",
+    "#95b9de",
+    "#ad7fa8",
+    "#9fa590",
+    "#e8d0c3",
+]
+foreground = "#b2a191"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "user 77"
+name = "Mashup Colors (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MATERIA_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#263238",
+    "#ec5f67",
+    "#8bd649",
+    "#ffcc00",
+    "#89ddff",
+    "#82aaff",
+    "#80cbc4",
+    "#cdd3de",
+]
+background = "#263238"
+brights = [
+    "#707880",
+    "#ec5f67",
+    "#8bd649",
+    "#ffcc00",
+    "#89ddff",
+    "#82aaff",
+    "#80cbc4",
+    "#ffffff",
+]
+cursor_bg = "#cdd3de"
+cursor_border = "#cdd3de"
+cursor_fg = "#263238"
+foreground = "#cdd3de"
+selection_bg = "#cdd3de"
+selection_fg = "#263238"
+
+[colors.indexed]
+"16" = "#ea9560"
+"17" = "#ec5f67"
+"18" = "#2c393f"
+"19" = "#37474f"
+"20" = "#c9ccd3"
+"21" = "#d5dbe5"
+
+[metadata]
+aliases = []
+author = "Defman21"
+name = "Materia (base16)"
+origin_url = "https://github.com/Defman21/base16-materia"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MATERIAL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#212121",
+    "#b7141f",
+    "#457b24",
+    "#f6981e",
+    "#134eb2",
+    "#560088",
+    "#0e717c",
+    "#efefef",
+]
+background = "#eaeaea"
+brights = [
+    "#424242",
+    "#e83b3f",
+    "#7aba3a",
+    "#ffea2e",
+    "#54a4f3",
+    "#aa4dbc",
+    "#26bbd1",
+    "#d9d9d9",
+]
+cursor_bg = "#16afca"
+cursor_border = "#16afca"
+cursor_fg = "#2e2e2d"
+foreground = "#232322"
+selection_bg = "#c2c2c2"
+selection_fg = "#4e4e4e"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Material"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_MATERIAL_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#263238",
+    "#f07178",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#eeffff",
+]
+background = "#263238"
+brights = [
+    "#546e7a",
+    "#f07178",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#ffffff",
+]
+cursor_bg = "#eeffff"
+cursor_border = "#eeffff"
+cursor_fg = "#263238"
+foreground = "#eeffff"
+selection_bg = "#eeffff"
+selection_fg = "#263238"
+
+[colors.indexed]
+"16" = "#f78c6c"
+"17" = "#ff5370"
+"18" = "#2e3c43"
+"19" = "#314549"
+"20" = "#b2ccd6"
+"21" = "#eeffff"
+
+[metadata]
+aliases = []
+author = "Nate Peterson"
+name = "Material (base16)"
+origin_url = "https://github.com/ntpeters/base16-materialtheme-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MATERIAL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#073641",
+    "#eb606b",
+    "#c3e88d",
+    "#f7eb95",
+    "#80cbc3",
+    "#ff2490",
+    "#aeddff",
+    "#ffffff",
+]
+background = "#1e282c"
+brights = [
+    "#002b36",
+    "#eb606b",
+    "#c3e88d",
+    "#f7eb95",
+    "#7dc6bf",
+    "#6c71c3",
+    "#34434d",
+    "#ffffff",
+]
+cursor_bg = "#657b83"
+cursor_border = "#657b83"
+cursor_fg = "#1e282c"
+foreground = "#c3c7d1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Material (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_MATERIAL_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#263238",
+    "#ff9800",
+    "#8bc34a",
+    "#ffc107",
+    "#03a9f4",
+    "#e91e63",
+    "#009688",
+    "#cfd8dc",
+]
+background = "#263238"
+brights = [
+    "#37474f",
+    "#ffa74d",
+    "#9ccc65",
+    "#ffa000",
+    "#81d4fa",
+    "#ad1457",
+    "#26a69a",
+    "#eceff1",
+]
+foreground = "#eceff1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Material (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -119263,6 +119710,244 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Lost-Woods-to-Man-Page built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_mar_to_material_builtin_color_schemes() {
+        let cases = [
+            (
+                "Mar (Gogh)",
+                Color::Rgb(35, 71, 106),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(35, 71, 106),
+                Some(Color::Rgb(255, 255, 255)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(181, 64, 123),
+                Color::Rgb(123, 181, 64),
+                Color::Rgb(181, 123, 64),
+                Color::Rgb(115, 115, 115),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Mariana",
+                Color::Rgb(216, 222, 233),
+                Color::Rgb(52, 61, 70),
+                Color::Rgb(252, 187, 106),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(78, 90, 101)),
+                Some(Some(Color::Rgb(216, 222, 233))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(236, 95, 102),
+                Color::Rgb(153, 199, 148),
+                Color::Rgb(249, 174, 88),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Marrakesh (base16)",
+                Color::Rgb(148, 142, 72),
+                Color::Rgb(32, 22, 2),
+                Color::Rgb(148, 142, 72),
+                Some(Color::Rgb(32, 22, 2)),
+                Some(Color::Rgb(148, 142, 72)),
+                Some(Some(Color::Rgb(32, 22, 2))),
+                Color::Rgb(32, 22, 2),
+                Color::Rgb(195, 83, 89),
+                Color::Rgb(24, 151, 78),
+                Color::Rgb(168, 131, 57),
+                Color::Rgb(108, 104, 35),
+                Color::Rgb(250, 240, 165),
+                Some(Color::Rgb(179, 97, 68)),
+            ),
+            (
+                "Marrakesh (dark) (terminal.sexy)",
+                Color::Rgb(148, 142, 72),
+                Color::Rgb(32, 22, 2),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(32, 22, 2),
+                Color::Rgb(195, 83, 89),
+                Color::Rgb(24, 151, 78),
+                Color::Rgb(168, 131, 57),
+                Color::Rgb(108, 104, 35),
+                Color::Rgb(250, 240, 165),
+                None,
+            ),
+            (
+                "Marrakesh (light) (terminal.sexy)",
+                Color::Rgb(95, 91, 23),
+                Color::Rgb(250, 240, 165),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(32, 22, 2),
+                Color::Rgb(195, 83, 89),
+                Color::Rgb(24, 151, 78),
+                Color::Rgb(168, 131, 57),
+                Color::Rgb(108, 104, 35),
+                Color::Rgb(250, 240, 165),
+                None,
+            ),
+            (
+                "Mashup Colors (terminal.sexy)",
+                Color::Rgb(178, 161, 145),
+                Color::Rgb(23, 23, 23),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(32, 32, 32),
+                Color::Rgb(191, 63, 52),
+                Color::Rgb(112, 125, 34),
+                Color::Rgb(191, 122, 41),
+                Color::Rgb(64, 64, 64),
+                Color::Rgb(232, 208, 195),
+                None,
+            ),
+            (
+                "Materia (base16)",
+                Color::Rgb(205, 211, 222),
+                Color::Rgb(38, 50, 56),
+                Color::Rgb(205, 211, 222),
+                Some(Color::Rgb(38, 50, 56)),
+                Some(Color::Rgb(205, 211, 222)),
+                Some(Some(Color::Rgb(38, 50, 56))),
+                Color::Rgb(38, 50, 56),
+                Color::Rgb(236, 95, 103),
+                Color::Rgb(139, 214, 73),
+                Color::Rgb(255, 204, 0),
+                Color::Rgb(112, 120, 128),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(234, 149, 96)),
+            ),
+            (
+                "Material",
+                Color::Rgb(35, 35, 34),
+                Color::Rgb(234, 234, 234),
+                Color::Rgb(22, 175, 202),
+                Some(Color::Rgb(46, 46, 45)),
+                Some(Color::Rgb(194, 194, 194)),
+                Some(Some(Color::Rgb(78, 78, 78))),
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(183, 20, 31),
+                Color::Rgb(69, 123, 36),
+                Color::Rgb(246, 152, 30),
+                Color::Rgb(66, 66, 66),
+                Color::Rgb(217, 217, 217),
+                None,
+            ),
+            (
+                "Material (base16)",
+                Color::Rgb(238, 255, 255),
+                Color::Rgb(38, 50, 56),
+                Color::Rgb(238, 255, 255),
+                Some(Color::Rgb(38, 50, 56)),
+                Some(Color::Rgb(238, 255, 255)),
+                Some(Some(Color::Rgb(38, 50, 56))),
+                Color::Rgb(38, 50, 56),
+                Color::Rgb(240, 113, 120),
+                Color::Rgb(195, 232, 141),
+                Color::Rgb(255, 203, 107),
+                Color::Rgb(84, 110, 122),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(247, 140, 108)),
+            ),
+            (
+                "Material (Gogh)",
+                Color::Rgb(195, 199, 209),
+                Color::Rgb(30, 40, 44),
+                Color::Rgb(101, 123, 131),
+                Some(Color::Rgb(30, 40, 44)),
+                None,
+                None,
+                Color::Rgb(7, 54, 65),
+                Color::Rgb(235, 96, 107),
+                Color::Rgb(195, 232, 141),
+                Color::Rgb(247, 235, 149),
+                Color::Rgb(0, 43, 54),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Material (terminal.sexy)",
+                Color::Rgb(236, 239, 241),
+                Color::Rgb(38, 50, 56),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(38, 50, 56),
+                Color::Rgb(255, 152, 0),
+                Color::Rgb(139, 195, 74),
+                Color::Rgb(255, 193, 7),
+                Color::Rgb(55, 71, 79),
+                Color::Rgb(236, 239, 241),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Mar-to-Material built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
