@@ -3700,6 +3700,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Homebrew Ocean (Gogh)`, `Hopscotch`, `Hopscotch (base16)`,
   `Hopscotch.256`, `Horizon Bright (Gogh)`, `Horizon Dark (base16)`,
   `Horizon Dark (Gogh)`,
+  `Horizon Light (base16)`, `Humanoid dark (base16)`,
+  `Humanoid light (base16)`, `hund (terminal.sexy)`, `Hurtado`,
+  `Hurtado (Gogh)`, `Hybrid`, `Hybrid (Gogh)`,
+  `Hybrid (terminal.sexy)`, `Ibm 3270 (High Contrast) (Gogh)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting

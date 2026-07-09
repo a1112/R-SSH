@@ -19777,6 +19777,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Horizon Dark (Gogh)" | "HorizonDark (Gogh)" => {
             Some(BUILTIN_HORIZON_DARK_GOGH_COLOR_SCHEME_TOML)
         }
+        "Horizon Light (base16)" => Some(BUILTIN_HORIZON_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Humanoid dark (base16)" => Some(BUILTIN_HUMANOID_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Humanoid light (base16)" => Some(BUILTIN_HUMANOID_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "hund (terminal.sexy)" => Some(BUILTIN_HUND_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Hurtado" => Some(BUILTIN_HURTADO_COLOR_SCHEME_TOML),
+        "Hurtado (Gogh)" => Some(BUILTIN_HURTADO_GOGH_COLOR_SCHEME_TOML),
+        "Hybrid" => Some(BUILTIN_HYBRID_COLOR_SCHEME_TOML),
+        "Hybrid (Gogh)" => Some(BUILTIN_HYBRID_GOGH_COLOR_SCHEME_TOML),
+        "Hybrid (terminal.sexy)" => Some(BUILTIN_HYBRID_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Ibm 3270 (High Contrast) (Gogh)" | "IBM3270(HighContrast) (Gogh)" => {
+            Some(BUILTIN_IBM_3270_HIGH_CONTRAST_GOGH_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -38010,6 +38022,403 @@ foreground = "#fdf0ed"
 [metadata]
 aliases = ["HorizonDark (Gogh)"]
 name = "Horizon Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HORIZON_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#fdf0ed",
+    "#e95678",
+    "#29d398",
+    "#fadad1",
+    "#26bbd9",
+    "#ee64ac",
+    "#59e1e3",
+    "#403c3d",
+]
+background = "#fdf0ed"
+brights = [
+    "#bdb3b1",
+    "#e95678",
+    "#29d398",
+    "#fadad1",
+    "#26bbd9",
+    "#ee64ac",
+    "#59e1e3",
+    "#201c1d",
+]
+cursor_bg = "#403c3d"
+cursor_border = "#403c3d"
+cursor_fg = "#fdf0ed"
+foreground = "#403c3d"
+selection_bg = "#403c3d"
+selection_fg = "#fdf0ed"
+
+[colors.indexed]
+16 = "#f9cec3"
+17 = "#f9cbbe"
+18 = "#fadad1"
+19 = "#f9cbbe"
+20 = "#948c8a"
+21 = "#302c2d"
+
+[metadata]
+aliases = []
+author = "Michaël Ball (http://github.com/michael-ball/)"
+name = "Horizon Light (base16)"
+origin_url = "https://github.com/michael-ball/base16-horizon-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HUMANOID_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#232629",
+    "#f11235",
+    "#02d849",
+    "#ffb627",
+    "#00a6fb",
+    "#f15ee3",
+    "#0dd9d6",
+    "#f8f8f2",
+]
+background = "#232629"
+brights = [
+    "#60615d",
+    "#f11235",
+    "#02d849",
+    "#ffb627",
+    "#00a6fb",
+    "#f15ee3",
+    "#0dd9d6",
+    "#fcfcfc",
+]
+cursor_bg = "#f8f8f2"
+cursor_border = "#f8f8f2"
+cursor_fg = "#232629"
+foreground = "#f8f8f2"
+selection_bg = "#f8f8f2"
+selection_fg = "#232629"
+
+[colors.indexed]
+16 = "#ff9505"
+17 = "#b27701"
+18 = "#333b3d"
+19 = "#484e54"
+20 = "#c0c0bd"
+21 = "#fcfcf6"
+
+[metadata]
+aliases = []
+author = "Thomas (tasmo) Friese"
+name = "Humanoid dark (base16)"
+origin_url = "https://github.com/humanoid-colors/base16-humanoid-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HUMANOID_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f8f8f2",
+    "#b0151a",
+    "#388e3c",
+    "#ffb627",
+    "#0082c9",
+    "#700f98",
+    "#008e8e",
+    "#232629",
+]
+background = "#f8f8f2"
+brights = [
+    "#c0c0bd",
+    "#b0151a",
+    "#388e3c",
+    "#ffb627",
+    "#0082c9",
+    "#700f98",
+    "#008e8e",
+    "#070708",
+]
+cursor_bg = "#232629"
+cursor_border = "#232629"
+cursor_fg = "#f8f8f2"
+foreground = "#232629"
+selection_bg = "#232629"
+selection_fg = "#f8f8f2"
+
+[colors.indexed]
+16 = "#ff3d00"
+17 = "#b27701"
+18 = "#efefe9"
+19 = "#deded8"
+20 = "#60615d"
+21 = "#2f3337"
+
+[metadata]
+aliases = []
+author = "Thomas (tasmo) Friese"
+name = "Humanoid light (base16)"
+origin_url = "https://github.com/humanoid-colors/base16-humanoid-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HUND_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#222222",
+    "#e84f4f",
+    "#b7ce42",
+    "#fea63c",
+    "#66aabb",
+    "#b7416e",
+    "#6d878d",
+    "#dddddd",
+]
+background = "#161616"
+brights = [
+    "#666666",
+    "#d23d3d",
+    "#bde077",
+    "#ffe863",
+    "#aaccbb",
+    "#e16a98",
+    "#42717b",
+    "#cccccc",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "hund"
+name = "hund (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HURTADO_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#575757",
+    "#ff1b00",
+    "#a5e055",
+    "#fbe74a",
+    "#496487",
+    "#fd5ff1",
+    "#86e9fe",
+    "#cbcccb",
+]
+background = "#000000"
+brights = [
+    "#262626",
+    "#d51d00",
+    "#a5df55",
+    "#fbe84a",
+    "#89beff",
+    "#c001c1",
+    "#86eafe",
+    "#dbdbdb",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#dbdbdb"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Hurtado (Gogh)"]
+name = "Hurtado"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HURTADO_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#575757",
+    "#ff1b00",
+    "#a5e055",
+    "#fbe74a",
+    "#496487",
+    "#fd5ff1",
+    "#86e9fe",
+    "#cbcccb",
+]
+background = "#000000"
+brights = [
+    "#262626",
+    "#d51d00",
+    "#a5df55",
+    "#fbe84a",
+    "#89beff",
+    "#c001c1",
+    "#86eafe",
+    "#dbdbdb",
+]
+cursor_bg = "#dbdbdb"
+cursor_border = "#dbdbdb"
+cursor_fg = "#000000"
+foreground = "#dbdbdb"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Hurtado (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_HYBRID_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2a2e33",
+    "#b84d51",
+    "#b3bf5a",
+    "#e4b55e",
+    "#6e90b0",
+    "#a17eac",
+    "#7fbfb4",
+    "#b5b9b6",
+]
+background = "#161719"
+brights = [
+    "#1d1f22",
+    "#8d2e32",
+    "#798431",
+    "#e58a50",
+    "#4b6b88",
+    "#6e5079",
+    "#4d7b74",
+    "#5a626a",
+]
+cursor_bg = "#b7bcba"
+cursor_border = "#b7bcba"
+cursor_fg = "#1e1f22"
+foreground = "#b7bcba"
+selection_bg = "#1e1f22"
+selection_fg = "#b7bcba"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Hybrid"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HYBRID_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282a2e",
+    "#a54242",
+    "#8c9440",
+    "#de935f",
+    "#5f819d",
+    "#85678f",
+    "#5e8d87",
+    "#969896",
+]
+background = "#141414"
+brights = [
+    "#373b41",
+    "#cc6666",
+    "#b5bd68",
+    "#f0c674",
+    "#81a2be",
+    "#b294bb",
+    "#8abeb7",
+    "#c5c8c6",
+]
+cursor_bg = "#94a3a5"
+cursor_border = "#94a3a5"
+cursor_fg = "#141414"
+foreground = "#94a3a5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Hybrid (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HYBRID_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#393939",
+    "#da4939",
+    "#9acc79",
+    "#d0d26b",
+    "#6d9cbe",
+    "#9f5079",
+    "#435d75",
+    "#c2c2c2",
+]
+background = "#000000"
+brights = [
+    "#474747",
+    "#ff6c5c",
+    "#8fb676",
+    "#c8bc45",
+    "#d0d0ff",
+    "#a761c2",
+    "#6e98a4",
+    "#c2c2c2",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Hybrid (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_IBM_3270_HIGH_CONTRAST_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff0000",
+    "#00ff00",
+    "#ffff00",
+    "#00bfff",
+    "#ffc0cb",
+    "#40e0d0",
+    "#bebebe",
+]
+background = "#000000"
+brights = [
+    "#414141",
+    "#ffa500",
+    "#98fb98",
+    "#ffff00",
+    "#0000cd",
+    "#a020f0",
+    "#aeeeee",
+    "#ffffff",
+]
+cursor_bg = "#fdfdfd"
+cursor_border = "#fdfdfd"
+cursor_fg = "#000000"
+foreground = "#fdfdfd"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["IBM3270(HighContrast) (Gogh)"]
+name = "Ibm 3270 (High Contrast) (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
@@ -113447,6 +113856,244 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Homebrew-to-Horizon-Dark built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_horizon_light_to_ibm3270_builtin_color_schemes() {
+        let cases = [
+            (
+                "Horizon Light (base16)",
+                Color::Rgb(64, 60, 61),
+                Color::Rgb(253, 240, 237),
+                Color::Rgb(64, 60, 61),
+                Some(Color::Rgb(253, 240, 237)),
+                Some(Color::Rgb(64, 60, 61)),
+                Some(Some(Color::Rgb(253, 240, 237))),
+                Color::Rgb(253, 240, 237),
+                Color::Rgb(233, 86, 120),
+                Color::Rgb(41, 211, 152),
+                Color::Rgb(250, 218, 209),
+                Color::Rgb(189, 179, 177),
+                Color::Rgb(32, 28, 29),
+                Some(Color::Rgb(249, 206, 195)),
+            ),
+            (
+                "Humanoid dark (base16)",
+                Color::Rgb(248, 248, 242),
+                Color::Rgb(35, 38, 41),
+                Color::Rgb(248, 248, 242),
+                Some(Color::Rgb(35, 38, 41)),
+                Some(Color::Rgb(248, 248, 242)),
+                Some(Some(Color::Rgb(35, 38, 41))),
+                Color::Rgb(35, 38, 41),
+                Color::Rgb(241, 18, 53),
+                Color::Rgb(2, 216, 73),
+                Color::Rgb(255, 182, 39),
+                Color::Rgb(96, 97, 93),
+                Color::Rgb(252, 252, 252),
+                Some(Color::Rgb(255, 149, 5)),
+            ),
+            (
+                "Humanoid light (base16)",
+                Color::Rgb(35, 38, 41),
+                Color::Rgb(248, 248, 242),
+                Color::Rgb(35, 38, 41),
+                Some(Color::Rgb(248, 248, 242)),
+                Some(Color::Rgb(35, 38, 41)),
+                Some(Some(Color::Rgb(248, 248, 242))),
+                Color::Rgb(248, 248, 242),
+                Color::Rgb(176, 21, 26),
+                Color::Rgb(56, 142, 60),
+                Color::Rgb(255, 182, 39),
+                Color::Rgb(192, 192, 189),
+                Color::Rgb(7, 7, 8),
+                Some(Color::Rgb(255, 61, 0)),
+            ),
+            (
+                "hund (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(22, 22, 22),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(232, 79, 79),
+                Color::Rgb(183, 206, 66),
+                Color::Rgb(254, 166, 60),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(204, 204, 204),
+                None,
+            ),
+            (
+                "Hurtado",
+                Color::Rgb(219, 219, 219),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(181, 213, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(87, 87, 87),
+                Color::Rgb(255, 27, 0),
+                Color::Rgb(165, 224, 85),
+                Color::Rgb(251, 231, 74),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(219, 219, 219),
+                None,
+            ),
+            (
+                "Hurtado (Gogh)",
+                Color::Rgb(219, 219, 219),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(219, 219, 219),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(87, 87, 87),
+                Color::Rgb(255, 27, 0),
+                Color::Rgb(165, 224, 85),
+                Color::Rgb(251, 231, 74),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(219, 219, 219),
+                None,
+            ),
+            (
+                "Hybrid",
+                Color::Rgb(183, 188, 186),
+                Color::Rgb(22, 23, 25),
+                Color::Rgb(183, 188, 186),
+                Some(Color::Rgb(30, 31, 34)),
+                Some(Color::Rgb(30, 31, 34)),
+                Some(Some(Color::Rgb(183, 188, 186))),
+                Color::Rgb(42, 46, 51),
+                Color::Rgb(184, 77, 81),
+                Color::Rgb(179, 191, 90),
+                Color::Rgb(228, 181, 94),
+                Color::Rgb(29, 31, 34),
+                Color::Rgb(90, 98, 106),
+                None,
+            ),
+            (
+                "Hybrid (Gogh)",
+                Color::Rgb(148, 163, 165),
+                Color::Rgb(20, 20, 20),
+                Color::Rgb(148, 163, 165),
+                Some(Color::Rgb(20, 20, 20)),
+                None,
+                None,
+                Color::Rgb(40, 42, 46),
+                Color::Rgb(165, 66, 66),
+                Color::Rgb(140, 148, 64),
+                Color::Rgb(222, 147, 95),
+                Color::Rgb(55, 59, 65),
+                Color::Rgb(197, 200, 198),
+                None,
+            ),
+            (
+                "Hybrid (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(57, 57, 57),
+                Color::Rgb(218, 73, 57),
+                Color::Rgb(154, 204, 121),
+                Color::Rgb(208, 210, 107),
+                Color::Rgb(71, 71, 71),
+                Color::Rgb(194, 194, 194),
+                None,
+            ),
+            (
+                "Ibm 3270 (High Contrast) (Gogh)",
+                Color::Rgb(253, 253, 253),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(253, 253, 253),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 0, 0),
+                Color::Rgb(0, 255, 0),
+                Color::Rgb(255, 255, 0),
+                Color::Rgb(65, 65, 65),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "IBM3270(HighContrast) (Gogh)",
+                Color::Rgb(253, 253, 253),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(253, 253, 253),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 0, 0),
+                Color::Rgb(0, 255, 0),
+                Color::Rgb(255, 255, 0),
+                Color::Rgb(65, 65, 65),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Horizon-Light-to-IBM3270 built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
