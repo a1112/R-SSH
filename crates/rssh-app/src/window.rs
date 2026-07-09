@@ -20106,6 +20106,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Paraiso (light) (terminal.sexy)" => {
             Some(BUILTIN_PARAISO_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
+        "Paraiso Dark" | "ParaisoDark (Gogh)" => Some(BUILTIN_PARAISO_DARK_COLOR_SCHEME_TOML),
+        "Paraiso Dark (Gogh)" => Some(BUILTIN_PARAISO_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Parker Brothers (terminal.sexy)" => {
+            Some(BUILTIN_PARKER_BROTHERS_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Pasque (base16)" => Some(BUILTIN_PASQUE_BASE16_COLOR_SCHEME_TOML),
+        "Pastel White (terminal.sexy)" => {
+            Some(BUILTIN_PASTEL_WHITE_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Paul Millr (Gogh)" | "PaulMillr (Gogh)" => Some(BUILTIN_PAUL_MILLR_GOGH_COLOR_SCHEME_TOML),
+        "PaulMillr" => Some(BUILTIN_PAULMILLR_COLOR_SCHEME_TOML),
+        "Pencil Dark (Gogh)" => Some(BUILTIN_PENCIL_DARK_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -47930,6 +47942,317 @@ author = "Chris Kempson"
 name = "Paraiso (light) (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PARAISO_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2f1e2e",
+    "#ef6155",
+    "#48b685",
+    "#fec418",
+    "#06b6ef",
+    "#815ba4",
+    "#5bc4bf",
+    "#a39e9b",
+]
+background = "#2f1e2e"
+brights = [
+    "#776e71",
+    "#ef6155",
+    "#48b685",
+    "#fec418",
+    "#06b6ef",
+    "#815ba4",
+    "#5bc4bf",
+    "#e7e9db",
+]
+cursor_bg = "#a39e9b"
+cursor_border = "#a39e9b"
+cursor_fg = "#2f1e2e"
+foreground = "#a39e9b"
+selection_bg = "#4f424c"
+selection_fg = "#a39e9b"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Paraiso (base16)",
+    "Paraiso (dark) (terminal.sexy)",
+    "Paraiso Dark (Gogh)",
+    "ParaisoDark (Gogh)",
+]
+author = "Jan T. Sott"
+name = "Paraiso Dark"
+origin_url = "https://github.com/idleberg/Paraiso-iTerm2"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_PARAISO_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2f1e2e",
+    "#ef6155",
+    "#48b685",
+    "#fec418",
+    "#06b6ef",
+    "#815ba4",
+    "#5bc4bf",
+    "#a39e9b",
+]
+background = "#2f1e2e"
+brights = [
+    "#776e71",
+    "#ef6155",
+    "#48b685",
+    "#fec418",
+    "#06b6ef",
+    "#815ba4",
+    "#5bc4bf",
+    "#e7e9db",
+]
+cursor_bg = "#a39e9b"
+cursor_border = "#a39e9b"
+cursor_fg = "#2f1e2e"
+foreground = "#a39e9b"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Paraiso Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_PARKER_BROTHERS_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#322a2c",
+    "#79220e",
+    "#344b1b",
+    "#b45b00",
+    "#434045",
+    "#5c1e25",
+    "#394745",
+    "#ae8842",
+]
+background = "#000000"
+brights = [
+    "#46423b",
+    "#aa261f",
+    "#76550f",
+    "#b57f02",
+    "#908862",
+    "#624a35",
+    "#393e38",
+    "#a59058",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Parker Brothers (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PASQUE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#271c3a",
+    "#a92258",
+    "#c6914b",
+    "#804ead",
+    "#8e7dc6",
+    "#953b9d",
+    "#7263aa",
+    "#dedcdf",
+]
+background = "#271c3a"
+brights = [
+    "#5d5766",
+    "#a92258",
+    "#c6914b",
+    "#804ead",
+    "#8e7dc6",
+    "#953b9d",
+    "#7263aa",
+    "#bbaadd",
+]
+cursor_bg = "#dedcdf"
+cursor_border = "#dedcdf"
+cursor_fg = "#271c3a"
+foreground = "#dedcdf"
+selection_bg = "#dedcdf"
+selection_fg = "#271c3a"
+
+[colors.indexed]
+16 = "#918889"
+17 = "#59325c"
+18 = "#100323"
+19 = "#3e2d5c"
+20 = "#bebcbf"
+21 = "#edeaef"
+
+[metadata]
+aliases = []
+author = "Gabriel Fontes (https://github.com/Misterio77)"
+name = "Pasque (base16)"
+origin_url = "https://github.com/Misterio77/base16-pasque-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PASTEL_WHITE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#646e5b",
+    "#db7464",
+    "#a7e160",
+    "#dbd560",
+    "#69b2d6",
+    "#a073d6",
+    "#69e1d3",
+    "#9ea894",
+]
+background = "#000000"
+brights = [
+    "#88927e",
+    "#dba08f",
+    "#bde18b",
+    "#dbda8b",
+    "#95a9d6",
+    "#b59fd6",
+    "#95e1d2",
+    "#c9d0c2",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Muzieca"
+name = "Pastel White (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PAUL_MILLR_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2a2a2a",
+    "#ff0000",
+    "#79ff0f",
+    "#d3bf00",
+    "#396bd7",
+    "#b449be",
+    "#66ccff",
+    "#bbbbbb",
+]
+background = "#000000"
+brights = [
+    "#666666",
+    "#ff0080",
+    "#66ff66",
+    "#f3d64e",
+    "#709aed",
+    "#db67e6",
+    "#7adff2",
+    "#ffffff",
+]
+cursor_bg = "#f2f2f2"
+cursor_border = "#f2f2f2"
+cursor_fg = "#000000"
+foreground = "#f2f2f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["PaulMillr (Gogh)"]
+name = "Paul Millr (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PAULMILLR_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2a2a2a",
+    "#ff0000",
+    "#79ff0f",
+    "#e7bf00",
+    "#396bd7",
+    "#b449be",
+    "#66ccff",
+    "#bbbbbb",
+]
+background = "#000000"
+brights = [
+    "#666666",
+    "#ff0080",
+    "#66ff66",
+    "#f3d64e",
+    "#709aed",
+    "#db67e6",
+    "#7adff2",
+    "#ffffff",
+]
+cursor_bg = "#4d4d4d"
+cursor_border = "#4d4d4d"
+cursor_fg = "#ffffff"
+foreground = "#f2f2f2"
+selection_bg = "#414141"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "PaulMillr"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_PENCIL_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#212121",
+    "#c30771",
+    "#10a778",
+    "#a89c14",
+    "#008ec4",
+    "#523c79",
+    "#20a5ba",
+    "#d9d9d9",
+]
+background = "#212121"
+brights = [
+    "#424242",
+    "#fb007a",
+    "#5fd7af",
+    "#f3e430",
+    "#20bbfc",
+    "#6855de",
+    "#4fb8cc",
+    "#f1f1f1",
+]
+cursor_bg = "#f1f1f1"
+cursor_border = "#f1f1f1"
+cursor_fg = "#212121"
+foreground = "#f1f1f1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Pencil Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -129445,6 +129768,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Paper-to-Paraiso-Light built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_paraiso_dark_to_pencil_dark_builtin_color_schemes() {
+        let cases = [
+            (
+                "Paraiso Dark",
+                Color::Rgb(163, 158, 155),
+                Color::Rgb(47, 30, 46),
+                Color::Rgb(163, 158, 155),
+                Some(Color::Rgb(47, 30, 46)),
+                Some(Color::Rgb(79, 66, 76)),
+                Some(Some(Color::Rgb(163, 158, 155))),
+                Color::Rgb(47, 30, 46),
+                Color::Rgb(239, 97, 85),
+                Color::Rgb(72, 182, 133),
+                Color::Rgb(254, 196, 24),
+                Color::Rgb(119, 110, 113),
+                Color::Rgb(231, 233, 219),
+                None,
+            ),
+            (
+                "ParaisoDark (Gogh)",
+                Color::Rgb(163, 158, 155),
+                Color::Rgb(47, 30, 46),
+                Color::Rgb(163, 158, 155),
+                Some(Color::Rgb(47, 30, 46)),
+                Some(Color::Rgb(79, 66, 76)),
+                Some(Some(Color::Rgb(163, 158, 155))),
+                Color::Rgb(47, 30, 46),
+                Color::Rgb(239, 97, 85),
+                Color::Rgb(72, 182, 133),
+                Color::Rgb(254, 196, 24),
+                Color::Rgb(119, 110, 113),
+                Color::Rgb(231, 233, 219),
+                None,
+            ),
+            (
+                "Paraiso Dark (Gogh)",
+                Color::Rgb(163, 158, 155),
+                Color::Rgb(47, 30, 46),
+                Color::Rgb(163, 158, 155),
+                Some(Color::Rgb(47, 30, 46)),
+                None,
+                None,
+                Color::Rgb(47, 30, 46),
+                Color::Rgb(239, 97, 85),
+                Color::Rgb(72, 182, 133),
+                Color::Rgb(254, 196, 24),
+                Color::Rgb(119, 110, 113),
+                Color::Rgb(231, 233, 219),
+                None,
+            ),
+            (
+                "Parker Brothers (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(50, 42, 44),
+                Color::Rgb(121, 34, 14),
+                Color::Rgb(52, 75, 27),
+                Color::Rgb(180, 91, 0),
+                Color::Rgb(70, 66, 59),
+                Color::Rgb(165, 144, 88),
+                None,
+            ),
+            (
+                "Pasque (base16)",
+                Color::Rgb(222, 220, 223),
+                Color::Rgb(39, 28, 58),
+                Color::Rgb(222, 220, 223),
+                Some(Color::Rgb(39, 28, 58)),
+                Some(Color::Rgb(222, 220, 223)),
+                Some(Some(Color::Rgb(39, 28, 58))),
+                Color::Rgb(39, 28, 58),
+                Color::Rgb(169, 34, 88),
+                Color::Rgb(198, 145, 75),
+                Color::Rgb(128, 78, 173),
+                Color::Rgb(93, 87, 102),
+                Color::Rgb(187, 170, 221),
+                Some(Color::Rgb(145, 136, 137)),
+            ),
+            (
+                "Pastel White (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(100, 110, 91),
+                Color::Rgb(219, 116, 100),
+                Color::Rgb(167, 225, 96),
+                Color::Rgb(219, 213, 96),
+                Color::Rgb(136, 146, 126),
+                Color::Rgb(201, 208, 194),
+                None,
+            ),
+            (
+                "Paul Millr (Gogh)",
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(242, 242, 242),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(42, 42, 42),
+                Color::Rgb(255, 0, 0),
+                Color::Rgb(121, 255, 15),
+                Color::Rgb(211, 191, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "PaulMillr (Gogh)",
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(242, 242, 242),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(42, 42, 42),
+                Color::Rgb(255, 0, 0),
+                Color::Rgb(121, 255, 15),
+                Color::Rgb(211, 191, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "PaulMillr",
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(77, 77, 77),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(65, 65, 65)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(42, 42, 42),
+                Color::Rgb(255, 0, 0),
+                Color::Rgb(121, 255, 15),
+                Color::Rgb(231, 191, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Pencil Dark (Gogh)",
+                Color::Rgb(241, 241, 241),
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(241, 241, 241),
+                Some(Color::Rgb(33, 33, 33)),
+                None,
+                None,
+                Color::Rgb(33, 33, 33),
+                Color::Rgb(195, 7, 113),
+                Color::Rgb(16, 167, 120),
+                Color::Rgb(168, 156, 20),
+                Color::Rgb(66, 66, 66),
+                Color::Rgb(241, 241, 241),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Paraiso-Dark-to-Pencil-Dark built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
