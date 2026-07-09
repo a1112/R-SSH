@@ -3696,6 +3696,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Heetch Dark (base16)`, `Heetch Light (base16)`, `Helios (base16)`,
   `Hemisu Dark (Gogh)`, `Hemisu Light (Gogh)`, `Highway`,
   `Highway (Gogh)`, `Hipster Green`, `Hipster Green (Gogh)`, `Hivacruz`,
+  `Homebrew`, `Homebrew (Gogh)`, `Homebrew Light (Gogh)`,
+  `Homebrew Ocean (Gogh)`, `Hopscotch`, `Hopscotch (base16)`,
+  `Hopscotch.256`, `Horizon Bright (Gogh)`, `Horizon Dark (base16)`,
+  `Horizon Dark (Gogh)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and already mapped non-conflicting

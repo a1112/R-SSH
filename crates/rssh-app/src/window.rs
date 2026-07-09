@@ -19763,6 +19763,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Hipster Green" | "HipsterGreen (Gogh)" => Some(BUILTIN_HIPSTER_GREEN_COLOR_SCHEME_TOML),
         "Hipster Green (Gogh)" => Some(BUILTIN_HIPSTER_GREEN_GOGH_COLOR_SCHEME_TOML),
         "Hivacruz" => Some(BUILTIN_HIVACRUZ_COLOR_SCHEME_TOML),
+        "Homebrew" => Some(BUILTIN_HOMEBREW_COLOR_SCHEME_TOML),
+        "Homebrew (Gogh)" => Some(BUILTIN_HOMEBREW_GOGH_COLOR_SCHEME_TOML),
+        "Homebrew Light (Gogh)" => Some(BUILTIN_HOMEBREW_LIGHT_GOGH_COLOR_SCHEME_TOML),
+        "Homebrew Ocean (Gogh)" => Some(BUILTIN_HOMEBREW_OCEAN_GOGH_COLOR_SCHEME_TOML),
+        "Hopscotch" => Some(BUILTIN_HOPSCOTCH_COLOR_SCHEME_TOML),
+        "Hopscotch (base16)" => Some(BUILTIN_HOPSCOTCH_BASE16_COLOR_SCHEME_TOML),
+        "Hopscotch.256" => Some(BUILTIN_HOPSCOTCH_256_COLOR_SCHEME_TOML),
+        "Horizon Bright (Gogh)" | "HorizonBright (Gogh)" => {
+            Some(BUILTIN_HORIZON_BRIGHT_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Horizon Dark (base16)" => Some(BUILTIN_HORIZON_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Horizon Dark (Gogh)" | "HorizonDark (Gogh)" => {
+            Some(BUILTIN_HORIZON_DARK_GOGH_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -37604,6 +37618,400 @@ aliases = []
 name = "Hivacruz"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_HOMEBREW_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#990000",
+    "#00a600",
+    "#999900",
+    "#0000b2",
+    "#b200b2",
+    "#00a6b2",
+    "#bfbfbf",
+]
+background = "#000000"
+brights = [
+    "#666666",
+    "#e50000",
+    "#00d900",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#23ff18"
+cursor_border = "#23ff18"
+cursor_fg = "#ff0018"
+foreground = "#00ff00"
+selection_bg = "#083905"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Homebrew (Gogh)"]
+name = "Homebrew"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HOMEBREW_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#990000",
+    "#00a600",
+    "#999900",
+    "#0000b2",
+    "#b200b2",
+    "#00a6b2",
+    "#bfbfbf",
+]
+background = "#000000"
+brights = [
+    "#666666",
+    "#e50000",
+    "#00d900",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#00ff00"
+cursor_border = "#00ff00"
+cursor_fg = "#000000"
+foreground = "#00ff00"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Homebrew (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_HOMEBREW_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#990000",
+    "#00a600",
+    "#999900",
+    "#0000b2",
+    "#b200b2",
+    "#00a6b2",
+    "#bfbfbf",
+]
+background = "#ffffff"
+brights = [
+    "#666666",
+    "#e50000",
+    "#00d900",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#ffffff"
+foreground = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Homebrew Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_HOMEBREW_OCEAN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#990000",
+    "#00a600",
+    "#999900",
+    "#0000b2",
+    "#b200b2",
+    "#00a6b2",
+    "#bfbfbf",
+]
+background = "#224fbc"
+brights = [
+    "#666666",
+    "#e50000",
+    "#00d900",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#224fbc"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Homebrew Ocean (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_HOPSCOTCH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#322931",
+    "#dd464c",
+    "#8fc13e",
+    "#fdcc59",
+    "#1290bf",
+    "#c85e7c",
+    "#149b93",
+    "#b9b5b8",
+]
+background = "#322931"
+brights = [
+    "#797379",
+    "#fd8b19",
+    "#433b42",
+    "#5c545b",
+    "#989498",
+    "#d5d3d5",
+    "#b33508",
+    "#ffffff",
+]
+cursor_bg = "#b9b5b8"
+cursor_border = "#b9b5b8"
+cursor_fg = "#322931"
+foreground = "#b9b5b8"
+selection_bg = "#5c545b"
+selection_fg = "#b9b5b8"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Hopscotch"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HOPSCOTCH_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#322931",
+    "#dd464c",
+    "#8fc13e",
+    "#fdcc59",
+    "#1290bf",
+    "#c85e7c",
+    "#149b93",
+    "#b9b5b8",
+]
+background = "#322931"
+brights = [
+    "#797379",
+    "#dd464c",
+    "#8fc13e",
+    "#fdcc59",
+    "#1290bf",
+    "#c85e7c",
+    "#149b93",
+    "#ffffff",
+]
+cursor_bg = "#b9b5b8"
+cursor_border = "#b9b5b8"
+cursor_fg = "#322931"
+foreground = "#b9b5b8"
+selection_bg = "#b9b5b8"
+selection_fg = "#322931"
+
+[colors.indexed]
+16 = "#fd8b19"
+17 = "#b33508"
+18 = "#433b42"
+19 = "#5c545b"
+20 = "#989498"
+21 = "#d5d3d5"
+
+[metadata]
+aliases = []
+author = "Jan T. Sott"
+name = "Hopscotch (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_HOPSCOTCH_256_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#322931",
+    "#dd464c",
+    "#8fc13e",
+    "#fdcc59",
+    "#1290bf",
+    "#c85e7c",
+    "#149b93",
+    "#b9b5b8",
+]
+background = "#322931"
+brights = [
+    "#797379",
+    "#dd464c",
+    "#8fc13e",
+    "#fdcc59",
+    "#1290bf",
+    "#c85e7c",
+    "#149b93",
+    "#ffffff",
+]
+cursor_bg = "#b9b5b8"
+cursor_border = "#b9b5b8"
+cursor_fg = "#322931"
+foreground = "#b9b5b8"
+selection_bg = "#5c545b"
+selection_fg = "#b9b5b8"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Hopscotch (base16)"]
+name = "Hopscotch.256"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_HORIZON_BRIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#16161c",
+    "#da103f",
+    "#1eb980",
+    "#f6661e",
+    "#26bbd9",
+    "#ee64ae",
+    "#1d8991",
+    "#fadad1",
+]
+background = "#fdf0ed"
+brights = [
+    "#1a1c23",
+    "#f43e5c",
+    "#07da8c",
+    "#f77d26",
+    "#3fc6de",
+    "#f075b7",
+    "#1eaeae",
+    "#fdf0ed",
+]
+cursor_bg = "#1c1e26"
+cursor_border = "#1c1e26"
+cursor_fg = "#fdf0ed"
+foreground = "#1c1e26"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["HorizonBright (Gogh)"]
+name = "Horizon Bright (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HORIZON_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1e26",
+    "#e95678",
+    "#29d398",
+    "#fac29a",
+    "#26bbd9",
+    "#ee64ac",
+    "#59e1e3",
+    "#cbced0",
+]
+background = "#1c1e26"
+brights = [
+    "#6f6f70",
+    "#e95678",
+    "#29d398",
+    "#fac29a",
+    "#26bbd9",
+    "#ee64ac",
+    "#59e1e3",
+    "#e3e6ee",
+]
+cursor_bg = "#cbced0"
+cursor_border = "#cbced0"
+cursor_fg = "#1c1e26"
+foreground = "#cbced0"
+selection_bg = "#cbced0"
+selection_fg = "#1c1e26"
+
+[colors.indexed]
+16 = "#fab795"
+17 = "#f09383"
+18 = "#232530"
+19 = "#2e303e"
+20 = "#9da0a2"
+21 = "#dcdfe4"
+
+[metadata]
+aliases = []
+author = "Michaël Ball (http://github.com/michael-ball/)"
+name = "Horizon Dark (base16)"
+origin_url = "https://github.com/michael-ball/base16-horizon-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_HORIZON_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#16161c",
+    "#e95678",
+    "#29d398",
+    "#fab795",
+    "#26bbd9",
+    "#ee64ae",
+    "#59e3e3",
+    "#fadad1",
+]
+background = "#1c1e26"
+brights = [
+    "#232530",
+    "#ec6a88",
+    "#3fdaa4",
+    "#fbc3a7",
+    "#3fc6de",
+    "#f075b7",
+    "#6be6e6",
+    "#fdf0ed",
+]
+cursor_bg = "#fdf0ed"
+cursor_border = "#fdf0ed"
+cursor_fg = "#1c1e26"
+foreground = "#fdf0ed"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["HorizonDark (Gogh)"]
+name = "Horizon Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -112785,6 +113193,260 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Heetch-to-Hivacruz built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_homebrew_to_horizon_dark_builtin_color_schemes() {
+        let cases = [
+            (
+                "Homebrew",
+                Color::Rgb(0, 255, 0),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(35, 255, 24),
+                Some(Color::Rgb(255, 0, 24)),
+                Some(Color::Rgb(8, 57, 5)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(153, 0, 0),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(153, 153, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Homebrew (Gogh)",
+                Color::Rgb(0, 255, 0),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(0, 255, 0),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(153, 0, 0),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(153, 153, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Homebrew Light (Gogh)",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 255)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(153, 0, 0),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(153, 153, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Homebrew Ocean (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(34, 79, 188),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(34, 79, 188)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(153, 0, 0),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(153, 153, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Hopscotch",
+                Color::Rgb(185, 181, 184),
+                Color::Rgb(50, 41, 49),
+                Color::Rgb(185, 181, 184),
+                Some(Color::Rgb(50, 41, 49)),
+                Some(Color::Rgb(92, 84, 91)),
+                Some(Some(Color::Rgb(185, 181, 184))),
+                Color::Rgb(50, 41, 49),
+                Color::Rgb(221, 70, 76),
+                Color::Rgb(143, 193, 62),
+                Color::Rgb(253, 204, 89),
+                Color::Rgb(121, 115, 121),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Hopscotch (base16)",
+                Color::Rgb(185, 181, 184),
+                Color::Rgb(50, 41, 49),
+                Color::Rgb(185, 181, 184),
+                Some(Color::Rgb(50, 41, 49)),
+                Some(Color::Rgb(185, 181, 184)),
+                Some(Some(Color::Rgb(50, 41, 49))),
+                Color::Rgb(50, 41, 49),
+                Color::Rgb(221, 70, 76),
+                Color::Rgb(143, 193, 62),
+                Color::Rgb(253, 204, 89),
+                Color::Rgb(121, 115, 121),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(253, 139, 25)),
+            ),
+            (
+                "Hopscotch.256",
+                Color::Rgb(185, 181, 184),
+                Color::Rgb(50, 41, 49),
+                Color::Rgb(185, 181, 184),
+                Some(Color::Rgb(50, 41, 49)),
+                Some(Color::Rgb(92, 84, 91)),
+                Some(Some(Color::Rgb(185, 181, 184))),
+                Color::Rgb(50, 41, 49),
+                Color::Rgb(221, 70, 76),
+                Color::Rgb(143, 193, 62),
+                Color::Rgb(253, 204, 89),
+                Color::Rgb(121, 115, 121),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Horizon Bright (Gogh)",
+                Color::Rgb(28, 30, 38),
+                Color::Rgb(253, 240, 237),
+                Color::Rgb(28, 30, 38),
+                Some(Color::Rgb(253, 240, 237)),
+                None,
+                None,
+                Color::Rgb(22, 22, 28),
+                Color::Rgb(218, 16, 63),
+                Color::Rgb(30, 185, 128),
+                Color::Rgb(246, 102, 30),
+                Color::Rgb(26, 28, 35),
+                Color::Rgb(253, 240, 237),
+                None,
+            ),
+            (
+                "HorizonBright (Gogh)",
+                Color::Rgb(28, 30, 38),
+                Color::Rgb(253, 240, 237),
+                Color::Rgb(28, 30, 38),
+                Some(Color::Rgb(253, 240, 237)),
+                None,
+                None,
+                Color::Rgb(22, 22, 28),
+                Color::Rgb(218, 16, 63),
+                Color::Rgb(30, 185, 128),
+                Color::Rgb(246, 102, 30),
+                Color::Rgb(26, 28, 35),
+                Color::Rgb(253, 240, 237),
+                None,
+            ),
+            (
+                "Horizon Dark (base16)",
+                Color::Rgb(203, 206, 208),
+                Color::Rgb(28, 30, 38),
+                Color::Rgb(203, 206, 208),
+                Some(Color::Rgb(28, 30, 38)),
+                Some(Color::Rgb(203, 206, 208)),
+                Some(Some(Color::Rgb(28, 30, 38))),
+                Color::Rgb(28, 30, 38),
+                Color::Rgb(233, 86, 120),
+                Color::Rgb(41, 211, 152),
+                Color::Rgb(250, 194, 154),
+                Color::Rgb(111, 111, 112),
+                Color::Rgb(227, 230, 238),
+                Some(Color::Rgb(250, 183, 149)),
+            ),
+            (
+                "Horizon Dark (Gogh)",
+                Color::Rgb(253, 240, 237),
+                Color::Rgb(28, 30, 38),
+                Color::Rgb(253, 240, 237),
+                Some(Color::Rgb(28, 30, 38)),
+                None,
+                None,
+                Color::Rgb(22, 22, 28),
+                Color::Rgb(233, 86, 120),
+                Color::Rgb(41, 211, 152),
+                Color::Rgb(250, 183, 149),
+                Color::Rgb(35, 37, 48),
+                Color::Rgb(253, 240, 237),
+                None,
+            ),
+            (
+                "HorizonDark (Gogh)",
+                Color::Rgb(253, 240, 237),
+                Color::Rgb(28, 30, 38),
+                Color::Rgb(253, 240, 237),
+                Some(Color::Rgb(28, 30, 38)),
+                None,
+                None,
+                Color::Rgb(22, 22, 28),
+                Color::Rgb(233, 86, 120),
+                Color::Rgb(41, 211, 152),
+                Color::Rgb(250, 183, 149),
+                Color::Rgb(35, 37, 48),
+                Color::Rgb(253, 240, 237),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Homebrew-to-Horizon-Dark built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
