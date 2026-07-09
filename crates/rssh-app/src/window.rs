@@ -20156,6 +20156,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "purplepeter" => Some(BUILTIN_PURPLEPETER_COLOR_SCHEME_TOML),
         "Qualia (base16)" => Some(BUILTIN_QUALIA_BASE16_COLOR_SCHEME_TOML),
         "Quiet (Gogh)" => Some(BUILTIN_QUIET_GOGH_COLOR_SCHEME_TOML),
+        "Railscasts (base16)" => Some(BUILTIN_RAILSCASTS_BASE16_COLOR_SCHEME_TOML),
+        "Railscasts (dark) (terminal.sexy)" => {
+            Some(BUILTIN_RAILSCASTS_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Railscasts (light) (terminal.sexy)" => {
+            Some(BUILTIN_RAILSCASTS_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Rapture" => Some(BUILTIN_RAPTURE_COLOR_SCHEME_TOML),
+        "Rasi (terminal.sexy)" => Some(BUILTIN_RASI_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Raycast_Dark" => Some(BUILTIN_RAYCAST_DARK_COLOR_SCHEME_TOML),
+        "Raycast_Light" => Some(BUILTIN_RAYCAST_LIGHT_COLOR_SCHEME_TOML),
+        "rebecca" => Some(BUILTIN_REBECCA_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -49658,6 +49670,313 @@ aliases = []
 name = "Quiet (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_RAILSCASTS_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2b2b2b",
+    "#da4939",
+    "#a5c261",
+    "#ffc66d",
+    "#6d9cbe",
+    "#b6b3eb",
+    "#519f50",
+    "#e6e1dc",
+]
+background = "#2b2b2b"
+brights = [
+    "#5a647e",
+    "#da4939",
+    "#a5c261",
+    "#ffc66d",
+    "#6d9cbe",
+    "#b6b3eb",
+    "#519f50",
+    "#f9f7f3",
+]
+cursor_bg = "#e6e1dc"
+cursor_border = "#e6e1dc"
+cursor_fg = "#2b2b2b"
+foreground = "#e6e1dc"
+selection_bg = "#e6e1dc"
+selection_fg = "#2b2b2b"
+
+[colors.indexed]
+16 = "#cc7833"
+17 = "#bc9458"
+18 = "#272935"
+19 = "#3a4055"
+20 = "#d4cfc9"
+21 = "#f4f1ed"
+
+[metadata]
+aliases = ["Railscasts (dark) (terminal.sexy)"]
+author = "Ryan Bates (http://railscasts.com)"
+name = "Railscasts (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_RAILSCASTS_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2b2b2b",
+    "#da4939",
+    "#a5c261",
+    "#ffc66d",
+    "#6d9cbe",
+    "#b6b3eb",
+    "#519f50",
+    "#e6e1dc",
+]
+background = "#2b2b2b"
+brights = [
+    "#5a647e",
+    "#da4939",
+    "#a5c261",
+    "#ffc66d",
+    "#6d9cbe",
+    "#b6b3eb",
+    "#519f50",
+    "#f9f7f3",
+]
+foreground = "#e6e1dc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Railscasts (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_RAILSCASTS_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2b2b2b",
+    "#da4939",
+    "#a5c261",
+    "#ffc66d",
+    "#6d9cbe",
+    "#b6b3eb",
+    "#519f50",
+    "#e6e1dc",
+]
+background = "#f9f7f3"
+brights = [
+    "#5a647e",
+    "#da4939",
+    "#a5c261",
+    "#ffc66d",
+    "#6d9cbe",
+    "#b6b3eb",
+    "#519f50",
+    "#f9f7f3",
+]
+foreground = "#3a4055"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Railscasts (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_RAPTURE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#fc644d",
+    "#7afde1",
+    "#fff09b",
+    "#6c9bf5",
+    "#ff4fa1",
+    "#64e0ff",
+    "#c0c9e5",
+]
+background = "#111e2a"
+brights = [
+    "#304b66",
+    "#fc644d",
+    "#7afde1",
+    "#fff09b",
+    "#6c9bf5",
+    "#ff4fa1",
+    "#64e0ff",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#111e2a"
+foreground = "#c0c9e5"
+selection_bg = "#304b66"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Rapture"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_RASI_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1d1e",
+    "#f92672",
+    "#82b414",
+    "#fd971f",
+    "#4e82aa",
+    "#8c54fe",
+    "#465457",
+    "#ccccc6",
+]
+background = "#000000"
+brights = [
+    "#505354",
+    "#ff5995",
+    "#b6e354",
+    "#feed6c",
+    "#0c73c2",
+    "#9e6ffe",
+    "#899ca1",
+    "#f8f8f2",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Rasi (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_RAYCAST_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff5360",
+    "#59d499",
+    "#ffc531",
+    "#56c2ff",
+    "#cf2f98",
+    "#52eee5",
+    "#ffffff",
+]
+background = "#1a1a1a"
+brights = [
+    "#000000",
+    "#ff6363",
+    "#59d499",
+    "#ffc531",
+    "#56c2ff",
+    "#cf2f98",
+    "#52eee5",
+    "#ffffff",
+]
+cursor_bg = "#cccccc"
+cursor_border = "#cccccc"
+cursor_fg = "#ffffff"
+foreground = "#ffffff"
+selection_bg = "#333333"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Raycast_Dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_RAYCAST_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#b12424",
+    "#006b4f",
+    "#f8a300",
+    "#138af2",
+    "#9a1b6e",
+    "#3eb8bf",
+    "#ffffff",
+]
+background = "#ffffff"
+brights = [
+    "#000000",
+    "#b12424",
+    "#006b4f",
+    "#f8a300",
+    "#138af2",
+    "#9a1b6e",
+    "#3eb8bf",
+    "#ffffff",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#000000"
+foreground = "#000000"
+selection_bg = "#e6e6e6"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Raycast_Light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_REBECCA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#12131e",
+    "#dd7755",
+    "#04dbb5",
+    "#f2e7b7",
+    "#7aa5ff",
+    "#bf9cf9",
+    "#56d3c2",
+    "#e4e3e9",
+]
+background = "#292a44"
+brights = [
+    "#666699",
+    "#ff92cd",
+    "#01eac0",
+    "#fffca8",
+    "#69c0fa",
+    "#c17ff8",
+    "#8bfde1",
+    "#f4f2f9",
+]
+cursor_bg = "#b89bf9"
+cursor_border = "#b89bf9"
+cursor_fg = "#292a44"
+foreground = "#e8e6ed"
+selection_bg = "#663399"
+selection_fg = "#f4f2f9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "rebecca"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -132187,6 +132506,196 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Pro-Light-to-Quiet built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_railscasts_to_rebecca_builtin_color_schemes() {
+        let cases = [
+            (
+                "Railscasts (base16)",
+                Color::Rgb(230, 225, 220),
+                Color::Rgb(43, 43, 43),
+                Color::Rgb(230, 225, 220),
+                Some(Color::Rgb(43, 43, 43)),
+                Some(Color::Rgb(230, 225, 220)),
+                Some(Some(Color::Rgb(43, 43, 43))),
+                Color::Rgb(43, 43, 43),
+                Color::Rgb(218, 73, 57),
+                Color::Rgb(165, 194, 97),
+                Color::Rgb(255, 198, 109),
+                Color::Rgb(90, 100, 126),
+                Color::Rgb(249, 247, 243),
+                Some(Color::Rgb(204, 120, 51)),
+            ),
+            (
+                "Railscasts (dark) (terminal.sexy)",
+                Color::Rgb(230, 225, 220),
+                Color::Rgb(43, 43, 43),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(43, 43, 43),
+                Color::Rgb(218, 73, 57),
+                Color::Rgb(165, 194, 97),
+                Color::Rgb(255, 198, 109),
+                Color::Rgb(90, 100, 126),
+                Color::Rgb(249, 247, 243),
+                None,
+            ),
+            (
+                "Railscasts (light) (terminal.sexy)",
+                Color::Rgb(58, 64, 85),
+                Color::Rgb(249, 247, 243),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(43, 43, 43),
+                Color::Rgb(218, 73, 57),
+                Color::Rgb(165, 194, 97),
+                Color::Rgb(255, 198, 109),
+                Color::Rgb(90, 100, 126),
+                Color::Rgb(249, 247, 243),
+                None,
+            ),
+            (
+                "Rapture",
+                Color::Rgb(192, 201, 229),
+                Color::Rgb(17, 30, 42),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(17, 30, 42)),
+                Some(Color::Rgb(48, 75, 102)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(252, 100, 77),
+                Color::Rgb(122, 253, 225),
+                Color::Rgb(255, 240, 155),
+                Color::Rgb(48, 75, 102),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Rasi (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(130, 180, 20),
+                Color::Rgb(253, 151, 31),
+                Color::Rgb(80, 83, 84),
+                Color::Rgb(248, 248, 242),
+                None,
+            ),
+            (
+                "Raycast_Dark",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(26, 26, 26),
+                Color::Rgb(204, 204, 204),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(51, 51, 51)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 83, 96),
+                Color::Rgb(89, 212, 153),
+                Color::Rgb(255, 197, 49),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Raycast_Light",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(230, 230, 230)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(177, 36, 36),
+                Color::Rgb(0, 107, 79),
+                Color::Rgb(248, 163, 0),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "rebecca",
+                Color::Rgb(232, 230, 237),
+                Color::Rgb(41, 42, 68),
+                Color::Rgb(184, 155, 249),
+                Some(Color::Rgb(41, 42, 68)),
+                Some(Color::Rgb(102, 51, 153)),
+                Some(Some(Color::Rgb(244, 242, 249))),
+                Color::Rgb(18, 19, 30),
+                Color::Rgb(221, 119, 85),
+                Color::Rgb(4, 219, 181),
+                Color::Rgb(242, 231, 183),
+                Color::Rgb(102, 102, 153),
+                Color::Rgb(244, 242, 249),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Railscasts-to-Rebecca built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

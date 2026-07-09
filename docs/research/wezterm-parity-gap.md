@@ -3803,9 +3803,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Predawn (Gogh)`, `Pretty and Pastel (terminal.sexy)`, `primary`, `Pro`,
   `Pro (Gogh)`, `Pro Light`, `Pulp (terminal.sexy)`,
   `Purple People Eater (Gogh)`, `Purple Rain`, `Purpledream (base16)`,
-  `purplepeter`, `Qualia (base16)`, `Quiet (Gogh)`, `Builtin Dark`,
-  `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
-  `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
+  `purplepeter`, `Qualia (base16)`, `Quiet (Gogh)`,
+  `Railscasts (base16)`, `Railscasts (dark) (terminal.sexy)`,
+  `Railscasts (light) (terminal.sexy)`, `Rapture`,
+  `Rasi (terminal.sexy)`, `Raycast_Dark`, `Raycast_Light`, `rebecca`,
+  `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
+  `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
+  `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
   palette data. The broader built-in scheme catalog, richer dynamic
   `load_scheme` composition, and full dynamic Lua scheme
