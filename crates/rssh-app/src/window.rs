@@ -19623,6 +19623,22 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Everforest Dark Soft (Gogh)" => Some(BUILTIN_EVERFOREST_DARK_SOFT_GOGH_COLOR_SCHEME_TOML),
         "Everforest Light (Gogh)" => Some(BUILTIN_EVERFOREST_LIGHT_GOGH_COLOR_SCHEME_TOML),
+        "Everforest Light Hard (Gogh)" => {
+            Some(BUILTIN_EVERFOREST_LIGHT_HARD_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Everforest Light Medium (Gogh)" => {
+            Some(BUILTIN_EVERFOREST_LIGHT_MEDIUM_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Everforest Light Soft (Gogh)" => {
+            Some(BUILTIN_EVERFOREST_LIGHT_SOFT_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Fahrenheit" => Some(BUILTIN_FAHRENHEIT_COLOR_SCHEME_TOML),
+        "Fairy Floss (Gogh)" => Some(BUILTIN_FAIRY_FLOSS_GOGH_COLOR_SCHEME_TOML),
+        "Fairy Floss Dark (Gogh)" => Some(BUILTIN_FAIRY_FLOSS_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Fairyfloss" => Some(BUILTIN_FAIRYFLOSS_COLOR_SCHEME_TOML),
+        "farmhouse-dark" => Some(BUILTIN_FARMHOUSE_DARK_COLOR_SCHEME_TOML),
+        "farmhouse-light" => Some(BUILTIN_FARMHOUSE_LIGHT_COLOR_SCHEME_TOML),
+        "FarSide (terminal.sexy)" => Some(BUILTIN_FARSIDE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -33061,6 +33077,382 @@ aliases = ["EverforestLight (Gogh)"]
 name = "Everforest Light (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_EVERFOREST_LIGHT_HARD_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#5c6a72",
+    "#f85552",
+    "#8da101",
+    "#dfa000",
+    "#3a94c5",
+    "#df69ba",
+    "#35a77c",
+    "#dfddc8",
+]
+background = "#fffbef"
+brights = [
+    "#2e383c",
+    "#e67e80",
+    "#a7c080",
+    "#dbbc7f",
+    "#7fbbb3",
+    "#d699b6",
+    "#83c092",
+    "#d3c6aa",
+]
+cursor_bg = "#5c6a72"
+cursor_border = "#5c6a72"
+cursor_fg = "#fffbef"
+foreground = "#5c6a72"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Everforest Light Hard (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_EVERFOREST_LIGHT_MEDIUM_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#5c6a72",
+    "#f85552",
+    "#8da101",
+    "#dfa000",
+    "#3a94c5",
+    "#df69ba",
+    "#35a77c",
+    "#dfddc8",
+]
+background = "#fdf6e3"
+brights = [
+    "#343f44",
+    "#e67e80",
+    "#a7c080",
+    "#dbbc7f",
+    "#7fbbb3",
+    "#d699b6",
+    "#83c092",
+    "#d3c6aa",
+]
+cursor_bg = "#5c6a72"
+cursor_border = "#5c6a72"
+cursor_fg = "#fdf6e3"
+foreground = "#5c6a72"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Everforest Light Medium (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_EVERFOREST_LIGHT_SOFT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#5c6a72",
+    "#f85552",
+    "#8da101",
+    "#dfa000",
+    "#3a94c5",
+    "#df69ba",
+    "#35a77c",
+    "#dfddc8",
+]
+background = "#f3ead3"
+brights = [
+    "#3a464c",
+    "#e67e80",
+    "#a7c080",
+    "#dbbc7f",
+    "#7fbbb3",
+    "#d699b6",
+    "#83c092",
+    "#d3c6aa",
+]
+cursor_bg = "#5c6a72"
+cursor_border = "#5c6a72"
+cursor_fg = "#f3ead3"
+foreground = "#5c6a72"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Everforest Light Soft (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_FAHRENHEIT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d1d1d",
+    "#cda074",
+    "#9e744d",
+    "#fecf75",
+    "#720102",
+    "#734c4d",
+    "#979797",
+    "#ffffce",
+]
+background = "#000000"
+brights = [
+    "#000000",
+    "#fecea0",
+    "#cc734d",
+    "#fd9f4d",
+    "#cb4a05",
+    "#4e739f",
+    "#fed04d",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#ffffce"
+selection_bg = "#4e739f"
+selection_fg = "#ffffce"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Fahrenheit"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_FAIRY_FLOSS_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#42395d",
+    "#a8757b",
+    "#ff857f",
+    "#e6c000",
+    "#ae81ff",
+    "#716799",
+    "#c2ffdf",
+    "#f8f8f2",
+]
+background = "#5a5475"
+brights = [
+    "#75507b",
+    "#ffb8d1",
+    "#f1568e",
+    "#d5a425",
+    "#c5a3ff",
+    "#8077a8",
+    "#c2ffff",
+    "#f8f8f0",
+]
+cursor_bg = "#ffb8d1"
+cursor_border = "#ffb8d1"
+cursor_fg = "#5a5475"
+foreground = "#c2ffdf"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["FairyFloss (Gogh)"]
+name = "Fairy Floss (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_FAIRY_FLOSS_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#42395d",
+    "#a8757b",
+    "#ff857f",
+    "#e6c000",
+    "#ae81ff",
+    "#716799",
+    "#c2ffdf",
+    "#f8f8f2",
+]
+background = "#42395d"
+brights = [
+    "#75507b",
+    "#ffb8d1",
+    "#f1568e",
+    "#d5a425",
+    "#c5a3ff",
+    "#8077a8",
+    "#c2ffff",
+    "#f8f8f0",
+]
+cursor_bg = "#ffb8d1"
+cursor_border = "#ffb8d1"
+cursor_fg = "#42395d"
+foreground = "#c2ffdf"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["FairyFlossDark (Gogh)"]
+name = "Fairy Floss Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_FAIRYFLOSS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#040303",
+    "#f92672",
+    "#c2ffdf",
+    "#e6c000",
+    "#c2ffdf",
+    "#ffb8d1",
+    "#c5a3ff",
+    "#f8f8f0",
+]
+background = "#5a5475"
+brights = [
+    "#6090cb",
+    "#ff857f",
+    "#c2ffdf",
+    "#ffea00",
+    "#c2ffdf",
+    "#ffb8d1",
+    "#c5a3ff",
+    "#f8f8f0",
+]
+cursor_bg = "#f8f8f0"
+cursor_border = "#f8f8f0"
+cursor_fg = "#060709"
+foreground = "#f8f8f2"
+selection_bg = "#8077a8"
+selection_fg = "#f6e1ce"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Fairyfloss"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_FARMHOUSE_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d2027",
+    "#ba0004",
+    "#549d00",
+    "#c87300",
+    "#0049e6",
+    "#9f1b61",
+    "#1fb65c",
+    "#e8e4e1",
+]
+background = "#1d2027"
+brights = [
+    "#394047",
+    "#eb0009",
+    "#7ac100",
+    "#ea9a00",
+    "#006efe",
+    "#bf3b7f",
+    "#19e062",
+    "#f4eef0",
+]
+cursor_bg = "#006efe"
+cursor_border = "#006efe"
+cursor_fg = "#e8e4e1"
+foreground = "#e8e4e1"
+selection_bg = "#4d5658"
+selection_fg = "#b3b1aa"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "farmhouse-dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_FARMHOUSE_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d2027",
+    "#8d0003",
+    "#3a7d00",
+    "#a95600",
+    "#092ccd",
+    "#820046",
+    "#229256",
+    "#e8e4e1",
+]
+background = "#e8e4e1"
+brights = [
+    "#394047",
+    "#eb0009",
+    "#7ac100",
+    "#ea9a00",
+    "#006efe",
+    "#bf3b7f",
+    "#19e062",
+    "#f4eef0",
+]
+cursor_bg = "#006efe"
+cursor_border = "#006efe"
+cursor_fg = "#1d2027"
+foreground = "#1d2027"
+selection_bg = "#b3b1aa"
+selection_fg = "#4d5658"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "farmhouse-light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_FARSIDE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#303030",
+    "#a43261",
+    "#006ca5",
+    "#007086",
+    "#6751a6",
+    "#913e88",
+    "#0061b1",
+    "#c6c6c6",
+]
+background = "#000000"
+brights = [
+    "#5e5e5e",
+    "#ff9fc9",
+    "#3bd6ff",
+    "#00ddf4",
+    "#d5b8ff",
+    "#ffa7f6",
+    "#93c9ff",
+    "#ffffff",
+]
+foreground = "#919191"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Baskerville"
+name = "FarSide (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -105644,6 +106036,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Euphrasia-to-Everforest Light Gogh built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_everforest_light_hard_to_farside_builtin_color_schemes() {
+        let cases = [
+            (
+                "Everforest Light Hard (Gogh)",
+                Color::Rgb(92, 106, 114),
+                Color::Rgb(255, 251, 239),
+                Color::Rgb(92, 106, 114),
+                Some(Color::Rgb(255, 251, 239)),
+                None,
+                None,
+                Color::Rgb(92, 106, 114),
+                Color::Rgb(248, 85, 82),
+                Color::Rgb(141, 161, 1),
+                Color::Rgb(223, 160, 0),
+                Color::Rgb(46, 56, 60),
+                Color::Rgb(211, 198, 170),
+                None,
+            ),
+            (
+                "Everforest Light Medium (Gogh)",
+                Color::Rgb(92, 106, 114),
+                Color::Rgb(253, 246, 227),
+                Color::Rgb(92, 106, 114),
+                Some(Color::Rgb(253, 246, 227)),
+                None,
+                None,
+                Color::Rgb(92, 106, 114),
+                Color::Rgb(248, 85, 82),
+                Color::Rgb(141, 161, 1),
+                Color::Rgb(223, 160, 0),
+                Color::Rgb(52, 63, 68),
+                Color::Rgb(211, 198, 170),
+                None,
+            ),
+            (
+                "Everforest Light Soft (Gogh)",
+                Color::Rgb(92, 106, 114),
+                Color::Rgb(243, 234, 211),
+                Color::Rgb(92, 106, 114),
+                Some(Color::Rgb(243, 234, 211)),
+                None,
+                None,
+                Color::Rgb(92, 106, 114),
+                Color::Rgb(248, 85, 82),
+                Color::Rgb(141, 161, 1),
+                Color::Rgb(223, 160, 0),
+                Color::Rgb(58, 70, 76),
+                Color::Rgb(211, 198, 170),
+                None,
+            ),
+            (
+                "Fahrenheit",
+                Color::Rgb(255, 255, 206),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(78, 115, 159)),
+                Some(Some(Color::Rgb(255, 255, 206))),
+                Color::Rgb(29, 29, 29),
+                Color::Rgb(205, 160, 116),
+                Color::Rgb(158, 116, 77),
+                Color::Rgb(254, 207, 117),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Fairy Floss (Gogh)",
+                Color::Rgb(194, 255, 223),
+                Color::Rgb(90, 84, 117),
+                Color::Rgb(255, 184, 209),
+                Some(Color::Rgb(90, 84, 117)),
+                None,
+                None,
+                Color::Rgb(66, 57, 93),
+                Color::Rgb(168, 117, 123),
+                Color::Rgb(255, 133, 127),
+                Color::Rgb(230, 192, 0),
+                Color::Rgb(117, 80, 123),
+                Color::Rgb(248, 248, 240),
+                None,
+            ),
+            (
+                "Fairy Floss Dark (Gogh)",
+                Color::Rgb(194, 255, 223),
+                Color::Rgb(66, 57, 93),
+                Color::Rgb(255, 184, 209),
+                Some(Color::Rgb(66, 57, 93)),
+                None,
+                None,
+                Color::Rgb(66, 57, 93),
+                Color::Rgb(168, 117, 123),
+                Color::Rgb(255, 133, 127),
+                Color::Rgb(230, 192, 0),
+                Color::Rgb(117, 80, 123),
+                Color::Rgb(248, 248, 240),
+                None,
+            ),
+            (
+                "Fairyfloss",
+                Color::Rgb(248, 248, 242),
+                Color::Rgb(90, 84, 117),
+                Color::Rgb(248, 248, 240),
+                Some(Color::Rgb(6, 7, 9)),
+                Some(Color::Rgb(128, 119, 168)),
+                Some(Some(Color::Rgb(246, 225, 206))),
+                Color::Rgb(4, 3, 3),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(194, 255, 223),
+                Color::Rgb(230, 192, 0),
+                Color::Rgb(96, 144, 203),
+                Color::Rgb(248, 248, 240),
+                None,
+            ),
+            (
+                "farmhouse-dark",
+                Color::Rgb(232, 228, 225),
+                Color::Rgb(29, 32, 39),
+                Color::Rgb(0, 110, 254),
+                Some(Color::Rgb(232, 228, 225)),
+                Some(Color::Rgb(77, 86, 88)),
+                Some(Some(Color::Rgb(179, 177, 170))),
+                Color::Rgb(29, 32, 39),
+                Color::Rgb(186, 0, 4),
+                Color::Rgb(84, 157, 0),
+                Color::Rgb(200, 115, 0),
+                Color::Rgb(57, 64, 71),
+                Color::Rgb(244, 238, 240),
+                None,
+            ),
+            (
+                "farmhouse-light",
+                Color::Rgb(29, 32, 39),
+                Color::Rgb(232, 228, 225),
+                Color::Rgb(0, 110, 254),
+                Some(Color::Rgb(29, 32, 39)),
+                Some(Color::Rgb(179, 177, 170)),
+                Some(Some(Color::Rgb(77, 86, 88))),
+                Color::Rgb(29, 32, 39),
+                Color::Rgb(141, 0, 3),
+                Color::Rgb(58, 125, 0),
+                Color::Rgb(169, 86, 0),
+                Color::Rgb(57, 64, 71),
+                Color::Rgb(244, 238, 240),
+                None,
+            ),
+            (
+                "FarSide (terminal.sexy)",
+                Color::Rgb(145, 145, 145),
+                Color::Rgb(0, 0, 0),
+                DEFAULT_CURSOR_BG_COLOR,
+                None,
+                None,
+                None,
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(164, 50, 97),
+                Color::Rgb(0, 108, 165),
+                Color::Rgb(0, 112, 134),
+                Color::Rgb(94, 94, 94),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Everforest Light Hard-to-FarSide built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

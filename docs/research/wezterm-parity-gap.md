@@ -3656,6 +3656,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Everblush`, `Everblush (Gogh)`, `Everforest Dark (Gogh)`,
   `Everforest Dark Hard (Gogh)`, `Everforest Dark Medium (Gogh)`,
   `Everforest Dark Soft (Gogh)`, `Everforest Light (Gogh)`,
+  `Everforest Light Hard (Gogh)`, `Everforest Light Medium (Gogh)`,
+  `Everforest Light Soft (Gogh)`, `Fahrenheit`, `Fairy Floss (Gogh)`,
+  `Fairy Floss Dark (Gogh)`, `Fairyfloss`, `farmhouse-dark`,
+  `farmhouse-light`, `FarSide (terminal.sexy)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
   `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
