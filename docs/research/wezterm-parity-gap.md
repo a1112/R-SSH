@@ -3798,9 +3798,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `PencilLight`, `Peppermint`, `Peppermint (Gogh)`, `PhD (base16)`,
   `Phrak1 (terminal.sexy)`, `Piatto Light`, `Pico (base16)`,
   `pinky (base16)`, `Pixiefloss (Gogh)`, `Pnevma`, `Pnevma (Gogh)`,
-  `Poimandres`, `Poimandres Storm`, `Pop (base16)`, `Builtin Dark`,
-  `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
-  `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
+  `Poimandres`, `Poimandres Storm`, `Pop (base16)`,
+  `Popping and Locking`, `Porple (base16)`, `Powershell (Gogh)`,
+  `Predawn (Gogh)`, `Pretty and Pastel (terminal.sexy)`, `primary`, `Pro`,
+  `Pro (Gogh)`, `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
+  `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
+  `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
   palette data. The broader built-in scheme catalog, richer dynamic
   `load_scheme` composition, and full dynamic Lua scheme

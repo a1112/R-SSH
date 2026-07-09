@@ -20134,6 +20134,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Poimandres" => Some(BUILTIN_POIMANDRES_COLOR_SCHEME_TOML),
         "Poimandres Storm" => Some(BUILTIN_POIMANDRES_STORM_COLOR_SCHEME_TOML),
         "Pop (base16)" => Some(BUILTIN_POP_BASE16_COLOR_SCHEME_TOML),
+        "Popping and Locking" => Some(BUILTIN_POPPING_AND_LOCKING_COLOR_SCHEME_TOML),
+        "Porple (base16)" => Some(BUILTIN_PORPLE_BASE16_COLOR_SCHEME_TOML),
+        "Powershell (Gogh)" | "PowerShell (Gogh)" => {
+            Some(BUILTIN_POWERSHELL_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Predawn (Gogh)" => Some(BUILTIN_PREDAWN_GOGH_COLOR_SCHEME_TOML),
+        "Pretty and Pastel (terminal.sexy)" => {
+            Some(BUILTIN_PRETTY_AND_PASTEL_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "primary" => Some(BUILTIN_PRIMARY_COLOR_SCHEME_TOML),
+        "Pro" => Some(BUILTIN_PRO_COLOR_SCHEME_TOML),
+        "Pro (Gogh)" => Some(BUILTIN_PRO_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -49009,6 +49021,315 @@ author = "Chris Kempson (http://chriskempson.com)"
 name = "Pop (base16)"
 origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_POPPING_AND_LOCKING_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d2021",
+    "#cc241d",
+    "#98971a",
+    "#d79921",
+    "#458588",
+    "#b16286",
+    "#689d6a",
+    "#a89984",
+]
+background = "#181921"
+brights = [
+    "#928374",
+    "#f42c3e",
+    "#b8bb26",
+    "#fabd2f",
+    "#99c6ca",
+    "#d3869b",
+    "#7ec16e",
+    "#ebdbb2",
+]
+cursor_bg = "#c7c7c7"
+cursor_border = "#c7c7c7"
+cursor_fg = "#ffffff"
+foreground = "#ebdbb2"
+selection_bg = "#ebdbb2"
+selection_fg = "#928374"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Popping and Locking"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_PORPLE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#292c36",
+    "#f84547",
+    "#95c76f",
+    "#efa16b",
+    "#8485ce",
+    "#b74989",
+    "#64878f",
+    "#d8d8d8",
+]
+background = "#292c36"
+brights = [
+    "#65568a",
+    "#f84547",
+    "#95c76f",
+    "#efa16b",
+    "#8485ce",
+    "#b74989",
+    "#64878f",
+    "#f8f8f8",
+]
+cursor_bg = "#d8d8d8"
+cursor_border = "#d8d8d8"
+cursor_fg = "#292c36"
+foreground = "#d8d8d8"
+selection_bg = "#d8d8d8"
+selection_fg = "#292c36"
+
+[colors.indexed]
+16 = "#d28e5d"
+17 = "#986841"
+18 = "#333344"
+19 = "#474160"
+20 = "#b8b8b8"
+21 = "#e8e8e8"
+
+[metadata]
+aliases = []
+author = "Niek den Breeje (https://github.com/AuditeMarlow)"
+name = "Porple (base16)"
+origin_url = "https://github.com/AuditeMarlow/base16-porple-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_POWERSHELL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#7e0008",
+    "#098003",
+    "#c4a000",
+    "#010083",
+    "#d33682",
+    "#0e807f",
+    "#7f7c7f",
+]
+background = "#052454"
+brights = [
+    "#808080",
+    "#ef2929",
+    "#1cfe3c",
+    "#fefe45",
+    "#268ad2",
+    "#fe13fa",
+    "#29fffe",
+    "#c2c1c3",
+]
+cursor_bg = "#f6f6f7"
+cursor_border = "#f6f6f7"
+cursor_fg = "#052454"
+foreground = "#f6f6f7"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["PowerShell (Gogh)"]
+name = "Powershell (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PREDAWN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f18260",
+    "#b51a20",
+    "#a6cc75",
+    "#fed33a",
+    "#81b2b1",
+    "#eb6c4e",
+    "#81b2b1",
+    "#eaeaea",
+]
+background = "#282828"
+brights = [
+    "#666666",
+    "#ff000b",
+    "#c4ee94",
+    "#e8e06d",
+    "#a5ebea",
+    "#ef8a50",
+    "#a5ebea",
+    "#ffffff",
+]
+cursor_bg = "#f1f1f1"
+cursor_border = "#f1f1f1"
+cursor_fg = "#282828"
+foreground = "#f1f1f1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Predawn (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_PRETTY_AND_PASTEL_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#292929",
+    "#cf6a4c",
+    "#19cb00",
+    "#fad07a",
+    "#8197bf",
+    "#8787af",
+    "#668799",
+    "#888888",
+]
+background = "#151515"
+brights = [
+    "#525252",
+    "#ff9d80",
+    "#23fd00",
+    "#ffefbf",
+    "#accaff",
+    "#c4c4ff",
+    "#80bfaf",
+    "#e8e8d3",
+]
+foreground = "#888888"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "IWAFU"
+name = "Pretty and Pastel (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PRIMARY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#db4437",
+    "#0f9d58",
+    "#f4b400",
+    "#4285f4",
+    "#db4437",
+    "#4285f4",
+    "#ffffff",
+]
+background = "#ffffff"
+brights = [
+    "#000000",
+    "#db4437",
+    "#0f9d58",
+    "#f4b400",
+    "#4285f4",
+    "#4285f4",
+    "#0f9d58",
+    "#ffffff",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#ffffff"
+foreground = "#000000"
+selection_bg = "#656565"
+selection_fg = "#eeeeee"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "primary"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_PRO_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#990000",
+    "#00a600",
+    "#999900",
+    "#2009db",
+    "#b200b2",
+    "#00a6b2",
+    "#bfbfbf",
+]
+background = "#000000"
+brights = [
+    "#666666",
+    "#e50000",
+    "#00d900",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#4d4d4d"
+cursor_border = "#4d4d4d"
+cursor_fg = "#ffffff"
+foreground = "#f2f2f2"
+selection_bg = "#414141"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Pro (Gogh)"]
+name = "Pro"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_PRO_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#990000",
+    "#00a600",
+    "#999900",
+    "#2009db",
+    "#b200b2",
+    "#00a6b2",
+    "#bfbfbf",
+]
+background = "#000000"
+brights = [
+    "#666666",
+    "#e50000",
+    "#00d900",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#f2f2f2"
+cursor_border = "#f2f2f2"
+cursor_fg = "#000000"
+foreground = "#f2f2f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Pro (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -131126,6 +131447,212 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Pico-to-Pop built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_popping_to_pro_gogh_builtin_color_schemes() {
+        let cases = [
+            (
+                "Popping and Locking",
+                Color::Rgb(235, 219, 178),
+                Color::Rgb(24, 25, 33),
+                Color::Rgb(199, 199, 199),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(235, 219, 178)),
+                Some(Some(Color::Rgb(146, 131, 116))),
+                Color::Rgb(29, 32, 33),
+                Color::Rgb(204, 36, 29),
+                Color::Rgb(152, 151, 26),
+                Color::Rgb(215, 153, 33),
+                Color::Rgb(146, 131, 116),
+                Color::Rgb(235, 219, 178),
+                None,
+            ),
+            (
+                "Porple (base16)",
+                Color::Rgb(216, 216, 216),
+                Color::Rgb(41, 44, 54),
+                Color::Rgb(216, 216, 216),
+                Some(Color::Rgb(41, 44, 54)),
+                Some(Color::Rgb(216, 216, 216)),
+                Some(Some(Color::Rgb(41, 44, 54))),
+                Color::Rgb(41, 44, 54),
+                Color::Rgb(248, 69, 71),
+                Color::Rgb(149, 199, 111),
+                Color::Rgb(239, 161, 107),
+                Color::Rgb(101, 86, 138),
+                Color::Rgb(248, 248, 248),
+                Some(Color::Rgb(210, 142, 93)),
+            ),
+            (
+                "Powershell (Gogh)",
+                Color::Rgb(246, 246, 247),
+                Color::Rgb(5, 36, 84),
+                Color::Rgb(246, 246, 247),
+                Some(Color::Rgb(5, 36, 84)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(126, 0, 8),
+                Color::Rgb(9, 128, 3),
+                Color::Rgb(196, 160, 0),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(194, 193, 195),
+                None,
+            ),
+            (
+                "PowerShell (Gogh)",
+                Color::Rgb(246, 246, 247),
+                Color::Rgb(5, 36, 84),
+                Color::Rgb(246, 246, 247),
+                Some(Color::Rgb(5, 36, 84)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(126, 0, 8),
+                Color::Rgb(9, 128, 3),
+                Color::Rgb(196, 160, 0),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(194, 193, 195),
+                None,
+            ),
+            (
+                "Predawn (Gogh)",
+                Color::Rgb(241, 241, 241),
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(241, 241, 241),
+                Some(Color::Rgb(40, 40, 40)),
+                None,
+                None,
+                Color::Rgb(241, 130, 96),
+                Color::Rgb(181, 26, 32),
+                Color::Rgb(166, 204, 117),
+                Color::Rgb(254, 211, 58),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Pretty and Pastel (terminal.sexy)",
+                Color::Rgb(136, 136, 136),
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(41, 41, 41),
+                Color::Rgb(207, 106, 76),
+                Color::Rgb(25, 203, 0),
+                Color::Rgb(250, 208, 122),
+                Color::Rgb(82, 82, 82),
+                Color::Rgb(232, 232, 211),
+                None,
+            ),
+            (
+                "primary",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(101, 101, 101)),
+                Some(Some(Color::Rgb(238, 238, 238))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(219, 68, 55),
+                Color::Rgb(15, 157, 88),
+                Color::Rgb(244, 180, 0),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Pro",
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(77, 77, 77),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(65, 65, 65)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(153, 0, 0),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(153, 153, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Pro (Gogh)",
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(242, 242, 242),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(153, 0, 0),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(153, 153, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Popping-to-Pro-Gogh built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
