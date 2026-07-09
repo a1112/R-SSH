@@ -20082,6 +20082,14 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Operator Mono Dark" => Some(BUILTIN_OPERATOR_MONO_DARK_COLOR_SCHEME_TOML),
         "Orangish (terminal.sexy)" => Some(BUILTIN_ORANGISH_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Outrun Dark (base16)" => Some(BUILTIN_OUTRUN_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Overnight Slumber" => Some(BUILTIN_OVERNIGHT_SLUMBER_COLOR_SCHEME_TOML),
+        "Oxocarbon Dark (Gogh)" => Some(BUILTIN_OXOCARBON_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Palenight (Gogh)" | "palenight (Gogh)" => Some(BUILTIN_PALENIGHT_GOGH_COLOR_SCHEME_TOML),
+        "PaleNightHC" => Some(BUILTIN_PALENIGHTHC_COLOR_SCHEME_TOML),
+        "Pali (Gogh)" => Some(BUILTIN_PALI_GOGH_COLOR_SCHEME_TOML),
+        "Panda (Gogh)" => Some(BUILTIN_PANDA_GOGH_COLOR_SCHEME_TOML),
+        "Pandora" => Some(BUILTIN_PANDORA_COLOR_SCHEME_TOML),
+        "Panels (terminal.sexy)" => Some(BUILTIN_PANELS_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -47286,6 +47294,306 @@ aliases = []
 author = "Hugo Delahousse (http://github.com/hugodelahousse/)"
 name = "Outrun Dark (base16)"
 origin_url = "https://github.com/hugodelahousse/base16-outrun-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_OVERNIGHT_SLUMBER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0a1222",
+    "#ffa7c4",
+    "#85cc95",
+    "#ffcb8b",
+    "#8dabe1",
+    "#c792eb",
+    "#78ccf0",
+    "#ffffff",
+]
+background = "#0e1729"
+brights = [
+    "#575656",
+    "#ffa7c4",
+    "#85cc95",
+    "#ffcb8b",
+    "#8dabe1",
+    "#c792eb",
+    "#ffa7c4",
+    "#ffffff",
+]
+cursor_bg = "#ffa7c4"
+cursor_border = "#ffa7c4"
+cursor_fg = "#ffffff"
+foreground = "#ced2d6"
+selection_bg = "#1f2b41"
+selection_fg = "#ced2d6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Overnight Slumber"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_OXOCARBON_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#262626",
+    "#ee5396",
+    "#42be65",
+    "#ffe97b",
+    "#33b1ff",
+    "#ff7eb6",
+    "#3ddbd9",
+    "#dde1e6",
+]
+background = "#161616"
+brights = [
+    "#393939",
+    "#ee5396",
+    "#42be65",
+    "#ffe97b",
+    "#33b1ff",
+    "#ff7eb6",
+    "#3ddbd9",
+    "#ffffff",
+]
+cursor_bg = "#6f6f6f"
+cursor_border = "#6f6f6f"
+cursor_fg = "#161616"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Oxocarbon Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_PALENIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#292d3e",
+    "#f07178",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#60adec",
+    "#abb2bf",
+]
+background = "#292d3e"
+brights = [
+    "#959dcb",
+    "#f07178",
+    "#c3e88d",
+    "#ff5572",
+    "#82aaff",
+    "#ffcb6b",
+    "#676e95",
+    "#fffefe",
+]
+cursor_bg = "#bfc7d5"
+cursor_border = "#bfc7d5"
+cursor_fg = "#292d3e"
+foreground = "#bfc7d5"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["palenight (Gogh)"]
+name = "Palenight (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PALENIGHTHC_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#f07178",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#ffffff",
+]
+background = "#3e4251"
+brights = [
+    "#666666",
+    "#f6a9ae",
+    "#dbf1ba",
+    "#ffdfa6",
+    "#b4ccff",
+    "#ddbdf2",
+    "#b8eaff",
+    "#999999",
+]
+cursor_bg = "#ffcb6b"
+cursor_border = "#ffcb6b"
+cursor_fg = "#323232"
+foreground = "#cccccc"
+selection_bg = "#717cb4"
+selection_fg = "#80cbc4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "PaleNightHC"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_PALI_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0a0a0a",
+    "#ab8f74",
+    "#74ab8f",
+    "#8fab74",
+    "#8f74ab",
+    "#ab748f",
+    "#748fab",
+    "#f2f2f2",
+]
+background = "#232e37"
+brights = [
+    "#5d5d5d",
+    "#ff1d62",
+    "#9cc3af",
+    "#ffd00a",
+    "#af9cc3",
+    "#ff1d62",
+    "#4bb8fd",
+    "#a020f0",
+]
+cursor_bg = "#d9e6f2"
+cursor_border = "#d9e6f2"
+cursor_fg = "#232e37"
+foreground = "#d9e6f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Pali (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PANDA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1f1f20",
+    "#fb055a",
+    "#26ffd4",
+    "#fdaa5a",
+    "#5c9fff",
+    "#fc59a6",
+    "#26ffd4",
+    "#f0f0f0",
+]
+background = "#1d1e20"
+brights = [
+    "#5c6370",
+    "#fb055a",
+    "#26ffd4",
+    "#febe7e",
+    "#55adff",
+    "#fd95d0",
+    "#26ffd4",
+    "#f0f0f0",
+]
+cursor_bg = "#f0f0f0"
+cursor_border = "#f0f0f0"
+cursor_fg = "#1d1e20"
+foreground = "#f0f0f0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Panda (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PANDORA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff4242",
+    "#74af68",
+    "#ffad29",
+    "#338f86",
+    "#9414e6",
+    "#23d7d7",
+    "#e2e2e2",
+]
+background = "#141e43"
+brights = [
+    "#3f5648",
+    "#ff3242",
+    "#74cd68",
+    "#ffb929",
+    "#23d7d7",
+    "#ff37ff",
+    "#00ede1",
+    "#ffffff",
+]
+cursor_bg = "#43d58e"
+cursor_border = "#43d58e"
+cursor_fg = "#ffffff"
+foreground = "#e1e1e1"
+selection_bg = "#2d37ff"
+selection_fg = "#82e0ff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Pandora"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_PANELS_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#191927",
+    "#282f5e",
+    "#2b4593",
+    "#344276",
+    "#4e3a4f",
+    "#61372f",
+    "#6b484c",
+    "#744537",
+]
+background = "#000000"
+brights = [
+    "#905749",
+    "#94431c",
+    "#9f582a",
+    "#a38687",
+    "#e1750f",
+    "#eaaf25",
+    "#fa8e08",
+    "#fca806",
+]
+foreground = "#d3d3d3"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "dkeg"
+name = "Panels (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -128374,6 +128682,212 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm One-Light-to-Outrun-Dark built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_overnight_slumber_to_panels_builtin_color_schemes() {
+        let cases = [
+            (
+                "Overnight Slumber",
+                Color::Rgb(206, 210, 214),
+                Color::Rgb(14, 23, 41),
+                Color::Rgb(255, 167, 196),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(31, 43, 65)),
+                Some(Some(Color::Rgb(206, 210, 214))),
+                Color::Rgb(10, 18, 34),
+                Color::Rgb(255, 167, 196),
+                Color::Rgb(133, 204, 149),
+                Color::Rgb(255, 203, 139),
+                Color::Rgb(87, 86, 86),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Oxocarbon Dark (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(22, 22, 22),
+                Color::Rgb(111, 111, 111),
+                Some(Color::Rgb(22, 22, 22)),
+                None,
+                None,
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(238, 83, 150),
+                Color::Rgb(66, 190, 101),
+                Color::Rgb(255, 233, 123),
+                Color::Rgb(57, 57, 57),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Palenight (Gogh)",
+                Color::Rgb(191, 199, 213),
+                Color::Rgb(41, 45, 62),
+                Color::Rgb(191, 199, 213),
+                Some(Color::Rgb(41, 45, 62)),
+                None,
+                None,
+                Color::Rgb(41, 45, 62),
+                Color::Rgb(240, 113, 120),
+                Color::Rgb(195, 232, 141),
+                Color::Rgb(255, 203, 107),
+                Color::Rgb(149, 157, 203),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+            (
+                "palenight (Gogh)",
+                Color::Rgb(191, 199, 213),
+                Color::Rgb(41, 45, 62),
+                Color::Rgb(191, 199, 213),
+                Some(Color::Rgb(41, 45, 62)),
+                None,
+                None,
+                Color::Rgb(41, 45, 62),
+                Color::Rgb(240, 113, 120),
+                Color::Rgb(195, 232, 141),
+                Color::Rgb(255, 203, 107),
+                Color::Rgb(149, 157, 203),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+            (
+                "PaleNightHC",
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(62, 66, 81),
+                Color::Rgb(255, 203, 107),
+                Some(Color::Rgb(50, 50, 50)),
+                Some(Color::Rgb(113, 124, 180)),
+                Some(Some(Color::Rgb(128, 203, 196))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(240, 113, 120),
+                Color::Rgb(195, 232, 141),
+                Color::Rgb(255, 203, 107),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(153, 153, 153),
+                None,
+            ),
+            (
+                "Pali (Gogh)",
+                Color::Rgb(217, 230, 242),
+                Color::Rgb(35, 46, 55),
+                Color::Rgb(217, 230, 242),
+                Some(Color::Rgb(35, 46, 55)),
+                None,
+                None,
+                Color::Rgb(10, 10, 10),
+                Color::Rgb(171, 143, 116),
+                Color::Rgb(116, 171, 143),
+                Color::Rgb(143, 171, 116),
+                Color::Rgb(93, 93, 93),
+                Color::Rgb(160, 32, 240),
+                None,
+            ),
+            (
+                "Panda (Gogh)",
+                Color::Rgb(240, 240, 240),
+                Color::Rgb(29, 30, 32),
+                Color::Rgb(240, 240, 240),
+                Some(Color::Rgb(29, 30, 32)),
+                None,
+                None,
+                Color::Rgb(31, 31, 32),
+                Color::Rgb(251, 5, 90),
+                Color::Rgb(38, 255, 212),
+                Color::Rgb(253, 170, 90),
+                Color::Rgb(92, 99, 112),
+                Color::Rgb(240, 240, 240),
+                None,
+            ),
+            (
+                "Pandora",
+                Color::Rgb(225, 225, 225),
+                Color::Rgb(20, 30, 67),
+                Color::Rgb(67, 213, 142),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(45, 55, 255)),
+                Some(Some(Color::Rgb(130, 224, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 66, 66),
+                Color::Rgb(116, 175, 104),
+                Color::Rgb(255, 173, 41),
+                Color::Rgb(63, 86, 72),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Panels (terminal.sexy)",
+                Color::Rgb(211, 211, 211),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(25, 25, 39),
+                Color::Rgb(40, 47, 94),
+                Color::Rgb(43, 69, 147),
+                Color::Rgb(52, 66, 118),
+                Color::Rgb(144, 87, 73),
+                Color::Rgb(252, 168, 6),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Overnight-Slumber-to-Panels built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
