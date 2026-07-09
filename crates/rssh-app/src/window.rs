@@ -20126,6 +20126,14 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "PhD (base16)" => Some(BUILTIN_PHD_BASE16_COLOR_SCHEME_TOML),
         "Phrak1 (terminal.sexy)" => Some(BUILTIN_PHRAK1_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Piatto Light" => Some(BUILTIN_PIATTO_LIGHT_COLOR_SCHEME_TOML),
+        "Pico (base16)" => Some(BUILTIN_PICO_BASE16_COLOR_SCHEME_TOML),
+        "pinky (base16)" => Some(BUILTIN_PINKY_BASE16_COLOR_SCHEME_TOML),
+        "Pixiefloss (Gogh)" => Some(BUILTIN_PIXIEFLOSS_GOGH_COLOR_SCHEME_TOML),
+        "Pnevma" => Some(BUILTIN_PNEVMA_COLOR_SCHEME_TOML),
+        "Pnevma (Gogh)" => Some(BUILTIN_PNEVMA_GOGH_COLOR_SCHEME_TOML),
+        "Poimandres" => Some(BUILTIN_POIMANDRES_COLOR_SCHEME_TOML),
+        "Poimandres Storm" => Some(BUILTIN_POIMANDRES_STORM_COLOR_SCHEME_TOML),
+        "Pop (base16)" => Some(BUILTIN_POP_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -48572,6 +48580,435 @@ aliases = []
 name = "Piatto Light"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_PICO_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff004d",
+    "#00e756",
+    "#fff024",
+    "#83769c",
+    "#ff77a8",
+    "#29adff",
+    "#5f574f",
+]
+background = "#000000"
+brights = [
+    "#008751",
+    "#ff004d",
+    "#00e756",
+    "#fff024",
+    "#83769c",
+    "#ff77a8",
+    "#29adff",
+    "#fff1e8",
+]
+cursor_bg = "#5f574f"
+cursor_border = "#5f574f"
+cursor_fg = "#000000"
+foreground = "#5f574f"
+selection_bg = "#5f574f"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#ffa300"
+17 = "#ffccaa"
+18 = "#1d2b53"
+19 = "#7e2553"
+20 = "#ab5236"
+21 = "#c2c3c7"
+
+[metadata]
+aliases = []
+author = "PICO-8 (http://www.lexaloffle.com/pico-8.php)"
+name = "Pico (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PINKY_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#171517",
+    "#ffa600",
+    "#ff0066",
+    "#20df6c",
+    "#00ffff",
+    "#007fff",
+    "#6600ff",
+    "#f5f5f5",
+]
+background = "#171517"
+brights = [
+    "#383338",
+    "#ffa600",
+    "#ff0066",
+    "#20df6c",
+    "#00ffff",
+    "#007fff",
+    "#6600ff",
+    "#f7f3f7",
+]
+cursor_bg = "#f5f5f5"
+cursor_border = "#f5f5f5"
+cursor_fg = "#171517"
+foreground = "#f5f5f5"
+selection_bg = "#f5f5f5"
+selection_fg = "#171517"
+
+[colors.indexed]
+16 = "#00ff66"
+17 = "#df206c"
+18 = "#1b181b"
+19 = "#1d1b1d"
+20 = "#e7dbdb"
+21 = "#ffffff"
+
+[metadata]
+aliases = []
+author = "Benjamin (https://github.com/b3nj5m1n)"
+name = "pinky (base16)"
+origin_url = "https://github.com/b3nj5m1n/base16-pinky-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PIXIEFLOSS_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2f2942",
+    "#ff857f",
+    "#48b685",
+    "#e6c000",
+    "#ae81ff",
+    "#ef6155",
+    "#c2ffdf",
+    "#f8f8f2",
+]
+background = "#241f33"
+brights = [
+    "#75507b",
+    "#f1568e",
+    "#5adba2",
+    "#d5a425",
+    "#c5a3ff",
+    "#ef6155",
+    "#c2ffff",
+    "#f8f8f0",
+]
+cursor_bg = "#d1cae8"
+cursor_border = "#d1cae8"
+cursor_fg = "#241f33"
+foreground = "#d1cae8"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Pixiefloss (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_PNEVMA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2f2e2d",
+    "#a36666",
+    "#90a57d",
+    "#d7af87",
+    "#7fa5bd",
+    "#c79ec4",
+    "#8adbb4",
+    "#d0d0d0",
+]
+background = "#1c1c1c"
+brights = [
+    "#4a4845",
+    "#d78787",
+    "#afbea2",
+    "#e4c9af",
+    "#a1bdce",
+    "#d7beda",
+    "#b1e7dd",
+    "#efefef",
+]
+cursor_bg = "#e4c9af"
+cursor_border = "#e4c9af"
+cursor_fg = "#000000"
+foreground = "#d0d0d0"
+selection_bg = "#4d4d4d"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Pnevma (Gogh)"]
+name = "Pnevma"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_PNEVMA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2f2e2d",
+    "#a36666",
+    "#90a57d",
+    "#d7af87",
+    "#7fa5bd",
+    "#c79ec4",
+    "#8adbb4",
+    "#d0d0d0",
+]
+background = "#1c1c1c"
+brights = [
+    "#4a4845",
+    "#d78787",
+    "#afbea2",
+    "#e4c9af",
+    "#a1bdce",
+    "#d7beda",
+    "#b1e7dd",
+    "#efefef",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#1c1c1c"
+foreground = "#d0d0d0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Pnevma (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_POIMANDRES_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#171922",
+    "#d0679d",
+    "#5de4c7",
+    "#fffac2",
+    "#89ddff",
+    "#fcc5e9",
+    "#89ddff",
+    "#ffffff",
+]
+background = "#1b1e28"
+brights = [
+    "#506477",
+    "#d0679d",
+    "#5de4c7",
+    "#fffac2",
+    "#add7ff",
+    "#fcc5e9",
+    "#add7ff",
+    "#ffffff",
+]
+compose_cursor = "#fcc5e9"
+cursor_bg = "#a6accd"
+cursor_border = "#a6accd"
+cursor_fg = "#1b1e28"
+foreground = "#e4f0fb"
+scrollbar_thumb = "#303340"
+selection_bg = "#506477"
+selection_fg = "#e4f0fb"
+split = "#171922"
+visual_bell = "#506477"
+
+[colors.indexed]
+16 = "#5de4c7"
+17 = "#d0679d"
+
+[colors.tab_bar]
+background = "#171922"
+
+[colors.tab_bar.active_tab]
+bg_color = "#1b1e28"
+fg_color = "#e4f0fb"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#171922"
+fg_color = "#506477"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#171922"
+fg_color = "#767c9d"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#171922"
+fg_color = "#506477"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#171922"
+fg_color = "#767c9d"
+intensity = "Normal"
+italic = true
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+author = "Oliver Cederborg"
+name = "Poimandres"
+origin_url = "https://github.com/olivercederborg/poimandres-wezterm"
+wezterm_version = "20220903-194523-3bb1ed61"
+"##;
+
+const BUILTIN_POIMANDRES_STORM_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1e28",
+    "#d0679d",
+    "#5de4c7",
+    "#fffac2",
+    "#89ddff",
+    "#fcc5e9",
+    "#89ddff",
+    "#ffffff",
+]
+background = "#252b37"
+brights = [
+    "#506477",
+    "#d0679d",
+    "#5de4c7",
+    "#fffac2",
+    "#add7ff",
+    "#fcc5e9",
+    "#add7ff",
+    "#ffffff",
+]
+compose_cursor = "#fcc5e9"
+cursor_bg = "#a6accd"
+cursor_border = "#a6accd"
+cursor_fg = "#252b37"
+foreground = "#e4f0fb"
+scrollbar_thumb = "#404350"
+selection_bg = "#506477"
+selection_fg = "#e4f0fb"
+split = "#252b37"
+visual_bell = "#506477"
+
+[colors.indexed]
+16 = "#5de4c7"
+17 = "#d0679d"
+
+[colors.tab_bar]
+background = "#1b1e28"
+
+[colors.tab_bar.active_tab]
+bg_color = "#1b1e28"
+fg_color = "#e4f0fb"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#1b1e28"
+fg_color = "#506477"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#1b1e28"
+fg_color = "#868cad"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#1b1e28"
+fg_color = "#506477"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#1b1e28"
+fg_color = "#868cad"
+intensity = "Normal"
+italic = true
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+author = "Oliver Cederborg"
+name = "Poimandres Storm"
+origin_url = "https://github.com/olivercederborg/poimandres-wezterm"
+wezterm_version = "20220903-194523-3bb1ed61"
+"##;
+
+const BUILTIN_POP_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#eb008a",
+    "#37b349",
+    "#f8ca12",
+    "#0e5a94",
+    "#b31e8d",
+    "#00aabb",
+    "#d0d0d0",
+]
+background = "#000000"
+brights = [
+    "#505050",
+    "#eb008a",
+    "#37b349",
+    "#f8ca12",
+    "#0e5a94",
+    "#b31e8d",
+    "#00aabb",
+    "#ffffff",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#000000"
+foreground = "#d0d0d0"
+selection_bg = "#d0d0d0"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#f29333"
+17 = "#7a2d00"
+18 = "#202020"
+19 = "#303030"
+20 = "#b0b0b0"
+21 = "#e0e0e0"
+
+[metadata]
+aliases = []
+author = "Chris Kempson (http://chriskempson.com)"
+name = "Pop (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -130499,6 +130936,196 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Pencil-Light-to-Piatto-Light built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_pico_to_pop_builtin_color_schemes() {
+        let cases = [
+            (
+                "Pico (base16)",
+                Color::Rgb(95, 87, 79),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(95, 87, 79),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(95, 87, 79)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 0, 77),
+                Color::Rgb(0, 231, 86),
+                Color::Rgb(255, 240, 36),
+                Color::Rgb(0, 135, 81),
+                Color::Rgb(255, 241, 232),
+                Some(Color::Rgb(255, 163, 0)),
+            ),
+            (
+                "pinky (base16)",
+                Color::Rgb(245, 245, 245),
+                Color::Rgb(23, 21, 23),
+                Color::Rgb(245, 245, 245),
+                Some(Color::Rgb(23, 21, 23)),
+                Some(Color::Rgb(245, 245, 245)),
+                Some(Some(Color::Rgb(23, 21, 23))),
+                Color::Rgb(23, 21, 23),
+                Color::Rgb(255, 166, 0),
+                Color::Rgb(255, 0, 102),
+                Color::Rgb(32, 223, 108),
+                Color::Rgb(56, 51, 56),
+                Color::Rgb(247, 243, 247),
+                Some(Color::Rgb(0, 255, 102)),
+            ),
+            (
+                "Pixiefloss (Gogh)",
+                Color::Rgb(209, 202, 232),
+                Color::Rgb(36, 31, 51),
+                Color::Rgb(209, 202, 232),
+                Some(Color::Rgb(36, 31, 51)),
+                None,
+                None,
+                Color::Rgb(47, 41, 66),
+                Color::Rgb(255, 133, 127),
+                Color::Rgb(72, 182, 133),
+                Color::Rgb(230, 192, 0),
+                Color::Rgb(117, 80, 123),
+                Color::Rgb(248, 248, 240),
+                None,
+            ),
+            (
+                "Pnevma",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(228, 201, 175),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(77, 77, 77)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(47, 46, 45),
+                Color::Rgb(163, 102, 102),
+                Color::Rgb(144, 165, 125),
+                Color::Rgb(215, 175, 135),
+                Color::Rgb(74, 72, 69),
+                Color::Rgb(239, 239, 239),
+                None,
+            ),
+            (
+                "Pnevma (Gogh)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(28, 28, 28)),
+                None,
+                None,
+                Color::Rgb(47, 46, 45),
+                Color::Rgb(163, 102, 102),
+                Color::Rgb(144, 165, 125),
+                Color::Rgb(215, 175, 135),
+                Color::Rgb(74, 72, 69),
+                Color::Rgb(239, 239, 239),
+                None,
+            ),
+            (
+                "Poimandres",
+                Color::Rgb(228, 240, 251),
+                Color::Rgb(27, 30, 40),
+                Color::Rgb(166, 172, 205),
+                Some(Color::Rgb(27, 30, 40)),
+                Some(Color::Rgb(80, 100, 119)),
+                Some(Some(Color::Rgb(228, 240, 251))),
+                Color::Rgb(23, 25, 34),
+                Color::Rgb(208, 103, 157),
+                Color::Rgb(93, 228, 199),
+                Color::Rgb(255, 250, 194),
+                Color::Rgb(80, 100, 119),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(93, 228, 199)),
+            ),
+            (
+                "Poimandres Storm",
+                Color::Rgb(228, 240, 251),
+                Color::Rgb(37, 43, 55),
+                Color::Rgb(166, 172, 205),
+                Some(Color::Rgb(37, 43, 55)),
+                Some(Color::Rgb(80, 100, 119)),
+                Some(Some(Color::Rgb(228, 240, 251))),
+                Color::Rgb(27, 30, 40),
+                Color::Rgb(208, 103, 157),
+                Color::Rgb(93, 228, 199),
+                Color::Rgb(255, 250, 194),
+                Color::Rgb(80, 100, 119),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(93, 228, 199)),
+            ),
+            (
+                "Pop (base16)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(208, 208, 208)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(235, 0, 138),
+                Color::Rgb(55, 179, 73),
+                Color::Rgb(248, 202, 18),
+                Color::Rgb(80, 80, 80),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(242, 147, 51)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Pico-to-Pop built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

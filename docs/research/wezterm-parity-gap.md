@@ -3796,7 +3796,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Pastel White (terminal.sexy)`, `Paul Millr (Gogh)`, `PaulMillr`,
   `Pencil Dark (Gogh)`, `Pencil Light (Gogh)`, `PencilDark`,
   `PencilLight`, `Peppermint`, `Peppermint (Gogh)`, `PhD (base16)`,
-  `Phrak1 (terminal.sexy)`, `Piatto Light`, `Builtin Dark`,
+  `Phrak1 (terminal.sexy)`, `Piatto Light`, `Pico (base16)`,
+  `pinky (base16)`, `Pixiefloss (Gogh)`, `Pnevma`, `Pnevma (Gogh)`,
+  `Poimandres`, `Poimandres Storm`, `Pop (base16)`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
