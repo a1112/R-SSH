@@ -20177,6 +20177,19 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Red Sands (Gogh)" => Some(BUILTIN_RED_SANDS_GOGH_COLOR_SCHEME_TOML),
         "Relaxed" => Some(BUILTIN_RELAXED_COLOR_SCHEME_TOML),
         "Relaxed (Gogh)" => Some(BUILTIN_RELAXED_GOGH_COLOR_SCHEME_TOML),
+        "Retro" => Some(BUILTIN_RETRO_COLOR_SCHEME_TOML),
+        "Rezza (terminal.sexy)" => Some(BUILTIN_REZZA_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Rippedcasts" => Some(BUILTIN_RIPPEDCASTS_COLOR_SCHEME_TOML),
+        "Rippedcasts (Gogh)" => Some(BUILTIN_RIPPEDCASTS_GOGH_COLOR_SCHEME_TOML),
+        "rose-pine" | "RoséPine (Gogh)" => Some(BUILTIN_ROSE_PINE_COLOR_SCHEME_TOML),
+        "rose-pine-dawn" | "RoséPineDawn (Gogh)" => Some(BUILTIN_ROSE_PINE_DAWN_COLOR_SCHEME_TOML),
+        "rose-pine-moon" | "RoséPineMoon (Gogh)" => Some(BUILTIN_ROSE_PINE_MOON_COLOR_SCHEME_TOML),
+        "Rosé Pine (base16)" => Some(BUILTIN_ROSE_PINE_BASE16_COLOR_SCHEME_TOML),
+        "Rosé Pine (Gogh)" => Some(BUILTIN_ROSE_PINE_GOGH_COLOR_SCHEME_TOML),
+        "Rosé Pine Dawn (base16)" => Some(BUILTIN_ROSE_PINE_DAWN_BASE16_COLOR_SCHEME_TOML),
+        "Rosé Pine Dawn (Gogh)" => Some(BUILTIN_ROSE_PINE_DAWN_GOGH_COLOR_SCHEME_TOML),
+        "Rosé Pine Moon (base16)" => Some(BUILTIN_ROSE_PINE_MOON_BASE16_COLOR_SCHEME_TOML),
+        "Rosé Pine Moon (Gogh)" => Some(BUILTIN_ROSE_PINE_MOON_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -50338,6 +50351,531 @@ foreground = "#d9d9d9"
 [metadata]
 aliases = []
 name = "Relaxed (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_RETRO_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#13a10e",
+    "#13a10e",
+    "#13a10e",
+    "#13a10e",
+    "#13a10e",
+    "#13a10e",
+    "#13a10e",
+    "#13a10e",
+]
+background = "#000000"
+brights = [
+    "#16ba10",
+    "#16ba10",
+    "#16ba10",
+    "#16ba10",
+    "#16ba10",
+    "#16ba10",
+    "#16ba10",
+    "#16ba10",
+]
+cursor_bg = "#13a10e"
+cursor_border = "#13a10e"
+cursor_fg = "#000000"
+foreground = "#13a10e"
+selection_bg = "#ffffff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Retro"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_REZZA_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#191919",
+    "#803232",
+    "#5b762f",
+    "#aa9943",
+    "#324c80",
+    "#706c9a",
+    "#92b19e",
+    "#ffffff",
+]
+background = "#222222"
+brights = [
+    "#252525",
+    "#982b2b",
+    "#89b83f",
+    "#efef60",
+    "#2b4f98",
+    "#826ab1",
+    "#a1cdcd",
+    "#dddddd",
+]
+foreground = "#dddddd"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Rezza (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_RIPPEDCASTS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cdaf95",
+    "#a8ff60",
+    "#bfbb1f",
+    "#75a5b0",
+    "#ff73fd",
+    "#5a647e",
+    "#bfbfbf",
+]
+background = "#2b2b2b"
+brights = [
+    "#666666",
+    "#eecbad",
+    "#bcee68",
+    "#e5e500",
+    "#86bdc9",
+    "#e500e5",
+    "#8c9bc4",
+    "#e5e5e5",
+]
+cursor_bg = "#7f7f7f"
+cursor_border = "#7f7f7f"
+cursor_fg = "#ffffff"
+foreground = "#ffffff"
+selection_bg = "#5a647e"
+selection_fg = "#f2f2f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Rippedcasts (Gogh)"]
+name = "Rippedcasts"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_RIPPEDCASTS_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cdaf95",
+    "#a8ff60",
+    "#bfbb1f",
+    "#75a5b0",
+    "#ff73fd",
+    "#5a647e",
+    "#bfbfbf",
+]
+background = "#2b2b2b"
+brights = [
+    "#666666",
+    "#eecbad",
+    "#bcee68",
+    "#e5e500",
+    "#86bdc9",
+    "#e500e5",
+    "#8c9bc4",
+    "#e5e5e5",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#2b2b2b"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Rippedcasts (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_ROSE_PINE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#26233a",
+    "#eb6f92",
+    "#9ccfd8",
+    "#f6c177",
+    "#31748f",
+    "#c4a7e7",
+    "#ebbcba",
+    "#e0def4",
+]
+background = "#191724"
+brights = [
+    "#6e6a86",
+    "#eb6f92",
+    "#9ccfd8",
+    "#f6c177",
+    "#31748f",
+    "#c4a7e7",
+    "#ebbcba",
+    "#e0def4",
+]
+cursor_bg = "#e0def4"
+cursor_border = "#e0def4"
+cursor_fg = "#191724"
+foreground = "#e0def4"
+selection_bg = "#191724"
+selection_fg = "#e0def4"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Rosé Pine (Gogh)",
+    "RoséPine (Gogh)",
+]
+name = "rose-pine"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_ROSE_PINE_DAWN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f2e9e1",
+    "#b4637a",
+    "#56949f",
+    "#ea9d34",
+    "#286983",
+    "#907aa9",
+    "#d7827e",
+    "#575279",
+]
+background = "#faf4ed"
+brights = [
+    "#9893a5",
+    "#b4637a",
+    "#56949f",
+    "#ea9d34",
+    "#286983",
+    "#907aa9",
+    "#d7827e",
+    "#575279",
+]
+cursor_bg = "#575279"
+cursor_border = "#575279"
+cursor_fg = "#faf4ed"
+foreground = "#575279"
+selection_bg = "#faf4ed"
+selection_fg = "#575279"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Rosé Pine Dawn (Gogh)",
+    "RoséPineDawn (Gogh)",
+]
+name = "rose-pine-dawn"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_ROSE_PINE_MOON_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#393552",
+    "#eb6f92",
+    "#9ccfd8",
+    "#f6c177",
+    "#3e8fb0",
+    "#c4a7e7",
+    "#ea9a97",
+    "#e0def4",
+]
+background = "#232136"
+brights = [
+    "#6e6a86",
+    "#eb6f92",
+    "#9ccfd8",
+    "#f6c177",
+    "#3e8fb0",
+    "#c4a7e7",
+    "#ea9a97",
+    "#e0def4",
+]
+cursor_bg = "#e0def4"
+cursor_border = "#e0def4"
+cursor_fg = "#232136"
+foreground = "#e0def4"
+selection_bg = "#232136"
+selection_fg = "#e0def4"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Rosé Pine Moon (Gogh)",
+    "RoséPineMoon (Gogh)",
+]
+name = "rose-pine-moon"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_ROSE_PINE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#191724",
+    "#eb6f92",
+    "#31748f",
+    "#ebbcba",
+    "#c4a7e7",
+    "#f6c177",
+    "#9ccfd8",
+    "#e0def4",
+]
+background = "#191724"
+brights = [
+    "#6e6a86",
+    "#eb6f92",
+    "#31748f",
+    "#ebbcba",
+    "#c4a7e7",
+    "#f6c177",
+    "#9ccfd8",
+    "#524f67",
+]
+cursor_bg = "#e0def4"
+cursor_border = "#e0def4"
+cursor_fg = "#191724"
+foreground = "#e0def4"
+selection_bg = "#e0def4"
+selection_fg = "#191724"
+
+[colors.indexed]
+16 = "#f6c177"
+17 = "#524f67"
+18 = "#1f1d2e"
+19 = "#26233a"
+20 = "#908caa"
+21 = "#e0def4"
+
+[metadata]
+aliases = []
+author = "Emilia Dunfelt <edun@dunfelt.se>"
+name = "Rosé Pine (base16)"
+origin_url = "https://github.com/edunfelt/base16-rose-pine-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ROSE_PINE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#26233a",
+    "#eb6f92",
+    "#9ccfd8",
+    "#f6c177",
+    "#31748f",
+    "#c4a7e7",
+    "#ebbcba",
+    "#e0def4",
+]
+background = "#191724"
+brights = [
+    "#6e6a86",
+    "#eb6f92",
+    "#9ccfd8",
+    "#f6c177",
+    "#31748f",
+    "#c4a7e7",
+    "#ebbcba",
+    "#e0def4",
+]
+cursor_bg = "#e0def4"
+cursor_border = "#e0def4"
+cursor_fg = "#191724"
+foreground = "#e0def4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Rosé Pine (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_ROSE_PINE_DAWN_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#faf4ed",
+    "#b4637a",
+    "#286983",
+    "#d7827e",
+    "#907aa9",
+    "#ea9d34",
+    "#56949f",
+    "#575279",
+]
+background = "#faf4ed"
+brights = [
+    "#9893a5",
+    "#b4637a",
+    "#286983",
+    "#d7827e",
+    "#907aa9",
+    "#ea9d34",
+    "#56949f",
+    "#cecacd",
+]
+cursor_bg = "#575279"
+cursor_border = "#575279"
+cursor_fg = "#faf4ed"
+foreground = "#575279"
+selection_bg = "#575279"
+selection_fg = "#faf4ed"
+
+[colors.indexed]
+16 = "#ea9d34"
+17 = "#cecacd"
+18 = "#fffaf3"
+19 = "#f2e9de"
+20 = "#797593"
+21 = "#575279"
+
+[metadata]
+aliases = []
+author = "Emilia Dunfelt <edun@dunfelt.se>"
+name = "Rosé Pine Dawn (base16)"
+origin_url = "https://github.com/edunfelt/base16-rose-pine-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ROSE_PINE_DAWN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f2e9e1",
+    "#b4637a",
+    "#56949f",
+    "#ea9d34",
+    "#286983",
+    "#907aa9",
+    "#d7827e",
+    "#575279",
+]
+background = "#faf4ed"
+brights = [
+    "#9893a5",
+    "#b4637a",
+    "#56949f",
+    "#ea9d34",
+    "#286983",
+    "#907aa9",
+    "#d7827e",
+    "#575279",
+]
+cursor_bg = "#575279"
+cursor_border = "#575279"
+cursor_fg = "#faf4ed"
+foreground = "#575279"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Rosé Pine Dawn (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_ROSE_PINE_MOON_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#232136",
+    "#eb6f92",
+    "#3e8fb0",
+    "#ea9a97",
+    "#c4a7e7",
+    "#f6c177",
+    "#9ccfd8",
+    "#e0def4",
+]
+background = "#232136"
+brights = [
+    "#6e6a86",
+    "#eb6f92",
+    "#3e8fb0",
+    "#ea9a97",
+    "#c4a7e7",
+    "#f6c177",
+    "#9ccfd8",
+    "#56526e",
+]
+cursor_bg = "#e0def4"
+cursor_border = "#e0def4"
+cursor_fg = "#232136"
+foreground = "#e0def4"
+selection_bg = "#e0def4"
+selection_fg = "#232136"
+
+[colors.indexed]
+16 = "#f6c177"
+17 = "#56526e"
+18 = "#2a273f"
+19 = "#393552"
+20 = "#908caa"
+21 = "#e0def4"
+
+[metadata]
+aliases = []
+author = "Emilia Dunfelt <edun@dunfelt.se>"
+name = "Rosé Pine Moon (base16)"
+origin_url = "https://github.com/edunfelt/base16-rose-pine-scheme"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_ROSE_PINE_MOON_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#393552",
+    "#eb6f92",
+    "#9ccfd8",
+    "#f6c177",
+    "#3e8fb0",
+    "#c4a7e7",
+    "#ea9a97",
+    "#e0def4",
+]
+background = "#232136"
+brights = [
+    "#6e6a86",
+    "#eb6f92",
+    "#9ccfd8",
+    "#f6c177",
+    "#3e8fb0",
+    "#c4a7e7",
+    "#ea9a97",
+    "#e0def4",
+]
+cursor_bg = "#e0def4"
+cursor_border = "#e0def4"
+cursor_fg = "#232136"
+foreground = "#e0def4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Rosé Pine Moon (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
 "##;
@@ -133297,6 +133835,324 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Rebecca-to-Relaxed built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_retro_to_rose_pine_moon_gogh_builtin_color_schemes() {
+        let cases = [
+            (
+                "Retro",
+                Color::Rgb(19, 161, 14),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(19, 161, 14),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(19, 161, 14),
+                Color::Rgb(19, 161, 14),
+                Color::Rgb(19, 161, 14),
+                Color::Rgb(19, 161, 14),
+                Color::Rgb(22, 186, 16),
+                Color::Rgb(22, 186, 16),
+                None,
+            ),
+            (
+                "Rezza (terminal.sexy)",
+                Color::Rgb(221, 221, 221),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(128, 50, 50),
+                Color::Rgb(91, 118, 47),
+                Color::Rgb(170, 153, 67),
+                Color::Rgb(37, 37, 37),
+                Color::Rgb(221, 221, 221),
+                None,
+            ),
+            (
+                "Rippedcasts",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(43, 43, 43),
+                Color::Rgb(127, 127, 127),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(90, 100, 126)),
+                Some(Some(Color::Rgb(242, 242, 242))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(205, 175, 149),
+                Color::Rgb(168, 255, 96),
+                Color::Rgb(191, 187, 31),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Rippedcasts (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(43, 43, 43),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(43, 43, 43)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(205, 175, 149),
+                Color::Rgb(168, 255, 96),
+                Color::Rgb(191, 187, 31),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "rose-pine",
+                Color::Rgb(224, 222, 244),
+                Color::Rgb(25, 23, 36),
+                Color::Rgb(224, 222, 244),
+                Some(Color::Rgb(25, 23, 36)),
+                Some(Color::Rgb(25, 23, 36)),
+                Some(Some(Color::Rgb(224, 222, 244))),
+                Color::Rgb(38, 35, 58),
+                Color::Rgb(235, 111, 146),
+                Color::Rgb(156, 207, 216),
+                Color::Rgb(246, 193, 119),
+                Color::Rgb(110, 106, 134),
+                Color::Rgb(224, 222, 244),
+                None,
+            ),
+            (
+                "RoséPine (Gogh)",
+                Color::Rgb(224, 222, 244),
+                Color::Rgb(25, 23, 36),
+                Color::Rgb(224, 222, 244),
+                Some(Color::Rgb(25, 23, 36)),
+                Some(Color::Rgb(25, 23, 36)),
+                Some(Some(Color::Rgb(224, 222, 244))),
+                Color::Rgb(38, 35, 58),
+                Color::Rgb(235, 111, 146),
+                Color::Rgb(156, 207, 216),
+                Color::Rgb(246, 193, 119),
+                Color::Rgb(110, 106, 134),
+                Color::Rgb(224, 222, 244),
+                None,
+            ),
+            (
+                "rose-pine-dawn",
+                Color::Rgb(87, 82, 121),
+                Color::Rgb(250, 244, 237),
+                Color::Rgb(87, 82, 121),
+                Some(Color::Rgb(250, 244, 237)),
+                Some(Color::Rgb(250, 244, 237)),
+                Some(Some(Color::Rgb(87, 82, 121))),
+                Color::Rgb(242, 233, 225),
+                Color::Rgb(180, 99, 122),
+                Color::Rgb(86, 148, 159),
+                Color::Rgb(234, 157, 52),
+                Color::Rgb(152, 147, 165),
+                Color::Rgb(87, 82, 121),
+                None,
+            ),
+            (
+                "RoséPineDawn (Gogh)",
+                Color::Rgb(87, 82, 121),
+                Color::Rgb(250, 244, 237),
+                Color::Rgb(87, 82, 121),
+                Some(Color::Rgb(250, 244, 237)),
+                Some(Color::Rgb(250, 244, 237)),
+                Some(Some(Color::Rgb(87, 82, 121))),
+                Color::Rgb(242, 233, 225),
+                Color::Rgb(180, 99, 122),
+                Color::Rgb(86, 148, 159),
+                Color::Rgb(234, 157, 52),
+                Color::Rgb(152, 147, 165),
+                Color::Rgb(87, 82, 121),
+                None,
+            ),
+            (
+                "rose-pine-moon",
+                Color::Rgb(224, 222, 244),
+                Color::Rgb(35, 33, 54),
+                Color::Rgb(224, 222, 244),
+                Some(Color::Rgb(35, 33, 54)),
+                Some(Color::Rgb(35, 33, 54)),
+                Some(Some(Color::Rgb(224, 222, 244))),
+                Color::Rgb(57, 53, 82),
+                Color::Rgb(235, 111, 146),
+                Color::Rgb(156, 207, 216),
+                Color::Rgb(246, 193, 119),
+                Color::Rgb(110, 106, 134),
+                Color::Rgb(224, 222, 244),
+                None,
+            ),
+            (
+                "RoséPineMoon (Gogh)",
+                Color::Rgb(224, 222, 244),
+                Color::Rgb(35, 33, 54),
+                Color::Rgb(224, 222, 244),
+                Some(Color::Rgb(35, 33, 54)),
+                Some(Color::Rgb(35, 33, 54)),
+                Some(Some(Color::Rgb(224, 222, 244))),
+                Color::Rgb(57, 53, 82),
+                Color::Rgb(235, 111, 146),
+                Color::Rgb(156, 207, 216),
+                Color::Rgb(246, 193, 119),
+                Color::Rgb(110, 106, 134),
+                Color::Rgb(224, 222, 244),
+                None,
+            ),
+            (
+                "Rosé Pine (base16)",
+                Color::Rgb(224, 222, 244),
+                Color::Rgb(25, 23, 36),
+                Color::Rgb(224, 222, 244),
+                Some(Color::Rgb(25, 23, 36)),
+                Some(Color::Rgb(224, 222, 244)),
+                Some(Some(Color::Rgb(25, 23, 36))),
+                Color::Rgb(25, 23, 36),
+                Color::Rgb(235, 111, 146),
+                Color::Rgb(49, 116, 143),
+                Color::Rgb(235, 188, 186),
+                Color::Rgb(110, 106, 134),
+                Color::Rgb(82, 79, 103),
+                Some(Color::Rgb(246, 193, 119)),
+            ),
+            (
+                "Rosé Pine (Gogh)",
+                Color::Rgb(224, 222, 244),
+                Color::Rgb(25, 23, 36),
+                Color::Rgb(224, 222, 244),
+                Some(Color::Rgb(25, 23, 36)),
+                None,
+                None,
+                Color::Rgb(38, 35, 58),
+                Color::Rgb(235, 111, 146),
+                Color::Rgb(156, 207, 216),
+                Color::Rgb(246, 193, 119),
+                Color::Rgb(110, 106, 134),
+                Color::Rgb(224, 222, 244),
+                None,
+            ),
+            (
+                "Rosé Pine Dawn (base16)",
+                Color::Rgb(87, 82, 121),
+                Color::Rgb(250, 244, 237),
+                Color::Rgb(87, 82, 121),
+                Some(Color::Rgb(250, 244, 237)),
+                Some(Color::Rgb(87, 82, 121)),
+                Some(Some(Color::Rgb(250, 244, 237))),
+                Color::Rgb(250, 244, 237),
+                Color::Rgb(180, 99, 122),
+                Color::Rgb(40, 105, 131),
+                Color::Rgb(215, 130, 126),
+                Color::Rgb(152, 147, 165),
+                Color::Rgb(206, 202, 205),
+                Some(Color::Rgb(234, 157, 52)),
+            ),
+            (
+                "Rosé Pine Dawn (Gogh)",
+                Color::Rgb(87, 82, 121),
+                Color::Rgb(250, 244, 237),
+                Color::Rgb(87, 82, 121),
+                Some(Color::Rgb(250, 244, 237)),
+                None,
+                None,
+                Color::Rgb(242, 233, 225),
+                Color::Rgb(180, 99, 122),
+                Color::Rgb(86, 148, 159),
+                Color::Rgb(234, 157, 52),
+                Color::Rgb(152, 147, 165),
+                Color::Rgb(87, 82, 121),
+                None,
+            ),
+            (
+                "Rosé Pine Moon (base16)",
+                Color::Rgb(224, 222, 244),
+                Color::Rgb(35, 33, 54),
+                Color::Rgb(224, 222, 244),
+                Some(Color::Rgb(35, 33, 54)),
+                Some(Color::Rgb(224, 222, 244)),
+                Some(Some(Color::Rgb(35, 33, 54))),
+                Color::Rgb(35, 33, 54),
+                Color::Rgb(235, 111, 146),
+                Color::Rgb(62, 143, 176),
+                Color::Rgb(234, 154, 151),
+                Color::Rgb(110, 106, 134),
+                Color::Rgb(86, 82, 110),
+                Some(Color::Rgb(246, 193, 119)),
+            ),
+            (
+                "Rosé Pine Moon (Gogh)",
+                Color::Rgb(224, 222, 244),
+                Color::Rgb(35, 33, 54),
+                Color::Rgb(224, 222, 244),
+                Some(Color::Rgb(35, 33, 54)),
+                None,
+                None,
+                Color::Rgb(57, 53, 82),
+                Color::Rgb(235, 111, 146),
+                Color::Rgb(156, 207, 216),
+                Color::Rgb(246, 193, 119),
+                Color::Rgb(110, 106, 134),
+                Color::Rgb(224, 222, 244),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Retro-to-Rose-Pine built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

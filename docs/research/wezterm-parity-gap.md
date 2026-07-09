@@ -3809,7 +3809,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Rasi (terminal.sexy)`, `Raycast_Dark`, `Raycast_Light`, `rebecca`,
   `Rebecca (base16)`, `Red Alert`, `Red Alert (Gogh)`,
   `Red Phoenix (terminal.sexy)`, `Red Planet`, `Red Sands`,
-  `Red Sands (Gogh)`, `Relaxed`, `Relaxed (Gogh)`, `Builtin Dark`,
+  `Red Sands (Gogh)`, `Relaxed`, `Relaxed (Gogh)`, `Retro`,
+  `Rezza (terminal.sexy)`, `Rippedcasts`, `Rippedcasts (Gogh)`,
+  `rose-pine`, `rose-pine-dawn`, `rose-pine-moon`,
+  `Rosé Pine (base16)`, `Rosé Pine (Gogh)`,
+  `Rosé Pine Dawn (base16)`, `Rosé Pine Dawn (Gogh)`,
+  `Rosé Pine Moon (base16)`, `Rosé Pine Moon (Gogh)`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
