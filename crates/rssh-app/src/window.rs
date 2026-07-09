@@ -19669,6 +19669,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Galaxy" => Some(BUILTIN_GALAXY_COLOR_SCHEME_TOML),
         "Galizur" => Some(BUILTIN_GALIZUR_COLOR_SCHEME_TOML),
         "Geohot (Gogh)" => Some(BUILTIN_GEOHOT_GOGH_COLOR_SCHEME_TOML),
+        "Gigavolt (base16)" => Some(BUILTIN_GIGAVOLT_BASE16_COLOR_SCHEME_TOML),
+        "Github" => Some(BUILTIN_GITHUB_COLOR_SCHEME_TOML),
+        "Github (base16)" => Some(BUILTIN_GITHUB_BASE16_COLOR_SCHEME_TOML),
+        "Github (Gogh)" => Some(BUILTIN_GITHUB_GOGH_COLOR_SCHEME_TOML),
+        "GitHub Dark" => Some(BUILTIN_GITHUB_DARK_COLOR_SCHEME_TOML),
+        "Github Dark (Gogh)" => Some(BUILTIN_GITHUB_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Github Light (Gogh)" => Some(BUILTIN_GITHUB_LIGHT_GOGH_COLOR_SCHEME_TOML),
+        "GJM (terminal.sexy)" => Some(BUILTIN_GJM_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Glacier" => Some(BUILTIN_GLACIER_COLOR_SCHEME_TOML),
+        "Gnometerm (terminal.sexy)" => Some(BUILTIN_GNOMETERM_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -19679,9 +19689,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         | "Solarized Light (Gogh)"
         | "SolarizedLight (Gogh)"
         | "iTerm2 Solarized Light" => Some(BUILTIN_SOLARIZED_LIGHT_COLOR_SCHEME_TOML),
-        "Builtin Tango Dark" | "Gnometerm (terminal.sexy)" => {
-            Some(BUILTIN_TANGO_DARK_COLOR_SCHEME_TOML)
-        }
+        "Builtin Tango Dark" => Some(BUILTIN_TANGO_DARK_COLOR_SCHEME_TOML),
         "Builtin Tango Light" => Some(BUILTIN_TANGO_LIGHT_COLOR_SCHEME_TOML),
         _ => None,
     }
@@ -34660,6 +34668,396 @@ aliases = ["GeoHot (Gogh)"]
 name = "Geohot (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GIGAVOLT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#202126",
+    "#ff661a",
+    "#f2e6a9",
+    "#ffdc2d",
+    "#40bfff",
+    "#ae94f9",
+    "#fb6acb",
+    "#e9e7e1",
+]
+background = "#202126"
+brights = [
+    "#a1d2e6",
+    "#ff661a",
+    "#f2e6a9",
+    "#ffdc2d",
+    "#40bfff",
+    "#ae94f9",
+    "#fb6acb",
+    "#f2fbff",
+]
+cursor_bg = "#e9e7e1"
+cursor_border = "#e9e7e1"
+cursor_fg = "#202126"
+foreground = "#e9e7e1"
+selection_bg = "#e9e7e1"
+selection_fg = "#202126"
+
+[colors.indexed]
+16 = "#19f988"
+17 = "#6187ff"
+18 = "#2d303d"
+19 = "#5a576e"
+20 = "#cad3ff"
+21 = "#eff0f9"
+
+[metadata]
+aliases = []
+author = "Aidan Swope (http://github.com/Whillikers)"
+name = "Gigavolt (base16)"
+origin_url = "https://github.com/Whillikers/base16-gigavolt-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GITHUB_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3e3e3e",
+    "#970b16",
+    "#07962a",
+    "#f8eec7",
+    "#003e8a",
+    "#e94691",
+    "#89d1ec",
+    "#ffffff",
+]
+background = "#f4f4f4"
+brights = [
+    "#666666",
+    "#de0000",
+    "#87d5a2",
+    "#f1d007",
+    "#2e6cba",
+    "#ffa29f",
+    "#1cfafe",
+    "#ffffff",
+]
+cursor_bg = "#3f3f3f"
+cursor_border = "#3f3f3f"
+cursor_fg = "#f4f4f4"
+foreground = "#3e3e3e"
+selection_bg = "#a9c1e2"
+selection_fg = "#535353"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Github (Gogh)"]
+name = "Github"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_GITHUB_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#ffffff",
+    "#ed6a43",
+    "#183691",
+    "#795da3",
+    "#795da3",
+    "#a71d5d",
+    "#183691",
+    "#333333",
+]
+background = "#ffffff"
+brights = [
+    "#969896",
+    "#ed6a43",
+    "#183691",
+    "#795da3",
+    "#795da3",
+    "#a71d5d",
+    "#183691",
+    "#ffffff",
+]
+cursor_bg = "#333333"
+cursor_border = "#333333"
+cursor_fg = "#ffffff"
+foreground = "#333333"
+selection_bg = "#333333"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+16 = "#0086b3"
+17 = "#333333"
+18 = "#f5f5f5"
+19 = "#c8c8fa"
+20 = "#e8e8e8"
+21 = "#ffffff"
+
+[metadata]
+aliases = []
+author = "Defman21"
+name = "Github (base16)"
+origin_url = "https://github.com/Defman21/base16-github-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GITHUB_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3e3e3e",
+    "#970b16",
+    "#07962a",
+    "#f8eec7",
+    "#003e8a",
+    "#e94691",
+    "#89d1ec",
+    "#ffffff",
+]
+background = "#f4f4f4"
+brights = [
+    "#666666",
+    "#de0000",
+    "#87d5a2",
+    "#f1d007",
+    "#2e6cba",
+    "#ffa29f",
+    "#1cfafe",
+    "#ffffff",
+]
+cursor_bg = "#3e3e3e"
+cursor_border = "#3e3e3e"
+cursor_fg = "#f4f4f4"
+foreground = "#3e3e3e"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Github Light (Gogh)"]
+name = "Github (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_GITHUB_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#f78166",
+    "#56d364",
+    "#e3b341",
+    "#6ca4f8",
+    "#db61a2",
+    "#2b7489",
+    "#ffffff",
+]
+background = "#101216"
+brights = [
+    "#4d4d4d",
+    "#f78166",
+    "#56d364",
+    "#e3b341",
+    "#6ca4f8",
+    "#db61a2",
+    "#2b7489",
+    "#ffffff",
+]
+cursor_bg = "#c9d1d9"
+cursor_border = "#c9d1d9"
+cursor_fg = "#101216"
+foreground = "#8b949e"
+selection_bg = "#3b5070"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "GitHub Dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_GITHUB_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#f78166",
+    "#56d364",
+    "#e3b341",
+    "#6ca4f8",
+    "#db61a2",
+    "#2b7489",
+    "#ffffff",
+]
+background = "#101216"
+brights = [
+    "#4d4d4d",
+    "#f78166",
+    "#56d364",
+    "#e3b341",
+    "#6ca4f8",
+    "#db61a2",
+    "#2b7489",
+    "#ffffff",
+]
+cursor_bg = "#c9d1d9"
+cursor_border = "#c9d1d9"
+cursor_fg = "#101216"
+foreground = "#8b949e"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Github Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_GITHUB_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#24292f",
+    "#cf222e",
+    "#1a7f37",
+    "#9a6700",
+    "#0969da",
+    "#8250df",
+    "#1b7c83",
+    "#6e7781",
+]
+background = "#f6f8fa"
+brights = [
+    "#57606a",
+    "#a40e26",
+    "#2da44e",
+    "#bf8700",
+    "#218bff",
+    "#a475f9",
+    "#3192aa",
+    "#8c959f",
+]
+cursor_bg = "#1f2328"
+cursor_border = "#1f2328"
+cursor_fg = "#f6f8fa"
+foreground = "#1f2328"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Github Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_GJM_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1c1c",
+    "#ff005b",
+    "#cee318",
+    "#ffe755",
+    "#048ac7",
+    "#833c9f",
+    "#0ac1cd",
+    "#e5e5e5",
+]
+background = "#1c1c1c"
+brights = [
+    "#666666",
+    "#ff00a0",
+    "#ccff00",
+    "#ff9f00",
+    "#48c6ff",
+    "#be67e1",
+    "#63e7f0",
+    "#f3f3f3",
+]
+foreground = "#c5c5c5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "GJM (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_GLACIER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e343c",
+    "#bd0f2f",
+    "#35a770",
+    "#fb9435",
+    "#1f5872",
+    "#bd2523",
+    "#778397",
+    "#ffffff",
+]
+background = "#0c1115"
+brights = [
+    "#404a55",
+    "#bd0f2f",
+    "#49e998",
+    "#fddf6e",
+    "#2a8bc1",
+    "#ea4727",
+    "#a0b6d3",
+    "#ffffff",
+]
+cursor_bg = "#6c6c6c"
+cursor_border = "#6c6c6c"
+cursor_fg = "#6c6c6c"
+foreground = "#ffffff"
+selection_bg = "#bd2523"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Glacier"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_GNOMETERM_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc0000",
+    "#4e9a06",
+    "#c4a000",
+    "#3465a4",
+    "#75507b",
+    "#06989a",
+    "#d3d7cf",
+]
+background = "#000000"
+brights = [
+    "#555753",
+    "#ef2929",
+    "#8ae234",
+    "#fce94f",
+    "#729fcf",
+    "#ad7fa8",
+    "#34e2e2",
+    "#eeeeec",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Gnometerm (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -108158,6 +108556,228 @@ mod tests {
     }
 
     #[test]
+    fn window_app_loads_wezterm_lua_gigavolt_to_gnometerm_builtin_color_schemes() {
+        let cases = [
+            (
+                "Gigavolt (base16)",
+                Color::Rgb(233, 231, 225),
+                Color::Rgb(32, 33, 38),
+                Color::Rgb(233, 231, 225),
+                Some(Color::Rgb(32, 33, 38)),
+                Some(Color::Rgb(233, 231, 225)),
+                Some(Some(Color::Rgb(32, 33, 38))),
+                Color::Rgb(32, 33, 38),
+                Color::Rgb(255, 102, 26),
+                Color::Rgb(242, 230, 169),
+                Color::Rgb(255, 220, 45),
+                Color::Rgb(161, 210, 230),
+                Color::Rgb(242, 251, 255),
+                Some(Color::Rgb(25, 249, 136)),
+            ),
+            (
+                "Github",
+                Color::Rgb(62, 62, 62),
+                Color::Rgb(244, 244, 244),
+                Color::Rgb(63, 63, 63),
+                Some(Color::Rgb(244, 244, 244)),
+                Some(Color::Rgb(169, 193, 226)),
+                Some(Some(Color::Rgb(83, 83, 83))),
+                Color::Rgb(62, 62, 62),
+                Color::Rgb(151, 11, 22),
+                Color::Rgb(7, 150, 42),
+                Color::Rgb(248, 238, 199),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Github (base16)",
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(51, 51, 51),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(51, 51, 51)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(237, 106, 67),
+                Color::Rgb(24, 54, 145),
+                Color::Rgb(121, 93, 163),
+                Color::Rgb(150, 152, 150),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 134, 179)),
+            ),
+            (
+                "Github (Gogh)",
+                Color::Rgb(62, 62, 62),
+                Color::Rgb(244, 244, 244),
+                Color::Rgb(62, 62, 62),
+                Some(Color::Rgb(244, 244, 244)),
+                None,
+                None,
+                Color::Rgb(62, 62, 62),
+                Color::Rgb(151, 11, 22),
+                Color::Rgb(7, 150, 42),
+                Color::Rgb(248, 238, 199),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "GitHub Dark",
+                Color::Rgb(139, 148, 158),
+                Color::Rgb(16, 18, 22),
+                Color::Rgb(201, 209, 217),
+                Some(Color::Rgb(16, 18, 22)),
+                Some(Color::Rgb(59, 80, 112)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(247, 129, 102),
+                Color::Rgb(86, 211, 100),
+                Color::Rgb(227, 179, 65),
+                Color::Rgb(77, 77, 77),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Github Dark (Gogh)",
+                Color::Rgb(139, 148, 158),
+                Color::Rgb(16, 18, 22),
+                Color::Rgb(201, 209, 217),
+                Some(Color::Rgb(16, 18, 22)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(247, 129, 102),
+                Color::Rgb(86, 211, 100),
+                Color::Rgb(227, 179, 65),
+                Color::Rgb(77, 77, 77),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Github Light (Gogh)",
+                Color::Rgb(31, 35, 40),
+                Color::Rgb(246, 248, 250),
+                Color::Rgb(31, 35, 40),
+                Some(Color::Rgb(246, 248, 250)),
+                None,
+                None,
+                Color::Rgb(36, 41, 47),
+                Color::Rgb(207, 34, 46),
+                Color::Rgb(26, 127, 55),
+                Color::Rgb(154, 103, 0),
+                Color::Rgb(87, 96, 106),
+                Color::Rgb(140, 149, 159),
+                None,
+            ),
+            (
+                "GJM (terminal.sexy)",
+                Color::Rgb(197, 197, 197),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(255, 0, 91),
+                Color::Rgb(206, 227, 24),
+                Color::Rgb(255, 231, 85),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(243, 243, 243),
+                None,
+            ),
+            (
+                "Glacier",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(12, 17, 21),
+                Color::Rgb(108, 108, 108),
+                Some(Color::Rgb(108, 108, 108)),
+                Some(Color::Rgb(189, 37, 35)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(46, 52, 60),
+                Color::Rgb(189, 15, 47),
+                Color::Rgb(53, 167, 112),
+                Color::Rgb(251, 148, 53),
+                Color::Rgb(64, 74, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Gnometerm (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(78, 154, 6),
+                Color::Rgb(196, 160, 0),
+                Color::Rgb(85, 87, 83),
+                Color::Rgb(238, 238, 236),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Gigavolt-to-Gnometerm built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
     fn window_app_loads_wezterm_lua_builtin_solarized_light_color_scheme_aliases() {
         for color_scheme in ["Builtin Solarized Light", "iTerm2 Solarized Light"] {
             let mut app = NativeWindowApp::new(None);
@@ -108193,13 +108813,6 @@ mod tests {
         let cases = [
             (
                 "Builtin Tango Dark",
-                Color::Rgb(255, 255, 255),
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(255, 255, 255),
-                Some(Color::Rgb(0, 0, 0)),
-            ),
-            (
-                "Gnometerm (terminal.sexy)",
                 Color::Rgb(255, 255, 255),
                 Color::Rgb(0, 0, 0),
                 Color::Rgb(255, 255, 255),

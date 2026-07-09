@@ -3670,9 +3670,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Frontend Fun Forrest (Gogh)`, `Frontend Galaxy (Gogh)`,
   `FrontEndDelight`, `Fruit Soda (base16)`, `FunForrest`, `Galaxy`,
   `Galizur`, `Geohot (Gogh)`,
+  `Gigavolt (base16)`, `Github`, `Github (base16)`, `Github (Gogh)`,
+  `GitHub Dark`, `Github Dark (Gogh)`, `Github Light (Gogh)`,
+  `GJM (terminal.sexy)`, `Glacier`, `Gnometerm (terminal.sexy)`,
   `Builtin Dark`, `Builtin Light`,
   `Builtin Pastel Dark`, `Builtin Solarized Dark`, `Builtin Solarized Light`,
-  `Builtin Tango Dark`, `Builtin Tango Light`, and their WezTerm aliases using
+  `Builtin Tango Dark`, `Builtin Tango Light`, and the existing WezTerm aliases using
   WezTerm's built-in TOML palette data. The broader built-in scheme catalog,
   richer dynamic `load_scheme` composition, and full dynamic Lua scheme
   construction remain later parity work.
