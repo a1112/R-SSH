@@ -19859,6 +19859,25 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
             Some(BUILTIN_LATER_THIS_EVENING_COLOR_SCHEME_TOML)
         }
         "Later This Evening (Gogh)" => Some(BUILTIN_LATER_THIS_EVENING_GOGH_COLOR_SCHEME_TOML),
+        "Lavandula" => Some(BUILTIN_LAVANDULA_COLOR_SCHEME_TOML),
+        "Lavandula (Gogh)" => Some(BUILTIN_LAVANDULA_GOGH_COLOR_SCHEME_TOML),
+        "Light White (terminal.sexy)" => Some(BUILTIN_LIGHT_WHITE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Liquid Carbon (Gogh)" => Some(BUILTIN_LIQUID_CARBON_GOGH_COLOR_SCHEME_TOML),
+        "Liquid Carbon Transparent (Gogh)" => {
+            Some(BUILTIN_LIQUID_CARBON_TRANSPARENT_GOGH_COLOR_SCHEME_TOML)
+        }
+        "LiquidCarbon" => Some(BUILTIN_LIQUIDCARBON_COLOR_SCHEME_TOML),
+        "LiquidCarbonTransparent" => Some(BUILTIN_LIQUIDCARBONTRANSPARENT_COLOR_SCHEME_TOML),
+        "LiquidCarbonTransparentInverse" => {
+            Some(BUILTIN_LIQUIDCARBONTRANSPARENTINVERSE_COLOR_SCHEME_TOML)
+        }
+        "London Tube (base16)" => Some(BUILTIN_LONDON_TUBE_BASE16_COLOR_SCHEME_TOML),
+        "Londontube (dark) (terminal.sexy)" => {
+            Some(BUILTIN_LONDONTUBE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Londontube (light) (terminal.sexy)" => {
+            Some(BUILTIN_LONDONTUBE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -40717,6 +40736,424 @@ aliases = []
 name = "Later This Evening (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_LAVANDULA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#230046",
+    "#7d1625",
+    "#337e6f",
+    "#7f6f49",
+    "#4f4a7f",
+    "#5a3f7f",
+    "#58777f",
+    "#736e7d",
+]
+background = "#050014"
+brights = [
+    "#372d46",
+    "#e05167",
+    "#52e0c4",
+    "#e0c386",
+    "#8e87e0",
+    "#a776e0",
+    "#9ad4e0",
+    "#8c91fa",
+]
+cursor_bg = "#8c91fa"
+cursor_border = "#8c91fa"
+cursor_fg = "#050014"
+foreground = "#736e7d"
+selection_bg = "#37323c"
+selection_fg = "#8c91fa"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Lavandula (Gogh)"]
+name = "Lavandula"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_LAVANDULA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#230046",
+    "#7d1625",
+    "#337e6f",
+    "#7f6f49",
+    "#4f4a7f",
+    "#5a3f7f",
+    "#58777f",
+    "#736e7d",
+]
+background = "#050014"
+brights = [
+    "#372d46",
+    "#e05167",
+    "#52e0c4",
+    "#e0c386",
+    "#8e87e0",
+    "#a776e0",
+    "#9ad4e0",
+    "#8c91fa",
+]
+cursor_bg = "#736e7d"
+cursor_border = "#736e7d"
+cursor_fg = "#050014"
+foreground = "#736e7d"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Lavandula (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_LIGHT_WHITE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#808080",
+    "#c48980",
+    "#8da862",
+    "#b29b7a",
+    "#809bc4",
+    "#aa88b2",
+    "#82adad",
+    "#bfbfbf",
+]
+background = "#000000"
+brights = [
+    "#9c9c9c",
+    "#a15048",
+    "#4b7508",
+    "#916f27",
+    "#567cb0",
+    "#964e8f",
+    "#4e848a",
+    "#9c9c9c",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Gutterslob"
+name = "Light White (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_LIQUID_CARBON_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff3030",
+    "#559a70",
+    "#ccac00",
+    "#0099cc",
+    "#cc69c8",
+    "#7ac4cc",
+    "#bccccc",
+]
+background = "#303030"
+brights = [
+    "#000000",
+    "#ff3030",
+    "#559a70",
+    "#ccac00",
+    "#0099cc",
+    "#cc69c8",
+    "#7ac4cc",
+    "#bccccc",
+]
+cursor_bg = "#afc2c2"
+cursor_border = "#afc2c2"
+cursor_fg = "#303030"
+foreground = "#afc2c2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Liquid Carbon (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_LIQUID_CARBON_TRANSPARENT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff3030",
+    "#559a70",
+    "#ccac00",
+    "#0099cc",
+    "#cc69c8",
+    "#7ac4cc",
+    "#bccccc",
+]
+background = "#000000"
+brights = [
+    "#000000",
+    "#ff3030",
+    "#559a70",
+    "#ccac00",
+    "#0099cc",
+    "#cc69c8",
+    "#7ac4cc",
+    "#bccccc",
+]
+cursor_bg = "#afc2c2"
+cursor_border = "#afc2c2"
+cursor_fg = "#000000"
+foreground = "#afc2c2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Liquid Carbon Transparent (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_LIQUIDCARBON_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff3030",
+    "#559a70",
+    "#ccac00",
+    "#0099cc",
+    "#cc69c8",
+    "#7ac4cc",
+    "#bccccc",
+]
+background = "#303030"
+brights = [
+    "#000000",
+    "#ff3030",
+    "#559a70",
+    "#ccac00",
+    "#0099cc",
+    "#cc69c8",
+    "#7ac4cc",
+    "#bccccc",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#afc2c2"
+selection_bg = "#7dbeff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Liquid Carbon (Gogh)"]
+name = "LiquidCarbon"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_LIQUIDCARBONTRANSPARENT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff3030",
+    "#559a70",
+    "#ccac00",
+    "#0099cc",
+    "#cc69c8",
+    "#7ac4cc",
+    "#bccccc",
+]
+background = "#000000"
+brights = [
+    "#000000",
+    "#ff3030",
+    "#559a70",
+    "#ccac00",
+    "#0099cc",
+    "#cc69c8",
+    "#7ac4cc",
+    "#bccccc",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#afc2c2"
+selection_bg = "#7dbeff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Liquid Carbon Transparent (Gogh)"]
+name = "LiquidCarbonTransparent"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_LIQUIDCARBONTRANSPARENTINVERSE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#bccccd",
+    "#ff3030",
+    "#559a70",
+    "#ccac00",
+    "#0099cc",
+    "#cc69c8",
+    "#7ac4cc",
+    "#000000",
+]
+background = "#000000"
+brights = [
+    "#ffffff",
+    "#ff3030",
+    "#559a70",
+    "#ccac00",
+    "#0099cc",
+    "#cc69c8",
+    "#7ac4cc",
+    "#000000",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#afc2c2"
+selection_bg = "#7dbeff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "LiquidCarbonTransparentInverse"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_LONDON_TUBE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#231f20",
+    "#ee2e24",
+    "#00853e",
+    "#ffd204",
+    "#009ddc",
+    "#98005d",
+    "#85cebc",
+    "#d9d8d8",
+]
+background = "#231f20"
+brights = [
+    "#737171",
+    "#ee2e24",
+    "#00853e",
+    "#ffd204",
+    "#009ddc",
+    "#98005d",
+    "#85cebc",
+    "#ffffff",
+]
+cursor_bg = "#d9d8d8"
+cursor_border = "#d9d8d8"
+cursor_fg = "#231f20"
+foreground = "#d9d8d8"
+selection_bg = "#d9d8d8"
+selection_fg = "#231f20"
+
+[colors.indexed]
+"16" = "#f386a1"
+"17" = "#b06110"
+"18" = "#1c3f95"
+"19" = "#5a5758"
+"20" = "#959ca1"
+"21" = "#e7e7e8"
+
+[metadata]
+aliases = ["Londontube (dark) (terminal.sexy)"]
+author = "Jan T. Sott"
+name = "London Tube (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_LONDONTUBE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#231f20",
+    "#ee2e24",
+    "#00853e",
+    "#ffd204",
+    "#009ddc",
+    "#98005d",
+    "#85cebc",
+    "#d9d8d8",
+]
+background = "#231f20"
+brights = [
+    "#737171",
+    "#ee2e24",
+    "#00853e",
+    "#ffd204",
+    "#009ddc",
+    "#98005d",
+    "#85cebc",
+    "#ffffff",
+]
+foreground = "#d9d8d8"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Londontube (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_LONDONTUBE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#231f20",
+    "#ee2e24",
+    "#00853e",
+    "#ffd204",
+    "#009ddc",
+    "#98005d",
+    "#85cebc",
+    "#d9d8d8",
+]
+background = "#ffffff"
+brights = [
+    "#737171",
+    "#ee2e24",
+    "#00853e",
+    "#ffd204",
+    "#009ddc",
+    "#98005d",
+    "#85cebc",
+    "#ffffff",
+]
+foreground = "#5a5758"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Londontube (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -117850,6 +118287,244 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Kolorit-to-Later-Evening built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_lavandula_to_londontube_builtin_color_schemes() {
+        let cases = [
+            (
+                "Lavandula",
+                Color::Rgb(115, 110, 125),
+                Color::Rgb(5, 0, 20),
+                Color::Rgb(140, 145, 250),
+                Some(Color::Rgb(5, 0, 20)),
+                Some(Color::Rgb(55, 50, 60)),
+                Some(Some(Color::Rgb(140, 145, 250))),
+                Color::Rgb(35, 0, 70),
+                Color::Rgb(125, 22, 37),
+                Color::Rgb(51, 126, 111),
+                Color::Rgb(127, 111, 73),
+                Color::Rgb(55, 45, 70),
+                Color::Rgb(140, 145, 250),
+                None,
+            ),
+            (
+                "Lavandula (Gogh)",
+                Color::Rgb(115, 110, 125),
+                Color::Rgb(5, 0, 20),
+                Color::Rgb(115, 110, 125),
+                Some(Color::Rgb(5, 0, 20)),
+                None,
+                None,
+                Color::Rgb(35, 0, 70),
+                Color::Rgb(125, 22, 37),
+                Color::Rgb(51, 126, 111),
+                Color::Rgb(127, 111, 73),
+                Color::Rgb(55, 45, 70),
+                Color::Rgb(140, 145, 250),
+                None,
+            ),
+            (
+                "Light White (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(196, 137, 128),
+                Color::Rgb(141, 168, 98),
+                Color::Rgb(178, 155, 122),
+                Color::Rgb(156, 156, 156),
+                Color::Rgb(156, 156, 156),
+                None,
+            ),
+            (
+                "Liquid Carbon (Gogh)",
+                Color::Rgb(175, 194, 194),
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(175, 194, 194),
+                Some(Color::Rgb(48, 48, 48)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 48, 48),
+                Color::Rgb(85, 154, 112),
+                Color::Rgb(204, 172, 0),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(188, 204, 204),
+                None,
+            ),
+            (
+                "Liquid Carbon Transparent (Gogh)",
+                Color::Rgb(175, 194, 194),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(175, 194, 194),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 48, 48),
+                Color::Rgb(85, 154, 112),
+                Color::Rgb(204, 172, 0),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(188, 204, 204),
+                None,
+            ),
+            (
+                "LiquidCarbon",
+                Color::Rgb(175, 194, 194),
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(125, 190, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 48, 48),
+                Color::Rgb(85, 154, 112),
+                Color::Rgb(204, 172, 0),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(188, 204, 204),
+                None,
+            ),
+            (
+                "LiquidCarbonTransparent",
+                Color::Rgb(175, 194, 194),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(125, 190, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 48, 48),
+                Color::Rgb(85, 154, 112),
+                Color::Rgb(204, 172, 0),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(188, 204, 204),
+                None,
+            ),
+            (
+                "LiquidCarbonTransparentInverse",
+                Color::Rgb(175, 194, 194),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(125, 190, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(188, 204, 205),
+                Color::Rgb(255, 48, 48),
+                Color::Rgb(85, 154, 112),
+                Color::Rgb(204, 172, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                None,
+            ),
+            (
+                "London Tube (base16)",
+                Color::Rgb(217, 216, 216),
+                Color::Rgb(35, 31, 32),
+                Color::Rgb(217, 216, 216),
+                Some(Color::Rgb(35, 31, 32)),
+                Some(Color::Rgb(217, 216, 216)),
+                Some(Some(Color::Rgb(35, 31, 32))),
+                Color::Rgb(35, 31, 32),
+                Color::Rgb(238, 46, 36),
+                Color::Rgb(0, 133, 62),
+                Color::Rgb(255, 210, 4),
+                Color::Rgb(115, 113, 113),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(243, 134, 161)),
+            ),
+            (
+                "Londontube (dark) (terminal.sexy)",
+                Color::Rgb(217, 216, 216),
+                Color::Rgb(35, 31, 32),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(35, 31, 32),
+                Color::Rgb(238, 46, 36),
+                Color::Rgb(0, 133, 62),
+                Color::Rgb(255, 210, 4),
+                Color::Rgb(115, 113, 113),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Londontube (light) (terminal.sexy)",
+                Color::Rgb(90, 87, 88),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(35, 31, 32),
+                Color::Rgb(238, 46, 36),
+                Color::Rgb(0, 133, 62),
+                Color::Rgb(255, 210, 4),
+                Color::Rgb(115, 113, 113),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Lavandula-to-Londontube built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
