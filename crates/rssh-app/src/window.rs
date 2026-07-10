@@ -20300,6 +20300,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Srcery (Gogh)" => Some(BUILTIN_SRCERY_GOGH_COLOR_SCHEME_TOML),
         "Sublette" => Some(BUILTIN_SUBLETTE_COLOR_SCHEME_TOML),
         "Subliminal" => Some(BUILTIN_SUBLIMINAL_COLOR_SCHEME_TOML),
+        "Sugarplum" => Some(BUILTIN_SUGARPLUM_COLOR_SCHEME_TOML),
+        "Summer Pop (Gogh)" | "summer-pop (Gogh)" => {
+            Some(BUILTIN_SUMMER_POP_GOGH_COLOR_SCHEME_TOML)
+        }
+        "summercamp (base16)" => Some(BUILTIN_SUMMERCAMP_BASE16_COLOR_SCHEME_TOML),
+        "Summerfruit Dark (base16)" => Some(BUILTIN_SUMMERFRUIT_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Summerfruit Light (base16)" => Some(BUILTIN_SUMMERFRUIT_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Sundried" => Some(BUILTIN_SUNDRIED_COLOR_SCHEME_TOML),
+        "Sundried (Gogh)" => Some(BUILTIN_SUNDRIED_GOGH_COLOR_SCHEME_TOML),
+        "Swayr (terminal.sexy)" => Some(BUILTIN_SWAYR_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Sweet Eliverlara (Gogh)" | "sweet-eliverlara (Gogh)" => {
+            Some(BUILTIN_SWEET_ELIVERLARA_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Sweet Love (terminal.sexy)" => Some(BUILTIN_SWEET_LOVE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -54260,6 +54274,404 @@ aliases = []
 name = "Subliminal"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_SUGARPLUM_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#111147",
+    "#5ca8dc",
+    "#53b397",
+    "#249a84",
+    "#db7ddd",
+    "#d0beee",
+    "#f9f3f9",
+    "#a175d4",
+]
+background = "#111147"
+brights = [
+    "#111147",
+    "#5cb5dc",
+    "#52deb5",
+    "#01f5c7",
+    "#fa5dfd",
+    "#c6a5fd",
+    "#ffffff",
+    "#b577fd",
+]
+cursor_bg = "#53b397"
+cursor_border = "#53b397"
+cursor_fg = "#53b397"
+foreground = "#db7ddd"
+selection_bg = "#5ca8dc"
+selection_fg = "#d0beee"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "lemonlime0x3C33 (https://github.com/lemonlime0x3C33)"
+name = "Sugarplum"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_SUMMER_POP_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#666666",
+    "#ff1e8e",
+    "#8eff1e",
+    "#fffb00",
+    "#1e8eff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+background = "#272822"
+brights = [
+    "#666666",
+    "#ff1e8e",
+    "#8eff1e",
+    "#fffb00",
+    "#1e8eff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#272822"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["summer-pop (Gogh)"]
+name = "Summer Pop (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SUMMERCAMP_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1810",
+    "#e35142",
+    "#5ceb5a",
+    "#f2ff27",
+    "#489bf0",
+    "#ff8080",
+    "#5aebbc",
+    "#736e55",
+]
+background = "#1c1810"
+brights = [
+    "#504b38",
+    "#e35142",
+    "#5ceb5a",
+    "#f2ff27",
+    "#489bf0",
+    "#ff8080",
+    "#5aebbc",
+    "#f8f5de",
+]
+cursor_bg = "#736e55"
+cursor_border = "#736e55"
+cursor_fg = "#1c1810"
+foreground = "#736e55"
+selection_bg = "#736e55"
+selection_fg = "#1c1810"
+
+[colors.indexed]
+16 = "#fba11b"
+17 = "#f69be7"
+18 = "#2a261c"
+19 = "#3a3527"
+20 = "#5f5b45"
+21 = "#bab696"
+
+[metadata]
+aliases = []
+author = "zoe firi (zoefiri.github.io)"
+name = "summercamp (base16)"
+origin_url = "https://github.com/zoefiri/base16-summercamp"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SUMMERFRUIT_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151515",
+    "#ff0086",
+    "#00c918",
+    "#aba800",
+    "#3777e6",
+    "#ad00a1",
+    "#1faaaa",
+    "#d0d0d0",
+]
+background = "#151515"
+brights = [
+    "#505050",
+    "#ff0086",
+    "#00c918",
+    "#aba800",
+    "#3777e6",
+    "#ad00a1",
+    "#1faaaa",
+    "#ffffff",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#151515"
+foreground = "#d0d0d0"
+selection_bg = "#d0d0d0"
+selection_fg = "#151515"
+
+[colors.indexed]
+16 = "#fd8900"
+17 = "#cc6633"
+18 = "#202020"
+19 = "#303030"
+20 = "#b0b0b0"
+21 = "#e0e0e0"
+
+[metadata]
+aliases = []
+author = "Christopher Corley (http://christop.club/)"
+name = "Summerfruit Dark (base16)"
+origin_url = "https://github.com/cscorley/base16-summerfruit-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SUMMERFRUIT_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#ffffff",
+    "#ff0086",
+    "#00c918",
+    "#aba800",
+    "#3777e6",
+    "#ad00a1",
+    "#1faaaa",
+    "#101010",
+]
+background = "#ffffff"
+brights = [
+    "#b0b0b0",
+    "#ff0086",
+    "#00c918",
+    "#aba800",
+    "#3777e6",
+    "#ad00a1",
+    "#1faaaa",
+    "#202020",
+]
+cursor_bg = "#101010"
+cursor_border = "#101010"
+cursor_fg = "#ffffff"
+foreground = "#101010"
+selection_bg = "#101010"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+16 = "#fd8900"
+17 = "#cc6633"
+18 = "#e0e0e0"
+19 = "#d0d0d0"
+20 = "#000000"
+21 = "#151515"
+
+[metadata]
+aliases = []
+author = "Christopher Corley (http://christop.club/)"
+name = "Summerfruit Light (base16)"
+origin_url = "https://github.com/cscorley/base16-summerfruit-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SUNDRIED_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#302b2a",
+    "#a7463d",
+    "#587744",
+    "#9d602a",
+    "#485b98",
+    "#864651",
+    "#9c814f",
+    "#c9c9c9",
+]
+background = "#1a1818"
+brights = [
+    "#4d4e48",
+    "#aa000c",
+    "#128c21",
+    "#fc6a21",
+    "#7999f7",
+    "#fd8aa1",
+    "#fad484",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#191717"
+foreground = "#c9c9c9"
+selection_bg = "#302b2a"
+selection_fg = "#c9c9c9"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Sundried (Gogh)"]
+name = "Sundried"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SUNDRIED_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#302b2a",
+    "#a7463d",
+    "#587744",
+    "#9d602a",
+    "#485b98",
+    "#864651",
+    "#9c814f",
+    "#c9c9c9",
+]
+background = "#1a1818"
+brights = [
+    "#4d4e48",
+    "#aa000c",
+    "#128c21",
+    "#fc6a21",
+    "#7999f7",
+    "#fd8aa1",
+    "#fad484",
+    "#ffffff",
+]
+cursor_bg = "#c9c9c9"
+cursor_border = "#c9c9c9"
+cursor_fg = "#1a1818"
+foreground = "#c9c9c9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Sundried (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SWAYR_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1709",
+    "#8e4317",
+    "#787200",
+    "#945c00",
+    "#315094",
+    "#5c2e40",
+    "#00617d",
+    "#c2b9a1",
+]
+background = "#1c1709"
+brights = [
+    "#4f4939",
+    "#f07935",
+    "#d9d138",
+    "#ffab26",
+    "#8aa9ed",
+    "#ff8cb8",
+    "#43bfe0",
+    "#f2e8c9",
+]
+foreground = "#c2b9a1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Swayr (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SWEET_ELIVERLARA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282c34",
+    "#ed254e",
+    "#71f79f",
+    "#f9dc5c",
+    "#7cb7ff",
+    "#c74ded",
+    "#00c1e4",
+    "#dcdfe4",
+]
+background = "#282c34"
+brights = [
+    "#282c34",
+    "#ed254e",
+    "#71f79f",
+    "#f9dc5c",
+    "#7cb7ff",
+    "#c74ded",
+    "#00c1e4",
+    "#dcdfe4",
+]
+cursor_bg = "#c3c7d1"
+cursor_border = "#c3c7d1"
+cursor_fg = "#282c34"
+foreground = "#c3c7d1"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["sweet-eliverlara (Gogh)"]
+name = "Sweet Eliverlara (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SWEET_LOVE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4a3637",
+    "#d17b49",
+    "#7b8748",
+    "#af865a",
+    "#535c5c",
+    "#775759",
+    "#6d715e",
+    "#c0b18b",
+]
+background = "#1f1f1f"
+brights = [
+    "#402e2e",
+    "#ac5d2f",
+    "#647035",
+    "#8f6840",
+    "#444b4b",
+    "#614445",
+    "#585c49",
+    "#978965",
+]
+foreground = "#c0b18b"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Boroshlawa"
+name = "Sweet Love (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -139471,6 +139883,260 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Sparky-to-Subliminal built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_sugarplum_to_sweet_love_builtin_color_schemes_and_aliases() {
+        let cases = [
+            (
+                "Sugarplum",
+                Color::Rgb(219, 125, 221),
+                Color::Rgb(17, 17, 71),
+                Color::Rgb(83, 179, 151),
+                Some(Color::Rgb(83, 179, 151)),
+                Some(Color::Rgb(92, 168, 220)),
+                Some(Some(Color::Rgb(208, 190, 238))),
+                Color::Rgb(17, 17, 71),
+                Color::Rgb(92, 168, 220),
+                Color::Rgb(83, 179, 151),
+                Color::Rgb(36, 154, 132),
+                Color::Rgb(17, 17, 71),
+                Color::Rgb(181, 119, 253),
+                None,
+            ),
+            (
+                "Summer Pop (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(39, 40, 34),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(39, 40, 34)),
+                None,
+                None,
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(255, 30, 142),
+                Color::Rgb(142, 255, 30),
+                Color::Rgb(255, 251, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "summer-pop (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(39, 40, 34),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(39, 40, 34)),
+                None,
+                None,
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(255, 30, 142),
+                Color::Rgb(142, 255, 30),
+                Color::Rgb(255, 251, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "summercamp (base16)",
+                Color::Rgb(115, 110, 85),
+                Color::Rgb(28, 24, 16),
+                Color::Rgb(115, 110, 85),
+                Some(Color::Rgb(28, 24, 16)),
+                Some(Color::Rgb(115, 110, 85)),
+                Some(Some(Color::Rgb(28, 24, 16))),
+                Color::Rgb(28, 24, 16),
+                Color::Rgb(227, 81, 66),
+                Color::Rgb(92, 235, 90),
+                Color::Rgb(242, 255, 39),
+                Color::Rgb(80, 75, 56),
+                Color::Rgb(248, 245, 222),
+                Some(Color::Rgb(251, 161, 27)),
+            ),
+            (
+                "Summerfruit Dark (base16)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(21, 21, 21)),
+                Some(Color::Rgb(208, 208, 208)),
+                Some(Some(Color::Rgb(21, 21, 21))),
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(255, 0, 134),
+                Color::Rgb(0, 201, 24),
+                Color::Rgb(171, 168, 0),
+                Color::Rgb(80, 80, 80),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(253, 137, 0)),
+            ),
+            (
+                "Summerfruit Light (base16)",
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(16, 16, 16),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(16, 16, 16)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(255, 0, 134),
+                Color::Rgb(0, 201, 24),
+                Color::Rgb(171, 168, 0),
+                Color::Rgb(176, 176, 176),
+                Color::Rgb(32, 32, 32),
+                Some(Color::Rgb(253, 137, 0)),
+            ),
+            (
+                "Sundried",
+                Color::Rgb(201, 201, 201),
+                Color::Rgb(26, 24, 24),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(25, 23, 23)),
+                Some(Color::Rgb(48, 43, 42)),
+                Some(Some(Color::Rgb(201, 201, 201))),
+                Color::Rgb(48, 43, 42),
+                Color::Rgb(167, 70, 61),
+                Color::Rgb(88, 119, 68),
+                Color::Rgb(157, 96, 42),
+                Color::Rgb(77, 78, 72),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Sundried (Gogh)",
+                Color::Rgb(201, 201, 201),
+                Color::Rgb(26, 24, 24),
+                Color::Rgb(201, 201, 201),
+                Some(Color::Rgb(26, 24, 24)),
+                None,
+                None,
+                Color::Rgb(48, 43, 42),
+                Color::Rgb(167, 70, 61),
+                Color::Rgb(88, 119, 68),
+                Color::Rgb(157, 96, 42),
+                Color::Rgb(77, 78, 72),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Swayr (terminal.sexy)",
+                Color::Rgb(194, 185, 161),
+                Color::Rgb(28, 23, 9),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(28, 23, 9),
+                Color::Rgb(142, 67, 23),
+                Color::Rgb(120, 114, 0),
+                Color::Rgb(148, 92, 0),
+                Color::Rgb(79, 73, 57),
+                Color::Rgb(242, 232, 201),
+                None,
+            ),
+            (
+                "Sweet Eliverlara (Gogh)",
+                Color::Rgb(195, 199, 209),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(195, 199, 209),
+                Some(Color::Rgb(40, 44, 52)),
+                None,
+                None,
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(237, 37, 78),
+                Color::Rgb(113, 247, 159),
+                Color::Rgb(249, 220, 92),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(220, 223, 228),
+                None,
+            ),
+            (
+                "sweet-eliverlara (Gogh)",
+                Color::Rgb(195, 199, 209),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(195, 199, 209),
+                Some(Color::Rgb(40, 44, 52)),
+                None,
+                None,
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(237, 37, 78),
+                Color::Rgb(113, 247, 159),
+                Color::Rgb(249, 220, 92),
+                Color::Rgb(40, 44, 52),
+                Color::Rgb(220, 223, 228),
+                None,
+            ),
+            (
+                "Sweet Love (terminal.sexy)",
+                Color::Rgb(192, 177, 139),
+                Color::Rgb(31, 31, 31),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(74, 54, 55),
+                Color::Rgb(209, 123, 73),
+                Color::Rgb(123, 135, 72),
+                Color::Rgb(175, 134, 90),
+                Color::Rgb(64, 46, 46),
+                Color::Rgb(151, 137, 101),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Sugarplum-to-Sweet-Love built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

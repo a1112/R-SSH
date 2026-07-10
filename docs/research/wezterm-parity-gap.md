@@ -3843,7 +3843,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `SpaceGray Eighties Dull`, `Spacegray Eighties Dull (Gogh)`,
   `Spacemacs (base16)`, `Sparky (Gogh)`, `Spiderman`,
   `Splurge (terminal.sexy)`, `Spring`, `Spring (Gogh)`, `Square`,
-  `Square (Gogh)`, `Srcery (Gogh)`, `Sublette`, `Subliminal`, `Builtin Dark`,
+  `Square (Gogh)`, `Srcery (Gogh)`, `Sublette`, `Subliminal`, `Sugarplum`,
+  `Summer Pop (Gogh)`, `summercamp (base16)`, `Summerfruit Dark (base16)`,
+  `Summerfruit Light (base16)`, `Sundried`, `Sundried (Gogh)`,
+  `Swayr (terminal.sexy)`, `Sweet Eliverlara (Gogh)`,
+  `Sweet Love (terminal.sexy)`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
