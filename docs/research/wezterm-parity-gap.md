@@ -3863,7 +3863,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Tokyo Night Moon`, `Tokyo Night Storm`, `Tokyo Night Storm (Gogh)`,
   `tokyonight`, `tokyonight-day`, `tokyonight-storm`, `tokyonight_day`,
   `tokyonight_moon`, `tokyonight_night`, `tokyonight_storm`, `Tomorrow`,
-  `Tomorrow (dark) (terminal.sexy)`, `Builtin Dark`,
+  `Tomorrow (dark) (terminal.sexy)`, `Tomorrow (Gogh)`,
+  `Tomorrow (light) (terminal.sexy)`, `Tomorrow Night`,
+  `Tomorrow Night (Gogh)`, `Tomorrow Night Blue`,
+  `Tomorrow Night Blue (Gogh)`, `Tomorrow Night Bright`,
+  `Tomorrow Night Bright (Gogh)`, `Tomorrow Night Burns`,
+  `Tomorrow Night Eighties`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML

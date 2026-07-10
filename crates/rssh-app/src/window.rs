@@ -20382,6 +20382,24 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Tomorrow (dark) (terminal.sexy)" => {
             Some(BUILTIN_TOMORROW_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
+        "Tomorrow (Gogh)" => Some(BUILTIN_TOMORROW_GOGH_COLOR_SCHEME_TOML),
+        "Tomorrow (light) (terminal.sexy)" => {
+            Some(BUILTIN_TOMORROW_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Tomorrow Night" => Some(BUILTIN_TOMORROW_NIGHT_COLOR_SCHEME_TOML),
+        "Tomorrow Night (Gogh)" | "TomorrowNight (Gogh)" => {
+            Some(BUILTIN_TOMORROW_NIGHT_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Tomorrow Night Blue" => Some(BUILTIN_TOMORROW_NIGHT_BLUE_COLOR_SCHEME_TOML),
+        "Tomorrow Night Blue (Gogh)" | "TomorrowNightBlue (Gogh)" => {
+            Some(BUILTIN_TOMORROW_NIGHT_BLUE_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Tomorrow Night Bright" => Some(BUILTIN_TOMORROW_NIGHT_BRIGHT_COLOR_SCHEME_TOML),
+        "Tomorrow Night Bright (Gogh)" | "TomorrowNightBright (Gogh)" => {
+            Some(BUILTIN_TOMORROW_NIGHT_BRIGHT_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Tomorrow Night Burns" => Some(BUILTIN_TOMORROW_NIGHT_BURNS_COLOR_SCHEME_TOML),
+        "Tomorrow Night Eighties" => Some(BUILTIN_TOMORROW_NIGHT_EIGHTIES_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -57038,6 +57056,384 @@ author = "Chris Kempson"
 name = "Tomorrow (dark) (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TOMORROW_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c82828",
+    "#718c00",
+    "#eab700",
+    "#4171ae",
+    "#8959a8",
+    "#3e999f",
+    "#fffefe",
+]
+background = "#ffffff"
+brights = [
+    "#000000",
+    "#c82828",
+    "#708b00",
+    "#e9b600",
+    "#4170ae",
+    "#8958a7",
+    "#3d999f",
+    "#fffefe",
+]
+cursor_bg = "#4c4c4c"
+cursor_border = "#4c4c4c"
+cursor_fg = "#ffffff"
+foreground = "#4d4d4c"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Tomorrow (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TOMORROW_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d1f21",
+    "#cc6666",
+    "#b5bd68",
+    "#f0c674",
+    "#81a2be",
+    "#b294bb",
+    "#8abeb7",
+    "#c5c8c6",
+]
+background = "#ffffff"
+brights = [
+    "#969896",
+    "#cc6666",
+    "#b5bd68",
+    "#f0c674",
+    "#81a2be",
+    "#b294bb",
+    "#8abeb7",
+    "#ffffff",
+]
+foreground = "#373b41"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Tomorrow (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TOMORROW_NIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc6666",
+    "#b5bd68",
+    "#f0c674",
+    "#81a2be",
+    "#b294bb",
+    "#8abeb7",
+    "#ffffff",
+]
+background = "#1d1f21"
+brights = [
+    "#000000",
+    "#cc6666",
+    "#b5bd68",
+    "#f0c674",
+    "#81a2be",
+    "#b294bb",
+    "#8abeb7",
+    "#ffffff",
+]
+cursor_bg = "#c5c8c6"
+cursor_border = "#c5c8c6"
+cursor_fg = "#1d1f21"
+foreground = "#c5c8c6"
+selection_bg = "#373b41"
+selection_fg = "#c5c8c6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Tomorrow Night"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TOMORROW_NIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc6666",
+    "#b5bd68",
+    "#f0c674",
+    "#81a2be",
+    "#b293bb",
+    "#8abeb7",
+    "#fffefe",
+]
+background = "#1d1f21"
+brights = [
+    "#808080",
+    "#cc6666",
+    "#b5bd68",
+    "#f0c574",
+    "#80a1bd",
+    "#b294ba",
+    "#8abdb6",
+    "#fffefe",
+]
+cursor_bg = "#c4c8c5"
+cursor_border = "#c4c8c5"
+cursor_fg = "#1d1f21"
+foreground = "#c5c8c6"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["TomorrowNight (Gogh)"]
+name = "Tomorrow Night (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TOMORROW_NIGHT_BLUE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff9da4",
+    "#d1f1a9",
+    "#ffeead",
+    "#bbdaff",
+    "#ebbbff",
+    "#99ffff",
+    "#ffffff",
+]
+background = "#002451"
+brights = [
+    "#000000",
+    "#ff9da4",
+    "#d1f1a9",
+    "#ffeead",
+    "#bbdaff",
+    "#ebbbff",
+    "#99ffff",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#003f8e"
+foreground = "#ffffff"
+selection_bg = "#003f8e"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Tomorrow Night Blue"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TOMORROW_NIGHT_BLUE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff9da3",
+    "#d1f1a9",
+    "#ffeead",
+    "#bbdaff",
+    "#ebbbff",
+    "#99ffff",
+    "#fffefe",
+]
+background = "#002451"
+brights = [
+    "#000000",
+    "#ff9ca3",
+    "#d0f0a8",
+    "#ffedac",
+    "#badaff",
+    "#ebbaff",
+    "#99ffff",
+    "#fffefe",
+]
+cursor_bg = "#fffefe"
+cursor_border = "#fffefe"
+cursor_fg = "#002451"
+foreground = "#fffefe"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["TomorrowNightBlue (Gogh)"]
+name = "Tomorrow Night Blue (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TOMORROW_NIGHT_BRIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d54e53",
+    "#b9ca4a",
+    "#e7c547",
+    "#7aa6da",
+    "#c397d8",
+    "#70c0b1",
+    "#ffffff",
+]
+background = "#000000"
+brights = [
+    "#000000",
+    "#d54e53",
+    "#b9ca4a",
+    "#e7c547",
+    "#7aa6da",
+    "#c397d8",
+    "#70c0b1",
+    "#ffffff",
+]
+cursor_bg = "#eaeaea"
+cursor_border = "#eaeaea"
+cursor_fg = "#000000"
+foreground = "#eaeaea"
+selection_bg = "#424242"
+selection_fg = "#eaeaea"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Tomorrow Night Bright"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TOMORROW_NIGHT_BRIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d54e53",
+    "#b9ca49",
+    "#e7c547",
+    "#79a6da",
+    "#c397d8",
+    "#70c0b1",
+    "#fffefe",
+]
+background = "#000000"
+brights = [
+    "#000000",
+    "#d44d53",
+    "#b9c949",
+    "#e6c446",
+    "#79a6da",
+    "#c396d7",
+    "#70c0b1",
+    "#fffefe",
+]
+cursor_bg = "#e9e9e9"
+cursor_border = "#e9e9e9"
+cursor_fg = "#000000"
+foreground = "#e9e9e9"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["TomorrowNightBright (Gogh)"]
+name = "Tomorrow Night Bright (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TOMORROW_NIGHT_BURNS_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#252525",
+    "#832e31",
+    "#a63c40",
+    "#d3494e",
+    "#fc595f",
+    "#df9395",
+    "#ba8586",
+    "#f5f5f5",
+]
+background = "#151515"
+brights = [
+    "#5d6f71",
+    "#832e31",
+    "#a63c40",
+    "#d2494e",
+    "#fc595f",
+    "#df9395",
+    "#ba8586",
+    "#f5f5f5",
+]
+cursor_bg = "#ff443e"
+cursor_border = "#ff443e"
+cursor_fg = "#708284"
+foreground = "#a1b0b8"
+selection_bg = "#b0bec5"
+selection_fg = "#2a2d32"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Tomorrow Night Burns"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TOMORROW_NIGHT_EIGHTIES_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#f2777a",
+    "#99cc99",
+    "#ffcc66",
+    "#6699cc",
+    "#cc99cc",
+    "#66cccc",
+    "#ffffff",
+]
+background = "#2d2d2d"
+brights = [
+    "#000000",
+    "#f2777a",
+    "#99cc99",
+    "#ffcc66",
+    "#6699cc",
+    "#cc99cc",
+    "#66cccc",
+    "#ffffff",
+]
+cursor_bg = "#cccccc"
+cursor_border = "#cccccc"
+cursor_fg = "#2d2d2d"
+foreground = "#cccccc"
+selection_bg = "#515151"
+selection_fg = "#cccccc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Tomorrow Night Eighties"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -143997,6 +144393,231 @@ mod tests {
                 effective.tab_bar_active_tab_colors.intensity,
                 Some(NativeFormatIntensity::Normal)
             );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_tomorrow_gogh_to_tomorrow_night_eighties_builtin_color_schemes_and_aliases()
+     {
+        let cases = [
+            (
+                &["Tomorrow (Gogh)"][..],
+                Color::Rgb(77, 77, 76),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(76, 76, 76),
+                Some(Color::Rgb(255, 255, 255)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(200, 40, 40),
+                Color::Rgb(113, 140, 0),
+                Color::Rgb(234, 183, 0),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+            (
+                &["Tomorrow (light) (terminal.sexy)"][..],
+                Color::Rgb(55, 59, 65),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(29, 31, 33),
+                Color::Rgb(204, 102, 102),
+                Color::Rgb(181, 189, 104),
+                Color::Rgb(240, 198, 116),
+                Color::Rgb(150, 152, 150),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                &["Tomorrow Night"][..],
+                Color::Rgb(197, 200, 198),
+                Color::Rgb(29, 31, 33),
+                Color::Rgb(197, 200, 198),
+                Some(Color::Rgb(29, 31, 33)),
+                Some(Color::Rgb(55, 59, 65)),
+                Some(Some(Color::Rgb(197, 200, 198))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(204, 102, 102),
+                Color::Rgb(181, 189, 104),
+                Color::Rgb(240, 198, 116),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                &["Tomorrow Night (Gogh)", "TomorrowNight (Gogh)"][..],
+                Color::Rgb(197, 200, 198),
+                Color::Rgb(29, 31, 33),
+                Color::Rgb(196, 200, 197),
+                Some(Color::Rgb(29, 31, 33)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(204, 102, 102),
+                Color::Rgb(181, 189, 104),
+                Color::Rgb(240, 198, 116),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+            (
+                &["Tomorrow Night Blue"][..],
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 36, 81),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 63, 142)),
+                Some(Color::Rgb(0, 63, 142)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 157, 164),
+                Color::Rgb(209, 241, 169),
+                Color::Rgb(255, 238, 173),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                &["Tomorrow Night Blue (Gogh)", "TomorrowNightBlue (Gogh)"][..],
+                Color::Rgb(255, 254, 254),
+                Color::Rgb(0, 36, 81),
+                Color::Rgb(255, 254, 254),
+                Some(Color::Rgb(0, 36, 81)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 157, 163),
+                Color::Rgb(209, 241, 169),
+                Color::Rgb(255, 238, 173),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+            (
+                &["Tomorrow Night Bright"][..],
+                Color::Rgb(234, 234, 234),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(234, 234, 234),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(66, 66, 66)),
+                Some(Some(Color::Rgb(234, 234, 234))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(213, 78, 83),
+                Color::Rgb(185, 202, 74),
+                Color::Rgb(231, 197, 71),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                &["Tomorrow Night Bright (Gogh)", "TomorrowNightBright (Gogh)"][..],
+                Color::Rgb(233, 233, 233),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(233, 233, 233),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(213, 78, 83),
+                Color::Rgb(185, 202, 73),
+                Color::Rgb(231, 197, 71),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+            (
+                &["Tomorrow Night Burns"][..],
+                Color::Rgb(161, 176, 184),
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(255, 68, 62),
+                Some(Color::Rgb(112, 130, 132)),
+                Some(Color::Rgb(176, 190, 197)),
+                Some(Some(Color::Rgb(42, 45, 50))),
+                Color::Rgb(37, 37, 37),
+                Color::Rgb(131, 46, 49),
+                Color::Rgb(166, 60, 64),
+                Color::Rgb(211, 73, 78),
+                Color::Rgb(93, 111, 113),
+                Color::Rgb(245, 245, 245),
+                None,
+            ),
+            (
+                &["Tomorrow Night Eighties"][..],
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(45, 45, 45),
+                Color::Rgb(204, 204, 204),
+                Some(Color::Rgb(45, 45, 45)),
+                Some(Color::Rgb(81, 81, 81)),
+                Some(Some(Color::Rgb(204, 204, 204))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(242, 119, 122),
+                Color::Rgb(153, 204, 153),
+                Color::Rgb(255, 204, 102),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_schemes,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            for color_scheme in color_schemes {
+                let mut app = NativeWindowApp::new(None);
+                let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                    r##"
+                    local config = {{}}
+
+                    config.color_scheme = '{}'
+
+                    return config
+                    "##,
+                    color_scheme
+                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "expected WezTerm Tomorrow-Gogh-to-Tomorrow-Night-Eighties built-in color_scheme config for {color_scheme}"
+                    )
+                });
+                app.set_config_overrides(overrides);
+
+                let effective = app.native_effective_config();
+                assert_eq!(effective.color_scheme.as_deref(), Some(*color_scheme));
+                assert_eq!(effective.foreground_color, foreground);
+                assert_eq!(effective.background_color, background);
+                assert_eq!(effective.cursor_bg_color, cursor_bg);
+                assert_eq!(effective.cursor_fg_color, cursor_fg);
+                assert_eq!(effective.selection_bg_color, selection_bg);
+                assert_eq!(effective.selection_fg_color, selection_fg);
+                let ansi = effective.ansi_palette.expect("expected ANSI palette");
+                assert_eq!(ansi[0], ansi_0);
+                assert_eq!(ansi[1], ansi_1);
+                assert_eq!(ansi[2], ansi_2);
+                assert_eq!(ansi[3], ansi_3);
+                assert_eq!(ansi[8], ansi_8);
+                assert_eq!(ansi[15], ansi_15);
+                assert_eq!(
+                    effective.indexed_palette.and_then(|indexed| indexed[16]),
+                    indexed_16
+                );
+            }
         }
     }
 
