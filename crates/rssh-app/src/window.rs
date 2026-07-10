@@ -20368,6 +20368,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Tokyo Night Moon" => Some(BUILTIN_TOKYO_NIGHT_MOON_COLOR_SCHEME_TOML),
         "Tokyo Night Storm" => Some(BUILTIN_TOKYO_NIGHT_STORM_COLOR_SCHEME_TOML),
+        "Tokyo Night Storm (Gogh)" | "TokyoNightStorm (Gogh)" => {
+            Some(BUILTIN_TOKYO_NIGHT_STORM_GOGH_COLOR_SCHEME_TOML)
+        }
+        "tokyonight" => Some(BUILTIN_TOKYONIGHT_COLOR_SCHEME_TOML),
+        "tokyonight-day" => Some(BUILTIN_TOKYONIGHT_DASH_DAY_COLOR_SCHEME_TOML),
+        "tokyonight-storm" => Some(BUILTIN_TOKYONIGHT_DASH_STORM_COLOR_SCHEME_TOML),
+        "tokyonight_day" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_DAY_COLOR_SCHEME_TOML),
+        "tokyonight_moon" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_MOON_COLOR_SCHEME_TOML),
+        "tokyonight_night" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_NIGHT_COLOR_SCHEME_TOML),
+        "tokyonight_storm" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_STORM_COLOR_SCHEME_TOML),
+        "Tomorrow" => Some(BUILTIN_TOMORROW_COLOR_SCHEME_TOML),
+        "Tomorrow (dark) (terminal.sexy)" => {
+            Some(BUILTIN_TOMORROW_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -56448,6 +56462,582 @@ author = "folke"
 name = "Tokyo Night Storm"
 origin_url = "https://github.com/folke/tokyonight.nvim"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_TOKYO_NIGHT_STORM_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#414868",
+    "#f7768e",
+    "#9ece6a",
+    "#e0af68",
+    "#7aa2f7",
+    "#bb9af7",
+    "#7dcfff",
+    "#c0caf5",
+]
+background = "#24283b"
+brights = [
+    "#414868",
+    "#f7768e",
+    "#9ece6a",
+    "#e0af68",
+    "#7aa2f7",
+    "#bb9af7",
+    "#7dcfff",
+    "#c0caf5",
+]
+cursor_bg = "#c0caf5"
+cursor_border = "#c0caf5"
+cursor_fg = "#24283b"
+foreground = "#c0caf5"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["TokyoNightStorm (Gogh)"]
+name = "Tokyo Night Storm (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TOKYONIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#15161e",
+    "#f7768e",
+    "#9ece6a",
+    "#e0af68",
+    "#7aa2f7",
+    "#bb9af7",
+    "#7dcfff",
+    "#a9b1d6",
+]
+background = "#1a1b26"
+brights = [
+    "#414868",
+    "#f7768e",
+    "#9ece6a",
+    "#e0af68",
+    "#7aa2f7",
+    "#bb9af7",
+    "#7dcfff",
+    "#c0caf5",
+]
+cursor_bg = "#c0caf5"
+cursor_border = "#c0caf5"
+cursor_fg = "#15161e"
+foreground = "#c0caf5"
+selection_bg = "#33467c"
+selection_fg = "#c0caf5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "tokyonight"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_TOKYONIGHT_DASH_DAY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#e9e9ed",
+    "#f52a65",
+    "#587539",
+    "#8c6c3e",
+    "#2e7de9",
+    "#9854f1",
+    "#007197",
+    "#6172b0",
+]
+background = "#e1e2e7"
+brights = [
+    "#a1a6c5",
+    "#f52a65",
+    "#587539",
+    "#8c6c3e",
+    "#2e7de9",
+    "#9854f1",
+    "#007197",
+    "#3760bf",
+]
+cursor_bg = "#3760bf"
+cursor_border = "#3760bf"
+cursor_fg = "#e1e2e7"
+foreground = "#3760bf"
+selection_bg = "#99a7df"
+selection_fg = "#3760bf"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "tokyonight-day"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_TOKYONIGHT_DASH_STORM_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d202f",
+    "#f7768e",
+    "#9ece6a",
+    "#e0af68",
+    "#7aa2f7",
+    "#bb9af7",
+    "#7dcfff",
+    "#a9b1d6",
+]
+background = "#24283b"
+brights = [
+    "#414868",
+    "#f7768e",
+    "#9ece6a",
+    "#e0af68",
+    "#7aa2f7",
+    "#bb9af7",
+    "#7dcfff",
+    "#c0caf5",
+]
+cursor_bg = "#c0caf5"
+cursor_border = "#c0caf5"
+cursor_fg = "#1d202f"
+foreground = "#c0caf5"
+selection_bg = "#364a82"
+selection_fg = "#c0caf5"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "tokyonight-storm"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_TOKYONIGHT_UNDERSCORE_DAY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#b4b5b9",
+    "#f52a65",
+    "#587539",
+    "#8c6c3e",
+    "#2e7de9",
+    "#9854f1",
+    "#007197",
+    "#6172b0",
+]
+background = "#e1e2e7"
+brights = [
+    "#a1a6c5",
+    "#f52a65",
+    "#587539",
+    "#8c6c3e",
+    "#2e7de9",
+    "#9854f1",
+    "#007197",
+    "#3760bf",
+]
+compose_cursor = "#b15c00"
+cursor_bg = "#3760bf"
+cursor_border = "#3760bf"
+cursor_fg = "#e1e2e7"
+foreground = "#3760bf"
+scrollbar_thumb = "#c4c8da"
+selection_bg = "#b7c1e3"
+selection_fg = "#3760bf"
+split = "#2e7de9"
+
+[colors.indexed]
+
+[colors.tab_bar]
+background = "#e1e2e7"
+inactive_tab_edge = "#d0d5e3"
+
+[colors.tab_bar.active_tab]
+bg_color = "#2e7de9"
+fg_color = "#d0d5e3"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#c4c8da"
+fg_color = "#8990b3"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#c4c8da"
+fg_color = "#2e7de9"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#e1e2e7"
+fg_color = "#2e7de9"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#e1e2e7"
+fg_color = "#2e7de9"
+intensity = "Bold"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = ["tokyonight-day"]
+author = "folke"
+name = "tokyonight_day"
+origin_url = "https://github.com/folke/tokyonight.nvim"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TOKYONIGHT_UNDERSCORE_MOON_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1d2b",
+    "#ff757f",
+    "#c3e88d",
+    "#ffc777",
+    "#82aaff",
+    "#c099ff",
+    "#86e1fc",
+    "#828bb8",
+]
+background = "#222436"
+brights = [
+    "#444a73",
+    "#ff757f",
+    "#c3e88d",
+    "#ffc777",
+    "#82aaff",
+    "#c099ff",
+    "#86e1fc",
+    "#c8d3f5",
+]
+compose_cursor = "#ff966c"
+cursor_bg = "#c8d3f5"
+cursor_border = "#c8d3f5"
+cursor_fg = "#222436"
+foreground = "#c8d3f5"
+scrollbar_thumb = "#2f334d"
+selection_bg = "#2d3f76"
+selection_fg = "#c8d3f5"
+split = "#82aaff"
+
+[colors.indexed]
+
+[colors.tab_bar]
+background = "#222436"
+inactive_tab_edge = "#1e2030"
+
+[colors.tab_bar.active_tab]
+bg_color = "#82aaff"
+fg_color = "#1e2030"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#2f334d"
+fg_color = "#545c7e"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#2f334d"
+fg_color = "#82aaff"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#222436"
+fg_color = "#82aaff"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#222436"
+fg_color = "#82aaff"
+intensity = "Bold"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = []
+author = "folke"
+name = "tokyonight_moon"
+origin_url = "https://github.com/folke/tokyonight.nvim"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_TOKYONIGHT_UNDERSCORE_NIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#15161e",
+    "#f7768e",
+    "#9ece6a",
+    "#e0af68",
+    "#7aa2f7",
+    "#bb9af7",
+    "#7dcfff",
+    "#a9b1d6",
+]
+background = "#1a1b26"
+brights = [
+    "#414868",
+    "#f7768e",
+    "#9ece6a",
+    "#e0af68",
+    "#7aa2f7",
+    "#bb9af7",
+    "#7dcfff",
+    "#c0caf5",
+]
+compose_cursor = "#ff9e64"
+cursor_bg = "#c0caf5"
+cursor_border = "#c0caf5"
+cursor_fg = "#1a1b26"
+foreground = "#c0caf5"
+scrollbar_thumb = "#292e42"
+selection_bg = "#283457"
+selection_fg = "#c0caf5"
+split = "#7aa2f7"
+
+[colors.indexed]
+
+[colors.tab_bar]
+background = "#1a1b26"
+inactive_tab_edge = "#16161e"
+
+[colors.tab_bar.active_tab]
+bg_color = "#7aa2f7"
+fg_color = "#16161e"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#292e42"
+fg_color = "#545c7e"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#292e42"
+fg_color = "#7aa2f7"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#1a1b26"
+fg_color = "#7aa2f7"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#1a1b26"
+fg_color = "#7aa2f7"
+intensity = "Bold"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = ["tokyonight"]
+author = "folke"
+name = "tokyonight_night"
+origin_url = "https://github.com/folke/tokyonight.nvim"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TOKYONIGHT_UNDERSCORE_STORM_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d202f",
+    "#f7768e",
+    "#9ece6a",
+    "#e0af68",
+    "#7aa2f7",
+    "#bb9af7",
+    "#7dcfff",
+    "#a9b1d6",
+]
+background = "#24283b"
+brights = [
+    "#414868",
+    "#f7768e",
+    "#9ece6a",
+    "#e0af68",
+    "#7aa2f7",
+    "#bb9af7",
+    "#7dcfff",
+    "#c0caf5",
+]
+compose_cursor = "#ff9e64"
+cursor_bg = "#c0caf5"
+cursor_border = "#c0caf5"
+cursor_fg = "#24283b"
+foreground = "#c0caf5"
+scrollbar_thumb = "#292e42"
+selection_bg = "#2e3c64"
+selection_fg = "#c0caf5"
+split = "#7aa2f7"
+
+[colors.indexed]
+
+[colors.tab_bar]
+background = "#24283b"
+inactive_tab_edge = "#1f2335"
+
+[colors.tab_bar.active_tab]
+bg_color = "#7aa2f7"
+fg_color = "#1f2335"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#292e42"
+fg_color = "#545c7e"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#292e42"
+fg_color = "#7aa2f7"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#24283b"
+fg_color = "#7aa2f7"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#24283b"
+fg_color = "#7aa2f7"
+intensity = "Bold"
+italic = false
+strikethrough = false
+underline = "None"
+
+[metadata]
+aliases = ["tokyonight-storm"]
+author = "folke"
+name = "tokyonight_storm"
+origin_url = "https://github.com/folke/tokyonight.nvim"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TOMORROW_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c82829",
+    "#718c00",
+    "#eab700",
+    "#4271ae",
+    "#8959a8",
+    "#3e999f",
+    "#ffffff",
+]
+background = "#ffffff"
+brights = [
+    "#000000",
+    "#c82829",
+    "#718c00",
+    "#eab700",
+    "#4271ae",
+    "#8959a8",
+    "#3e999f",
+    "#ffffff",
+]
+cursor_bg = "#4d4d4c"
+cursor_border = "#4d4d4c"
+cursor_fg = "#ffffff"
+foreground = "#4d4d4c"
+selection_bg = "#d6d6d6"
+selection_fg = "#4d4d4c"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Tomorrow"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TOMORROW_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d1f21",
+    "#cc6666",
+    "#b5bd68",
+    "#f0c674",
+    "#81a2be",
+    "#b294bb",
+    "#8abeb7",
+    "#c5c8c6",
+]
+background = "#1d1f21"
+brights = [
+    "#969896",
+    "#cc6666",
+    "#b5bd68",
+    "#f0c674",
+    "#81a2be",
+    "#b294bb",
+    "#8abeb7",
+    "#ffffff",
+]
+foreground = "#c5c8c6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Tomorrow (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -143045,6 +143635,367 @@ mod tests {
             assert_eq!(
                 effective.tab_bar_active_tab_colors.strikethrough,
                 Some(false)
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_tokyo_night_storm_gogh_to_tomorrow_dark_builtin_color_schemes_and_alias()
+     {
+        let cases = [
+            (
+                &["Tokyo Night Storm (Gogh)", "TokyoNightStorm (Gogh)"][..],
+                Color::Rgb(192, 202, 245),
+                Color::Rgb(36, 40, 59),
+                Color::Rgb(192, 202, 245),
+                Some(Color::Rgb(36, 40, 59)),
+                None,
+                None,
+                Color::Rgb(65, 72, 104),
+                Color::Rgb(247, 118, 142),
+                Color::Rgb(158, 206, 106),
+                Color::Rgb(224, 175, 104),
+                Color::Rgb(65, 72, 104),
+                Color::Rgb(192, 202, 245),
+                None,
+            ),
+            (
+                &["tokyonight"][..],
+                Color::Rgb(192, 202, 245),
+                Color::Rgb(26, 27, 38),
+                Color::Rgb(192, 202, 245),
+                Some(Color::Rgb(21, 22, 30)),
+                Some(Color::Rgb(51, 70, 124)),
+                Some(Some(Color::Rgb(192, 202, 245))),
+                Color::Rgb(21, 22, 30),
+                Color::Rgb(247, 118, 142),
+                Color::Rgb(158, 206, 106),
+                Color::Rgb(224, 175, 104),
+                Color::Rgb(65, 72, 104),
+                Color::Rgb(192, 202, 245),
+                None,
+            ),
+            (
+                &["tokyonight-day"][..],
+                Color::Rgb(55, 96, 191),
+                Color::Rgb(225, 226, 231),
+                Color::Rgb(55, 96, 191),
+                Some(Color::Rgb(225, 226, 231)),
+                Some(Color::Rgb(153, 167, 223)),
+                Some(Some(Color::Rgb(55, 96, 191))),
+                Color::Rgb(233, 233, 237),
+                Color::Rgb(245, 42, 101),
+                Color::Rgb(88, 117, 57),
+                Color::Rgb(140, 108, 62),
+                Color::Rgb(161, 166, 197),
+                Color::Rgb(55, 96, 191),
+                None,
+            ),
+            (
+                &["tokyonight-storm"][..],
+                Color::Rgb(192, 202, 245),
+                Color::Rgb(36, 40, 59),
+                Color::Rgb(192, 202, 245),
+                Some(Color::Rgb(29, 32, 47)),
+                Some(Color::Rgb(54, 74, 130)),
+                Some(Some(Color::Rgb(192, 202, 245))),
+                Color::Rgb(29, 32, 47),
+                Color::Rgb(247, 118, 142),
+                Color::Rgb(158, 206, 106),
+                Color::Rgb(224, 175, 104),
+                Color::Rgb(65, 72, 104),
+                Color::Rgb(192, 202, 245),
+                None,
+            ),
+            (
+                &["tokyonight_day"][..],
+                Color::Rgb(55, 96, 191),
+                Color::Rgb(225, 226, 231),
+                Color::Rgb(55, 96, 191),
+                Some(Color::Rgb(225, 226, 231)),
+                Some(Color::Rgb(183, 193, 227)),
+                Some(Some(Color::Rgb(55, 96, 191))),
+                Color::Rgb(180, 181, 185),
+                Color::Rgb(245, 42, 101),
+                Color::Rgb(88, 117, 57),
+                Color::Rgb(140, 108, 62),
+                Color::Rgb(161, 166, 197),
+                Color::Rgb(55, 96, 191),
+                None,
+            ),
+            (
+                &["tokyonight_moon"][..],
+                Color::Rgb(200, 211, 245),
+                Color::Rgb(34, 36, 54),
+                Color::Rgb(200, 211, 245),
+                Some(Color::Rgb(34, 36, 54)),
+                Some(Color::Rgb(45, 63, 118)),
+                Some(Some(Color::Rgb(200, 211, 245))),
+                Color::Rgb(27, 29, 43),
+                Color::Rgb(255, 117, 127),
+                Color::Rgb(195, 232, 141),
+                Color::Rgb(255, 199, 119),
+                Color::Rgb(68, 74, 115),
+                Color::Rgb(200, 211, 245),
+                None,
+            ),
+            (
+                &["tokyonight_night"][..],
+                Color::Rgb(192, 202, 245),
+                Color::Rgb(26, 27, 38),
+                Color::Rgb(192, 202, 245),
+                Some(Color::Rgb(26, 27, 38)),
+                Some(Color::Rgb(40, 52, 87)),
+                Some(Some(Color::Rgb(192, 202, 245))),
+                Color::Rgb(21, 22, 30),
+                Color::Rgb(247, 118, 142),
+                Color::Rgb(158, 206, 106),
+                Color::Rgb(224, 175, 104),
+                Color::Rgb(65, 72, 104),
+                Color::Rgb(192, 202, 245),
+                None,
+            ),
+            (
+                &["tokyonight_storm"][..],
+                Color::Rgb(192, 202, 245),
+                Color::Rgb(36, 40, 59),
+                Color::Rgb(192, 202, 245),
+                Some(Color::Rgb(36, 40, 59)),
+                Some(Color::Rgb(46, 60, 100)),
+                Some(Some(Color::Rgb(192, 202, 245))),
+                Color::Rgb(29, 32, 47),
+                Color::Rgb(247, 118, 142),
+                Color::Rgb(158, 206, 106),
+                Color::Rgb(224, 175, 104),
+                Color::Rgb(65, 72, 104),
+                Color::Rgb(192, 202, 245),
+                None,
+            ),
+            (
+                &["Tomorrow"][..],
+                Color::Rgb(77, 77, 76),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(77, 77, 76),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(214, 214, 214)),
+                Some(Some(Color::Rgb(77, 77, 76))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(200, 40, 41),
+                Color::Rgb(113, 140, 0),
+                Color::Rgb(234, 183, 0),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                &["Tomorrow (dark) (terminal.sexy)"][..],
+                Color::Rgb(197, 200, 198),
+                Color::Rgb(29, 31, 33),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(29, 31, 33),
+                Color::Rgb(204, 102, 102),
+                Color::Rgb(181, 189, 104),
+                Color::Rgb(240, 198, 116),
+                Color::Rgb(150, 152, 150),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_schemes,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            for color_scheme in color_schemes {
+                let mut app = NativeWindowApp::new(None);
+                let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                    r##"
+                    local config = {{}}
+
+                    config.color_scheme = '{}'
+
+                    return config
+                    "##,
+                    color_scheme
+                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "expected WezTerm Tokyo-Night-Storm-Gogh-to-Tomorrow-dark built-in color_scheme config for {color_scheme}"
+                    )
+                });
+                app.set_config_overrides(overrides);
+
+                let effective = app.native_effective_config();
+                assert_eq!(effective.color_scheme.as_deref(), Some(*color_scheme));
+                assert_eq!(effective.foreground_color, foreground);
+                assert_eq!(effective.background_color, background);
+                assert_eq!(effective.cursor_bg_color, cursor_bg);
+                assert_eq!(effective.cursor_fg_color, cursor_fg);
+                assert_eq!(effective.selection_bg_color, selection_bg);
+                assert_eq!(effective.selection_fg_color, selection_fg);
+                let ansi = effective.ansi_palette.expect("expected ANSI palette");
+                assert_eq!(ansi[0], ansi_0);
+                assert_eq!(ansi[1], ansi_1);
+                assert_eq!(ansi[2], ansi_2);
+                assert_eq!(ansi[3], ansi_3);
+                assert_eq!(ansi[8], ansi_8);
+                assert_eq!(ansi[15], ansi_15);
+                assert_eq!(
+                    effective.indexed_palette.and_then(|indexed| indexed[16]),
+                    indexed_16
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_tokyonight_underscore_builtin_color_scheme_extended_colors() {
+        let cases = [
+            (
+                "tokyonight_day",
+                Color::Rgb(177, 92, 0),
+                Color::Rgb(46, 125, 233),
+                Color::Rgb(196, 200, 218),
+                Color::Rgb(225, 226, 231),
+                Color::Rgb(208, 213, 227),
+                Color::Rgb(46, 125, 233),
+                Color::Rgb(208, 213, 227),
+                Color::Rgb(196, 200, 218),
+                Color::Rgb(137, 144, 179),
+                Color::Rgb(225, 226, 231),
+                Color::Rgb(46, 125, 233),
+            ),
+            (
+                "tokyonight_moon",
+                Color::Rgb(255, 150, 108),
+                Color::Rgb(130, 170, 255),
+                Color::Rgb(47, 51, 77),
+                Color::Rgb(34, 36, 54),
+                Color::Rgb(30, 32, 48),
+                Color::Rgb(130, 170, 255),
+                Color::Rgb(30, 32, 48),
+                Color::Rgb(47, 51, 77),
+                Color::Rgb(84, 92, 126),
+                Color::Rgb(34, 36, 54),
+                Color::Rgb(130, 170, 255),
+            ),
+            (
+                "tokyonight_night",
+                Color::Rgb(255, 158, 100),
+                Color::Rgb(122, 162, 247),
+                Color::Rgb(41, 46, 66),
+                Color::Rgb(26, 27, 38),
+                Color::Rgb(22, 22, 30),
+                Color::Rgb(122, 162, 247),
+                Color::Rgb(22, 22, 30),
+                Color::Rgb(41, 46, 66),
+                Color::Rgb(84, 92, 126),
+                Color::Rgb(26, 27, 38),
+                Color::Rgb(122, 162, 247),
+            ),
+            (
+                "tokyonight_storm",
+                Color::Rgb(255, 158, 100),
+                Color::Rgb(122, 162, 247),
+                Color::Rgb(41, 46, 66),
+                Color::Rgb(36, 40, 59),
+                Color::Rgb(31, 35, 53),
+                Color::Rgb(122, 162, 247),
+                Color::Rgb(31, 35, 53),
+                Color::Rgb(41, 46, 66),
+                Color::Rgb(84, 92, 126),
+                Color::Rgb(36, 40, 59),
+                Color::Rgb(122, 162, 247),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            compose_cursor,
+            split,
+            scrollbar_thumb,
+            tab_bar_background,
+            inactive_tab_edge,
+            active_tab_bg,
+            active_tab_fg,
+            inactive_tab_bg,
+            inactive_tab_fg,
+            new_tab_hover_bg,
+            new_tab_hover_fg,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!("expected WezTerm underscore Tokyo Night extended color_scheme config for {color_scheme}")
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.compose_cursor_color, Some(compose_cursor));
+            assert_eq!(effective.split_color, Some(split));
+            assert_eq!(effective.scrollbar_thumb_color, Some(scrollbar_thumb));
+            assert_eq!(effective.tab_bar_background_color, Some(tab_bar_background));
+            assert_eq!(
+                effective.tab_bar_inactive_tab_edge_color,
+                Some(inactive_tab_edge)
+            );
+            assert_eq!(
+                effective.tab_bar_active_tab_colors.bg_color,
+                Some(active_tab_bg)
+            );
+            assert_eq!(
+                effective.tab_bar_active_tab_colors.fg_color,
+                Some(active_tab_fg)
+            );
+            assert_eq!(
+                effective.tab_bar_inactive_tab_colors.bg_color,
+                Some(inactive_tab_bg)
+            );
+            assert_eq!(
+                effective.tab_bar_inactive_tab_colors.fg_color,
+                Some(inactive_tab_fg)
+            );
+            assert_eq!(
+                effective.tab_bar_new_tab_hover_colors.bg_color,
+                Some(new_tab_hover_bg)
+            );
+            assert_eq!(
+                effective.tab_bar_new_tab_hover_colors.fg_color,
+                Some(new_tab_hover_fg)
+            );
+            assert_eq!(
+                effective.tab_bar_new_tab_hover_colors.intensity,
+                Some(NativeFormatIntensity::Bold)
+            );
+            assert_eq!(
+                effective.tab_bar_active_tab_colors.intensity,
+                Some(NativeFormatIntensity::Normal)
             );
         }
     }
