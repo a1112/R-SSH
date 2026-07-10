@@ -20400,6 +20400,22 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Tomorrow Night Burns" => Some(BUILTIN_TOMORROW_NIGHT_BURNS_COLOR_SCHEME_TOML),
         "Tomorrow Night Eighties" => Some(BUILTIN_TOMORROW_NIGHT_EIGHTIES_COLOR_SCHEME_TOML),
+        "Tomorrow Night Eighties (Gogh)" | "TomorrowNightEighties (Gogh)" => {
+            Some(BUILTIN_TOMORROW_NIGHT_EIGHTIES_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Toy Chest (Gogh)" => Some(BUILTIN_TOY_CHEST_GOGH_COLOR_SCHEME_TOML),
+        "ToyChest" => Some(BUILTIN_TOY_CHEST_COLOR_SCHEME_TOML),
+        "Treehouse" => Some(BUILTIN_TREEHOUSE_COLOR_SCHEME_TOML),
+        "Treehouse (Gogh)" => Some(BUILTIN_TREEHOUSE_GOGH_COLOR_SCHEME_TOML),
+        "Trim Yer Beard (terminal.sexy)" => {
+            Some(BUILTIN_TRIM_YER_BEARD_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Twilight" => Some(BUILTIN_TWILIGHT_COLOR_SCHEME_TOML),
+        "Twilight (base16)" => Some(BUILTIN_TWILIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Twilight (dark) (terminal.sexy)" => {
+            Some(BUILTIN_TWILIGHT_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Twilight (Gogh)" => Some(BUILTIN_TWILIGHT_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -57434,6 +57450,387 @@ aliases = []
 name = "Tomorrow Night Eighties"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_TOMORROW_NIGHT_EIGHTIES_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#f27779",
+    "#99cc99",
+    "#ffcc66",
+    "#6699cc",
+    "#cc99cc",
+    "#66cccc",
+    "#fffefe",
+]
+background = "#2c2c2c"
+brights = [
+    "#000000",
+    "#f17779",
+    "#99cc99",
+    "#ffcc66",
+    "#6699cc",
+    "#cc99cc",
+    "#66cccc",
+    "#fffefe",
+]
+cursor_bg = "#cccccc"
+cursor_border = "#cccccc"
+cursor_fg = "#2c2c2c"
+foreground = "#cccccc"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["TomorrowNightEighties (Gogh)"]
+name = "Tomorrow Night Eighties (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TOY_CHEST_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2c3f58",
+    "#be2d26",
+    "#1a9172",
+    "#db8e27",
+    "#325d96",
+    "#8a5edc",
+    "#35a08f",
+    "#23d183",
+]
+background = "#24364b"
+brights = [
+    "#336889",
+    "#dd5944",
+    "#31d07b",
+    "#e7d84b",
+    "#34a6da",
+    "#ae6bdc",
+    "#42c3ae",
+    "#d5d5d5",
+]
+cursor_bg = "#31d07b"
+cursor_border = "#31d07b"
+cursor_fg = "#24364b"
+foreground = "#31d07b"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Toy Chest (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_TOY_CHEST_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2c3f58",
+    "#be2d26",
+    "#1a9172",
+    "#db8e27",
+    "#325d96",
+    "#8a5edc",
+    "#35a08f",
+    "#23d183",
+]
+background = "#24364b"
+brights = [
+    "#336889",
+    "#dd5944",
+    "#31d07b",
+    "#e7d84b",
+    "#34a6da",
+    "#ae6bdc",
+    "#42c3ae",
+    "#d5d5d5",
+]
+cursor_bg = "#d5d5d5"
+cursor_border = "#d5d5d5"
+cursor_fg = "#141c25"
+foreground = "#31d07b"
+selection_bg = "#5f217a"
+selection_fg = "#d5d5d5"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Toy Chest (Gogh)"]
+name = "ToyChest"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TREEHOUSE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#321300",
+    "#b2270e",
+    "#44a900",
+    "#aa820c",
+    "#58859a",
+    "#97363d",
+    "#b25a1e",
+    "#786b53",
+]
+background = "#191919"
+brights = [
+    "#433626",
+    "#ed5d20",
+    "#55f238",
+    "#f2b732",
+    "#85cfed",
+    "#e14c5a",
+    "#f07d14",
+    "#ffc800",
+]
+cursor_bg = "#fac814"
+cursor_border = "#fac814"
+cursor_fg = "#191919"
+foreground = "#786b53"
+selection_bg = "#786b53"
+selection_fg = "#fac800"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Treehouse (Gogh)"]
+name = "Treehouse"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TREEHOUSE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#321300",
+    "#b2270e",
+    "#44a900",
+    "#aa820c",
+    "#58859a",
+    "#97363d",
+    "#b25a1e",
+    "#786b53",
+]
+background = "#191919"
+brights = [
+    "#433626",
+    "#ed5d20",
+    "#55f238",
+    "#f2b732",
+    "#85cfed",
+    "#e14c5a",
+    "#f07d14",
+    "#ffc800",
+]
+cursor_bg = "#786b53"
+cursor_border = "#786b53"
+cursor_fg = "#191919"
+foreground = "#786b53"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Treehouse (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_TRIM_YER_BEARD_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0f0e0d",
+    "#845336",
+    "#57553c",
+    "#a17e3e",
+    "#43454f",
+    "#604848",
+    "#5c6652",
+    "#a18b62",
+]
+background = "#191716"
+brights = [
+    "#383332",
+    "#8c4f4a",
+    "#898471",
+    "#c8b491",
+    "#65788f",
+    "#755e4a",
+    "#718062",
+    "#bc9d66",
+]
+foreground = "#daba8b"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "franksn"
+name = "Trim Yer Beard (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TWILIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#141414",
+    "#c06d44",
+    "#afb97a",
+    "#c2a86c",
+    "#44474a",
+    "#b4be7c",
+    "#778385",
+    "#ffffd4",
+]
+background = "#141414"
+brights = [
+    "#262626",
+    "#de7c4c",
+    "#ccd88c",
+    "#e2c47e",
+    "#5a5e62",
+    "#d0dc8e",
+    "#8a989b",
+    "#ffffd4",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#ffffd4"
+selection_bg = "#313131"
+selection_fg = "#ffffd4"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Twilight (Gogh)"]
+name = "Twilight"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TWILIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e1e1e",
+    "#cf6a4c",
+    "#8f9d6a",
+    "#f9ee98",
+    "#7587a6",
+    "#9b859d",
+    "#afc4db",
+    "#a7a7a7",
+]
+background = "#1e1e1e"
+brights = [
+    "#5f5a60",
+    "#cf6a4c",
+    "#8f9d6a",
+    "#f9ee98",
+    "#7587a6",
+    "#9b859d",
+    "#afc4db",
+    "#ffffff",
+]
+cursor_bg = "#a7a7a7"
+cursor_border = "#a7a7a7"
+cursor_fg = "#1e1e1e"
+foreground = "#a7a7a7"
+selection_bg = "#a7a7a7"
+selection_fg = "#1e1e1e"
+
+[colors.indexed]
+16 = "#cda869"
+17 = "#9b703f"
+18 = "#323537"
+19 = "#464b50"
+20 = "#838184"
+21 = "#c3c3c3"
+
+[metadata]
+aliases = ["Twilight (dark) (terminal.sexy)"]
+author = "David Hart (https://github.com/hartbit)"
+name = "Twilight (base16)"
+origin_url = "https://github.com/hartbit/base16-twilight-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TWILIGHT_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e1e1e",
+    "#cf6a4c",
+    "#8f9d6a",
+    "#f9ee98",
+    "#7587a6",
+    "#9b859d",
+    "#afc4db",
+    "#a7a7a7",
+]
+background = "#1e1e1e"
+brights = [
+    "#5f5a60",
+    "#cf6a4c",
+    "#8f9d6a",
+    "#f9ee98",
+    "#7587a6",
+    "#9b859d",
+    "#afc4db",
+    "#ffffff",
+]
+foreground = "#a7a7a7"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Twilight (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_TWILIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#141414",
+    "#c06d44",
+    "#afb97a",
+    "#c2a86c",
+    "#44474a",
+    "#b4be7c",
+    "#778385",
+    "#ffffd4",
+]
+background = "#141414"
+brights = [
+    "#262626",
+    "#de7c4c",
+    "#ccd88c",
+    "#e2c47e",
+    "#5a5e62",
+    "#d0dc8e",
+    "#8a989b",
+    "#ffffd4",
+]
+cursor_bg = "#ffffd4"
+cursor_border = "#ffffd4"
+cursor_fg = "#141414"
+foreground = "#ffffd4"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Twilight (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -144594,6 +144991,234 @@ mod tests {
                 .unwrap_or_else(|| {
                     panic!(
                         "expected WezTerm Tomorrow-Gogh-to-Tomorrow-Night-Eighties built-in color_scheme config for {color_scheme}"
+                    )
+                });
+                app.set_config_overrides(overrides);
+
+                let effective = app.native_effective_config();
+                assert_eq!(effective.color_scheme.as_deref(), Some(*color_scheme));
+                assert_eq!(effective.foreground_color, foreground);
+                assert_eq!(effective.background_color, background);
+                assert_eq!(effective.cursor_bg_color, cursor_bg);
+                assert_eq!(effective.cursor_fg_color, cursor_fg);
+                assert_eq!(effective.selection_bg_color, selection_bg);
+                assert_eq!(effective.selection_fg_color, selection_fg);
+                let ansi = effective.ansi_palette.expect("expected ANSI palette");
+                assert_eq!(ansi[0], ansi_0);
+                assert_eq!(ansi[1], ansi_1);
+                assert_eq!(ansi[2], ansi_2);
+                assert_eq!(ansi[3], ansi_3);
+                assert_eq!(ansi[8], ansi_8);
+                assert_eq!(ansi[15], ansi_15);
+                assert_eq!(
+                    effective.indexed_palette.and_then(|indexed| indexed[16]),
+                    indexed_16
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_tomorrow_night_eighties_gogh_to_twilight_gogh_builtin_color_schemes_and_alias()
+     {
+        let cases = [
+            (
+                &[
+                    "Tomorrow Night Eighties (Gogh)",
+                    "TomorrowNightEighties (Gogh)",
+                ][..],
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(44, 44, 44),
+                Color::Rgb(204, 204, 204),
+                Some(Color::Rgb(44, 44, 44)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(242, 119, 121),
+                Color::Rgb(153, 204, 153),
+                Color::Rgb(255, 204, 102),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 254, 254),
+                None,
+            ),
+            (
+                &["Toy Chest (Gogh)"][..],
+                Color::Rgb(49, 208, 123),
+                Color::Rgb(36, 54, 75),
+                Color::Rgb(49, 208, 123),
+                Some(Color::Rgb(36, 54, 75)),
+                None,
+                None,
+                Color::Rgb(44, 63, 88),
+                Color::Rgb(190, 45, 38),
+                Color::Rgb(26, 145, 114),
+                Color::Rgb(219, 142, 39),
+                Color::Rgb(51, 104, 137),
+                Color::Rgb(213, 213, 213),
+                None,
+            ),
+            (
+                &["ToyChest"][..],
+                Color::Rgb(49, 208, 123),
+                Color::Rgb(36, 54, 75),
+                Color::Rgb(213, 213, 213),
+                Some(Color::Rgb(20, 28, 37)),
+                Some(Color::Rgb(95, 33, 122)),
+                Some(Some(Color::Rgb(213, 213, 213))),
+                Color::Rgb(44, 63, 88),
+                Color::Rgb(190, 45, 38),
+                Color::Rgb(26, 145, 114),
+                Color::Rgb(219, 142, 39),
+                Color::Rgb(51, 104, 137),
+                Color::Rgb(213, 213, 213),
+                None,
+            ),
+            (
+                &["Treehouse"][..],
+                Color::Rgb(120, 107, 83),
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(250, 200, 20),
+                Some(Color::Rgb(25, 25, 25)),
+                Some(Color::Rgb(120, 107, 83)),
+                Some(Some(Color::Rgb(250, 200, 0))),
+                Color::Rgb(50, 19, 0),
+                Color::Rgb(178, 39, 14),
+                Color::Rgb(68, 169, 0),
+                Color::Rgb(170, 130, 12),
+                Color::Rgb(67, 54, 38),
+                Color::Rgb(255, 200, 0),
+                None,
+            ),
+            (
+                &["Treehouse (Gogh)"][..],
+                Color::Rgb(120, 107, 83),
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(120, 107, 83),
+                Some(Color::Rgb(25, 25, 25)),
+                None,
+                None,
+                Color::Rgb(50, 19, 0),
+                Color::Rgb(178, 39, 14),
+                Color::Rgb(68, 169, 0),
+                Color::Rgb(170, 130, 12),
+                Color::Rgb(67, 54, 38),
+                Color::Rgb(255, 200, 0),
+                None,
+            ),
+            (
+                &["Trim Yer Beard (terminal.sexy)"][..],
+                Color::Rgb(218, 186, 139),
+                Color::Rgb(25, 23, 22),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(15, 14, 13),
+                Color::Rgb(132, 83, 54),
+                Color::Rgb(87, 85, 60),
+                Color::Rgb(161, 126, 62),
+                Color::Rgb(56, 51, 50),
+                Color::Rgb(188, 157, 102),
+                None,
+            ),
+            (
+                &["Twilight"][..],
+                Color::Rgb(255, 255, 212),
+                Color::Rgb(20, 20, 20),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(49, 49, 49)),
+                Some(Some(Color::Rgb(255, 255, 212))),
+                Color::Rgb(20, 20, 20),
+                Color::Rgb(192, 109, 68),
+                Color::Rgb(175, 185, 122),
+                Color::Rgb(194, 168, 108),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(255, 255, 212),
+                None,
+            ),
+            (
+                &["Twilight (base16)"][..],
+                Color::Rgb(167, 167, 167),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(167, 167, 167),
+                Some(Color::Rgb(30, 30, 30)),
+                Some(Color::Rgb(167, 167, 167)),
+                Some(Some(Color::Rgb(30, 30, 30))),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(207, 106, 76),
+                Color::Rgb(143, 157, 106),
+                Color::Rgb(249, 238, 152),
+                Color::Rgb(95, 90, 96),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(205, 168, 105)),
+            ),
+            (
+                &["Twilight (dark) (terminal.sexy)"][..],
+                Color::Rgb(167, 167, 167),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(207, 106, 76),
+                Color::Rgb(143, 157, 106),
+                Color::Rgb(249, 238, 152),
+                Color::Rgb(95, 90, 96),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                &["Twilight (Gogh)"][..],
+                Color::Rgb(255, 255, 212),
+                Color::Rgb(20, 20, 20),
+                Color::Rgb(255, 255, 212),
+                Some(Color::Rgb(20, 20, 20)),
+                None,
+                None,
+                Color::Rgb(20, 20, 20),
+                Color::Rgb(192, 109, 68),
+                Color::Rgb(175, 185, 122),
+                Color::Rgb(194, 168, 108),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(255, 255, 212),
+                None,
+            ),
+        ];
+
+        for (
+            color_schemes,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            for color_scheme in color_schemes {
+                let mut app = NativeWindowApp::new(None);
+                let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                    r##"
+                    local config = {{}}
+
+                    config.color_scheme = '{}'
+
+                    return config
+                    "##,
+                    color_scheme
+                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "expected WezTerm Tomorrow-Night-Eighties-Gogh-to-Twilight-Gogh built-in color_scheme config for {color_scheme}"
                     )
                 });
                 app.set_config_overrides(overrides);
