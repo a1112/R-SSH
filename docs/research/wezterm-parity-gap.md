@@ -3841,7 +3841,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Spacedust (Gogh)`, `SpaceGray`, `Spacegray (Gogh)`,
   `SpaceGray Eighties`, `Spacegray Eighties (Gogh)`,
   `SpaceGray Eighties Dull`, `Spacegray Eighties Dull (Gogh)`,
-  `Spacemacs (base16)`, `Builtin Dark`,
+  `Spacemacs (base16)`, `Sparky (Gogh)`, `Spiderman`,
+  `Splurge (terminal.sexy)`, `Spring`, `Spring (Gogh)`, `Square`,
+  `Square (Gogh)`, `Srcery (Gogh)`, `Sublette`, `Subliminal`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML

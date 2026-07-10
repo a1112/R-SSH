@@ -20290,6 +20290,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
             Some(BUILTIN_SPACEGRAY_EIGHTIES_DULL_GOGH_COLOR_SCHEME_TOML)
         }
         "Spacemacs (base16)" => Some(BUILTIN_SPACEMACS_BASE16_COLOR_SCHEME_TOML),
+        "Sparky (Gogh)" => Some(BUILTIN_SPARKY_GOGH_COLOR_SCHEME_TOML),
+        "Spiderman" => Some(BUILTIN_SPIDERMAN_COLOR_SCHEME_TOML),
+        "Splurge (terminal.sexy)" => Some(BUILTIN_SPLURGE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Spring" => Some(BUILTIN_SPRING_COLOR_SCHEME_TOML),
+        "Spring (Gogh)" => Some(BUILTIN_SPRING_GOGH_COLOR_SCHEME_TOML),
+        "Square" => Some(BUILTIN_SQUARE_COLOR_SCHEME_TOML),
+        "Square (Gogh)" => Some(BUILTIN_SQUARE_GOGH_COLOR_SCHEME_TOML),
+        "Srcery (Gogh)" => Some(BUILTIN_SRCERY_GOGH_COLOR_SCHEME_TOML),
+        "Sublette" => Some(BUILTIN_SUBLETTE_COLOR_SCHEME_TOML),
+        "Subliminal" => Some(BUILTIN_SUBLIMINAL_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -53872,6 +53882,384 @@ author = "Nasser Alshammari (https://github.com/nashamri/spacemacs-theme)"
 name = "Spacemacs (base16)"
 origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SPARKY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#212322",
+    "#ff585d",
+    "#78d64b",
+    "#fbdd40",
+    "#4698cb",
+    "#d59ed7",
+    "#2dccd3",
+    "#dee6de",
+]
+background = "#072b31"
+brights = [
+    "#4b4f54",
+    "#ff7276",
+    "#8edd65",
+    "#f6eb61",
+    "#69b3e7",
+    "#f99fc9",
+    "#00c1d5",
+    "#d9e1e2",
+]
+cursor_bg = "#f4f5f0"
+cursor_border = "#f4f5f0"
+cursor_fg = "#072b31"
+foreground = "#f4f5f0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Sparky (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_SPIDERMAN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1d1e",
+    "#e60813",
+    "#e22928",
+    "#e24756",
+    "#2c3fff",
+    "#2435db",
+    "#3256ff",
+    "#fffef6",
+]
+background = "#1b1d1e"
+brights = [
+    "#505354",
+    "#ff0325",
+    "#ff3338",
+    "#fe3a35",
+    "#1d50ff",
+    "#747cff",
+    "#6184ff",
+    "#fffff9",
+]
+cursor_bg = "#2c3fff"
+cursor_border = "#2c3fff"
+cursor_fg = "#000000"
+foreground = "#e3e3e3"
+selection_bg = "#070e50"
+selection_fg = "#f0272d"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Spiderman"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SPLURGE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4a4b4a",
+    "#d7699a",
+    "#80d468",
+    "#d7a169",
+    "#6985d7",
+    "#c86ad4",
+    "#6fccd1",
+    "#dbdcdc",
+]
+background = "#000000"
+brights = [
+    "#696969",
+    "#f5a2b5",
+    "#a3f2a0",
+    "#f5cda2",
+    "#a2c1f5",
+    "#d2a2f5",
+    "#a0e9f2",
+    "#fdfdfd",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Splurge (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SPRING_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff4d83",
+    "#1f8c3b",
+    "#1fc95b",
+    "#1dd3ee",
+    "#8959a8",
+    "#3e999f",
+    "#ffffff",
+]
+background = "#ffffff"
+brights = [
+    "#000000",
+    "#ff0021",
+    "#1fc231",
+    "#d5b807",
+    "#15a9fd",
+    "#8959a8",
+    "#3e999f",
+    "#ffffff",
+]
+cursor_bg = "#4d4d4c"
+cursor_border = "#4d4d4c"
+cursor_fg = "#ffffff"
+foreground = "#4d4d4c"
+selection_bg = "#d6d6d6"
+selection_fg = "#4d4d4c"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Spring"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SPRING_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff4d83",
+    "#1f8c3b",
+    "#1fc95b",
+    "#1dd3ee",
+    "#8959a8",
+    "#3e999f",
+    "#ffffff",
+]
+background = "#0a1e24"
+brights = [
+    "#000000",
+    "#ff0021",
+    "#1fc231",
+    "#d5b807",
+    "#15a9fd",
+    "#8959a8",
+    "#3e999f",
+    "#ffffff",
+]
+cursor_bg = "#ecf0c1"
+cursor_border = "#ecf0c1"
+cursor_fg = "#0a1e24"
+foreground = "#ecf0c1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Spring (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SQUARE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#050505",
+    "#e9897c",
+    "#b6377d",
+    "#ecebbe",
+    "#a9cdeb",
+    "#75507b",
+    "#c9caec",
+    "#f2f2f2",
+]
+background = "#1a1a1a"
+brights = [
+    "#141414",
+    "#f99286",
+    "#c3f786",
+    "#fcfbcc",
+    "#b6defb",
+    "#ad7fa8",
+    "#d7d9fc",
+    "#e2e2e2",
+]
+cursor_bg = "#fcfbcc"
+cursor_border = "#fcfbcc"
+cursor_fg = "#000000"
+foreground = "#acacab"
+selection_bg = "#4d4d4d"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Square"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SQUARE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#050505",
+    "#e9897c",
+    "#b6377d",
+    "#ecebbe",
+    "#a9cdeb",
+    "#75507b",
+    "#c9caec",
+    "#f2f2f2",
+]
+background = "#0a1e24"
+brights = [
+    "#141414",
+    "#f99286",
+    "#c3f786",
+    "#fcfbcc",
+    "#b6defb",
+    "#ad7fa8",
+    "#d7d9fc",
+    "#e2e2e2",
+]
+cursor_bg = "#a1a1a1"
+cursor_border = "#a1a1a1"
+cursor_fg = "#0a1e24"
+foreground = "#a1a1a1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Square (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SRCERY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1b19",
+    "#ef2f27",
+    "#519f50",
+    "#fbb829",
+    "#2c78bf",
+    "#e02c6d",
+    "#0aaeb3",
+    "#baa67f",
+]
+background = "#1c1b19"
+brights = [
+    "#918175",
+    "#f75341",
+    "#98bc37",
+    "#fed06e",
+    "#68a8e4",
+    "#ff5c8f",
+    "#2be4d0",
+    "#fce8c3",
+]
+cursor_bg = "#fbb829"
+cursor_border = "#fbb829"
+cursor_fg = "#1c1b19"
+foreground = "#fce8c3"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Srcery (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SUBLETTE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#253045",
+    "#ee5577",
+    "#55ee77",
+    "#ffdd88",
+    "#5588ff",
+    "#ff77cc",
+    "#44eeee",
+    "#f5f5da",
+]
+background = "#202535"
+brights = [
+    "#405570",
+    "#ee6655",
+    "#99ee77",
+    "#ffff77",
+    "#77bbff",
+    "#aa88ff",
+    "#55ffbb",
+    "#ffffee",
+]
+cursor_bg = "#ccced0"
+cursor_border = "#ccced0"
+cursor_fg = "#202535"
+foreground = "#ccced0"
+selection_bg = "#ccced0"
+selection_fg = "#202535"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Sublette"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SUBLIMINAL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#7f7f7f",
+    "#e15a60",
+    "#a9cfa4",
+    "#ffe2a9",
+    "#6699cc",
+    "#f1a5ab",
+    "#5fb3b3",
+    "#d4d4d4",
+]
+background = "#282c35"
+brights = [
+    "#7f7f7f",
+    "#e15a60",
+    "#a9cfa4",
+    "#ffe2a9",
+    "#6699cc",
+    "#f1a5ab",
+    "#5fb3b3",
+    "#d4d4d4",
+]
+cursor_bg = "#c7c7c7"
+cursor_border = "#c7c7c7"
+cursor_fg = "#ffffff"
+foreground = "#d4d4d4"
+selection_bg = "#484e5b"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Subliminal"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -138861,6 +139249,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm SOS-to-Spacemacs built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_sparky_to_subliminal_builtin_color_schemes() {
+        let cases = [
+            (
+                "Sparky (Gogh)",
+                Color::Rgb(244, 245, 240),
+                Color::Rgb(7, 43, 49),
+                Color::Rgb(244, 245, 240),
+                Some(Color::Rgb(7, 43, 49)),
+                None,
+                None,
+                Color::Rgb(33, 35, 34),
+                Color::Rgb(255, 88, 93),
+                Color::Rgb(120, 214, 75),
+                Color::Rgb(251, 221, 64),
+                Color::Rgb(75, 79, 84),
+                Color::Rgb(217, 225, 226),
+                None,
+            ),
+            (
+                "Spiderman",
+                Color::Rgb(227, 227, 227),
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(44, 63, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(7, 14, 80)),
+                Some(Some(Color::Rgb(240, 39, 45))),
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(230, 8, 19),
+                Color::Rgb(226, 41, 40),
+                Color::Rgb(226, 71, 86),
+                Color::Rgb(80, 83, 84),
+                Color::Rgb(255, 255, 249),
+                None,
+            ),
+            (
+                "Splurge (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(74, 75, 74),
+                Color::Rgb(215, 105, 154),
+                Color::Rgb(128, 212, 104),
+                Color::Rgb(215, 161, 105),
+                Color::Rgb(105, 105, 105),
+                Color::Rgb(253, 253, 253),
+                None,
+            ),
+            (
+                "Spring",
+                Color::Rgb(77, 77, 76),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(77, 77, 76),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(214, 214, 214)),
+                Some(Some(Color::Rgb(77, 77, 76))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 77, 131),
+                Color::Rgb(31, 140, 59),
+                Color::Rgb(31, 201, 91),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Spring (Gogh)",
+                Color::Rgb(236, 240, 193),
+                Color::Rgb(10, 30, 36),
+                Color::Rgb(236, 240, 193),
+                Some(Color::Rgb(10, 30, 36)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 77, 131),
+                Color::Rgb(31, 140, 59),
+                Color::Rgb(31, 201, 91),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Square",
+                Color::Rgb(172, 172, 171),
+                Color::Rgb(26, 26, 26),
+                Color::Rgb(252, 251, 204),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(77, 77, 77)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(5, 5, 5),
+                Color::Rgb(233, 137, 124),
+                Color::Rgb(182, 55, 125),
+                Color::Rgb(236, 235, 190),
+                Color::Rgb(20, 20, 20),
+                Color::Rgb(226, 226, 226),
+                None,
+            ),
+            (
+                "Square (Gogh)",
+                Color::Rgb(161, 161, 161),
+                Color::Rgb(10, 30, 36),
+                Color::Rgb(161, 161, 161),
+                Some(Color::Rgb(10, 30, 36)),
+                None,
+                None,
+                Color::Rgb(5, 5, 5),
+                Color::Rgb(233, 137, 124),
+                Color::Rgb(182, 55, 125),
+                Color::Rgb(236, 235, 190),
+                Color::Rgb(20, 20, 20),
+                Color::Rgb(226, 226, 226),
+                None,
+            ),
+            (
+                "Srcery (Gogh)",
+                Color::Rgb(252, 232, 195),
+                Color::Rgb(28, 27, 25),
+                Color::Rgb(251, 184, 41),
+                Some(Color::Rgb(28, 27, 25)),
+                None,
+                None,
+                Color::Rgb(28, 27, 25),
+                Color::Rgb(239, 47, 39),
+                Color::Rgb(81, 159, 80),
+                Color::Rgb(251, 184, 41),
+                Color::Rgb(145, 129, 117),
+                Color::Rgb(252, 232, 195),
+                None,
+            ),
+            (
+                "Sublette",
+                Color::Rgb(204, 206, 208),
+                Color::Rgb(32, 37, 53),
+                Color::Rgb(204, 206, 208),
+                Some(Color::Rgb(32, 37, 53)),
+                Some(Color::Rgb(204, 206, 208)),
+                Some(Some(Color::Rgb(32, 37, 53))),
+                Color::Rgb(37, 48, 69),
+                Color::Rgb(238, 85, 119),
+                Color::Rgb(85, 238, 119),
+                Color::Rgb(255, 221, 136),
+                Color::Rgb(64, 85, 112),
+                Color::Rgb(255, 255, 238),
+                None,
+            ),
+            (
+                "Subliminal",
+                Color::Rgb(212, 212, 212),
+                Color::Rgb(40, 44, 53),
+                Color::Rgb(199, 199, 199),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(72, 78, 91)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(127, 127, 127),
+                Color::Rgb(225, 90, 96),
+                Color::Rgb(169, 207, 164),
+                Color::Rgb(255, 226, 169),
+                Color::Rgb(127, 127, 127),
+                Color::Rgb(212, 212, 212),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Sparky-to-Subliminal built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
