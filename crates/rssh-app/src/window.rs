@@ -20442,6 +20442,22 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Vesper" => Some(BUILTIN_VESPER_COLOR_SCHEME_TOML),
         "Vibrant Ink (Gogh)" => Some(BUILTIN_VIBRANT_INK_GOGH_COLOR_SCHEME_TOML),
         "VibrantInk" => Some(BUILTIN_VIBRANTINK_COLOR_SCHEME_TOML),
+        "Vice Alt (base16)" => Some(BUILTIN_VICE_ALT_BASE16_COLOR_SCHEME_TOML),
+        "Vice Dark (base16)" => Some(BUILTIN_VICE_DARK_BASE16_COLOR_SCHEME_TOML),
+        "vimbones" => Some(BUILTIN_VIMBONES_COLOR_SCHEME_TOML),
+        "Violet Dark" => Some(BUILTIN_VIOLET_DARK_COLOR_SCHEME_TOML),
+        "Violet Light" => Some(BUILTIN_VIOLET_LIGHT_COLOR_SCHEME_TOML),
+        "VisiBlue (terminal.sexy)" => Some(BUILTIN_VISIBLUE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "VisiBone (terminal.sexy)" => Some(BUILTIN_VISIBONE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Visibone Alt. 2 (terminal.sexy)" => {
+            Some(BUILTIN_VISIBONE_ALT_2_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Vs Code Dark+ (Gogh)" | "VSCodeDark+ (Gogh)" => {
+            Some(BUILTIN_VS_CODE_DARK_PLUS_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Vs Code Light+ (Gogh)" | "VSCodeLight+ (Gogh)" => {
+            Some(BUILTIN_VS_CODE_LIGHT_PLUS_GOGH_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -58636,6 +58652,392 @@ aliases = ["Vibrant Ink (Gogh)"]
 name = "VibrantInk"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
+"##;
+
+const BUILTIN_VICE_ALT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1c1c",
+    "#ff3d81",
+    "#44ffdd",
+    "#ffff73",
+    "#2fb1d4",
+    "#8265ff",
+    "#00caff",
+    "#555555",
+]
+background = "#1c1c1c"
+brights = [
+    "#323232",
+    "#ff3d81",
+    "#44ffdd",
+    "#ffff73",
+    "#2fb1d4",
+    "#8265ff",
+    "#00caff",
+    "#d1d1d1",
+]
+cursor_bg = "#555555"
+cursor_border = "#555555"
+cursor_fg = "#1c1c1c"
+foreground = "#555555"
+selection_bg = "#555555"
+selection_fg = "#1c1c1c"
+
+[colors.indexed]
+16 = "#f67544"
+17 = "#f83d80"
+18 = "#282828"
+19 = "#2c2c2c"
+20 = "#3c3c3c"
+21 = "#b6b6b6"
+
+[metadata]
+aliases = []
+author = "Thomas Leon Highbaugh"
+name = "Vice Alt (base16)"
+origin_url = "https://github.com/Thomashighbaugh/base16-vice-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_VICE_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#181818",
+    "#ff29a8",
+    "#0badff",
+    "#f0ffaa",
+    "#00eaff",
+    "#00f6d9",
+    "#8265ff",
+    "#818181",
+]
+background = "#181818"
+brights = [
+    "#3f3f3f",
+    "#ff29a8",
+    "#0badff",
+    "#f0ffaa",
+    "#00eaff",
+    "#00f6d9",
+    "#8265ff",
+    "#e9e9e9",
+]
+cursor_bg = "#818181"
+cursor_border = "#818181"
+cursor_fg = "#181818"
+foreground = "#818181"
+selection_bg = "#818181"
+selection_fg = "#181818"
+
+[colors.indexed]
+16 = "#85ffe0"
+17 = "#ff3d81"
+18 = "#222222"
+19 = "#323232"
+20 = "#666666"
+21 = "#c6c6c6"
+
+[metadata]
+aliases = []
+author = "Thomas Leon Highbaugh"
+name = "Vice Dark (base16)"
+origin_url = "https://github.com/Thomashighbaugh/base16-vice-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_VIMBONES_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f0f0ca",
+    "#a8334c",
+    "#4f6c31",
+    "#944927",
+    "#286486",
+    "#88507d",
+    "#3b8992",
+    "#353535",
+]
+background = "#f0f0ca"
+brights = [
+    "#c6c6a3",
+    "#94253e",
+    "#3f5a22",
+    "#803d1c",
+    "#1d5573",
+    "#7b3b70",
+    "#2b747c",
+    "#5c5c5c",
+]
+cursor_bg = "#353535"
+cursor_border = "#353535"
+cursor_fg = "#f0f0ca"
+foreground = "#353535"
+selection_bg = "#d7d7d7"
+selection_fg = "#353535"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "vimbones"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_VIOLET_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#56595c",
+    "#c94c22",
+    "#85981c",
+    "#b4881d",
+    "#2e8bce",
+    "#d13a82",
+    "#32a198",
+    "#c9c6bd",
+]
+background = "#1c1d1f"
+brights = [
+    "#45484b",
+    "#bd3613",
+    "#738a04",
+    "#a57705",
+    "#2176c7",
+    "#c61c6f",
+    "#259286",
+    "#c9c6bd",
+]
+cursor_bg = "#708284"
+cursor_border = "#708284"
+cursor_fg = "#1c1d1f"
+foreground = "#708284"
+selection_bg = "#595ab7"
+selection_fg = "#1c1d1f"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Violet Dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_VIOLET_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#56595c",
+    "#c94c22",
+    "#85981c",
+    "#b4881d",
+    "#2e8bce",
+    "#d13a82",
+    "#32a198",
+    "#d3d0c9",
+]
+background = "#fcf4dc"
+brights = [
+    "#45484b",
+    "#bd3613",
+    "#738a04",
+    "#a57705",
+    "#2176c7",
+    "#c61c6f",
+    "#259286",
+    "#c9c6bd",
+]
+cursor_bg = "#536870"
+cursor_border = "#536870"
+cursor_fg = "#fcf4dc"
+foreground = "#536870"
+selection_bg = "#595ab7"
+selection_fg = "#fcf4dc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Violet Light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_VISIBLUE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#333366",
+    "#6666cc",
+    "#0099cc",
+    "#3366cc",
+    "#006699",
+    "#0066ff",
+    "#669999",
+    "#99cccc",
+]
+background = "#000000"
+brights = [
+    "#333399",
+    "#9999ff",
+    "#00ccff",
+    "#6699ff",
+    "#0099cc",
+    "#0099ff",
+    "#66cccc",
+    "#ccffff",
+]
+foreground = "#666699"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "VisiBlue (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_VISIBONE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#666666",
+    "#cc6666",
+    "#66cc99",
+    "#cc9966",
+    "#6699cc",
+    "#cc6699",
+    "#66cccc",
+    "#cccccc",
+]
+background = "#000000"
+brights = [
+    "#999999",
+    "#ff9999",
+    "#99ffcc",
+    "#ffcc99",
+    "#99ccff",
+    "#ff99cc",
+    "#99ffff",
+    "#ffffff",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "VisiBone (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_VISIBONE_ALT_2_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#666666",
+    "#cc6699",
+    "#99cc66",
+    "#cc9966",
+    "#6699cc",
+    "#9966cc",
+    "#66cc99",
+    "#cccccc",
+]
+background = "#333333"
+brights = [
+    "#999999",
+    "#ff99cc",
+    "#ccff99",
+    "#ffcc99",
+    "#99ccff",
+    "#cc99ff",
+    "#99ffcc",
+    "#ffffff",
+]
+foreground = "#cccccc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Gutterslob"
+name = "Visibone Alt. 2 (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_VS_CODE_DARK_PLUS_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#6a787a",
+    "#e9653b",
+    "#39e9a8",
+    "#e5b684",
+    "#44aae6",
+    "#e17599",
+    "#3dd5e7",
+    "#c3dde1",
+]
+background = "#1e1e1e"
+brights = [
+    "#598489",
+    "#e65029",
+    "#00ff9a",
+    "#e89440",
+    "#009afb",
+    "#ff578f",
+    "#5fffff",
+    "#d9fbff",
+]
+cursor_bg = "#cccccc"
+cursor_border = "#cccccc"
+cursor_fg = "#1e1e1e"
+foreground = "#cccccc"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["VSCodeDark+ (Gogh)"]
+name = "Vs Code Dark+ (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_VS_CODE_LIGHT_PLUS_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#020202",
+    "#cd3232",
+    "#00bc00",
+    "#a5a900",
+    "#0752a8",
+    "#bc05bc",
+    "#0598bc",
+    "#343434",
+]
+background = "#f9f9f9"
+brights = [
+    "#5e5e5e",
+    "#cd3333",
+    "#1bce1a",
+    "#adbb5b",
+    "#0752a8",
+    "#c451ce",
+    "#52a8c7",
+    "#a6a3a6",
+]
+cursor_bg = "#020202"
+cursor_border = "#020202"
+cursor_fg = "#f9f9f9"
+foreground = "#020202"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["VSCodeLight+ (Gogh)"]
+name = "Vs Code Light+ (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -146407,6 +146809,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Twilight-light-to-Unsifted-Wheat built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_vice_alt_to_vs_code_light_builtin_color_schemes() {
+        let cases = [
+            (
+                "Vice Alt (base16)",
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(85, 85, 85),
+                Some(Color::Rgb(28, 28, 28)),
+                Some(Color::Rgb(85, 85, 85)),
+                Some(Some(Color::Rgb(28, 28, 28))),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(255, 61, 129),
+                Color::Rgb(68, 255, 221),
+                Color::Rgb(255, 255, 115),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(209, 209, 209),
+                Some(Color::Rgb(246, 117, 68)),
+            ),
+            (
+                "Vice Dark (base16)",
+                Color::Rgb(129, 129, 129),
+                Color::Rgb(24, 24, 24),
+                Color::Rgb(129, 129, 129),
+                Some(Color::Rgb(24, 24, 24)),
+                Some(Color::Rgb(129, 129, 129)),
+                Some(Some(Color::Rgb(24, 24, 24))),
+                Color::Rgb(24, 24, 24),
+                Color::Rgb(255, 41, 168),
+                Color::Rgb(11, 173, 255),
+                Color::Rgb(240, 255, 170),
+                Color::Rgb(63, 63, 63),
+                Color::Rgb(233, 233, 233),
+                Some(Color::Rgb(133, 255, 224)),
+            ),
+            (
+                "vimbones",
+                Color::Rgb(53, 53, 53),
+                Color::Rgb(240, 240, 202),
+                Color::Rgb(53, 53, 53),
+                Some(Color::Rgb(240, 240, 202)),
+                Some(Color::Rgb(215, 215, 215)),
+                Some(Some(Color::Rgb(53, 53, 53))),
+                Color::Rgb(240, 240, 202),
+                Color::Rgb(168, 51, 76),
+                Color::Rgb(79, 108, 49),
+                Color::Rgb(148, 73, 39),
+                Color::Rgb(198, 198, 163),
+                Color::Rgb(92, 92, 92),
+                None,
+            ),
+            (
+                "Violet Dark",
+                Color::Rgb(112, 130, 132),
+                Color::Rgb(28, 29, 31),
+                Color::Rgb(112, 130, 132),
+                Some(Color::Rgb(28, 29, 31)),
+                Some(Color::Rgb(89, 90, 183)),
+                Some(Some(Color::Rgb(28, 29, 31))),
+                Color::Rgb(86, 89, 92),
+                Color::Rgb(201, 76, 34),
+                Color::Rgb(133, 152, 28),
+                Color::Rgb(180, 136, 29),
+                Color::Rgb(69, 72, 75),
+                Color::Rgb(201, 198, 189),
+                None,
+            ),
+            (
+                "Violet Light",
+                Color::Rgb(83, 104, 112),
+                Color::Rgb(252, 244, 220),
+                Color::Rgb(83, 104, 112),
+                Some(Color::Rgb(252, 244, 220)),
+                Some(Color::Rgb(89, 90, 183)),
+                Some(Some(Color::Rgb(252, 244, 220))),
+                Color::Rgb(86, 89, 92),
+                Color::Rgb(201, 76, 34),
+                Color::Rgb(133, 152, 28),
+                Color::Rgb(180, 136, 29),
+                Color::Rgb(69, 72, 75),
+                Color::Rgb(201, 198, 189),
+                None,
+            ),
+            (
+                "VisiBlue (terminal.sexy)",
+                Color::Rgb(102, 102, 153),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(51, 51, 102),
+                Color::Rgb(102, 102, 204),
+                Color::Rgb(0, 153, 204),
+                Color::Rgb(51, 102, 204),
+                Color::Rgb(51, 51, 153),
+                Color::Rgb(204, 255, 255),
+                None,
+            ),
+            (
+                "VisiBone (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(204, 102, 102),
+                Color::Rgb(102, 204, 153),
+                Color::Rgb(204, 153, 102),
+                Color::Rgb(153, 153, 153),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Visibone Alt. 2 (terminal.sexy)",
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(204, 102, 153),
+                Color::Rgb(153, 204, 102),
+                Color::Rgb(204, 153, 102),
+                Color::Rgb(153, 153, 153),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Vs Code Dark+ (Gogh)",
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(204, 204, 204),
+                Some(Color::Rgb(30, 30, 30)),
+                None,
+                None,
+                Color::Rgb(106, 120, 122),
+                Color::Rgb(233, 101, 59),
+                Color::Rgb(57, 233, 168),
+                Color::Rgb(229, 182, 132),
+                Color::Rgb(89, 132, 137),
+                Color::Rgb(217, 251, 255),
+                None,
+            ),
+            (
+                "Vs Code Light+ (Gogh)",
+                Color::Rgb(2, 2, 2),
+                Color::Rgb(249, 249, 249),
+                Color::Rgb(2, 2, 2),
+                Some(Color::Rgb(249, 249, 249)),
+                None,
+                None,
+                Color::Rgb(2, 2, 2),
+                Color::Rgb(205, 50, 50),
+                Color::Rgb(0, 188, 0),
+                Color::Rgb(165, 169, 0),
+                Color::Rgb(94, 94, 94),
+                Color::Rgb(166, 163, 166),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Vice-Alt-to-Vs-Code-Light built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

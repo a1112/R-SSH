@@ -3877,7 +3877,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Unikitty Light (base16)`, `Unikitty Reversible (base16)`,
   `Unsifted Wheat (terminal.sexy)`, `Ura (Gogh)`, `Urple`, `Urple (Gogh)`,
   `Vacuous 2 (terminal.sexy)`, `Vag (Gogh)`, `Vaughn`, `Vaughn (Gogh)`,
-  `Vesper`, `Vibrant Ink (Gogh)`, `VibrantInk`, `Builtin Dark`,
+  `Vesper`, `Vibrant Ink (Gogh)`, `VibrantInk`, `Vice Alt (base16)`,
+  `Vice Dark (base16)`, `vimbones`, `Violet Dark`, `Violet Light`,
+  `VisiBlue (terminal.sexy)`, `VisiBone (terminal.sexy)`,
+  `Visibone Alt. 2 (terminal.sexy)`, `Vs Code Dark+ (Gogh)`,
+  `Vs Code Light+ (Gogh)`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
