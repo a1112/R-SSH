@@ -3829,7 +3829,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Shapeshifter (base16)`, `Shapeshifter (dark) (terminal.sexy)`,
   `Shapeshifter (light) (terminal.sexy)`, `Shel (Gogh)`,
   `Shic (terminal.sexy)`, `Silk Dark (base16)`, `Silk Light (base16)`,
-  `Simple Rainbow (terminal.sexy)`, `Slate`, `Slate (Gogh)`, `Builtin Dark`,
+  `Simple Rainbow (terminal.sexy)`, `Slate`, `Slate (Gogh)`, `SleepyHollow`,
+  `Smyck`, `Smyck (Gogh)`, `Snazzy`, `Snazzy (base16)`, `Snazzy (Gogh)`,
+  `Soft Server (Gogh)`, `SoftServer`, `Solar Flare (base16)`,
+  `Solar Flare Light (base16)`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML

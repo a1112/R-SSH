@@ -20242,6 +20242,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Slate" => Some(BUILTIN_SLATE_COLOR_SCHEME_TOML),
         "Slate (Gogh)" => Some(BUILTIN_SLATE_GOGH_COLOR_SCHEME_TOML),
+        "SleepyHollow" => Some(BUILTIN_SLEEPYHOLLOW_COLOR_SCHEME_TOML),
+        "Smyck" => Some(BUILTIN_SMYCK_COLOR_SCHEME_TOML),
+        "Smyck (Gogh)" => Some(BUILTIN_SMYCK_GOGH_COLOR_SCHEME_TOML),
+        "Snazzy" => Some(BUILTIN_SNAZZY_COLOR_SCHEME_TOML),
+        "Snazzy (base16)" => Some(BUILTIN_SNAZZY_BASE16_COLOR_SCHEME_TOML),
+        "Snazzy (Gogh)" => Some(BUILTIN_SNAZZY_GOGH_COLOR_SCHEME_TOML),
+        "Soft Server (Gogh)" => Some(BUILTIN_SOFT_SERVER_GOGH_COLOR_SCHEME_TOML),
+        "SoftServer" => Some(BUILTIN_SOFTSERVER_COLOR_SCHEME_TOML),
+        "Solar Flare (base16)" => Some(BUILTIN_SOLAR_FLARE_BASE16_COLOR_SCHEME_TOML),
+        "Solar Flare Light (base16)" => Some(BUILTIN_SOLAR_FLARE_LIGHT_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -52651,6 +52661,411 @@ aliases = []
 name = "Slate (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SLEEPYHOLLOW_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#572100",
+    "#ba3934",
+    "#91773f",
+    "#b55600",
+    "#5f63b4",
+    "#a17c7b",
+    "#8faea9",
+    "#af9a91",
+]
+background = "#121214"
+brights = [
+    "#4e4b61",
+    "#d9443f",
+    "#d6b04e",
+    "#f66813",
+    "#8086ef",
+    "#e2c2bb",
+    "#a4dce7",
+    "#d2c7a9",
+]
+cursor_bg = "#af9a91"
+cursor_border = "#af9a91"
+cursor_fg = "#391a02"
+foreground = "#af9a91"
+selection_bg = "#575256"
+selection_fg = "#d2c7a9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "SleepyHollow"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SMYCK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#b84131",
+    "#7da900",
+    "#c4a500",
+    "#62a3c4",
+    "#ba8acc",
+    "#207383",
+    "#a1a1a1",
+]
+background = "#1b1b1b"
+brights = [
+    "#7a7a7a",
+    "#d6837c",
+    "#c4f137",
+    "#fee14d",
+    "#8dcff0",
+    "#f79aff",
+    "#6ad9cf",
+    "#f7f7f7",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#f7f7f7"
+selection_bg = "#207483"
+selection_fg = "#f7f7f7"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Smyck"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SMYCK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c75646",
+    "#8eb33b",
+    "#d0b03c",
+    "#72b3cc",
+    "#c8a0d1",
+    "#218693",
+    "#b0b0b0",
+]
+background = "#242424"
+brights = [
+    "#5d5d5d",
+    "#e09690",
+    "#cdee69",
+    "#ffe377",
+    "#9cd9f0",
+    "#fbb1f9",
+    "#77dfd8",
+    "#f7f7f7",
+]
+cursor_bg = "#f7f7f7"
+cursor_border = "#f7f7f7"
+cursor_fg = "#242424"
+foreground = "#f7f7f7"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Smyck (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SNAZZY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#fc4346",
+    "#50fb7c",
+    "#f0fb8c",
+    "#49baff",
+    "#fc4cb4",
+    "#8be9fe",
+    "#ededec",
+]
+background = "#1e1f29"
+brights = [
+    "#555555",
+    "#fc4346",
+    "#50fb7c",
+    "#f0fb8c",
+    "#49baff",
+    "#fc4cb4",
+    "#8be9fe",
+    "#ededec",
+]
+cursor_bg = "#e4e4e4"
+cursor_border = "#e4e4e4"
+cursor_fg = "#f6f6f6"
+foreground = "#ebece6"
+selection_bg = "#81aec6"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Snazzy"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SNAZZY_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282a36",
+    "#ff5c57",
+    "#5af78e",
+    "#f3f99d",
+    "#57c7ff",
+    "#ff6ac1",
+    "#9aedfe",
+    "#e2e4e5",
+]
+background = "#282a36"
+brights = [
+    "#78787e",
+    "#ff5c57",
+    "#5af78e",
+    "#f3f99d",
+    "#57c7ff",
+    "#ff6ac1",
+    "#9aedfe",
+    "#f1f1f0",
+]
+cursor_bg = "#e2e4e5"
+cursor_border = "#e2e4e5"
+cursor_fg = "#282a36"
+foreground = "#e2e4e5"
+selection_bg = "#e2e4e5"
+selection_fg = "#282a36"
+
+[colors.indexed]
+16 = "#ff9f43"
+17 = "#b2643c"
+18 = "#34353e"
+19 = "#43454f"
+20 = "#a5a5a9"
+21 = "#eff0eb"
+
+[metadata]
+aliases = []
+author = "Chawye Hsu (https://github.com/chawyehsu) based on Hyper Snazzy Theme (https://github.com/sindresorhus/hyper-snazzy)"
+name = "Snazzy (base16)"
+origin_url = "https://github.com/h404bi/base16-snazzy-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SNAZZY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282a36",
+    "#ff5c57",
+    "#5af78e",
+    "#f3f99d",
+    "#57c7ff",
+    "#ff6ac1",
+    "#9aedfe",
+    "#f1f1f0",
+]
+background = "#282a36"
+brights = [
+    "#686868",
+    "#ff5c57",
+    "#5af78e",
+    "#f3f99d",
+    "#57c7ff",
+    "#ff6ac1",
+    "#9aedfe",
+    "#eff0eb",
+]
+cursor_bg = "#97979b"
+cursor_border = "#97979b"
+cursor_fg = "#282a36"
+foreground = "#eff0eb"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Snazzy (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SOFT_SERVER_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#a2686a",
+    "#9aa56a",
+    "#a3906a",
+    "#6b8fa3",
+    "#6a71a3",
+    "#6ba58f",
+    "#99a3a2",
+]
+background = "#242626"
+brights = [
+    "#666c6c",
+    "#dd5c60",
+    "#bfdf55",
+    "#deb360",
+    "#62b1df",
+    "#606edf",
+    "#64e39c",
+    "#d2e0de",
+]
+cursor_bg = "#99a3a2"
+cursor_border = "#99a3a2"
+cursor_fg = "#242626"
+foreground = "#99a3a2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Soft Server (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SOFTSERVER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#a2686a",
+    "#9aa56a",
+    "#a3906a",
+    "#6b8fa3",
+    "#6a71a3",
+    "#6ba58f",
+    "#99a3a2",
+]
+background = "#242626"
+brights = [
+    "#666c6c",
+    "#dd5c60",
+    "#bfdf55",
+    "#deb360",
+    "#62b1df",
+    "#606edf",
+    "#64e39c",
+    "#d2e0de",
+]
+cursor_bg = "#d2e0de"
+cursor_border = "#d2e0de"
+cursor_fg = "#000000"
+foreground = "#99a3a2"
+selection_bg = "#7f8786"
+selection_fg = "#effffe"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Soft Server (Gogh)"]
+name = "SoftServer"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SOLAR_FLARE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#18262f",
+    "#ef5253",
+    "#7cc844",
+    "#e4b51c",
+    "#33b5e1",
+    "#a363d5",
+    "#52cbb0",
+    "#a6afb8",
+]
+background = "#18262f"
+brights = [
+    "#667581",
+    "#ef5253",
+    "#7cc844",
+    "#e4b51c",
+    "#33b5e1",
+    "#a363d5",
+    "#52cbb0",
+    "#f5f7fa",
+]
+cursor_bg = "#a6afb8"
+cursor_border = "#a6afb8"
+cursor_fg = "#18262f"
+foreground = "#a6afb8"
+selection_bg = "#a6afb8"
+selection_fg = "#18262f"
+
+[colors.indexed]
+16 = "#e66b2b"
+17 = "#d73c9a"
+18 = "#222e38"
+19 = "#586875"
+20 = "#85939e"
+21 = "#e8e9ed"
+
+[metadata]
+aliases = []
+author = "Chuck Harmston (https://chuck.harmston.ch)"
+name = "Solar Flare (base16)"
+origin_url = "https://github.com/mnussbaum/base16-solarflare-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SOLAR_FLARE_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f5f7fa",
+    "#ef5253",
+    "#7cc844",
+    "#e4b51c",
+    "#33b5e1",
+    "#a363d5",
+    "#52cbb0",
+    "#586875",
+]
+background = "#f5f7fa"
+brights = [
+    "#85939e",
+    "#ef5253",
+    "#7cc844",
+    "#e4b51c",
+    "#33b5e1",
+    "#a363d5",
+    "#52cbb0",
+    "#18262f",
+]
+cursor_bg = "#586875"
+cursor_border = "#586875"
+cursor_fg = "#f5f7fa"
+foreground = "#586875"
+selection_bg = "#586875"
+selection_fg = "#f5f7fa"
+
+[colors.indexed]
+16 = "#e66b2b"
+17 = "#d73c9a"
+18 = "#e8e9ed"
+19 = "#a6afb8"
+20 = "#667581"
+21 = "#222e38"
+
+[metadata]
+aliases = []
+author = "Chuck Harmston (https://chuck.harmston.ch)"
+name = "Solar Flare Light (base16)"
+origin_url = "https://github.com/mnussbaum/base16-solarflare-scheme"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -136894,6 +137309,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Shapeshifter-to-Slate built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_sleepyhollow_to_solar_flare_light_builtin_color_schemes() {
+        let cases = [
+            (
+                "SleepyHollow",
+                Color::Rgb(175, 154, 145),
+                Color::Rgb(18, 18, 20),
+                Color::Rgb(175, 154, 145),
+                Some(Color::Rgb(57, 26, 2)),
+                Some(Color::Rgb(87, 82, 86)),
+                Some(Some(Color::Rgb(210, 199, 169))),
+                Color::Rgb(87, 33, 0),
+                Color::Rgb(186, 57, 52),
+                Color::Rgb(145, 119, 63),
+                Color::Rgb(181, 86, 0),
+                Color::Rgb(78, 75, 97),
+                Color::Rgb(210, 199, 169),
+                None,
+            ),
+            (
+                "Smyck",
+                Color::Rgb(247, 247, 247),
+                Color::Rgb(27, 27, 27),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(32, 116, 131)),
+                Some(Some(Color::Rgb(247, 247, 247))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(184, 65, 49),
+                Color::Rgb(125, 169, 0),
+                Color::Rgb(196, 165, 0),
+                Color::Rgb(122, 122, 122),
+                Color::Rgb(247, 247, 247),
+                None,
+            ),
+            (
+                "Smyck (Gogh)",
+                Color::Rgb(247, 247, 247),
+                Color::Rgb(36, 36, 36),
+                Color::Rgb(247, 247, 247),
+                Some(Color::Rgb(36, 36, 36)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(199, 86, 70),
+                Color::Rgb(142, 179, 59),
+                Color::Rgb(208, 176, 60),
+                Color::Rgb(93, 93, 93),
+                Color::Rgb(247, 247, 247),
+                None,
+            ),
+            (
+                "Snazzy",
+                Color::Rgb(235, 236, 230),
+                Color::Rgb(30, 31, 41),
+                Color::Rgb(228, 228, 228),
+                Some(Color::Rgb(246, 246, 246)),
+                Some(Color::Rgb(129, 174, 198)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(252, 67, 70),
+                Color::Rgb(80, 251, 124),
+                Color::Rgb(240, 251, 140),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(237, 237, 236),
+                None,
+            ),
+            (
+                "Snazzy (base16)",
+                Color::Rgb(226, 228, 229),
+                Color::Rgb(40, 42, 54),
+                Color::Rgb(226, 228, 229),
+                Some(Color::Rgb(40, 42, 54)),
+                Some(Color::Rgb(226, 228, 229)),
+                Some(Some(Color::Rgb(40, 42, 54))),
+                Color::Rgb(40, 42, 54),
+                Color::Rgb(255, 92, 87),
+                Color::Rgb(90, 247, 142),
+                Color::Rgb(243, 249, 157),
+                Color::Rgb(120, 120, 126),
+                Color::Rgb(241, 241, 240),
+                Some(Color::Rgb(255, 159, 67)),
+            ),
+            (
+                "Snazzy (Gogh)",
+                Color::Rgb(239, 240, 235),
+                Color::Rgb(40, 42, 54),
+                Color::Rgb(151, 151, 155),
+                Some(Color::Rgb(40, 42, 54)),
+                None,
+                None,
+                Color::Rgb(40, 42, 54),
+                Color::Rgb(255, 92, 87),
+                Color::Rgb(90, 247, 142),
+                Color::Rgb(243, 249, 157),
+                Color::Rgb(104, 104, 104),
+                Color::Rgb(239, 240, 235),
+                None,
+            ),
+            (
+                "Soft Server (Gogh)",
+                Color::Rgb(153, 163, 162),
+                Color::Rgb(36, 38, 38),
+                Color::Rgb(153, 163, 162),
+                Some(Color::Rgb(36, 38, 38)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(162, 104, 106),
+                Color::Rgb(154, 165, 106),
+                Color::Rgb(163, 144, 106),
+                Color::Rgb(102, 108, 108),
+                Color::Rgb(210, 224, 222),
+                None,
+            ),
+            (
+                "SoftServer",
+                Color::Rgb(153, 163, 162),
+                Color::Rgb(36, 38, 38),
+                Color::Rgb(210, 224, 222),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(127, 135, 134)),
+                Some(Some(Color::Rgb(239, 255, 254))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(162, 104, 106),
+                Color::Rgb(154, 165, 106),
+                Color::Rgb(163, 144, 106),
+                Color::Rgb(102, 108, 108),
+                Color::Rgb(210, 224, 222),
+                None,
+            ),
+            (
+                "Solar Flare (base16)",
+                Color::Rgb(166, 175, 184),
+                Color::Rgb(24, 38, 47),
+                Color::Rgb(166, 175, 184),
+                Some(Color::Rgb(24, 38, 47)),
+                Some(Color::Rgb(166, 175, 184)),
+                Some(Some(Color::Rgb(24, 38, 47))),
+                Color::Rgb(24, 38, 47),
+                Color::Rgb(239, 82, 83),
+                Color::Rgb(124, 200, 68),
+                Color::Rgb(228, 181, 28),
+                Color::Rgb(102, 117, 129),
+                Color::Rgb(245, 247, 250),
+                Some(Color::Rgb(230, 107, 43)),
+            ),
+            (
+                "Solar Flare Light (base16)",
+                Color::Rgb(88, 104, 117),
+                Color::Rgb(245, 247, 250),
+                Color::Rgb(88, 104, 117),
+                Some(Color::Rgb(245, 247, 250)),
+                Some(Color::Rgb(88, 104, 117)),
+                Some(Some(Color::Rgb(245, 247, 250))),
+                Color::Rgb(245, 247, 250),
+                Color::Rgb(239, 82, 83),
+                Color::Rgb(124, 200, 68),
+                Color::Rgb(228, 181, 28),
+                Color::Rgb(133, 147, 158),
+                Color::Rgb(24, 38, 47),
+                Some(Color::Rgb(230, 107, 43)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm SleepyHollow-to-Solar-Flare built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
