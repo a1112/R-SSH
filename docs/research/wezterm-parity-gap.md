@@ -3881,7 +3881,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Vice Dark (base16)`, `vimbones`, `Violet Dark`, `Violet Light`,
   `VisiBlue (terminal.sexy)`, `VisiBone (terminal.sexy)`,
   `Visibone Alt. 2 (terminal.sexy)`, `Vs Code Dark+ (Gogh)`,
-  `Vs Code Light+ (Gogh)`, `Builtin Dark`,
+  `Vs Code Light+ (Gogh)`, `vulcan (base16)`, `VWbug (terminal.sexy)`,
+  `Warm Neon (Gogh)`, `WarmNeon`, `Website (Gogh)`, `Wez`, `Wez (Gogh)`,
+  `Whimsy`, `Wild Cherry (Gogh)`, `WildCherry`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML

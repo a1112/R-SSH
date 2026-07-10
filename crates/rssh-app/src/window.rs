@@ -20458,6 +20458,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Vs Code Light+ (Gogh)" | "VSCodeLight+ (Gogh)" => {
             Some(BUILTIN_VS_CODE_LIGHT_PLUS_GOGH_COLOR_SCHEME_TOML)
         }
+        "vulcan (base16)" => Some(BUILTIN_VULCAN_BASE16_COLOR_SCHEME_TOML),
+        "VWbug (terminal.sexy)" => Some(BUILTIN_VWBUG_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Warm Neon (Gogh)" => Some(BUILTIN_WARM_NEON_GOGH_COLOR_SCHEME_TOML),
+        "WarmNeon" => Some(BUILTIN_WARMNEON_COLOR_SCHEME_TOML),
+        "Website (Gogh)" => Some(BUILTIN_WEBSITE_GOGH_COLOR_SCHEME_TOML),
+        "Wez" => Some(BUILTIN_WEZ_COLOR_SCHEME_TOML),
+        "Wez (Gogh)" => Some(BUILTIN_WEZ_GOGH_COLOR_SCHEME_TOML),
+        "Whimsy" => Some(BUILTIN_WHIMSY_COLOR_SCHEME_TOML),
+        "Wild Cherry (Gogh)" => Some(BUILTIN_WILD_CHERRY_GOGH_COLOR_SCHEME_TOML),
+        "WildCherry" => Some(BUILTIN_WILDCHERRY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -59038,6 +59048,391 @@ aliases = ["VSCodeLight+ (Gogh)"]
 name = "Vs Code Light+ (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_VULCAN_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#041523",
+    "#818591",
+    "#977d7c",
+    "#adb4b9",
+    "#977d7c",
+    "#9198a3",
+    "#977d7c",
+    "#5b778c",
+]
+background = "#041523"
+brights = [
+    "#7a5759",
+    "#818591",
+    "#977d7c",
+    "#adb4b9",
+    "#977d7c",
+    "#9198a3",
+    "#977d7c",
+    "#214d68",
+]
+cursor_bg = "#5b778c"
+cursor_border = "#5b778c"
+cursor_fg = "#041523"
+foreground = "#5b778c"
+selection_bg = "#5b778c"
+selection_fg = "#041523"
+
+[colors.indexed]
+16 = "#9198a3"
+17 = "#977d7c"
+18 = "#122339"
+19 = "#003552"
+20 = "#6b6977"
+21 = "#333238"
+
+[metadata]
+aliases = []
+author = "Andrey Varfolomeev"
+name = "vulcan (base16)"
+origin_url = "https://github.com/andreyvpng/base16-vulcan-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_VWBUG_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#261e26",
+    "#312c38",
+    "#4d353b",
+    "#503b43",
+    "#57403e",
+    "#665453",
+    "#6e5450",
+    "#8e7266",
+]
+background = "#170f0d"
+brights = [
+    "#906756",
+    "#927e7e",
+    "#ad6042",
+    "#b48b6f",
+    "#c4ab98",
+    "#d9c9b6",
+    "#e7ddd1",
+    "#faf7f2",
+]
+foreground = "#746c48"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "dkeg"
+name = "VWbug (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_WARM_NEON_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#e24346",
+    "#39b13a",
+    "#dae145",
+    "#4261c5",
+    "#f920fb",
+    "#2abbd4",
+    "#d0b8a3",
+]
+background = "#404040"
+brights = [
+    "#fefcfc",
+    "#e97071",
+    "#9cc090",
+    "#ddda7a",
+    "#7b91d6",
+    "#f674ba",
+    "#5ed1e5",
+    "#d8c8bb",
+]
+cursor_bg = "#afdab6"
+cursor_border = "#afdab6"
+cursor_fg = "#404040"
+foreground = "#afdab6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Warm Neon (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_WARMNEON_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#e24346",
+    "#39b13a",
+    "#dae145",
+    "#4261c5",
+    "#f920fb",
+    "#2abbd4",
+    "#d0b8a3",
+]
+background = "#404040"
+brights = [
+    "#fefcfc",
+    "#e97071",
+    "#9cc090",
+    "#ddda7a",
+    "#7b91d6",
+    "#f674ba",
+    "#5ed1e5",
+    "#d8c8bb",
+]
+cursor_bg = "#30ff24"
+cursor_border = "#30ff24"
+cursor_fg = "#3eef37"
+foreground = "#afdab6"
+selection_bg = "#b0ad21"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Warm Neon (Gogh)"]
+name = "WarmNeon"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_WEBSITE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#183c44",
+    "#da4949",
+    "#bcca15",
+    "#ffb02e",
+    "#35a6e6",
+    "#d343a2",
+    "#38c995",
+    "#ffe8c1",
+]
+background = "#132f35"
+brights = [
+    "#235662",
+    "#ff5757",
+    "#ecff14",
+    "#ffd694",
+    "#4cbfff",
+    "#ff4cc2",
+    "#35ffb6",
+    "#ffd48f",
+]
+cursor_bg = "#d1b890"
+cursor_border = "#d1b890"
+cursor_fg = "#132f35"
+foreground = "#d1b890"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Website (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20240127-113634-bbcac864"
+"##;
+
+const BUILTIN_WEZ_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc5555",
+    "#55cc55",
+    "#cdcd55",
+    "#5555cc",
+    "#cc55cc",
+    "#7acaca",
+    "#cccccc",
+]
+background = "#000000"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#55ff55",
+    "#ffff55",
+    "#5555ff",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#53ae71"
+cursor_border = "#53ae71"
+cursor_fg = "#000000"
+foreground = "#b3b3b3"
+selection_bg = "#4d52f8"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Wez (Gogh)"]
+name = "Wez"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_WEZ_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#cc5555",
+    "#55cc55",
+    "#cdcd55",
+    "#5555cc",
+    "#cc55cc",
+    "#7acaca",
+    "#cccccc",
+]
+background = "#000000"
+brights = [
+    "#555555",
+    "#ff5555",
+    "#55ff55",
+    "#ffff55",
+    "#5555ff",
+    "#ff55ff",
+    "#55ffff",
+    "#ffffff",
+]
+cursor_bg = "#b3b3b3"
+cursor_border = "#b3b3b3"
+cursor_fg = "#000000"
+foreground = "#b3b3b3"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Wez (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_WHIMSY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#535178",
+    "#ef6487",
+    "#5eca89",
+    "#fdd877",
+    "#65aef7",
+    "#aa7ff0",
+    "#43c1be",
+    "#ffffff",
+]
+background = "#29283b"
+brights = [
+    "#535178",
+    "#ef6487",
+    "#5eca89",
+    "#fdd877",
+    "#65aef7",
+    "#aa7ff0",
+    "#43c1be",
+    "#ffffff",
+]
+cursor_bg = "#b3b0d6"
+cursor_border = "#b3b0d6"
+cursor_fg = "#535178"
+foreground = "#b3b0d6"
+selection_bg = "#3d3c58"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Whimsy"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_WILD_CHERRY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000507",
+    "#d94085",
+    "#2ab250",
+    "#ffd16f",
+    "#883cdc",
+    "#ececec",
+    "#c1b8b7",
+    "#fff8de",
+]
+background = "#1f1726"
+brights = [
+    "#009cc9",
+    "#da6bac",
+    "#f4dca5",
+    "#eac066",
+    "#308cba",
+    "#ae636b",
+    "#ff919d",
+    "#e4838d",
+]
+cursor_bg = "#dafaff"
+cursor_border = "#dafaff"
+cursor_fg = "#1f1726"
+foreground = "#dafaff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Wild Cherry (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_WILDCHERRY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000507",
+    "#d94085",
+    "#2ab250",
+    "#ffd16f",
+    "#883cdc",
+    "#ececec",
+    "#c1b8b7",
+    "#fff8de",
+]
+background = "#1f1726"
+brights = [
+    "#009cc9",
+    "#da6bac",
+    "#f4dca5",
+    "#eac066",
+    "#308cba",
+    "#ae636b",
+    "#ff919d",
+    "#e4838d",
+]
+cursor_bg = "#dd00ff"
+cursor_border = "#dd00ff"
+cursor_fg = "#ff00fe"
+foreground = "#dafaff"
+selection_bg = "#002831"
+selection_fg = "#e4ffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Wild Cherry (Gogh)"]
+name = "WildCherry"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -147031,6 +147426,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Vice-Alt-to-Vs-Code-Light built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_vulcan_to_wildcherry_builtin_color_schemes() {
+        let cases = [
+            (
+                "vulcan (base16)",
+                Color::Rgb(91, 119, 140),
+                Color::Rgb(4, 21, 35),
+                Color::Rgb(91, 119, 140),
+                Some(Color::Rgb(4, 21, 35)),
+                Some(Color::Rgb(91, 119, 140)),
+                Some(Some(Color::Rgb(4, 21, 35))),
+                Color::Rgb(4, 21, 35),
+                Color::Rgb(129, 133, 145),
+                Color::Rgb(151, 125, 124),
+                Color::Rgb(173, 180, 185),
+                Color::Rgb(122, 87, 89),
+                Color::Rgb(33, 77, 104),
+                Some(Color::Rgb(145, 152, 163)),
+            ),
+            (
+                "VWbug (terminal.sexy)",
+                Color::Rgb(116, 108, 72),
+                Color::Rgb(23, 15, 13),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(38, 30, 38),
+                Color::Rgb(49, 44, 56),
+                Color::Rgb(77, 53, 59),
+                Color::Rgb(80, 59, 67),
+                Color::Rgb(144, 103, 86),
+                Color::Rgb(250, 247, 242),
+                None,
+            ),
+            (
+                "Warm Neon (Gogh)",
+                Color::Rgb(175, 218, 182),
+                Color::Rgb(64, 64, 64),
+                Color::Rgb(175, 218, 182),
+                Some(Color::Rgb(64, 64, 64)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(226, 67, 70),
+                Color::Rgb(57, 177, 58),
+                Color::Rgb(218, 225, 69),
+                Color::Rgb(254, 252, 252),
+                Color::Rgb(216, 200, 187),
+                None,
+            ),
+            (
+                "WarmNeon",
+                Color::Rgb(175, 218, 182),
+                Color::Rgb(64, 64, 64),
+                Color::Rgb(48, 255, 36),
+                Some(Color::Rgb(62, 239, 55)),
+                Some(Color::Rgb(176, 173, 33)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(226, 67, 70),
+                Color::Rgb(57, 177, 58),
+                Color::Rgb(218, 225, 69),
+                Color::Rgb(254, 252, 252),
+                Color::Rgb(216, 200, 187),
+                None,
+            ),
+            (
+                "Website (Gogh)",
+                Color::Rgb(209, 184, 144),
+                Color::Rgb(19, 47, 53),
+                Color::Rgb(209, 184, 144),
+                Some(Color::Rgb(19, 47, 53)),
+                None,
+                None,
+                Color::Rgb(24, 60, 68),
+                Color::Rgb(218, 73, 73),
+                Color::Rgb(188, 202, 21),
+                Color::Rgb(255, 176, 46),
+                Color::Rgb(35, 86, 98),
+                Color::Rgb(255, 212, 143),
+                None,
+            ),
+            (
+                "Wez",
+                Color::Rgb(179, 179, 179),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(83, 174, 113),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(77, 82, 248)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(204, 85, 85),
+                Color::Rgb(85, 204, 85),
+                Color::Rgb(205, 205, 85),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Wez (Gogh)",
+                Color::Rgb(179, 179, 179),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(179, 179, 179),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(204, 85, 85),
+                Color::Rgb(85, 204, 85),
+                Color::Rgb(205, 205, 85),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Whimsy",
+                Color::Rgb(179, 176, 214),
+                Color::Rgb(41, 40, 59),
+                Color::Rgb(179, 176, 214),
+                Some(Color::Rgb(83, 81, 120)),
+                Some(Color::Rgb(61, 60, 88)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(83, 81, 120),
+                Color::Rgb(239, 100, 135),
+                Color::Rgb(94, 202, 137),
+                Color::Rgb(253, 216, 119),
+                Color::Rgb(83, 81, 120),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Wild Cherry (Gogh)",
+                Color::Rgb(218, 250, 255),
+                Color::Rgb(31, 23, 38),
+                Color::Rgb(218, 250, 255),
+                Some(Color::Rgb(31, 23, 38)),
+                None,
+                None,
+                Color::Rgb(0, 5, 7),
+                Color::Rgb(217, 64, 133),
+                Color::Rgb(42, 178, 80),
+                Color::Rgb(255, 209, 111),
+                Color::Rgb(0, 156, 201),
+                Color::Rgb(228, 131, 141),
+                None,
+            ),
+            (
+                "WildCherry",
+                Color::Rgb(218, 250, 255),
+                Color::Rgb(31, 23, 38),
+                Color::Rgb(221, 0, 255),
+                Some(Color::Rgb(255, 0, 254)),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Some(Color::Rgb(228, 255, 255))),
+                Color::Rgb(0, 5, 7),
+                Color::Rgb(217, 64, 133),
+                Color::Rgb(42, 178, 80),
+                Color::Rgb(255, 209, 111),
+                Color::Rgb(0, 156, 201),
+                Color::Rgb(228, 131, 141),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm vulcan-to-WildCherry built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
