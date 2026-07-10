@@ -20468,6 +20468,20 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Whimsy" => Some(BUILTIN_WHIMSY_COLOR_SCHEME_TOML),
         "Wild Cherry (Gogh)" => Some(BUILTIN_WILD_CHERRY_GOGH_COLOR_SCHEME_TOML),
         "WildCherry" => Some(BUILTIN_WILDCHERRY_COLOR_SCHEME_TOML),
+        "wilmersdorf" => Some(BUILTIN_WILMERSDORF_COLOR_SCHEME_TOML),
+        "Windows 10 (base16)" => Some(BUILTIN_WINDOWS_10_BASE16_COLOR_SCHEME_TOML),
+        "Windows 10 Light (base16)" => Some(BUILTIN_WINDOWS_10_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Windows 95 (base16)" => Some(BUILTIN_WINDOWS_95_BASE16_COLOR_SCHEME_TOML),
+        "Windows 95 Light (base16)" => Some(BUILTIN_WINDOWS_95_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Windows High Contrast (base16)" => {
+            Some(BUILTIN_WINDOWS_HIGH_CONTRAST_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Windows High Contrast Light (base16)" => {
+            Some(BUILTIN_WINDOWS_HIGH_CONTRAST_LIGHT_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Windows NT (base16)" => Some(BUILTIN_WINDOWS_NT_BASE16_COLOR_SCHEME_TOML),
+        "Windows NT Light (base16)" => Some(BUILTIN_WINDOWS_NT_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Wombat" => Some(BUILTIN_WOMBAT_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -59431,6 +59445,452 @@ selection_fg = "#e4ffff"
 [metadata]
 aliases = ["Wild Cherry (Gogh)"]
 name = "WildCherry"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_WILMERSDORF_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#34373e",
+    "#e06383",
+    "#7ebebd",
+    "#cccccc",
+    "#a6c1e0",
+    "#e1c1ee",
+    "#5b94ab",
+    "#ababab",
+]
+background = "#282b33"
+brights = [
+    "#434750",
+    "#fa7193",
+    "#8fd7d6",
+    "#d1dfff",
+    "#b2cff0",
+    "#efccfd",
+    "#69abc5",
+    "#d3d3d3",
+]
+cursor_bg = "#7ebebd"
+cursor_border = "#7ebebd"
+cursor_fg = "#1f2024"
+foreground = "#c6c6c6"
+selection_bg = "#1f2024"
+selection_fg = "#c6c6c6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "wilmersdorf"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_WINDOWS_10_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0c0c0c",
+    "#e74856",
+    "#16c60c",
+    "#f9f1a5",
+    "#3b78ff",
+    "#b4009e",
+    "#61d6d6",
+    "#cccccc",
+]
+background = "#0c0c0c"
+brights = [
+    "#767676",
+    "#e74856",
+    "#16c60c",
+    "#f9f1a5",
+    "#3b78ff",
+    "#b4009e",
+    "#61d6d6",
+    "#f2f2f2",
+]
+cursor_bg = "#cccccc"
+cursor_border = "#cccccc"
+cursor_fg = "#0c0c0c"
+foreground = "#cccccc"
+selection_bg = "#cccccc"
+selection_fg = "#0c0c0c"
+
+[colors.indexed]
+16 = "#c19c00"
+17 = "#13a10e"
+18 = "#2f2f2f"
+19 = "#535353"
+20 = "#b9b9b9"
+21 = "#dfdfdf"
+
+[metadata]
+aliases = []
+author = "Fergus Collins (https://github.com/C-Fergus)"
+name = "Windows 10 (base16)"
+origin_url = "https://github.com/C-Fergus/base16-windows-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_WINDOWS_10_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f2f2f2",
+    "#c50f1f",
+    "#13a10e",
+    "#c19c00",
+    "#0037da",
+    "#881798",
+    "#3a96dd",
+    "#767676",
+]
+background = "#f2f2f2"
+brights = [
+    "#cccccc",
+    "#c50f1f",
+    "#13a10e",
+    "#c19c00",
+    "#0037da",
+    "#881798",
+    "#3a96dd",
+    "#0c0c0c",
+]
+cursor_bg = "#767676"
+cursor_border = "#767676"
+cursor_fg = "#f2f2f2"
+foreground = "#767676"
+selection_bg = "#767676"
+selection_fg = "#f2f2f2"
+
+[colors.indexed]
+16 = "#f9f1a5"
+17 = "#16c60c"
+18 = "#e5e5e5"
+19 = "#d9d9d9"
+20 = "#ababab"
+21 = "#414141"
+
+[metadata]
+aliases = []
+author = "Fergus Collins (https://github.com/C-Fergus)"
+name = "Windows 10 Light (base16)"
+origin_url = "https://github.com/C-Fergus/base16-windows-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_WINDOWS_95_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#fc5454",
+    "#54fc54",
+    "#fcfc54",
+    "#5454fc",
+    "#fc54fc",
+    "#54fcfc",
+    "#a8a8a8",
+]
+background = "#000000"
+brights = [
+    "#545454",
+    "#fc5454",
+    "#54fc54",
+    "#fcfc54",
+    "#5454fc",
+    "#fc54fc",
+    "#54fcfc",
+    "#fcfcfc",
+]
+cursor_bg = "#a8a8a8"
+cursor_border = "#a8a8a8"
+cursor_fg = "#000000"
+foreground = "#a8a8a8"
+selection_bg = "#a8a8a8"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#a85400"
+17 = "#00a800"
+18 = "#1c1c1c"
+19 = "#383838"
+20 = "#7e7e7e"
+21 = "#d2d2d2"
+
+[metadata]
+aliases = []
+author = "Fergus Collins (https://github.com/C-Fergus)"
+name = "Windows 95 (base16)"
+origin_url = "https://github.com/C-Fergus/base16-windows-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_WINDOWS_95_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#fcfcfc",
+    "#a80000",
+    "#00a800",
+    "#a85400",
+    "#0000a8",
+    "#a800a8",
+    "#00a8a8",
+    "#545454",
+]
+background = "#fcfcfc"
+brights = [
+    "#a8a8a8",
+    "#a80000",
+    "#00a800",
+    "#a85400",
+    "#0000a8",
+    "#a800a8",
+    "#00a8a8",
+    "#000000",
+]
+cursor_bg = "#545454"
+cursor_border = "#545454"
+cursor_fg = "#fcfcfc"
+foreground = "#545454"
+selection_bg = "#545454"
+selection_fg = "#fcfcfc"
+
+[colors.indexed]
+16 = "#fcfc54"
+17 = "#54fc54"
+18 = "#e0e0e0"
+19 = "#c4c4c4"
+20 = "#7e7e7e"
+21 = "#2a2a2a"
+
+[metadata]
+aliases = []
+author = "Fergus Collins (https://github.com/C-Fergus)"
+name = "Windows 95 Light (base16)"
+origin_url = "https://github.com/C-Fergus/base16-windows-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_WINDOWS_HIGH_CONTRAST_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#fc5454",
+    "#54fc54",
+    "#fcfc54",
+    "#5454fc",
+    "#fc54fc",
+    "#54fcfc",
+    "#c0c0c0",
+]
+background = "#000000"
+brights = [
+    "#545454",
+    "#fc5454",
+    "#54fc54",
+    "#fcfc54",
+    "#5454fc",
+    "#fc54fc",
+    "#54fcfc",
+    "#fcfcfc",
+]
+cursor_bg = "#c0c0c0"
+cursor_border = "#c0c0c0"
+cursor_fg = "#000000"
+foreground = "#c0c0c0"
+selection_bg = "#c0c0c0"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#808000"
+17 = "#008000"
+18 = "#1c1c1c"
+19 = "#383838"
+20 = "#a2a2a2"
+21 = "#dedede"
+
+[metadata]
+aliases = []
+author = "Fergus Collins (https://github.com/C-Fergus)"
+name = "Windows High Contrast (base16)"
+origin_url = "https://github.com/C-Fergus/base16-windows-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_WINDOWS_HIGH_CONTRAST_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#fcfcfc",
+    "#800000",
+    "#008000",
+    "#808000",
+    "#000080",
+    "#800080",
+    "#008080",
+    "#545454",
+]
+background = "#fcfcfc"
+brights = [
+    "#c0c0c0",
+    "#800000",
+    "#008000",
+    "#808000",
+    "#000080",
+    "#800080",
+    "#008080",
+    "#000000",
+]
+cursor_bg = "#545454"
+cursor_border = "#545454"
+cursor_fg = "#fcfcfc"
+foreground = "#545454"
+selection_bg = "#545454"
+selection_fg = "#fcfcfc"
+
+[colors.indexed]
+16 = "#fcfc54"
+17 = "#54fc54"
+18 = "#e8e8e8"
+19 = "#d4d4d4"
+20 = "#7e7e7e"
+21 = "#2a2a2a"
+
+[metadata]
+aliases = []
+author = "Fergus Collins (https://github.com/C-Fergus)"
+name = "Windows High Contrast Light (base16)"
+origin_url = "https://github.com/C-Fergus/base16-windows-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_WINDOWS_NT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff0000",
+    "#00ff00",
+    "#ffff00",
+    "#0000ff",
+    "#ff00ff",
+    "#00ffff",
+    "#c0c0c0",
+]
+background = "#000000"
+brights = [
+    "#808080",
+    "#ff0000",
+    "#00ff00",
+    "#ffff00",
+    "#0000ff",
+    "#ff00ff",
+    "#00ffff",
+    "#ffffff",
+]
+cursor_bg = "#c0c0c0"
+cursor_border = "#c0c0c0"
+cursor_fg = "#000000"
+foreground = "#c0c0c0"
+selection_bg = "#c0c0c0"
+selection_fg = "#000000"
+
+[colors.indexed]
+16 = "#808000"
+17 = "#008000"
+18 = "#2a2a2a"
+19 = "#555555"
+20 = "#a1a1a1"
+21 = "#e0e0e0"
+
+[metadata]
+aliases = []
+author = "Fergus Collins (https://github.com/C-Fergus)"
+name = "Windows NT (base16)"
+origin_url = "https://github.com/C-Fergus/base16-windows-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_WINDOWS_NT_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#ffffff",
+    "#800000",
+    "#008000",
+    "#808000",
+    "#000080",
+    "#800080",
+    "#008080",
+    "#808080",
+]
+background = "#ffffff"
+brights = [
+    "#c0c0c0",
+    "#800000",
+    "#008000",
+    "#808000",
+    "#000080",
+    "#800080",
+    "#008080",
+    "#000000",
+]
+cursor_bg = "#808080"
+cursor_border = "#808080"
+cursor_fg = "#ffffff"
+foreground = "#808080"
+selection_bg = "#808080"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+16 = "#ffff00"
+17 = "#00ff00"
+18 = "#eaeaea"
+19 = "#d5d5d5"
+20 = "#a0a0a0"
+21 = "#404040"
+
+[metadata]
+aliases = []
+author = "Fergus Collins (https://github.com/C-Fergus)"
+name = "Windows NT Light (base16)"
+origin_url = "https://github.com/C-Fergus/base16-windows-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_WOMBAT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff615a",
+    "#b1e969",
+    "#ebd99c",
+    "#5da9f6",
+    "#e86aff",
+    "#82fff7",
+    "#dedacf",
+]
+background = "#171717"
+brights = [
+    "#313131",
+    "#f58c80",
+    "#ddf88f",
+    "#eee5b2",
+    "#a5c7ff",
+    "#ddaaff",
+    "#b7fff9",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#dedacf"
+selection_bg = "#453b39"
+selection_fg = "#b6bbc0"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Wombat (Gogh)"]
+name = "Wombat"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
 "##;
@@ -147648,6 +148108,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm vulcan-to-WildCherry built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_wilmersdorf_to_wombat_builtin_color_schemes() {
+        let cases = [
+            (
+                "wilmersdorf",
+                Color::Rgb(198, 198, 198),
+                Color::Rgb(40, 43, 51),
+                Color::Rgb(126, 190, 189),
+                Some(Color::Rgb(31, 32, 36)),
+                Some(Color::Rgb(31, 32, 36)),
+                Some(Some(Color::Rgb(198, 198, 198))),
+                Color::Rgb(52, 55, 62),
+                Color::Rgb(224, 99, 131),
+                Color::Rgb(126, 190, 189),
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(67, 71, 80),
+                Color::Rgb(211, 211, 211),
+                None,
+            ),
+            (
+                "Windows 10 (base16)",
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(12, 12, 12),
+                Color::Rgb(204, 204, 204),
+                Some(Color::Rgb(12, 12, 12)),
+                Some(Color::Rgb(204, 204, 204)),
+                Some(Some(Color::Rgb(12, 12, 12))),
+                Color::Rgb(12, 12, 12),
+                Color::Rgb(231, 72, 86),
+                Color::Rgb(22, 198, 12),
+                Color::Rgb(249, 241, 165),
+                Color::Rgb(118, 118, 118),
+                Color::Rgb(242, 242, 242),
+                Some(Color::Rgb(193, 156, 0)),
+            ),
+            (
+                "Windows 10 Light (base16)",
+                Color::Rgb(118, 118, 118),
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(118, 118, 118),
+                Some(Color::Rgb(242, 242, 242)),
+                Some(Color::Rgb(118, 118, 118)),
+                Some(Some(Color::Rgb(242, 242, 242))),
+                Color::Rgb(242, 242, 242),
+                Color::Rgb(197, 15, 31),
+                Color::Rgb(19, 161, 14),
+                Color::Rgb(193, 156, 0),
+                Color::Rgb(204, 204, 204),
+                Color::Rgb(12, 12, 12),
+                Some(Color::Rgb(249, 241, 165)),
+            ),
+            (
+                "Windows 95 (base16)",
+                Color::Rgb(168, 168, 168),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(168, 168, 168),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(168, 168, 168)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(252, 84, 84),
+                Color::Rgb(84, 252, 84),
+                Color::Rgb(252, 252, 84),
+                Color::Rgb(84, 84, 84),
+                Color::Rgb(252, 252, 252),
+                Some(Color::Rgb(168, 84, 0)),
+            ),
+            (
+                "Windows 95 Light (base16)",
+                Color::Rgb(84, 84, 84),
+                Color::Rgb(252, 252, 252),
+                Color::Rgb(84, 84, 84),
+                Some(Color::Rgb(252, 252, 252)),
+                Some(Color::Rgb(84, 84, 84)),
+                Some(Some(Color::Rgb(252, 252, 252))),
+                Color::Rgb(252, 252, 252),
+                Color::Rgb(168, 0, 0),
+                Color::Rgb(0, 168, 0),
+                Color::Rgb(168, 84, 0),
+                Color::Rgb(168, 168, 168),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(252, 252, 84)),
+            ),
+            (
+                "Windows High Contrast (base16)",
+                Color::Rgb(192, 192, 192),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(192, 192, 192),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(192, 192, 192)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(252, 84, 84),
+                Color::Rgb(84, 252, 84),
+                Color::Rgb(252, 252, 84),
+                Color::Rgb(84, 84, 84),
+                Color::Rgb(252, 252, 252),
+                Some(Color::Rgb(128, 128, 0)),
+            ),
+            (
+                "Windows High Contrast Light (base16)",
+                Color::Rgb(84, 84, 84),
+                Color::Rgb(252, 252, 252),
+                Color::Rgb(84, 84, 84),
+                Some(Color::Rgb(252, 252, 252)),
+                Some(Color::Rgb(84, 84, 84)),
+                Some(Some(Color::Rgb(252, 252, 252))),
+                Color::Rgb(252, 252, 252),
+                Color::Rgb(128, 0, 0),
+                Color::Rgb(0, 128, 0),
+                Color::Rgb(128, 128, 0),
+                Color::Rgb(192, 192, 192),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(252, 252, 84)),
+            ),
+            (
+                "Windows NT (base16)",
+                Color::Rgb(192, 192, 192),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(192, 192, 192),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(192, 192, 192)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 0, 0),
+                Color::Rgb(0, 255, 0),
+                Color::Rgb(255, 255, 0),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(128, 128, 0)),
+            ),
+            (
+                "Windows NT Light (base16)",
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(128, 128, 128),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(128, 128, 128)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(128, 0, 0),
+                Color::Rgb(0, 128, 0),
+                Color::Rgb(128, 128, 0),
+                Color::Rgb(192, 192, 192),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 0)),
+            ),
+            (
+                "Wombat",
+                Color::Rgb(222, 218, 207),
+                Color::Rgb(23, 23, 23),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(69, 59, 57)),
+                Some(Some(Color::Rgb(182, 187, 192))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 97, 90),
+                Color::Rgb(177, 233, 105),
+                Color::Rgb(235, 217, 156),
+                Color::Rgb(49, 49, 49),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm wilmersdorf-to-Wombat built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
