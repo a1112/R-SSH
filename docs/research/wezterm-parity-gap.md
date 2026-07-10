@@ -3822,9 +3822,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Seafoam Pastel (Gogh)`, `SeaShells`, `Selenized Black (Gogh)`,
   `Selenized Dark (Gogh)`, `Selenized Light (Gogh)`,
   `Selenized White (Gogh)`, `Seoul256 (Gogh)`, `Seoul256 Light (Gogh)`,
-  `Builtin Dark`, `Builtin Light`, `Builtin Pastel Dark`,
-  `Builtin Solarized Dark`, `Builtin Solarized Light`, `Builtin Tango Dark`,
-  `Builtin Tango Light`, and
+  `seoulbones_dark`, `seoulbones_light`, `Sequoia Monochrome`,
+  `Sequoia Moonlight`, `Seti`, `Seti (Gogh)`, `Seti UI (base16)`,
+  `Sex Colors (terminal.sexy)`, `Shades of Purple (base16)`,
+  `shades-of-purple`, `Shaman`, `Shaman (Gogh)`, `Builtin Dark`,
+  `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
+  `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
   palette data. The broader built-in scheme catalog, richer dynamic
   `load_scheme` composition, and full dynamic Lua scheme

@@ -20214,6 +20214,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Selenized White (Gogh)" => Some(BUILTIN_SELENIZED_WHITE_GOGH_COLOR_SCHEME_TOML),
         "Seoul256 (Gogh)" => Some(BUILTIN_SEOUL256_GOGH_COLOR_SCHEME_TOML),
         "Seoul256 Light (Gogh)" => Some(BUILTIN_SEOUL256_LIGHT_GOGH_COLOR_SCHEME_TOML),
+        "seoulbones_dark" => Some(BUILTIN_SEOULBONES_DARK_COLOR_SCHEME_TOML),
+        "seoulbones_light" => Some(BUILTIN_SEOULBONES_LIGHT_COLOR_SCHEME_TOML),
+        "Sequoia Monochrome" => Some(BUILTIN_SEQUOIA_MONOCHROME_COLOR_SCHEME_TOML),
+        "Sequoia Moonlight" => Some(BUILTIN_SEQUOIA_MOONLIGHT_COLOR_SCHEME_TOML),
+        "Seti" => Some(BUILTIN_SETI_COLOR_SCHEME_TOML),
+        "Seti (Gogh)" => Some(BUILTIN_SETI_GOGH_COLOR_SCHEME_TOML),
+        "Seti UI (base16)" => Some(BUILTIN_SETI_UI_BASE16_COLOR_SCHEME_TOML),
+        "Sex Colors (terminal.sexy)" => Some(BUILTIN_SEX_COLORS_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Shades of Purple (base16)" => Some(BUILTIN_SHADES_OF_PURPLE_BASE16_COLOR_SCHEME_TOML),
+        "shades-of-purple" => Some(BUILTIN_SHADES_OF_PURPLE_COLOR_SCHEME_TOML),
+        "Shaman" => Some(BUILTIN_SHAMAN_COLOR_SCHEME_TOML),
+        "Shaman (Gogh)" => Some(BUILTIN_SHAMAN_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -51756,6 +51768,482 @@ aliases = []
 name = "Seoul256 Light (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_SEOULBONES_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4b4b4b",
+    "#e388a3",
+    "#98bd99",
+    "#ffdf9b",
+    "#97bdde",
+    "#a5a6c5",
+    "#6fbdbe",
+    "#dddddd",
+]
+background = "#4b4b4b"
+brights = [
+    "#6c6465",
+    "#eb99b1",
+    "#8fcd92",
+    "#ffe5b3",
+    "#a2c8e9",
+    "#b2b3da",
+    "#6bcacb",
+    "#a8a8a8",
+]
+cursor_bg = "#e2e2e2"
+cursor_border = "#e2e2e2"
+cursor_fg = "#4b4b4b"
+foreground = "#dddddd"
+selection_bg = "#777777"
+selection_fg = "#dddddd"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "seoulbones_dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SEOULBONES_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#e2e2e2",
+    "#dc5284",
+    "#628562",
+    "#c48562",
+    "#0084a3",
+    "#896788",
+    "#008586",
+    "#555555",
+]
+background = "#e2e2e2"
+brights = [
+    "#bfbabb",
+    "#be3c6d",
+    "#487249",
+    "#a76b48",
+    "#006f89",
+    "#7f4c7e",
+    "#006f70",
+    "#777777",
+]
+cursor_bg = "#555555"
+cursor_border = "#555555"
+cursor_fg = "#e2e2e2"
+foreground = "#555555"
+selection_bg = "#cccccc"
+selection_fg = "#555555"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "seoulbones_light"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SEQUOIA_MONOCHROME_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#131317",
+    "#999eb2",
+    "#626983",
+    "#d3d5de",
+    "#7c829d",
+    "#e2e4ed",
+    "#b6bac8",
+    "#868690",
+]
+background = "#0f1014"
+brights = [
+    "#575861",
+    "#999eb2",
+    "#626983",
+    "#d3d5de",
+    "#7c829d",
+    "#e2e4ed",
+    "#b6bac8",
+    "#868690",
+]
+cursor_bg = "#7c829d"
+cursor_border = "#7c829d"
+cursor_fg = "#868690"
+foreground = "#868690"
+selection_bg = "#22222a"
+selection_fg = "#93939c"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Hiroya-W and Michael Andreuzza"
+name = "Sequoia Monochrome"
+origin_url = "https://github.com/Hiroya-W/wezterm-sequoia-theme"
+wezterm_version = "20220903-194523-3bb1ed61"
+"##;
+
+const BUILTIN_SEQUOIA_MOONLIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#131317",
+    "#f58ee0",
+    "#8eb5f5",
+    "#9898a6",
+    "#c58fff",
+    "#fdfdfe",
+    "#ffbb88",
+    "#868690",
+]
+background = "#0f1014"
+brights = [
+    "#575861",
+    "#f58ee0",
+    "#8eb5f5",
+    "#9898a6",
+    "#c58fff",
+    "#fdfdfe",
+    "#ffbb88",
+    "#868690",
+]
+cursor_bg = "#c58fff"
+cursor_border = "#c58fff"
+cursor_fg = "#868690"
+foreground = "#868690"
+selection_bg = "#22222a"
+selection_fg = "#93939c"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Hiroya-W and Michael Andreuzza"
+name = "Sequoia Moonlight"
+origin_url = "https://github.com/Hiroya-W/wezterm-sequoia-theme"
+wezterm_version = "20220903-194523-3bb1ed61"
+"##;
+
+const BUILTIN_SETI_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#323232",
+    "#c22832",
+    "#8ec43d",
+    "#e0c64f",
+    "#43a5d5",
+    "#8b57b5",
+    "#8ec43d",
+    "#eeeeee",
+]
+background = "#111213"
+brights = [
+    "#323232",
+    "#c22832",
+    "#8ec43d",
+    "#e0c64f",
+    "#43a5d5",
+    "#8b57b5",
+    "#8ec43d",
+    "#ffffff",
+]
+cursor_bg = "#e3bf21"
+cursor_border = "#e3bf21"
+cursor_fg = "#e0be2e"
+foreground = "#cacecd"
+selection_bg = "#303233"
+selection_fg = "#cacecd"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Seti (Gogh)"]
+name = "Seti"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SETI_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#323232",
+    "#c22832",
+    "#8ec43d",
+    "#e0c64f",
+    "#43a5d5",
+    "#8b57b5",
+    "#8ec43d",
+    "#eeeeee",
+]
+background = "#111213"
+brights = [
+    "#323232",
+    "#c22832",
+    "#8ec43d",
+    "#e0c64f",
+    "#43a5d5",
+    "#8b57b5",
+    "#8ec43d",
+    "#ffffff",
+]
+cursor_bg = "#cacecd"
+cursor_border = "#cacecd"
+cursor_fg = "#111213"
+foreground = "#cacecd"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Seti (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SETI_UI_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#151718",
+    "#cd3f45",
+    "#9fca56",
+    "#e6cd69",
+    "#55b5db",
+    "#a074c4",
+    "#55dbbe",
+    "#d6d6d6",
+]
+background = "#151718"
+brights = [
+    "#41535b",
+    "#cd3f45",
+    "#9fca56",
+    "#e6cd69",
+    "#55b5db",
+    "#a074c4",
+    "#55dbbe",
+    "#ffffff",
+]
+cursor_bg = "#d6d6d6"
+cursor_border = "#d6d6d6"
+cursor_fg = "#151718"
+foreground = "#d6d6d6"
+selection_bg = "#d6d6d6"
+selection_fg = "#151718"
+
+[colors.indexed]
+16 = "#db7b55"
+17 = "#8a553f"
+18 = "#282a2b"
+19 = "#3b758c"
+20 = "#43a5d5"
+21 = "#eeeeee"
+
+[metadata]
+aliases = []
+author = ""
+name = "Seti UI (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SEX_COLORS_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#252525",
+    "#ff9f95",
+    "#a6e22e",
+    "#fd971f",
+    "#435e87",
+    "#789ec6",
+    "#5e7175",
+    "#dbdcdc",
+]
+background = "#000000"
+brights = [
+    "#454545",
+    "#ff8d80",
+    "#b6e354",
+    "#fd971f",
+    "#587aa4",
+    "#46a4ff",
+    "#a3babf",
+    "#fdfdfd",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Sex Colors (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SHADES_OF_PURPLE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e1e3f",
+    "#d90429",
+    "#3ad900",
+    "#ffe700",
+    "#6943ff",
+    "#ff2c70",
+    "#00c5c7",
+    "#c7c7c7",
+]
+background = "#1e1e3f"
+brights = [
+    "#808080",
+    "#d90429",
+    "#3ad900",
+    "#ffe700",
+    "#6943ff",
+    "#ff2c70",
+    "#00c5c7",
+    "#ffffff",
+]
+cursor_bg = "#c7c7c7"
+cursor_border = "#c7c7c7"
+cursor_fg = "#1e1e3f"
+foreground = "#c7c7c7"
+selection_bg = "#c7c7c7"
+selection_fg = "#1e1e3f"
+
+[colors.indexed]
+16 = "#f92a1c"
+17 = "#79e8fb"
+18 = "#43d426"
+19 = "#f1d000"
+20 = "#6871ff"
+21 = "#ff77ff"
+
+[metadata]
+aliases = []
+author = "Iolar Demartini Junior (http://github.com/demartini) based on Shades of Purple Theme (https://github.com/ahmadawais/shades-of-purple-vscode)."
+name = "Shades of Purple (base16)"
+origin_url = "https://github.com/ahmadawais/base16-shades-of-purple"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SHADES_OF_PURPLE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#d90429",
+    "#3ad900",
+    "#ffe700",
+    "#6943ff",
+    "#ff2c70",
+    "#00c5c7",
+    "#c7c7c7",
+]
+background = "#1e1d40"
+brights = [
+    "#686868",
+    "#f92a1c",
+    "#43d426",
+    "#f1d000",
+    "#6871ff",
+    "#ff77ff",
+    "#79e8fb",
+    "#ffffff",
+]
+cursor_bg = "#fad000"
+cursor_border = "#fad000"
+cursor_fg = "#fefff4"
+foreground = "#ffffff"
+selection_bg = "#b362ff"
+selection_fg = "#c2c2c2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "shades-of-purple"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SHAMAN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#012026",
+    "#b2302d",
+    "#00a941",
+    "#5e8baa",
+    "#449a86",
+    "#00599d",
+    "#5d7e19",
+    "#405555",
+]
+background = "#001015"
+brights = [
+    "#384451",
+    "#ff4242",
+    "#2aea5e",
+    "#8ed4fd",
+    "#61d5ba",
+    "#1298ff",
+    "#98d028",
+    "#58fbd6",
+]
+cursor_bg = "#4afcd6"
+cursor_border = "#4afcd6"
+cursor_fg = "#031413"
+foreground = "#405555"
+selection_bg = "#415555"
+selection_fg = "#5afad6"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Shaman (Gogh)"]
+name = "Shaman"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SHAMAN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#012026",
+    "#b2302d",
+    "#00a941",
+    "#5e8baa",
+    "#449a86",
+    "#00599d",
+    "#5d7e19",
+    "#405555",
+]
+background = "#001015"
+brights = [
+    "#384451",
+    "#ff4242",
+    "#2aea5e",
+    "#8ed4fd",
+    "#61d5ba",
+    "#1298ff",
+    "#98d028",
+    "#58fbd6",
+]
+cursor_bg = "#405555"
+cursor_border = "#405555"
+cursor_fg = "#001015"
+foreground = "#405555"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Shaman (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -135523,6 +136011,260 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Scarlet-to-Seoul256 built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_seoulbones_to_shaman_gogh_builtin_color_schemes() {
+        let cases = [
+            (
+                "seoulbones_dark",
+                Color::Rgb(221, 221, 221),
+                Color::Rgb(75, 75, 75),
+                Color::Rgb(226, 226, 226),
+                Some(Color::Rgb(75, 75, 75)),
+                Some(Color::Rgb(119, 119, 119)),
+                Some(Some(Color::Rgb(221, 221, 221))),
+                Color::Rgb(75, 75, 75),
+                Color::Rgb(227, 136, 163),
+                Color::Rgb(152, 189, 153),
+                Color::Rgb(255, 223, 155),
+                Color::Rgb(108, 100, 101),
+                Color::Rgb(168, 168, 168),
+                None,
+            ),
+            (
+                "seoulbones_light",
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(226, 226, 226),
+                Color::Rgb(85, 85, 85),
+                Some(Color::Rgb(226, 226, 226)),
+                Some(Color::Rgb(204, 204, 204)),
+                Some(Some(Color::Rgb(85, 85, 85))),
+                Color::Rgb(226, 226, 226),
+                Color::Rgb(220, 82, 132),
+                Color::Rgb(98, 133, 98),
+                Color::Rgb(196, 133, 98),
+                Color::Rgb(191, 186, 187),
+                Color::Rgb(119, 119, 119),
+                None,
+            ),
+            (
+                "Sequoia Monochrome",
+                Color::Rgb(134, 134, 144),
+                Color::Rgb(15, 16, 20),
+                Color::Rgb(124, 130, 157),
+                Some(Color::Rgb(134, 134, 144)),
+                Some(Color::Rgb(34, 34, 42)),
+                Some(Some(Color::Rgb(147, 147, 156))),
+                Color::Rgb(19, 19, 23),
+                Color::Rgb(153, 158, 178),
+                Color::Rgb(98, 105, 131),
+                Color::Rgb(211, 213, 222),
+                Color::Rgb(87, 88, 97),
+                Color::Rgb(134, 134, 144),
+                None,
+            ),
+            (
+                "Sequoia Moonlight",
+                Color::Rgb(134, 134, 144),
+                Color::Rgb(15, 16, 20),
+                Color::Rgb(197, 143, 255),
+                Some(Color::Rgb(134, 134, 144)),
+                Some(Color::Rgb(34, 34, 42)),
+                Some(Some(Color::Rgb(147, 147, 156))),
+                Color::Rgb(19, 19, 23),
+                Color::Rgb(245, 142, 224),
+                Color::Rgb(142, 181, 245),
+                Color::Rgb(152, 152, 166),
+                Color::Rgb(87, 88, 97),
+                Color::Rgb(134, 134, 144),
+                None,
+            ),
+            (
+                "Seti",
+                Color::Rgb(202, 206, 205),
+                Color::Rgb(17, 18, 19),
+                Color::Rgb(227, 191, 33),
+                Some(Color::Rgb(224, 190, 46)),
+                Some(Color::Rgb(48, 50, 51)),
+                Some(Some(Color::Rgb(202, 206, 205))),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(194, 40, 50),
+                Color::Rgb(142, 196, 61),
+                Color::Rgb(224, 198, 79),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Seti (Gogh)",
+                Color::Rgb(202, 206, 205),
+                Color::Rgb(17, 18, 19),
+                Color::Rgb(202, 206, 205),
+                Some(Color::Rgb(17, 18, 19)),
+                None,
+                None,
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(194, 40, 50),
+                Color::Rgb(142, 196, 61),
+                Color::Rgb(224, 198, 79),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Seti UI (base16)",
+                Color::Rgb(214, 214, 214),
+                Color::Rgb(21, 23, 24),
+                Color::Rgb(214, 214, 214),
+                Some(Color::Rgb(21, 23, 24)),
+                Some(Color::Rgb(214, 214, 214)),
+                Some(Some(Color::Rgb(21, 23, 24))),
+                Color::Rgb(21, 23, 24),
+                Color::Rgb(205, 63, 69),
+                Color::Rgb(159, 202, 86),
+                Color::Rgb(230, 205, 105),
+                Color::Rgb(65, 83, 91),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(219, 123, 85)),
+            ),
+            (
+                "Sex Colors (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(37, 37, 37),
+                Color::Rgb(255, 159, 149),
+                Color::Rgb(166, 226, 46),
+                Color::Rgb(253, 151, 31),
+                Color::Rgb(69, 69, 69),
+                Color::Rgb(253, 253, 253),
+                None,
+            ),
+            (
+                "Shades of Purple (base16)",
+                Color::Rgb(199, 199, 199),
+                Color::Rgb(30, 30, 63),
+                Color::Rgb(199, 199, 199),
+                Some(Color::Rgb(30, 30, 63)),
+                Some(Color::Rgb(199, 199, 199)),
+                Some(Some(Color::Rgb(30, 30, 63))),
+                Color::Rgb(30, 30, 63),
+                Color::Rgb(217, 4, 41),
+                Color::Rgb(58, 217, 0),
+                Color::Rgb(255, 231, 0),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(249, 42, 28)),
+            ),
+            (
+                "shades-of-purple",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(30, 29, 64),
+                Color::Rgb(250, 208, 0),
+                Some(Color::Rgb(254, 255, 244)),
+                Some(Color::Rgb(179, 98, 255)),
+                Some(Some(Color::Rgb(194, 194, 194))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(217, 4, 41),
+                Color::Rgb(58, 217, 0),
+                Color::Rgb(255, 231, 0),
+                Color::Rgb(104, 104, 104),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Shaman",
+                Color::Rgb(64, 85, 85),
+                Color::Rgb(0, 16, 21),
+                Color::Rgb(74, 252, 214),
+                Some(Color::Rgb(3, 20, 19)),
+                Some(Color::Rgb(65, 85, 85)),
+                Some(Some(Color::Rgb(90, 250, 214))),
+                Color::Rgb(1, 32, 38),
+                Color::Rgb(178, 48, 45),
+                Color::Rgb(0, 169, 65),
+                Color::Rgb(94, 139, 170),
+                Color::Rgb(56, 68, 81),
+                Color::Rgb(88, 251, 214),
+                None,
+            ),
+            (
+                "Shaman (Gogh)",
+                Color::Rgb(64, 85, 85),
+                Color::Rgb(0, 16, 21),
+                Color::Rgb(64, 85, 85),
+                Some(Color::Rgb(0, 16, 21)),
+                None,
+                None,
+                Color::Rgb(1, 32, 38),
+                Color::Rgb(178, 48, 45),
+                Color::Rgb(0, 169, 65),
+                Color::Rgb(94, 139, 170),
+                Color::Rgb(56, 68, 81),
+                Color::Rgb(88, 251, 214),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Seoulbones-to-Shaman built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
