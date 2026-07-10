@@ -3887,7 +3887,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Windows 10 (base16)`, `Windows 10 Light (base16)`,
   `Windows 95 (base16)`, `Windows 95 Light (base16)`,
   `Windows High Contrast (base16)`, `Windows High Contrast Light (base16)`,
-  `Windows NT (base16)`, `Windows NT Light (base16)`, `Wombat`, `Builtin Dark`,
+  `Windows NT (base16)`, `Windows NT Light (base16)`, `Wombat`,
+  `Wombat (Gogh)`, `Woodland (base16)`, `Wryan`, `Wryan (Gogh)`,
+  `Wzoreck (Gogh)`, `X::DotShare (terminal.sexy)`,
+  `X::Erosion (terminal.sexy)`, `XCode Dusk (base16)`,
+  `Yousai (terminal.sexy)`, `zenbones`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML

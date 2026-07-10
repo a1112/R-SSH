@@ -20482,6 +20482,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Windows NT (base16)" => Some(BUILTIN_WINDOWS_NT_BASE16_COLOR_SCHEME_TOML),
         "Windows NT Light (base16)" => Some(BUILTIN_WINDOWS_NT_LIGHT_BASE16_COLOR_SCHEME_TOML),
         "Wombat" => Some(BUILTIN_WOMBAT_COLOR_SCHEME_TOML),
+        "Wombat (Gogh)" => Some(BUILTIN_WOMBAT_GOGH_COLOR_SCHEME_TOML),
+        "Woodland (base16)" => Some(BUILTIN_WOODLAND_BASE16_COLOR_SCHEME_TOML),
+        "Wryan" => Some(BUILTIN_WRYAN_COLOR_SCHEME_TOML),
+        "Wryan (Gogh)" => Some(BUILTIN_WRYAN_GOGH_COLOR_SCHEME_TOML),
+        "Wzoreck (Gogh)" => Some(BUILTIN_WZORECK_GOGH_COLOR_SCHEME_TOML),
+        "X::DotShare (terminal.sexy)" => Some(BUILTIN_X_DOTSHARE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "X::Erosion (terminal.sexy)" => Some(BUILTIN_X_EROSION_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "XCode Dusk (base16)" => Some(BUILTIN_XCODE_DUSK_BASE16_COLOR_SCHEME_TOML),
+        "Yousai (terminal.sexy)" => Some(BUILTIN_YOUSAI_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "zenbones" | "zenbones_light" => Some(BUILTIN_ZENBONES_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -59891,6 +59901,392 @@ selection_fg = "#b6bbc0"
 [metadata]
 aliases = ["Wombat (Gogh)"]
 name = "Wombat"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_WOMBAT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff615a",
+    "#b1e969",
+    "#ebd99c",
+    "#5da9f6",
+    "#e86aff",
+    "#82fff7",
+    "#dedacf",
+]
+background = "#171717"
+brights = [
+    "#313131",
+    "#f58c80",
+    "#ddf88f",
+    "#eee5b2",
+    "#a5c7ff",
+    "#ddaaff",
+    "#b7fff9",
+    "#ffffff",
+]
+cursor_bg = "#dedacf"
+cursor_border = "#dedacf"
+cursor_fg = "#171717"
+foreground = "#dedacf"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Wombat (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_WOODLAND_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#231e18",
+    "#d35c5c",
+    "#b7ba53",
+    "#e0ac16",
+    "#88a4d3",
+    "#bb90e2",
+    "#6eb958",
+    "#cabcb1",
+]
+background = "#231e18"
+brights = [
+    "#9d8b70",
+    "#d35c5c",
+    "#b7ba53",
+    "#e0ac16",
+    "#88a4d3",
+    "#bb90e2",
+    "#6eb958",
+    "#e4d4c8",
+]
+cursor_bg = "#cabcb1"
+cursor_border = "#cabcb1"
+cursor_fg = "#231e18"
+foreground = "#cabcb1"
+selection_bg = "#cabcb1"
+selection_fg = "#231e18"
+
+[colors.indexed]
+16 = "#ca7f32"
+17 = "#b49368"
+18 = "#302b25"
+19 = "#48413a"
+20 = "#b4a490"
+21 = "#d7c8bc"
+
+[metadata]
+aliases = []
+author = "Jay Cornwall (https://jcornwall.com)"
+name = "Woodland (base16)"
+origin_url = "https://github.com/jcornwall/base16-woodland-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_WRYAN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#333333",
+    "#8c4665",
+    "#287373",
+    "#7c7c99",
+    "#395573",
+    "#5e468c",
+    "#31658c",
+    "#899ca1",
+]
+background = "#101010"
+brights = [
+    "#3d3d3d",
+    "#bf4d80",
+    "#53a6a6",
+    "#9e9ecb",
+    "#477ab3",
+    "#7e62b3",
+    "#6096bf",
+    "#c0c0c0",
+]
+cursor_bg = "#9e9ecb"
+cursor_border = "#9e9ecb"
+cursor_fg = "#000000"
+foreground = "#999993"
+selection_bg = "#4d4d4d"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Wryan (Gogh)"]
+name = "Wryan"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_WRYAN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#333333",
+    "#8c4665",
+    "#287373",
+    "#7c7c99",
+    "#395573",
+    "#5e468c",
+    "#31658c",
+    "#899ca1",
+]
+background = "#101010"
+brights = [
+    "#3d3d3d",
+    "#bf4d80",
+    "#53a6a6",
+    "#9e9ecb",
+    "#477ab3",
+    "#7e62b3",
+    "#6096bf",
+    "#c0c0c0",
+]
+cursor_bg = "#999993"
+cursor_border = "#999993"
+cursor_fg = "#101010"
+foreground = "#999993"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Wryan (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_WZORECK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e3436",
+    "#fc6386",
+    "#a9dc76",
+    "#fce94f",
+    "#fb976b",
+    "#75507b",
+    "#34e2e2",
+    "#ffffff",
+]
+background = "#424043"
+brights = [
+    "#989595",
+    "#fc6386",
+    "#a9dc76",
+    "#fce94f",
+    "#fb976b",
+    "#ab9df2",
+    "#34e2e2",
+    "#d1d1c0",
+]
+cursor_bg = "#fcfcfa"
+cursor_border = "#fcfcfa"
+cursor_fg = "#424043"
+foreground = "#fcfcfa"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Wzoreck (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_X_DOTSHARE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#101010",
+    "#e84f4f",
+    "#b8d68c",
+    "#e1aa5d",
+    "#7dc1cf",
+    "#9b64fb",
+    "#6d878d",
+    "#dddddd",
+]
+background = "#151515"
+brights = [
+    "#404040",
+    "#d23d3d",
+    "#a0cf5d",
+    "#f39d21",
+    "#4e9fb1",
+    "#8542ff",
+    "#42717b",
+    "#dddddd",
+]
+foreground = "#d7d0c7"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "crshd"
+name = "X::DotShare (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_X_EROSION_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#332d29",
+    "#8c644c",
+    "#746c48",
+    "#908a66",
+    "#646a6d",
+    "#605655",
+    "#4b5c5e",
+    "#504339",
+]
+background = "#181512"
+brights = [
+    "#817267",
+    "#9f7155",
+    "#857b52",
+    "#9c956e",
+    "#71777a",
+    "#656565",
+    "#556d70",
+    "#9a875f",
+]
+foreground = "#bea492"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "earsplit"
+name = "X::Erosion (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_XCODE_DUSK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282b35",
+    "#b21889",
+    "#df0002",
+    "#438288",
+    "#790ead",
+    "#b21889",
+    "#00a0be",
+    "#939599",
+]
+background = "#282b35"
+brights = [
+    "#686a71",
+    "#b21889",
+    "#df0002",
+    "#438288",
+    "#790ead",
+    "#b21889",
+    "#00a0be",
+    "#bebfc2",
+]
+cursor_bg = "#939599"
+cursor_border = "#939599"
+cursor_fg = "#282b35"
+foreground = "#939599"
+selection_bg = "#939599"
+selection_fg = "#282b35"
+
+[colors.indexed]
+16 = "#786dc5"
+17 = "#c77c48"
+18 = "#3d4048"
+19 = "#53555d"
+20 = "#7e8086"
+21 = "#a9aaae"
+
+[metadata]
+aliases = []
+author = "Elsa Gonsiorowski (https://github.com/gonsie)"
+name = "XCode Dusk (base16)"
+origin_url = "https://github.com/gonsie/base16-xcode-dusk-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_YOUSAI_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#666661",
+    "#992e2e",
+    "#4c3226",
+    "#a67c53",
+    "#4c7399",
+    "#bf9986",
+    "#d97742",
+    "#34302d",
+]
+background = "#f5e7de"
+brights = [
+    "#7f7f7a",
+    "#b23636",
+    "#664233",
+    "#bf8f60",
+    "#5986b2",
+    "#d9ae98",
+    "#f2854a",
+    "#4c4742",
+]
+foreground = "#34302d"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Kori"
+name = "Yousai (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ZENBONES_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f0edec",
+    "#a8334c",
+    "#4f6c31",
+    "#944927",
+    "#286486",
+    "#88507d",
+    "#3b8992",
+    "#2c363c",
+]
+background = "#f0edec"
+brights = [
+    "#cfc1ba",
+    "#94253e",
+    "#3f5a22",
+    "#803d1c",
+    "#1d5573",
+    "#7b3b70",
+    "#2b747c",
+    "#4f5e68",
+]
+cursor_bg = "#2c363c"
+cursor_border = "#2c363c"
+cursor_fg = "#f0edec"
+foreground = "#2c363c"
+selection_bg = "#cbd9e3"
+selection_fg = "#2c363c"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["zenbones_light"]
+name = "zenbones"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
 "##;
@@ -148330,6 +148726,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm wilmersdorf-to-Wombat built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_wombat_gogh_to_zenbones_builtin_color_schemes() {
+        let cases = [
+            (
+                "Wombat (Gogh)",
+                Color::Rgb(222, 218, 207),
+                Color::Rgb(23, 23, 23),
+                Color::Rgb(222, 218, 207),
+                Some(Color::Rgb(23, 23, 23)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 97, 90),
+                Color::Rgb(177, 233, 105),
+                Color::Rgb(235, 217, 156),
+                Color::Rgb(49, 49, 49),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Woodland (base16)",
+                Color::Rgb(202, 188, 177),
+                Color::Rgb(35, 30, 24),
+                Color::Rgb(202, 188, 177),
+                Some(Color::Rgb(35, 30, 24)),
+                Some(Color::Rgb(202, 188, 177)),
+                Some(Some(Color::Rgb(35, 30, 24))),
+                Color::Rgb(35, 30, 24),
+                Color::Rgb(211, 92, 92),
+                Color::Rgb(183, 186, 83),
+                Color::Rgb(224, 172, 22),
+                Color::Rgb(157, 139, 112),
+                Color::Rgb(228, 212, 200),
+                Some(Color::Rgb(202, 127, 50)),
+            ),
+            (
+                "Wryan",
+                Color::Rgb(153, 153, 147),
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(158, 158, 203),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(77, 77, 77)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(140, 70, 101),
+                Color::Rgb(40, 115, 115),
+                Color::Rgb(124, 124, 153),
+                Color::Rgb(61, 61, 61),
+                Color::Rgb(192, 192, 192),
+                None,
+            ),
+            (
+                "Wryan (Gogh)",
+                Color::Rgb(153, 153, 147),
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(153, 153, 147),
+                Some(Color::Rgb(16, 16, 16)),
+                None,
+                None,
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(140, 70, 101),
+                Color::Rgb(40, 115, 115),
+                Color::Rgb(124, 124, 153),
+                Color::Rgb(61, 61, 61),
+                Color::Rgb(192, 192, 192),
+                None,
+            ),
+            (
+                "Wzoreck (Gogh)",
+                Color::Rgb(252, 252, 250),
+                Color::Rgb(66, 64, 67),
+                Color::Rgb(252, 252, 250),
+                Some(Color::Rgb(66, 64, 67)),
+                None,
+                None,
+                Color::Rgb(46, 52, 54),
+                Color::Rgb(252, 99, 134),
+                Color::Rgb(169, 220, 118),
+                Color::Rgb(252, 233, 79),
+                Color::Rgb(152, 149, 149),
+                Color::Rgb(209, 209, 192),
+                None,
+            ),
+            (
+                "X::DotShare (terminal.sexy)",
+                Color::Rgb(215, 208, 199),
+                Color::Rgb(21, 21, 21),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(232, 79, 79),
+                Color::Rgb(184, 214, 140),
+                Color::Rgb(225, 170, 93),
+                Color::Rgb(64, 64, 64),
+                Color::Rgb(221, 221, 221),
+                None,
+            ),
+            (
+                "X::Erosion (terminal.sexy)",
+                Color::Rgb(190, 164, 146),
+                Color::Rgb(24, 21, 18),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(51, 45, 41),
+                Color::Rgb(140, 100, 76),
+                Color::Rgb(116, 108, 72),
+                Color::Rgb(144, 138, 102),
+                Color::Rgb(129, 114, 103),
+                Color::Rgb(154, 135, 95),
+                None,
+            ),
+            (
+                "XCode Dusk (base16)",
+                Color::Rgb(147, 149, 153),
+                Color::Rgb(40, 43, 53),
+                Color::Rgb(147, 149, 153),
+                Some(Color::Rgb(40, 43, 53)),
+                Some(Color::Rgb(147, 149, 153)),
+                Some(Some(Color::Rgb(40, 43, 53))),
+                Color::Rgb(40, 43, 53),
+                Color::Rgb(178, 24, 137),
+                Color::Rgb(223, 0, 2),
+                Color::Rgb(67, 130, 136),
+                Color::Rgb(104, 106, 113),
+                Color::Rgb(190, 191, 194),
+                Some(Color::Rgb(120, 109, 197)),
+            ),
+            (
+                "Yousai (terminal.sexy)",
+                Color::Rgb(52, 48, 45),
+                Color::Rgb(245, 231, 222),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(102, 102, 97),
+                Color::Rgb(153, 46, 46),
+                Color::Rgb(76, 50, 38),
+                Color::Rgb(166, 124, 83),
+                Color::Rgb(127, 127, 122),
+                Color::Rgb(76, 71, 66),
+                None,
+            ),
+            (
+                "zenbones",
+                Color::Rgb(44, 54, 60),
+                Color::Rgb(240, 237, 236),
+                Color::Rgb(44, 54, 60),
+                Some(Color::Rgb(240, 237, 236)),
+                Some(Color::Rgb(203, 217, 227)),
+                Some(Some(Color::Rgb(44, 54, 60))),
+                Color::Rgb(240, 237, 236),
+                Color::Rgb(168, 51, 76),
+                Color::Rgb(79, 108, 49),
+                Color::Rgb(148, 73, 39),
+                Color::Rgb(207, 193, 186),
+                Color::Rgb(79, 94, 104),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Wombat-Gogh-to-zenbones built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
