@@ -51,7 +51,7 @@ use winit::{
     event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey},
-    window::{Fullscreen, Window, WindowAttributes, WindowLevel as WinitWindowLevel},
+    window::{CursorIcon, Fullscreen, Window, WindowAttributes, WindowLevel as WinitWindowLevel},
 };
 
 use crate::{
@@ -77606,6 +77606,8 @@ struct NativeWindowApp {
     mouse_position: Option<(u16, u16)>,
     current_mouse_wheel_delta: Option<MouseScrollDelta>,
     mouse_cursor_visible: bool,
+    #[cfg_attr(not(test), allow(dead_code))]
+    mouse_cursor_icon: CursorIcon,
     active_mouse_button: Option<MouseButton>,
     last_mouse_info: Option<ItermMouseInfo>,
     selection: Option<WindowSelection>,
@@ -79159,6 +79161,7 @@ impl NativeWindowApp {
             mouse_position: None,
             current_mouse_wheel_delta: None,
             mouse_cursor_visible: true,
+            mouse_cursor_icon: CursorIcon::Default,
             active_mouse_button: None,
             last_mouse_info: None,
             selection: None,
@@ -86508,6 +86511,18 @@ impl NativeWindowApp {
         self.mouse_cursor_visible = visible;
         if let Some(window) = &self.window {
             window.set_cursor_visible(visible);
+        }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn set_mouse_cursor_icon(&mut self, icon: CursorIcon) {
+        if self.mouse_cursor_icon == icon {
+            return;
+        }
+
+        self.mouse_cursor_icon = icon;
+        if let Some(window) = &self.window {
+            window.set_cursor(icon);
         }
     }
 
@@ -118182,6 +118197,14 @@ fn split_resize_drag(
     })
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+fn split_resize_cursor_icon(direction: SplitDirection) -> CursorIcon {
+    match direction {
+        SplitDirection::Left | SplitDirection::Right => CursorIcon::EwResize,
+        SplitDirection::Up | SplitDirection::Down => CursorIcon::NsResize,
+    }
+}
+
 fn write_tab_bar_segment(
     cells: &mut [RenderCell],
     column: &mut u16,
@@ -120216,7 +120239,9 @@ mod tests {
     use winit::dpi::{PhysicalPosition, PhysicalSize};
     use winit::event::{ElementState, MouseButton, MouseScrollDelta};
     use winit::keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey};
+    use winit::window::CursorIcon;
 
+    use rssh_core::app_shell::SplitDirection;
     use rssh_pty::PtyExitStatus;
     use rssh_renderer::{
         RenderBackgroundImageAttachment, RenderGeometry, RenderScrollbarThumbSize,
@@ -174292,6 +174317,36 @@ mod tests {
 
         assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS, 34), Some('|'));
         assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS, 35), Some('r'));
+    }
+
+    #[test]
+    fn split_resize_cursor_icon_matches_wezterm_split_axes() {
+        assert_eq!(
+            super::split_resize_cursor_icon(SplitDirection::Left),
+            CursorIcon::EwResize
+        );
+        assert_eq!(
+            super::split_resize_cursor_icon(SplitDirection::Right),
+            CursorIcon::EwResize
+        );
+        assert_eq!(
+            super::split_resize_cursor_icon(SplitDirection::Up),
+            CursorIcon::NsResize
+        );
+        assert_eq!(
+            super::split_resize_cursor_icon(SplitDirection::Down),
+            CursorIcon::NsResize
+        );
+    }
+
+    #[test]
+    fn window_app_tracks_mouse_cursor_icon_without_native_window() {
+        let mut app = NativeWindowApp::new(None);
+        assert_eq!(app.mouse_cursor_icon, CursorIcon::Default);
+
+        app.set_mouse_cursor_icon(CursorIcon::EwResize);
+
+        assert_eq!(app.mouse_cursor_icon, CursorIcon::EwResize);
     }
 
     #[test]
