@@ -3891,7 +3891,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Wombat (Gogh)`, `Woodland (base16)`, `Wryan`, `Wryan (Gogh)`,
   `Wzoreck (Gogh)`, `X::DotShare (terminal.sexy)`,
   `X::Erosion (terminal.sexy)`, `XCode Dusk (base16)`,
-  `Yousai (terminal.sexy)`, `zenbones`, `Builtin Dark`,
+  `Yousai (terminal.sexy)`, `zenbones`, `zenbones_dark`, `Zenburn`,
+  `Zenburn (base16)`, `Zenburn (Gogh)`, `zenburn (terminal.sexy)`,
+  `zenburned`, `zenwritten_dark`, `zenwritten_light`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML

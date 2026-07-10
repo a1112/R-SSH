@@ -20492,6 +20492,14 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "XCode Dusk (base16)" => Some(BUILTIN_XCODE_DUSK_BASE16_COLOR_SCHEME_TOML),
         "Yousai (terminal.sexy)" => Some(BUILTIN_YOUSAI_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "zenbones" | "zenbones_light" => Some(BUILTIN_ZENBONES_COLOR_SCHEME_TOML),
+        "zenbones_dark" => Some(BUILTIN_ZENBONES_DARK_COLOR_SCHEME_TOML),
+        "Zenburn" => Some(BUILTIN_ZENBURN_COLOR_SCHEME_TOML),
+        "Zenburn (base16)" => Some(BUILTIN_ZENBURN_BASE16_COLOR_SCHEME_TOML),
+        "Zenburn (Gogh)" => Some(BUILTIN_ZENBURN_GOGH_COLOR_SCHEME_TOML),
+        "zenburn (terminal.sexy)" => Some(BUILTIN_ZENBURN_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "zenburned" => Some(BUILTIN_ZENBURNED_COLOR_SCHEME_TOML),
+        "zenwritten_dark" => Some(BUILTIN_ZENWRITTEN_DARK_COLOR_SCHEME_TOML),
+        "zenwritten_light" => Some(BUILTIN_ZENWRITTEN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -60287,6 +60295,318 @@ selection_fg = "#2c363c"
 [metadata]
 aliases = ["zenbones_light"]
 name = "zenbones"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ZENBONES_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1917",
+    "#de6e7c",
+    "#819b69",
+    "#b77e64",
+    "#6099c0",
+    "#b279a7",
+    "#66a5ad",
+    "#b4bdc3",
+]
+background = "#1c1917"
+brights = [
+    "#403833",
+    "#e8838f",
+    "#8bae68",
+    "#d68c67",
+    "#61abda",
+    "#cf86c1",
+    "#65b8c1",
+    "#888f94",
+]
+cursor_bg = "#c4cacf"
+cursor_border = "#c4cacf"
+cursor_fg = "#1c1917"
+foreground = "#b4bdc3"
+selection_bg = "#3d4042"
+selection_fg = "#b4bdc3"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "zenbones_dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ZENBURN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#4d4d4d",
+    "#705050",
+    "#60b48a",
+    "#f0dfaf",
+    "#506070",
+    "#dc8cc3",
+    "#8cd0d3",
+    "#dcdccc",
+]
+background = "#3f3f3f"
+brights = [
+    "#709080",
+    "#dca3a3",
+    "#c3bf9f",
+    "#e0cf9f",
+    "#94bff3",
+    "#ec93d3",
+    "#93e0e3",
+    "#ffffff",
+]
+cursor_bg = "#73635a"
+cursor_border = "#73635a"
+cursor_fg = "#000000"
+foreground = "#dcdccc"
+selection_bg = "#21322f"
+selection_fg = "#c2d87a"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Zenburn (Gogh)"]
+name = "Zenburn"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ZENBURN_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#383838",
+    "#dca3a3",
+    "#5f7f5f",
+    "#e0cf9f",
+    "#7cb8bb",
+    "#dc8cc3",
+    "#93e0e3",
+    "#dcdccc",
+]
+background = "#383838"
+brights = [
+    "#6f6f6f",
+    "#dca3a3",
+    "#5f7f5f",
+    "#e0cf9f",
+    "#7cb8bb",
+    "#dc8cc3",
+    "#93e0e3",
+    "#ffffff",
+]
+cursor_bg = "#dcdccc"
+cursor_border = "#dcdccc"
+cursor_fg = "#383838"
+foreground = "#dcdccc"
+selection_bg = "#dcdccc"
+selection_fg = "#383838"
+
+[colors.indexed]
+16 = "#dfaf8f"
+17 = "#000000"
+18 = "#404040"
+19 = "#606060"
+20 = "#808080"
+21 = "#c0c0c0"
+
+[metadata]
+aliases = []
+author = "elnawe"
+name = "Zenburn (base16)"
+origin_url = "https://github.com/elnawe/base16-zenburn-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ZENBURN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#333333",
+    "#cc9393",
+    "#efef87",
+    "#ffd7a7",
+    "#c3bf97",
+    "#bca3a3",
+    "#93b3a3",
+    "#f0efd0",
+]
+background = "#3a3a3a"
+brights = [
+    "#757575",
+    "#dfaf87",
+    "#ffff87",
+    "#ffcfaf",
+    "#d7d7af",
+    "#d7afaf",
+    "#93bea3",
+    "#dcdccc",
+]
+cursor_bg = "#dcdccc"
+cursor_border = "#dcdccc"
+cursor_fg = "#3a3a3a"
+foreground = "#dcdccc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Zenburn (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_ZENBURN_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e2320",
+    "#705050",
+    "#60b48a",
+    "#dfaf8f",
+    "#506070",
+    "#dc8cc3",
+    "#8cd0d3",
+    "#dcdccc",
+]
+background = "#000000"
+brights = [
+    "#709080",
+    "#dca3a3",
+    "#c3bf9f",
+    "#f0dfaf",
+    "#94bff3",
+    "#ec93d3",
+    "#93e0e3",
+    "#ffffff",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "zenburn (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_ZENBURNED_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#404040",
+    "#e3716e",
+    "#819b69",
+    "#b77e64",
+    "#6099c0",
+    "#b279a7",
+    "#66a5ad",
+    "#f0e4cf",
+]
+background = "#404040"
+brights = [
+    "#625a5b",
+    "#ec8685",
+    "#8bae68",
+    "#d68c67",
+    "#61abda",
+    "#cf86c1",
+    "#65b8c1",
+    "#c0ab86",
+]
+cursor_bg = "#f3eadb"
+cursor_border = "#f3eadb"
+cursor_fg = "#404040"
+foreground = "#f0e4cf"
+selection_bg = "#746956"
+selection_fg = "#f0e4cf"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "zenburned"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ZENWRITTEN_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#191919",
+    "#de6e7c",
+    "#819b69",
+    "#b77e64",
+    "#6099c0",
+    "#b279a7",
+    "#66a5ad",
+    "#bbbbbb",
+]
+background = "#191919"
+brights = [
+    "#3d3839",
+    "#e8838f",
+    "#8bae68",
+    "#d68c67",
+    "#61abda",
+    "#cf86c1",
+    "#65b8c1",
+    "#8e8e8e",
+]
+cursor_bg = "#c9c9c9"
+cursor_border = "#c9c9c9"
+cursor_fg = "#191919"
+foreground = "#bbbbbb"
+selection_bg = "#404040"
+selection_fg = "#bbbbbb"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "zenwritten_dark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ZENWRITTEN_LIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#eeeeee",
+    "#a8334c",
+    "#4f6c31",
+    "#944927",
+    "#286486",
+    "#88507d",
+    "#3b8992",
+    "#353535",
+]
+background = "#eeeeee"
+brights = [
+    "#c6c3c3",
+    "#94253e",
+    "#3f5a22",
+    "#803d1c",
+    "#1d5573",
+    "#7b3b70",
+    "#2b747c",
+    "#5c5c5c",
+]
+cursor_bg = "#353535"
+cursor_border = "#353535"
+cursor_fg = "#eeeeee"
+foreground = "#353535"
+selection_bg = "#d7d7d7"
+selection_fg = "#353535"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "zenwritten_light"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "Always"
 "##;
@@ -148948,6 +149268,196 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Wombat-Gogh-to-zenbones built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_zenbones_dark_to_zenwritten_light_builtin_color_schemes() {
+        let cases = [
+            (
+                "zenbones_dark",
+                Color::Rgb(180, 189, 195),
+                Color::Rgb(28, 25, 23),
+                Color::Rgb(196, 202, 207),
+                Some(Color::Rgb(28, 25, 23)),
+                Some(Color::Rgb(61, 64, 66)),
+                Some(Some(Color::Rgb(180, 189, 195))),
+                Color::Rgb(28, 25, 23),
+                Color::Rgb(222, 110, 124),
+                Color::Rgb(129, 155, 105),
+                Color::Rgb(183, 126, 100),
+                Color::Rgb(64, 56, 51),
+                Color::Rgb(136, 143, 148),
+                None,
+            ),
+            (
+                "Zenburn",
+                Color::Rgb(220, 220, 204),
+                Color::Rgb(63, 63, 63),
+                Color::Rgb(115, 99, 90),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(33, 50, 47)),
+                Some(Some(Color::Rgb(194, 216, 122))),
+                Color::Rgb(77, 77, 77),
+                Color::Rgb(112, 80, 80),
+                Color::Rgb(96, 180, 138),
+                Color::Rgb(240, 223, 175),
+                Color::Rgb(112, 144, 128),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Zenburn (base16)",
+                Color::Rgb(220, 220, 204),
+                Color::Rgb(56, 56, 56),
+                Color::Rgb(220, 220, 204),
+                Some(Color::Rgb(56, 56, 56)),
+                Some(Color::Rgb(220, 220, 204)),
+                Some(Some(Color::Rgb(56, 56, 56))),
+                Color::Rgb(56, 56, 56),
+                Color::Rgb(220, 163, 163),
+                Color::Rgb(95, 127, 95),
+                Color::Rgb(224, 207, 159),
+                Color::Rgb(111, 111, 111),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(223, 175, 143)),
+            ),
+            (
+                "Zenburn (Gogh)",
+                Color::Rgb(220, 220, 204),
+                Color::Rgb(58, 58, 58),
+                Color::Rgb(220, 220, 204),
+                Some(Color::Rgb(58, 58, 58)),
+                None,
+                None,
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(204, 147, 147),
+                Color::Rgb(239, 239, 135),
+                Color::Rgb(255, 215, 167),
+                Color::Rgb(117, 117, 117),
+                Color::Rgb(220, 220, 204),
+                None,
+            ),
+            (
+                "zenburn (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(30, 35, 32),
+                Color::Rgb(112, 80, 80),
+                Color::Rgb(96, 180, 138),
+                Color::Rgb(223, 175, 143),
+                Color::Rgb(112, 144, 128),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "zenburned",
+                Color::Rgb(240, 228, 207),
+                Color::Rgb(64, 64, 64),
+                Color::Rgb(243, 234, 219),
+                Some(Color::Rgb(64, 64, 64)),
+                Some(Color::Rgb(116, 105, 86)),
+                Some(Some(Color::Rgb(240, 228, 207))),
+                Color::Rgb(64, 64, 64),
+                Color::Rgb(227, 113, 110),
+                Color::Rgb(129, 155, 105),
+                Color::Rgb(183, 126, 100),
+                Color::Rgb(98, 90, 91),
+                Color::Rgb(192, 171, 134),
+                None,
+            ),
+            (
+                "zenwritten_dark",
+                Color::Rgb(187, 187, 187),
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(201, 201, 201),
+                Some(Color::Rgb(25, 25, 25)),
+                Some(Color::Rgb(64, 64, 64)),
+                Some(Some(Color::Rgb(187, 187, 187))),
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(222, 110, 124),
+                Color::Rgb(129, 155, 105),
+                Color::Rgb(183, 126, 100),
+                Color::Rgb(61, 56, 57),
+                Color::Rgb(142, 142, 142),
+                None,
+            ),
+            (
+                "zenwritten_light",
+                Color::Rgb(53, 53, 53),
+                Color::Rgb(238, 238, 238),
+                Color::Rgb(53, 53, 53),
+                Some(Color::Rgb(238, 238, 238)),
+                Some(Color::Rgb(215, 215, 215)),
+                Some(Some(Color::Rgb(53, 53, 53))),
+                Color::Rgb(238, 238, 238),
+                Color::Rgb(168, 51, 76),
+                Color::Rgb(79, 108, 49),
+                Color::Rgb(148, 73, 39),
+                Color::Rgb(198, 195, 195),
+                Color::Rgb(92, 92, 92),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm zenbones-dark-to-zenwritten-light built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
