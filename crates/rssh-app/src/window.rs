@@ -20274,6 +20274,22 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Solarized Light (Gogh)" => Some(BUILTIN_SOLARIZED_LIGHT_GOGH_COLOR_SCHEME_TOML),
         "Sonokai (Gogh)" => Some(BUILTIN_SONOKAI_GOGH_COLOR_SCHEME_TOML),
+        "SOS (terminal.sexy)" => Some(BUILTIN_SOS_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Spacedust" => Some(BUILTIN_SPACEDUST_COLOR_SCHEME_TOML),
+        "Spacedust (Gogh)" => Some(BUILTIN_SPACEDUST_GOGH_COLOR_SCHEME_TOML),
+        "SpaceGray" => Some(BUILTIN_SPACEGRAY_COLOR_SCHEME_TOML),
+        "Spacegray (Gogh)" => Some(BUILTIN_SPACEGRAY_GOGH_COLOR_SCHEME_TOML),
+        "SpaceGray Eighties" | "SpaceGrayEighties (Gogh)" => {
+            Some(BUILTIN_SPACEGRAY_EIGHTIES_COLOR_SCHEME_TOML)
+        }
+        "Spacegray Eighties (Gogh)" => Some(BUILTIN_SPACEGRAY_EIGHTIES_GOGH_COLOR_SCHEME_TOML),
+        "SpaceGray Eighties Dull" | "SpaceGrayEightiesDull (Gogh)" => {
+            Some(BUILTIN_SPACEGRAY_EIGHTIES_DULL_COLOR_SCHEME_TOML)
+        }
+        "Spacegray Eighties Dull (Gogh)" => {
+            Some(BUILTIN_SPACEGRAY_EIGHTIES_DULL_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Spacemacs (base16)" => Some(BUILTIN_SPACEMACS_BASE16_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -53464,6 +53480,397 @@ foreground = "#e2e2e3"
 aliases = []
 name = "Sonokai (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SOS_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#373b43",
+    "#fdcd39",
+    "#fbfd59",
+    "#deac40",
+    "#afb171",
+    "#b387e7",
+    "#63e860",
+    "#efdecb",
+]
+background = "#373b43"
+brights = [
+    "#373b43",
+    "#fdcd39",
+    "#fbfd59",
+    "#deac40",
+    "#afb171",
+    "#b387e7",
+    "#63e860",
+    "#efdecb",
+]
+foreground = "#78796f"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Rooster"
+name = "SOS (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SPACEDUST_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#6e5346",
+    "#e35b00",
+    "#5cab96",
+    "#e3cd7b",
+    "#0f548b",
+    "#e35b00",
+    "#06afc7",
+    "#f0f1ce",
+]
+background = "#0a1e24"
+brights = [
+    "#684c31",
+    "#ff8a3a",
+    "#aecab8",
+    "#ffc878",
+    "#67a0ce",
+    "#ff8a3a",
+    "#83a7b4",
+    "#fefff1",
+]
+cursor_bg = "#708284"
+cursor_border = "#708284"
+cursor_fg = "#002831"
+foreground = "#ecf0c1"
+selection_bg = "#0a385c"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Spacedust (Gogh)"]
+name = "Spacedust"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SPACEDUST_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#6e5346",
+    "#e35b00",
+    "#5cab96",
+    "#e3cd7b",
+    "#0f548b",
+    "#e35b00",
+    "#06afc7",
+    "#f0f1ce",
+]
+background = "#0a1e24"
+brights = [
+    "#684c31",
+    "#ff8a3a",
+    "#aecab8",
+    "#ffc878",
+    "#67a0ce",
+    "#ff8a3a",
+    "#83a7b4",
+    "#fefff1",
+]
+cursor_bg = "#ecf0c1"
+cursor_border = "#ecf0c1"
+cursor_fg = "#0a1e24"
+foreground = "#ecf0c1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Spacedust (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SPACEGRAY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#b04b57",
+    "#87b379",
+    "#e5c179",
+    "#7d8fa4",
+    "#a47996",
+    "#85a7a5",
+    "#b3b8c3",
+]
+background = "#20242d"
+brights = [
+    "#000000",
+    "#b04b57",
+    "#87b379",
+    "#e5c179",
+    "#7d8fa4",
+    "#a47996",
+    "#85a7a5",
+    "#ffffff",
+]
+cursor_bg = "#b3b8c3"
+cursor_border = "#b3b8c3"
+cursor_fg = "#1d1f21"
+foreground = "#b3b8c3"
+selection_bg = "#16181e"
+selection_fg = "#b3b8c3"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Spacegray (Gogh)"]
+name = "SpaceGray"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SPACEGRAY_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#b04b57",
+    "#87b379",
+    "#e5c179",
+    "#7d8fa4",
+    "#a47996",
+    "#85a7a5",
+    "#b3b8c3",
+]
+background = "#20242d"
+brights = [
+    "#000000",
+    "#b04b57",
+    "#87b379",
+    "#e5c179",
+    "#7d8fa4",
+    "#a47996",
+    "#85a7a5",
+    "#ffffff",
+]
+cursor_bg = "#b3b8c3"
+cursor_border = "#b3b8c3"
+cursor_fg = "#20242d"
+foreground = "#b3b8c3"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Spacegray (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SPACEGRAY_EIGHTIES_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#15171c",
+    "#ec5f67",
+    "#81a764",
+    "#fec254",
+    "#5486c0",
+    "#bf83c1",
+    "#57c2c1",
+    "#efece7",
+]
+background = "#222222"
+brights = [
+    "#555555",
+    "#ff6973",
+    "#93d493",
+    "#ffd256",
+    "#4d84d1",
+    "#ff55ff",
+    "#83e9e4",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#bdbaae"
+selection_bg = "#272e35"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "SpaceGrayEighties (Gogh)",
+    "Spacegray Eighties (Gogh)",
+]
+name = "SpaceGray Eighties"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SPACEGRAY_EIGHTIES_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#15171c",
+    "#ec5f67",
+    "#81a764",
+    "#fec254",
+    "#5486c0",
+    "#bf83c1",
+    "#57c2c1",
+    "#efece7",
+]
+background = "#222222"
+brights = [
+    "#555555",
+    "#ff6973",
+    "#93d493",
+    "#ffd256",
+    "#4d84d1",
+    "#ff55ff",
+    "#83e9e4",
+    "#ffffff",
+]
+cursor_bg = "#bdbaae"
+cursor_border = "#bdbaae"
+cursor_fg = "#222222"
+foreground = "#bdbaae"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Spacegray Eighties (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SPACEGRAY_EIGHTIES_DULL_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#15171c",
+    "#b24a56",
+    "#92b477",
+    "#c6735a",
+    "#7c8fa5",
+    "#a5789e",
+    "#80cdcb",
+    "#b3b8c3",
+]
+background = "#222222"
+brights = [
+    "#555555",
+    "#ec5f67",
+    "#89e986",
+    "#fec254",
+    "#5486c0",
+    "#bf83c1",
+    "#58c2c1",
+    "#ffffff",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#c9c6bc"
+selection_bg = "#272e36"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "SpaceGrayEightiesDull (Gogh)",
+    "Spacegray Eighties Dull (Gogh)",
+]
+name = "SpaceGray Eighties Dull"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SPACEGRAY_EIGHTIES_DULL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#15171c",
+    "#b24a56",
+    "#92b477",
+    "#c6735a",
+    "#7c8fa5",
+    "#a5789e",
+    "#80cdcb",
+    "#b3b8c3",
+]
+background = "#222222"
+brights = [
+    "#555555",
+    "#ec5f67",
+    "#89e986",
+    "#fec254",
+    "#5486c0",
+    "#bf83c1",
+    "#58c2c1",
+    "#ffffff",
+]
+cursor_bg = "#c9c6bc"
+cursor_border = "#c9c6bc"
+cursor_fg = "#222222"
+foreground = "#c9c6bc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Spacegray Eighties Dull (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SPACEMACS_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1f2022",
+    "#f2241f",
+    "#67b11d",
+    "#b1951d",
+    "#4f97d7",
+    "#a31db1",
+    "#2d9574",
+    "#a3a3a3",
+]
+background = "#1f2022"
+brights = [
+    "#585858",
+    "#f2241f",
+    "#67b11d",
+    "#b1951d",
+    "#4f97d7",
+    "#a31db1",
+    "#2d9574",
+    "#f8f8f8",
+]
+cursor_bg = "#a3a3a3"
+cursor_border = "#a3a3a3"
+cursor_fg = "#1f2022"
+foreground = "#a3a3a3"
+selection_bg = "#a3a3a3"
+selection_fg = "#1f2022"
+
+[colors.indexed]
+16 = "#ffa500"
+17 = "#b03060"
+18 = "#282828"
+19 = "#444155"
+20 = "#b8b8b8"
+21 = "#e8e8e8"
+
+[metadata]
+aliases = []
+author = "Nasser Alshammari (https://github.com/nashamri/spacemacs-theme)"
+name = "Spacemacs (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -138200,6 +138607,260 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Solarized-to-Sonokai built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_sos_to_spacemacs_builtin_color_schemes_and_aliases() {
+        let cases = [
+            (
+                "SOS (terminal.sexy)",
+                Color::Rgb(120, 121, 111),
+                Color::Rgb(55, 59, 67),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(55, 59, 67),
+                Color::Rgb(253, 205, 57),
+                Color::Rgb(251, 253, 89),
+                Color::Rgb(222, 172, 64),
+                Color::Rgb(55, 59, 67),
+                Color::Rgb(239, 222, 203),
+                None,
+            ),
+            (
+                "Spacedust",
+                Color::Rgb(236, 240, 193),
+                Color::Rgb(10, 30, 36),
+                Color::Rgb(112, 130, 132),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Color::Rgb(10, 56, 92)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(110, 83, 70),
+                Color::Rgb(227, 91, 0),
+                Color::Rgb(92, 171, 150),
+                Color::Rgb(227, 205, 123),
+                Color::Rgb(104, 76, 49),
+                Color::Rgb(254, 255, 241),
+                None,
+            ),
+            (
+                "Spacedust (Gogh)",
+                Color::Rgb(236, 240, 193),
+                Color::Rgb(10, 30, 36),
+                Color::Rgb(236, 240, 193),
+                Some(Color::Rgb(10, 30, 36)),
+                None,
+                None,
+                Color::Rgb(110, 83, 70),
+                Color::Rgb(227, 91, 0),
+                Color::Rgb(92, 171, 150),
+                Color::Rgb(227, 205, 123),
+                Color::Rgb(104, 76, 49),
+                Color::Rgb(254, 255, 241),
+                None,
+            ),
+            (
+                "SpaceGray",
+                Color::Rgb(179, 184, 195),
+                Color::Rgb(32, 36, 45),
+                Color::Rgb(179, 184, 195),
+                Some(Color::Rgb(29, 31, 33)),
+                Some(Color::Rgb(22, 24, 30)),
+                Some(Some(Color::Rgb(179, 184, 195))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(176, 75, 87),
+                Color::Rgb(135, 179, 121),
+                Color::Rgb(229, 193, 121),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Spacegray (Gogh)",
+                Color::Rgb(179, 184, 195),
+                Color::Rgb(32, 36, 45),
+                Color::Rgb(179, 184, 195),
+                Some(Color::Rgb(32, 36, 45)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(176, 75, 87),
+                Color::Rgb(135, 179, 121),
+                Color::Rgb(229, 193, 121),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "SpaceGray Eighties",
+                Color::Rgb(189, 186, 174),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(39, 46, 53)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(21, 23, 28),
+                Color::Rgb(236, 95, 103),
+                Color::Rgb(129, 167, 100),
+                Color::Rgb(254, 194, 84),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "SpaceGrayEighties (Gogh)",
+                Color::Rgb(189, 186, 174),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(39, 46, 53)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(21, 23, 28),
+                Color::Rgb(236, 95, 103),
+                Color::Rgb(129, 167, 100),
+                Color::Rgb(254, 194, 84),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Spacegray Eighties (Gogh)",
+                Color::Rgb(189, 186, 174),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(189, 186, 174),
+                Some(Color::Rgb(34, 34, 34)),
+                None,
+                None,
+                Color::Rgb(21, 23, 28),
+                Color::Rgb(236, 95, 103),
+                Color::Rgb(129, 167, 100),
+                Color::Rgb(254, 194, 84),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "SpaceGray Eighties Dull",
+                Color::Rgb(201, 198, 188),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(39, 46, 54)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(21, 23, 28),
+                Color::Rgb(178, 74, 86),
+                Color::Rgb(146, 180, 119),
+                Color::Rgb(198, 115, 90),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "SpaceGrayEightiesDull (Gogh)",
+                Color::Rgb(201, 198, 188),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(39, 46, 54)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(21, 23, 28),
+                Color::Rgb(178, 74, 86),
+                Color::Rgb(146, 180, 119),
+                Color::Rgb(198, 115, 90),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Spacegray Eighties Dull (Gogh)",
+                Color::Rgb(201, 198, 188),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(201, 198, 188),
+                Some(Color::Rgb(34, 34, 34)),
+                None,
+                None,
+                Color::Rgb(21, 23, 28),
+                Color::Rgb(178, 74, 86),
+                Color::Rgb(146, 180, 119),
+                Color::Rgb(198, 115, 90),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Spacemacs (base16)",
+                Color::Rgb(163, 163, 163),
+                Color::Rgb(31, 32, 34),
+                Color::Rgb(163, 163, 163),
+                Some(Color::Rgb(31, 32, 34)),
+                Some(Color::Rgb(163, 163, 163)),
+                Some(Some(Color::Rgb(31, 32, 34))),
+                Color::Rgb(31, 32, 34),
+                Color::Rgb(242, 36, 31),
+                Color::Rgb(103, 177, 29),
+                Color::Rgb(177, 149, 29),
+                Color::Rgb(88, 88, 88),
+                Color::Rgb(248, 248, 248),
+                Some(Color::Rgb(255, 165, 0)),
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm SOS-to-Spacemacs built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

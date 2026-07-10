@@ -3837,7 +3837,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Solarized Darcula (Gogh)`, `Solarized Dark (Gogh)`,
   `Solarized Dark - Patched`, `Solarized Dark Higher Contrast`,
   `Solarized Dark Higher Contrast (Gogh)`, `Solarized Light (Gogh)`,
-  `Sonokai (Gogh)`, `Builtin Dark`,
+  `Sonokai (Gogh)`, `SOS (terminal.sexy)`, `Spacedust`,
+  `Spacedust (Gogh)`, `SpaceGray`, `Spacegray (Gogh)`,
+  `SpaceGray Eighties`, `Spacegray Eighties (Gogh)`,
+  `SpaceGray Eighties Dull`, `Spacegray Eighties Dull (Gogh)`,
+  `Spacemacs (base16)`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
