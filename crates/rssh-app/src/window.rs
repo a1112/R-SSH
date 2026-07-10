@@ -20432,6 +20432,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Unsifted Wheat (terminal.sexy)" => {
             Some(BUILTIN_UNSIFTED_WHEAT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
+        "Ura (Gogh)" => Some(BUILTIN_URA_GOGH_COLOR_SCHEME_TOML),
+        "Urple" => Some(BUILTIN_URPLE_COLOR_SCHEME_TOML),
+        "Urple (Gogh)" => Some(BUILTIN_URPLE_GOGH_COLOR_SCHEME_TOML),
+        "Vacuous 2 (terminal.sexy)" => Some(BUILTIN_VACUOUS_2_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Vag (Gogh)" => Some(BUILTIN_VAG_GOGH_COLOR_SCHEME_TOML),
+        "Vaughn" => Some(BUILTIN_VAUGHN_COLOR_SCHEME_TOML),
+        "Vaughn (Gogh)" => Some(BUILTIN_VAUGHN_GOGH_COLOR_SCHEME_TOML),
+        "Vesper" => Some(BUILTIN_VESPER_COLOR_SCHEME_TOML),
+        "Vibrant Ink (Gogh)" => Some(BUILTIN_VIBRANT_INK_GOGH_COLOR_SCHEME_TOML),
+        "VibrantInk" => Some(BUILTIN_VIBRANTINK_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -58250,6 +58260,382 @@ author = "dkeg"
 name = "Unsifted Wheat (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_URA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#c21b6f",
+    "#6fc21b",
+    "#c26f1b",
+    "#1b6fc2",
+    "#6f1bc2",
+    "#1bc26f",
+    "#808080",
+]
+background = "#feffee"
+brights = [
+    "#808080",
+    "#ee84b9",
+    "#b9ee84",
+    "#eeb984",
+    "#84b9ee",
+    "#b984ee",
+    "#84eeb9",
+    "#e5e5e5",
+]
+cursor_bg = "#23476a"
+cursor_border = "#23476a"
+cursor_fg = "#feffee"
+foreground = "#23476a"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Ura (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_URPLE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#b0425b",
+    "#37a415",
+    "#ad5c42",
+    "#564d9b",
+    "#6c3ca1",
+    "#808080",
+    "#87799c",
+]
+background = "#1b1b23"
+brights = [
+    "#5d3225",
+    "#ff6388",
+    "#29e620",
+    "#f08161",
+    "#867aed",
+    "#a05eee",
+    "#eaeaea",
+    "#bfa3ff",
+]
+cursor_bg = "#a063eb"
+cursor_border = "#a063eb"
+cursor_fg = "#1b1b22"
+foreground = "#877a9b"
+selection_bg = "#a063eb"
+selection_fg = "#1b1b22"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Urple (Gogh)"]
+name = "Urple"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_URPLE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#b0425b",
+    "#37a415",
+    "#ad5c42",
+    "#564d9b",
+    "#6c3ca1",
+    "#808080",
+    "#87799c",
+]
+background = "#1b1b23"
+brights = [
+    "#5d3225",
+    "#ff6388",
+    "#29e620",
+    "#f08161",
+    "#867aed",
+    "#a05eee",
+    "#eaeaea",
+    "#bfa3ff",
+]
+cursor_bg = "#877a9b"
+cursor_border = "#877a9b"
+cursor_fg = "#1b1b23"
+foreground = "#877a9b"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Urple (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_VACUOUS_2_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#202020",
+    "#b91e2e",
+    "#81957c",
+    "#f9bb80",
+    "#356579",
+    "#2d2031",
+    "#0b3452",
+    "#909090",
+]
+background = "#101010"
+brights = [
+    "#606060",
+    "#d14548",
+    "#a7b79a",
+    "#fae3a0",
+    "#7491a1",
+    "#87314e",
+    "#0f829d",
+    "#fff0f0",
+]
+foreground = "#d2c5bc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "hal"
+name = "Vacuous 2 (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_VAG_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#303030",
+    "#a87139",
+    "#39a871",
+    "#71a839",
+    "#7139a8",
+    "#a83971",
+    "#3971a8",
+    "#8a8a8a",
+]
+background = "#191f1d"
+brights = [
+    "#494949",
+    "#b0763b",
+    "#3bb076",
+    "#76b03b",
+    "#763bb0",
+    "#b03b76",
+    "#3b76b0",
+    "#cfcfcf",
+]
+cursor_bg = "#d9e6f2"
+cursor_border = "#d9e6f2"
+cursor_fg = "#191f1d"
+foreground = "#d9e6f2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Vag (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_VAUGHN_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#25234f",
+    "#705050",
+    "#60b48a",
+    "#dfaf8f",
+    "#5555ff",
+    "#f08cc3",
+    "#8cd0d3",
+    "#709080",
+]
+background = "#25234f"
+brights = [
+    "#709080",
+    "#dca3a3",
+    "#60b48a",
+    "#f0dfaf",
+    "#5555ff",
+    "#ec93d3",
+    "#93e0e3",
+    "#ffffff",
+]
+cursor_bg = "#ff5555"
+cursor_border = "#ff5555"
+cursor_fg = "#ffffff"
+foreground = "#dcdccc"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Vaughn (Gogh)"]
+name = "Vaughn"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_VAUGHN_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#25234f",
+    "#705050",
+    "#60b48a",
+    "#dfaf8f",
+    "#5555ff",
+    "#f08cc3",
+    "#8cd0d3",
+    "#709080",
+]
+background = "#25234f"
+brights = [
+    "#709080",
+    "#dca3a3",
+    "#60b48a",
+    "#f0dfaf",
+    "#5555ff",
+    "#ec93d3",
+    "#93e0e3",
+    "#ffffff",
+]
+cursor_bg = "#dcdccc"
+cursor_border = "#dcdccc"
+cursor_fg = "#25234f"
+foreground = "#dcdccc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Vaughn (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_VESPER_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#101010",
+    "#f5a191",
+    "#90b99f",
+    "#e6b99d",
+    "#aca1cf",
+    "#e29eca",
+    "#ea83a5",
+    "#a0a0a0",
+]
+background = "#101010"
+brights = [
+    "#7e7e7e",
+    "#ff8080",
+    "#99ffe4",
+    "#ffc799",
+    "#b9aeda",
+    "#ecaad6",
+    "#f591b2",
+    "#ffffff",
+]
+cursor_bg = "#acb1ab"
+cursor_border = "#acb1ab"
+cursor_fg = "#ffffff"
+foreground = "#ffffff"
+selection_bg = "#988049"
+selection_fg = "#acb1ab"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Vesper"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "nightly builds only"
+"##;
+
+const BUILTIN_VIBRANT_INK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#878787",
+    "#ff6600",
+    "#ccff04",
+    "#ffcc00",
+    "#44b4cc",
+    "#9933cc",
+    "#44b4cc",
+    "#f5f5f5",
+]
+background = "#000000"
+brights = [
+    "#555555",
+    "#ff0000",
+    "#00ff00",
+    "#ffff00",
+    "#0000ff",
+    "#ff00ff",
+    "#00ffff",
+    "#e5e5e5",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Vibrant Ink (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_VIBRANTINK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#878787",
+    "#ff6600",
+    "#ccff04",
+    "#ffcc00",
+    "#44b4cc",
+    "#9933cc",
+    "#44b4cc",
+    "#f5f5f5",
+]
+background = "#000000"
+brights = [
+    "#555555",
+    "#ff0000",
+    "#00ff00",
+    "#ffff00",
+    "#0000ff",
+    "#ff00ff",
+    "#00ffff",
+    "#e5e5e5",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Vibrant Ink (Gogh)"]
+name = "VibrantInk"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -145666,7 +146052,7 @@ mod tests {
     }
 
     #[test]
-    fn window_app_loads_wezterm_lua_twilight_light_to_unsifted_wheat_builtin_color_schemes() {
+    fn window_app_loads_wezterm_lua_twilight_light_to_vibrantink_builtin_color_schemes() {
         let cases = [
             (
                 "Twilight (light) (terminal.sexy)",
@@ -145826,6 +146212,166 @@ mod tests {
                 Color::Rgb(121, 102, 90),
                 Color::Rgb(172, 147, 119),
                 Color::Rgb(238, 216, 196),
+                None,
+            ),
+            (
+                "Ura (Gogh)",
+                Color::Rgb(35, 71, 106),
+                Color::Rgb(254, 255, 238),
+                Color::Rgb(35, 71, 106),
+                Some(Color::Rgb(254, 255, 238)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(194, 27, 111),
+                Color::Rgb(111, 194, 27),
+                Color::Rgb(194, 111, 27),
+                Color::Rgb(128, 128, 128),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Urple",
+                Color::Rgb(135, 122, 155),
+                Color::Rgb(27, 27, 35),
+                Color::Rgb(160, 99, 235),
+                Some(Color::Rgb(27, 27, 34)),
+                Some(Color::Rgb(160, 99, 235)),
+                Some(Some(Color::Rgb(27, 27, 34))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(176, 66, 91),
+                Color::Rgb(55, 164, 21),
+                Color::Rgb(173, 92, 66),
+                Color::Rgb(93, 50, 37),
+                Color::Rgb(191, 163, 255),
+                None,
+            ),
+            (
+                "Urple (Gogh)",
+                Color::Rgb(135, 122, 155),
+                Color::Rgb(27, 27, 35),
+                Color::Rgb(135, 122, 155),
+                Some(Color::Rgb(27, 27, 35)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(176, 66, 91),
+                Color::Rgb(55, 164, 21),
+                Color::Rgb(173, 92, 66),
+                Color::Rgb(93, 50, 37),
+                Color::Rgb(191, 163, 255),
+                None,
+            ),
+            (
+                "Vacuous 2 (terminal.sexy)",
+                Color::Rgb(210, 197, 188),
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(32, 32, 32),
+                Color::Rgb(185, 30, 46),
+                Color::Rgb(129, 149, 124),
+                Color::Rgb(249, 187, 128),
+                Color::Rgb(96, 96, 96),
+                Color::Rgb(255, 240, 240),
+                None,
+            ),
+            (
+                "Vag (Gogh)",
+                Color::Rgb(217, 230, 242),
+                Color::Rgb(25, 31, 29),
+                Color::Rgb(217, 230, 242),
+                Some(Color::Rgb(25, 31, 29)),
+                None,
+                None,
+                Color::Rgb(48, 48, 48),
+                Color::Rgb(168, 113, 57),
+                Color::Rgb(57, 168, 113),
+                Color::Rgb(113, 168, 57),
+                Color::Rgb(73, 73, 73),
+                Color::Rgb(207, 207, 207),
+                None,
+            ),
+            (
+                "Vaughn",
+                Color::Rgb(220, 220, 204),
+                Color::Rgb(37, 35, 79),
+                Color::Rgb(255, 85, 85),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(181, 213, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(37, 35, 79),
+                Color::Rgb(112, 80, 80),
+                Color::Rgb(96, 180, 138),
+                Color::Rgb(223, 175, 143),
+                Color::Rgb(112, 144, 128),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Vaughn (Gogh)",
+                Color::Rgb(220, 220, 204),
+                Color::Rgb(37, 35, 79),
+                Color::Rgb(220, 220, 204),
+                Some(Color::Rgb(37, 35, 79)),
+                None,
+                None,
+                Color::Rgb(37, 35, 79),
+                Color::Rgb(112, 80, 80),
+                Color::Rgb(96, 180, 138),
+                Color::Rgb(223, 175, 143),
+                Color::Rgb(112, 144, 128),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Vesper",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(172, 177, 171),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(152, 128, 73)),
+                Some(Some(Color::Rgb(172, 177, 171))),
+                Color::Rgb(16, 16, 16),
+                Color::Rgb(245, 161, 145),
+                Color::Rgb(144, 185, 159),
+                Color::Rgb(230, 185, 157),
+                Color::Rgb(126, 126, 126),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Vibrant Ink (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(135, 135, 135),
+                Color::Rgb(255, 102, 0),
+                Color::Rgb(204, 255, 4),
+                Color::Rgb(255, 204, 0),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "VibrantInk",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(181, 213, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(135, 135, 135),
+                Color::Rgb(255, 102, 0),
+                Color::Rgb(204, 255, 4),
+                Color::Rgb(255, 204, 0),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(229, 229, 229),
                 None,
             ),
         ];

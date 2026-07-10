@@ -3875,7 +3875,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Twilight (light) (terminal.sexy)`, `Ubuntu`, `UltraDark`, `UltraViolent`,
   `UnderTheSea`, `Unikitty`, `Unikitty Dark (base16)`,
   `Unikitty Light (base16)`, `Unikitty Reversible (base16)`,
-  `Unsifted Wheat (terminal.sexy)`, `Builtin Dark`,
+  `Unsifted Wheat (terminal.sexy)`, `Ura (Gogh)`, `Urple`, `Urple (Gogh)`,
+  `Vacuous 2 (terminal.sexy)`, `Vag (Gogh)`, `Vaughn`, `Vaughn (Gogh)`,
+  `Vesper`, `Vibrant Ink (Gogh)`, `VibrantInk`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
