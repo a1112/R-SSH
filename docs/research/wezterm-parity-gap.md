@@ -3832,7 +3832,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Simple Rainbow (terminal.sexy)`, `Slate`, `Slate (Gogh)`, `SleepyHollow`,
   `Smyck`, `Smyck (Gogh)`, `Snazzy`, `Snazzy (base16)`, `Snazzy (Gogh)`,
   `Soft Server (Gogh)`, `SoftServer`, `Solar Flare (base16)`,
-  `Solar Flare Light (base16)`, `Builtin Dark`,
+  `Solar Flare Light (base16)`, `Solarized (dark) (terminal.sexy)`,
+  `Solarized (light) (terminal.sexy)`, `Solarized Darcula`,
+  `Solarized Darcula (Gogh)`, `Solarized Dark (Gogh)`,
+  `Solarized Dark - Patched`, `Solarized Dark Higher Contrast`,
+  `Solarized Dark Higher Contrast (Gogh)`, `Solarized Light (Gogh)`,
+  `Sonokai (Gogh)`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML

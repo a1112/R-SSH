@@ -20252,16 +20252,37 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "SoftServer" => Some(BUILTIN_SOFTSERVER_COLOR_SCHEME_TOML),
         "Solar Flare (base16)" => Some(BUILTIN_SOLAR_FLARE_BASE16_COLOR_SCHEME_TOML),
         "Solar Flare Light (base16)" => Some(BUILTIN_SOLAR_FLARE_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Solarized (dark) (terminal.sexy)" => {
+            Some(BUILTIN_SOLARIZED_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Solarized (light) (terminal.sexy)" => {
+            Some(BUILTIN_SOLARIZED_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Solarized Darcula" | "SolarizedDarcula (Gogh)" => {
+            Some(BUILTIN_SOLARIZED_DARCULA_COLOR_SCHEME_TOML)
+        }
+        "Solarized Darcula (Gogh)" => Some(BUILTIN_SOLARIZED_DARCULA_GOGH_COLOR_SCHEME_TOML),
+        "Solarized Dark (Gogh)" | "SolarizedDark (Gogh)" => {
+            Some(BUILTIN_SOLARIZED_DARK_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Solarized Dark - Patched" => Some(BUILTIN_SOLARIZED_DARK_PATCHED_COLOR_SCHEME_TOML),
+        "Solarized Dark Higher Contrast" | "SolarizedDarkHigherContrast (Gogh)" => {
+            Some(BUILTIN_SOLARIZED_DARK_HIGHER_CONTRAST_COLOR_SCHEME_TOML)
+        }
+        "Solarized Dark Higher Contrast (Gogh)" => {
+            Some(BUILTIN_SOLARIZED_DARK_HIGHER_CONTRAST_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Solarized Light (Gogh)" => Some(BUILTIN_SOLARIZED_LIGHT_GOGH_COLOR_SCHEME_TOML),
+        "Sonokai (Gogh)" => Some(BUILTIN_SONOKAI_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
         "Builtin Solarized Dark" | "iTerm2 Solarized Dark" => {
             Some(BUILTIN_SOLARIZED_DARK_COLOR_SCHEME_TOML)
         }
-        "Builtin Solarized Light"
-        | "Solarized Light (Gogh)"
-        | "SolarizedLight (Gogh)"
-        | "iTerm2 Solarized Light" => Some(BUILTIN_SOLARIZED_LIGHT_COLOR_SCHEME_TOML),
+        "Builtin Solarized Light" | "SolarizedLight (Gogh)" | "iTerm2 Solarized Light" => {
+            Some(BUILTIN_SOLARIZED_LIGHT_COLOR_SCHEME_TOML)
+        }
         "Builtin Tango Dark" => Some(BUILTIN_TANGO_DARK_COLOR_SCHEME_TOML),
         "Builtin Tango Light" => Some(BUILTIN_TANGO_LIGHT_COLOR_SCHEME_TOML),
         _ => None,
@@ -53065,6 +53086,384 @@ aliases = []
 author = "Chuck Harmston (https://chuck.harmston.ch)"
 name = "Solar Flare Light (base16)"
 origin_url = "https://github.com/mnussbaum/base16-solarflare-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SOLARIZED_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#002b36",
+    "#dc322f",
+    "#859900",
+    "#b58900",
+    "#268bd2",
+    "#6c71c4",
+    "#2aa198",
+    "#93a1a1",
+]
+background = "#002b36"
+brights = [
+    "#657b83",
+    "#dc322f",
+    "#859900",
+    "#b58900",
+    "#268bd2",
+    "#6c71c4",
+    "#2aa198",
+    "#fdf6e3",
+]
+foreground = "#93a1a1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Solarized (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20230320-124340-559cb7b0"
+"##;
+
+const BUILTIN_SOLARIZED_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#002b36",
+    "#dc322f",
+    "#859900",
+    "#b58900",
+    "#268bd2",
+    "#6c71c4",
+    "#2aa198",
+    "#93a1a1",
+]
+background = "#fdf6e3"
+brights = [
+    "#657b83",
+    "#dc322f",
+    "#859900",
+    "#b58900",
+    "#268bd2",
+    "#6c71c4",
+    "#2aa198",
+    "#fdf6e3",
+]
+foreground = "#586e75"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Solarized (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SOLARIZED_DARCULA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#25292a",
+    "#f24840",
+    "#629655",
+    "#b68800",
+    "#2075c7",
+    "#797fd4",
+    "#15968d",
+    "#d2d8d9",
+]
+background = "#3d3f41"
+brights = [
+    "#25292a",
+    "#f24840",
+    "#629655",
+    "#b68800",
+    "#2075c7",
+    "#797fd4",
+    "#15968d",
+    "#d2d8d9",
+]
+cursor_bg = "#708284"
+cursor_border = "#708284"
+cursor_fg = "#002831"
+foreground = "#d2d8d9"
+selection_bg = "#214283"
+selection_fg = "#d2d8d9"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Solarized Darcula (Gogh)",
+    "SolarizedDarcula (Gogh)",
+]
+name = "Solarized Darcula"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SOLARIZED_DARCULA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#25292a",
+    "#f24840",
+    "#629655",
+    "#b68800",
+    "#2075c7",
+    "#797fd4",
+    "#15968d",
+    "#d2d8d9",
+]
+background = "#3d3f41"
+brights = [
+    "#25292a",
+    "#f24840",
+    "#629655",
+    "#b68800",
+    "#2075c7",
+    "#797fd4",
+    "#15968d",
+    "#d2d8d9",
+]
+cursor_bg = "#d2d8d9"
+cursor_border = "#d2d8d9"
+cursor_fg = "#3d3f41"
+foreground = "#d2d8d9"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Solarized Darcula (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SOLARIZED_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#073642",
+    "#dc322f",
+    "#859900",
+    "#cf9a6b",
+    "#268bd2",
+    "#d33682",
+    "#2aa198",
+    "#eee8d5",
+]
+background = "#002b36"
+brights = [
+    "#657b83",
+    "#cb4b16",
+    "#859900",
+    "#cf9a6b",
+    "#6c71c4",
+    "#d33682",
+    "#2aa198",
+    "#fdf6e3",
+]
+cursor_bg = "#839496"
+cursor_border = "#839496"
+cursor_fg = "#002b36"
+foreground = "#839496"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["SolarizedDark (Gogh)"]
+name = "Solarized Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SOLARIZED_DARK_PATCHED_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#002831",
+    "#d11c24",
+    "#738a05",
+    "#a57706",
+    "#2176c7",
+    "#c61c6f",
+    "#259286",
+    "#eae3cb",
+]
+background = "#001e27"
+brights = [
+    "#475b62",
+    "#bd3613",
+    "#475b62",
+    "#536870",
+    "#708284",
+    "#5956ba",
+    "#819090",
+    "#fcf4dc",
+]
+cursor_bg = "#708284"
+cursor_border = "#708284"
+cursor_fg = "#002831"
+foreground = "#708284"
+selection_bg = "#002831"
+selection_fg = "#819090"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Solarized Dark - Patched"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SOLARIZED_DARK_HIGHER_CONTRAST_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#002831",
+    "#d11c24",
+    "#6cbe6c",
+    "#a57706",
+    "#2176c7",
+    "#c61c6f",
+    "#259286",
+    "#eae3cb",
+]
+background = "#001e27"
+brights = [
+    "#006488",
+    "#f5163b",
+    "#51ef84",
+    "#b27e28",
+    "#178ec8",
+    "#e24d8e",
+    "#00b39e",
+    "#fcf4dc",
+]
+cursor_bg = "#f34b00"
+cursor_border = "#f34b00"
+cursor_fg = "#002831"
+foreground = "#9cc2c3"
+selection_bg = "#003748"
+selection_fg = "#7a8f8e"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Solarized Dark Higher Contrast (Gogh)",
+    "SolarizedDarkHigherContrast (Gogh)",
+]
+name = "Solarized Dark Higher Contrast"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SOLARIZED_DARK_HIGHER_CONTRAST_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#002831",
+    "#d11c24",
+    "#6cbe6c",
+    "#a57706",
+    "#2176c7",
+    "#c61c6f",
+    "#259286",
+    "#eae3cb",
+]
+background = "#001e27"
+brights = [
+    "#006488",
+    "#f5163b",
+    "#51ef84",
+    "#b27e28",
+    "#178ec8",
+    "#e24d8e",
+    "#00b39e",
+    "#fcf4dc",
+]
+cursor_bg = "#9cc2c3"
+cursor_border = "#9cc2c3"
+cursor_fg = "#001e27"
+foreground = "#9cc2c3"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Solarized Dark Higher Contrast (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SOLARIZED_LIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#eee8d5",
+    "#dc322f",
+    "#859900",
+    "#b58900",
+    "#268bd2",
+    "#d33682",
+    "#2aa198",
+    "#002b36",
+]
+background = "#fdf6e3"
+brights = [
+    "#657b83",
+    "#cb4b16",
+    "#859900",
+    "#b58900",
+    "#6c71c4",
+    "#d33682",
+    "#2aa198",
+    "#073642",
+]
+cursor_bg = "#657b83"
+cursor_border = "#657b83"
+cursor_fg = "#fdf6e3"
+foreground = "#657b83"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Solarized Light (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SONOKAI_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2c2e34",
+    "#fc5d7c",
+    "#9ed072",
+    "#e7c664",
+    "#f39660",
+    "#b39df3",
+    "#76cce0",
+    "#e2e2e3",
+]
+background = "#2c2e34"
+brights = [
+    "#7f8490",
+    "#fc5d7c",
+    "#9ed072",
+    "#e7c664",
+    "#f39660",
+    "#b39df3",
+    "#76cce0",
+    "#e2e2e3",
+]
+cursor_bg = "#e2e2e3"
+cursor_border = "#e2e2e3"
+cursor_fg = "#2c2e34"
+foreground = "#e2e2e3"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Sonokai (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -137558,8 +137957,282 @@ mod tests {
     }
 
     #[test]
+    fn window_app_loads_wezterm_lua_solarized_to_sonokai_builtin_color_schemes_and_aliases() {
+        let cases = [
+            (
+                "Solarized (dark) (terminal.sexy)",
+                Color::Rgb(147, 161, 161),
+                Color::Rgb(0, 43, 54),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 43, 54),
+                Color::Rgb(220, 50, 47),
+                Color::Rgb(133, 153, 0),
+                Color::Rgb(181, 137, 0),
+                Color::Rgb(101, 123, 131),
+                Color::Rgb(253, 246, 227),
+                None,
+            ),
+            (
+                "Solarized (light) (terminal.sexy)",
+                Color::Rgb(88, 110, 117),
+                Color::Rgb(253, 246, 227),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 43, 54),
+                Color::Rgb(220, 50, 47),
+                Color::Rgb(133, 153, 0),
+                Color::Rgb(181, 137, 0),
+                Color::Rgb(101, 123, 131),
+                Color::Rgb(253, 246, 227),
+                None,
+            ),
+            (
+                "Solarized Darcula",
+                Color::Rgb(210, 216, 217),
+                Color::Rgb(61, 63, 65),
+                Color::Rgb(112, 130, 132),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Color::Rgb(33, 66, 131)),
+                Some(Some(Color::Rgb(210, 216, 217))),
+                Color::Rgb(37, 41, 42),
+                Color::Rgb(242, 72, 64),
+                Color::Rgb(98, 150, 85),
+                Color::Rgb(182, 136, 0),
+                Color::Rgb(37, 41, 42),
+                Color::Rgb(210, 216, 217),
+                None,
+            ),
+            (
+                "SolarizedDarcula (Gogh)",
+                Color::Rgb(210, 216, 217),
+                Color::Rgb(61, 63, 65),
+                Color::Rgb(112, 130, 132),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Color::Rgb(33, 66, 131)),
+                Some(Some(Color::Rgb(210, 216, 217))),
+                Color::Rgb(37, 41, 42),
+                Color::Rgb(242, 72, 64),
+                Color::Rgb(98, 150, 85),
+                Color::Rgb(182, 136, 0),
+                Color::Rgb(37, 41, 42),
+                Color::Rgb(210, 216, 217),
+                None,
+            ),
+            (
+                "Solarized Darcula (Gogh)",
+                Color::Rgb(210, 216, 217),
+                Color::Rgb(61, 63, 65),
+                Color::Rgb(210, 216, 217),
+                Some(Color::Rgb(61, 63, 65)),
+                None,
+                None,
+                Color::Rgb(37, 41, 42),
+                Color::Rgb(242, 72, 64),
+                Color::Rgb(98, 150, 85),
+                Color::Rgb(182, 136, 0),
+                Color::Rgb(37, 41, 42),
+                Color::Rgb(210, 216, 217),
+                None,
+            ),
+            (
+                "Solarized Dark (Gogh)",
+                Color::Rgb(131, 148, 150),
+                Color::Rgb(0, 43, 54),
+                Color::Rgb(131, 148, 150),
+                Some(Color::Rgb(0, 43, 54)),
+                None,
+                None,
+                Color::Rgb(7, 54, 66),
+                Color::Rgb(220, 50, 47),
+                Color::Rgb(133, 153, 0),
+                Color::Rgb(207, 154, 107),
+                Color::Rgb(101, 123, 131),
+                Color::Rgb(253, 246, 227),
+                None,
+            ),
+            (
+                "SolarizedDark (Gogh)",
+                Color::Rgb(131, 148, 150),
+                Color::Rgb(0, 43, 54),
+                Color::Rgb(131, 148, 150),
+                Some(Color::Rgb(0, 43, 54)),
+                None,
+                None,
+                Color::Rgb(7, 54, 66),
+                Color::Rgb(220, 50, 47),
+                Color::Rgb(133, 153, 0),
+                Color::Rgb(207, 154, 107),
+                Color::Rgb(101, 123, 131),
+                Color::Rgb(253, 246, 227),
+                None,
+            ),
+            (
+                "Solarized Dark - Patched",
+                Color::Rgb(112, 130, 132),
+                Color::Rgb(0, 30, 39),
+                Color::Rgb(112, 130, 132),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Some(Color::Rgb(129, 144, 144))),
+                Color::Rgb(0, 40, 49),
+                Color::Rgb(209, 28, 36),
+                Color::Rgb(115, 138, 5),
+                Color::Rgb(165, 119, 6),
+                Color::Rgb(71, 91, 98),
+                Color::Rgb(252, 244, 220),
+                None,
+            ),
+            (
+                "Solarized Dark Higher Contrast",
+                Color::Rgb(156, 194, 195),
+                Color::Rgb(0, 30, 39),
+                Color::Rgb(243, 75, 0),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Color::Rgb(0, 55, 72)),
+                Some(Some(Color::Rgb(122, 143, 142))),
+                Color::Rgb(0, 40, 49),
+                Color::Rgb(209, 28, 36),
+                Color::Rgb(108, 190, 108),
+                Color::Rgb(165, 119, 6),
+                Color::Rgb(0, 100, 136),
+                Color::Rgb(252, 244, 220),
+                None,
+            ),
+            (
+                "SolarizedDarkHigherContrast (Gogh)",
+                Color::Rgb(156, 194, 195),
+                Color::Rgb(0, 30, 39),
+                Color::Rgb(243, 75, 0),
+                Some(Color::Rgb(0, 40, 49)),
+                Some(Color::Rgb(0, 55, 72)),
+                Some(Some(Color::Rgb(122, 143, 142))),
+                Color::Rgb(0, 40, 49),
+                Color::Rgb(209, 28, 36),
+                Color::Rgb(108, 190, 108),
+                Color::Rgb(165, 119, 6),
+                Color::Rgb(0, 100, 136),
+                Color::Rgb(252, 244, 220),
+                None,
+            ),
+            (
+                "Solarized Dark Higher Contrast (Gogh)",
+                Color::Rgb(156, 194, 195),
+                Color::Rgb(0, 30, 39),
+                Color::Rgb(156, 194, 195),
+                Some(Color::Rgb(0, 30, 39)),
+                None,
+                None,
+                Color::Rgb(0, 40, 49),
+                Color::Rgb(209, 28, 36),
+                Color::Rgb(108, 190, 108),
+                Color::Rgb(165, 119, 6),
+                Color::Rgb(0, 100, 136),
+                Color::Rgb(252, 244, 220),
+                None,
+            ),
+            (
+                "Solarized Light (Gogh)",
+                Color::Rgb(101, 123, 131),
+                Color::Rgb(253, 246, 227),
+                Color::Rgb(101, 123, 131),
+                Some(Color::Rgb(253, 246, 227)),
+                None,
+                None,
+                Color::Rgb(238, 232, 213),
+                Color::Rgb(220, 50, 47),
+                Color::Rgb(133, 153, 0),
+                Color::Rgb(181, 137, 0),
+                Color::Rgb(101, 123, 131),
+                Color::Rgb(7, 54, 66),
+                None,
+            ),
+            (
+                "Sonokai (Gogh)",
+                Color::Rgb(226, 226, 227),
+                Color::Rgb(44, 46, 52),
+                Color::Rgb(226, 226, 227),
+                Some(Color::Rgb(44, 46, 52)),
+                None,
+                None,
+                Color::Rgb(44, 46, 52),
+                Color::Rgb(252, 93, 124),
+                Color::Rgb(158, 208, 114),
+                Color::Rgb(231, 198, 100),
+                Color::Rgb(127, 132, 144),
+                Color::Rgb(226, 226, 227),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Solarized-to-Sonokai built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
     fn window_app_loads_wezterm_lua_builtin_solarized_light_color_scheme_aliases() {
-        for color_scheme in ["Builtin Solarized Light", "iTerm2 Solarized Light"] {
+        for color_scheme in [
+            "Builtin Solarized Light",
+            "SolarizedLight (Gogh)",
+            "iTerm2 Solarized Light",
+        ] {
             let mut app = NativeWindowApp::new(None);
             let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
                 r##"
