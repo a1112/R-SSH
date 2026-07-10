@@ -3825,7 +3825,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `seoulbones_dark`, `seoulbones_light`, `Sequoia Monochrome`,
   `Sequoia Moonlight`, `Seti`, `Seti (Gogh)`, `Seti UI (base16)`,
   `Sex Colors (terminal.sexy)`, `Shades of Purple (base16)`,
-  `shades-of-purple`, `Shaman`, `Shaman (Gogh)`, `Builtin Dark`,
+  `shades-of-purple`, `Shaman`, `Shaman (Gogh)`,
+  `Shapeshifter (base16)`, `Shapeshifter (dark) (terminal.sexy)`,
+  `Shapeshifter (light) (terminal.sexy)`, `Shel (Gogh)`,
+  `Shic (terminal.sexy)`, `Silk Dark (base16)`, `Silk Light (base16)`,
+  `Simple Rainbow (terminal.sexy)`, `Slate`, `Slate (Gogh)`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML

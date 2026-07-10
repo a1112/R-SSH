@@ -20226,6 +20226,22 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "shades-of-purple" => Some(BUILTIN_SHADES_OF_PURPLE_COLOR_SCHEME_TOML),
         "Shaman" => Some(BUILTIN_SHAMAN_COLOR_SCHEME_TOML),
         "Shaman (Gogh)" => Some(BUILTIN_SHAMAN_GOGH_COLOR_SCHEME_TOML),
+        "Shapeshifter (base16)" => Some(BUILTIN_SHAPESHIFTER_BASE16_COLOR_SCHEME_TOML),
+        "Shapeshifter (dark) (terminal.sexy)" => {
+            Some(BUILTIN_SHAPESHIFTER_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Shapeshifter (light) (terminal.sexy)" => {
+            Some(BUILTIN_SHAPESHIFTER_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Shel (Gogh)" => Some(BUILTIN_SHEL_GOGH_COLOR_SCHEME_TOML),
+        "Shic (terminal.sexy)" => Some(BUILTIN_SHIC_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Silk Dark (base16)" => Some(BUILTIN_SILK_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Silk Light (base16)" => Some(BUILTIN_SILK_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Simple Rainbow (terminal.sexy)" => {
+            Some(BUILTIN_SIMPLE_RAINBOW_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Slate" => Some(BUILTIN_SLATE_COLOR_SCHEME_TOML),
+        "Slate (Gogh)" => Some(BUILTIN_SLATE_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -52242,6 +52258,397 @@ foreground = "#405555"
 [metadata]
 aliases = []
 name = "Shaman (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SHAPESHIFTER_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#f9f9f9",
+    "#e92f2f",
+    "#0ed839",
+    "#dddd13",
+    "#3b48e3",
+    "#f996e2",
+    "#23edda",
+    "#102015",
+]
+background = "#f9f9f9"
+brights = [
+    "#555555",
+    "#e92f2f",
+    "#0ed839",
+    "#dddd13",
+    "#3b48e3",
+    "#f996e2",
+    "#23edda",
+    "#000000",
+]
+cursor_bg = "#102015"
+cursor_border = "#102015"
+cursor_fg = "#f9f9f9"
+foreground = "#102015"
+selection_bg = "#102015"
+selection_fg = "#f9f9f9"
+
+[colors.indexed]
+16 = "#e09448"
+17 = "#69542d"
+18 = "#e0e0e0"
+19 = "#ababab"
+20 = "#343434"
+21 = "#040404"
+
+[metadata]
+aliases = []
+author = "Tyler Benziger (http://tybenz.com)"
+name = "Shapeshifter (base16)"
+origin_url = "https://github.com/chriskempson/base16-unclaimed-schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SHAPESHIFTER_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#e92f2f",
+    "#0ed839",
+    "#dddd13",
+    "#3b48e3",
+    "#f996e2",
+    "#23edda",
+    "#ababab",
+]
+background = "#000000"
+brights = [
+    "#343434",
+    "#e92f2f",
+    "#0ed839",
+    "#dddd13",
+    "#3b48e3",
+    "#f996e2",
+    "#23edda",
+    "#f9f9f9",
+]
+foreground = "#ababab"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Shapeshifter (dark) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SHAPESHIFTER_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#e92f2f",
+    "#0ed839",
+    "#dddd13",
+    "#3b48e3",
+    "#f996e2",
+    "#23edda",
+    "#ababab",
+]
+background = "#f9f9f9"
+brights = [
+    "#343434",
+    "#e92f2f",
+    "#0ed839",
+    "#dddd13",
+    "#3b48e3",
+    "#f996e2",
+    "#23edda",
+    "#f9f9f9",
+]
+foreground = "#102015"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Shapeshifter (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SHEL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2c2423",
+    "#ab2463",
+    "#6ca323",
+    "#ab6423",
+    "#2c64a2",
+    "#6c24a2",
+    "#2ca363",
+    "#918988",
+]
+background = "#2a201f"
+brights = [
+    "#918988",
+    "#f588b9",
+    "#c2ee86",
+    "#f5ba86",
+    "#8fbaec",
+    "#c288ec",
+    "#8feeb9",
+    "#f5eeec",
+]
+cursor_bg = "#4882cd"
+cursor_border = "#4882cd"
+cursor_fg = "#2a201f"
+foreground = "#4882cd"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Shel (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SHIC_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#494949",
+    "#b9716e",
+    "#588f7a",
+    "#aaa857",
+    "#a0c3c0",
+    "#735e74",
+    "#695935",
+    "#b1b1b1",
+]
+background = "#000000"
+brights = [
+    "#484848",
+    "#8f5a58",
+    "#326f58",
+    "#c7c575",
+    "#507f7c",
+    "#a387a6",
+    "#927c4b",
+    "#c7c7c7",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Shic (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SILK_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0e3c46",
+    "#fb6953",
+    "#73d8ad",
+    "#fce380",
+    "#46bddd",
+    "#756b8a",
+    "#3fb2b9",
+    "#c7dbdd",
+]
+background = "#0e3c46"
+brights = [
+    "#587073",
+    "#fb6953",
+    "#73d8ad",
+    "#fce380",
+    "#46bddd",
+    "#756b8a",
+    "#3fb2b9",
+    "#d2faff",
+]
+cursor_bg = "#c7dbdd"
+cursor_border = "#c7dbdd"
+cursor_fg = "#0e3c46"
+foreground = "#c7dbdd"
+selection_bg = "#c7dbdd"
+selection_fg = "#0e3c46"
+
+[colors.indexed]
+16 = "#fcab74"
+17 = "#9b647b"
+18 = "#1d494e"
+19 = "#2a5054"
+20 = "#9dc8cd"
+21 = "#cbf2f7"
+
+[metadata]
+aliases = []
+author = "Gabriel Fontes (https://github.com/Misterio77)"
+name = "Silk Dark (base16)"
+origin_url = "https://github.com/misterio77/base16-silk-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SILK_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#e9f1ef",
+    "#cf432e",
+    "#6ca38c",
+    "#cfad25",
+    "#39aac9",
+    "#6e6582",
+    "#329ca2",
+    "#385156",
+]
+background = "#e9f1ef"
+brights = [
+    "#5c787b",
+    "#cf432e",
+    "#6ca38c",
+    "#cfad25",
+    "#39aac9",
+    "#6e6582",
+    "#329ca2",
+    "#d2faff",
+]
+cursor_bg = "#385156"
+cursor_border = "#385156"
+cursor_fg = "#e9f1ef"
+foreground = "#385156"
+selection_bg = "#385156"
+selection_fg = "#e9f1ef"
+
+[colors.indexed]
+16 = "#d27f46"
+17 = "#865369"
+18 = "#ccd4d3"
+19 = "#90b7b6"
+20 = "#4b5b5f"
+21 = "#0e3c46"
+
+[metadata]
+aliases = []
+author = "Gabriel Fontes (https://github.com/Misterio77)"
+name = "Silk Light (base16)"
+origin_url = "https://github.com/misterio77/base16-silk-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SIMPLE_RAINBOW_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#666666",
+    "#ff8278",
+    "#bde077",
+    "#eadc84",
+    "#77bee0",
+    "#dd91f3",
+    "#ffc178",
+    "#dddddd",
+]
+background = "#575757"
+brights = [
+    "#888888",
+    "#ff8278",
+    "#bde077",
+    "#eadc84",
+    "#77bee0",
+    "#dd91f3",
+    "#ffc178",
+    "#cccccc",
+]
+foreground = "#dcdccc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Simple Rainbow (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SLATE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#222222",
+    "#e2a8bf",
+    "#81d778",
+    "#c4c9c0",
+    "#264b49",
+    "#a481d3",
+    "#15ab9c",
+    "#02c5e0",
+]
+background = "#222222"
+brights = [
+    "#ffffff",
+    "#ffcdd9",
+    "#beffa8",
+    "#d0ccca",
+    "#7ab0d2",
+    "#c5a7d9",
+    "#8cdfe0",
+    "#e0e0e0",
+]
+cursor_bg = "#87d3c4"
+cursor_border = "#87d3c4"
+cursor_fg = "#323232"
+foreground = "#35b1d2"
+selection_bg = "#0f3754"
+selection_fg = "#2dffc0"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Slate (Gogh)"]
+name = "Slate"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SLATE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#222222",
+    "#e2a8bf",
+    "#81d778",
+    "#c4c9c0",
+    "#264b49",
+    "#a481d3",
+    "#15ab9c",
+    "#02c5e0",
+]
+background = "#222222"
+brights = [
+    "#ffffff",
+    "#ffcdd9",
+    "#beffa8",
+    "#d0ccca",
+    "#7ab0d2",
+    "#c5a7d9",
+    "#8cdfe0",
+    "#e0e0e0",
+]
+cursor_bg = "#35b1d2"
+cursor_border = "#35b1d2"
+cursor_fg = "#222222"
+foreground = "#35b1d2"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Slate (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
 "##;
@@ -136265,6 +136672,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Seoulbones-to-Shaman built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_shapeshifter_to_slate_gogh_builtin_color_schemes() {
+        let cases = [
+            (
+                "Shapeshifter (base16)",
+                Color::Rgb(16, 32, 21),
+                Color::Rgb(249, 249, 249),
+                Color::Rgb(16, 32, 21),
+                Some(Color::Rgb(249, 249, 249)),
+                Some(Color::Rgb(16, 32, 21)),
+                Some(Some(Color::Rgb(249, 249, 249))),
+                Color::Rgb(249, 249, 249),
+                Color::Rgb(233, 47, 47),
+                Color::Rgb(14, 216, 57),
+                Color::Rgb(221, 221, 19),
+                Color::Rgb(85, 85, 85),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(224, 148, 72)),
+            ),
+            (
+                "Shapeshifter (dark) (terminal.sexy)",
+                Color::Rgb(171, 171, 171),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(233, 47, 47),
+                Color::Rgb(14, 216, 57),
+                Color::Rgb(221, 221, 19),
+                Color::Rgb(52, 52, 52),
+                Color::Rgb(249, 249, 249),
+                None,
+            ),
+            (
+                "Shapeshifter (light) (terminal.sexy)",
+                Color::Rgb(16, 32, 21),
+                Color::Rgb(249, 249, 249),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(233, 47, 47),
+                Color::Rgb(14, 216, 57),
+                Color::Rgb(221, 221, 19),
+                Color::Rgb(52, 52, 52),
+                Color::Rgb(249, 249, 249),
+                None,
+            ),
+            (
+                "Shel (Gogh)",
+                Color::Rgb(72, 130, 205),
+                Color::Rgb(42, 32, 31),
+                Color::Rgb(72, 130, 205),
+                Some(Color::Rgb(42, 32, 31)),
+                None,
+                None,
+                Color::Rgb(44, 36, 35),
+                Color::Rgb(171, 36, 99),
+                Color::Rgb(108, 163, 35),
+                Color::Rgb(171, 100, 35),
+                Color::Rgb(145, 137, 136),
+                Color::Rgb(245, 238, 236),
+                None,
+            ),
+            (
+                "Shic (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(73, 73, 73),
+                Color::Rgb(185, 113, 110),
+                Color::Rgb(88, 143, 122),
+                Color::Rgb(170, 168, 87),
+                Color::Rgb(72, 72, 72),
+                Color::Rgb(199, 199, 199),
+                None,
+            ),
+            (
+                "Silk Dark (base16)",
+                Color::Rgb(199, 219, 221),
+                Color::Rgb(14, 60, 70),
+                Color::Rgb(199, 219, 221),
+                Some(Color::Rgb(14, 60, 70)),
+                Some(Color::Rgb(199, 219, 221)),
+                Some(Some(Color::Rgb(14, 60, 70))),
+                Color::Rgb(14, 60, 70),
+                Color::Rgb(251, 105, 83),
+                Color::Rgb(115, 216, 173),
+                Color::Rgb(252, 227, 128),
+                Color::Rgb(88, 112, 115),
+                Color::Rgb(210, 250, 255),
+                Some(Color::Rgb(252, 171, 116)),
+            ),
+            (
+                "Silk Light (base16)",
+                Color::Rgb(56, 81, 86),
+                Color::Rgb(233, 241, 239),
+                Color::Rgb(56, 81, 86),
+                Some(Color::Rgb(233, 241, 239)),
+                Some(Color::Rgb(56, 81, 86)),
+                Some(Some(Color::Rgb(233, 241, 239))),
+                Color::Rgb(233, 241, 239),
+                Color::Rgb(207, 67, 46),
+                Color::Rgb(108, 163, 140),
+                Color::Rgb(207, 173, 37),
+                Color::Rgb(92, 120, 123),
+                Color::Rgb(210, 250, 255),
+                Some(Color::Rgb(210, 127, 70)),
+            ),
+            (
+                "Simple Rainbow (terminal.sexy)",
+                Color::Rgb(220, 220, 204),
+                Color::Rgb(87, 87, 87),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(255, 130, 120),
+                Color::Rgb(189, 224, 119),
+                Color::Rgb(234, 220, 132),
+                Color::Rgb(136, 136, 136),
+                Color::Rgb(204, 204, 204),
+                None,
+            ),
+            (
+                "Slate",
+                Color::Rgb(53, 177, 210),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(135, 211, 196),
+                Some(Color::Rgb(50, 50, 50)),
+                Some(Color::Rgb(15, 55, 84)),
+                Some(Some(Color::Rgb(45, 255, 192))),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(226, 168, 191),
+                Color::Rgb(129, 215, 120),
+                Color::Rgb(196, 201, 192),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(224, 224, 224),
+                None,
+            ),
+            (
+                "Slate (Gogh)",
+                Color::Rgb(53, 177, 210),
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(53, 177, 210),
+                Some(Color::Rgb(34, 34, 34)),
+                None,
+                None,
+                Color::Rgb(34, 34, 34),
+                Color::Rgb(226, 168, 191),
+                Color::Rgb(129, 215, 120),
+                Color::Rgb(196, 201, 192),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(224, 224, 224),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Shapeshifter-to-Slate built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
