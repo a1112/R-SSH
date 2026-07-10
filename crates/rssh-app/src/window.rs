@@ -20416,6 +20416,22 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
             Some(BUILTIN_TWILIGHT_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
         "Twilight (Gogh)" => Some(BUILTIN_TWILIGHT_GOGH_COLOR_SCHEME_TOML),
+        "Twilight (light) (terminal.sexy)" => {
+            Some(BUILTIN_TWILIGHT_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
+        "Ubuntu" => Some(BUILTIN_UBUNTU_COLOR_SCHEME_TOML),
+        "UltraDark" => Some(BUILTIN_ULTRA_DARK_COLOR_SCHEME_TOML),
+        "UltraViolent" => Some(BUILTIN_ULTRA_VIOLENT_COLOR_SCHEME_TOML),
+        "UnderTheSea" => Some(BUILTIN_UNDER_THE_SEA_COLOR_SCHEME_TOML),
+        "Unikitty" => Some(BUILTIN_UNIKITTY_COLOR_SCHEME_TOML),
+        "Unikitty Dark (base16)" => Some(BUILTIN_UNIKITTY_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Unikitty Light (base16)" => Some(BUILTIN_UNIKITTY_LIGHT_BASE16_COLOR_SCHEME_TOML),
+        "Unikitty Reversible (base16)" => {
+            Some(BUILTIN_UNIKITTY_REVERSIBLE_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Unsifted Wheat (terminal.sexy)" => {
+            Some(BUILTIN_UNSIFTED_WHEAT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
+        }
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -57831,6 +57847,409 @@ aliases = []
 name = "Twilight (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
 wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_TWILIGHT_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1e1e1e",
+    "#cf6a4c",
+    "#8f9d6a",
+    "#f9ee98",
+    "#7587a6",
+    "#9b859d",
+    "#afc4db",
+    "#a7a7a7",
+]
+background = "#ffffff"
+brights = [
+    "#5f5a60",
+    "#cf6a4c",
+    "#8f9d6a",
+    "#f9ee98",
+    "#7587a6",
+    "#9b859d",
+    "#afc4db",
+    "#ffffff",
+]
+foreground = "#464b50"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "Chris Kempson"
+name = "Twilight (light) (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_UBUNTU_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e3436",
+    "#cc0000",
+    "#4e9a06",
+    "#c4a000",
+    "#3465a4",
+    "#75507b",
+    "#06989a",
+    "#d3d7cf",
+]
+background = "#300a24"
+brights = [
+    "#555753",
+    "#ef2929",
+    "#8ae234",
+    "#fce94f",
+    "#729fcf",
+    "#ad7fa8",
+    "#34e2e2",
+    "#eeeeec",
+]
+cursor_bg = "#bbbbbb"
+cursor_border = "#bbbbbb"
+cursor_fg = "#ffffff"
+foreground = "#eeeeec"
+selection_bg = "#b5d5ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Ubuntu"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ULTRA_DARK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#f07178",
+    "#c3e88d",
+    "#ffcb6b",
+    "#82aaff",
+    "#c792ea",
+    "#89ddff",
+    "#cccccc",
+]
+background = "#000000"
+brights = [
+    "#333333",
+    "#f6a9ae",
+    "#dbf1ba",
+    "#ffdfa6",
+    "#b4ccff",
+    "#ddbdf2",
+    "#b8eaff",
+    "#ffffff",
+]
+cursor_bg = "#fefefe"
+cursor_border = "#fefefe"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+selection_bg = "#222222"
+selection_fg = "#cccccc"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "UltraDark"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_ULTRA_VIOLENT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#242728",
+    "#ff0090",
+    "#b6ff00",
+    "#fff727",
+    "#47e0fb",
+    "#d731ff",
+    "#0effbb",
+    "#e1e1e1",
+]
+background = "#242728"
+brights = [
+    "#636667",
+    "#fb58b4",
+    "#deff8c",
+    "#ebe087",
+    "#7fecff",
+    "#e681ff",
+    "#69fcd3",
+    "#f9f9f5",
+]
+cursor_bg = "#c1c1c1"
+cursor_border = "#c1c1c1"
+cursor_fg = "#ffffff"
+foreground = "#c1c1c1"
+selection_bg = "#574c49"
+selection_fg = "#c3c7cb"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "UltraViolent"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_UNDER_THE_SEA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#022026",
+    "#b2302d",
+    "#00a941",
+    "#59819c",
+    "#459a86",
+    "#00599d",
+    "#5d7e19",
+    "#405555",
+]
+background = "#011116"
+brights = [
+    "#384451",
+    "#ff4242",
+    "#2aea5e",
+    "#8ed4fd",
+    "#61d5ba",
+    "#1298ff",
+    "#98d028",
+    "#58fbd6",
+]
+cursor_bg = "#4afcd6"
+cursor_border = "#4afcd6"
+cursor_fg = "#031413"
+foreground = "#ffffff"
+selection_bg = "#415555"
+selection_fg = "#4dffda"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "UnderTheSea"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_UNIKITTY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#0c0c0c",
+    "#a80f20",
+    "#bafc8b",
+    "#eedf4b",
+    "#145fcd",
+    "#ff36a2",
+    "#6bd1bc",
+    "#e2d7e1",
+]
+background = "#ff8cd9"
+brights = [
+    "#434343",
+    "#d91329",
+    "#d3ffaf",
+    "#ffef50",
+    "#0075ea",
+    "#fdd5e5",
+    "#79ecd5",
+    "#fff3fe",
+]
+cursor_bg = "#bafc8b"
+cursor_border = "#bafc8b"
+cursor_fg = "#202020"
+foreground = "#0b0b0b"
+selection_bg = "#3ea9fe"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Unikitty"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_UNIKITTY_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e2a31",
+    "#d8137f",
+    "#17ad98",
+    "#dc8a0e",
+    "#796af5",
+    "#bb60ea",
+    "#149bda",
+    "#bcbabe",
+]
+background = "#2e2a31"
+brights = [
+    "#838085",
+    "#d8137f",
+    "#17ad98",
+    "#dc8a0e",
+    "#796af5",
+    "#bb60ea",
+    "#149bda",
+    "#f5f4f7",
+]
+cursor_bg = "#bcbabe"
+cursor_border = "#bcbabe"
+cursor_fg = "#2e2a31"
+foreground = "#bcbabe"
+selection_bg = "#bcbabe"
+selection_fg = "#2e2a31"
+
+[colors.indexed]
+16 = "#d65407"
+17 = "#c720ca"
+18 = "#4a464d"
+19 = "#666369"
+20 = "#9f9da2"
+21 = "#d8d7da"
+
+[metadata]
+aliases = []
+author = "Josh W Lewis (@joshwlewis)"
+name = "Unikitty Dark (base16)"
+origin_url = "https://github.com/joshwlewis/base16-unikitty"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_UNIKITTY_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#ffffff",
+    "#d8137f",
+    "#17ad98",
+    "#dc8a0e",
+    "#775dff",
+    "#aa17e6",
+    "#149bda",
+    "#6c696e",
+]
+background = "#ffffff"
+brights = [
+    "#a7a5a8",
+    "#d8137f",
+    "#17ad98",
+    "#dc8a0e",
+    "#775dff",
+    "#aa17e6",
+    "#149bda",
+    "#322d34",
+]
+cursor_bg = "#6c696e"
+cursor_border = "#6c696e"
+cursor_fg = "#ffffff"
+foreground = "#6c696e"
+selection_bg = "#6c696e"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+16 = "#d65407"
+17 = "#e013d0"
+18 = "#e1e1e2"
+19 = "#c4c3c5"
+20 = "#89878b"
+21 = "#4f4b51"
+
+[metadata]
+aliases = []
+author = "Josh W Lewis (@joshwlewis)"
+name = "Unikitty Light (base16)"
+origin_url = "https://github.com/joshwlewis/base16-unikitty"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_UNIKITTY_REVERSIBLE_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e2a31",
+    "#d8137f",
+    "#17ad98",
+    "#dc8a0e",
+    "#7864fa",
+    "#b33ce8",
+    "#149bda",
+    "#c3c2c4",
+]
+background = "#2e2a31"
+brights = [
+    "#878589",
+    "#d8137f",
+    "#17ad98",
+    "#dc8a0e",
+    "#7864fa",
+    "#b33ce8",
+    "#149bda",
+    "#ffffff",
+]
+cursor_bg = "#c3c2c4"
+cursor_border = "#c3c2c4"
+cursor_fg = "#2e2a31"
+foreground = "#c3c2c4"
+selection_bg = "#c3c2c4"
+selection_fg = "#2e2a31"
+
+[colors.indexed]
+16 = "#d65407"
+17 = "#d41acd"
+18 = "#4b484e"
+19 = "#69666b"
+20 = "#a5a3a6"
+21 = "#e1e0e1"
+
+[metadata]
+aliases = []
+author = "Josh W Lewis (@joshwlewis)"
+name = "Unikitty Reversible (base16)"
+origin_url = "https://github.com/joshwlewis/base16-unikitty"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_UNSIFTED_WHEAT_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#382c2f",
+    "#48393a",
+    "#65534d",
+    "#79665a",
+    "#836e5e",
+    "#8e7766",
+    "#917781",
+    "#9a846d",
+]
+background = "#111111"
+brights = [
+    "#ac9377",
+    "#baa17e",
+    "#bca282",
+    "#c1a67e",
+    "#cfb48e",
+    "#d1baa3",
+    "#dfc39b",
+    "#eed8c4",
+]
+foreground = "#d3d3d3"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "dkeg"
+name = "Unsifted Wheat (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -145243,6 +145662,228 @@ mod tests {
                     indexed_16
                 );
             }
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_twilight_light_to_unsifted_wheat_builtin_color_schemes() {
+        let cases = [
+            (
+                "Twilight (light) (terminal.sexy)",
+                Color::Rgb(70, 75, 80),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(30, 30, 30),
+                Color::Rgb(207, 106, 76),
+                Color::Rgb(143, 157, 106),
+                Color::Rgb(249, 238, 152),
+                Color::Rgb(95, 90, 96),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Ubuntu",
+                Color::Rgb(238, 238, 236),
+                Color::Rgb(48, 10, 36),
+                Color::Rgb(187, 187, 187),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(181, 213, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(46, 52, 54),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(78, 154, 6),
+                Color::Rgb(196, 160, 0),
+                Color::Rgb(85, 87, 83),
+                Color::Rgb(238, 238, 236),
+                None,
+            ),
+            (
+                "UltraDark",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(254, 254, 254),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(34, 34, 34)),
+                Some(Some(Color::Rgb(204, 204, 204))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(240, 113, 120),
+                Color::Rgb(195, 232, 141),
+                Color::Rgb(255, 203, 107),
+                Color::Rgb(51, 51, 51),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "UltraViolent",
+                Color::Rgb(193, 193, 193),
+                Color::Rgb(36, 39, 40),
+                Color::Rgb(193, 193, 193),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(87, 76, 73)),
+                Some(Some(Color::Rgb(195, 199, 203))),
+                Color::Rgb(36, 39, 40),
+                Color::Rgb(255, 0, 144),
+                Color::Rgb(182, 255, 0),
+                Color::Rgb(255, 247, 39),
+                Color::Rgb(99, 102, 103),
+                Color::Rgb(249, 249, 245),
+                None,
+            ),
+            (
+                "UnderTheSea",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(1, 17, 22),
+                Color::Rgb(74, 252, 214),
+                Some(Color::Rgb(3, 20, 19)),
+                Some(Color::Rgb(65, 85, 85)),
+                Some(Some(Color::Rgb(77, 255, 218))),
+                Color::Rgb(2, 32, 38),
+                Color::Rgb(178, 48, 45),
+                Color::Rgb(0, 169, 65),
+                Color::Rgb(89, 129, 156),
+                Color::Rgb(56, 68, 81),
+                Color::Rgb(88, 251, 214),
+                None,
+            ),
+            (
+                "Unikitty",
+                Color::Rgb(11, 11, 11),
+                Color::Rgb(255, 140, 217),
+                Color::Rgb(186, 252, 139),
+                Some(Color::Rgb(32, 32, 32)),
+                Some(Color::Rgb(62, 169, 254)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(12, 12, 12),
+                Color::Rgb(168, 15, 32),
+                Color::Rgb(186, 252, 139),
+                Color::Rgb(238, 223, 75),
+                Color::Rgb(67, 67, 67),
+                Color::Rgb(255, 243, 254),
+                None,
+            ),
+            (
+                "Unikitty Dark (base16)",
+                Color::Rgb(188, 186, 190),
+                Color::Rgb(46, 42, 49),
+                Color::Rgb(188, 186, 190),
+                Some(Color::Rgb(46, 42, 49)),
+                Some(Color::Rgb(188, 186, 190)),
+                Some(Some(Color::Rgb(46, 42, 49))),
+                Color::Rgb(46, 42, 49),
+                Color::Rgb(216, 19, 127),
+                Color::Rgb(23, 173, 152),
+                Color::Rgb(220, 138, 14),
+                Color::Rgb(131, 128, 133),
+                Color::Rgb(245, 244, 247),
+                Some(Color::Rgb(214, 84, 7)),
+            ),
+            (
+                "Unikitty Light (base16)",
+                Color::Rgb(108, 105, 110),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(108, 105, 110),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(108, 105, 110)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(216, 19, 127),
+                Color::Rgb(23, 173, 152),
+                Color::Rgb(220, 138, 14),
+                Color::Rgb(167, 165, 168),
+                Color::Rgb(50, 45, 52),
+                Some(Color::Rgb(214, 84, 7)),
+            ),
+            (
+                "Unikitty Reversible (base16)",
+                Color::Rgb(195, 194, 196),
+                Color::Rgb(46, 42, 49),
+                Color::Rgb(195, 194, 196),
+                Some(Color::Rgb(46, 42, 49)),
+                Some(Color::Rgb(195, 194, 196)),
+                Some(Some(Color::Rgb(46, 42, 49))),
+                Color::Rgb(46, 42, 49),
+                Color::Rgb(216, 19, 127),
+                Color::Rgb(23, 173, 152),
+                Color::Rgb(220, 138, 14),
+                Color::Rgb(135, 133, 137),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(214, 84, 7)),
+            ),
+            (
+                "Unsifted Wheat (terminal.sexy)",
+                Color::Rgb(211, 211, 211),
+                Color::Rgb(17, 17, 17),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(56, 44, 47),
+                Color::Rgb(72, 57, 58),
+                Color::Rgb(101, 83, 77),
+                Color::Rgb(121, 102, 90),
+                Color::Rgb(172, 147, 119),
+                Color::Rgb(238, 216, 196),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Twilight-light-to-Unsifted-Wheat built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
         }
     }
 

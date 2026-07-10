@@ -3871,7 +3871,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Tomorrow Night Eighties`, `Tomorrow Night Eighties (Gogh)`,
   `Toy Chest (Gogh)`, `ToyChest`, `Treehouse`, `Treehouse (Gogh)`,
   `Trim Yer Beard (terminal.sexy)`, `Twilight`, `Twilight (base16)`,
-  `Twilight (dark) (terminal.sexy)`, `Twilight (Gogh)`, `Builtin Dark`,
+  `Twilight (dark) (terminal.sexy)`, `Twilight (Gogh)`,
+  `Twilight (light) (terminal.sexy)`, `Ubuntu`, `UltraDark`, `UltraViolent`,
+  `UnderTheSea`, `Unikitty`, `Unikitty Dark (base16)`,
+  `Unikitty Light (base16)`, `Unikitty Reversible (base16)`,
+  `Unsifted Wheat (terminal.sexy)`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
