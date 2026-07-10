@@ -20342,6 +20342,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Teerb (Gogh)" => Some(BUILTIN_TEERB_GOGH_COLOR_SCHEME_TOML),
         "tender (base16)" => Some(BUILTIN_TENDER_BASE16_COLOR_SCHEME_TOML),
         "Tender (Gogh)" => Some(BUILTIN_TENDER_GOGH_COLOR_SCHEME_TOML),
+        "terafox" => Some(BUILTIN_TERAFOX_COLOR_SCHEME_TOML),
+        "Terminal Basic" | "TerminalBasic (Gogh)" => Some(BUILTIN_TERMINAL_BASIC_COLOR_SCHEME_TOML),
+        "Terminal Basic (Gogh)" => Some(BUILTIN_TERMINAL_BASIC_GOGH_COLOR_SCHEME_TOML),
+        "Terminix Dark (Gogh)" | "TerminixDark (Gogh)" => {
+            Some(BUILTIN_TERMINIX_DARK_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Teva (terminal.sexy)" => Some(BUILTIN_TEVA_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Thayer Bright" | "ThayerBright (Gogh)" => Some(BUILTIN_THAYER_BRIGHT_COLOR_SCHEME_TOML),
+        "Thayer Bright (Gogh)" => Some(BUILTIN_THAYER_BRIGHT_GOGH_COLOR_SCHEME_TOML),
+        "The Hulk" => Some(BUILTIN_THE_HULK_COLOR_SCHEME_TOML),
+        "theme2 (terminal.sexy)" => Some(BUILTIN_THEME2_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "thwump (terminal.sexy)" => Some(BUILTIN_THWUMP_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -55483,6 +55495,384 @@ foreground = "#eeeeee"
 aliases = []
 name = "Tender (Gogh)"
 origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TERAFOX_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2f3239",
+    "#e85c51",
+    "#7aa4a1",
+    "#fda47f",
+    "#5a93aa",
+    "#ad5c7c",
+    "#a1cdd8",
+    "#ebebeb",
+]
+background = "#152528"
+brights = [
+    "#4e5157",
+    "#eb746b",
+    "#8eb2af",
+    "#fdb292",
+    "#73a3b7",
+    "#b97490",
+    "#afd4de",
+    "#eeeeee",
+]
+cursor_bg = "#e6eaea"
+cursor_border = "#e6eaea"
+cursor_fg = "#152528"
+foreground = "#e6eaea"
+selection_bg = "#293e40"
+selection_fg = "#e6eaea"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "terafox"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TERMINAL_BASIC_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#990000",
+    "#00a600",
+    "#999900",
+    "#0000b2",
+    "#b200b2",
+    "#00a6b2",
+    "#bfbfbf",
+]
+background = "#ffffff"
+brights = [
+    "#666666",
+    "#e50000",
+    "#00d900",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#7f7f7f"
+cursor_border = "#7f7f7f"
+cursor_fg = "#000000"
+foreground = "#000000"
+selection_bg = "#a4c9ff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Homebrew Light (Gogh)",
+    "TerminalBasic (Gogh)",
+]
+name = "Terminal Basic"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TERMINAL_BASIC_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#990000",
+    "#00a600",
+    "#999900",
+    "#0000b2",
+    "#b200b2",
+    "#00a6b2",
+    "#bfbfbf",
+]
+background = "#ffffff"
+brights = [
+    "#666666",
+    "#e50000",
+    "#00d900",
+    "#e5e500",
+    "#0000ff",
+    "#e500e5",
+    "#00e5e5",
+    "#e5e5e5",
+]
+cursor_bg = "#7f7f7f"
+cursor_border = "#7f7f7f"
+cursor_fg = "#ffffff"
+foreground = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Terminal Basic (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_TERMINIX_DARK_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282a2e",
+    "#a54242",
+    "#a1b56c",
+    "#de935f",
+    "#225555",
+    "#85678f",
+    "#5e8d87",
+    "#777777",
+]
+background = "#091116"
+brights = [
+    "#373b41",
+    "#c63535",
+    "#608360",
+    "#fa805a",
+    "#449da1",
+    "#ba8baf",
+    "#86c1b9",
+    "#c5c8c6",
+]
+cursor_bg = "#868a8c"
+cursor_border = "#868a8c"
+cursor_fg = "#091116"
+foreground = "#868a8c"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["TerminixDark (Gogh)"]
+name = "Terminix Dark (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TEVA_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#191f31",
+    "#282e39",
+    "#303844",
+    "#3b444a",
+    "#3c4435",
+    "#4e534f",
+    "#5d5d35",
+    "#66695d",
+]
+background = "#170f0d"
+brights = [
+    "#706d56",
+    "#8b7852",
+    "#909581",
+    "#91703a",
+    "#948658",
+    "#a19662",
+    "#ad9152",
+    "#c6a13f",
+]
+foreground = "#746c48"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "dkeg"
+name = "Teva (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_THAYER_BRIGHT_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1d1e",
+    "#f92672",
+    "#4df840",
+    "#f4fd22",
+    "#2757d6",
+    "#8c54fe",
+    "#38c8b5",
+    "#ccccc6",
+]
+background = "#1b1d1e"
+brights = [
+    "#505354",
+    "#ff5995",
+    "#b6e354",
+    "#feed6c",
+    "#3f78ff",
+    "#9e6ffe",
+    "#23cfd5",
+    "#f8f8f2",
+]
+cursor_bg = "#fc971f"
+cursor_border = "#fc971f"
+cursor_fg = "#000000"
+foreground = "#f8f8f8"
+selection_bg = "#4d4d4d"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = [
+    "Thayer Bright (Gogh)",
+    "ThayerBright (Gogh)",
+]
+name = "Thayer Bright"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_THAYER_BRIGHT_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1d1e",
+    "#f92672",
+    "#4df840",
+    "#f4fd22",
+    "#2757d6",
+    "#8c54fe",
+    "#38c8b5",
+    "#ccccc6",
+]
+background = "#1b1d1e"
+brights = [
+    "#505354",
+    "#ff5995",
+    "#b6e354",
+    "#feed6c",
+    "#3f78ff",
+    "#9e6ffe",
+    "#23cfd5",
+    "#f8f8f2",
+]
+cursor_bg = "#f8f8f8"
+cursor_border = "#f8f8f8"
+cursor_fg = "#1b1d1e"
+foreground = "#f8f8f8"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Thayer Bright (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_THE_HULK_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1b1d1e",
+    "#269d1b",
+    "#13ce30",
+    "#63e457",
+    "#2525f5",
+    "#641f74",
+    "#378ca9",
+    "#d9d8d1",
+]
+background = "#1b1d1e"
+brights = [
+    "#505354",
+    "#8dff2a",
+    "#48ff77",
+    "#3afe16",
+    "#506b95",
+    "#72589d",
+    "#4085a6",
+    "#e5e6e1",
+]
+cursor_bg = "#16b61b"
+cursor_border = "#16b61b"
+cursor_fg = "#000000"
+foreground = "#b5b5b5"
+selection_bg = "#4d504c"
+selection_fg = "#0b6309"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "The Hulk"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_THEME2_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#191919",
+    "#eb3d51",
+    "#66b61a",
+    "#d98e1d",
+    "#23ffa8",
+    "#ff00da",
+    "#68a783",
+    "#eaeaea",
+]
+background = "#000000"
+brights = [
+    "#484848",
+    "#be6262",
+    "#4b8a10",
+    "#e5d95e",
+    "#23aaff",
+    "#ab005b",
+    "#bbcd81",
+    "#bbbbbb",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "theme2 (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_THWUMP_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#202020",
+    "#a07070",
+    "#70a070",
+    "#a0a070",
+    "#7070a0",
+    "#a070a0",
+    "#70a0a0",
+    "#a0a0a0",
+]
+background = "#000000"
+brights = [
+    "#505050",
+    "#d07070",
+    "#70d070",
+    "#d0d070",
+    "#7070d0",
+    "#d070d0",
+    "#70d0d0",
+    "#f0f0f0",
+]
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "thwump (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
 "##;
 
@@ -141442,6 +141832,276 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Tango-to-Tender built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_terafox_to_thwump_builtin_color_schemes_and_aliases() {
+        let cases = [
+            (
+                "terafox",
+                Color::Rgb(230, 234, 234),
+                Color::Rgb(21, 37, 40),
+                Color::Rgb(230, 234, 234),
+                Some(Color::Rgb(21, 37, 40)),
+                Some(Color::Rgb(41, 62, 64)),
+                Some(Some(Color::Rgb(230, 234, 234))),
+                Color::Rgb(47, 50, 57),
+                Color::Rgb(232, 92, 81),
+                Color::Rgb(122, 164, 161),
+                Color::Rgb(253, 164, 127),
+                Color::Rgb(78, 81, 87),
+                Color::Rgb(238, 238, 238),
+                None,
+            ),
+            (
+                "Terminal Basic",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(127, 127, 127),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(164, 201, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(153, 0, 0),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(153, 153, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "TerminalBasic (Gogh)",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(127, 127, 127),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(164, 201, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(153, 0, 0),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(153, 153, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Terminal Basic (Gogh)",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(127, 127, 127),
+                Some(Color::Rgb(255, 255, 255)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(153, 0, 0),
+                Color::Rgb(0, 166, 0),
+                Color::Rgb(153, 153, 0),
+                Color::Rgb(102, 102, 102),
+                Color::Rgb(229, 229, 229),
+                None,
+            ),
+            (
+                "Terminix Dark (Gogh)",
+                Color::Rgb(134, 138, 140),
+                Color::Rgb(9, 17, 22),
+                Color::Rgb(134, 138, 140),
+                Some(Color::Rgb(9, 17, 22)),
+                None,
+                None,
+                Color::Rgb(40, 42, 46),
+                Color::Rgb(165, 66, 66),
+                Color::Rgb(161, 181, 108),
+                Color::Rgb(222, 147, 95),
+                Color::Rgb(55, 59, 65),
+                Color::Rgb(197, 200, 198),
+                None,
+            ),
+            (
+                "TerminixDark (Gogh)",
+                Color::Rgb(134, 138, 140),
+                Color::Rgb(9, 17, 22),
+                Color::Rgb(134, 138, 140),
+                Some(Color::Rgb(9, 17, 22)),
+                None,
+                None,
+                Color::Rgb(40, 42, 46),
+                Color::Rgb(165, 66, 66),
+                Color::Rgb(161, 181, 108),
+                Color::Rgb(222, 147, 95),
+                Color::Rgb(55, 59, 65),
+                Color::Rgb(197, 200, 198),
+                None,
+            ),
+            (
+                "Teva (terminal.sexy)",
+                Color::Rgb(116, 108, 72),
+                Color::Rgb(23, 15, 13),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(25, 31, 49),
+                Color::Rgb(40, 46, 57),
+                Color::Rgb(48, 56, 68),
+                Color::Rgb(59, 68, 74),
+                Color::Rgb(112, 109, 86),
+                Color::Rgb(198, 161, 63),
+                None,
+            ),
+            (
+                "Thayer Bright",
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(252, 151, 31),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(77, 77, 77)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(77, 248, 64),
+                Color::Rgb(244, 253, 34),
+                Color::Rgb(80, 83, 84),
+                Color::Rgb(248, 248, 242),
+                None,
+            ),
+            (
+                "ThayerBright (Gogh)",
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(252, 151, 31),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(77, 77, 77)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(77, 248, 64),
+                Color::Rgb(244, 253, 34),
+                Color::Rgb(80, 83, 84),
+                Color::Rgb(248, 248, 242),
+                None,
+            ),
+            (
+                "Thayer Bright (Gogh)",
+                Color::Rgb(248, 248, 248),
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(248, 248, 248),
+                Some(Color::Rgb(27, 29, 30)),
+                None,
+                None,
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(249, 38, 114),
+                Color::Rgb(77, 248, 64),
+                Color::Rgb(244, 253, 34),
+                Color::Rgb(80, 83, 84),
+                Color::Rgb(248, 248, 242),
+                None,
+            ),
+            (
+                "The Hulk",
+                Color::Rgb(181, 181, 181),
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(22, 182, 27),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(77, 80, 76)),
+                Some(Some(Color::Rgb(11, 99, 9))),
+                Color::Rgb(27, 29, 30),
+                Color::Rgb(38, 157, 27),
+                Color::Rgb(19, 206, 48),
+                Color::Rgb(99, 228, 87),
+                Color::Rgb(80, 83, 84),
+                Color::Rgb(229, 230, 225),
+                None,
+            ),
+            (
+                "theme2 (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(25, 25, 25),
+                Color::Rgb(235, 61, 81),
+                Color::Rgb(102, 182, 26),
+                Color::Rgb(217, 142, 29),
+                Color::Rgb(72, 72, 72),
+                Color::Rgb(187, 187, 187),
+                None,
+            ),
+            (
+                "thwump (terminal.sexy)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(32, 32, 32),
+                Color::Rgb(160, 112, 112),
+                Color::Rgb(112, 160, 112),
+                Color::Rgb(160, 160, 112),
+                Color::Rgb(80, 80, 80),
+                Color::Rgb(240, 240, 240),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm terafox-to-thwump built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
