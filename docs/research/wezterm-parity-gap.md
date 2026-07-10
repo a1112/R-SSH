@@ -3897,9 +3897,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
-  palette data. The broader built-in scheme catalog, richer dynamic
-  `load_scheme` composition, and full dynamic Lua scheme
-  construction remain later parity work.
+  palette data. A canonical-name set comparison against the pinned
+  `refs/wezterm/docs/colorschemes/data.json` now covers all 1,001 upstream
+  canonical schemes with zero missing names, plus 82 upstream aliases and the
+  seven R-SSH `Builtin *` schemes. Richer dynamic `load_scheme` composition and
+  full dynamic Lua scheme construction remain later parity work.
 - Native terminal rendering applies WezTerm-style `colors.background` as the
   default framebuffer background for full and damage renders. Static
   WezTerm-style Lua `config.colors.background` snippets now parse into the same
