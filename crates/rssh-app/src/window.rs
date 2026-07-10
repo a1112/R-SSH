@@ -77606,7 +77606,6 @@ struct NativeWindowApp {
     mouse_position: Option<(u16, u16)>,
     current_mouse_wheel_delta: Option<MouseScrollDelta>,
     mouse_cursor_visible: bool,
-    #[cfg_attr(not(test), allow(dead_code))]
     mouse_cursor_icon: CursorIcon,
     active_mouse_button: Option<MouseButton>,
     last_mouse_info: Option<ItermMouseInfo>,
@@ -86404,6 +86403,7 @@ impl NativeWindowApp {
         let next_position = self.window_mouse_cell(position);
         let mouse_cell_changed = self.mouse_position != next_position;
         self.mouse_position = next_position;
+        self.update_split_resize_cursor_icon();
 
         if self.scrollbar_dragging {
             return Ok(self.scroll_to_scrollbar_position(position));
@@ -86501,6 +86501,7 @@ impl NativeWindowApp {
         self.mouse_pixel_position = None;
         self.mouse_position = None;
         self.set_mouse_cursor_visible(true);
+        self.set_mouse_cursor_icon(CursorIcon::Default);
     }
 
     fn set_mouse_cursor_visible(&mut self, visible: bool) {
@@ -86514,7 +86515,6 @@ impl NativeWindowApp {
         }
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     fn set_mouse_cursor_icon(&mut self, icon: CursorIcon) {
         if self.mouse_cursor_icon == icon {
             return;
@@ -86524,6 +86524,16 @@ impl NativeWindowApp {
         if let Some(window) = &self.window {
             window.set_cursor(icon);
         }
+    }
+
+    fn update_split_resize_cursor_icon(&mut self) {
+        let drag = self
+            .split_resize_dragging
+            .or_else(|| self.split_resize_drag_at_mouse_position());
+        let icon = drag
+            .map(|drag| split_resize_cursor_icon(drag.direction))
+            .unwrap_or(CursorIcon::Default);
+        self.set_mouse_cursor_icon(icon);
     }
 
     fn hide_mouse_cursor_for_typing_if_needed(&mut self) {
@@ -86550,10 +86560,12 @@ impl NativeWindowApp {
                 self.selection = None;
                 self.selecting = false;
                 self.split_resize_dragging = Some(drag);
+                self.update_split_resize_cursor_icon();
                 true
             }
             ElementState::Released if self.split_resize_dragging.is_some() => {
                 self.split_resize_dragging = None;
+                self.update_split_resize_cursor_icon();
                 true
             }
             ElementState::Released => false,
@@ -118197,7 +118209,6 @@ fn split_resize_drag(
     })
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 fn split_resize_cursor_icon(direction: SplitDirection) -> CursorIcon {
     match direction {
         SplitDirection::Left | SplitDirection::Right => CursorIcon::EwResize,
@@ -174350,6 +174361,65 @@ mod tests {
     }
 
     #[test]
+    fn window_app_uses_resize_cursor_for_split_separator() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(39_u32 * CELL_WIDTH),
+            f64::from(app.terminal_pixel_top()),
+        ))
+        .unwrap();
+        assert_eq!(app.mouse_cursor_icon, CursorIcon::EwResize);
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            0.0,
+            f64::from(app.terminal_pixel_top()),
+        ))
+        .unwrap();
+        assert_eq!(app.mouse_cursor_icon, CursorIcon::Default);
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(39_u32 * CELL_WIDTH),
+            f64::from(app.terminal_pixel_top()),
+        ))
+        .unwrap();
+        app.handle_cursor_left();
+        assert_eq!(app.mouse_cursor_icon, CursorIcon::Default);
+    }
+
+    #[test]
+    fn window_app_uses_vertical_resize_cursor_for_down_split_separator() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Down,
+            launch: None,
+        })
+        .unwrap();
+        let separator = app.pane_render_layout().separators[0];
+        let terminal_row = separator
+            .row
+            .saturating_sub(app.terminal_frame_row_offset());
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(u32::from(separator.column) * CELL_WIDTH),
+            f64::from(
+                app.terminal_pixel_top()
+                    .saturating_add(u32::from(terminal_row) * CELL_HEIGHT),
+            ),
+        ))
+        .unwrap();
+
+        assert_eq!(app.mouse_cursor_icon, CursorIcon::NsResize);
+    }
+
+    #[test]
     fn window_app_dragging_right_split_separator_resizes_panes() {
         let mut app = NativeWindowApp::new(None);
         app.handle_pty_output(b"left").unwrap();
@@ -174367,24 +174437,35 @@ mod tests {
             f64::from(tab_bar_pixel_height()),
         ))
         .unwrap();
+        assert_eq!(app.mouse_cursor_icon, CursorIcon::EwResize);
         assert!(
             app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
                 .unwrap()
         );
+        assert_eq!(app.mouse_cursor_icon, CursorIcon::EwResize);
 
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(43_u32 * CELL_WIDTH),
             f64::from(tab_bar_pixel_height()),
         ))
         .unwrap();
+        assert_eq!(app.mouse_cursor_icon, CursorIcon::EwResize);
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(200_u32 * CELL_WIDTH),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert_eq!(app.mouse_cursor_icon, CursorIcon::EwResize);
         assert!(
             app.handle_mouse_input(ElementState::Released, MouseButton::Left)
                 .unwrap()
         );
+        assert_eq!(app.mouse_cursor_icon, CursorIcon::Default);
 
         let snapshot = app.render_snapshot();
-        assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS, 43), Some('|'));
-        assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS, 44), Some('r'));
+        assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS, 78), Some('|'));
+        assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS, 79), Some('r'));
     }
 
     #[test]
