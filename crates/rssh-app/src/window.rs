@@ -20314,6 +20314,24 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
             Some(BUILTIN_SWEET_ELIVERLARA_GOGH_COLOR_SCHEME_TOML)
         }
         "Sweet Love (terminal.sexy)" => Some(BUILTIN_SWEET_LOVE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Sweet Terminal (Gogh)" | "SweetTerminal (Gogh)" => {
+            Some(BUILTIN_SWEET_TERMINAL_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Symfonic" => Some(BUILTIN_SYMFONIC_COLOR_SCHEME_TOML),
+        "Symphonic (Gogh)" => Some(BUILTIN_SYMPHONIC_GOGH_COLOR_SCHEME_TOML),
+        "Synth Midnight Terminal Dark (base16)" => {
+            Some(BUILTIN_SYNTH_MIDNIGHT_TERMINAL_DARK_BASE16_COLOR_SCHEME_TOML)
+        }
+        "Synth Midnight Terminal Light (base16)" => {
+            Some(BUILTIN_SYNTH_MIDNIGHT_TERMINAL_LIGHT_BASE16_COLOR_SCHEME_TOML)
+        }
+        "synthwave" => Some(BUILTIN_SYNTHWAVE_COLOR_SCHEME_TOML),
+        "Synthwave (Gogh)" | "SynthWave (Gogh)" => Some(BUILTIN_SYNTHWAVE_GOGH_COLOR_SCHEME_TOML),
+        "Synthwave Alpha (Gogh)" | "SynthwaveAlpha (Gogh)" => {
+            Some(BUILTIN_SYNTHWAVE_ALPHA_GOGH_COLOR_SCHEME_TOML)
+        }
+        "synthwave-everything" => Some(BUILTIN_SYNTHWAVE_EVERYTHING_COLOR_SCHEME_TOML),
+        "SynthwaveAlpha" => Some(BUILTIN_SYNTHWAVE_ALPHA_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -54672,6 +54690,402 @@ author = "Boroshlawa"
 name = "Sweet Love (terminal.sexy)"
 origin_url = "https://github.com/stayradiated/terminal.sexy"
 wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SWEET_TERMINAL_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#3f3f54",
+    "#f60055",
+    "#06c993",
+    "#9700be",
+    "#f69154",
+    "#ec89cb",
+    "#60adec",
+    "#abb2bf",
+]
+background = "#222235"
+brights = [
+    "#959dcb",
+    "#f60055",
+    "#06c993",
+    "#9700be",
+    "#f69154",
+    "#ec89cb",
+    "#00dded",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#222235"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["SweetTerminal (Gogh)"]
+name = "Sweet Terminal (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SYMFONIC_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#dc322f",
+    "#56db3a",
+    "#ff8400",
+    "#0084d4",
+    "#b729d9",
+    "#ccccff",
+    "#ffffff",
+]
+background = "#000000"
+brights = [
+    "#1b1d21",
+    "#dc322f",
+    "#56db3a",
+    "#ff8400",
+    "#0084d4",
+    "#b729d9",
+    "#ccccff",
+    "#ffffff",
+]
+cursor_bg = "#dc322f"
+cursor_border = "#dc322f"
+cursor_fg = "#ffffff"
+foreground = "#ffffff"
+selection_bg = "#073642"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Symphonic (Gogh)"]
+name = "Symfonic"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SYMPHONIC_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#dc322f",
+    "#56db3a",
+    "#ff8400",
+    "#0084d4",
+    "#b729d9",
+    "#ccccff",
+    "#ffffff",
+]
+background = "#000000"
+brights = [
+    "#1b1d21",
+    "#dc322f",
+    "#56db3a",
+    "#ff8400",
+    "#0084d4",
+    "#b729d9",
+    "#ccccff",
+    "#ffffff",
+]
+cursor_bg = "#ffffff"
+cursor_border = "#ffffff"
+cursor_fg = "#000000"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Symphonic (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_SYNTH_MIDNIGHT_TERMINAL_DARK_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#050608",
+    "#b53b50",
+    "#06ea61",
+    "#c9d364",
+    "#03aeff",
+    "#ea5ce2",
+    "#42fff9",
+    "#c1c3c4",
+]
+background = "#050608"
+brights = [
+    "#474849",
+    "#b53b50",
+    "#06ea61",
+    "#c9d364",
+    "#03aeff",
+    "#ea5ce2",
+    "#42fff9",
+    "#dddfe0",
+]
+cursor_bg = "#c1c3c4"
+cursor_border = "#c1c3c4"
+cursor_fg = "#050608"
+foreground = "#c1c3c4"
+selection_bg = "#c1c3c4"
+selection_fg = "#050608"
+
+[colors.indexed]
+16 = "#ea770d"
+17 = "#cd6320"
+18 = "#1a1b1c"
+19 = "#28292a"
+20 = "#a3a5a6"
+21 = "#cfd1d2"
+
+[metadata]
+aliases = []
+author = "Michaël Ball (http://github.com/michael-ball/)"
+name = "Synth Midnight Terminal Dark (base16)"
+origin_url = "https://github.com/michael-ball/base16-synth-midnight-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SYNTH_MIDNIGHT_TERMINAL_LIGHT_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#dddfe0",
+    "#b53b50",
+    "#06ea61",
+    "#c9d364",
+    "#03aeff",
+    "#ea5ce2",
+    "#42fff9",
+    "#28292a",
+]
+background = "#dddfe0"
+brights = [
+    "#a3a5a6",
+    "#b53b50",
+    "#06ea61",
+    "#c9d364",
+    "#03aeff",
+    "#ea5ce2",
+    "#42fff9",
+    "#050608",
+]
+cursor_bg = "#28292a"
+cursor_border = "#28292a"
+cursor_fg = "#dddfe0"
+foreground = "#28292a"
+selection_bg = "#28292a"
+selection_fg = "#dddfe0"
+
+[colors.indexed]
+16 = "#ea770d"
+17 = "#cd6320"
+18 = "#cfd1d2"
+19 = "#c1c3c4"
+20 = "#474849"
+21 = "#1a1b1c"
+
+[metadata]
+aliases = []
+author = "Michaël Ball (http://github.com/michael-ball/)"
+name = "Synth Midnight Terminal Light (base16)"
+origin_url = "https://github.com/michael-ball/base16-synth-midnight-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SYNTHWAVE_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#f6188f",
+    "#1ebb2b",
+    "#fdf834",
+    "#2186ec",
+    "#f85a21",
+    "#12c3e2",
+    "#ffffff",
+]
+background = "#000000"
+brights = [
+    "#000000",
+    "#f841a0",
+    "#25c141",
+    "#fdf454",
+    "#2f9ded",
+    "#f97137",
+    "#19cde6",
+    "#ffffff",
+]
+cursor_bg = "#19cde6"
+cursor_border = "#19cde6"
+cursor_fg = "#dad9c7"
+foreground = "#dad9c7"
+selection_bg = "#19cde6"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "synthwave"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SYNTHWAVE_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#011627",
+    "#fe4450",
+    "#72f1b8",
+    "#fede5d",
+    "#03edf9",
+    "#ff7edb",
+    "#03edf9",
+    "#ffffff",
+]
+background = "#262335"
+brights = [
+    "#575656",
+    "#fe4450",
+    "#72f1b8",
+    "#fede5d",
+    "#03edf9",
+    "#ff7edb",
+    "#03edf9",
+    "#ffffff",
+]
+cursor_bg = "#03edf9"
+cursor_border = "#03edf9"
+cursor_fg = "#262335"
+foreground = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["SynthWave (Gogh)"]
+name = "Synthwave (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_SYNTHWAVE_ALPHA_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#241b30",
+    "#9a0048",
+    "#00986c",
+    "#adad3e",
+    "#6e29ad",
+    "#b300ad",
+    "#00b0b1",
+    "#b9b1bc",
+]
+background = "#241b30"
+brights = [
+    "#7f7094",
+    "#e60a70",
+    "#0ae4a4",
+    "#f9f972",
+    "#aa54f9",
+    "#ff00f6",
+    "#00fbfd",
+    "#f2f2e3",
+]
+cursor_bg = "#f2f2e3"
+cursor_border = "#f2f2e3"
+cursor_fg = "#241b30"
+foreground = "#f2f2e3"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["SynthwaveAlpha (Gogh)"]
+name = "Synthwave Alpha (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220903-194523-3bb1ed61"
+"##;
+
+const BUILTIN_SYNTHWAVE_EVERYTHING_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#fefefe",
+    "#f97e72",
+    "#72f1b8",
+    "#fede5d",
+    "#6d77b3",
+    "#c792ea",
+    "#f772e0",
+    "#fefefe",
+]
+background = "#2a2139"
+brights = [
+    "#fefefe",
+    "#f88414",
+    "#72f1b8",
+    "#fff951",
+    "#36f9f6",
+    "#e1acff",
+    "#f92aad",
+    "#fefefe",
+]
+cursor_bg = "#72f1b8"
+cursor_border = "#72f1b8"
+cursor_fg = "#1a1a1a"
+foreground = "#f0eff1"
+selection_bg = "#181521"
+selection_fg = "#f0eff1"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "synthwave-everything"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_SYNTHWAVE_ALPHA_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#241b30",
+    "#e60a70",
+    "#00986c",
+    "#adad3e",
+    "#6e29ad",
+    "#b300ad",
+    "#00b0b1",
+    "#b9b1bc",
+]
+background = "#241b30"
+brights = [
+    "#7f7094",
+    "#e60a70",
+    "#0ae4a4",
+    "#f9f972",
+    "#aa54f9",
+    "#ff00f6",
+    "#00fbfd",
+    "#f2f2e3",
+]
+cursor_bg = "#f2f2e3"
+cursor_border = "#f2f2e3"
+cursor_fg = "#241b30"
+foreground = "#f2f2e3"
+selection_bg = "#6e29ad"
+selection_fg = "#f2f2e3"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "SynthwaveAlpha"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "20220903-194523-3bb1ed61"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -140137,6 +140551,277 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Sugarplum-to-Sweet-Love built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_sweet_terminal_to_synthwave_alpha_builtin_color_schemes_and_aliases()
+     {
+        let cases = [
+            (
+                "Sweet Terminal (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(34, 34, 53),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(34, 34, 53)),
+                None,
+                None,
+                Color::Rgb(63, 63, 84),
+                Color::Rgb(246, 0, 85),
+                Color::Rgb(6, 201, 147),
+                Color::Rgb(151, 0, 190),
+                Color::Rgb(149, 157, 203),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "SweetTerminal (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(34, 34, 53),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(34, 34, 53)),
+                None,
+                None,
+                Color::Rgb(63, 63, 84),
+                Color::Rgb(246, 0, 85),
+                Color::Rgb(6, 201, 147),
+                Color::Rgb(151, 0, 190),
+                Color::Rgb(149, 157, 203),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Symfonic",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(220, 50, 47),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(7, 54, 66)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(220, 50, 47),
+                Color::Rgb(86, 219, 58),
+                Color::Rgb(255, 132, 0),
+                Color::Rgb(27, 29, 33),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Symphonic (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Some(Color::Rgb(0, 0, 0)),
+                None,
+                None,
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(220, 50, 47),
+                Color::Rgb(86, 219, 58),
+                Color::Rgb(255, 132, 0),
+                Color::Rgb(27, 29, 33),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Synth Midnight Terminal Dark (base16)",
+                Color::Rgb(193, 195, 196),
+                Color::Rgb(5, 6, 8),
+                Color::Rgb(193, 195, 196),
+                Some(Color::Rgb(5, 6, 8)),
+                Some(Color::Rgb(193, 195, 196)),
+                Some(Some(Color::Rgb(5, 6, 8))),
+                Color::Rgb(5, 6, 8),
+                Color::Rgb(181, 59, 80),
+                Color::Rgb(6, 234, 97),
+                Color::Rgb(201, 211, 100),
+                Color::Rgb(71, 72, 73),
+                Color::Rgb(221, 223, 224),
+                Some(Color::Rgb(234, 119, 13)),
+            ),
+            (
+                "Synth Midnight Terminal Light (base16)",
+                Color::Rgb(40, 41, 42),
+                Color::Rgb(221, 223, 224),
+                Color::Rgb(40, 41, 42),
+                Some(Color::Rgb(221, 223, 224)),
+                Some(Color::Rgb(40, 41, 42)),
+                Some(Some(Color::Rgb(221, 223, 224))),
+                Color::Rgb(221, 223, 224),
+                Color::Rgb(181, 59, 80),
+                Color::Rgb(6, 234, 97),
+                Color::Rgb(201, 211, 100),
+                Color::Rgb(163, 165, 166),
+                Color::Rgb(5, 6, 8),
+                Some(Color::Rgb(234, 119, 13)),
+            ),
+            (
+                "synthwave",
+                Color::Rgb(218, 217, 199),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(25, 205, 230),
+                Some(Color::Rgb(218, 217, 199)),
+                Some(Color::Rgb(25, 205, 230)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(246, 24, 143),
+                Color::Rgb(30, 187, 43),
+                Color::Rgb(253, 248, 52),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Synthwave (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(38, 35, 53),
+                Color::Rgb(3, 237, 249),
+                Some(Color::Rgb(38, 35, 53)),
+                None,
+                None,
+                Color::Rgb(1, 22, 39),
+                Color::Rgb(254, 68, 80),
+                Color::Rgb(114, 241, 184),
+                Color::Rgb(254, 222, 93),
+                Color::Rgb(87, 86, 86),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "SynthWave (Gogh)",
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(38, 35, 53),
+                Color::Rgb(3, 237, 249),
+                Some(Color::Rgb(38, 35, 53)),
+                None,
+                None,
+                Color::Rgb(1, 22, 39),
+                Color::Rgb(254, 68, 80),
+                Color::Rgb(114, 241, 184),
+                Color::Rgb(254, 222, 93),
+                Color::Rgb(87, 86, 86),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Synthwave Alpha (Gogh)",
+                Color::Rgb(242, 242, 227),
+                Color::Rgb(36, 27, 48),
+                Color::Rgb(242, 242, 227),
+                Some(Color::Rgb(36, 27, 48)),
+                None,
+                None,
+                Color::Rgb(36, 27, 48),
+                Color::Rgb(154, 0, 72),
+                Color::Rgb(0, 152, 108),
+                Color::Rgb(173, 173, 62),
+                Color::Rgb(127, 112, 148),
+                Color::Rgb(242, 242, 227),
+                None,
+            ),
+            (
+                "SynthwaveAlpha (Gogh)",
+                Color::Rgb(242, 242, 227),
+                Color::Rgb(36, 27, 48),
+                Color::Rgb(242, 242, 227),
+                Some(Color::Rgb(36, 27, 48)),
+                None,
+                None,
+                Color::Rgb(36, 27, 48),
+                Color::Rgb(154, 0, 72),
+                Color::Rgb(0, 152, 108),
+                Color::Rgb(173, 173, 62),
+                Color::Rgb(127, 112, 148),
+                Color::Rgb(242, 242, 227),
+                None,
+            ),
+            (
+                "synthwave-everything",
+                Color::Rgb(240, 239, 241),
+                Color::Rgb(42, 33, 57),
+                Color::Rgb(114, 241, 184),
+                Some(Color::Rgb(26, 26, 26)),
+                Some(Color::Rgb(24, 21, 33)),
+                Some(Some(Color::Rgb(240, 239, 241))),
+                Color::Rgb(254, 254, 254),
+                Color::Rgb(249, 126, 114),
+                Color::Rgb(114, 241, 184),
+                Color::Rgb(254, 222, 93),
+                Color::Rgb(254, 254, 254),
+                Color::Rgb(254, 254, 254),
+                None,
+            ),
+            (
+                "SynthwaveAlpha",
+                Color::Rgb(242, 242, 227),
+                Color::Rgb(36, 27, 48),
+                Color::Rgb(242, 242, 227),
+                Some(Color::Rgb(36, 27, 48)),
+                Some(Color::Rgb(110, 41, 173)),
+                Some(Some(Color::Rgb(242, 242, 227))),
+                Color::Rgb(36, 27, 48),
+                Color::Rgb(230, 10, 112),
+                Color::Rgb(0, 152, 108),
+                Color::Rgb(173, 173, 62),
+                Color::Rgb(127, 112, 148),
+                Color::Rgb(242, 242, 227),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Sweet-Terminal-to-Synthwave-Alpha built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);

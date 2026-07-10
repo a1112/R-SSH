@@ -3847,7 +3847,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Summer Pop (Gogh)`, `summercamp (base16)`, `Summerfruit Dark (base16)`,
   `Summerfruit Light (base16)`, `Sundried`, `Sundried (Gogh)`,
   `Swayr (terminal.sexy)`, `Sweet Eliverlara (Gogh)`,
-  `Sweet Love (terminal.sexy)`, `Builtin Dark`,
+  `Sweet Love (terminal.sexy)`, `Sweet Terminal (Gogh)`, `Symfonic`,
+  `Symphonic (Gogh)`, `Synth Midnight Terminal Dark (base16)`,
+  `Synth Midnight Terminal Light (base16)`, `synthwave`, `Synthwave (Gogh)`,
+  `Synthwave Alpha (Gogh)`, `synthwave-everything`, `SynthwaveAlpha`,
+  `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
