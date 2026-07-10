@@ -3851,7 +3851,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Symphonic (Gogh)`, `Synth Midnight Terminal Dark (base16)`,
   `Synth Midnight Terminal Light (base16)`, `synthwave`, `Synthwave (Gogh)`,
   `Synthwave Alpha (Gogh)`, `synthwave-everything`, `SynthwaveAlpha`,
-  `Builtin Dark`,
+  `Tango (base16)`, `Tango (terminal.sexy)`, `Tango Adapted`,
+  `Tango Half Adapted`, `Tangoesque (terminal.sexy)`,
+  `Tartan (terminal.sexy)`, `Teerb`, `Teerb (Gogh)`, `tender (base16)`,
+  `Tender (Gogh)`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML

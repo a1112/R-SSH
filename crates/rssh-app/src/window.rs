@@ -20332,6 +20332,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "synthwave-everything" => Some(BUILTIN_SYNTHWAVE_EVERYTHING_COLOR_SCHEME_TOML),
         "SynthwaveAlpha" => Some(BUILTIN_SYNTHWAVE_ALPHA_COLOR_SCHEME_TOML),
+        "Tango (base16)" => Some(BUILTIN_TANGO_BASE16_COLOR_SCHEME_TOML),
+        "Tango (terminal.sexy)" => Some(BUILTIN_TANGO_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Tango Adapted" => Some(BUILTIN_TANGO_ADAPTED_COLOR_SCHEME_TOML),
+        "Tango Half Adapted" => Some(BUILTIN_TANGO_HALF_ADAPTED_COLOR_SCHEME_TOML),
+        "Tangoesque (terminal.sexy)" => Some(BUILTIN_TANGOESQUE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Tartan (terminal.sexy)" => Some(BUILTIN_TARTAN_TERMINAL_SEXY_COLOR_SCHEME_TOML),
+        "Teerb" => Some(BUILTIN_TEERB_COLOR_SCHEME_TOML),
+        "Teerb (Gogh)" => Some(BUILTIN_TEERB_GOGH_COLOR_SCHEME_TOML),
+        "tender (base16)" => Some(BUILTIN_TENDER_BASE16_COLOR_SCHEME_TOML),
+        "Tender (Gogh)" => Some(BUILTIN_TENDER_GOGH_COLOR_SCHEME_TOML),
         "Builtin Dark" => Some(BUILTIN_DARK_COLOR_SCHEME_TOML),
         "Builtin Light" => Some(BUILTIN_LIGHT_COLOR_SCHEME_TOML),
         "Builtin Pastel Dark" => Some(BUILTIN_PASTEL_DARK_COLOR_SCHEME_TOML),
@@ -55086,6 +55096,394 @@ aliases = []
 name = "SynthwaveAlpha"
 origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 wezterm_version = "20220903-194523-3bb1ed61"
+"##;
+
+const BUILTIN_TANGO_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e3436",
+    "#cc0000",
+    "#4e9a06",
+    "#c4a000",
+    "#3465a4",
+    "#75507b",
+    "#06989a",
+    "#d3d7cf",
+]
+background = "#2e3436"
+brights = [
+    "#555753",
+    "#cc0000",
+    "#4e9a06",
+    "#c4a000",
+    "#3465a4",
+    "#75507b",
+    "#06989a",
+    "#eeeeec",
+]
+cursor_bg = "#d3d7cf"
+cursor_border = "#d3d7cf"
+cursor_fg = "#2e3436"
+foreground = "#d3d7cf"
+selection_bg = "#d3d7cf"
+selection_fg = "#2e3436"
+
+[colors.indexed]
+16 = "#ef2929"
+17 = "#34e2e2"
+18 = "#8ae234"
+19 = "#fce94f"
+20 = "#729fcf"
+21 = "#ad7fa8"
+
+[metadata]
+aliases = []
+author = "@Schnouki, based on the Tango Desktop Project"
+name = "Tango (base16)"
+origin_url = "https://github.com/Schnouki/base16-tango-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TANGO_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e3436",
+    "#cc0000",
+    "#4e9a06",
+    "#c4a000",
+    "#3465a4",
+    "#75507b",
+    "#06989a",
+    "#d3d7cf",
+]
+background = "#000000"
+brights = [
+    "#555753",
+    "#ef2929",
+    "#8ae234",
+    "#fce94f",
+    "#729fcf",
+    "#ad7fa8",
+    "#34e2e2",
+    "#eeeeec",
+]
+foreground = "#babdb6"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Tango (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TANGO_ADAPTED_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff0000",
+    "#59d600",
+    "#f0cb00",
+    "#00a2ff",
+    "#c17ecc",
+    "#00d0d6",
+    "#e6ebe1",
+]
+background = "#ffffff"
+brights = [
+    "#8f928b",
+    "#ff0013",
+    "#93ff00",
+    "#fff121",
+    "#88c9ff",
+    "#e9a7e1",
+    "#00feff",
+    "#f6f6f4",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#ffffff"
+foreground = "#000000"
+selection_bg = "#c1deff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Tango Adapted"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TANGO_HALF_ADAPTED_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#000000",
+    "#ff0000",
+    "#4cc300",
+    "#e2c000",
+    "#008ef6",
+    "#a96cb3",
+    "#00bdc3",
+    "#e0e5db",
+]
+background = "#ffffff"
+brights = [
+    "#797d76",
+    "#ff0013",
+    "#8af600",
+    "#ffec00",
+    "#76bfff",
+    "#d898d1",
+    "#00f6fa",
+    "#f4f4f2",
+]
+cursor_bg = "#000000"
+cursor_border = "#000000"
+cursor_fg = "#ffffff"
+foreground = "#000000"
+selection_bg = "#c1deff"
+selection_fg = "#000000"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Tango Half Adapted"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TANGOESQUE_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#202020",
+    "#ff6565",
+    "#93d44f",
+    "#eab93d",
+    "#204a87",
+    "#ce5c00",
+    "#89b6e2",
+    "#cccccc",
+]
+background = "#000000"
+brights = [
+    "#606060",
+    "#ff8d8d",
+    "#c8e7a8",
+    "#ffc123",
+    "#3465a4",
+    "#f57900",
+    "#46a4ff",
+    "#ffffff",
+]
+foreground = "#aaaaaa"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Tangoesque (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TARTAN_TERMINAL_SEXY_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#2e3436",
+    "#cc0000",
+    "#4e9a06",
+    "#c4a000",
+    "#3465a4",
+    "#75507b",
+    "#06989a",
+    "#d3d7cf",
+]
+background = "#2b2b2b"
+brights = [
+    "#555753",
+    "#ef2929",
+    "#8ae234",
+    "#fce94f",
+    "#729fcf",
+    "#ad7fa8",
+    "#34e2e2",
+    "#eeeeec",
+]
+foreground = "#dedede"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = ""
+name = "Tartan (terminal.sexy)"
+origin_url = "https://github.com/stayradiated/terminal.sexy"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TEERB_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1c1c",
+    "#d68686",
+    "#aed686",
+    "#d7af87",
+    "#86aed6",
+    "#d6aed6",
+    "#8adbb4",
+    "#d0d0d0",
+]
+background = "#262626"
+brights = [
+    "#1c1c1c",
+    "#d68686",
+    "#aed686",
+    "#e4c9af",
+    "#86aed6",
+    "#d6aed6",
+    "#b1e7dd",
+    "#efefef",
+]
+cursor_bg = "#e4c9af"
+cursor_border = "#e4c9af"
+cursor_fg = "#000000"
+foreground = "#d0d0d0"
+selection_bg = "#4d4d4d"
+selection_fg = "#ffffff"
+
+[colors.indexed]
+
+[metadata]
+aliases = ["Teerb (Gogh)"]
+name = "Teerb"
+origin_url = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+wezterm_version = "Always"
+"##;
+
+const BUILTIN_TEERB_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1c1c1c",
+    "#d68686",
+    "#aed686",
+    "#d7af87",
+    "#86aed6",
+    "#d6aed6",
+    "#8adbb4",
+    "#d0d0d0",
+]
+background = "#262626"
+brights = [
+    "#1c1c1c",
+    "#d68686",
+    "#aed686",
+    "#e4c9af",
+    "#86aed6",
+    "#d6aed6",
+    "#b1e7dd",
+    "#efefef",
+]
+cursor_bg = "#d0d0d0"
+cursor_border = "#d0d0d0"
+cursor_fg = "#262626"
+foreground = "#d0d0d0"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Teerb (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20230712-072601-f4abf8fd"
+"##;
+
+const BUILTIN_TENDER_BASE16_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#282828",
+    "#f43753",
+    "#c9d05c",
+    "#ffc24b",
+    "#b3deef",
+    "#d3b987",
+    "#73cef4",
+    "#eeeeee",
+]
+background = "#282828"
+brights = [
+    "#4c4c4c",
+    "#f43753",
+    "#c9d05c",
+    "#ffc24b",
+    "#b3deef",
+    "#d3b987",
+    "#73cef4",
+    "#feffff",
+]
+cursor_bg = "#eeeeee"
+cursor_border = "#eeeeee"
+cursor_fg = "#282828"
+foreground = "#eeeeee"
+selection_bg = "#eeeeee"
+selection_fg = "#282828"
+
+[colors.indexed]
+16 = "#dc9656"
+17 = "#a16946"
+18 = "#383838"
+19 = "#484848"
+20 = "#b8b8b8"
+21 = "#e8e8e8"
+
+[metadata]
+aliases = []
+author = "Jacobo Tabernero (https://github/com/jacoborus/tender.vim)"
+name = "tender (base16)"
+origin_url = "https://github.com/DanManN/base16-tender-scheme"
+wezterm_version = "20220807-113146-c2fee766"
+"##;
+
+const BUILTIN_TENDER_GOGH_COLOR_SCHEME_TOML: &str = r##"
+[colors]
+ansi = [
+    "#1d1d1d",
+    "#c5152f",
+    "#c9d05c",
+    "#ffc24b",
+    "#b3deef",
+    "#d3b987",
+    "#73cef4",
+    "#eeeeee",
+]
+background = "#282828"
+brights = [
+    "#323232",
+    "#f43753",
+    "#d9e066",
+    "#facc72",
+    "#c0eafb",
+    "#efd093",
+    "#a1d6ec",
+    "#ffffff",
+]
+cursor_bg = "#eeeeee"
+cursor_border = "#eeeeee"
+cursor_fg = "#282828"
+foreground = "#eeeeee"
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+name = "Tender (Gogh)"
+origin_url = "https://github.com/Gogh-Co/Gogh"
+wezterm_version = "20220807-113146-c2fee766"
 "##;
 
 const BUILTIN_DARK_COLOR_SCHEME_TOML: &str = r##"
@@ -140822,6 +141220,228 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!(
                     "expected WezTerm Sweet-Terminal-to-Synthwave-Alpha built-in color_scheme config for {color_scheme}"
+                )
+            });
+            app.set_config_overrides(overrides);
+
+            let effective = app.native_effective_config();
+            assert_eq!(effective.color_scheme.as_deref(), Some(color_scheme));
+            assert_eq!(effective.foreground_color, foreground);
+            assert_eq!(effective.background_color, background);
+            assert_eq!(effective.cursor_bg_color, cursor_bg);
+            assert_eq!(effective.cursor_fg_color, cursor_fg);
+            assert_eq!(effective.selection_bg_color, selection_bg);
+            assert_eq!(effective.selection_fg_color, selection_fg);
+            let ansi = effective.ansi_palette.expect("expected ANSI palette");
+            assert_eq!(ansi[0], ansi_0);
+            assert_eq!(ansi[1], ansi_1);
+            assert_eq!(ansi[2], ansi_2);
+            assert_eq!(ansi[3], ansi_3);
+            assert_eq!(ansi[8], ansi_8);
+            assert_eq!(ansi[15], ansi_15);
+            assert_eq!(
+                effective.indexed_palette.and_then(|indexed| indexed[16]),
+                indexed_16
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_tango_to_tender_gogh_builtin_color_schemes() {
+        let cases = [
+            (
+                "Tango (base16)",
+                Color::Rgb(211, 215, 207),
+                Color::Rgb(46, 52, 54),
+                Color::Rgb(211, 215, 207),
+                Some(Color::Rgb(46, 52, 54)),
+                Some(Color::Rgb(211, 215, 207)),
+                Some(Some(Color::Rgb(46, 52, 54))),
+                Color::Rgb(46, 52, 54),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(78, 154, 6),
+                Color::Rgb(196, 160, 0),
+                Color::Rgb(85, 87, 83),
+                Color::Rgb(238, 238, 236),
+                Some(Color::Rgb(239, 41, 41)),
+            ),
+            (
+                "Tango (terminal.sexy)",
+                Color::Rgb(186, 189, 182),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(46, 52, 54),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(78, 154, 6),
+                Color::Rgb(196, 160, 0),
+                Color::Rgb(85, 87, 83),
+                Color::Rgb(238, 238, 236),
+                None,
+            ),
+            (
+                "Tango Adapted",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(193, 222, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 0, 0),
+                Color::Rgb(89, 214, 0),
+                Color::Rgb(240, 203, 0),
+                Color::Rgb(143, 146, 139),
+                Color::Rgb(246, 246, 244),
+                None,
+            ),
+            (
+                "Tango Half Adapted",
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 255, 255),
+                Color::Rgb(0, 0, 0),
+                Some(Color::Rgb(255, 255, 255)),
+                Some(Color::Rgb(193, 222, 255)),
+                Some(Some(Color::Rgb(0, 0, 0))),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(255, 0, 0),
+                Color::Rgb(76, 195, 0),
+                Color::Rgb(226, 192, 0),
+                Color::Rgb(121, 125, 118),
+                Color::Rgb(244, 244, 242),
+                None,
+            ),
+            (
+                "Tangoesque (terminal.sexy)",
+                Color::Rgb(170, 170, 170),
+                Color::Rgb(0, 0, 0),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(32, 32, 32),
+                Color::Rgb(255, 101, 101),
+                Color::Rgb(147, 212, 79),
+                Color::Rgb(234, 185, 61),
+                Color::Rgb(96, 96, 96),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+            (
+                "Tartan (terminal.sexy)",
+                Color::Rgb(222, 222, 222),
+                Color::Rgb(43, 43, 43),
+                Color::Rgb(229, 229, 229),
+                None,
+                None,
+                None,
+                Color::Rgb(46, 52, 54),
+                Color::Rgb(204, 0, 0),
+                Color::Rgb(78, 154, 6),
+                Color::Rgb(196, 160, 0),
+                Color::Rgb(85, 87, 83),
+                Color::Rgb(238, 238, 236),
+                None,
+            ),
+            (
+                "Teerb",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(228, 201, 175),
+                Some(Color::Rgb(0, 0, 0)),
+                Some(Color::Rgb(77, 77, 77)),
+                Some(Some(Color::Rgb(255, 255, 255))),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(214, 134, 134),
+                Color::Rgb(174, 214, 134),
+                Color::Rgb(215, 175, 135),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(239, 239, 239),
+                None,
+            ),
+            (
+                "Teerb (Gogh)",
+                Color::Rgb(208, 208, 208),
+                Color::Rgb(38, 38, 38),
+                Color::Rgb(208, 208, 208),
+                Some(Color::Rgb(38, 38, 38)),
+                None,
+                None,
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(214, 134, 134),
+                Color::Rgb(174, 214, 134),
+                Color::Rgb(215, 175, 135),
+                Color::Rgb(28, 28, 28),
+                Color::Rgb(239, 239, 239),
+                None,
+            ),
+            (
+                "tender (base16)",
+                Color::Rgb(238, 238, 238),
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(238, 238, 238),
+                Some(Color::Rgb(40, 40, 40)),
+                Some(Color::Rgb(238, 238, 238)),
+                Some(Some(Color::Rgb(40, 40, 40))),
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(244, 55, 83),
+                Color::Rgb(201, 208, 92),
+                Color::Rgb(255, 194, 75),
+                Color::Rgb(76, 76, 76),
+                Color::Rgb(254, 255, 255),
+                Some(Color::Rgb(220, 150, 86)),
+            ),
+            (
+                "Tender (Gogh)",
+                Color::Rgb(238, 238, 238),
+                Color::Rgb(40, 40, 40),
+                Color::Rgb(238, 238, 238),
+                Some(Color::Rgb(40, 40, 40)),
+                None,
+                None,
+                Color::Rgb(29, 29, 29),
+                Color::Rgb(197, 21, 47),
+                Color::Rgb(201, 208, 92),
+                Color::Rgb(255, 194, 75),
+                Color::Rgb(50, 50, 50),
+                Color::Rgb(255, 255, 255),
+                None,
+            ),
+        ];
+
+        for (
+            color_scheme,
+            foreground,
+            background,
+            cursor_bg,
+            cursor_fg,
+            selection_bg,
+            selection_fg,
+            ansi_0,
+            ansi_1,
+            ansi_2,
+            ansi_3,
+            ansi_8,
+            ansi_15,
+            indexed_16,
+        ) in cases
+        {
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r##"
+                local config = {{}}
+
+                config.color_scheme = '{}'
+
+                return config
+                "##,
+                color_scheme
+            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected WezTerm Tango-to-Tender built-in color_scheme config for {color_scheme}"
                 )
             });
             app.set_config_overrides(overrides);
