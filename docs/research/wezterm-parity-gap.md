@@ -3857,7 +3857,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Tender (Gogh)`, `terafox`, `Terminal Basic`, `Terminal Basic (Gogh)`,
   `Terminix Dark (Gogh)`, `Teva (terminal.sexy)`, `Thayer Bright`,
   `Thayer Bright (Gogh)`, `The Hulk`, `theme2 (terminal.sexy)`,
-  `thwump (terminal.sexy)`, `Builtin Dark`,
+  `thwump (terminal.sexy)`, `Tin (Gogh)`, `Tinacious Design (Dark)`,
+  `Tinacious Design (Light)`, `tlh (terminal.sexy)`, `Tokyo Night`,
+  `Tokyo Night (Gogh)`, `Tokyo Night Day`, `Tokyo Night Light (Gogh)`,
+  `Tokyo Night Moon`, `Tokyo Night Storm`, `Builtin Dark`,
   `Builtin Light`, `Builtin Pastel Dark`, `Builtin Solarized Dark`,
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
