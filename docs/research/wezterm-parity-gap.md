@@ -4171,6 +4171,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   resolve top-level string variables for `RotatePanes`.
 - Split separators can now be dragged with the mouse to update split sizes via
   the same app-shell resize path used by keyboard/palette resize actions.
+  Separator hover uses WezTerm-style horizontal or vertical native resize
+  cursors based on the split axis; active dragging retains that cursor when the
+  pointer leaves the separator, and release or window leave restores the
+  default cursor when no separator remains under the pointer.
 - Split panes support WezTerm-style `TogglePaneZoomState` from `Ctrl+Shift+Z`
   and command-palette Toggle Pane Zoom State, plus explicit `SetPaneZoomState`
   command-palette zoom/unzoom actions and native
