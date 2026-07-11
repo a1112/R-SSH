@@ -67180,33 +67180,34 @@ fn lua_config_colors_variable_source_before_offset<'a>(
 fn lua_config_load_scheme_colors_assignment_from_query(
     source: &str,
 ) -> Option<NativeLoadSchemeColorsAssignment> {
-    lua_config_assignment_from_query(
-        source,
-        "colors",
-        lua_wezterm_color_load_scheme_path_literal_from_query,
-    )
-    .and_then(parse_maybe_quoted_query_text)
-    .map(|path| NativeLoadSchemeColorsAssignment {
-        path,
-        variable: None,
-    })
-    .or_else(|| {
-        let colors_variable =
-            lua_config_assignment_from_query(source, "colors", lua_identifier_literal_from_query)?;
-        let mutation_max_start = lua_source_slice_start_offset(source, colors_variable)?;
-        let path = lua_load_scheme_assignment_before_slice_from_query(
-            source,
-            colors_variable,
-            colors_variable,
-        )?;
-        Some(NativeLoadSchemeColorsAssignment {
-            path,
-            variable: Some(NativeLoadSchemeVariableReference {
-                name: colors_variable.to_owned(),
-                mutation_max_start,
-            }),
+    lua_config_assignment_from_query(source, "colors", |value| Some(value))
+        .and_then(|value| {
+            lua_wezterm_color_load_scheme_path_from_query_with_static_source(source, value)
         })
-    })
+        .map(|path| NativeLoadSchemeColorsAssignment {
+            path,
+            variable: None,
+        })
+        .or_else(|| {
+            let colors_variable = lua_config_assignment_from_query(
+                source,
+                "colors",
+                lua_identifier_literal_from_query,
+            )?;
+            let mutation_max_start = lua_source_slice_start_offset(source, colors_variable)?;
+            let path = lua_load_scheme_assignment_before_slice_from_query(
+                source,
+                colors_variable,
+                colors_variable,
+            )?;
+            Some(NativeLoadSchemeColorsAssignment {
+                path,
+                variable: Some(NativeLoadSchemeVariableReference {
+                    name: colors_variable.to_owned(),
+                    mutation_max_start,
+                }),
+            })
+        })
 }
 
 fn lua_load_scheme_assignment_before_slice_from_query(
@@ -67809,7 +67810,6 @@ fn lua_color_variable_mutation_value_literal_from_query(query: &str) -> Option<&
         })
 }
 
-#[allow(dead_code)]
 const LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH: usize = 8;
 
 #[allow(dead_code)]
@@ -67899,7 +67899,6 @@ fn lua_static_load_scheme_path_query_without_comments(value: &str) -> Option<Str
     (quote.is_none() && normalized.len() == value.len()).then_some(normalized)
 }
 
-#[allow(dead_code)]
 fn lua_static_load_scheme_path_expression_value_from_query(
     source: &str,
     query: &str,
@@ -68236,38 +68235,166 @@ fn lua_static_load_scheme_path_binding_before_offset<'a>(
     selected
 }
 
-fn lua_wezterm_color_load_scheme_path_literal_from_query(query: &str) -> Option<&str> {
-    let rest = lua_function_name_rest_from_query(query.trim_start(), "wezterm.color.load_scheme")?;
-    let rest = if let Some(rest) = rest.strip_prefix('(') {
-        lua_trim_start_comments(rest)?
-    } else {
-        rest
+fn lua_wezterm_color_load_scheme_path_from_call_query(
+    source: &str,
+    canonical_query: &str,
+    call_max_start: usize,
+) -> Option<String> {
+    let rest = lua_function_name_rest_from_query(
+        canonical_query.trim_start(),
+        "wezterm.color.load_scheme",
+    )?;
+    let rest = lua_trim_start_comments(rest)?;
+
+    if let Some(arguments) = rest.strip_prefix('(') {
+        let (arguments, tail) = lua_parenthesized_argument_list_prefix_from_query(arguments)?;
+        let arguments = split_lua_top_level_arguments(arguments)?;
+        let [argument] = arguments.as_slice() else {
+            return None;
+        };
+        if lua_static_load_scheme_path_query_without_comments(argument)?
+            .trim()
+            .is_empty()
+            || !lua_load_scheme_call_tail_is_value_end(tail)
+        {
+            return None;
+        }
+        return lua_static_load_scheme_path_expression_value_from_query(
+            source,
+            argument,
+            call_max_start,
+        );
+    }
+
+    let (literal, literal_len) = lua_inline_string_literal_value_and_len(rest)?;
+    lua_load_scheme_call_tail_is_value_end(rest.get(literal_len..)?).then_some(literal)
+}
+
+fn lua_load_scheme_call_tail_is_value_end(mut tail: &str) -> bool {
+    let mut saw_statement_boundary = false;
+
+    loop {
+        let mut whitespace_end = 0usize;
+        for (index, character) in tail.char_indices() {
+            if !character.is_whitespace() {
+                break;
+            }
+            if character == '\n' {
+                saw_statement_boundary = true;
+            }
+            whitespace_end = index + character.len_utf8();
+        }
+        tail = match tail.get(whitespace_end..) {
+            Some(tail) => tail,
+            None => return false,
+        };
+
+        let Some(comment) = tail.strip_prefix("--") else {
+            break;
+        };
+        saw_statement_boundary = true;
+        if let Some((content_start, closing)) = parse_lua_long_bracket_delimiters(comment) {
+            let Some(content_and_rest) = comment.get(content_start..) else {
+                return false;
+            };
+            let Some(close_index) = content_and_rest.find(&closing) else {
+                return false;
+            };
+            let Some(rest) = content_and_rest.get(close_index + closing.len()..) else {
+                return false;
+            };
+            tail = rest;
+            continue;
+        }
+
+        let Some(newline) = comment.find('\n') else {
+            return true;
+        };
+        let Some(rest) = comment.get(newline + '\n'.len_utf8()..) else {
+            return false;
+        };
+        tail = rest;
+    }
+
+    if tail.is_empty()
+        || tail.starts_with(';')
+        || tail.starts_with(',')
+        || tail.starts_with('}')
+        || lua_load_scheme_call_tail_starts_label_statement(tail)
+    {
+        return true;
+    }
+    if lua_load_scheme_call_tail_starts_expression_continuation(tail) {
+        return false;
+    }
+
+    saw_statement_boundary && lua_identifier_literal_from_query(tail).is_some()
+}
+
+fn lua_load_scheme_call_tail_starts_label_statement(tail: &str) -> bool {
+    let Some(rest) = tail.strip_prefix("::") else {
+        return false;
     };
-    lua_quoted_string_literal_from_query(rest).or_else(|| lua_long_bracket_literal_from_query(rest))
+    let Some(label) = lua_identifier_literal_from_query(rest) else {
+        return false;
+    };
+    rest.get(..label.len()) == Some(label)
+        && rest
+            .get(label.len()..)
+            .is_some_and(|rest| rest.starts_with("::"))
+}
+
+fn lua_load_scheme_call_tail_starts_expression_continuation(tail: &str) -> bool {
+    matches!(
+        tail.chars().next(),
+        Some(
+            '.' | '['
+                | '('
+                | ':'
+                | '\''
+                | '"'
+                | '{'
+                | '+'
+                | '-'
+                | '*'
+                | '/'
+                | '%'
+                | '^'
+                | '&'
+                | '|'
+                | '~'
+                | '<'
+                | '>'
+                | '='
+        )
+    ) || lua_source_keyword_at(tail, 0, "and")
+        || lua_source_keyword_at(tail, 0, "or")
 }
 
 fn lua_wezterm_color_load_scheme_path_from_query_with_static_source(
     source: &str,
     query: &str,
 ) -> Option<String> {
-    if let Some(path) = lua_wezterm_color_load_scheme_path_literal_from_query(query)
-        .and_then(parse_maybe_quoted_query_text)
+    let call_max_start = lua_source_slice_start_offset(source, query)?;
+    if let Some(path) =
+        lua_wezterm_color_load_scheme_path_from_call_query(source, query, call_max_start)
     {
         return Some(path);
     }
 
-    let max_start = lua_source_slice_start_offset(source, query)?;
-    if let Some(value) =
-        lua_static_wezterm_color_load_scheme_call_query_from_query(source, query, max_start)
+    if let Some(canonical_query) =
+        lua_static_wezterm_color_load_scheme_call_query_from_query(source, query, call_max_start)
     {
-        return lua_wezterm_color_load_scheme_path_literal_from_query(&value)
-            .and_then(parse_maybe_quoted_query_text);
+        return lua_wezterm_color_load_scheme_path_from_call_query(
+            source,
+            &canonical_query,
+            call_max_start,
+        );
     }
 
-    let value =
-        lua_static_wezterm_color_load_scheme_alias_query_from_query(source, query, max_start)?;
-    lua_wezterm_color_load_scheme_path_literal_from_query(&value)
-        .and_then(parse_maybe_quoted_query_text)
+    let canonical_query =
+        lua_static_wezterm_color_load_scheme_alias_query_from_query(source, query, call_max_start)?;
+    lua_wezterm_color_load_scheme_path_from_call_query(source, &canonical_query, call_max_start)
 }
 
 fn lua_static_wezterm_color_load_scheme_call_query_from_query(
@@ -150897,6 +151024,267 @@ mod tests {
             ),
             Some("/a--[[long]]/b".to_owned())
         );
+    }
+
+    #[test]
+    fn load_scheme_call_resolver_accepts_static_path_expressions_at_original_call_offset() {
+        let cases = [
+            (
+                "canonical direct call",
+                r#"
+                    local dir = '/canonical'
+                    local file = 'direct.toml'
+                    local path = dir .. '/' .. file
+                    config.colors = wezterm.color.load_scheme(path)
+                    path = '/after/canonical.toml'
+                "#,
+                "wezterm.color.load_scheme(path)",
+                "/canonical/direct.toml",
+            ),
+            (
+                "module alias call",
+                r#"
+                    local wt = wezterm
+                    local dir = '/module'
+                    local file = 'alias.toml'
+                    local path = dir .. '/' .. file
+                    config.colors = wt.color.load_scheme(path)
+                    path = '/after/module.toml'
+                "#,
+                "wt.color.load_scheme(path)",
+                "/module/alias.toml",
+            ),
+            (
+                "direct require call",
+                r#"
+                    local dir = '/require'
+                    local file = 'direct.toml'
+                    local path = dir .. '/' .. file
+                    config.colors = require('wezterm').color.load_scheme(path)
+                    path = '/after/require.toml'
+                "#,
+                "require('wezterm').color.load_scheme(path)",
+                "/require/direct.toml",
+            ),
+            (
+                "static key call",
+                r#"
+                    local wt = require 'wezterm'
+                    local color_key = 'color'
+                    local loader_key = 'load_scheme'
+                    local dir = '/static-key'
+                    local file = 'call.toml'
+                    local path = dir .. '/' .. file
+                    config.colors = wt[color_key][loader_key](path)
+                    path = '/after/static-key.toml'
+                "#,
+                "wt[color_key][loader_key](path)",
+                "/static-key/call.toml",
+            ),
+            (
+                "function alias call",
+                r#"
+                    local wt = require 'wezterm'
+                    local load_scheme = wt.color.load_scheme
+                    local dir = '/function'
+                    local file = 'alias.toml'
+                    local path = dir .. '/' .. file
+                    config.colors = load_scheme(path)
+                    path = '/after/function.toml'
+                "#,
+                "load_scheme(path)",
+                "/function/alias.toml",
+            ),
+        ];
+
+        for (label, source, marker, expected) in cases {
+            let query_start = source
+                .find(marker)
+                .expect("expected load_scheme call marker");
+            assert_eq!(
+                super::lua_wezterm_color_load_scheme_path_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                )
+                .as_deref(),
+                Some(expected),
+                "case was {label:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn load_scheme_call_resolver_rejects_invalid_argument_shapes() {
+        for (label, call) in [
+            ("zero arguments", "wezterm.color.load_scheme()"),
+            (
+                "multiple arguments",
+                "wezterm.color.load_scheme(path, '/two.toml')",
+            ),
+            (
+                "missing close parenthesis",
+                "wezterm.color.load_scheme('/one.toml'",
+            ),
+            (
+                "no-parentheses identifier",
+                "wezterm.color.load_scheme path",
+            ),
+        ] {
+            let source = format!("local path = '/one.toml'; config.colors = {call}");
+            let query_start = source
+                .find("wezterm.color.load_scheme")
+                .expect("expected load_scheme call marker");
+            assert_eq!(
+                super::lua_wezterm_color_load_scheme_path_from_query_with_static_source(
+                    &source,
+                    &source[query_start..],
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn load_scheme_call_resolver_rejects_expression_continuation_tails() {
+        for (label, tail) in [
+            ("field access", ").colors"),
+            ("index access", ")[1]"),
+            ("parenthesized call", ")('/next.toml')"),
+            ("method call", "):next()"),
+            ("quoted call sugar", ") '/next.toml'"),
+            ("long-bracket call sugar", ") [=[/next.toml]=]"),
+            ("table call sugar", ") {}"),
+            ("concat", ") .. suffix"),
+            ("addition", ") + suffix"),
+            ("subtraction", ") - suffix"),
+            ("multiplication", ") * suffix"),
+            ("division", ") / suffix"),
+            ("floor division", ") // suffix"),
+            ("modulo", ") % suffix"),
+            ("power", ") ^ suffix"),
+            ("bit and", ") & suffix"),
+            ("bit or", ") | suffix"),
+            ("bit xor", ") ~ suffix"),
+            ("shift left", ") << suffix"),
+            ("shift right", ") >> suffix"),
+            ("equality", ") == suffix"),
+            ("inequality", ") ~= suffix"),
+            ("less than", ") < suffix"),
+            ("greater than", ") > suffix"),
+            ("less than or equal", ") <= suffix"),
+            ("greater than or equal", ") >= suffix"),
+            ("logical and", ") and suffix"),
+            ("logical or", ") or suffix"),
+            ("incomplete label", ") ::next"),
+            ("block-comment field access", ") --[[gap]] .colors"),
+            ("line-comment index access", ") -- gap\n [1]"),
+            (
+                "block-comment parenthesized call",
+                ") --[[gap]]\n ('/next.toml')",
+            ),
+            ("line-comment concat", ") -- gap\n .. suffix"),
+        ] {
+            let source = format!("wezterm.color.load_scheme('/one.toml'{tail}");
+            assert_eq!(
+                super::lua_wezterm_color_load_scheme_path_from_query_with_static_source(
+                    &source, &source,
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn load_scheme_call_resolver_accepts_literal_sugar_and_value_end_tails() {
+        for (label, source, expected) in [
+            (
+                "quoted no-parentheses sugar",
+                "wezterm.color.load_scheme '/quoted.toml'",
+                "/quoted.toml",
+            ),
+            (
+                "long-bracket no-parentheses sugar",
+                "wezterm.color.load_scheme [=[/long-bracket.toml]=]",
+                "/long-bracket.toml",
+            ),
+            (
+                "end of input",
+                "wezterm.color.load_scheme('/eof.toml')",
+                "/eof.toml",
+            ),
+            (
+                "semicolon terminator",
+                "wezterm.color.load_scheme('/semicolon.toml'); next_call()",
+                "/semicolon.toml",
+            ),
+            (
+                "table comma terminator",
+                "wezterm.color.load_scheme('/comma.toml'), next_field = true",
+                "/comma.toml",
+            ),
+            (
+                "table close terminator",
+                "wezterm.color.load_scheme('/close.toml') }",
+                "/close.toml",
+            ),
+            (
+                "newline statement boundary",
+                "wezterm.color.load_scheme('/newline.toml')\nnext_call()",
+                "/newline.toml",
+            ),
+            (
+                "line-comment end of input",
+                "wezterm.color.load_scheme('/line-comment.toml') -- trailing",
+                "/line-comment.toml",
+            ),
+            (
+                "line-comment statement boundary",
+                "wezterm.color.load_scheme('/line-comment-next.toml') -- trailing\nnext_call()",
+                "/line-comment-next.toml",
+            ),
+            (
+                "block-comment statement boundary",
+                "wezterm.color.load_scheme('/block-comment.toml') --[[trailing]]\nnext_call()",
+                "/block-comment.toml",
+            ),
+            (
+                "block-comment end of input",
+                "wezterm.color.load_scheme('/block-comment-eof.toml') --[[trailing]]",
+                "/block-comment-eof.toml",
+            ),
+            (
+                "label statement boundary",
+                "wezterm.color.load_scheme('/label.toml') ::next:: next_call()",
+                "/label.toml",
+            ),
+        ] {
+            assert_eq!(
+                super::lua_wezterm_color_load_scheme_path_from_query_with_static_source(
+                    source, source,
+                )
+                .as_deref(),
+                Some(expected),
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn lua_config_load_scheme_colors_assignment_from_query_resolves_variable_path() {
+        let source = r#"
+            local dir = '/legacy'
+            local file = 'config-colors.toml'
+            local path = dir .. '/' .. file
+            config.colors = wezterm.color.load_scheme(path)
+            path = '/after/legacy.toml'
+        "#;
+
+        let assignment = super::lua_config_load_scheme_colors_assignment_from_query(source)
+            .expect("expected config.colors load_scheme assignment");
+        assert_eq!(assignment.path, "/legacy/config-colors.toml");
+        assert!(assignment.variable.is_none());
     }
 
     #[test]
