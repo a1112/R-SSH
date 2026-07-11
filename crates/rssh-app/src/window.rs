@@ -67326,12 +67326,19 @@ fn lua_whole_map_builtin_color_scheme_name_from_query(source: &str, query: &str)
         return None;
     }
     let reference_start = lua_source_slice_start_offset(source, query)?;
+    let (_, lookup_tail) = lua_static_bracket_string_key_from_query(
+        source,
+        reference_start,
+        lua_trim_start_comments(index)?,
+    )?;
+    let lookup_end = lua_source_slice_start_offset(source, lookup_tail)?;
     let (value, binding_start) = lua_static_builtin_scheme_binding_before_offset(source, variable, reference_start)?;
-    if !lua_static_builtin_scheme_map_is_unchanged_between(
+    if !lua_static_builtin_scheme_map_identity_is_safe_for_lookup(
         source,
         variable,
         binding_start,
         reference_start,
+        lookup_end,
     )? {
         return None;
     }
@@ -67340,23 +67347,29 @@ fn lua_whole_map_builtin_color_scheme_name_from_query(source: &str, query: &str)
     lua_wezterm_builtin_color_scheme_name_from_call_query(source, &combined, reference_start)
 }
 
-fn lua_static_builtin_scheme_map_is_unchanged_between(
+fn lua_static_builtin_scheme_map_identity_is_safe_for_lookup(
     source: &str,
     variable: &str,
     binding_start: usize,
     lookup_start: usize,
+    lookup_end: usize,
 ) -> Option<bool> {
-    let starts = lua_top_level_statement_start_indices_before_offset(source, lookup_start)?;
-    let lookup_statement_start = starts
-        .iter()
+    let starts = lua_top_level_statement_start_indices_before_offset(source, source.len())?;
+    let lookup_statement_index = starts.iter().rposition(|start| *start <= lookup_start)?;
+    let lookup_statement_start = *starts.get(lookup_statement_index)?;
+    let lookup_statement_end = starts
+        .get(lookup_statement_index + 1)
         .copied()
-        .take_while(|start| *start <= lookup_start)
-        .last()
-        .unwrap_or(lookup_start);
+        .unwrap_or(source.len());
     let mut capturing_functions: Vec<String> = Vec::new();
 
-    for (index, start) in starts.iter().copied().enumerate() {
-        if start <= binding_start || start >= lookup_statement_start {
+    for (index, start) in starts
+        .iter()
+        .copied()
+        .enumerate()
+        .take(lookup_statement_index)
+    {
+        if start <= binding_start {
             continue;
         }
         let end = starts
@@ -67365,26 +67378,125 @@ fn lua_static_builtin_scheme_map_is_unchanged_between(
             .unwrap_or(lookup_statement_start)
             .min(lookup_statement_start);
         let statement = source.get(start..end)?;
-        if let Some(function) = lua_static_builtin_scheme_function_definition_name(statement)? {
-            if lua_static_query_contains_identifier(statement, variable)?
-                || capturing_functions.iter().any(|captured| {
-                    lua_static_query_contains_identifier(statement, captured).unwrap_or(true)
-                })
-            {
-                capturing_functions.push(function);
-            }
-            continue;
+        if !lua_static_builtin_scheme_statement_preserves_map_identity(
+            statement,
+            variable,
+            &mut capturing_functions,
+        )? {
+            return Some(false);
         }
-        if lua_static_query_contains_identifier(statement, variable)?
-            || capturing_functions.iter().any(|captured| {
-                lua_static_query_contains_identifier(statement, captured).unwrap_or(true)
-            })
+    }
+
+    // A bare table key that matches `variable` is conservatively treated as
+    // an identity reference; distinguishing it would require broader Lua
+    // expression evaluation than this bounded static resolver performs.
+    if lua_static_builtin_scheme_fragment_references_map_identity(
+        source.get(lookup_statement_start..lookup_start)?,
+        variable,
+        &capturing_functions,
+    )? || lua_static_builtin_scheme_fragment_references_map_identity(
+        source.get(lookup_end..lookup_statement_end)?,
+        variable,
+        &capturing_functions,
+    )? {
+        return Some(false);
+    }
+
+    for (index, start) in starts
+        .iter()
+        .copied()
+        .enumerate()
+        .skip(lookup_statement_index + 1)
+    {
+        let end = starts.get(index + 1).copied().unwrap_or(source.len());
+        let statement = source.get(start..end)?;
+        if let Some(rebind_is_safe) =
+            lua_static_builtin_scheme_map_rebind_is_safe(statement, variable, &capturing_functions)?
         {
+            return Some(rebind_is_safe);
+        }
+        if !lua_static_builtin_scheme_statement_preserves_map_identity(
+            statement,
+            variable,
+            &mut capturing_functions,
+        )? {
             return Some(false);
         }
     }
 
     Some(true)
+}
+
+fn lua_static_builtin_scheme_statement_preserves_map_identity(
+    statement: &str,
+    variable: &str,
+    capturing_functions: &mut Vec<String>,
+) -> Option<bool> {
+    if let Some(function) = lua_static_builtin_scheme_function_definition_name(statement)? {
+        if lua_static_builtin_scheme_fragment_references_map_identity(
+            statement,
+            variable,
+            capturing_functions,
+        )? {
+            capturing_functions.push(function);
+        }
+        return Some(true);
+    }
+    Some(!lua_static_builtin_scheme_fragment_references_map_identity(
+        statement,
+        variable,
+        capturing_functions,
+    )?)
+}
+
+fn lua_static_builtin_scheme_fragment_references_map_identity(
+    fragment: &str,
+    variable: &str,
+    capturing_functions: &[String],
+) -> Option<bool> {
+    if lua_static_query_contains_identifier(fragment, variable)? {
+        return Some(true);
+    }
+    for captured in capturing_functions {
+        if lua_static_query_contains_identifier(fragment, captured)? {
+            return Some(true);
+        }
+    }
+    Some(false)
+}
+
+fn lua_static_builtin_scheme_map_rebind_is_safe(
+    statement: &str,
+    variable: &str,
+    capturing_functions: &[String],
+) -> Option<Option<bool>> {
+    let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+    let normalized = lua_static_load_scheme_path_query_without_comments(statement)?;
+    let statement = normalized.trim_start();
+    let statement = if lua_source_keyword_at(statement, 0, "local") {
+        statement.get("local".len()..)?.trim_start()
+    } else {
+        statement
+    };
+    let Some((targets, value)) = split_lua_static_load_scheme_path_assignment_statement(statement)
+    else {
+        return Some(None);
+    };
+    let targets = split_lua_top_level_arguments(targets)?;
+    let [target] = targets.as_slice() else {
+        return Some(None);
+    };
+    if lua_static_load_scheme_path_assignment_target_identifier(target).as_deref() != Some(variable)
+    {
+        return Some(None);
+    }
+    Some(Some(
+        !lua_static_builtin_scheme_fragment_references_map_identity(
+            value,
+            variable,
+            capturing_functions,
+        )?,
+    ))
 }
 
 fn lua_static_builtin_scheme_function_definition_name(statement: &str) -> Option<Option<String>> {
@@ -127974,6 +128086,84 @@ mod tests {
             "##,
         )
         .expect("expected uncalled function body not to mutate the built-in scheme map");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.background_color, Color::Rgb(251, 241, 199));
+    }
+
+    #[test]
+    fn window_app_rejects_builtin_scheme_map_escape_before_same_statement_lookup() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            local function mutate(map)
+              map['Gruvbox Light'].background = '#010203'
+            end
+            local schemes = wezterm.color.get_builtin_schemes()
+            config.color_schemes = {
+              mutate(schemes),
+              ['Mine'] = schemes['Gruvbox Light'],
+            }
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        );
+
+        assert!(
+            overrides.is_none(),
+            "a built-in scheme map escape before a same-statement lookup must fail closed"
+        );
+    }
+
+    #[test]
+    fn window_app_rejects_post_lookup_builtin_scheme_map_nested_mutation() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+
+            config.color_schemes = {
+              ['Mine'] = schemes['Gruvbox Light'],
+            }
+            schemes['Gruvbox Light'].background = '#010203'
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        );
+
+        assert!(
+            overrides.is_none(),
+            "a post-lookup nested built-in scheme map mutation must fail closed"
+        );
+    }
+
+    #[test]
+    fn window_app_preserves_builtin_scheme_map_lookup_across_later_rebind() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+
+            config.color_schemes = {
+              ['Mine'] = schemes['Gruvbox Light'],
+            }
+            schemes = wezterm.color.get_builtin_schemes()
+            schemes['Gruvbox Light'].background = '#010203'
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        )
+        .expect("expected later map rebind not to change the captured built-in scheme");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
