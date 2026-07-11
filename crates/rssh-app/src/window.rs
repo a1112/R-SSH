@@ -67327,9 +67327,222 @@ fn lua_whole_map_builtin_color_scheme_name_from_query(source: &str, query: &str)
     }
     let reference_start = lua_source_slice_start_offset(source, query)?;
     let (value, binding_start) = lua_static_builtin_scheme_binding_before_offset(source, variable, reference_start)?;
+    if !lua_static_builtin_scheme_map_is_unchanged_between(
+        source,
+        variable,
+        binding_start,
+        reference_start,
+    )? {
+        return None;
+    }
     let canonical = lua_static_wezterm_builtin_color_scheme_call_query_from_query(source, value, binding_start)?;
     let combined = format!("{canonical}{index}");
     lua_wezterm_builtin_color_scheme_name_from_call_query(source, &combined, reference_start)
+}
+
+fn lua_static_builtin_scheme_map_is_unchanged_between(
+    source: &str,
+    variable: &str,
+    binding_start: usize,
+    lookup_start: usize,
+) -> Option<bool> {
+    let starts = lua_top_level_statement_start_indices_before_offset(source, lookup_start)?;
+    let lookup_statement_start = starts
+        .iter()
+        .copied()
+        .take_while(|start| *start <= lookup_start)
+        .last()
+        .unwrap_or(lookup_start);
+
+    for (index, start) in starts.iter().copied().enumerate() {
+        if start <= binding_start || start >= lookup_statement_start {
+            continue;
+        }
+        let end = starts
+            .get(index + 1)
+            .copied()
+            .unwrap_or(lookup_statement_start)
+            .min(lookup_statement_start);
+        let statement = source.get(start..end)?;
+        if lua_static_builtin_scheme_statement_is_function_definition(statement)? {
+            continue;
+        }
+        if lua_static_builtin_scheme_statement_writes_map_entry(statement, variable)?
+            || lua_static_builtin_scheme_statement_passes_map_to_call(statement, variable)?
+        {
+            return Some(false);
+        }
+    }
+
+    Some(true)
+}
+
+fn lua_static_builtin_scheme_statement_is_function_definition(statement: &str) -> Option<bool> {
+    let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+    let normalized = lua_static_load_scheme_path_query_without_comments(statement)?;
+    let statement = normalized.trim_start();
+    if lua_source_keyword_at(statement, 0, "function") {
+        return Some(true);
+    }
+    if lua_source_keyword_at(statement, 0, "local") {
+        let rest = statement.get("local".len()..)?.trim_start();
+        if lua_source_keyword_at(rest, 0, "function") {
+            return Some(true);
+        }
+    }
+    let Some((_, value)) = split_lua_static_load_scheme_path_assignment_statement(statement) else {
+        return Some(false);
+    };
+    Some(lua_source_keyword_at(value.trim_start(), 0, "function"))
+}
+
+fn lua_static_builtin_scheme_statement_writes_map_entry(
+    statement: &str,
+    variable: &str,
+) -> Option<bool> {
+    let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+    let normalized = lua_static_load_scheme_path_query_without_comments(statement)?;
+    let Some((targets, _)) = split_lua_static_load_scheme_path_assignment_statement(&normalized)
+    else {
+        return Some(false);
+    };
+
+    for target in split_lua_top_level_arguments(targets)? {
+        let target = target.trim();
+        let Some(identifier) = lua_identifier_literal_from_query(target) else {
+            continue;
+        };
+        if identifier != variable {
+            continue;
+        }
+        let rest = target.get(identifier.len()..)?.trim_start();
+        if matches!(rest.chars().next(), Some('.' | '[')) {
+            return Some(true);
+        }
+    }
+
+    Some(false)
+}
+
+fn lua_static_builtin_scheme_statement_passes_map_to_call(
+    statement: &str,
+    variable: &str,
+) -> Option<bool> {
+    let normalized = lua_static_load_scheme_path_query_without_comments(statement)?;
+    let mut quote = None;
+    let mut escape = false;
+    let mut long_bracket_end = None;
+
+    for (index, character) in normalized.char_indices() {
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+        if matches!(character, '\'' | '"') {
+            quote = Some(character);
+            continue;
+        }
+        if character == '['
+            && let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(normalized.get(index..)?)
+        {
+            let content_and_rest = normalized.get(index + content_start..)?;
+            long_bracket_end = Some(
+                content_and_rest
+                    .find(&closing)
+                    .map_or(normalized.len(), |close_index| {
+                        index + content_start + close_index + closing.len()
+                    }),
+            );
+            continue;
+        }
+        if character != '(' {
+            continue;
+        }
+
+        let (arguments, _) =
+            lua_parenthesized_argument_list_prefix_from_query(normalized.get(index + 1..)?)?;
+        for argument in split_lua_top_level_arguments(arguments)? {
+            if lua_static_query_contains_identifier(argument, variable)? {
+                return Some(true);
+            }
+        }
+    }
+
+    Some(false)
+}
+
+fn lua_static_query_contains_identifier(query: &str, variable: &str) -> Option<bool> {
+    let normalized = lua_static_load_scheme_path_query_without_comments(query)?;
+    let mut quote = None;
+    let mut escape = false;
+    let mut long_bracket_end = None;
+
+    for (index, character) in normalized.char_indices() {
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+        if matches!(character, '\'' | '"') {
+            quote = Some(character);
+            continue;
+        }
+        if character == '['
+            && let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(normalized.get(index..)?)
+        {
+            let content_and_rest = normalized.get(index + content_start..)?;
+            long_bracket_end = Some(
+                content_and_rest
+                    .find(&closing)
+                    .map_or(normalized.len(), |close_index| {
+                        index + content_start + close_index + closing.len()
+                    }),
+            );
+            continue;
+        }
+        if !normalized.get(index..)?.starts_with(variable) {
+            continue;
+        }
+        let previous = normalized
+            .get(..index)?
+            .chars()
+            .rev()
+            .find(|character| !character.is_whitespace());
+        let next = normalized.get(index + variable.len()..)?.chars().next();
+        if !previous.is_some_and(|character| {
+            is_lua_identifier_character(character) || matches!(character, '.' | ':')
+        }) && !next.is_some_and(is_lua_identifier_character)
+        {
+            return Some(true);
+        }
+    }
+
+    Some(false)
 }
 
 fn lua_config_colors_variable_source_before_offset<'a>(
@@ -127639,6 +127852,80 @@ mod tests {
         let palette = effective.ansi_palette.expect("expected ANSI palette");
         assert_eq!(palette[1], Color::Rgb(157, 0, 6));
         assert_eq!(palette[8], Color::Rgb(157, 131, 116));
+    }
+
+    #[test]
+    fn window_app_rejects_mutated_builtin_scheme_whole_map_in_custom_color_schemes() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+
+            schemes['Gruvbox Light'] = choose_palette()
+            config.color_schemes = {
+              ['Mine'] = schemes['Gruvbox Light'],
+            }
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        );
+
+        assert!(
+            overrides.is_none(),
+            "a dynamically mutated built-in scheme map must fail closed"
+        );
+    }
+
+    #[test]
+    fn window_app_rejects_escaped_builtin_scheme_whole_map_in_custom_color_schemes() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+
+            mutate(schemes)
+            config.color_schemes['Mine'] = schemes['Gruvbox Light']
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        );
+
+        assert!(
+            overrides.is_none(),
+            "a built-in scheme map passed to an unknown call must fail closed"
+        );
+    }
+
+    #[test]
+    fn window_app_ignores_uncalled_function_body_builtin_scheme_map_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+
+            local function mutate_later()
+              schemes['Gruvbox Light'] = choose_palette()
+            end
+            config.color_schemes = {
+              ['Mine'] = schemes['Gruvbox Light'],
+            }
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        )
+        .expect("expected uncalled function body not to mutate the built-in scheme map");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.background_color, Color::Rgb(251, 241, 199));
     }
 
     #[test]
