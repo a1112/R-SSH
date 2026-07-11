@@ -67301,9 +67301,28 @@ fn lua_config_colors_source_value_from_query<'a>(
         ));
     }
 
+    if let Some(name) = lua_whole_map_builtin_color_scheme_name_from_query(source, value) {
+        return Some(NativeConfigColorsLuaSource::Builtin(
+            NativeBuiltinColorSchemeAssignment { name, variable: None },
+        ));
+    }
+
     let variable = lua_identifier_literal_from_query(value)?;
     let reference_start = lua_source_slice_start_offset(source, variable)?;
     lua_config_colors_variable_source_before_offset(source, variable, reference_start)
+}
+
+fn lua_whole_map_builtin_color_scheme_name_from_query(source: &str, query: &str) -> Option<String> {
+    let variable = lua_identifier_literal_from_query(query)?;
+    let index = query.get(variable.len()..)?;
+    if !lua_trim_start_comments(index)?.starts_with('[') {
+        return None;
+    }
+    let reference_start = lua_source_slice_start_offset(source, query)?;
+    let (value, binding_start) = lua_static_builtin_scheme_binding_before_offset(source, variable, reference_start)?;
+    let canonical = lua_static_wezterm_builtin_color_scheme_call_query_from_query(source, value, binding_start)?;
+    let combined = format!("{canonical}{index}");
+    lua_wezterm_builtin_color_scheme_name_from_call_query(source, &combined, reference_start)
 }
 
 fn lua_config_colors_variable_source_before_offset<'a>(
@@ -127540,6 +127559,26 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_builtin_scheme_from_whole_map_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+            config.colors = schemes['Gruvbox Light']
+            return config
+            "##,
+        )
+        .expect("expected whole-map built-in color scheme lookup config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.background_color, Color::Rgb(251, 241, 199));
+    }
+
+    #[test]
     fn window_app_applies_wezterm_lua_builtin_scheme_lookup_to_inline_custom_color_schemes() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -152418,14 +152457,6 @@ mod tests {
                 "whole map",
                 "local schemes = wezterm.color.get_builtin_schemes()",
                 "wezterm.color.get_builtin_schemes()",
-            ),
-            (
-                "whole map indexed later",
-                r#"
-                    local schemes = wezterm.color.get_builtin_schemes()
-                    config.colors = schemes['Gruvbox Light']
-                "#,
-                "schemes['Gruvbox Light']",
             ),
         ];
 
