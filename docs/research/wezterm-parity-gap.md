@@ -3480,6 +3480,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.color_schemes['Name'].tab_bar.active_tab.bg_color = '#101010'`,
   and ColorSpec nested mutations such as
   `config.color_schemes['Name'].quick_select_match_fg.Color = '#101010'`.
+  Modern and legacy built-in lookups (`wezterm.color.get_builtin_schemes()['Name']`
+  / `wezterm.get_builtin_color_schemes()['Name']`) can also be used as
+  `config.color_schemes['Name']` sources directly, or assigned to top-level
+  variables before selection/mutation.
   Helper-function-local assignments and mutations are ignored. Mutations are
   applied after the final selected static scheme definition, so later full
   `config.color_schemes['Name'] = { ... }` assignments replace earlier entry
@@ -3516,7 +3520,15 @@ what remains before WezTerm-style parity in key UX/composition areas.
   remains bounded static interpretation: paths derived from dynamic helpers,
   branches, or environment-backed values, `wezterm.config_dir` composition,
   arbitrary Lua execution, and downstream consumption of returned `metadata`
-  remain open. Static `load_scheme` result-variable references resolve to the
+  remain open. Modern and legacy built-in lookups are also supported in
+  this bounded pipeline through static-key access and direct/static aliases: both
+  `wezterm.color.get_builtin_schemes()['Name']` and
+  `wezterm.get_builtin_color_schemes()['Name']` can feed `config.colors` and
+  selected `config.color_schemes['Name']`, with supported variable references and
+  entry mutations applied. Remaining open boundaries include whole-map variables,
+  dynamic key/index selection, iteration, `get_default_colors` calls, and
+  color-object analysis.
+  Static `load_scheme` result-variable references resolve to the
   latest top-level binding before the `config.colors` assignment and ignore
   helper-function-local bindings/mutations plus later rebinding, including
   top-level static mutations such as

@@ -1511,8 +1511,15 @@ runtime storage for tabs and split panes.
   foreground, framebuffer background, ANSI 0-15 palette, indexed 16-255 palette
   overrides, selected text foreground/background, cursor fill, block-cursor
   border, line-cursor color, and block-cursor text foreground for full and
-  damage renders. Built-in scheme lookup, richer dynamic `load_scheme`
-  composition, and Lua event wiring remain later parity work.
+  damage renders. Static `wezterm.color.get_builtin_schemes()['Name']` and legacy
+  `wezterm.get_builtin_color_schemes()['Name']` lookups now feed `config.colors`
+  directly or via supported variables, and also populate `config.color_schemes['Name']`
+  table entries (inline or direct assignment) before selected-entry mutations.
+  Built-in lookup also supports top-level static helper aliases, parenthesized
+  `require('wezterm')` receivers, and canonical static-key access, with the same
+  restrictions as static `load_scheme` resolution. Lua event wiring, richer
+  dynamic `load_scheme` composition, and arbitrary Lua resolution remain later
+  parity work.
 - `rssh-app` preserves CSI focus-reporting writes on window focus changes and
   dispatches a typed native-window focus-change hook with the window id, active
   pane id, and focused/unfocused state. Lua event wiring remains later parity

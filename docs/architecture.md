@@ -1701,9 +1701,15 @@ keyboard, mouse, paste, resize
   foreground, framebuffer background, ANSI 0-15 palette, indexed 16-255 palette
   overrides, selected text foreground/background, cursor fill, block-cursor
   border, line-cursor color, and block-cursor text foreground for full and
-  damage renders. Built-in scheme lookup, Lua event wiring, richer dynamic
-  `load_scheme` composition, and broader Lua config parsing remain future
-  parity work.
+  damage renders. Static `wezterm.color.get_builtin_schemes()['Name']` and
+  legacy `wezterm.get_builtin_color_schemes()['Name']` lookups now feed
+  `config.colors` directly or via supported variables, and also populate
+  `config.color_schemes['Name']` table entries (inline or direct assignment)
+  before selected-entry mutations. Built-in lookup also accepts top-level static
+  helper aliases, parenthesized `require('wezterm')` receivers, and canonical
+  static-key access, following the same `load_scheme`-shape restrictions. Lua
+  event wiring, richer dynamic `load_scheme` composition, and arbitrary Lua
+  resolution remain future parity work.
 - Implemented in v1: native window focus changes still write CSI focus-reporting
   sequences to the PTY when requested and now dispatch a typed focus-change hook
   with the window id, active pane id, and focused/unfocused state. Lua event
