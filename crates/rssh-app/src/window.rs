@@ -67326,23 +67326,21 @@ fn lua_whole_map_builtin_color_scheme_name_from_query(source: &str, query: &str)
         return None;
     }
     let reference_start = lua_source_slice_start_offset(source, query)?;
-    let (_, lookup_tail) = lua_static_bracket_string_key_from_query(
-        source,
-        reference_start,
-        lua_trim_start_comments(index)?,
-    )?;
-    let lookup_end = lua_source_slice_start_offset(source, lookup_tail)?;
-    let (value, binding_start) = lua_static_builtin_scheme_binding_before_offset(source, variable, reference_start)?;
+    let (value, binding_start) =
+        lua_static_builtin_scheme_binding_before_offset(source, variable, reference_start)?;
     if !lua_static_builtin_scheme_map_identity_is_safe_for_lookup(
         source,
         variable,
         binding_start,
         reference_start,
-        lookup_end,
     )? {
         return None;
     }
-    let canonical = lua_static_wezterm_builtin_color_scheme_call_query_from_query(source, value, binding_start)?;
+    let canonical = lua_static_wezterm_builtin_color_scheme_call_query_from_query(
+        source,
+        value,
+        binding_start,
+    )?;
     let combined = format!("{canonical}{index}");
     lua_wezterm_builtin_color_scheme_name_from_call_query(source, &combined, reference_start)
 }
@@ -67352,7 +67350,6 @@ fn lua_static_builtin_scheme_map_identity_is_safe_for_lookup(
     variable: &str,
     binding_start: usize,
     lookup_start: usize,
-    lookup_end: usize,
 ) -> Option<bool> {
     let starts = lua_top_level_statement_start_indices_before_offset(source, source.len())?;
     let lookup_statement_index = starts.iter().rposition(|start| *start <= lookup_start)?;
@@ -67379,7 +67376,9 @@ fn lua_static_builtin_scheme_map_identity_is_safe_for_lookup(
             .min(lookup_statement_start);
         let statement = source.get(start..end)?;
         if !lua_static_builtin_scheme_statement_preserves_map_identity(
+            source,
             statement,
+            start,
             variable,
             &mut capturing_functions,
         )? {
@@ -67387,17 +67386,17 @@ fn lua_static_builtin_scheme_map_identity_is_safe_for_lookup(
         }
     }
 
-    // A bare table key that matches `variable` is conservatively treated as
-    // an identity reference; distinguishing it would require broader Lua
-    // expression evaluation than this bounded static resolver performs.
-    if lua_static_builtin_scheme_fragment_references_map_identity(
-        source.get(lookup_statement_start..lookup_start)?,
+    let lookup_statement = source.get(lookup_statement_start..lookup_statement_end)?;
+    for captured in &capturing_functions {
+        if lua_static_query_contains_identifier(lookup_statement, captured)? {
+            return Some(false);
+        }
+    }
+    if !lua_static_builtin_scheme_statement_is_readonly_config_consumer(
+        source,
+        lookup_statement,
+        lookup_statement_start,
         variable,
-        &capturing_functions,
-    )? || lua_static_builtin_scheme_fragment_references_map_identity(
-        source.get(lookup_end..lookup_statement_end)?,
-        variable,
-        &capturing_functions,
     )? {
         return Some(false);
     }
@@ -67410,13 +67409,19 @@ fn lua_static_builtin_scheme_map_identity_is_safe_for_lookup(
     {
         let end = starts.get(index + 1).copied().unwrap_or(source.len());
         let statement = source.get(start..end)?;
-        if let Some(rebind_is_safe) =
-            lua_static_builtin_scheme_map_rebind_is_safe(statement, variable, &capturing_functions)?
-        {
+        if let Some(rebind_is_safe) = lua_static_builtin_scheme_map_rebind_is_safe(
+            source,
+            statement,
+            start,
+            variable,
+            &capturing_functions,
+        )? {
             return Some(rebind_is_safe);
         }
         if !lua_static_builtin_scheme_statement_preserves_map_identity(
+            source,
             statement,
+            start,
             variable,
             &mut capturing_functions,
         )? {
@@ -67428,7 +67433,9 @@ fn lua_static_builtin_scheme_map_identity_is_safe_for_lookup(
 }
 
 fn lua_static_builtin_scheme_statement_preserves_map_identity(
+    source: &str,
     statement: &str,
+    statement_start: usize,
     variable: &str,
     capturing_functions: &mut Vec<String>,
 ) -> Option<bool> {
@@ -67442,11 +67449,233 @@ fn lua_static_builtin_scheme_statement_preserves_map_identity(
         }
         return Some(true);
     }
-    Some(!lua_static_builtin_scheme_fragment_references_map_identity(
+    for captured in capturing_functions.iter() {
+        if lua_static_query_contains_identifier(statement, captured)? {
+            return Some(false);
+        }
+    }
+    if !lua_static_query_contains_identifier(statement, variable)? {
+        return Some(true);
+    }
+    lua_static_builtin_scheme_statement_is_readonly_config_consumer(
+        source,
         statement,
+        statement_start,
         variable,
-        capturing_functions,
-    )?)
+    )
+}
+
+fn lua_static_builtin_scheme_statement_is_readonly_config_consumer(
+    source: &str,
+    statement: &str,
+    statement_start: usize,
+    variable: &str,
+) -> Option<bool> {
+    let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+    let normalized = lua_static_load_scheme_path_query_without_comments(statement)?;
+    let statement = normalized.trim_start();
+    let Some((targets, value)) = split_lua_static_load_scheme_path_assignment_statement(statement)
+    else {
+        return Some(false);
+    };
+    let targets = split_lua_top_level_arguments(targets)?;
+    let [target] = targets.as_slice() else {
+        return Some(false);
+    };
+    let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
+    let Some(rest) = lua_config_receiver_prefix_rest(target.trim(), receiver) else {
+        return Some(false);
+    };
+    let Some(rest) = rest.trim_start().strip_prefix('.') else {
+        return Some(false);
+    };
+
+    if let Some(rest) = rest.strip_prefix("colors")
+        && !rest.chars().next().is_some_and(is_lua_identifier_character)
+        && rest.trim().is_empty()
+    {
+        return lua_static_builtin_scheme_map_lookup_is_exact(
+            source,
+            value,
+            statement_start,
+            variable,
+        );
+    }
+
+    let Some(rest) = rest.strip_prefix("color_schemes") else {
+        return Some(false);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(false);
+    }
+    if rest.trim().is_empty() {
+        return lua_static_builtin_scheme_map_table_consumer_is_readonly(
+            source,
+            value,
+            statement_start,
+            variable,
+        );
+    }
+    let Some((_, tail)) = color_scheme_lua_table_assignment_key_from_query(rest) else {
+        return Some(false);
+    };
+    if !tail.trim().is_empty() {
+        return Some(false);
+    }
+    lua_static_builtin_scheme_map_lookup_is_exact(source, value, statement_start, variable)
+}
+
+fn lua_static_builtin_scheme_map_table_consumer_is_readonly(
+    source: &str,
+    value: &str,
+    statement_start: usize,
+    variable: &str,
+) -> Option<bool> {
+    let value = lua_trim_start_comments(value)?;
+    let Some(table) = lua_braced_table_literal_from_query(value) else {
+        return Some(false);
+    };
+    if !lua_static_builtin_scheme_tail_is_statement_end(value.get(table.len()..)?)? {
+        return Some(false);
+    }
+    let fields = table.trim().strip_prefix('{')?.strip_suffix('}')?;
+    for field in split_lua_table_top_level_fields(fields)? {
+        let field = lua_trim_start_comments(field)?.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, field_value)) = split_lua_table_assignment_from_field(field) else {
+            return Some(false);
+        };
+        if !lua_static_query_contains_identifier(field, variable)? {
+            continue;
+        }
+        if lua_static_query_contains_identifier(key, variable)?
+            || !lua_static_builtin_scheme_map_lookup_is_exact(
+                source,
+                field_value,
+                statement_start,
+                variable,
+            )?
+        {
+            return Some(false);
+        }
+    }
+    Some(true)
+}
+
+fn lua_static_builtin_scheme_map_lookup_is_exact(
+    source: &str,
+    value: &str,
+    statement_start: usize,
+    variable: &str,
+) -> Option<bool> {
+    let value = lua_trim_start_comments(value)?;
+    let Some(identifier) = lua_identifier_literal_from_query(value) else {
+        return Some(false);
+    };
+    if identifier != variable {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(value.get(identifier.len()..)?)?;
+    let Some(after_open) = rest.strip_prefix('[').and_then(lua_trim_start_comments) else {
+        return Some(false);
+    };
+    if lua_quoted_string_literal_from_query(after_open)
+        .or_else(|| lua_long_bracket_literal_from_query(after_open))
+        .is_none()
+    {
+        let Some(key_variable) = lua_identifier_literal_from_query(after_open) else {
+            return Some(false);
+        };
+        if !lua_static_builtin_scheme_string_key_is_stable_for_lookup(
+            source,
+            key_variable,
+            statement_start,
+        )? {
+            return Some(false);
+        }
+    }
+    let Some((name, tail)) =
+        lua_static_bracket_string_key_from_query(source, statement_start, rest)
+    else {
+        return Some(false);
+    };
+    if builtin_color_scheme_toml(&name).is_none() {
+        return Some(false);
+    }
+    lua_static_builtin_scheme_tail_is_statement_end(tail)
+}
+
+fn lua_static_builtin_scheme_string_key_is_stable_for_lookup(
+    source: &str,
+    variable: &str,
+    lookup_statement_start: usize,
+) -> Option<bool> {
+    let (_, binding_start) = lua_static_builtin_scheme_binding_before_offset(
+        source,
+        variable,
+        lookup_statement_start,
+    )?;
+    let starts = lua_top_level_statement_start_indices_before_offset(source, source.len())?;
+    let lookup_statement_index = starts
+        .iter()
+        .rposition(|start| *start <= lookup_statement_start)?;
+    let mut capturing_functions = Vec::new();
+
+    for (index, start) in starts
+        .iter()
+        .copied()
+        .enumerate()
+        .take(lookup_statement_index)
+    {
+        let end = starts
+            .get(index + 1)
+            .copied()
+            .unwrap_or(lookup_statement_start)
+            .min(lookup_statement_start);
+        let statement = source.get(start..end)?;
+        if let Some(function) = lua_static_builtin_scheme_function_definition_name(statement)? {
+            if lua_static_query_contains_identifier(statement, variable)? {
+                capturing_functions.push(function);
+            }
+            continue;
+        }
+        if start <= binding_start {
+            continue;
+        }
+        if lua_static_query_contains_identifier(statement, variable)? {
+            return Some(false);
+        }
+        for captured in &capturing_functions {
+            if lua_static_query_contains_identifier(statement, captured)? {
+                return Some(false);
+            }
+        }
+    }
+
+    let lookup_statement_end = starts
+        .get(lookup_statement_index + 1)
+        .copied()
+        .unwrap_or(source.len());
+    let lookup_statement = source.get(lookup_statement_start..lookup_statement_end)?;
+    for captured in &capturing_functions {
+        if lua_static_query_contains_identifier(lookup_statement, captured)? {
+            return Some(false);
+        }
+    }
+    Some(true)
+}
+
+fn lua_static_builtin_scheme_tail_is_statement_end(tail: &str) -> Option<bool> {
+    let normalized = lua_static_load_scheme_path_query_without_comments(tail)?;
+    let tail = normalized.trim();
+    Some(
+        tail.is_empty()
+            || tail
+                .strip_prefix(';')
+                .is_some_and(|tail| tail.trim().is_empty()),
+    )
 }
 
 fn lua_static_builtin_scheme_fragment_references_map_identity(
@@ -67466,7 +67695,9 @@ fn lua_static_builtin_scheme_fragment_references_map_identity(
 }
 
 fn lua_static_builtin_scheme_map_rebind_is_safe(
+    source: &str,
     statement: &str,
+    statement_start: usize,
     variable: &str,
     capturing_functions: &[String],
 ) -> Option<Option<bool>> {
@@ -67490,13 +67721,130 @@ fn lua_static_builtin_scheme_map_rebind_is_safe(
     {
         return Some(None);
     }
-    Some(Some(
-        !lua_static_builtin_scheme_fragment_references_map_identity(
+    if lua_static_builtin_scheme_fragment_references_map_identity(
+        value,
+        variable,
+        capturing_functions,
+    )? {
+        return Some(Some(false));
+    }
+    Some(Some(lua_static_builtin_scheme_rebind_value_is_fresh(
+        source,
+        value,
+        statement_start,
+    )?))
+}
+
+fn lua_static_builtin_scheme_rebind_value_is_fresh(
+    source: &str,
+    value: &str,
+    statement_start: usize,
+) -> Option<bool> {
+    if lua_static_builtin_scheme_fresh_map_call_is_exact(source, value, statement_start)? {
+        return Some(true);
+    }
+    lua_static_builtin_scheme_independent_table_literal_is_exact(value, 0)
+}
+
+fn lua_static_builtin_scheme_fresh_map_call_is_exact(
+    source: &str,
+    value: &str,
+    statement_start: usize,
+) -> Option<bool> {
+    let canonical = lua_static_wezterm_builtin_color_scheme_call_query_from_query(
+        source,
+        value,
+        statement_start,
+    )
+    .or_else(|| {
+        lua_static_wezterm_builtin_color_scheme_alias_query_from_query(
+            source,
             value,
-            variable,
-            capturing_functions,
-        )?,
-    ))
+            statement_start,
+        )
+    });
+    let Some(canonical) = canonical else {
+        return Some(false);
+    };
+    let rest = canonical.strip_prefix("wezterm.color.get_builtin_schemes")?;
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('(')?;
+    let (arguments, tail) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_static_load_scheme_path_query_without_comments(arguments)?
+        .trim()
+        .is_empty()
+    {
+        return Some(false);
+    }
+    lua_static_builtin_scheme_tail_is_statement_end(tail)
+}
+
+fn lua_static_builtin_scheme_independent_table_literal_is_exact(
+    value: &str,
+    depth: usize,
+) -> Option<bool> {
+    if depth >= LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH {
+        return Some(false);
+    }
+    let value = lua_trim_start_comments(value)?;
+    let Some(table) = lua_braced_table_literal_from_query(value) else {
+        return Some(false);
+    };
+    if !lua_static_builtin_scheme_tail_is_statement_end(value.get(table.len()..)?)? {
+        return Some(false);
+    }
+    let fields = table.trim().strip_prefix('{')?.strip_suffix('}')?;
+    for field in split_lua_table_top_level_fields(fields)? {
+        let field = lua_trim_start_comments(field)?.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, field_value)) = split_lua_table_assignment_from_field(field) {
+            if !lua_static_builtin_scheme_static_table_key_is_exact(key)?
+                || !lua_static_builtin_scheme_static_value_is_exact(field_value, depth + 1)?
+            {
+                return Some(false);
+            }
+        } else if !lua_static_builtin_scheme_static_value_is_exact(field, depth + 1)? {
+            return Some(false);
+        }
+    }
+    Some(true)
+}
+
+fn lua_static_builtin_scheme_static_table_key_is_exact(key: &str) -> Option<bool> {
+    let normalized = lua_static_load_scheme_path_query_without_comments(key)?;
+    let key = normalized.trim();
+    if let Some(identifier) = lua_identifier_literal_from_query(key) {
+        return Some(identifier.len() == key.len());
+    }
+    let Some(key) = key.strip_prefix('[').and_then(|key| key.strip_suffix(']')) else {
+        return Some(false);
+    };
+    lua_static_builtin_scheme_static_scalar_is_exact(key)
+}
+
+fn lua_static_builtin_scheme_static_value_is_exact(value: &str, depth: usize) -> Option<bool> {
+    let value = lua_trim_start_comments(value)?;
+    if value.starts_with('{') {
+        return lua_static_builtin_scheme_independent_table_literal_is_exact(value, depth);
+    }
+    lua_static_builtin_scheme_static_scalar_is_exact(value)
+}
+
+fn lua_static_builtin_scheme_static_scalar_is_exact(value: &str) -> Option<bool> {
+    let normalized = lua_static_load_scheme_path_query_without_comments(value)?;
+    let value = normalized.trim();
+    if value == "nil" {
+        return Some(true);
+    }
+    let literal = lua_quoted_string_literal_from_query(value)
+        .or_else(|| lua_long_bracket_literal_from_query(value))
+        .or_else(|| lua_signed_number_literal_from_query(value))
+        .or_else(|| lua_bool_literal_from_query(value));
+    let Some(literal) = literal else {
+        return Some(false);
+    };
+    Some(literal.len() == value.len())
 }
 
 fn lua_static_builtin_scheme_function_definition_name(statement: &str) -> Option<Option<String>> {
@@ -127850,8 +128198,9 @@ mod tests {
             r##"
             local wezterm = require 'wezterm'
             local config = {}
+            local scheme_name = 'Gruvbox Light'
             local schemes = wezterm.color.get_builtin_schemes()
-            config.colors = schemes['Gruvbox Light']
+            config.colors = schemes[scheme_name]
             return config
             "##,
         )
@@ -128169,6 +128518,158 @@ mod tests {
         let effective = app.native_effective_config();
         assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
         assert_eq!(effective.background_color, Color::Rgb(251, 241, 199));
+    }
+
+    #[test]
+    fn window_app_resolves_multiple_inline_builtin_scheme_map_lookups() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+
+            config.color_schemes = {
+              ['A'] = schemes['Gruvbox Light'],
+              ['B'] = schemes['Builtin Solarized Dark'],
+            }
+            config.color_scheme = 'A'
+
+            return config
+            "##,
+        )
+        .expect("expected multiple inline built-in scheme map lookups");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.background_color, Color::Rgb(251, 241, 199));
+    }
+
+    #[test]
+    fn window_app_resolves_multiple_direct_builtin_scheme_map_lookups() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+
+            config.color_schemes['A'] = schemes['Gruvbox Light']
+            config.color_schemes['B'] = schemes['Builtin Solarized Dark']
+            config.color_scheme = 'A'
+
+            return config
+            "##,
+        )
+        .expect("expected multiple direct built-in scheme map lookups");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.background_color, Color::Rgb(251, 241, 199));
+    }
+
+    #[test]
+    fn window_app_rejects_builtin_scheme_map_rebound_from_config_alias() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+
+            config.color_schemes = {
+              ['Mine'] = schemes['Gruvbox Light'],
+            }
+            schemes = config.color_schemes
+            schemes.Mine.background = '#010203'
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        );
+
+        assert!(
+            overrides.is_none(),
+            "rebinding from config.color_schemes must not prove a fresh map"
+        );
+    }
+
+    #[test]
+    fn window_app_rejects_builtin_scheme_map_rebound_from_dynamic_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+
+            config.color_schemes = {
+              ['Mine'] = schemes['Gruvbox Light'],
+            }
+            schemes = choose_map()
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        );
+
+        assert!(
+            overrides.is_none(),
+            "a dynamic call must not prove a fresh built-in scheme map"
+        );
+    }
+
+    #[test]
+    fn window_app_rejects_builtin_scheme_map_lookup_with_closure_rebound_static_key() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local scheme_name = 'Gruvbox Light'
+            local function switch_scheme()
+              scheme_name = 'Builtin Solarized Dark'
+            end
+            local schemes = wezterm.color.get_builtin_schemes()
+
+            switch_scheme()
+            config.color_schemes['A'] = schemes[scheme_name]
+            config.color_scheme = 'A'
+
+            return config
+            "##,
+        );
+
+        assert!(
+            overrides.is_none(),
+            "a closure-rebound static scheme key must fail closed"
+        );
+    }
+
+    #[test]
+    fn window_app_rejects_builtin_scheme_map_lookup_after_inline_static_key_mutation() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local scheme_name = 'Gruvbox Light'
+            local schemes = wezterm.color.get_builtin_schemes()
+
+            config.color_schemes = {
+              (function()
+                scheme_name = 'Builtin Solarized Dark'
+              end)(),
+              ['A'] = schemes[scheme_name],
+            }
+            config.color_scheme = 'A'
+
+            return config
+            "##,
+        );
+
+        assert!(
+            overrides.is_none(),
+            "an inline static scheme key mutation must fail closed"
+        );
     }
 
     #[test]
