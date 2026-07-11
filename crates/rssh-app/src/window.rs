@@ -66127,6 +66127,15 @@ fn lua_source_index_starts_statement(source: &str, index: usize) -> bool {
     true
 }
 
+fn lua_complete_label_len_from_query(query: &str) -> Option<usize> {
+    let rest = query.strip_prefix("::")?;
+    let rest = lua_trim_start_comments(rest)?;
+    let label = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(label.len()..)?)?;
+    let rest = rest.strip_prefix("::")?;
+    Some(query.len().saturating_sub(rest.len()))
+}
+
 fn lua_top_level_statement_start_indices_before_offset(
     source: &str,
     max_start: usize,
@@ -66137,12 +66146,19 @@ fn lua_top_level_statement_start_indices_before_offset(
     let mut line_comment = false;
     let mut block_comment_end = None;
     let mut long_bracket_end = None;
+    let mut label_end = None;
     let mut lua_block_depth = 0usize;
     let mut table_depth = 0usize;
     let mut paren_depth = 0usize;
     let mut starts = Vec::new();
 
     for (index, character) in source.char_indices() {
+        if let Some(end) = label_end {
+            if index < end {
+                continue;
+            }
+            label_end = None;
+        }
         if let Some(end) = block_comment_end {
             if index < end {
                 continue;
@@ -66232,6 +66248,27 @@ fn lua_top_level_statement_start_indices_before_offset(
             _ => {}
         }
 
+        if lua_block_depth == 0
+            && table_depth == 0
+            && paren_depth == 0
+            && source[index..].starts_with("::")
+            && let Some(label_len) = lua_complete_label_len_from_query(&source[index..])
+        {
+            label_end = Some(index + label_len);
+            if starts.last().copied() != Some(index) {
+                starts.push(index);
+            }
+            let after_label = source.get(index + label_len..)?;
+            let after_label = lua_trim_start_comments(after_label)?;
+            if !after_label.is_empty() {
+                let after_label_start = source.len().saturating_sub(after_label.len());
+                if starts.last().copied() != Some(after_label_start) {
+                    starts.push(after_label_start);
+                }
+            }
+            continue;
+        }
+
         if lua_source_keyword_at(source, index, "elseif") {
             lua_block_depth = lua_block_depth.saturating_sub(1);
             continue;
@@ -66244,7 +66281,9 @@ fn lua_top_level_statement_start_indices_before_offset(
                 && !character.is_whitespace()
                 && lua_source_index_starts_statement(source, index)
             {
-                starts.push(index);
+                if starts.last().copied() != Some(index) {
+                    starts.push(index);
+                }
             }
             lua_block_depth = lua_block_depth.saturating_add(1);
             continue;
@@ -66270,7 +66309,9 @@ fn lua_top_level_statement_start_indices_before_offset(
             && !character.is_whitespace()
             && lua_source_index_starts_statement(source, index)
         {
-            starts.push(index);
+            if starts.last().copied() != Some(index) {
+                starts.push(index);
+            }
         }
     }
 
@@ -68116,6 +68157,24 @@ fn lua_static_load_scheme_path_statement_starts_with_continuation(statement: &st
 fn lua_static_load_scheme_path_statement_ends_with_continuation(statement: &str) -> Option<bool> {
     let normalized = lua_static_load_scheme_path_query_without_comments(statement)?;
     let statement = normalized.trim_end();
+    let statement_without_labels =
+        lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+    if statement_without_labels.ends_with('>')
+        && lua_source_keyword_at(statement_without_labels.trim_start(), 0, "local")
+    {
+        let declaration = lua_trim_start_comments(
+            statement_without_labels
+                .trim_start()
+                .get("local".len()..)
+                .unwrap_or_default(),
+        )?;
+        let targets = split_lua_top_level_arguments(declaration)?;
+        if targets.iter().all(|target| {
+            lua_static_load_scheme_path_assignment_target_identifier(target).is_some()
+        }) {
+            return Some(false);
+        }
+    }
     let symbol_continuation = [
         "..", "==", "~=", "<=", ">=", "//", "<<", ">>", "+", "-", "*", "/", "%", "^", "&", "|",
         "~", "<", ">", "=", ".", ",",
@@ -68154,13 +68213,67 @@ fn lua_static_load_scheme_path_statements_continue_across_boundary(
     )
 }
 
+fn lua_static_load_scheme_path_assignment_target_identifier(target: &str) -> Option<String> {
+    let target = lua_static_load_scheme_path_query_without_comments(target)?;
+    let target = target.trim();
+    let identifier = lua_identifier_literal_from_query(target)?;
+
+    let rest = target.get(identifier.len()..)?;
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return Some(identifier.to_owned());
+    }
+
+    let rest = lua_trim_start_comments(rest.strip_prefix('<')?)?;
+    let attribute = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(attribute.len()..).unwrap_or_default())?;
+    rest.strip_prefix('>')
+        .filter(|rest| rest.trim().is_empty())
+        .map(|_| identifier.to_owned())
+}
+
+fn lua_static_load_scheme_path_assignment_target_is_variable(target: &str, variable: &str) -> bool {
+    lua_static_load_scheme_path_assignment_target_identifier(target).as_deref() == Some(variable)
+}
+
+enum LuaStaticLoadSchemePathBinding<'a> {
+    Unbound,
+    Value(&'a str, usize),
+    Shadowed,
+}
+
+fn lua_static_load_scheme_path_statement_without_leading_labels(statement: &str) -> Option<&str> {
+    let mut statement = lua_trim_start_comments(statement)?;
+    loop {
+        let Some(rest) = statement.strip_prefix("::") else {
+            return Some(statement);
+        };
+        let rest = lua_trim_start_comments(rest)?;
+        let label = lua_identifier_literal_from_query(rest)?;
+        let rest = lua_trim_start_comments(rest.get(label.len()..)?)?;
+        let rest = rest.strip_prefix("::")?;
+        statement = lua_trim_start_comments(rest)?;
+    }
+}
+
 #[allow(dead_code)]
 fn lua_static_load_scheme_path_binding_before_offset<'a>(
     source: &'a str,
     variable: &str,
     max_start: usize,
 ) -> Option<(&'a str, usize)> {
-    let mut selected = None;
+    match lua_static_load_scheme_path_binding_state_before_offset(source, variable, max_start)? {
+        LuaStaticLoadSchemePathBinding::Value(value, start) => Some((value, start)),
+        LuaStaticLoadSchemePathBinding::Unbound | LuaStaticLoadSchemePathBinding::Shadowed => None,
+    }
+}
+
+fn lua_static_load_scheme_path_binding_state_before_offset<'a>(
+    source: &'a str,
+    variable: &str,
+    max_start: usize,
+) -> Option<LuaStaticLoadSchemePathBinding<'a>> {
+    let mut selected = LuaStaticLoadSchemePathBinding::Unbound;
     let normalized_source =
         lua_static_load_scheme_path_query_without_comments(source.get(..max_start)?)?;
     let starts =
@@ -68189,34 +68302,34 @@ fn lua_static_load_scheme_path_binding_before_offset<'a>(
             .copied()
             .unwrap_or(max_start);
         let statement = source.get(start..statement_end)?;
+        let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
         statement_index = next_statement_index;
-        if let Some(function_statement) = lua_top_level_function_statement_from_index(source, start)
-        {
-            if lua_named_function_params_and_body_from_statement(function_statement, variable)
-                .is_some()
-            {
-                selected = None;
+        if lua_source_keyword_at(statement, 0, "function") {
+            if lua_named_function_params_and_body_from_statement(statement, variable).is_some() {
+                selected = LuaStaticLoadSchemePathBinding::Shadowed;
             }
             continue;
         }
-        let is_local = lua_source_keyword_at(source, start, "local");
+        let is_local = lua_source_keyword_at(statement, 0, "local");
         let rest = if is_local {
             statement.get("local".len()..)?
         } else {
             statement
         };
         let rest = lua_trim_start_comments(rest)?;
+        if is_local && lua_source_keyword_at(rest, 0, "function") {
+            let function_rest = lua_trim_start_comments(rest.get("function".len()..)?)?;
+            if lua_identifier_literal_from_query(function_rest) == Some(variable) {
+                selected = LuaStaticLoadSchemePathBinding::Shadowed;
+            }
+            continue;
+        }
         let assignment = split_lua_static_load_scheme_path_assignment_statement(rest);
         let targets =
             split_lua_top_level_arguments(assignment.map_or(rest, |(targets, _)| targets))?;
         let mut declares_variable = false;
         for target in &targets {
-            let target = lua_static_load_scheme_path_query_without_comments(target)?;
-            let target = target.trim();
-            let Some(identifier) = lua_identifier_literal_from_query(target) else {
-                continue;
-            };
-            if identifier == variable && target.get(identifier.len()..)?.trim().is_empty() {
+            if lua_static_load_scheme_path_assignment_target_is_variable(target, variable) {
                 declares_variable = true;
                 break;
             }
@@ -68226,13 +68339,17 @@ fn lua_static_load_scheme_path_binding_before_offset<'a>(
         }
 
         if let Some((_, value)) = assignment {
-            selected = (targets.len() == 1).then_some((value, start));
+            selected = if targets.len() == 1 {
+                LuaStaticLoadSchemePathBinding::Value(value, start)
+            } else {
+                LuaStaticLoadSchemePathBinding::Shadowed
+            };
         } else if is_local {
-            selected = None;
+            selected = LuaStaticLoadSchemePathBinding::Shadowed;
         }
     }
 
-    selected
+    Some(selected)
 }
 
 fn lua_wezterm_color_load_scheme_path_from_call_query(
@@ -68255,7 +68372,7 @@ fn lua_wezterm_color_load_scheme_path_from_call_query(
         if lua_static_load_scheme_path_query_without_comments(argument)?
             .trim()
             .is_empty()
-            || !lua_load_scheme_call_tail_is_value_end(tail)
+            || !lua_static_value_tail_is_value_end(tail)
         {
             return None;
         }
@@ -68267,10 +68384,10 @@ fn lua_wezterm_color_load_scheme_path_from_call_query(
     }
 
     let (literal, literal_len) = lua_inline_string_literal_value_and_len(rest)?;
-    lua_load_scheme_call_tail_is_value_end(rest.get(literal_len..)?).then_some(literal)
+    lua_static_value_tail_is_value_end(rest.get(literal_len..)?).then_some(literal)
 }
 
-fn lua_load_scheme_call_tail_is_value_end(mut tail: &str) -> bool {
+fn lua_static_value_tail_is_value_end(mut tail: &str) -> bool {
     let mut saw_statement_boundary = false;
 
     loop {
@@ -68320,18 +68437,18 @@ fn lua_load_scheme_call_tail_is_value_end(mut tail: &str) -> bool {
         || tail.starts_with(';')
         || tail.starts_with(',')
         || tail.starts_with('}')
-        || lua_load_scheme_call_tail_starts_label_statement(tail)
+        || lua_static_value_tail_starts_label_statement(tail)
     {
         return true;
     }
-    if lua_load_scheme_call_tail_starts_expression_continuation(tail) {
+    if lua_static_value_tail_starts_expression_continuation(tail) {
         return false;
     }
 
     saw_statement_boundary && lua_identifier_literal_from_query(tail).is_some()
 }
 
-fn lua_load_scheme_call_tail_starts_label_statement(tail: &str) -> bool {
+fn lua_static_value_tail_starts_label_statement(tail: &str) -> bool {
     let Some(rest) = tail.strip_prefix("::") else {
         return false;
     };
@@ -68344,7 +68461,7 @@ fn lua_load_scheme_call_tail_starts_label_statement(tail: &str) -> bool {
             .is_some_and(|rest| rest.starts_with("::"))
 }
 
-fn lua_load_scheme_call_tail_starts_expression_continuation(tail: &str) -> bool {
+fn lua_static_value_tail_starts_expression_continuation(tail: &str) -> bool {
     matches!(
         tail.chars().next(),
         Some(
@@ -68508,6 +68625,528 @@ fn lua_static_wezterm_color_load_scheme_alias_value_from_query(
         return false;
     };
     field == "load_scheme" && lua_static_identifier_value_rest_is_statement_end(rest)
+}
+
+#[allow(dead_code)]
+fn lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+    source: &str,
+    query: &str,
+) -> Option<String> {
+    let lookup_max_start = lua_source_slice_start_offset(source, query)?;
+    if lua_static_builtin_scheme_wezterm_receiver_is_valid(source, lookup_max_start)?
+        && let Some(name) =
+            lua_wezterm_builtin_color_scheme_name_from_call_query(source, query, lookup_max_start)
+    {
+        return Some(name);
+    }
+
+    if let Some(canonical_query) = lua_static_wezterm_builtin_color_scheme_call_query_from_query(
+        source,
+        query,
+        lookup_max_start,
+    ) {
+        return lua_wezterm_builtin_color_scheme_name_from_call_query(
+            source,
+            &canonical_query,
+            lookup_max_start,
+        );
+    }
+
+    let canonical_query = lua_static_wezterm_builtin_color_scheme_alias_query_from_query(
+        source,
+        query,
+        lookup_max_start,
+    )?;
+    lua_wezterm_builtin_color_scheme_name_from_call_query(
+        source,
+        &canonical_query,
+        lookup_max_start,
+    )
+}
+
+#[allow(dead_code)]
+fn lua_wezterm_builtin_color_scheme_name_from_call_query(
+    source: &str,
+    canonical_query: &str,
+    lookup_max_start: usize,
+) -> Option<String> {
+    let query = canonical_query.trim_start();
+    let rest = query.strip_prefix("wezterm.color.get_builtin_schemes")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = lua_static_load_scheme_path_query_without_comments(arguments)?;
+    if !arguments.trim().is_empty() {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(rest)?;
+    let (name, tail) = lua_static_bracket_string_key_from_query(source, lookup_max_start, rest)?;
+    builtin_color_scheme_toml(&name)?;
+    lua_static_value_tail_is_value_end(tail).then_some(name)
+}
+
+#[allow(dead_code)]
+fn lua_static_bracket_string_key_from_query<'a>(
+    source: &str,
+    max_start: usize,
+    query: &'a str,
+) -> Option<(String, &'a str)> {
+    let after_open = lua_trim_start_comments(query.strip_prefix('[')?)?;
+    if let Some((key, key_len)) = lua_inline_string_literal_value_and_len(after_open) {
+        let rest = lua_trim_start_comments(after_open.get(key_len..)?)?;
+        return Some((key, rest.strip_prefix(']')?));
+    }
+
+    let variable = lua_identifier_literal_from_query(after_open)?;
+    let rest = lua_trim_start_comments(after_open.get(variable.len()..)?)?;
+    let rest = rest.strip_prefix(']')?;
+    let key = lua_static_string_literal_binding_before_offset(source, variable, max_start)?;
+    Some((key, rest))
+}
+
+#[allow(dead_code)]
+fn lua_static_builtin_scheme_binding_before_offset<'a>(
+    source: &'a str,
+    variable: &str,
+    max_start: usize,
+) -> Option<(&'a str, usize)> {
+    let selected = lua_static_load_scheme_path_binding_before_offset(source, variable, max_start)?;
+    if lua_static_builtin_scheme_has_non_function_block_between(source, selected.1, max_start)? {
+        return None;
+    }
+    Some(selected)
+}
+
+#[allow(dead_code)]
+fn lua_static_builtin_scheme_has_non_function_block_between(
+    source: &str,
+    min_start: usize,
+    max_start: usize,
+) -> Option<bool> {
+    let source = source.get(min_start..max_start)?;
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut blocks = Vec::new();
+
+    for (index, character) in source.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if source[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index + 2..])
+            {
+                let content_and_rest = &source[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(source.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        if matches!(character, '\'' | '"') {
+            quote = Some(character);
+            continue;
+        }
+        if character == '['
+            && let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index..])
+        {
+            let content_and_rest = &source[index + content_start..];
+            long_bracket_end = Some(
+                content_and_rest
+                    .find(&closing)
+                    .map_or(source.len(), |close_index| {
+                        index + content_start + close_index + closing.len()
+                    }),
+            );
+            continue;
+        }
+
+        if lua_source_keyword_at(source, index, "elseif") {
+            if blocks.last() == Some(&false) {
+                blocks.pop();
+            }
+            continue;
+        }
+        if lua_source_keyword_at(source, index, "function") {
+            blocks.push(true);
+            continue;
+        }
+        if lua_source_keyword_at(source, index, "then")
+            || lua_source_keyword_at(source, index, "do")
+            || lua_source_keyword_at(source, index, "repeat")
+        {
+            if !blocks.contains(&true) {
+                // Dynamic branches are outside this static resolver. Even an
+                // unrelated block makes bindings selected before it unprovable.
+                return Some(true);
+            }
+            blocks.push(false);
+            continue;
+        }
+        if lua_source_keyword_at(source, index, "end")
+            || lua_source_keyword_at(source, index, "until")
+        {
+            blocks.pop();
+        }
+    }
+
+    Some(false)
+}
+
+#[allow(dead_code)]
+fn lua_static_builtin_scheme_require_is_unshadowed(source: &str, max_start: usize) -> Option<bool> {
+    match lua_static_load_scheme_path_binding_state_before_offset(source, "require", max_start)? {
+        LuaStaticLoadSchemePathBinding::Unbound => Some(
+            !lua_static_builtin_scheme_has_non_function_block_between(source, 0, max_start)?,
+        ),
+        LuaStaticLoadSchemePathBinding::Value(_, _) | LuaStaticLoadSchemePathBinding::Shadowed => {
+            Some(false)
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn lua_static_builtin_scheme_wezterm_receiver_is_valid(
+    source: &str,
+    max_start: usize,
+) -> Option<bool> {
+    lua_static_builtin_scheme_wezterm_receiver_is_valid_with_depth(source, max_start, 0)
+}
+
+fn lua_static_builtin_scheme_wezterm_receiver_is_valid_with_depth(
+    source: &str,
+    max_start: usize,
+    depth: usize,
+) -> Option<bool> {
+    if depth > LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH {
+        return Some(false);
+    }
+    match lua_static_load_scheme_path_binding_state_before_offset(source, "wezterm", max_start)? {
+        LuaStaticLoadSchemePathBinding::Unbound => Some(
+            !lua_static_builtin_scheme_has_non_function_block_between(source, 0, max_start)?,
+        ),
+        LuaStaticLoadSchemePathBinding::Value(binding, binding_start) => {
+            if lua_static_builtin_scheme_has_non_function_block_between(
+                source,
+                binding_start,
+                max_start,
+            )? {
+                return Some(false);
+            }
+            Some(lua_static_wezterm_module_alias_value_is_exact_with_depth(
+                source,
+                binding_start,
+                binding,
+                depth + 1,
+            ))
+        }
+        LuaStaticLoadSchemePathBinding::Shadowed => Some(false),
+    }
+}
+
+#[allow(dead_code)]
+fn lua_static_string_literal_binding_before_offset(
+    source: &str,
+    variable: &str,
+    max_start: usize,
+) -> Option<String> {
+    let (value, _) = lua_static_builtin_scheme_binding_before_offset(source, variable, max_start)?;
+    let value = lua_static_load_scheme_path_query_without_comments(value)?;
+    let value = value.trim();
+    let (literal, literal_len) = lua_inline_string_literal_value_and_len(value)?;
+    value
+        .get(literal_len..)?
+        .trim()
+        .is_empty()
+        .then_some(literal)
+}
+
+#[allow(dead_code)]
+fn lua_static_string_field_key_from_query<'a>(
+    source: &str,
+    max_start: usize,
+    query: &'a str,
+) -> Option<(String, &'a str)> {
+    if let Some(rest) = query.strip_prefix('.') {
+        let rest = lua_trim_start_comments(rest)?;
+        let field = lua_identifier_literal_from_query(rest)?;
+        return Some((field.to_owned(), rest.get(field.len()..)?));
+    }
+
+    lua_static_bracket_string_key_from_query(source, max_start, query)
+}
+
+#[allow(dead_code)]
+fn lua_static_wezterm_module_alias_value_is_exact(
+    source: &str,
+    max_start: usize,
+    value: &str,
+) -> bool {
+    lua_static_wezterm_module_alias_value_is_exact_with_depth(source, max_start, value, 0)
+}
+
+#[allow(dead_code)]
+fn lua_static_wezterm_module_alias_value_is_exact_with_depth(
+    source: &str,
+    max_start: usize,
+    value: &str,
+    depth: usize,
+) -> bool {
+    if depth > LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH {
+        return false;
+    }
+    let Some(value) = lua_trim_start_comments(value) else {
+        return false;
+    };
+
+    if let Some(rest) = value.strip_prefix('(')
+        && let Some((receiver, tail)) = lua_parenthesized_argument_list_prefix_from_query(rest)
+        && lua_static_wezterm_module_alias_value_is_exact_with_depth(
+            source,
+            max_start,
+            receiver.trim(),
+            depth + 1,
+        )
+        && lua_static_value_tail_is_value_end(tail)
+    {
+        return true;
+    }
+
+    if let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) {
+        return lua_static_builtin_scheme_require_is_unshadowed(source, max_start).unwrap_or(false)
+            && lua_static_value_tail_is_value_end(rest);
+    }
+
+    let Some(rest) = value.strip_prefix("wezterm") else {
+        return false;
+    };
+    !rest.chars().next().is_some_and(is_lua_identifier_character)
+        && lua_static_builtin_scheme_wezterm_receiver_is_valid_with_depth(
+            source,
+            max_start,
+            depth + 1,
+        )
+        .unwrap_or(false)
+        && lua_static_value_tail_is_value_end(rest)
+}
+
+#[allow(dead_code)]
+fn lua_static_wezterm_receiver_rest_from_query_with_strict_aliases<'a>(
+    source: &str,
+    max_start: usize,
+    value: &'a str,
+) -> Option<&'a str> {
+    lua_static_wezterm_receiver_rest_from_query_with_strict_aliases_and_depth(
+        source, max_start, value, 0,
+    )
+}
+
+fn lua_static_wezterm_receiver_rest_from_query_with_strict_aliases_and_depth<'a>(
+    source: &str,
+    max_start: usize,
+    value: &'a str,
+    depth: usize,
+) -> Option<&'a str> {
+    if depth > LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH {
+        return None;
+    }
+    if let Some(value) = lua_trim_start_comments(value)
+        && let Some(rest) = value.strip_prefix('(')
+        && let Some((receiver, rest)) = lua_parenthesized_argument_list_prefix_from_query(rest)
+    {
+        let receiver_rest =
+            lua_static_wezterm_receiver_rest_from_query_with_strict_aliases_and_depth(
+                source,
+                max_start,
+                receiver.trim(),
+                depth + 1,
+            )?;
+        if lua_static_wezterm_module_alias_receiver_rest_is_statement_end(receiver_rest) {
+            return Some(rest);
+        }
+    }
+
+    if let Some(rest) = lua_static_wezterm_require_receiver_rest_from_query(value) {
+        return lua_static_builtin_scheme_require_is_unshadowed(source, max_start)?.then_some(rest);
+    }
+
+    let receiver = lua_identifier_literal_from_query(value)?;
+    let rest = value.get(receiver.len()..)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    if receiver == "wezterm" {
+        return lua_static_builtin_scheme_wezterm_receiver_is_valid_with_depth(
+            source,
+            max_start,
+            depth + 1,
+        )?
+        .then_some(rest);
+    }
+
+    let (binding, binding_start) =
+        lua_static_builtin_scheme_binding_before_offset(source, receiver, max_start)?;
+    lua_static_wezterm_module_alias_value_is_exact_with_depth(
+        source,
+        binding_start,
+        binding,
+        depth + 1,
+    )
+    .then_some(rest)
+}
+
+#[allow(dead_code)]
+fn lua_static_wezterm_builtin_color_scheme_function_rest_from_receiver_rest<'a>(
+    source: &str,
+    max_start: usize,
+    receiver_rest: &'a str,
+) -> Option<&'a str> {
+    let rest = lua_trim_start_comments(receiver_rest)?;
+    let (field, rest) = lua_static_string_field_key_from_query(source, max_start, rest)?;
+    if field == "get_builtin_color_schemes" {
+        return Some(rest);
+    }
+    if field != "color" {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(rest)?;
+    let (field, rest) = lua_static_string_field_key_from_query(source, max_start, rest)?;
+    (field == "get_builtin_schemes").then_some(rest)
+}
+
+#[allow(dead_code)]
+fn lua_static_wezterm_builtin_color_scheme_call_query_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<String> {
+    let query = lua_trim_start_comments(query)?;
+    let receiver_rest =
+        lua_static_wezterm_receiver_rest_from_query_with_strict_aliases(source, max_start, query)?;
+    let rest = lua_static_wezterm_builtin_color_scheme_function_rest_from_receiver_rest(
+        source,
+        max_start,
+        receiver_rest,
+    )?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with('(') {
+        return None;
+    }
+    Some(format!("wezterm.color.get_builtin_schemes{rest}"))
+}
+
+#[allow(dead_code)]
+fn lua_static_wezterm_builtin_color_scheme_alias_query_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<String> {
+    let query = lua_trim_start_comments(query)?;
+    let alias = lua_identifier_literal_from_query(query)?;
+    if !lua_static_wezterm_builtin_color_scheme_alias_before_offset(source, alias, max_start)? {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(query.get(alias.len()..)?)?;
+    if !rest.starts_with('(') {
+        return None;
+    }
+    Some(format!("wezterm.color.get_builtin_schemes{rest}"))
+}
+
+#[allow(dead_code)]
+fn lua_static_wezterm_builtin_color_scheme_alias_before_offset(
+    source: &str,
+    alias: &str,
+    max_start: usize,
+) -> Option<bool> {
+    let Some((value, binding_start)) =
+        lua_static_builtin_scheme_binding_before_offset(source, alias, max_start)
+    else {
+        return Some(false);
+    };
+    Some(
+        lua_static_wezterm_builtin_color_scheme_alias_value_from_query(
+            source,
+            binding_start,
+            value,
+        ),
+    )
+}
+
+#[allow(dead_code)]
+fn lua_static_wezterm_builtin_color_scheme_alias_value_from_query(
+    source: &str,
+    max_start: usize,
+    value: &str,
+) -> bool {
+    let Some(value) = lua_trim_start_comments(value) else {
+        return false;
+    };
+    let receiver_rest = if let Some(rest) =
+        lua_static_wezterm_require_receiver_rest_from_query(value)
+    {
+        if !lua_static_builtin_scheme_require_is_unshadowed(source, max_start).unwrap_or(false) {
+            return false;
+        }
+        rest
+    } else if let Some(rest) =
+        lua_static_wezterm_receiver_rest_from_query_with_strict_aliases(source, max_start, value)
+    {
+        rest
+    } else {
+        return false;
+    };
+    let Some(rest) = lua_static_wezterm_builtin_color_scheme_function_rest_from_receiver_rest(
+        source,
+        max_start,
+        receiver_rest,
+    ) else {
+        return false;
+    };
+    lua_static_value_tail_is_value_end(rest)
 }
 
 fn lua_identifier_literal_from_query(query: &str) -> Option<&str> {
@@ -151102,6 +151741,1186 @@ mod tests {
             ),
             Some("/a--[[long]]/b".to_owned())
         );
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_accepts_supported_forms_at_original_lookup_offset() {
+        let cases = [
+            (
+                "canonical modern call",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    config.colors = wezterm.color.get_builtin_schemes()[scheme_name]
+                    scheme_name = 'Tokyo Night'
+                "#,
+                "wezterm.color.get_builtin_schemes()[scheme_name]",
+            ),
+            (
+                "explicit wezterm require binding",
+                r#"
+                    local wezterm = require 'wezterm'
+                    local scheme_name = 'Gruvbox Light'
+                    config.colors = wezterm.color.get_builtin_schemes()[scheme_name]
+                    scheme_name = 'Tokyo Night'
+                "#,
+                "wezterm.color.get_builtin_schemes()[scheme_name]",
+            ),
+            (
+                "legacy call",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    config.colors = wezterm.get_builtin_color_schemes()[scheme_name]
+                    scheme_name = 'Tokyo Night'
+                "#,
+                "wezterm.get_builtin_color_schemes()[scheme_name]",
+            ),
+            (
+                "direct require receiver",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    config.colors = require('wezterm').color.get_builtin_schemes()[scheme_name]
+                    scheme_name = 'Tokyo Night'
+                "#,
+                "require('wezterm').color.get_builtin_schemes()[scheme_name]",
+            ),
+            (
+                "parenthesized require receiver",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    config.colors = (require 'wezterm').color.get_builtin_schemes()[scheme_name]
+                    scheme_name = 'Tokyo Night'
+                "#,
+                "(require 'wezterm').color.get_builtin_schemes()[scheme_name]",
+            ),
+            (
+                "module alias call",
+                r#"
+                    local wt = require 'wezterm'
+                    local scheme_name = 'Gruvbox Light'
+                    config.colors = wt.color.get_builtin_schemes()[scheme_name]
+                    scheme_name = 'Tokyo Night'
+                "#,
+                "wt.color.get_builtin_schemes()[scheme_name]",
+            ),
+            (
+                "parenthesized require module alias call",
+                r#"
+                    local wt = (require 'wezterm')
+                    local scheme_name = 'Gruvbox Light'
+                    config.colors = wt.color.get_builtin_schemes()[scheme_name]
+                    scheme_name = 'Tokyo Night'
+                "#,
+                "wt.color.get_builtin_schemes()[scheme_name]",
+            ),
+            (
+                "static field keys",
+                r#"
+                    local wt = require 'wezterm'
+                    local color_key = 'color'
+                    local getter_key = 'get_builtin_schemes'
+                    local scheme_name = 'Gruvbox Light'
+                    config.colors = wt[color_key][getter_key]()[scheme_name]
+                    scheme_name = 'Tokyo Night'
+                "#,
+                "wt[color_key][getter_key]()[scheme_name]",
+            ),
+            (
+                "legacy static field key",
+                r#"
+                    local wt = require 'wezterm'
+                    local getter_key = 'get_builtin_color_schemes'
+                    local scheme_name = 'Gruvbox Light'
+                    config.colors = wt[getter_key]()[scheme_name]
+                    scheme_name = 'Tokyo Night'
+                "#,
+                "wt[getter_key]()[scheme_name]",
+            ),
+            (
+                "modern function alias",
+                r#"
+                    local wt = require 'wezterm'
+                    local get_schemes = wt.color.get_builtin_schemes
+                    local scheme_name = 'Gruvbox Light'
+                    config.colors = get_schemes()[scheme_name]
+                    scheme_name = 'Tokyo Night'
+                "#,
+                "get_schemes()[scheme_name]",
+            ),
+            (
+                "legacy function alias",
+                r#"
+                    local get_schemes = wezterm.get_builtin_color_schemes
+                    local scheme_name = 'Gruvbox Light'
+                    config.colors = get_schemes()[scheme_name]
+                    scheme_name = 'Tokyo Night'
+                "#,
+                "get_schemes()[scheme_name]",
+            ),
+            (
+                "direct require function alias",
+                r#"
+                    local get_schemes = require('wezterm').color.get_builtin_schemes
+                    local scheme_name = 'Gruvbox Light'
+                    config.colors = get_schemes()[scheme_name]
+                    scheme_name = 'Tokyo Night'
+                "#,
+                "get_schemes()[scheme_name]",
+            ),
+            (
+                "parenthesized require function alias",
+                r#"
+                    local get_schemes = (require 'wezterm').color.get_builtin_schemes
+                    local scheme_name = 'Gruvbox Light'
+                    config.colors = get_schemes()[scheme_name]
+                    scheme_name = 'Tokyo Night'
+                "#,
+                "get_schemes()[scheme_name]",
+            ),
+            (
+                "long bracket literal key",
+                r#"
+                    config.colors = wezterm.color.get_builtin_schemes()[[=[Gruvbox Light]=]]
+                    local scheme_name = 'Tokyo Night'
+                "#,
+                "wezterm.color.get_builtin_schemes()[[=[Gruvbox Light]=]]",
+            ),
+        ];
+
+        for (label, source, marker) in cases {
+            let query_start = source
+                .find(marker)
+                .expect("expected built-in scheme lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                )
+                .as_deref(),
+                Some("Gruvbox Light"),
+                "case was {label:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_bounds_receiver_recursion() {
+        let excessive_depth = super::LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH + 2;
+
+        let mut self_captures = String::from("local wezterm = require 'wezterm'\n");
+        for _ in 0..excessive_depth {
+            self_captures.push_str("local wezterm = wezterm\n");
+        }
+        let marker = "wezterm.color.get_builtin_schemes()['Gruvbox Light']";
+        self_captures.push_str("config.colors = ");
+        self_captures.push_str(marker);
+        let query_start = self_captures
+            .rfind(marker)
+            .expect("expected excessive self-capture lookup marker");
+        assert_eq!(
+            super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                &self_captures,
+                &self_captures[query_start..],
+            ),
+            None,
+            "excessive reserved receiver self-captures must fail closed"
+        );
+
+        let parenthesized_receiver = format!(
+            "{}require('wezterm'){}",
+            "(".repeat(excessive_depth),
+            ")".repeat(excessive_depth)
+        );
+        let parenthesized =
+            format!("{parenthesized_receiver}.color.get_builtin_schemes()['Gruvbox Light']");
+        assert_eq!(
+            super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                &parenthesized,
+                &parenthesized,
+            ),
+            None,
+            "excessive parenthesized receivers must fail closed"
+        );
+
+        for (label, source, marker) in [
+            (
+                "one self-capture",
+                r#"
+                    local wezterm = require 'wezterm'
+                    local wezterm = wezterm
+                    config.colors = wezterm.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "wezterm.color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "one parenthesized require receiver",
+                "(require('wezterm')).color.get_builtin_schemes()['Gruvbox Light']",
+                "(require('wezterm')).color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+        ] {
+            let query_start = source
+                .rfind(marker)
+                .expect("expected normal-depth receiver lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                )
+                .as_deref(),
+                Some("Gruvbox Light"),
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_rejects_invalid_or_unprovable_lookups() {
+        let cases = [
+            (
+                "one argument",
+                "wezterm.color.get_builtin_schemes(true)['Gruvbox Light']",
+                "wezterm.color.get_builtin_schemes(true)['Gruvbox Light']",
+            ),
+            (
+                "multiple arguments",
+                "wezterm.color.get_builtin_schemes(nil, false)['Gruvbox Light']",
+                "wezterm.color.get_builtin_schemes(nil, false)['Gruvbox Light']",
+            ),
+            (
+                "missing close parenthesis",
+                "wezterm.color.get_builtin_schemes(['Gruvbox Light']",
+                "wezterm.color.get_builtin_schemes(['Gruvbox Light']",
+            ),
+            (
+                "missing close bracket",
+                "wezterm.color.get_builtin_schemes()['Gruvbox Light'",
+                "wezterm.color.get_builtin_schemes()['Gruvbox Light'",
+            ),
+            (
+                "missing key lookup",
+                "wezterm.color.get_builtin_schemes()",
+                "wezterm.color.get_builtin_schemes()",
+            ),
+            (
+                "unknown built-in name",
+                "wezterm.color.get_builtin_schemes()['Definitely Not Built In']",
+                "wezterm.color.get_builtin_schemes()['Definitely Not Built In']",
+            ),
+            (
+                "wrong-case modern function name",
+                "wezterm.color.Get_builtin_schemes()['Gruvbox Light']",
+                "wezterm.color.Get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "dynamic inline key",
+                "wezterm.color.get_builtin_schemes()[choose_scheme()]",
+                "wezterm.color.get_builtin_schemes()[choose_scheme()]",
+            ),
+            (
+                "dynamically shadowed key",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    scheme_name = choose_scheme()
+                    config.colors = wezterm.color.get_builtin_schemes()[scheme_name]
+                "#,
+                "wezterm.color.get_builtin_schemes()[scheme_name]",
+            ),
+            (
+                "dynamically shadowed static getter key",
+                r#"
+                    local getter_key = 'get_builtin_schemes'
+                    getter_key = choose_getter_key()
+                    config.colors = wezterm.color[getter_key]()['Gruvbox Light']
+                "#,
+                "wezterm.color[getter_key]()['Gruvbox Light']",
+            ),
+            (
+                "whole map",
+                "local schemes = wezterm.color.get_builtin_schemes()",
+                "wezterm.color.get_builtin_schemes()",
+            ),
+            (
+                "whole map indexed later",
+                r#"
+                    local schemes = wezterm.color.get_builtin_schemes()
+                    config.colors = schemes['Gruvbox Light']
+                "#,
+                "schemes['Gruvbox Light']",
+            ),
+        ];
+
+        for (label, source, marker) in cases {
+            let query_start = source
+                .find(marker)
+                .expect("expected rejected built-in lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_rejects_expression_continuation_tails() {
+        for (label, tail) in [
+            ("second key lookup", "['Gruvbox Light']"),
+            ("field access", ".background"),
+            ("parenthesized call", "()"),
+            ("method call", ":clone()"),
+            ("concat operator", " .. suffix"),
+            ("arithmetic operator", " + suffix"),
+            ("comparison operator", " == suffix"),
+            ("logical operator", " and suffix"),
+            ("block-comment field access", " --[[gap]] .background"),
+            ("line-comment index access", " -- gap\n ['Gruvbox Light']"),
+            ("line-comment call", " -- gap\n ()"),
+            ("line-comment operator", " -- gap\n .. suffix"),
+        ] {
+            let source = format!("wezterm.color.get_builtin_schemes()['Gruvbox Light']{tail}");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    &source, &source,
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_normalizers_preserve_continuation_tails() {
+        let cases = [
+            (
+                "module receiver field continuation",
+                r#"
+                    local wt = require 'wezterm'
+                    config.colors = wt.color.get_builtin_schemes()['Gruvbox Light'].background
+                "#,
+                "wt.color.get_builtin_schemes()['Gruvbox Light'].background",
+            ),
+            (
+                "legacy static-key call continuation",
+                r#"
+                    local wt = require 'wezterm'
+                    local getter_key = 'get_builtin_color_schemes'
+                    config.colors = wt[getter_key]()['Gruvbox Light']()
+                "#,
+                "wt[getter_key]()['Gruvbox Light']()",
+            ),
+            (
+                "function alias hidden index continuation",
+                r#"
+                    local get_schemes = wezterm.color.get_builtin_schemes
+                    config.colors = get_schemes()['Gruvbox Light'] -- gap
+                      ['Gruvbox Light']
+                "#,
+                "get_schemes()['Gruvbox Light']",
+            ),
+        ];
+
+        for (label, source, marker) in cases {
+            let query_start = source
+                .find(marker)
+                .expect("expected normalized continuation lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_accepts_value_end_tails() {
+        for (label, source) in [
+            (
+                "end of input",
+                "wezterm.color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "comments-only empty argument list",
+                "wezterm.color.get_builtin_schemes(--[[ no arguments ]])['Gruvbox Light']",
+            ),
+            (
+                "semicolon terminator",
+                "wezterm.color.get_builtin_schemes()['Gruvbox Light']; next_call()",
+            ),
+            (
+                "table comma terminator",
+                "wezterm.color.get_builtin_schemes()['Gruvbox Light'], next_field = true",
+            ),
+            (
+                "table close terminator",
+                "wezterm.color.get_builtin_schemes()['Gruvbox Light'] }",
+            ),
+            (
+                "newline statement boundary",
+                "wezterm.color.get_builtin_schemes()['Gruvbox Light']\nnext_call()",
+            ),
+            (
+                "label statement boundary",
+                "wezterm.color.get_builtin_schemes()['Gruvbox Light'] ::next:: next_call()",
+            ),
+        ] {
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source, source,
+                )
+                .as_deref(),
+                Some("Gruvbox Light"),
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_invalidates_rebound_function_aliases() {
+        for (label, source) in [
+            (
+                "dynamic reassignment",
+                r#"
+                    local get_schemes = wezterm.color.get_builtin_schemes
+                    get_schemes = choose_getter()
+                    config.colors = get_schemes()['Gruvbox Light']
+                "#,
+            ),
+            (
+                "named function redeclaration",
+                r#"
+                    local get_schemes = wezterm.color.get_builtin_schemes
+                    function get_schemes()
+                      return {}
+                    end
+                    config.colors = get_schemes()['Gruvbox Light']
+                "#,
+            ),
+        ] {
+            let marker = "get_schemes()['Gruvbox Light']";
+            let query_start = source
+                .rfind(marker)
+                .expect("expected rebound function alias lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_invalidates_rebound_module_aliases() {
+        let cases = [
+            (
+                "local declaration shadow",
+                r#"
+                    local wt = require 'wezterm'
+                    local wt
+                    config.colors = wt.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "wt.color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "named function shadow",
+                r#"
+                    local wt = require 'wezterm'
+                    function wt()
+                      return {}
+                    end
+                    config.colors = wt.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "wt.color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "multi-target dynamic shadow",
+                r#"
+                    local wt = require 'wezterm'
+                    wt, other = choose_module(), nil
+                    config.colors = wt.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "wt.color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "stale module used by function alias",
+                r#"
+                    local wt = require 'wezterm'
+                    local wt
+                    local get_schemes = wt.color.get_builtin_schemes
+                    config.colors = get_schemes()['Gruvbox Light']
+                "#,
+                "get_schemes()['Gruvbox Light']",
+            ),
+        ];
+
+        for (label, source, marker) in cases {
+            let query_start = source
+                .rfind(marker)
+                .expect("expected rebound module alias lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_rejects_shadowed_direct_wezterm_receiver() {
+        for (label, source) in [
+            (
+                "dynamic assignment",
+                r#"
+                    local wezterm = choose_module()
+                    config.colors = wezterm.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+            ),
+            (
+                "declaration-only shadow",
+                r#"
+                    local wezterm
+                    config.colors = wezterm.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+            ),
+            (
+                "named function shadow",
+                r#"
+                    function wezterm()
+                      return {}
+                    end
+                    config.colors = wezterm.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+            ),
+            (
+                "multi-target shadow",
+                r#"
+                    wezterm, other = choose_module(), nil
+                    config.colors = wezterm.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+            ),
+        ] {
+            let marker = "wezterm.color.get_builtin_schemes()['Gruvbox Light']";
+            let query_start = source
+                .rfind(marker)
+                .expect("expected shadowed direct wezterm lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_rejects_shadowed_require_receiver() {
+        let cases = [
+            (
+                "direct require dynamic shadow",
+                r#"
+                    local require = choose_loader()
+                    config.colors = require('wezterm').color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "require('wezterm').color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "direct require declaration-only shadow",
+                r#"
+                    local require
+                    config.colors = require('wezterm').color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "require('wezterm').color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "direct require named function shadow",
+                r#"
+                    function require()
+                      return {}
+                    end
+                    config.colors = require('wezterm').color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "require('wezterm').color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "direct require multi-target shadow",
+                r#"
+                    require, other = choose_loader(), nil
+                    config.colors = require('wezterm').color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "require('wezterm').color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "module alias derived from shadowed require",
+                r#"
+                    local require <const> = choose_loader()
+                    local wt = require 'wezterm'
+                    config.colors = wt.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "wt.color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "function alias derived from shadowed require",
+                r#"
+                    local require = choose_loader()
+                    local get_schemes = require('wezterm').color.get_builtin_schemes
+                    config.colors = get_schemes()['Gruvbox Light']
+                "#,
+                "get_schemes()['Gruvbox Light']",
+            ),
+        ];
+
+        for (label, source, marker) in cases {
+            let query_start = source
+                .rfind(marker)
+                .expect("expected shadowed require lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_honors_lua_local_attributes() {
+        let resolved = r#"
+            local scheme_name = 'Gruvbox Light'
+            local scheme_name <const> = 'Tokyo Night'
+            config.colors = wezterm.color.get_builtin_schemes()[scheme_name]
+        "#;
+        let resolved_marker = "wezterm.color.get_builtin_schemes()[scheme_name]";
+        let resolved_start = resolved
+            .rfind(resolved_marker)
+            .expect("expected attributed scheme-name lookup marker");
+        assert_eq!(
+            super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                resolved,
+                &resolved[resolved_start..],
+            )
+            .as_deref(),
+            Some("Tokyo Night")
+        );
+
+        for (label, source, marker) in [
+            (
+                "declaration-only key shadow",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    local scheme_name <const>
+                    config.colors = wezterm.color.get_builtin_schemes()[scheme_name]
+                "#,
+                "wezterm.color.get_builtin_schemes()[scheme_name]",
+            ),
+            (
+                "dynamic module alias shadow",
+                r#"
+                    local wt = require 'wezterm'
+                    local wt <const> = choose_module()
+                    config.colors = wt.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "wt.color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "dynamic function alias shadow",
+                r#"
+                    local get_schemes = wezterm.color.get_builtin_schemes
+                    local get_schemes <close> = choose_getter()
+                    config.colors = get_schemes()['Gruvbox Light']
+                "#,
+                "get_schemes()['Gruvbox Light']",
+            ),
+        ] {
+            let query_start = source
+                .rfind(marker)
+                .expect("expected attributed shadow lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+
+        for (label, source, marker) in [
+            (
+                "const module alias",
+                r#"
+                    local wt <const> = require 'wezterm'
+                    config.colors = wt.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "wt.color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "const function alias",
+                r#"
+                    local get_schemes <const> = wezterm.color.get_builtin_schemes
+                    config.colors = get_schemes()['Gruvbox Light']
+                "#,
+                "get_schemes()['Gruvbox Light']",
+            ),
+        ] {
+            let query_start = source
+                .rfind(marker)
+                .expect("expected valid attributed alias lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                )
+                .as_deref(),
+                Some("Gruvbox Light"),
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_honors_bindings_after_same_line_labels() {
+        let cases = [
+            (
+                "direct wezterm shadow",
+                r#"
+                    ::reload:: local wezterm = choose_module()
+                    config.colors = wezterm.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "wezterm.color.get_builtin_schemes()['Gruvbox Light']",
+                None,
+            ),
+            (
+                "require shadow after commented label",
+                r#"
+                    ::reload:: --[[gap]] local require = choose_loader()
+                    config.colors = require('wezterm').color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "require('wezterm').color.get_builtin_schemes()['Gruvbox Light']",
+                None,
+            ),
+            (
+                "named function alias shadow",
+                r#"
+                    local get_schemes = wezterm.color.get_builtin_schemes
+                    ::reload:: function get_schemes() return {} end
+                    config.colors = get_schemes()['Gruvbox Light']
+                "#,
+                "get_schemes()['Gruvbox Light']",
+                None,
+            ),
+            (
+                "attributed key replacement",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    ::reload:: local scheme_name <const> = 'Tokyo Night'
+                    config.colors = wezterm.color.get_builtin_schemes()[scheme_name]
+                "#,
+                "wezterm.color.get_builtin_schemes()[scheme_name]",
+                Some("Tokyo Night"),
+            ),
+            (
+                "attributed declaration-only shadow",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    ::reload:: local scheme_name <const>
+                    config.colors = wezterm.color.get_builtin_schemes()[scheme_name]
+                "#,
+                "wezterm.color.get_builtin_schemes()[scheme_name]",
+                None,
+            ),
+            (
+                "multiple labels before module shadow",
+                r#"
+                    local wt = require 'wezterm'
+                    ::first:: ::second:: local wt = choose_module()
+                    config.colors = wt.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "wt.color.get_builtin_schemes()['Gruvbox Light']",
+                None,
+            ),
+            (
+                "mid-slice direct wezterm shadow",
+                r#"
+                    local marker = true ::reload:: local wezterm = choose_module()
+                    config.colors = wezterm.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "wezterm.color.get_builtin_schemes()['Gruvbox Light']",
+                None,
+            ),
+            (
+                "mid-slice require shadow",
+                r#"
+                    local marker = true ::reload:: local require = choose_loader()
+                    config.colors = require('wezterm').color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "require('wezterm').color.get_builtin_schemes()['Gruvbox Light']",
+                None,
+            ),
+            (
+                "mid-slice attributed key replacement",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    local marker = true ::reload:: local scheme_name <const> = 'Tokyo Night'
+                    config.colors = wezterm.color.get_builtin_schemes()[scheme_name]
+                "#,
+                "wezterm.color.get_builtin_schemes()[scheme_name]",
+                Some("Tokyo Night"),
+            ),
+            (
+                "mid-slice named function alias shadow",
+                r#"
+                    local get_schemes = wezterm.color.get_builtin_schemes
+                    local marker = true ::reload:: function get_schemes() return {} end
+                    config.colors = get_schemes()['Gruvbox Light']
+                "#,
+                "get_schemes()['Gruvbox Light']",
+                None,
+            ),
+            (
+                "mid-slice consecutive labels before module shadow",
+                r#"
+                    local wt = require 'wezterm'
+                    local marker = true ::first:: ::second:: local wt = choose_module()
+                    config.colors = wt.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "wt.color.get_builtin_schemes()['Gruvbox Light']",
+                None,
+            ),
+            (
+                "spaced commented multiline label require shadow",
+                r#"
+                    local marker = true :: --[[label gap]]
+                      reload --[[closing gap]]
+                    :: local require = choose_loader()
+                    config.colors = require('wezterm').color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "require('wezterm').color.get_builtin_schemes()['Gruvbox Light']",
+                None,
+            ),
+        ];
+
+        for (label, source, marker, expected) in cases {
+            let query_start = source
+                .rfind(marker)
+                .expect("expected same-line label lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                )
+                .as_deref(),
+                expected,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_rejects_non_function_block_rebindings() {
+        let cases = [
+            (
+                "conditional scheme key rebind",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    if choose_dynamically then
+                      scheme_name = choose_scheme()
+                    end
+                    config.colors = wezterm.color.get_builtin_schemes()[scheme_name]
+                "#,
+                "wezterm.color.get_builtin_schemes()[scheme_name]",
+            ),
+            (
+                "do-block static getter key rebind",
+                r#"
+                    local getter_key = 'get_builtin_schemes'
+                    do
+                      getter_key = choose_getter_key()
+                    end
+                    config.colors = wezterm.color[getter_key]()['Gruvbox Light']
+                "#,
+                "wezterm.color[getter_key]()['Gruvbox Light']",
+            ),
+            (
+                "conditional function alias rebind",
+                r#"
+                    local get_schemes = wezterm.color.get_builtin_schemes
+                    if choose_dynamically then
+                      get_schemes = choose_getter()
+                    end
+                    config.colors = get_schemes()['Gruvbox Light']
+                "#,
+                "get_schemes()['Gruvbox Light']",
+            ),
+            (
+                "do-block module alias rebind",
+                r#"
+                    local wt = require 'wezterm'
+                    do
+                      wt = choose_module()
+                    end
+                    config.colors = wt.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "wt.color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "conditional named function write",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    if choose_dynamically then
+                      function scheme_name()
+                        return 'Tokyo Night'
+                      end
+                    end
+                    config.colors = wezterm.color.get_builtin_schemes()[scheme_name]
+                "#,
+                "wezterm.color.get_builtin_schemes()[scheme_name]",
+            ),
+        ];
+
+        for (label, source, marker) in cases {
+            let query_start = source
+                .rfind(marker)
+                .expect("expected non-function block rebind lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_characterizes_non_function_block_boundary() {
+        for (label, source, expected) in [
+            (
+                "same-name function body write",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    function mutate_later()
+                      scheme_name = choose_scheme()
+                    end
+                    config.colors = wezterm.color.get_builtin_schemes()[scheme_name]
+                "#,
+                Some("Gruvbox Light"),
+            ),
+            (
+                "unrelated conditional block",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    if inspect_only then
+                      unrelated = choose_unrelated()
+                    end
+                    config.colors = wezterm.color.get_builtin_schemes()[scheme_name]
+                "#,
+                None,
+            ),
+            (
+                "same-name conditional read",
+                r#"
+                    local scheme_name = 'Gruvbox Light'
+                    if inspect_only then
+                      print(scheme_name)
+                    end
+                    config.colors = wezterm.color.get_builtin_schemes()[scheme_name]
+                "#,
+                None,
+            ),
+        ] {
+            let marker = "wezterm.color.get_builtin_schemes()[scheme_name]";
+            let query_start = source
+                .rfind(marker)
+                .expect("expected function-body guard lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                )
+                .as_deref(),
+                expected,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_rejects_continued_module_alias_bindings() {
+        let cases = [
+            (
+                "direct module alias block-comment continuation",
+                r#"
+                    local wt = require 'wezterm' --[[gap]] .other
+                    config.colors = wt.color.get_builtin_schemes()['Gruvbox Light']
+                "#,
+                "wt.color.get_builtin_schemes()['Gruvbox Light']",
+            ),
+            (
+                "continued module used by function alias",
+                r#"
+                    local wt = require 'wezterm' -- gap
+                      .other
+                    local get_schemes = wt.color.get_builtin_schemes
+                    config.colors = get_schemes()['Gruvbox Light']
+                "#,
+                "get_schemes()['Gruvbox Light']",
+            ),
+        ];
+
+        for (label, source, marker) in cases {
+            let query_start = source
+                .rfind(marker)
+                .expect("expected continued module alias lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_rejects_continued_function_alias_bindings() {
+        for (label, source) in [
+            (
+                "block-comment accessor continuation",
+                r#"
+                    local get_schemes = wezterm.color.get_builtin_schemes --[[gap]] .other
+                    config.colors = get_schemes()['Gruvbox Light']
+                "#,
+            ),
+            (
+                "line-comment accessor continuation",
+                r#"
+                    local get_schemes = wezterm.color.get_builtin_schemes -- gap
+                      .other
+                    config.colors = get_schemes()['Gruvbox Light']
+                "#,
+            ),
+        ] {
+            let marker = "get_schemes()['Gruvbox Light']";
+            let query_start = source
+                .rfind(marker)
+                .expect("expected continued function alias lookup marker");
+            assert_eq!(
+                super::lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_scheme_lookup_resolver_preserves_load_scheme_tail_regressions() {
+        for (source, expected) in [
+            (
+                "wezterm.color.load_scheme('/label.toml') ::next:: next_call()",
+                Some("/label.toml"),
+            ),
+            (
+                "wezterm.color.load_scheme('/next.toml')\nnext_call()",
+                Some("/next.toml"),
+            ),
+            (
+                "wezterm.color.load_scheme('/continued.toml') -- gap\n .colors",
+                None,
+            ),
+        ] {
+            assert_eq!(
+                super::lua_wezterm_color_load_scheme_path_from_query_with_static_source(
+                    source, source,
+                )
+                .as_deref(),
+                expected,
+                "source was {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn load_scheme_call_resolver_honors_lua_local_attributes() {
+        for (label, source, expected) in [
+            (
+                "const path replacement",
+                r#"
+                    local path = '/old.toml'
+                    local path <const> = '/const.toml'
+                    config.colors = wezterm.color.load_scheme(path)
+                "#,
+                Some("/const.toml"),
+            ),
+            (
+                "labelled const path replacement",
+                r#"
+                    local path = '/old.toml'
+                    ::reload:: local path <const> = '/labelled.toml'
+                    config.colors = wezterm.color.load_scheme(path)
+                "#,
+                Some("/labelled.toml"),
+            ),
+            (
+                "mid-slice labelled const path replacement",
+                r#"
+                    local path = '/old.toml'
+                    local marker = true ::reload:: local path <const> = '/mid-label.toml'
+                    config.colors = wezterm.color.load_scheme(path)
+                "#,
+                Some("/mid-label.toml"),
+            ),
+            (
+                "close path dynamic shadow",
+                r#"
+                    local path = '/old.toml'
+                    local path <close> = choose_closeable()
+                    config.colors = wezterm.color.load_scheme(path)
+                "#,
+                None,
+            ),
+            (
+                "declaration-only attributed shadow",
+                r#"
+                    local path = '/old.toml'
+                    local path <const>
+                    config.colors = wezterm.color.load_scheme(path)
+                "#,
+                None,
+            ),
+        ] {
+            let marker = "wezterm.color.load_scheme(path)";
+            let query_start = source
+                .rfind(marker)
+                .expect("expected attributed load_scheme marker");
+            assert_eq!(
+                super::lua_wezterm_color_load_scheme_path_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                )
+                .as_deref(),
+                expected,
+                "case was {label:?}: {source:?}"
+            );
+        }
     }
 
     #[test]
