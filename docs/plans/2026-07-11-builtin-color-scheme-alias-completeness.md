@@ -22,7 +22,7 @@ Add a test that loads the pinned color-scheme JSON, iterates each scheme's canon
 
 **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p rssh-app builtin_color_scheme_alias_completeness -- --exact`
+Run: `cargo test -p rssh-app window::tests::builtin_color_scheme_lookup_covers_pinned_wezterm_names_and_aliases -- --exact`
 
 Expected: FAIL, listing unmapped upstream aliases.
 
@@ -37,7 +37,7 @@ For each name listed by Task 1, add it as an alternate match pattern on the arm 
 
 **Step 2: Run test to verify it passes**
 
-Run: `cargo test -p rssh-app builtin_color_scheme_alias_completeness -- --exact`
+Run: `cargo test -p rssh-app window::tests::builtin_color_scheme_lookup_covers_pinned_wezterm_names_and_aliases -- --exact`
 
 Expected: PASS with zero missing canonical names or aliases.
 

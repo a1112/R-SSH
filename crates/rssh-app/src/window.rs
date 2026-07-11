@@ -19403,10 +19403,10 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Aura (Gogh)" => Some(BUILTIN_AURA_GOGH_COLOR_SCHEME_TOML),
         "Aurora" => Some(BUILTIN_AURORA_COLOR_SCHEME_TOML),
         "ayu" => Some(BUILTIN_AYU_COLOR_SCHEME_TOML),
-        "Ayu Dark (Gogh)" => Some(BUILTIN_AYU_DARK_GOGH_COLOR_SCHEME_TOML),
-        "Ayu Light (Gogh)" => Some(BUILTIN_AYU_LIGHT_GOGH_COLOR_SCHEME_TOML),
+        "Ayu Dark (Gogh)" | "AyuDark (Gogh)" => Some(BUILTIN_AYU_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Ayu Light (Gogh)" | "AyuLight (Gogh)" => Some(BUILTIN_AYU_LIGHT_GOGH_COLOR_SCHEME_TOML),
         "Ayu Mirage" => Some(BUILTIN_AYU_MIRAGE_COLOR_SCHEME_TOML),
-        "Ayu Mirage (Gogh)" => Some(BUILTIN_AYU_MIRAGE_GOGH_COLOR_SCHEME_TOML),
+        "Ayu Mirage (Gogh)" | "AyuMirage (Gogh)" => Some(BUILTIN_AYU_MIRAGE_GOGH_COLOR_SCHEME_TOML),
         "ayu_light" => Some(BUILTIN_AYU_LIGHT_COLOR_SCHEME_TOML),
         "Azu (Gogh)" => Some(BUILTIN_AZU_GOGH_COLOR_SCHEME_TOML),
         "Bamboo" => Some(BUILTIN_BAMBOO_COLOR_SCHEME_TOML),
@@ -19414,9 +19414,11 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Bamboo Multiplex" => Some(BUILTIN_BAMBOO_MULTIPLEX_COLOR_SCHEME_TOML),
         "Banana Blueberry" => Some(BUILTIN_BANANA_BLUEBERRY_COLOR_SCHEME_TOML),
         "Batman" => Some(BUILTIN_BATMAN_COLOR_SCHEME_TOML),
-        "Belafonte Day" => Some(BUILTIN_BELAFONTE_DAY_COLOR_SCHEME_TOML),
+        "Belafonte Day" | "BelafonteDay (Gogh)" => Some(BUILTIN_BELAFONTE_DAY_COLOR_SCHEME_TOML),
         "Belafonte Day (Gogh)" => Some(BUILTIN_BELAFONTE_DAY_GOGH_COLOR_SCHEME_TOML),
-        "Belafonte Night" => Some(BUILTIN_BELAFONTE_NIGHT_COLOR_SCHEME_TOML),
+        "Belafonte Night" | "BelafonteNight (Gogh)" => {
+            Some(BUILTIN_BELAFONTE_NIGHT_COLOR_SCHEME_TOML)
+        }
         "Belafonte Night (Gogh)" => Some(BUILTIN_BELAFONTE_NIGHT_GOGH_COLOR_SCHEME_TOML),
         "Belge (terminal.sexy)" => Some(BUILTIN_BELGE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Bespin (base16)" => Some(BUILTIN_BESPIN_BASE16_COLOR_SCHEME_TOML),
@@ -19455,7 +19457,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Black Metal (Nile) (base16)" => Some(BUILTIN_BLACK_METAL_NILE_BASE16_COLOR_SCHEME_TOML),
         "Black Metal (Venom) (base16)" => Some(BUILTIN_BLACK_METAL_VENOM_BASE16_COLOR_SCHEME_TOML),
-        "Blazer" => Some(BUILTIN_BLAZER_COLOR_SCHEME_TOML),
+        "Blazer" | "Miu (Gogh)" => Some(BUILTIN_BLAZER_COLOR_SCHEME_TOML),
         "Blazer (Gogh)" => Some(BUILTIN_BLAZER_GOGH_COLOR_SCHEME_TOML),
         "Bleh-1 (terminal.sexy)" => Some(BUILTIN_BLEH_1_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Blue Dolphin (Gogh)" => Some(BUILTIN_BLUE_DOLPHIN_GOGH_COLOR_SCHEME_TOML),
@@ -19546,12 +19548,14 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Classic Dark (base16)" => Some(BUILTIN_CLASSIC_DARK_BASE16_COLOR_SCHEME_TOML),
         "Classic Light (base16)" => Some(BUILTIN_CLASSIC_LIGHT_BASE16_COLOR_SCHEME_TOML),
-        "Clone Of Ubuntu (Gogh)" => Some(BUILTIN_CLONE_OF_UBUNTU_GOGH_COLOR_SCHEME_TOML),
+        "Clone Of Ubuntu (Gogh)" | "CloneofUbuntu (Gogh)" => {
+            Some(BUILTIN_CLONE_OF_UBUNTU_GOGH_COLOR_SCHEME_TOML)
+        }
         "Cloud (terminal.sexy)" => Some(BUILTIN_CLOUD_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "CLRS" => Some(BUILTIN_CLRS_COLOR_SCHEME_TOML),
         "Clrs (Gogh)" => Some(BUILTIN_CLRS_GOGH_COLOR_SCHEME_TOML),
         "Cobalt 2 (Gogh)" => Some(BUILTIN_COBALT_2_GOGH_COLOR_SCHEME_TOML),
-        "Cobalt Neon" => Some(BUILTIN_COBALT_NEON_COLOR_SCHEME_TOML),
+        "Cobalt Neon" | "CobaltNeon (Gogh)" => Some(BUILTIN_COBALT_NEON_COLOR_SCHEME_TOML),
         "Cobalt Neon (Gogh)" => Some(BUILTIN_COBALT_NEON_GOGH_COLOR_SCHEME_TOML),
         "Cobalt2" => Some(BUILTIN_COBALT2_COLOR_SCHEME_TOML),
         "Codeschool (base16)" => Some(BUILTIN_CODESCHOOL_BASE16_COLOR_SCHEME_TOML),
@@ -19582,7 +19586,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "DanQing Light (base16)" => Some(BUILTIN_DANQING_LIGHT_BASE16_COLOR_SCHEME_TOML),
         "Darcula (base16)" => Some(BUILTIN_DARCULA_BASE16_COLOR_SCHEME_TOML),
         "Dark Ocean (terminal.sexy)" => Some(BUILTIN_DARK_OCEAN_TERMINAL_SEXY_COLOR_SCHEME_TOML),
-        "Dark Pastel" => Some(BUILTIN_DARK_PASTEL_COLOR_SCHEME_TOML),
+        "Dark Pastel" | "DarkPastel (Gogh)" => Some(BUILTIN_DARK_PASTEL_COLOR_SCHEME_TOML),
         "Dark Pastel (Gogh)" => Some(BUILTIN_DARK_PASTEL_GOGH_COLOR_SCHEME_TOML),
         "Dark Violet (base16)" => Some(BUILTIN_DARK_VIOLET_BASE16_COLOR_SCHEME_TOML),
         "Dark+" => Some(BUILTIN_DARK_PLUS_COLOR_SCHEME_TOML),
@@ -19606,7 +19610,9 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Default Dark (base16)" => Some(BUILTIN_DEFAULT_DARK_BASE16_COLOR_SCHEME_TOML),
         "Default Light (base16)" => Some(BUILTIN_DEFAULT_LIGHT_BASE16_COLOR_SCHEME_TOML),
-        "Dehydration (Gogh)" => Some(BUILTIN_DEHYDRATION_GOGH_COLOR_SCHEME_TOML),
+        "Dehydration (Gogh)" | "DeHydration (Gogh)" => {
+            Some(BUILTIN_DEHYDRATION_GOGH_COLOR_SCHEME_TOML)
+        }
         "Derp (terminal.sexy)" => Some(BUILTIN_DERP_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Desert" => Some(BUILTIN_DESERT_COLOR_SCHEME_TOML),
         "Desert (Gogh)" => Some(BUILTIN_DESERT_GOGH_COLOR_SCHEME_TOML),
@@ -19706,20 +19712,24 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Espresso" => Some(BUILTIN_ESPRESSO_COLOR_SCHEME_TOML),
         "Espresso (base16)" => Some(BUILTIN_ESPRESSO_BASE16_COLOR_SCHEME_TOML),
         "Espresso (Gogh)" => Some(BUILTIN_ESPRESSO_GOGH_COLOR_SCHEME_TOML),
-        "Espresso Libre" => Some(BUILTIN_ESPRESSO_LIBRE_COLOR_SCHEME_TOML),
+        "Espresso Libre" | "EspressoLibre (Gogh)" => Some(BUILTIN_ESPRESSO_LIBRE_COLOR_SCHEME_TOML),
         "Espresso Libre (Gogh)" => Some(BUILTIN_ESPRESSO_LIBRE_GOGH_COLOR_SCHEME_TOML),
         "Euphrasia (terminal.sexy)" => Some(BUILTIN_EUPHRASIA_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Eva (base16)" => Some(BUILTIN_EVA_BASE16_COLOR_SCHEME_TOML),
         "Eva Dim (base16)" => Some(BUILTIN_EVA_DIM_BASE16_COLOR_SCHEME_TOML),
         "Everblush" => Some(BUILTIN_EVERBLUSH_COLOR_SCHEME_TOML),
         "Everblush (Gogh)" => Some(BUILTIN_EVERBLUSH_GOGH_COLOR_SCHEME_TOML),
-        "Everforest Dark (Gogh)" => Some(BUILTIN_EVERFOREST_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Everforest Dark (Gogh)" | "EverforestDark (Gogh)" => {
+            Some(BUILTIN_EVERFOREST_DARK_GOGH_COLOR_SCHEME_TOML)
+        }
         "Everforest Dark Hard (Gogh)" => Some(BUILTIN_EVERFOREST_DARK_HARD_GOGH_COLOR_SCHEME_TOML),
         "Everforest Dark Medium (Gogh)" => {
             Some(BUILTIN_EVERFOREST_DARK_MEDIUM_GOGH_COLOR_SCHEME_TOML)
         }
         "Everforest Dark Soft (Gogh)" => Some(BUILTIN_EVERFOREST_DARK_SOFT_GOGH_COLOR_SCHEME_TOML),
-        "Everforest Light (Gogh)" => Some(BUILTIN_EVERFOREST_LIGHT_GOGH_COLOR_SCHEME_TOML),
+        "Everforest Light (Gogh)" | "EverforestLight (Gogh)" => {
+            Some(BUILTIN_EVERFOREST_LIGHT_GOGH_COLOR_SCHEME_TOML)
+        }
         "Everforest Light Hard (Gogh)" => {
             Some(BUILTIN_EVERFOREST_LIGHT_HARD_GOGH_COLOR_SCHEME_TOML)
         }
@@ -19730,8 +19740,12 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
             Some(BUILTIN_EVERFOREST_LIGHT_SOFT_GOGH_COLOR_SCHEME_TOML)
         }
         "Fahrenheit" => Some(BUILTIN_FAHRENHEIT_COLOR_SCHEME_TOML),
-        "Fairy Floss (Gogh)" => Some(BUILTIN_FAIRY_FLOSS_GOGH_COLOR_SCHEME_TOML),
-        "Fairy Floss Dark (Gogh)" => Some(BUILTIN_FAIRY_FLOSS_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Fairy Floss (Gogh)" | "FairyFloss (Gogh)" => {
+            Some(BUILTIN_FAIRY_FLOSS_GOGH_COLOR_SCHEME_TOML)
+        }
+        "Fairy Floss Dark (Gogh)" | "FairyFlossDark (Gogh)" => {
+            Some(BUILTIN_FAIRY_FLOSS_DARK_GOGH_COLOR_SCHEME_TOML)
+        }
         "Fairyfloss" => Some(BUILTIN_FAIRYFLOSS_COLOR_SCHEME_TOML),
         "farmhouse-dark" => Some(BUILTIN_FARMHOUSE_DARK_COLOR_SCHEME_TOML),
         "farmhouse-light" => Some(BUILTIN_FARMHOUSE_LIGHT_COLOR_SCHEME_TOML),
@@ -19746,7 +19760,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Flat" => Some(BUILTIN_FLAT_COLOR_SCHEME_TOML),
         "Flat (base16)" => Some(BUILTIN_FLAT_BASE16_COLOR_SCHEME_TOML),
         "Flat (Gogh)" => Some(BUILTIN_FLAT_GOGH_COLOR_SCHEME_TOML),
-        "Flat Remix (Gogh)" => Some(BUILTIN_FLAT_REMIX_GOGH_COLOR_SCHEME_TOML),
+        "Flat Remix (Gogh)" | "FlatRemix (Gogh)" => Some(BUILTIN_FLAT_REMIX_GOGH_COLOR_SCHEME_TOML),
         "Flatland" => Some(BUILTIN_FLATLAND_COLOR_SCHEME_TOML),
         "Flatland (Gogh)" => Some(BUILTIN_FLATLAND_GOGH_COLOR_SCHEME_TOML),
         "flexoki-dark" => Some(BUILTIN_FLEXOKI_DARK_COLOR_SCHEME_TOML),
@@ -19759,13 +19773,17 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Freya (Gogh)" => Some(BUILTIN_FREYA_GOGH_COLOR_SCHEME_TOML),
         "Frontend Delight (Gogh)" => Some(BUILTIN_FRONTEND_DELIGHT_GOGH_COLOR_SCHEME_TOML),
         "Frontend Fun Forrest (Gogh)" => Some(BUILTIN_FRONTEND_FUN_FORREST_GOGH_COLOR_SCHEME_TOML),
-        "Frontend Galaxy (Gogh)" => Some(BUILTIN_FRONTEND_GALAXY_GOGH_COLOR_SCHEME_TOML),
-        "FrontEndDelight" => Some(BUILTIN_FRONTENDDELIGHT_COLOR_SCHEME_TOML),
+        "Frontend Galaxy (Gogh)" | "FrontendGalaxy (Gogh)" => {
+            Some(BUILTIN_FRONTEND_GALAXY_GOGH_COLOR_SCHEME_TOML)
+        }
+        "FrontEndDelight" | "FrontendDelight (Gogh)" => {
+            Some(BUILTIN_FRONTENDDELIGHT_COLOR_SCHEME_TOML)
+        }
+        "FunForrest" | "FrontendFunForrest (Gogh)" => Some(BUILTIN_FUNFORREST_COLOR_SCHEME_TOML),
         "Fruit Soda (base16)" => Some(BUILTIN_FRUIT_SODA_BASE16_COLOR_SCHEME_TOML),
-        "FunForrest" => Some(BUILTIN_FUNFORREST_COLOR_SCHEME_TOML),
         "Galaxy" => Some(BUILTIN_GALAXY_COLOR_SCHEME_TOML),
         "Galizur" => Some(BUILTIN_GALIZUR_COLOR_SCHEME_TOML),
-        "Geohot (Gogh)" => Some(BUILTIN_GEOHOT_GOGH_COLOR_SCHEME_TOML),
+        "Geohot (Gogh)" | "GeoHot (Gogh)" => Some(BUILTIN_GEOHOT_GOGH_COLOR_SCHEME_TOML),
         "Gigavolt (base16)" => Some(BUILTIN_GIGAVOLT_BASE16_COLOR_SCHEME_TOML),
         "Github" => Some(BUILTIN_GITHUB_COLOR_SCHEME_TOML),
         "Github (base16)" => Some(BUILTIN_GITHUB_BASE16_COLOR_SCHEME_TOML),
@@ -121608,6 +121626,7 @@ mod tests {
         cli::Osc52Policy,
         terminal_modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode},
         terminal_runtime::TerminalNotification,
+        window::builtin_color_scheme_toml,
     };
 
     use super::{
@@ -151164,6 +151183,75 @@ mod tests {
             assert_eq!(ansi[8], Color::Rgb(85, 87, 83));
             assert_eq!(ansi[15], Color::Rgb(238, 238, 236));
         }
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_builtin_color_scheme_aliases_from_wezterm_upstream() {
+        for color_scheme in [
+            "AyuDark (Gogh)",
+            "AyuLight (Gogh)",
+            "AyuMirage (Gogh)",
+            "BelafonteDay (Gogh)",
+            "BelafonteNight (Gogh)",
+            "CloneofUbuntu (Gogh)",
+            "CobaltNeon (Gogh)",
+            "DarkPastel (Gogh)",
+            "DeHydration (Gogh)",
+            "EspressoLibre (Gogh)",
+            "EverforestDark (Gogh)",
+            "EverforestLight (Gogh)",
+            "FairyFloss (Gogh)",
+            "FairyFlossDark (Gogh)",
+            "FlatRemix (Gogh)",
+            "FrontendDelight (Gogh)",
+            "FrontendFunForrest (Gogh)",
+            "FrontendGalaxy (Gogh)",
+            "GeoHot (Gogh)",
+            "Miu (Gogh)",
+        ] {
+            assert!(builtin_color_scheme_toml(color_scheme).is_some());
+        }
+    }
+
+    #[test]
+    fn builtin_color_scheme_lookup_covers_pinned_wezterm_names_and_aliases() {
+        let data_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../refs/wezterm/docs/colorschemes/data.json");
+        let data = std::fs::read_to_string(&data_path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", data_path.display()));
+        let schemes: serde_json::Value =
+            serde_json::from_str(&data).expect("pinned WezTerm color scheme data must be valid JSON");
+        let mut missing = Vec::new();
+
+        for scheme in schemes
+            .as_array()
+            .expect("pinned WezTerm color scheme data must be an array")
+        {
+            let metadata = &scheme["metadata"];
+            let name = metadata["name"]
+                .as_str()
+                .expect("pinned WezTerm color scheme must have a name");
+            if builtin_color_scheme_toml(name).is_none() {
+                missing.push(name.to_owned());
+            }
+
+            for alias in metadata["aliases"]
+                .as_array()
+                .expect("pinned WezTerm color scheme aliases must be an array")
+            {
+                let alias = alias
+                    .as_str()
+                    .expect("pinned WezTerm color scheme alias must be a string");
+                if builtin_color_scheme_toml(alias).is_none() {
+                    missing.push(alias.to_owned());
+                }
+            }
+        }
+
+        assert!(
+            missing.is_empty(),
+            "missing built-in color scheme names or aliases: {missing:?}"
+        );
     }
 
     #[test]
