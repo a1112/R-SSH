@@ -91430,7 +91430,7 @@ impl NativeWindowApp {
     }
 
     fn scrollback_scrollbar(&self) -> Option<ScrollbackScrollbar> {
-        if !self.enable_scroll_bar || self.has_visible_split_layout() {
+        if !self.enable_scroll_bar {
             return None;
         }
 
@@ -152427,6 +152427,43 @@ mod tests {
 
         assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
 
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                FRAME_WIDTH as usize - 1,
+                tab_bar_pixel_height() as usize,
+            ),
+            SCROLLBAR_THUMB_COLOR
+        );
+    }
+
+    #[test]
+    fn window_app_renders_active_pane_scrollbar_with_split_layout() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            enable_scroll_bar: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
+            .unwrap();
+        app.scroll_viewport_lines(99);
+
+        let scrollbar = app
+            .scrollback_scrollbar()
+            .expect("active pane scrollbar should remain visible for split layout");
+        assert_eq!(scrollbar.scrollback_offset, 3);
+
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
         assert_eq!(
             frame_pixel_at(
                 &frame,
