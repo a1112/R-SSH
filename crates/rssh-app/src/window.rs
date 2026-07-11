@@ -19122,6 +19122,13 @@ fn color_scheme_lua_source_value_from_query<'a>(
             entry_mutation: None,
         });
     }
+    if let Some(name) = lua_whole_map_builtin_color_scheme_name_from_query(source, value_query) {
+        return Some(NativeColorSchemeLuaSource::Builtin {
+            name,
+            variable: None,
+            entry_mutation: None,
+        });
+    }
 
     let variable_query = value_query;
     let variable = lua_identifier_literal_from_query(variable_query)?;
@@ -127576,6 +127583,62 @@ mod tests {
         let effective = app.native_effective_config();
         assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
         assert_eq!(effective.background_color, Color::Rgb(251, 241, 199));
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_builtin_scheme_whole_map_lookup_to_inline_custom_color_schemes()
+     {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+
+            config.color_schemes = {
+              ['Mine'] = schemes['Gruvbox Light'],
+            }
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        )
+        .expect("expected whole-map built-in inline custom color scheme config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.background_color, Color::Rgb(251, 241, 199));
+        let palette = effective.ansi_palette.expect("expected ANSI palette");
+        assert_eq!(palette[1], Color::Rgb(157, 0, 6));
+        assert_eq!(palette[8], Color::Rgb(157, 131, 116));
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_builtin_scheme_whole_map_lookup_to_direct_custom_color_scheme_assignment()
+     {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+
+            config.color_schemes['Mine'] = schemes['Gruvbox Light']
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        )
+        .expect("expected whole-map built-in direct custom color scheme config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.background_color, Color::Rgb(251, 241, 199));
+        let palette = effective.ansi_palette.expect("expected ANSI palette");
+        assert_eq!(palette[1], Color::Rgb(157, 0, 6));
+        assert_eq!(palette[8], Color::Rgb(157, 131, 116));
     }
 
     #[test]
