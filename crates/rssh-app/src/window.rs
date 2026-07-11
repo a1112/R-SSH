@@ -67336,11 +67336,15 @@ fn lua_whole_map_builtin_color_scheme_name_from_query(source: &str, query: &str)
     )? {
         return None;
     }
-    let canonical = lua_static_wezterm_builtin_color_scheme_call_query_from_query(
-        source,
-        value,
-        binding_start,
-    )?;
+    let canonical =
+        lua_static_wezterm_builtin_color_scheme_call_query_from_query(source, value, binding_start)
+            .or_else(|| {
+                lua_static_wezterm_builtin_color_scheme_alias_query_from_query(
+                    source,
+                    value,
+                    binding_start,
+                )
+            })?;
     let combined = format!("{canonical}{index}");
     lua_wezterm_builtin_color_scheme_name_from_call_query(source, &combined, reference_start)
 }
@@ -67393,6 +67397,11 @@ fn lua_static_builtin_scheme_map_identity_is_safe_for_lookup(
         }
     }
     if !lua_static_builtin_scheme_statement_is_readonly_config_consumer(
+        source,
+        lookup_statement,
+        lookup_statement_start,
+        variable,
+    )? && !lua_static_builtin_scheme_statement_is_readonly_palette_binding(
         source,
         lookup_statement,
         lookup_statement_start,
@@ -67520,6 +67529,37 @@ fn lua_static_builtin_scheme_statement_is_readonly_config_consumer(
         return Some(false);
     };
     if !tail.trim().is_empty() {
+        return Some(false);
+    }
+    lua_static_builtin_scheme_map_lookup_is_exact(source, value, statement_start, variable)
+}
+
+fn lua_static_builtin_scheme_statement_is_readonly_palette_binding(
+    source: &str,
+    statement: &str,
+    statement_start: usize,
+    variable: &str,
+) -> Option<bool> {
+    let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+    let normalized = lua_static_load_scheme_path_query_without_comments(statement)?;
+    let statement = normalized.trim_start();
+    let statement = if lua_source_keyword_at(statement, 0, "local") {
+        statement.get("local".len()..)?.trim_start()
+    } else {
+        statement
+    };
+    let Some((targets, value)) = split_lua_static_load_scheme_path_assignment_statement(statement)
+    else {
+        return Some(false);
+    };
+    let targets = split_lua_top_level_arguments(targets)?;
+    let [target] = targets.as_slice() else {
+        return Some(false);
+    };
+    let Some(target) = lua_static_load_scheme_path_assignment_target_identifier(target) else {
+        return Some(false);
+    };
+    if target == variable {
         return Some(false);
     }
     lua_static_builtin_scheme_map_lookup_is_exact(source, value, statement_start, variable)
@@ -68029,6 +68069,7 @@ fn lua_builtin_color_scheme_assignment_from_query(
         query.trim_start()
     };
     let (names, value) = rest.split_once('=')?;
+    let value = lua_trim_start_comments(value)?;
     if names.contains('\n') || names.contains('\r') || names.contains(';') {
         return None;
     }
@@ -68037,6 +68078,7 @@ fn lua_builtin_color_scheme_assignment_from_query(
         return None;
     }
     lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(source, value)
+        .or_else(|| lua_whole_map_builtin_color_scheme_name_from_query(source, value))
 }
 
 fn lua_config_load_scheme_colors_assignment_from_query(
@@ -128777,6 +128819,200 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_wezterm_lua_builtin_scheme_map_palette_variable_mutations_to_custom_color_scheme()
+     {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+            local scheme = schemes['Gruvbox Light']
+
+            scheme.background = '#010203'
+            config.color_schemes = { ['Mine'] = scheme }
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm built-in scheme map palette variable mutation config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.background_color, Color::Rgb(1, 2, 3));
+        let ansi = effective.ansi_palette.expect("expected ANSI palette");
+        assert_eq!(ansi[0], Color::Rgb(251, 241, 199));
+        assert_eq!(ansi[8], Color::Rgb(157, 131, 116));
+    }
+
+    #[test]
+    fn window_app_applies_legacy_builtin_scheme_map_function_alias_palette_variable_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wt = require 'wezterm'
+            local config = {}
+            local get_schemes = wt.get_builtin_color_schemes
+            local schemes = get_schemes()
+            local scheme = schemes['Gruvbox Light']
+
+            scheme.background = '#010203'
+            config.color_schemes = { ['Mine'] = scheme }
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        )
+        .expect("expected legacy built-in scheme map function alias palette mutation config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.background_color, Color::Rgb(1, 2, 3));
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[1],
+            Color::Rgb(157, 0, 6)
+        );
+    }
+
+    #[test]
+    fn window_app_captures_builtin_scheme_map_palette_variable_static_key_at_lookup() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local scheme_name = 'Gruvbox Light'
+            local schemes = wezterm.color.get_builtin_schemes()
+            local scheme = schemes[scheme_name]
+
+            scheme_name = 'Builtin Solarized Dark'
+            scheme.background = '#010203'
+            config.color_schemes = { ['Mine'] = scheme }
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        )
+        .expect("expected static scheme key to be captured at palette lookup");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.background_color, Color::Rgb(1, 2, 3));
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[8],
+            Color::Rgb(157, 131, 116)
+        );
+    }
+
+    #[test]
+    fn window_app_rejects_unprovable_builtin_scheme_map_palette_variable_bindings() {
+        for (label, source) in [
+            (
+                "dynamic map rebind before lookup",
+                r##"
+                local wezterm = require 'wezterm'
+                local config = {}
+                local schemes = wezterm.color.get_builtin_schemes()
+                schemes = choose_map()
+                local scheme = schemes['Gruvbox Light']
+
+                config.color_schemes = { ['Mine'] = scheme }
+                config.color_scheme = 'Mine'
+                return config
+                "##,
+            ),
+            (
+                "dynamic key",
+                r##"
+                local wezterm = require 'wezterm'
+                local config = {}
+                local scheme_name = choose_scheme()
+                local schemes = wezterm.color.get_builtin_schemes()
+                local scheme = schemes[scheme_name]
+
+                config.color_schemes = { ['Mine'] = scheme }
+                config.color_scheme = 'Mine'
+                return config
+                "##,
+            ),
+            (
+                "closure-rebound key",
+                r##"
+                local wezterm = require 'wezterm'
+                local config = {}
+                local scheme_name = 'Gruvbox Light'
+                local function switch_scheme()
+                  scheme_name = 'Builtin Solarized Dark'
+                end
+                local schemes = wezterm.color.get_builtin_schemes()
+
+                switch_scheme()
+                local scheme = schemes[scheme_name]
+                config.color_schemes = { ['Mine'] = scheme }
+                config.color_scheme = 'Mine'
+                return config
+                "##,
+            ),
+            (
+                "helper-local map",
+                r##"
+                local wezterm = require 'wezterm'
+                local config = {}
+                local function make_scheme()
+                  local schemes = wezterm.color.get_builtin_schemes()
+                  return schemes['Gruvbox Light']
+                end
+                local scheme = make_scheme()
+
+                config.color_schemes = { ['Mine'] = scheme }
+                config.color_scheme = 'Mine'
+                return config
+                "##,
+            ),
+        ] {
+            assert!(
+                super::native_config_overrides_from_wezterm_lua_config(source).is_none(),
+                "{label} must fail closed"
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_preserves_builtin_scheme_map_palette_clone_across_later_map_rebind() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+            local scheme = schemes['Gruvbox Light']
+
+            scheme.background = '#010203'
+            schemes = wezterm.color.get_builtin_schemes()
+            schemes['Gruvbox Light'].background = '#aabbcc'
+            config.color_schemes = { ['Mine'] = scheme }
+            config.color_scheme = 'Mine'
+
+            return config
+            "##,
+        )
+        .expect("expected palette clone to survive a later built-in scheme map rebind");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.background_color, Color::Rgb(1, 2, 3));
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[0],
+            Color::Rgb(251, 241, 199)
+        );
+    }
+
+    #[test]
     fn window_app_loads_wezterm_lua_builtin_solarized_dark_color_scheme() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -154714,6 +154950,29 @@ mod tests {
         assert_eq!(ansi[1], Color::Rgb(157, 0, 6));
         assert_eq!(ansi[8], Color::Rgb(157, 131, 116));
         assert_eq!(ansi[15], Color::Rgb(124, 111, 100));
+    }
+
+    #[test]
+    fn lua_builtin_color_scheme_assignment_resolves_whole_map_palette_binding() {
+        let source = r#"
+            local schemes = wezterm.color.get_builtin_schemes()
+            local scheme = schemes['Gruvbox Light']
+            scheme.background = '#010203'
+            config.colors = scheme
+        "#;
+        let statement = source
+            .get(
+                source
+                    .find("local scheme =")
+                    .expect("expected palette binding")..,
+            )
+            .expect("expected palette binding query");
+
+        assert_eq!(
+            super::lua_builtin_color_scheme_assignment_from_query(source, statement, "scheme")
+                .as_deref(),
+            Some("Gruvbox Light")
+        );
     }
 
     #[test]
