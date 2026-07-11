@@ -126509,6 +126509,84 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_custom_color_scheme_from_load_scheme_static_path_expression() {
+        static NEXT_COLOR_SCHEME_LOAD_SCHEME_STATIC_PATH_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-color-scheme-load-scheme-static-path-{}-{}.toml",
+            std::process::id(),
+            NEXT_COLOR_SCHEME_LOAD_SCHEME_STATIC_PATH_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Static Path Loaded Scheme"
+
+            [colors]
+            foreground = "#616263"
+            background = "#646566"
+            cursor_bg = "#676869"
+            ansi = [
+              "#000001",
+              "#000002",
+              "#000003",
+              "#000004",
+              "#000005",
+              "#000006",
+              "#000007",
+              "#000008",
+            ]
+            "##,
+        )
+        .expect("expected temp custom color_scheme static-path TOML scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+        let scheme_name = scheme_file
+            .file_name()
+            .expect("expected static-path scheme filename")
+            .to_string_lossy()
+            .into_owned();
+        let scheme_dir = scheme_file_query
+            .strip_suffix(&scheme_name)
+            .expect("expected normalized scheme path to end with its filename");
+        assert!(scheme_dir.ends_with('/'));
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wt = require 'wezterm'
+            local config = {{}}
+            local load_scheme = wt.color.load_scheme
+            local scheme_dir = '{}'
+            local scheme_name = '{}'
+            local scheme_path = scheme_dir .. scheme_name
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {{
+              ['Project Scheme'] = load_scheme(scheme_path),
+            }}
+
+            return config
+            "##,
+            scheme_dir, scheme_name
+        ))
+        .expect("expected WezTerm custom color_scheme static-path load_scheme config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(97, 98, 99));
+        assert_eq!(effective.background_color, Color::Rgb(100, 101, 102));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(103, 104, 105));
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[3],
+            Color::Rgb(0, 0, 4)
+        );
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_custom_color_scheme_from_load_scheme_variable() {
         static NEXT_COLOR_SCHEME_LOAD_SCHEME_VARIABLE_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -151933,6 +152011,89 @@ mod tests {
         let effective = app.native_effective_config();
         assert_eq!(effective.foreground_color, Color::Rgb(17, 18, 19));
         assert_eq!(effective.background_color, Color::Rgb(20, 21, 22));
+        let _ = std::fs::remove_file(first_scheme_file);
+        let _ = std::fs::remove_file(second_scheme_file);
+        let _ = std::fs::remove_file(third_scheme_file);
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_colors_from_load_scheme_path_binding_at_call_time() {
+        static NEXT_LOAD_SCHEME_PATH_BINDING_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let scheme_id = NEXT_LOAD_SCHEME_PATH_BINDING_ID.fetch_add(1, Ordering::Relaxed);
+        let mut first_scheme_file = std::env::temp_dir();
+        first_scheme_file.push(format!(
+            "rssh-load-scheme-path-binding-first-{}-{scheme_id}.toml",
+            std::process::id()
+        ));
+        let mut second_scheme_file = std::env::temp_dir();
+        second_scheme_file.push(format!(
+            "rssh-load-scheme-path-binding-second-{}-{scheme_id}.toml",
+            std::process::id()
+        ));
+        let mut third_scheme_file = std::env::temp_dir();
+        third_scheme_file.push(format!(
+            "rssh-load-scheme-path-binding-third-{}-{scheme_id}.toml",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&first_scheme_file);
+        let _ = std::fs::remove_file(&second_scheme_file);
+        let _ = std::fs::remove_file(&third_scheme_file);
+        std::fs::write(
+            &first_scheme_file,
+            r##"
+            [colors]
+            foreground = "#313233"
+            background = "#343536"
+            "##,
+        )
+        .expect("expected first temp load_scheme path-binding TOML color scheme");
+        std::fs::write(
+            &second_scheme_file,
+            r##"
+            [colors]
+            foreground = "#414243"
+            background = "#444546"
+            "##,
+        )
+        .expect("expected second temp load_scheme path-binding TOML color scheme");
+        std::fs::write(
+            &third_scheme_file,
+            r##"
+            [colors]
+            foreground = "#515253"
+            background = "#545556"
+            "##,
+        )
+        .expect("expected third temp load_scheme path-binding TOML color scheme");
+        let first_scheme_file_query = first_scheme_file.to_string_lossy().replace('\\', "/");
+        let second_scheme_file_query = second_scheme_file.to_string_lossy().replace('\\', "/");
+        let third_scheme_file_query = third_scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local first_path = '{}'
+            local second_path = '{}'
+            local third_path = '{}'
+            local scheme_path = first_path
+            scheme_path = second_path
+            local colors = wezterm.color.load_scheme(scheme_path)
+            scheme_path = third_path
+            config.colors = colors
+
+            return config
+            "##,
+            first_scheme_file_query, second_scheme_file_query, third_scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme path-binding config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(65, 66, 67));
+        assert_eq!(effective.background_color, Color::Rgb(68, 69, 70));
         let _ = std::fs::remove_file(first_scheme_file);
         let _ = std::fs::remove_file(second_scheme_file);
         let _ = std::fs::remove_file(third_scheme_file);
