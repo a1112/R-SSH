@@ -152476,6 +152476,104 @@ mod tests {
     }
 
     #[test]
+    fn window_app_split_scrollbar_follows_active_pane_runtime() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            enable_scroll_bar: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"p1a\r\np1b\r\np1c\r\np1d\r\np1e")
+            .unwrap();
+        app.scroll_viewport_lines(2);
+        let pane_one_scrollbar = app
+            .scrollback_scrollbar()
+            .expect("pane one scrollbar should be visible");
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+
+        app.handle_pty_output(b"p2a\r\np2b\r\np2c\r\np2d\r\np2e\r\np2f\r\np2g")
+            .unwrap();
+        app.scroll_viewport_lines(3);
+        let pane_two_scrollbar = app
+            .scrollback_scrollbar()
+            .expect("pane two scrollbar should be visible");
+        assert_ne!(pane_one_scrollbar, pane_two_scrollbar);
+
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+        assert_eq!(app.scrollback_scrollbar(), Some(pane_one_scrollbar));
+
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(2),
+        })
+        .unwrap();
+        assert_eq!(app.scrollback_scrollbar(), Some(pane_two_scrollbar));
+    }
+
+    #[test]
+    fn window_app_split_scrollbar_input_only_updates_active_pane() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            enable_scroll_bar: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"p1a\r\np1b\r\np1c\r\np1d\r\np1e")
+            .unwrap();
+        app.scroll_viewport_lines(1);
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+
+        app.handle_pty_output(b"p2a\r\np2b\r\np2c\r\np2d\r\np2e\r\np2f\r\np2g")
+            .unwrap();
+        assert_eq!(app.scrollback_offset, 0);
+        let inactive_offset = app
+            .pane_runtimes
+            .get(&rssh_core::PaneId::new(1))
+            .expect("pane one runtime should be inactive")
+            .scrollback_offset;
+        assert_eq!(inactive_offset, 1);
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(FRAME_WIDTH - 1),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert!(app.scrollback_offset > 0);
+        assert_eq!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(1))
+                .expect("pane one runtime should remain inactive")
+                .scrollback_offset,
+            inactive_offset
+        );
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+    }
+
+    #[test]
     fn window_app_applies_wezterm_scrollbar_thumb_color_to_framebuffer() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
