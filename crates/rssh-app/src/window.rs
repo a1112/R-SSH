@@ -67809,6 +67809,433 @@ fn lua_color_variable_mutation_value_literal_from_query(query: &str) -> Option<&
         })
 }
 
+#[allow(dead_code)]
+const LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH: usize = 8;
+
+#[allow(dead_code)]
+fn lua_static_load_scheme_path_query_without_comments(value: &str) -> Option<String> {
+    let mut normalized = String::with_capacity(value.len());
+    let mut index = 0usize;
+    let mut quote = None;
+    let mut escape = false;
+
+    while index < value.len() {
+        let character = value.get(index..)?.chars().next()?;
+        if let Some(active_quote) = quote {
+            normalized.push(character);
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            index += character.len_utf8();
+            continue;
+        }
+
+        if value[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&value[index + 2..])
+            {
+                let content_and_rest = value.get(index + 2 + content_start..)?;
+                let close_index = content_and_rest.find(&closing)?;
+                let end = index + 2 + content_start + close_index + closing.len();
+                for character in value.get(index..end)?.chars() {
+                    if character == '\n' {
+                        normalized.push(character);
+                    } else {
+                        for _ in 0..character.len_utf8() {
+                            normalized.push(' ');
+                        }
+                    }
+                }
+                index = end;
+                continue;
+            }
+
+            let rest = value.get(index + 2..)?;
+            let end = if let Some(newline) = rest.find('\n') {
+                index + 2 + newline + '\n'.len_utf8()
+            } else {
+                value.len()
+            };
+            for character in value.get(index..end)?.chars() {
+                if character == '\n' {
+                    normalized.push(character);
+                } else {
+                    for _ in 0..character.len_utf8() {
+                        normalized.push(' ');
+                    }
+                }
+            }
+            index = end;
+            continue;
+        }
+
+        if matches!(character, '\'' | '"') {
+            quote = Some(character);
+            normalized.push(character);
+            index += character.len_utf8();
+            continue;
+        }
+
+        if character == '['
+            && let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(value.get(index..)?)
+        {
+            let content_and_rest = value.get(index + content_start..)?;
+            let close_index = content_and_rest.find(&closing)?;
+            let end = index + content_start + close_index + closing.len();
+            normalized.push_str(value.get(index..end)?);
+            index = end;
+            continue;
+        }
+
+        normalized.push(character);
+        index += character.len_utf8();
+    }
+
+    (quote.is_none() && normalized.len() == value.len()).then_some(normalized)
+}
+
+#[allow(dead_code)]
+fn lua_static_load_scheme_path_expression_value_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<String> {
+    lua_static_load_scheme_path_expression_value_from_query_with_depth(source, query, max_start, 0)
+}
+
+#[allow(dead_code)]
+fn lua_static_load_scheme_path_expression_value_from_query_with_depth(
+    source: &str,
+    query: &str,
+    max_start: usize,
+    depth: usize,
+) -> Option<String> {
+    if depth > LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH {
+        return None;
+    }
+
+    let query = lua_static_load_scheme_path_query_without_comments(query)?;
+    let query = query.trim();
+    if let Some((value, literal_len)) = lua_inline_string_literal_value_and_len(query)
+        && query.get(literal_len..)?.trim().is_empty()
+    {
+        return Some(value);
+    }
+
+    if let Some(segments) = split_lua_string_concat_segments(query) {
+        let mut value = String::new();
+        for segment in segments {
+            value.push_str(
+                &lua_static_load_scheme_path_expression_value_from_query_with_depth(
+                    source,
+                    segment,
+                    max_start,
+                    depth + 1,
+                )?,
+            );
+        }
+        return Some(value);
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    if variable.len() != query.len() {
+        return None;
+    }
+    let (value, assignment_start) =
+        lua_static_load_scheme_path_binding_before_offset(source, variable, max_start)?;
+    lua_static_load_scheme_path_expression_value_from_query_with_depth(
+        source,
+        value,
+        assignment_start,
+        depth + 1,
+    )
+}
+
+#[allow(dead_code)]
+fn split_lua_static_load_scheme_path_assignment_statement(statement: &str) -> Option<(&str, &str)> {
+    let mut table_depth = 0u32;
+    let mut paren_depth = 0u32;
+    let mut bracket_depth = 0u32;
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut assignment = None;
+
+    for (index, character) in statement.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if statement[index..].starts_with("--") {
+            let block_comment = if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&statement[index + 2..])
+            {
+                let content_and_rest = &statement[index + 2 + content_start..];
+                let close_index = content_and_rest.find(&closing)?;
+                Some(index + 2 + content_start + close_index + closing.len())
+            } else {
+                None
+            };
+            let top_level = table_depth == 0 && paren_depth == 0 && bracket_depth == 0;
+            if top_level && let Some((lhs_end, rhs_start)) = assignment {
+                let rhs_before_comment = statement.get(rhs_start..index)?;
+                if rhs_before_comment.trim().is_empty() {
+                    if let Some(end) = block_comment {
+                        assignment = Some((lhs_end, end));
+                        block_comment_end = Some(end);
+                    } else {
+                        line_comment = true;
+                    }
+                    continue;
+                }
+                let remainder = lua_trim_start_comments(statement.get(index..)?)?;
+                let trailing_comment = if remainder.trim().is_empty() {
+                    true
+                } else if let Some(after_semicolon) = remainder.trim_start().strip_prefix(';') {
+                    lua_trim_start_comments(after_semicolon)?.trim().is_empty()
+                } else {
+                    false
+                };
+                if !trailing_comment {
+                    if let Some(end) = block_comment {
+                        block_comment_end = Some(end);
+                    } else {
+                        line_comment = true;
+                    }
+                    continue;
+                }
+                return Some((
+                    statement.get(..lhs_end)?,
+                    lua_trim_start_comments(rhs_before_comment)?,
+                ));
+            }
+            if let Some(end) = block_comment {
+                block_comment_end = Some(end);
+            } else {
+                line_comment = true;
+            }
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => quote = Some(character),
+            '[' => {
+                if let Some((content_start, closing)) =
+                    parse_lua_long_bracket_delimiters(&statement[index..])
+                {
+                    let content_and_rest = &statement[index + content_start..];
+                    let close_index = content_and_rest.find(&closing)?;
+                    long_bracket_end = Some(index + content_start + close_index + closing.len());
+                } else {
+                    bracket_depth = bracket_depth.saturating_add(1);
+                }
+            }
+            ']' => bracket_depth = bracket_depth.checked_sub(1)?,
+            '{' => table_depth = table_depth.saturating_add(1),
+            '}' => table_depth = table_depth.checked_sub(1)?,
+            '(' => paren_depth = paren_depth.saturating_add(1),
+            ')' => paren_depth = paren_depth.checked_sub(1)?,
+            ';' if table_depth == 0 && paren_depth == 0 && bracket_depth == 0 => {
+                if let Some((lhs_end, rhs_start)) = assignment {
+                    return Some((
+                        statement.get(..lhs_end)?,
+                        lua_trim_start_comments(statement.get(rhs_start..index)?)?,
+                    ));
+                }
+            }
+            '=' if table_depth == 0 && paren_depth == 0 && bracket_depth == 0 => {
+                if assignment.is_none() {
+                    let previous = statement.get(..index)?.chars().next_back();
+                    let rest = statement.get(index + character.len_utf8()..)?;
+                    if !matches!(previous, Some('=' | '~' | '<' | '>')) && !rest.starts_with('=') {
+                        assignment = Some((index, index + character.len_utf8()));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let (lhs_end, rhs_start) = assignment?;
+    Some((
+        statement.get(..lhs_end)?,
+        lua_trim_start_comments(statement.get(rhs_start..)?)?,
+    ))
+}
+
+#[allow(dead_code)]
+fn lua_static_load_scheme_path_statement_starts_with_continuation(statement: &str) -> Option<bool> {
+    let normalized = lua_static_load_scheme_path_query_without_comments(statement)?;
+    let statement = normalized.trim_start();
+    let symbol_continuation = [
+        "..", "==", "~=", "<=", ">=", "//", "<<", ">>", "+", "-", "*", "/", "%", "^", "&", "|",
+        "~", "<", ">", "=", ".", ",", "[",
+    ]
+    .iter()
+    .any(|operator| statement.starts_with(operator));
+    Some(
+        symbol_continuation
+            || (statement.starts_with(':') && !statement.starts_with("::"))
+            || lua_source_keyword_at(statement, 0, "and")
+            || lua_source_keyword_at(statement, 0, "or"),
+    )
+}
+
+#[allow(dead_code)]
+fn lua_static_load_scheme_path_statement_ends_with_continuation(statement: &str) -> Option<bool> {
+    let normalized = lua_static_load_scheme_path_query_without_comments(statement)?;
+    let statement = normalized.trim_end();
+    let symbol_continuation = [
+        "..", "==", "~=", "<=", ">=", "//", "<<", ">>", "+", "-", "*", "/", "%", "^", "&", "|",
+        "~", "<", ">", "=", ".", ",",
+    ]
+    .iter()
+    .any(|operator| statement.ends_with(operator));
+    let ends_with_keyword = |keyword: &str| {
+        statement.strip_suffix(keyword).is_some_and(|prefix| {
+            !prefix
+                .chars()
+                .next_back()
+                .is_some_and(is_lua_identifier_character)
+        })
+    };
+    Some(
+        symbol_continuation
+            || (statement.ends_with(':') && !statement.ends_with("::"))
+            || ends_with_keyword("and")
+            || ends_with_keyword("or")
+            || ends_with_keyword("local"),
+    )
+}
+
+#[allow(dead_code)]
+fn lua_static_load_scheme_path_statements_continue_across_boundary(
+    before: &str,
+    after: &str,
+) -> Option<bool> {
+    let normalized_before = lua_static_load_scheme_path_query_without_comments(before)?;
+    if normalized_before.trim_end().ends_with(';') {
+        return Some(false);
+    }
+    Some(
+        lua_static_load_scheme_path_statement_ends_with_continuation(before)?
+            || lua_static_load_scheme_path_statement_starts_with_continuation(after)?,
+    )
+}
+
+#[allow(dead_code)]
+fn lua_static_load_scheme_path_binding_before_offset<'a>(
+    source: &'a str,
+    variable: &str,
+    max_start: usize,
+) -> Option<(&'a str, usize)> {
+    let mut selected = None;
+    let normalized_source =
+        lua_static_load_scheme_path_query_without_comments(source.get(..max_start)?)?;
+    let starts =
+        lua_top_level_statement_start_indices_before_offset(&normalized_source, max_start)?;
+    let mut statement_index = 0usize;
+
+    while statement_index < starts.len() {
+        let start = *starts.get(statement_index)?;
+        let mut next_statement_index = statement_index + 1;
+        while let Some(next_start) = starts.get(next_statement_index).copied() {
+            let next_end = starts
+                .get(next_statement_index + 1)
+                .copied()
+                .unwrap_or(max_start);
+            if !lua_static_load_scheme_path_statements_continue_across_boundary(
+                source.get(start..next_start)?,
+                source.get(next_start..next_end)?,
+            )? {
+                break;
+            }
+            next_statement_index += 1;
+        }
+
+        let statement_end = starts
+            .get(next_statement_index)
+            .copied()
+            .unwrap_or(max_start);
+        let statement = source.get(start..statement_end)?;
+        statement_index = next_statement_index;
+        if let Some(function_statement) = lua_top_level_function_statement_from_index(source, start)
+        {
+            if lua_named_function_params_and_body_from_statement(function_statement, variable)
+                .is_some()
+            {
+                selected = None;
+            }
+            continue;
+        }
+        let is_local = lua_source_keyword_at(source, start, "local");
+        let rest = if is_local {
+            statement.get("local".len()..)?
+        } else {
+            statement
+        };
+        let rest = lua_trim_start_comments(rest)?;
+        let assignment = split_lua_static_load_scheme_path_assignment_statement(rest);
+        let targets =
+            split_lua_top_level_arguments(assignment.map_or(rest, |(targets, _)| targets))?;
+        let mut declares_variable = false;
+        for target in &targets {
+            let target = lua_static_load_scheme_path_query_without_comments(target)?;
+            let target = target.trim();
+            let Some(identifier) = lua_identifier_literal_from_query(target) else {
+                continue;
+            };
+            if identifier == variable && target.get(identifier.len()..)?.trim().is_empty() {
+                declares_variable = true;
+                break;
+            }
+        }
+        if !declares_variable {
+            continue;
+        }
+
+        if let Some((_, value)) = assignment {
+            selected = (targets.len() == 1).then_some((value, start));
+        } else if is_local {
+            selected = None;
+        }
+    }
+
+    selected
+}
+
 fn lua_wezterm_color_load_scheme_path_literal_from_query(query: &str) -> Option<&str> {
     let rest = lua_function_name_rest_from_query(query.trim_start(), "wezterm.color.load_scheme")?;
     let rest = if let Some(rest) = rest.strip_prefix('(') {
@@ -149849,6 +150276,627 @@ mod tests {
         assert_eq!(effective.cursor_bg_color, Color::Rgb(55, 56, 57));
         let _ = std::fs::remove_file(scheme_file);
         let _ = std::fs::remove_dir(scheme_dir);
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_preserve_assignment_time_values() {
+        let source = r#"
+            dir = '/first'
+            name = 'scheme'
+            path = dir .. '/' .. name
+            dir = '/second'
+            path = path .. '.toml'
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = source
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected load_scheme call marker");
+
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                source, "path", call_start,
+            ),
+            Some("/first/scheme.toml".to_owned())
+        );
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                source,
+                "dir .. '/direct.toml'",
+                call_start,
+            ),
+            Some("/second/direct.toml".to_owned())
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_dynamic_multiline_concatenation() {
+        let dynamic_multiline_concat = r#"
+            path = '/safe'
+              .. compute_path()
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = dynamic_multiline_concat
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected dynamic multiline-concat call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                dynamic_multiline_concat,
+                "path",
+                call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_accept_static_multiline_concatenation() {
+        let static_multiline_concat = r#"
+            path = '/a'
+              .. '/b'
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = static_multiline_concat
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected static multiline-concat call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                static_multiline_concat,
+                "path",
+                call_start,
+            ),
+            Some("/a/b".to_owned())
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_newline_before_assignment_operator() {
+        let newline_before_assignment = r#"
+            path = '/old'
+            path
+              = compute_path()
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = newline_before_assignment
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected newline-before-assignment call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                newline_before_assignment,
+                "path",
+                call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_newline_after_local_shadowing() {
+        let newline_after_local = r#"
+            path = '/old'
+            local
+              path
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = newline_after_local
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected newline-after-local call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                newline_after_local,
+                "path",
+                call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_other_multiline_binary_continuations() {
+        let dynamic_binary_continuation = r#"
+            path = '/safe'
+              or compute_path()
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = dynamic_binary_continuation
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected dynamic binary-continuation call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                dynamic_binary_continuation,
+                "path",
+                call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_multiline_index_continuations() {
+        let dynamic_index_continuation = r#"
+            base = '/safe'
+            path = base
+              [dynamic_key]
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = dynamic_index_continuation
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected dynamic index-continuation call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                dynamic_index_continuation,
+                "path",
+                call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_accept_concat_operator_before_newline() {
+        let concat_before_newline = r#"
+            dir = '/a'
+            name = '/b'
+            path = dir ..
+              name
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = concat_before_newline
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected concat-before-newline call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                concat_before_newline,
+                "path",
+                call_start,
+            ),
+            Some("/a/b".to_owned())
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_preserve_binding_before_lua_label() {
+        let label_after_binding = r#"
+            path = '/safe'
+            ::keep::
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = label_after_binding
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected label-after-binding call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                label_after_binding,
+                "path",
+                call_start,
+            ),
+            Some("/safe".to_owned())
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_preserve_binding_after_lua_label() {
+        let binding_after_label = r#"
+            path = '/old'
+            ::keep::
+            path = '/new'
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = binding_after_label
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected binding-after-label call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                binding_after_label,
+                "path",
+                call_start,
+            ),
+            Some("/new".to_owned())
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_dynamic_shadowing_and_cycles() {
+        let dynamically_shadowed = r#"
+            path = '/static.toml'
+            path = compute_path()
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = dynamically_shadowed
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected dynamic-shadowing call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                dynamically_shadowed,
+                "path",
+                call_start,
+            ),
+            None
+        );
+
+        let locally_shadowed = r#"
+            path = '/static.toml'
+            local path
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = locally_shadowed
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected local-shadowing call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                locally_shadowed,
+                "path",
+                call_start,
+            ),
+            None
+        );
+
+        let cyclic = r#"
+            first = second
+            second = first
+            wezterm.color.load_scheme(first)
+        "#;
+        let call_start = cyclic
+            .find("wezterm.color.load_scheme(first)")
+            .expect("expected cyclic call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                cyclic, "first", call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_local_named_function_shadowing() {
+        let local_function_shadowing = r#"
+            path = '/old'
+            local function path() end
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = local_function_shadowing
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected local-function-shadowing call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                local_function_shadowing,
+                "path",
+                call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_global_named_function_shadowing() {
+        let global_function_shadowing = r#"
+            path = '/old'
+            function path() end
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = global_function_shadowing
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected global-function-shadowing call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                global_function_shadowing,
+                "path",
+                call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_preserve_named_field_function_declarations() {
+        let dotted_function = r#"
+            path = '/safe'
+            function path.field() end
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = dotted_function
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected dotted-function call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                dotted_function,
+                "path",
+                call_start,
+            ),
+            Some("/safe".to_owned())
+        );
+
+        let method_function = r#"
+            path = '/safe'
+            function path:method() end
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = method_function
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected method-function call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                method_function,
+                "path",
+                call_start,
+            ),
+            Some("/safe".to_owned())
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_multi_target_direct_bindings() {
+        let multi_target_binding = r#"
+            path = '/static.toml'
+            other.foo, path = first(), second()
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = multi_target_binding
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected multi-target binding call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                multi_target_binding,
+                "path",
+                call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_comparison_rhs_as_dynamic_binding() {
+        let comparison_rhs = r#"
+            path = '/static.toml'
+            path = enabled == true
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = comparison_rhs
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected comparison-RHS call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                comparison_rhs,
+                "path",
+                call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_accept_statement_separator_after_binding() {
+        let semicolon_terminated = r#"
+            path = '/static.toml';
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = semicolon_terminated
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected semicolon-terminated binding call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                semicolon_terminated,
+                "path",
+                call_start,
+            ),
+            Some("/static.toml".to_owned())
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_dynamic_block_comment_continuations() {
+        let dynamic_continuation = r#"
+            path = '/safe' --[[gap]] .. compute_path()
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = dynamic_continuation
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected dynamic block-comment continuation call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                dynamic_continuation,
+                "path",
+                call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_comparisons_after_block_comments() {
+        let dynamic_comparison = r#"
+            path = '/safe' --[[gap]] == compute_path()
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = dynamic_comparison
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected block-comment comparison call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                dynamic_comparison,
+                "path",
+                call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_accept_trailing_comments() {
+        let trailing_comment = r#"
+            path = '/safe' -- trailing
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = trailing_comment
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected trailing-comment call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                trailing_comment,
+                "path",
+                call_start,
+            ),
+            Some("/safe".to_owned())
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_accept_trailing_block_comments() {
+        let trailing_block_comment = r#"
+            path = '/safe' --[[trailing]]
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = trailing_block_comment
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected trailing block-comment call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                trailing_block_comment,
+                "path",
+                call_start,
+            ),
+            Some("/safe".to_owned())
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_preserve_multi_target_field_mutations() {
+        let multi_target_field_mutation = r#"
+            path = '/static.toml'
+            other, path.foo = first(), second()
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = multi_target_field_mutation
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected multi-target field-mutation call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                multi_target_field_mutation,
+                "path",
+                call_start,
+            ),
+            Some("/static.toml".to_owned())
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_preserve_commented_field_mutations() {
+        let commented_field_mutation = r#"
+            path = '/static.toml'
+            path --[[gap]] .foo = compute()
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = commented_field_mutation
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected commented field-mutation call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                commented_field_mutation,
+                "path",
+                call_start,
+            ),
+            Some("/static.toml".to_owned())
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_accept_comments_around_concat_operator() {
+        let commented_concat = r#"
+            path = '/a' --[[left]] .. --[[right]] '/b'
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = commented_concat
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected commented-concat call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                commented_concat,
+                "path",
+                call_start,
+            ),
+            Some("/a/b".to_owned())
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_unicode_comment_prefixed_dynamic_binding() {
+        let comment_prefixed_binding = r#"
+            path = '/old'
+            other = 1
+            --[[中文]] path = compute_path()
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = comment_prefixed_binding
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected Unicode-comment-prefixed binding call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                comment_prefixed_binding,
+                "path",
+                call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_accept_line_comment_concat_continuations() {
+        let line_comment_concat = r#"
+            path = '/a' --left
+              .. --right
+              '/b'
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = line_comment_concat
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected line-comment concat call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                line_comment_concat,
+                "path",
+                call_start,
+            ),
+            Some("/a/b".to_owned())
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reject_line_comment_dynamic_continuations() {
+        let line_comment_dynamic = r#"
+            path = '/safe' --gap
+              == compute_path()
+            wezterm.color.load_scheme(path)
+        "#;
+        let call_start = line_comment_dynamic
+            .find("wezterm.color.load_scheme(path)")
+            .expect("expected line-comment dynamic call marker");
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                line_comment_dynamic,
+                "path",
+                call_start,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_preserve_comment_text_inside_string_literals() {
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                "",
+                "'/a--[[quoted]]/b'",
+                0,
+            ),
+            Some("/a--[[quoted]]/b".to_owned())
+        );
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                "",
+                "[=[/a--[[long]]/b]=]",
+                0,
+            ),
+            Some("/a--[[long]]/b".to_owned())
+        );
     }
 
     #[test]
