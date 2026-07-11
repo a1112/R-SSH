@@ -3498,26 +3498,28 @@ what remains before WezTerm-style parity in key UX/composition areas.
   whose `[metadata].name` or file stem matches `config.color_scheme` reuses the
   same implemented color fields as `config.colors`, so explicit `config.colors`
   values override the selected scheme. Static
-  `wezterm.color.load_scheme('path')` calls with a constant TOML path now
-  include direct `require('wezterm').color.load_scheme('path')` receivers and
-  parenthesized direct receivers such as
-  `(require('wezterm')).color.load_scheme('path')`,
-  direct module/static-key helper calls such as
-  `wt[color_key][load_key]('path')`, Lua comments between dotted helper path
-  segments, plus top-level
-  static aliases such as
-  `local load_scheme = wezterm.color.load_scheme` or module/static-key aliases
-  such as `local load_scheme = wt[color_key][load_key]` invoked with a
-  constant TOML path including Lua comments inside the alias helper path or
-  before the call payload, can also feed selected
-  `config.color_schemes['Name']` entries directly or through static variables
-  whose supported static mutations are applied, or `config.colors` directly,
-  through a static table variable, or through the first returned variable from
-  `local colors, metadata = ...` or
-  `colors, metadata = ...`
-  assignments. Static `load_scheme` variable references resolve to the latest
-  top-level binding before the `config.colors` assignment and ignore
-  helper-function-local bindings/mutations plus later rebinding, including top-level static mutations such as
+  `wezterm.color.load_scheme(...)` paths may be inline quoted or long-bracket
+  literals, or statically evaluable top-level string expressions composed of
+  quoted/long-bracket literals, identifier variable chains, and pure `..`
+  concatenation. Each identifier resolves to its latest top-level binding at
+  that evaluation point; an assigned variable evaluates its right-hand side at
+  the assignment offset, while the call argument evaluates at the original call
+  offset, preserving assignment-time capture and isolating the loaded path from
+  rebinding after the call. One resolver is shared by `config.colors` and
+  selected `config.color_schemes['Name']` entries and normalizes canonical
+  direct calls, module aliases, direct or parenthesized `require('wezterm')`
+  receivers, static-key access, and function aliases, including supported Lua
+  comments between helper-path segments or before call arguments. Loaded colors
+  can flow directly, through static variables whose supported mutations are
+  applied, or through the first returned variable from
+  `local colors, metadata = ...` or `colors, metadata = ...` assignments. This
+  remains bounded static interpretation: paths derived from dynamic helpers,
+  branches, or environment-backed values, `wezterm.config_dir` composition,
+  arbitrary Lua execution, and downstream consumption of returned `metadata`
+  remain open. Static `load_scheme` result-variable references resolve to the
+  latest top-level binding before the `config.colors` assignment and ignore
+  helper-function-local bindings/mutations plus later rebinding, including
+  top-level static mutations such as
   `colors.background = '#101010'` and bracket-key variants such as
   `colors['background'] = '#101010'`, indexed slot mutations such as
   `colors.indexed[136] = '#101010'`, ANSI/bright slot mutations such as
