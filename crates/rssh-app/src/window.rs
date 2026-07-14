@@ -70532,6 +70532,182 @@ fn lua_static_wezterm_builtin_color_scheme_alias_value_from_query(
     lua_static_value_tail_is_value_end(rest)
 }
 
+#[allow(dead_code)]
+fn lua_wezterm_default_colors_from_query_with_static_source(
+    source: &str,
+    query: &str,
+) -> Option<()> {
+    let call_max_start = lua_source_slice_start_offset(source, query)?;
+    let canonical_query =
+        lua_static_wezterm_default_colors_call_query_from_query(source, query, call_max_start)
+            .or_else(|| {
+                lua_static_wezterm_default_colors_alias_query_from_query(
+                    source,
+                    query,
+                    call_max_start,
+                )
+            })?;
+    lua_wezterm_default_colors_from_call_query(&canonical_query)
+}
+
+fn lua_wezterm_default_colors_from_call_query(canonical_query: &str) -> Option<()> {
+    let query = canonical_query.trim_start();
+    let rest = query.strip_prefix("wezterm.color.get_default_colors")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('(')?;
+    let (arguments, tail) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_static_load_scheme_path_query_without_comments(arguments)?
+        .trim()
+        .is_empty()
+        || !lua_static_value_tail_is_value_end(tail)
+    {
+        return None;
+    }
+    Some(())
+}
+
+fn lua_static_wezterm_default_colors_call_query_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<String> {
+    let rest = lua_static_wezterm_default_colors_function_rest_from_query_with_depth(
+        source, query, max_start, 0,
+    )?;
+    let rest = lua_trim_start_comments(rest)?;
+    rest.starts_with('(')
+        .then(|| format!("wezterm.color.get_default_colors{rest}"))
+}
+
+fn lua_static_wezterm_default_colors_alias_query_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<String> {
+    let query = lua_trim_start_comments(query)?;
+    let alias = lua_identifier_literal_from_query(query)?;
+    let (value, binding_start) =
+        lua_static_builtin_scheme_binding_before_offset(source, alias, max_start)?;
+    if !lua_static_wezterm_default_colors_function_value_is_exact_with_depth(
+        source,
+        value,
+        binding_start,
+        0,
+    ) {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(query.get(alias.len()..)?)?;
+    rest.starts_with('(')
+        .then(|| format!("wezterm.color.get_default_colors{rest}"))
+}
+
+fn lua_static_wezterm_default_colors_function_rest_from_query_with_depth<'a>(
+    source: &str,
+    query: &'a str,
+    max_start: usize,
+    depth: usize,
+) -> Option<&'a str> {
+    if depth > LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH {
+        return None;
+    }
+    let namespace_rest = lua_static_wezterm_color_namespace_rest_from_query_with_depth(
+        source,
+        query,
+        max_start,
+        depth + 1,
+    )?;
+    let rest = lua_trim_start_comments(namespace_rest)?;
+    let (field, rest) = lua_static_string_field_key_from_query(source, max_start, rest)?;
+    (field == "get_default_colors").then_some(rest)
+}
+
+fn lua_static_wezterm_default_colors_function_value_is_exact_with_depth(
+    source: &str,
+    value: &str,
+    max_start: usize,
+    depth: usize,
+) -> bool {
+    let Some(rest) = lua_static_wezterm_default_colors_function_rest_from_query_with_depth(
+        source, value, max_start, depth,
+    ) else {
+        return false;
+    };
+    lua_static_value_tail_is_value_end(rest)
+}
+
+fn lua_static_wezterm_color_namespace_rest_from_query_with_depth<'a>(
+    source: &str,
+    value: &'a str,
+    max_start: usize,
+    depth: usize,
+) -> Option<&'a str> {
+    if depth > LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH {
+        return None;
+    }
+    let value = lua_trim_start_comments(value)?;
+
+    if let Some(rest) = value.strip_prefix('(')
+        && let Some((namespace, tail)) = lua_parenthesized_argument_list_prefix_from_query(rest)
+        && let Some(namespace_rest) = lua_static_wezterm_color_namespace_rest_from_query_with_depth(
+            source,
+            namespace.trim(),
+            max_start,
+            depth + 1,
+        )
+    {
+        if lua_static_value_tail_is_value_end(namespace_rest) {
+            return Some(tail);
+        }
+    }
+
+    if let Some(receiver_rest) =
+        lua_static_wezterm_receiver_rest_from_query_with_strict_aliases_and_depth(
+            source,
+            max_start,
+            value,
+            depth + 1,
+        )
+        && let Some(rest) = lua_trim_start_comments(receiver_rest)
+        && let Some((field, rest)) = lua_static_string_field_key_from_query(source, max_start, rest)
+        && field == "color"
+    {
+        return Some(rest);
+    }
+
+    let alias = lua_identifier_literal_from_query(value)?;
+    let rest = value.get(alias.len()..)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let (binding, binding_start) =
+        lua_static_builtin_scheme_binding_before_offset(source, alias, max_start)?;
+    lua_static_wezterm_color_namespace_value_is_exact_with_depth(
+        source,
+        binding,
+        binding_start,
+        depth + 1,
+    )
+    .then_some(rest)
+}
+
+fn lua_static_wezterm_color_namespace_value_is_exact_with_depth(
+    source: &str,
+    value: &str,
+    max_start: usize,
+    depth: usize,
+) -> bool {
+    let Some(rest) = lua_static_wezterm_color_namespace_rest_from_query_with_depth(
+        source, value, max_start, depth,
+    ) else {
+        return false;
+    };
+    lua_static_value_tail_is_value_end(rest)
+}
+
 fn lua_identifier_literal_from_query(query: &str) -> Option<&str> {
     let query = query.trim_start();
     let mut chars = query.char_indices();
