@@ -154177,6 +154177,250 @@ mod tests {
     }
 
     #[test]
+    fn default_colors_call_resolver_accepts_static_zero_argument_forms() {
+        let cases = [
+            (
+                "canonical call",
+                r#"
+                    config.colors = wezterm.color.get_default_colors()
+                    local after = true
+                "#,
+                "wezterm.color.get_default_colors()",
+            ),
+            (
+                "explicit wezterm binding",
+                r#"
+                    local wezterm = require 'wezterm'
+                    config.colors = wezterm.color.get_default_colors()
+                "#,
+                "wezterm.color.get_default_colors()",
+            ),
+            (
+                "direct require receiver",
+                "config.colors = require('wezterm').color.get_default_colors()",
+                "require('wezterm').color.get_default_colors()",
+            ),
+            (
+                "parenthesized require receiver",
+                "config.colors = (require 'wezterm').color.get_default_colors()",
+                "(require 'wezterm').color.get_default_colors()",
+            ),
+            (
+                "const module alias",
+                r#"
+                    local wt <const> = require 'wezterm'
+                    config.colors = wt.color.get_default_colors()
+                "#,
+                "wt.color.get_default_colors()",
+            ),
+            (
+                "static field keys",
+                r#"
+                    local wt = require 'wezterm'
+                    local color_key = 'color'
+                    local default_key = 'get_default_colors'
+                    config.colors = wt[color_key][default_key]()
+                "#,
+                "wt[color_key][default_key]()",
+            ),
+            (
+                "function alias",
+                r#"
+                    local get_defaults = wezterm.color.get_default_colors
+                    config.colors = get_defaults()
+                "#,
+                "get_defaults()",
+            ),
+            (
+                "direct require function alias",
+                r#"
+                    local get_defaults = require('wezterm').color.get_default_colors
+                    config.colors = get_defaults()
+                "#,
+                "get_defaults()",
+            ),
+            (
+                "color namespace alias",
+                r#"
+                    local color = wezterm.color
+                    config.colors = color.get_default_colors()
+                "#,
+                "color.get_default_colors()",
+            ),
+            (
+                "call-site function binding",
+                r#"
+                    local get_defaults = wezterm.color.get_default_colors
+                    local palette = get_defaults()
+                    get_defaults = choose_palette
+                    config.colors = palette
+                "#,
+                "get_defaults()",
+            ),
+            (
+                "comments-only arguments",
+                "config.colors = wezterm.color.get_default_colors(--[[ no arguments ]])",
+                "wezterm.color.get_default_colors(--[[ no arguments ]])",
+            ),
+        ];
+
+        for (label, source, marker) in cases {
+            let query_start = source
+                .find(marker)
+                .expect("expected default-colors call marker");
+            assert_eq!(
+                super::lua_wezterm_default_colors_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                ),
+                Some(()),
+                "case was {label:?}: {source:?}"
+            );
+        }
+
+        for (label, source) in [
+            ("end of input", "wezterm.color.get_default_colors()"),
+            (
+                "semicolon boundary",
+                "wezterm.color.get_default_colors(); next_call()",
+            ),
+            (
+                "table comma boundary",
+                "wezterm.color.get_default_colors(), next_field = true",
+            ),
+            (
+                "table close boundary",
+                "wezterm.color.get_default_colors() }",
+            ),
+            (
+                "newline statement boundary",
+                "wezterm.color.get_default_colors()\nnext_call()",
+            ),
+            (
+                "label statement boundary",
+                "wezterm.color.get_default_colors() ::next:: next_call()",
+            ),
+        ] {
+            assert_eq!(
+                super::lua_wezterm_default_colors_from_query_with_static_source(source, source),
+                Some(()),
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn default_colors_call_resolver_rejects_dynamic_or_nonexact_forms() {
+        let direct_cases = [
+            ("one argument", "wezterm.color.get_default_colors(nil)"),
+            (
+                "multiple arguments",
+                "wezterm.color.get_default_colors(nil, false)",
+            ),
+            ("method call", "wezterm.color:get_default_colors()"),
+            (
+                "missing close parenthesis",
+                "wezterm.color.get_default_colors(",
+            ),
+            ("wrong function", "wezterm.color.get_default_colors_extra()"),
+        ];
+        for (label, source) in direct_cases {
+            assert_eq!(
+                super::lua_wezterm_default_colors_from_query_with_static_source(source, source),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+
+        for (label, tail) in [
+            ("field access", ".background"),
+            ("index access", "['background']"),
+            ("second call", "()"),
+            ("method call tail", ":clone()"),
+            ("concatenation", " .. suffix"),
+            ("arithmetic", " + suffix"),
+            ("comparison", " == suffix"),
+            ("logical and", " and suffix"),
+            ("logical or", " or {}"),
+            ("block-comment field", " --[[gap]] .background"),
+            ("line-comment index", " -- gap\n ['background']"),
+        ] {
+            let source = format!("wezterm.color.get_default_colors(){tail}");
+            assert_eq!(
+                super::lua_wezterm_default_colors_from_query_with_static_source(&source, &source),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+
+        for (label, source, marker) in [
+            (
+                "dynamic getter key",
+                r#"
+                    local key = choose_key()
+                    config.colors = wezterm.color[key]()
+                "#,
+                "wezterm.color[key]()",
+            ),
+            (
+                "function alias rebound before call",
+                r#"
+                    local get_defaults = wezterm.color.get_default_colors
+                    get_defaults = choose_palette
+                    config.colors = get_defaults()
+                "#,
+                "get_defaults()",
+            ),
+            (
+                "module alias rebound before call",
+                r#"
+                    local wt = require 'wezterm'
+                    wt = choose_module()
+                    config.colors = wt.color.get_default_colors()
+                "#,
+                "wt.color.get_default_colors()",
+            ),
+            (
+                "color namespace rebound before call",
+                r#"
+                    local color = wezterm.color
+                    color = choose_color_namespace()
+                    config.colors = color.get_default_colors()
+                "#,
+                "color.get_default_colors()",
+            ),
+            (
+                "shadowed require",
+                r#"
+                    local require = choose_loader()
+                    config.colors = require('wezterm').color.get_default_colors()
+                "#,
+                "require('wezterm').color.get_default_colors()",
+            ),
+            (
+                "shadowed wezterm",
+                r#"
+                    local wezterm = choose_module()
+                    config.colors = wezterm.color.get_default_colors()
+                "#,
+                "wezterm.color.get_default_colors()",
+            ),
+        ] {
+            let query_start = source
+                .find(marker)
+                .expect("expected rejected default-colors marker");
+            assert_eq!(
+                super::lua_wezterm_default_colors_from_query_with_static_source(
+                    source,
+                    &source[query_start..],
+                ),
+                None,
+                "case was {label:?}: {source:?}"
+            );
+        }
+    }
+
+    #[test]
     fn builtin_scheme_lookup_resolver_accepts_supported_forms_at_original_lookup_offset() {
         let cases = [
             (
