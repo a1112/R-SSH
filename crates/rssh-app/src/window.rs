@@ -129320,6 +129320,139 @@ mod tests {
     }
 
     #[test]
+    fn window_app_rejects_aliased_palette_capture_after_known_rebind() {
+        let source = r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+            local scheme = schemes['Gruvbox Light']
+            local function mutate_original()
+              scheme.background = '#010203'
+            end
+            local mutate = mutate_original
+            scheme = schemes['Builtin Solarized Dark']
+            mutate()
+            config.colors = scheme
+            return config
+            "##;
+
+        assert!(
+            super::native_config_overrides_from_wezterm_lua_config(source).is_none(),
+            "a called alias of a captured closure must fail closed after palette rebind"
+        );
+    }
+
+    #[test]
+    fn window_app_rejects_palette_boolean_literal_expression_tail() {
+        let source = r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+            local scheme = schemes['Gruvbox Light']
+            scheme.tab_bar.active_tab.italic = false or true
+            config.colors = scheme
+            return config
+            "##;
+
+        assert!(
+            super::native_config_overrides_from_wezterm_lua_config(source).is_none(),
+            "a boolean prefix followed by an expression tail must fail closed"
+        );
+    }
+
+    #[test]
+    fn window_app_replaces_empty_indexed_palette_before_slot_patch() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+            local scheme = {
+              foreground = '#101112',
+              background = '#131415',
+              indexed = { [136] = '#010203' },
+            }
+            scheme.indexed = {}
+            scheme.indexed[137] = '#040506'
+            config.colors = scheme
+            return config
+            "##,
+        )
+        .expect("expected empty indexed replacement followed by a slot patch");
+        app.set_config_overrides(overrides);
+
+        let indexed = app
+            .native_effective_config()
+            .indexed_palette
+            .expect("expected an indexed palette after the slot patch");
+        assert_eq!(indexed[136], None);
+        assert_eq!(indexed[137], Some(Color::Rgb(4, 5, 6)));
+    }
+
+    #[test]
+    fn window_app_rejects_unfinished_empty_palette_composites() {
+        for (label, mutation) in [
+            ("ansi", "scheme.ansi = {}"),
+            ("brights", "scheme.brights = {}"),
+            ("color spec", "scheme.copy_mode_active_highlight_bg = {}"),
+        ] {
+            let source = format!(
+                r##"
+                local wezterm = require 'wezterm'
+                local config = {{}}
+                local schemes = wezterm.color.get_builtin_schemes()
+                local scheme = schemes['Gruvbox Light']
+                {mutation}
+                config.colors = scheme
+                return config
+                "##,
+            );
+
+            assert!(
+                super::native_config_overrides_from_wezterm_lua_config(&source).is_none(),
+                "unfinished empty {label} replacement must fail closed"
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_clears_tab_bar_fields_on_whole_replacement() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+            local scheme = {
+              foreground = '#101112',
+              background = '#131415',
+              tab_bar = {
+                background = '#010203',
+                active_tab = {
+                  bg_color = '#040506',
+                  fg_color = '#070809',
+                },
+              },
+            }
+            scheme.tab_bar = {}
+            config.colors = scheme
+            return config
+            "##,
+        )
+        .expect("expected an empty tab-bar replacement");
+
+        assert_eq!(overrides.tab_bar_background_color, None);
+        assert_eq!(
+            overrides.tab_bar_active_tab_colors,
+            NativeTabBarItemColors::default()
+        );
+    }
+
+    #[test]
+    fn split_lua_top_level_arguments_preserves_long_string_starting_with_open_bracket() {
+        let arguments = super::split_lua_top_level_arguments("[[[foo]], 'after'")
+            .expect("expected a valid long-string argument list");
+
+        assert_eq!(arguments, vec!["[[[foo]]", " 'after'"]);
+    }
+
+    #[test]
     fn window_app_applies_builtin_palette_variable_long_bracket_mutation() {
         let mut app = NativeWindowApp::new(None);
         let source = r##"
