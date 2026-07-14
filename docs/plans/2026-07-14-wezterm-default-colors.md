@@ -119,8 +119,9 @@ Add `default_colors_call_resolver_rejects_dynamic_or_nonexact_forms` covering:
 - one or more arguments;
 - method-call syntax;
 - missing or unmatched parentheses;
-- `.field`, `[key]`, a second call, arithmetic, boolean, comma, and concatenation
-  tails;
+- `.field`, `[key]`, a second call, arithmetic, boolean, and concatenation
+  tails; preserve the existing exact-value boundary handling for semicolons,
+  table commas/closing braces, new statements, and labels;
 - a dynamic field key;
 - aliases rebound before the call;
 - a shadowed or dynamically supplied module.
