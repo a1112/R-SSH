@@ -154871,6 +154871,17 @@ mod tests {
                 "wt.color.get_default_colors()",
             ),
             (
+                "module alias rebound before return-table call",
+                r#"
+                    local wt = require 'wezterm'
+                    wt = choose_module()
+                    return {
+                      colors = wt.color.get_default_colors(),
+                    }
+                "#,
+                "wt.color.get_default_colors()",
+            ),
+            (
                 "color namespace rebound before call",
                 r#"
                     local color = wezterm.color
