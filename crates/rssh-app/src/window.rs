@@ -19135,7 +19135,11 @@ fn lua_color_variable_source_before_offset<'a>(
         .rposition(|statement| statement.start <= reference_start)?;
     let reference_statement_start = statements.get(reference_statement_index)?.start;
     let mut selected = None;
-    let mut capturing_functions = Vec::new();
+    let mut selected_cell = None;
+    let mut current_cell = 0usize;
+    let mut next_cell = 1usize;
+    let mut function_bindings = BTreeMap::<String, usize>::new();
+    let mut closure_capture_cells = Vec::<Option<usize>>::new();
     let mut mutation_events = Vec::new();
 
     for statement in statements.iter().take(reference_statement_index) {
@@ -19143,11 +19147,51 @@ fn lua_color_variable_source_before_offset<'a>(
         let end = statement.end.min(reference_statement_start);
         let statement = source.get(start..end)?;
 
+        if lua_statement_declares_local_identifier(statement, variable)? {
+            current_cell = next_cell;
+            next_cell = next_cell.saturating_add(1);
+            selected = None;
+            selected_cell = None;
+            mutation_events.clear();
+        }
+
         if let Some(function) = lua_static_builtin_scheme_function_definition_name(statement)? {
-            capturing_functions.retain(|captured| captured != &function);
-            if lua_static_query_contains_identifier(statement, variable)? {
-                capturing_functions.push(function);
+            let closure_id = closure_capture_cells.len();
+            let captured_cell =
+                lua_static_query_contains_identifier(statement, variable)?.then_some(current_cell);
+            closure_capture_cells.push(captured_cell);
+            function_bindings.insert(function, closure_id);
+            continue;
+        }
+
+        if let Some((alias, value)) = lua_single_identifier_assignment_from_query(statement) {
+            let value = lua_trim_start_comments(value)?;
+            let target = lua_identifier_literal_from_query(value).and_then(|target| {
+                lua_static_builtin_scheme_tail_is_statement_end(value.get(target.len()..)?)?
+                    .then_some(target)
+            });
+            if alias != variable
+                && let Some(closure_id) =
+                    target.and_then(|target| function_bindings.get(target).copied())
+            {
+                function_bindings.insert(alias, closure_id);
+                continue;
             }
+            if alias != variable {
+                function_bindings.remove(&alias);
+            }
+        }
+
+        let called_or_escaped_capture = selected_cell.is_some_and(|selected_cell| {
+            function_bindings.iter().any(|(name, closure_id)| {
+                closure_capture_cells.get(*closure_id).copied().flatten() == Some(selected_cell)
+                    && lua_static_query_contains_identifier(statement, name).unwrap_or(true)
+            })
+        });
+        if called_or_escaped_capture {
+            selected = None;
+            selected_cell = None;
+            mutation_events.clear();
             continue;
         }
 
@@ -19155,24 +19199,19 @@ fn lua_color_variable_source_before_offset<'a>(
             lua_color_variable_known_binding_from_query(source, statement, variable)?
         {
             selected = Some(binding);
+            selected_cell = Some(current_cell);
             mutation_events.clear();
             continue;
         }
 
         if lua_color_variable_whole_assignment_value_from_query(statement, variable).is_some() {
             selected = None;
+            selected_cell = None;
             mutation_events.clear();
             continue;
         }
 
         if selected.is_none() {
-            continue;
-        }
-        if capturing_functions.iter().any(|captured| {
-            lua_static_query_contains_identifier(statement, captured).unwrap_or(true)
-        }) {
-            selected = None;
-            mutation_events.clear();
             continue;
         }
         if !lua_static_query_contains_identifier(statement, variable)? {
@@ -19187,6 +19226,7 @@ fn lua_color_variable_source_before_offset<'a>(
             continue;
         }
         selected = None;
+        selected_cell = None;
         mutation_events.clear();
     }
 
@@ -19331,6 +19371,50 @@ fn lua_color_variable_whole_assignment_value_from_query<'a>(
         return None;
     }
     lua_trim_start_comments(value)
+}
+
+fn lua_statement_declares_local_identifier(statement: &str, variable: &str) -> Option<bool> {
+    let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+    let statement = lua_trim_start_comments(statement)?;
+    if !lua_source_keyword_at(statement, 0, "local") {
+        return Some(false);
+    }
+    let declaration = lua_trim_start_comments(statement.get("local".len()..)?)?;
+    if lua_source_keyword_at(declaration, 0, "function") {
+        let declaration = lua_trim_start_comments(declaration.get("function".len()..)?)?;
+        return Some(lua_identifier_literal_from_query(declaration) == Some(variable));
+    }
+
+    let targets = split_lua_static_load_scheme_path_assignment_statement(declaration)
+        .map_or(declaration, |(targets, _)| targets);
+    let targets = split_lua_top_level_arguments(targets)?;
+    Some(targets.iter().any(|target| {
+        lua_static_load_scheme_path_assignment_target_identifier(target).as_deref()
+            == Some(variable)
+    }))
+}
+
+fn lua_single_identifier_assignment_from_query(statement: &str) -> Option<(String, &str)> {
+    let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+    let statement = lua_trim_start_comments(statement)?;
+    let statement = if lua_source_keyword_at(statement, 0, "local") {
+        let statement = lua_trim_start_comments(statement.get("local".len()..)?)?;
+        if lua_source_keyword_at(statement, 0, "function") {
+            return None;
+        }
+        statement
+    } else {
+        statement
+    };
+    let (targets, value) = split_lua_static_load_scheme_path_assignment_statement(statement)?;
+    let targets = split_lua_top_level_arguments(targets)?;
+    let [target] = targets.as_slice() else {
+        return None;
+    };
+    Some((
+        lua_static_load_scheme_path_assignment_target_identifier(target)?,
+        value,
+    ))
 }
 
 fn lua_palette_mutation_event_from_statement(
@@ -129332,6 +129416,58 @@ mod tests {
         assert!(
             super::native_config_overrides_from_wezterm_lua_config(source).is_none(),
             "a called alias of a captured closure must fail closed after palette rebind"
+        );
+    }
+
+    #[test]
+    fn window_app_rejects_old_palette_capture_alias_after_function_redefinition() {
+        let source = r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+            local scheme = schemes['Gruvbox Light']
+            local function mutate()
+              scheme.background = '#010203'
+            end
+            local old_mutate = mutate
+            local function mutate()
+              return true
+            end
+            scheme = schemes['Builtin Solarized Dark']
+            old_mutate()
+            config.colors = scheme
+            return config
+            "##;
+
+        assert!(
+            super::native_config_overrides_from_wezterm_lua_config(source).is_none(),
+            "an alias must retain the captured closure after its original name is redefined"
+        );
+    }
+
+    #[test]
+    fn window_app_does_not_treat_predeclaration_global_capture_as_later_local_palette_capture() {
+        let mut app = NativeWindowApp::new(None);
+        let source = r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+            local function mutate_global()
+              scheme.background = '#010203'
+            end
+            local scheme = schemes['Builtin Solarized Dark']
+            mutate_global()
+            config.colors = scheme
+            return config
+            "##;
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(source)
+            .expect("a function declared before the local palette must capture the global cell");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().background_color,
+            Color::Rgb(0, 43, 54)
         );
     }
 
