@@ -19154,16 +19154,17 @@ fn lua_color_variable_source_before_offset<'a>(
     variable: &str,
     reference_start: usize,
 ) -> Option<NativeColorSchemeLuaSource<'a>> {
-    let statements = lua_top_level_logical_statement_ranges_before_offset(source, reference_start)?;
+    let statements = lua_top_level_logical_statements_before_offset(source, reference_start)?;
     let reference_statement_index = statements
         .iter()
-        .rposition(|(start, _)| *start <= reference_start)?;
-    let reference_statement_start = statements.get(reference_statement_index)?.0;
+        .rposition(|statement| statement.start <= reference_start)?;
+    let reference_statement_start = statements.get(reference_statement_index)?.start;
     let mut selected = None;
     let mut capturing_functions = Vec::new();
 
-    for &(start, statement_end) in statements.iter().take(reference_statement_index) {
-        let end = statement_end.min(reference_statement_start);
+    for statement in statements.iter().take(reference_statement_index) {
+        let start = statement.start;
+        let end = statement.end.min(reference_statement_start);
         let statement = source.get(start..end)?;
 
         if let Some(function) = lua_static_builtin_scheme_function_definition_name(statement)? {
@@ -19235,12 +19236,18 @@ fn lua_color_variable_source_before_offset<'a>(
     })
 }
 
-fn lua_top_level_logical_statement_ranges_before_offset(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LuaLogicalStatement {
+    start: usize,
+    end: usize,
+}
+
+fn lua_top_level_logical_statements_before_offset(
     source: &str,
     max_start: usize,
-) -> Option<Vec<(usize, usize)>> {
+) -> Option<Vec<LuaLogicalStatement>> {
     let starts = lua_top_level_statement_start_indices_before_offset(source, max_start)?;
-    let mut ranges = Vec::new();
+    let mut statements = Vec::new();
     let mut statement_index = 0usize;
 
     while statement_index < starts.len() {
@@ -19264,11 +19271,11 @@ fn lua_top_level_logical_statement_ranges_before_offset(
             .get(next_statement_index)
             .copied()
             .unwrap_or(max_start);
-        ranges.push((start, end));
+        statements.push(LuaLogicalStatement { start, end });
         statement_index = next_statement_index;
     }
 
-    Some(ranges)
+    Some(statements)
 }
 
 fn lua_color_variable_known_binding_from_query<'a>(
@@ -61955,19 +61962,18 @@ fn apply_lua_color_variable_mutation_overrides(
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
-    let starts = lua_top_level_statement_start_indices_before_offset(source, mutation_max_start)?;
+    let statements = lua_top_level_logical_statements_before_offset(source, mutation_max_start)?;
 
-    for (index, start) in starts.iter().copied().enumerate() {
-        if start < mutation_min_start || start >= mutation_max_start {
+    for statement in statements {
+        if statement.start < mutation_min_start || statement.start >= mutation_max_start {
             continue;
         }
-        let end = starts
-            .get(index + 1)
-            .copied()
-            .unwrap_or(mutation_max_start)
-            .min(mutation_max_start);
         parsed |= apply_lua_color_variable_mutation_statement_overrides(
-            source, variable, start, end, overrides,
+            source,
+            variable,
+            statement.start,
+            statement.end.min(mutation_max_start),
+            overrides,
         )?;
     }
 
@@ -69141,7 +69147,7 @@ fn split_lua_static_load_scheme_path_assignment_statement(statement: &str) -> Op
             '\'' | '"' => quote = Some(character),
             '[' => {
                 let query = statement.get(index..)?;
-                if !lua_bracket_starts_outer_index_around_long_string(query)
+                if !lua_bracket_starts_complete_long_string_index(query)
                     && let Some((content_start, closing)) = parse_lua_long_bracket_delimiters(query)
                 {
                     let content_and_rest = &statement[index + content_start..];
@@ -75320,11 +75326,17 @@ fn lua_long_bracket_literal_from_query(query: &str) -> Option<&str> {
     query.get(..content_start + close_index + closing.len())
 }
 
-fn lua_bracket_starts_outer_index_around_long_string(query: &str) -> bool {
-    query
-        .strip_prefix('[')
-        .and_then(parse_lua_long_bracket_delimiters)
-        .is_some()
+fn lua_bracket_starts_complete_long_string_index(query: &str) -> bool {
+    let Some(after_outer_open) = query.strip_prefix('[') else {
+        return false;
+    };
+    let inner = after_outer_open.trim_start();
+    let Some(inner_literal) = lua_long_bracket_literal_from_query(inner) else {
+        return false;
+    };
+    inner
+        .get(inner_literal.len()..)
+        .is_some_and(|rest| rest.trim_start().starts_with(']'))
 }
 
 #[allow(dead_code)]
@@ -111015,7 +111027,7 @@ fn split_lua_top_level_arguments(arguments: &str) -> Option<Vec<&str>> {
             '\'' | '"' => quote = Some(character),
             '[' => {
                 let query = arguments.get(index..)?;
-                if !lua_bracket_starts_outer_index_around_long_string(query)
+                if !lua_bracket_starts_complete_long_string_index(query)
                     && let Some((content_start, closing)) = parse_lua_long_bracket_delimiters(query)
                 {
                     let content_and_rest = &arguments[index + content_start..];
