@@ -62032,7 +62032,23 @@ fn apply_lua_color_variable_mutation_overrides(
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
+    let mut unfinished_composites = HashSet::new();
     for event in &variable.mutation_events {
+        if let Some((field_name, empty)) = lua_color_variable_mutation_field_state(
+            source,
+            &variable.name,
+            event.statement.start,
+            event.statement.end.min(variable.mutation_max_start),
+        )? {
+            if empty
+                && (lua_color_spec_field_name(&field_name)
+                    || matches!(field_name.as_str(), "ansi" | "brights"))
+            {
+                unfinished_composites.insert(field_name);
+            } else {
+                unfinished_composites.remove(&field_name);
+            }
+        }
         parsed |= apply_lua_color_variable_mutation_statement_overrides(
             source,
             &variable.name,
@@ -62042,7 +62058,47 @@ fn apply_lua_color_variable_mutation_overrides(
         )?;
     }
 
+    if !unfinished_composites.is_empty() {
+        return None;
+    }
+
     Some(parsed)
+}
+
+fn lua_color_variable_mutation_field_state(
+    source: &str,
+    variable: &str,
+    statement_start: usize,
+    statement_end: usize,
+) -> Option<Option<(String, bool)>> {
+    let statement = source.get(statement_start..statement_end)?;
+    let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+    let statement = lua_trim_start_comments(statement)?;
+    let Some((target, value)) = split_lua_static_load_scheme_path_assignment_statement(statement)
+    else {
+        return Some(None);
+    };
+    let target = lua_static_load_scheme_path_query_without_comments(target)?;
+    let target = target.trim();
+    let Some(rest) = target.strip_prefix(variable) else {
+        return Some(None);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(None);
+    }
+    let Some((field_name, _)) =
+        lua_color_variable_mutation_field_from_query_with_static_key(source, rest, statement_start)
+    else {
+        return Some(None);
+    };
+    let value = lua_trim_start_comments(value)?;
+    let empty = lua_braced_table_literal_from_query(value).is_some_and(|table| {
+        table
+            .strip_prefix('{')
+            .and_then(|table| table.strip_suffix('}'))
+            .is_some_and(|table| table.trim().is_empty())
+    });
+    Some(Some((field_name, empty)))
 }
 
 fn apply_lua_color_variable_mutation_statement_overrides(
@@ -62052,7 +62108,16 @@ fn apply_lua_color_variable_mutation_statement_overrides(
     statement_end: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
-    let mut parsed = false;
+    let mut parsed = apply_lua_color_variable_empty_table_replacement(
+        source,
+        variable,
+        statement_start,
+        statement_end,
+        overrides,
+    )?;
+    if parsed {
+        return Some(true);
+    }
     if let Some(colors) = lua_color_variable_mutation_table_from_query(
         source,
         variable,
@@ -62100,6 +62165,110 @@ fn apply_lua_color_variable_mutation_statement_overrides(
     Some(parsed)
 }
 
+fn apply_lua_color_variable_empty_table_replacement(
+    source: &str,
+    variable: &str,
+    statement_start: usize,
+    statement_end: usize,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let statement = source.get(statement_start..statement_end)?;
+    let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+    let statement = lua_trim_start_comments(statement)?;
+    let Some((target, value)) = split_lua_static_load_scheme_path_assignment_statement(statement)
+    else {
+        return Some(false);
+    };
+    let value = lua_trim_start_comments(value)?;
+    let Some(table) = lua_braced_table_literal_from_query(value) else {
+        return Some(false);
+    };
+    if !table
+        .strip_prefix('{')?
+        .strip_suffix('}')?
+        .trim()
+        .is_empty()
+        || !lua_static_builtin_scheme_tail_is_statement_end(value.get(table.len()..)?)?
+    {
+        return Some(false);
+    }
+    let target = lua_static_load_scheme_path_query_without_comments(target)?;
+    let target = target.trim();
+    let rest = target.strip_prefix(variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(false);
+    }
+    let (field_name, rest) = lua_color_variable_mutation_field_from_query_with_static_key(
+        source,
+        rest,
+        statement_start,
+    )?;
+    let rest = lua_trim_start_comments(rest)?;
+    if rest.is_empty() && matches!(field_name.as_str(), "ansi" | "brights") {
+        return Some(true);
+    }
+    if rest.is_empty() && clear_lua_color_spec_field_override(overrides, &field_name) {
+        return Some(true);
+    }
+    if field_name == "indexed" && rest.is_empty() {
+        overrides.indexed_palette = Some([None; 256]);
+        return Some(true);
+    }
+    if field_name != "tab_bar" {
+        return Some(false);
+    }
+    if rest.is_empty() {
+        overrides.tab_bar_background_color = None;
+        overrides.tab_bar_inactive_tab_edge_color = None;
+        overrides.tab_bar_active_tab_colors = NativeTabBarItemColors::default();
+        overrides.tab_bar_inactive_tab_colors = NativeTabBarItemColors::default();
+        overrides.tab_bar_inactive_tab_hover_colors = NativeTabBarItemColors::default();
+        overrides.tab_bar_new_tab_colors = NativeTabBarItemColors::default();
+        overrides.tab_bar_new_tab_hover_colors = NativeTabBarItemColors::default();
+        return Some(true);
+    }
+    let (item_name, rest) = lua_color_variable_mutation_field_from_query_with_static_key(
+        source,
+        rest,
+        statement_start,
+    )?;
+    if !lua_trim_start_comments(rest)?.is_empty() {
+        return Some(false);
+    }
+    let colors = match item_name.as_str() {
+        "active_tab" => &mut overrides.tab_bar_active_tab_colors,
+        "inactive_tab" => &mut overrides.tab_bar_inactive_tab_colors,
+        "inactive_tab_hover" => &mut overrides.tab_bar_inactive_tab_hover_colors,
+        "new_tab" => &mut overrides.tab_bar_new_tab_colors,
+        "new_tab_hover" => &mut overrides.tab_bar_new_tab_hover_colors,
+        _ => return Some(false),
+    };
+    *colors = NativeTabBarItemColors::default();
+    Some(true)
+}
+
+fn clear_lua_color_spec_field_override(
+    overrides: &mut NativeConfigOverrides,
+    field_name: &str,
+) -> bool {
+    match field_name {
+        "copy_mode_active_highlight_bg" => overrides.copy_mode_active_highlight_bg = None,
+        "copy_mode_active_highlight_fg" => overrides.copy_mode_active_highlight_fg = None,
+        "copy_mode_inactive_highlight_bg" => overrides.copy_mode_inactive_highlight_bg = None,
+        "copy_mode_inactive_highlight_fg" => overrides.copy_mode_inactive_highlight_fg = None,
+        "quick_select_label_bg" => overrides.quick_select_label_bg = None,
+        "quick_select_label_fg" => overrides.quick_select_label_fg = None,
+        "quick_select_match_bg" => overrides.quick_select_match_bg = None,
+        "quick_select_match_fg" => overrides.quick_select_match_fg = None,
+        "input_selector_label_bg" => overrides.input_selector_label_bg = None,
+        "input_selector_label_fg" => overrides.input_selector_label_fg = None,
+        "launcher_label_bg" => overrides.launcher_label_bg = None,
+        "launcher_label_fg" => overrides.launcher_label_fg = None,
+        _ => return false,
+    }
+    true
+}
+
 fn apply_lua_config_colors_tab_bar_mutation_overrides(
     source: &str,
     receiver: &str,
@@ -62142,55 +62311,49 @@ fn apply_lua_config_colors_tab_bar_mutation_overrides(
 fn apply_lua_color_variable_color_spec_mutation_overrides(
     source: &str,
     variable: &str,
-    min_start: usize,
-    max_start: usize,
+    statement_start: usize,
+    statement_end: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
-    let mut parsed = false;
-
-    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
-        if start < min_start {
-            continue;
-        }
-        let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
-            continue;
-        };
-        if rest.chars().next().is_some_and(is_lua_identifier_character) {
-            continue;
-        }
-        let rest = source.get(start + variable.len()..)?.trim_start();
-        let Some((field_name, rest)) =
-            lua_color_variable_mutation_field_from_query_with_static_key(source, rest, start)
-        else {
-            continue;
-        };
-        if !lua_color_spec_field_name(&field_name) {
-            continue;
-        }
-        let Some((variant_name, rest)) =
-            lua_color_variable_mutation_field_from_query_with_static_key(source, rest, start)
-        else {
-            continue;
-        };
-        let rest = lua_trim_start_comments(rest)?;
-        let Some(value) = rest.strip_prefix('=') else {
-            continue;
-        };
-        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-        let color = lua_color_spec_from_query_with_static_source(
-            Some(LuaStaticSource {
-                source,
-                max_start: start,
-            }),
-            &format!("{{ {variant_name} = {value} }}"),
-        )?;
-
-        if apply_lua_color_spec_field_override(overrides, &field_name, color) {
-            parsed = true;
-        }
+    let statement = source.get(statement_start..statement_end)?;
+    let Some(rest) = statement.strip_prefix(variable) else {
+        return Some(false);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(false);
     }
+    let rest = statement.get(variable.len()..)?.trim_start();
+    let Some((field_name, rest)) =
+        lua_color_variable_mutation_field_from_query_with_static_key(source, rest, statement_start)
+    else {
+        return Some(false);
+    };
+    if !lua_color_spec_field_name(&field_name) {
+        return Some(false);
+    }
+    let Some((variant_name, rest)) =
+        lua_color_variable_mutation_field_from_query_with_static_key(source, rest, statement_start)
+    else {
+        return Some(false);
+    };
+    let rest = lua_trim_start_comments(rest)?;
+    let Some(value) = rest.strip_prefix('=') else {
+        return Some(false);
+    };
+    let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+    let color = lua_color_spec_from_query_with_static_source(
+        Some(LuaStaticSource {
+            source,
+            max_start: statement_start,
+        }),
+        &format!("{{ {variant_name} = {value} }}"),
+    )?;
 
-    Some(parsed)
+    Some(apply_lua_color_spec_field_override(
+        overrides,
+        &field_name,
+        color,
+    ))
 }
 
 fn apply_lua_config_colors_color_spec_mutation_overrides(
@@ -68471,81 +68634,69 @@ fn lua_load_scheme_assignment_path_from_query(
 fn lua_color_variable_mutation_table_from_query(
     source: &str,
     variable: &str,
-    min_start: usize,
-    max_start: usize,
+    statement_start: usize,
+    statement_end: usize,
 ) -> Option<String> {
     let mut fields = Vec::new();
     let mut indexed_fields = BTreeMap::new();
-
-    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
-        if start < min_start {
-            continue;
-        }
-        let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
-            continue;
-        };
-        if rest.chars().next().is_some_and(is_lua_identifier_character) {
-            continue;
-        }
-        let rest = source.get(start + variable.len()..)?.trim_start();
-        let Some((field_name, rest)) =
-            lua_color_variable_mutation_field_from_query_with_static_key(source, rest, start)
-        else {
-            continue;
-        };
-        let rest = lua_trim_start_comments(rest)?;
-        if field_name == "tab_bar" {
-            continue;
-        }
-        if field_name == "indexed"
+    let statement = source.get(statement_start..statement_end)?;
+    let rest = statement.strip_prefix(variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = statement.get(variable.len()..)?.trim_start();
+    let (field_name, rest) = lua_color_variable_mutation_field_from_query_with_static_key(
+        source,
+        rest,
+        statement_start,
+    )?;
+    let rest = lua_trim_start_comments(rest)?;
+    if field_name == "tab_bar"
+        || field_name == "indexed"
             && lua_color_variable_mutation_array_index_from_query(rest).is_some()
+    {
+        return None;
+    }
+    let value = lua_color_variable_mutation_value_literal_from_query(rest.strip_prefix('=')?)?;
+    if value.is_empty() {
+        return None;
+    }
+    if matches!(field_name.as_str(), "ansi" | "brights") {
+        let value = value.trim();
+        if value.starts_with('{')
+            && value
+                .strip_prefix('{')?
+                .strip_suffix('}')?
+                .trim()
+                .is_empty()
         {
-            continue;
+            return None;
         }
-        let Some(value) = rest.strip_prefix('=') else {
-            continue;
-        };
-        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-        if value.is_empty() {
-            continue;
+    }
+    if lua_color_spec_field_name(&field_name) {
+        let value = value.trim();
+        if value.starts_with('{')
+            && value
+                .strip_prefix('{')?
+                .strip_suffix('}')?
+                .trim()
+                .is_empty()
+        {
+            return None;
         }
-        if matches!(field_name.as_str(), "ansi" | "brights") {
-            let value = value.trim();
-            if value.starts_with('{')
-                && value
-                    .strip_prefix('{')?
-                    .strip_suffix('}')?
-                    .trim()
-                    .is_empty()
-            {
+    }
+    if field_name == "indexed" {
+        let indexed_table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+        for entry in split_lua_table_top_level_fields(indexed_table)? {
+            let entry = entry.trim();
+            if entry.is_empty() {
                 continue;
             }
+            let (index, color) = split_lua_table_assignment_from_field(entry)?;
+            let index = split_lua_table_array_index_from_query(index.trim())?;
+            indexed_fields.insert(index, color.trim().to_owned());
         }
-        if lua_color_spec_field_name(&field_name) {
-            let value = value.trim();
-            if value.starts_with('{')
-                && value
-                    .strip_prefix('{')?
-                    .strip_suffix('}')?
-                    .trim()
-                    .is_empty()
-            {
-                continue;
-            }
-        }
-        if field_name == "indexed" {
-            let indexed_table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-            for entry in split_lua_table_top_level_fields(indexed_table)? {
-                let entry = entry.trim();
-                if entry.is_empty() {
-                    continue;
-                }
-                let (index, color) = split_lua_table_assignment_from_field(entry)?;
-                let index = split_lua_table_array_index_from_query(index.trim())?;
-                indexed_fields.insert(index, color.trim().to_owned());
-            }
-            continue;
-        }
+    } else {
         fields.push(format!("{field_name} = {value}"));
     }
 
@@ -68564,190 +68715,156 @@ fn lua_color_variable_mutation_table_from_query(
 fn apply_lua_color_variable_indexed_palette_slot_mutation_overrides(
     source: &str,
     variable: &str,
-    min_start: usize,
-    max_start: usize,
+    statement_start: usize,
+    statement_end: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
-    let mut parsed = false;
-
-    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
-        if start < min_start {
-            continue;
-        }
-        let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
-            continue;
-        };
-        if rest.chars().next().is_some_and(is_lua_identifier_character) {
-            continue;
-        }
-        let rest = source.get(start + variable.len()..)?.trim_start();
-        let Some((field_name, rest)) =
-            lua_color_variable_mutation_field_from_query_with_static_key(source, rest, start)
-        else {
-            continue;
-        };
-        if field_name != "indexed" {
-            continue;
-        }
-
-        let rest = lua_trim_start_comments(rest)?;
-        let Some((index, rest)) = lua_color_variable_mutation_array_index_from_query(rest) else {
-            continue;
-        };
-        if !(16..=255).contains(&index) {
-            return None;
-        }
-        let rest = lua_trim_start_comments(rest)?;
-        let Some(value) = rest.strip_prefix('=') else {
-            continue;
-        };
-        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-        let value = parse_maybe_quoted_query_text(value)?;
-        let mut palette = overrides.indexed_palette.unwrap_or([None; 256]);
-        palette[index] = Some(lua_opaque_color_from_query_with_static_source(
-            Some(LuaStaticSource {
-                source,
-                max_start: start,
-            }),
-            &value,
-        )?);
-        overrides.indexed_palette = Some(palette);
-        parsed = true;
+    let statement = source.get(statement_start..statement_end)?;
+    let Some(rest) = statement.strip_prefix(variable) else {
+        return Some(false);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(false);
     }
+    let rest = statement.get(variable.len()..)?.trim_start();
+    let Some((field_name, rest)) =
+        lua_color_variable_mutation_field_from_query_with_static_key(source, rest, statement_start)
+    else {
+        return Some(false);
+    };
+    if field_name != "indexed" {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    let Some((index, rest)) = lua_color_variable_mutation_array_index_from_query(rest) else {
+        return Some(false);
+    };
+    if !(16..=255).contains(&index) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    let Some(value) = rest.strip_prefix('=') else {
+        return Some(false);
+    };
+    let value = parse_maybe_quoted_query_text(
+        lua_color_variable_mutation_value_literal_from_query(value)?,
+    )?;
+    let mut palette = overrides.indexed_palette.unwrap_or([None; 256]);
+    palette[index] = Some(lua_opaque_color_from_query_with_static_source(
+        Some(LuaStaticSource {
+            source,
+            max_start: statement_start,
+        }),
+        &value,
+    )?);
+    overrides.indexed_palette = Some(palette);
 
-    Some(parsed)
+    Some(true)
 }
 
 fn apply_lua_color_variable_palette_slot_mutation_overrides(
     source: &str,
     variable: &str,
-    min_start: usize,
-    max_start: usize,
+    statement_start: usize,
+    statement_end: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
-    let mut parsed = false;
-
-    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
-        if start < min_start {
-            continue;
-        }
-        let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
-            continue;
-        };
-        if rest.chars().next().is_some_and(is_lua_identifier_character) {
-            continue;
-        }
-        let rest = source.get(start + variable.len()..)?.trim_start();
-        let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            continue;
-        };
-        let Some(offset) = (match field_name.as_str() {
-            "ansi" => Some(0),
-            "brights" => Some(8),
-            _ => None,
-        }) else {
-            continue;
-        };
-        let rest = lua_trim_start_comments(rest)?;
-        let mut palette = overrides
-            .ansi_palette
-            .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
-
-        if let Some((index, rest)) = lua_color_variable_mutation_array_index_from_query(rest) {
-            if !(1..=8).contains(&index) {
-                return None;
-            }
-            let rest = lua_trim_start_comments(rest)?;
-            let Some(value) = rest.strip_prefix('=') else {
-                continue;
-            };
-            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-            let value = parse_maybe_quoted_query_text(value)?;
-            palette[offset + index - 1] = lua_opaque_color_from_query_with_static_source(
-                Some(LuaStaticSource {
-                    source,
-                    max_start: start,
-                }),
-                &value,
-            )?;
-        } else {
-            let Some(value) = rest.strip_prefix('=') else {
-                continue;
-            };
-            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-            let trimmed_value = value.trim();
-            if trimmed_value.starts_with('{')
-                && trimmed_value
-                    .strip_prefix('{')?
-                    .strip_suffix('}')?
-                    .trim()
-                    .is_empty()
-            {
-                continue;
-            }
-            let values = split_lua_table_string_array_with_static_source(
-                Some(LuaStaticSource {
-                    source,
-                    max_start: start,
-                }),
-                value,
-            )?;
-            let colors = values
-                .iter()
-                .map(|value| {
-                    lua_opaque_color_from_query_with_static_source(
-                        Some(LuaStaticSource {
-                            source,
-                            max_start: start,
-                        }),
-                        value,
-                    )
-                })
-                .collect::<Option<Vec<_>>>()?;
-            let colors = <[Color; 8]>::try_from(colors).ok()?;
-            palette[offset..offset + 8].copy_from_slice(&colors);
-        }
-
-        overrides.ansi_palette = Some(palette);
-        parsed = true;
+    let statement = source.get(statement_start..statement_end)?;
+    let Some(rest) = statement.strip_prefix(variable) else {
+        return Some(false);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(false);
     }
+    let rest = statement.get(variable.len()..)?.trim_start();
+    let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
+        return Some(false);
+    };
+    let Some(offset) = (match field_name.as_str() {
+        "ansi" => Some(0),
+        "brights" => Some(8),
+        _ => None,
+    }) else {
+        return Some(false);
+    };
+    let rest = lua_trim_start_comments(rest)?;
+    let mut palette = overrides
+        .ansi_palette
+        .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
 
-    Some(parsed)
+    if let Some((index, rest)) = lua_color_variable_mutation_array_index_from_query(rest) {
+        if !(1..=8).contains(&index) {
+            return None;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            return Some(false);
+        };
+        let value = parse_maybe_quoted_query_text(
+            lua_color_variable_mutation_value_literal_from_query(value)?,
+        )?;
+        palette[offset + index - 1] = lua_opaque_color_from_query_with_static_source(
+            Some(LuaStaticSource {
+                source,
+                max_start: statement_start,
+            }),
+            &value,
+        )?;
+    } else {
+        let Some(value) = rest.strip_prefix('=') else {
+            return Some(false);
+        };
+        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+        let values = split_lua_table_string_array_with_static_source(
+            Some(LuaStaticSource {
+                source,
+                max_start: statement_start,
+            }),
+            value,
+        )?;
+        let colors = values
+            .iter()
+            .map(|value| {
+                lua_opaque_color_from_query_with_static_source(
+                    Some(LuaStaticSource {
+                        source,
+                        max_start: statement_start,
+                    }),
+                    value,
+                )
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let colors = <[Color; 8]>::try_from(colors).ok()?;
+        palette[offset..offset + 8].copy_from_slice(&colors);
+    }
+    overrides.ansi_palette = Some(palette);
+
+    Some(true)
 }
 
 fn apply_lua_color_variable_tab_bar_mutation_overrides(
     source: &str,
     variable: &str,
-    min_start: usize,
-    max_start: usize,
+    statement_start: usize,
+    statement_end: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
-    let mut parsed = false;
-
-    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
-        if start < min_start {
-            continue;
-        }
-        let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
-            continue;
-        };
-        if rest.chars().next().is_some_and(is_lua_identifier_character) {
-            continue;
-        }
-        let rest = source.get(start + variable.len()..)?.trim_start();
-        let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            continue;
-        };
-        if field_name != "tab_bar" {
-            continue;
-        }
-
-        if apply_lua_tab_bar_color_mutation_rest(source, rest, start, overrides)? {
-            parsed = true;
-        }
+    let statement = source.get(statement_start..statement_end)?;
+    let Some(rest) = statement.strip_prefix(variable) else {
+        return Some(false);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(false);
+    }
+    let rest = statement.get(variable.len()..)?.trim_start();
+    let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
+        return Some(false);
+    };
+    if field_name != "tab_bar" {
+        return Some(false);
     }
 
-    Some(parsed)
+    apply_lua_tab_bar_color_mutation_rest(source, rest, statement_start, overrides)
 }
 
 fn apply_lua_tab_bar_color_mutation_rest(
@@ -129515,6 +129632,57 @@ mod tests {
             .expect("expected an indexed palette after the slot patch");
         assert_eq!(indexed[136], None);
         assert_eq!(indexed[137], Some(Color::Rgb(4, 5, 6)));
+    }
+
+    #[test]
+    fn window_app_reduces_palette_whole_replacements_and_slot_patches_in_source_order() {
+        for (label, mutations, expected) in [
+            (
+                "whole replacement wins last",
+                r##"
+                scheme.ansi[1] = '#010203'
+                scheme.ansi = {
+                  '#101112', '#131415', '#161718', '#191a1b',
+                  '#1c1d1e', '#1f2021', '#222324', '#252627',
+                }
+                "##,
+                Color::Rgb(16, 17, 18),
+            ),
+            (
+                "slot patch wins last",
+                r##"
+                scheme.ansi = {
+                  '#101112', '#131415', '#161718', '#191a1b',
+                  '#1c1d1e', '#1f2021', '#222324', '#252627',
+                }
+                scheme.ansi[1] = '#010203'
+                "##,
+                Color::Rgb(1, 2, 3),
+            ),
+        ] {
+            let source = format!(
+                r##"
+                local config = {{}}
+                local scheme = {{
+                  foreground = '#101112',
+                  background = '#131415',
+                }}
+                {mutations}
+                config.colors = scheme
+                return config
+                "##,
+            );
+            let mut app = NativeWindowApp::new(None);
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&source)
+                .unwrap_or_else(|| panic!("expected ordered palette mutations: {label}"));
+            app.set_config_overrides(overrides);
+
+            let palette = app
+                .native_effective_config()
+                .ansi_palette
+                .expect("expected an ANSI palette");
+            assert_eq!(palette[0], expected, "{label}");
+        }
     }
 
     #[test]
