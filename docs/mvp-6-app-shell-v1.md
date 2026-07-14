@@ -1517,9 +1517,17 @@ runtime storage for tabs and split panes.
   table entries (inline or direct assignment) before selected-entry mutations.
   Built-in lookup also supports top-level static helper aliases, parenthesized
   `require('wezterm')` receivers, and canonical static-key access, with the same
-  restrictions as static `load_scheme` resolution. Lua event wiring, richer
-  dynamic `load_scheme` composition, and arbitrary Lua resolution remain later
-  parity work.
+  restrictions as static `load_scheme` resolution. Bounded-static
+  `wezterm.color.get_default_colors()` is also accepted for direct or returned
+  `config.colors`, intermediate palette variables, and inline/direct
+  `config.color_schemes['Name']` entries. Exact zero-argument calls accept the
+  same statically proven module, color-namespace, function, and key aliases;
+  supported mutations replay in source order, including fresh-call rebinding.
+  The palette is pinned to WezTerm `093bf6b`, including alpha-bearing selection
+  colors, all 16 ANSI colors, and indexed colors 16 through 255. Arguments,
+  expression tails, dynamic keys or rebinding, escaped identities, arbitrary
+  Lua execution, Lua event wiring, and richer dynamic `load_scheme`
+  composition remain later parity work.
 - `rssh-app` preserves CSI focus-reporting writes on window focus changes and
   dispatches a typed native-window focus-change hook with the window id, active
   pane id, and focused/unfocused state. Lua event wiring remains later parity

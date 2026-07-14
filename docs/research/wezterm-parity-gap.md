@@ -3530,12 +3530,20 @@ what remains before WezTerm-style parity in key UX/composition areas.
   order across scalar fields, whole indexed/ANSI/bright tables, palette slots,
   tab-bar replacements/nested fields, and ColorSpec replacements/nested fields;
   closure captures, aliases, rebinding, and lexical shadowing fail closed when
-  identity cannot be proven. The pinned `093bf6b` data validation covers all
-  1,001 canonical records and WezTerm's final 1,113 effective canonical/alias
-  keys, including its ordered collision semantics. Remaining open boundaries
-  include dynamic key/index selection, iteration, arbitrary Lua execution,
-  unproven result-table aliases, `get_default_colors` calls, and color-object
-  analysis.
+  identity cannot be proven. Exact zero-argument
+  `wezterm.color.get_default_colors()` calls now use the same shared palette
+  pipeline for direct or returned `config.colors`, intermediate variables, and
+  inline/direct `config.color_schemes['Name']` entries. Canonical calls plus
+  statically proven module, color-namespace, function, and key aliases are
+  supported, and the ordered reducer handles supported mutations and fresh-call
+  rebinding. The pinned `093bf6b` default-palette validation covers every
+  exposed scalar/optional field, all 16 ANSI colors, and all 240 indexed colors
+  from 16 through 255, including selection alpha truncation. The same pinned
+  data validation covers all 1,001 built-in canonical records and WezTerm's
+  final 1,113 effective canonical/alias keys, including its ordered collision
+  semantics. Remaining open boundaries include calls with arguments or
+  expression tails, dynamic key/index selection, iteration, arbitrary Lua
+  execution, unproven or escaped identities, and color-object analysis.
   Static `load_scheme` result-variable references resolve to the
   latest top-level binding before the `config.colors` assignment and ignore
   helper-function-local bindings/mutations plus later rebinding, including

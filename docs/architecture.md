@@ -1707,9 +1707,18 @@ keyboard, mouse, paste, resize
   `config.color_schemes['Name']` table entries (inline or direct assignment)
   before selected-entry mutations. Built-in lookup also accepts top-level static
   helper aliases, parenthesized `require('wezterm')` receivers, and canonical
-  static-key access, following the same `load_scheme`-shape restrictions. Lua
-  event wiring, richer dynamic `load_scheme` composition, and arbitrary Lua
-  resolution remain future parity work.
+  static-key access, following the same `load_scheme`-shape restrictions.
+  Bounded-static `wezterm.color.get_default_colors()` is also a shared palette
+  source for direct or returned `config.colors`, intermediate palette
+  variables, and inline/direct `config.color_schemes['Name']` entries. Exact
+  zero-argument calls accept the same statically proven module, color-namespace,
+  function, and key aliases; the existing reducer then replays supported
+  mutations in source order, including fresh-call rebinding. Its palette is
+  pinned to WezTerm `093bf6b`, including alpha-bearing selection colors, all 16
+  ANSI colors, and every indexed color from 16 through 255. Arguments,
+  expression tails, dynamic keys or rebinding, escaped identities, and
+  arbitrary Lua execution remain unsupported. Lua event wiring and richer
+  dynamic `load_scheme` composition remain future parity work.
 - Implemented in v1: native window focus changes still write CSI focus-reporting
   sequences to the PTY when requested and now dispatch a typed focus-change hook
   with the window id, active pane id, and focused/unfocused state. Lua event
