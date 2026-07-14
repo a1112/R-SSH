@@ -3520,14 +3520,22 @@ what remains before WezTerm-style parity in key UX/composition areas.
   remains bounded static interpretation: paths derived from dynamic helpers,
   branches, or environment-backed values, `wezterm.config_dir` composition,
   arbitrary Lua execution, and downstream consumption of returned `metadata`
-  remain open. Modern and legacy built-in lookups are also supported in
-  this bounded pipeline through static-key access and direct/static aliases: both
-  `wezterm.color.get_builtin_schemes()['Name']` and
-  `wezterm.get_builtin_color_schemes()['Name']` can feed `config.colors` and
-  selected `config.color_schemes['Name']`, with supported variable references and
-  entry mutations applied. Remaining open boundaries include whole-map variables,
-  dynamic key/index selection, iteration, `get_default_colors` calls, and
-  color-object analysis.
+  remain open. Modern and legacy built-in lookups are also supported in this
+  bounded pipeline through static-key access and direct/static aliases. Both
+  `wezterm.color.get_builtin_schemes()` and
+  `wezterm.get_builtin_color_schemes()` may be retained as whole-map variables,
+  indexed with static literal or statically bound keys, and consumed by
+  `config.colors`, inline/direct `config.color_schemes['Name']` entries, or an
+  intermediate palette variable. Supported palette mutations replay in source
+  order across scalar fields, whole indexed/ANSI/bright tables, palette slots,
+  tab-bar replacements/nested fields, and ColorSpec replacements/nested fields;
+  closure captures, aliases, rebinding, and lexical shadowing fail closed when
+  identity cannot be proven. The pinned `093bf6b` data validation covers all
+  1,001 canonical records and WezTerm's final 1,113 effective canonical/alias
+  keys, including its ordered collision semantics. Remaining open boundaries
+  include dynamic key/index selection, iteration, arbitrary Lua execution,
+  unproven result-table aliases, `get_default_colors` calls, and color-object
+  analysis.
   Static `load_scheme` result-variable references resolve to the
   latest top-level binding before the `config.colors` assignment and ignore
   helper-function-local bindings/mutations plus later rebinding, including

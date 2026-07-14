@@ -19445,6 +19445,18 @@ fn lua_palette_mutation_event_from_statement(
     if !rest.starts_with('.') && !rest.starts_with('[') {
         return Some(None);
     }
+    let Some((field_name, _)) = lua_color_variable_mutation_field_from_query_with_static_key(
+        source,
+        rest,
+        statement_range.start,
+    ) else {
+        return Some(None);
+    };
+    if !lua_palette_mutation_field_name(&field_name) {
+        return Some(Some(LuaPaletteMutationEvent {
+            statement: statement_range,
+        }));
+    }
     if lua_static_query_contains_identifier(value, variable)?
         || !lua_color_variable_mutation_rhs_is_exact_static_expression(value)?
     {
@@ -19472,6 +19484,28 @@ fn lua_palette_mutation_event_from_statement(
             statement: statement_range,
         }),
     )
+}
+
+fn lua_palette_mutation_field_name(field_name: &str) -> bool {
+    lua_color_spec_field_name(field_name)
+        || matches!(
+            field_name,
+            "foreground"
+                | "background"
+                | "ansi"
+                | "brights"
+                | "indexed"
+                | "selection_fg"
+                | "selection_bg"
+                | "cursor_bg"
+                | "cursor_border"
+                | "cursor_fg"
+                | "compose_cursor"
+                | "split"
+                | "scrollbar_thumb"
+                | "tab_bar"
+                | "visual_bell"
+        )
 }
 
 fn lua_color_variable_mutation_rhs_is_exact_static_expression(value: &str) -> Option<bool> {
@@ -19779,7 +19813,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
             Some(BUILTIN_BESPIN_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
         "Bim (Gogh)" => Some(BUILTIN_BIM_GOGH_COLOR_SCHEME_TOML),
-        "Birds Of Paradise (Gogh)" => Some(BUILTIN_BIRDS_OF_PARADISE_GOGH_COLOR_SCHEME_TOML),
+        "Birds Of Paradise (Gogh)" => Some(BUILTIN_BIRDSOFPARADISE_COLOR_SCHEME_TOML),
         "BirdsOfParadise" => Some(BUILTIN_BIRDSOFPARADISE_COLOR_SCHEME_TOML),
         "Bitmute (terminal.sexy)" => Some(BUILTIN_BITMUTE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Black Metal (base16)" => Some(BUILTIN_BLACK_METAL_BASE16_COLOR_SCHEME_TOML),
@@ -19867,7 +19901,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Catppuccin Frappe" => Some(BUILTIN_CATPPUCCIN_FRAPPE_COLOR_SCHEME_TOML),
         "Catppuccin Frapp\u{e9} (Gogh)" => Some(BUILTIN_CATPPUCCIN_FRAPPE_GOGH_COLOR_SCHEME_TOML),
         "Catppuccin Latte" => Some(BUILTIN_CATPPUCCIN_LATTE_COLOR_SCHEME_TOML),
-        "Catppuccin Latte (Gogh)" => Some(BUILTIN_CATPPUCCIN_LATTE_GOGH_COLOR_SCHEME_TOML),
+        "Catppuccin Latte (Gogh)" => Some(BUILTIN_CATPPUCCIN_LATTE_ALIAS_COLOR_SCHEME_TOML),
         "Catppuccin Macchiato" => Some(BUILTIN_CATPPUCCIN_MACCHIATO_COLOR_SCHEME_TOML),
         "Catppuccin Macchiato (Gogh)" => Some(BUILTIN_CATPPUCCIN_MACCHIATO_GOGH_COLOR_SCHEME_TOML),
         "Catppuccin Mocha" => Some(BUILTIN_CATPPUCCIN_MOCHA_COLOR_SCHEME_TOML),
@@ -19904,7 +19938,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Cloud (terminal.sexy)" => Some(BUILTIN_CLOUD_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "CLRS" => Some(BUILTIN_CLRS_COLOR_SCHEME_TOML),
         "Clrs (Gogh)" => Some(BUILTIN_CLRS_GOGH_COLOR_SCHEME_TOML),
-        "Cobalt 2 (Gogh)" => Some(BUILTIN_COBALT_2_GOGH_COLOR_SCHEME_TOML),
+        "Cobalt 2 (Gogh)" => Some(BUILTIN_COBALT2_COLOR_SCHEME_TOML),
         "Cobalt Neon" | "CobaltNeon (Gogh)" => Some(BUILTIN_COBALT_NEON_COLOR_SCHEME_TOML),
         "Cobalt Neon (Gogh)" => Some(BUILTIN_COBALT_NEON_GOGH_COLOR_SCHEME_TOML),
         "Cobalt2" => Some(BUILTIN_COBALT2_COLOR_SCHEME_TOML),
@@ -19925,7 +19959,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Count Von Count (terminal.sexy)" => {
             Some(BUILTIN_COUNT_VON_COUNT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
-        "Crayon Pony Fish (Gogh)" => Some(BUILTIN_CRAYON_PONY_FISH_GOGH_COLOR_SCHEME_TOML),
+        "Crayon Pony Fish (Gogh)" => Some(BUILTIN_CRAYON_PONY_FISH_COLOR_SCHEME_TOML),
         "CrayonPonyFish" => Some(BUILTIN_CRAYON_PONY_FISH_COLOR_SCHEME_TOML),
         "Cupcake (base16)" => Some(BUILTIN_CUPCAKE_BASE16_COLOR_SCHEME_TOML),
         "Cupertino (base16)" => Some(BUILTIN_CUPERTINO_BASE16_COLOR_SCHEME_TOML),
@@ -19967,7 +20001,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Desert" => Some(BUILTIN_DESERT_COLOR_SCHEME_TOML),
         "Desert (Gogh)" => Some(BUILTIN_DESERT_GOGH_COLOR_SCHEME_TOML),
         "Digerati (terminal.sexy)" => Some(BUILTIN_DIGERATI_TERMINAL_SEXY_COLOR_SCHEME_TOML),
-        "Dimmed Monokai (Gogh)" => Some(BUILTIN_DIMMED_MONOKAI_GOGH_COLOR_SCHEME_TOML),
+        "Dimmed Monokai (Gogh)" => Some(BUILTIN_DIMMED_MONOKAI_COLOR_SCHEME_TOML),
         "DimmedMonokai" => Some(BUILTIN_DIMMED_MONOKAI_COLOR_SCHEME_TOML),
         "dirtysea (base16)" => Some(BUILTIN_DIRTYSEA_BASE16_COLOR_SCHEME_TOML),
         "Dissonance (Gogh)" => Some(BUILTIN_DISSONANCE_GOGH_COLOR_SCHEME_TOML),
@@ -20121,10 +20155,10 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Framer" => Some(BUILTIN_FRAMER_COLOR_SCHEME_TOML),
         "Framer (base16)" => Some(BUILTIN_FRAMER_BASE16_COLOR_SCHEME_TOML),
         "Freya (Gogh)" => Some(BUILTIN_FREYA_GOGH_COLOR_SCHEME_TOML),
-        "Frontend Delight (Gogh)" => Some(BUILTIN_FRONTEND_DELIGHT_GOGH_COLOR_SCHEME_TOML),
-        "Frontend Fun Forrest (Gogh)" => Some(BUILTIN_FRONTEND_FUN_FORREST_GOGH_COLOR_SCHEME_TOML),
+        "Frontend Delight (Gogh)" => Some(BUILTIN_FRONTENDDELIGHT_COLOR_SCHEME_TOML),
+        "Frontend Fun Forrest (Gogh)" => Some(BUILTIN_FUNFORREST_COLOR_SCHEME_TOML),
         "Frontend Galaxy (Gogh)" | "FrontendGalaxy (Gogh)" => {
-            Some(BUILTIN_FRONTEND_GALAXY_GOGH_COLOR_SCHEME_TOML)
+            Some(BUILTIN_GALAXY_COLOR_SCHEME_TOML)
         }
         "FrontEndDelight" | "FrontendDelight (Gogh)" => {
             Some(BUILTIN_FRONTENDDELIGHT_COLOR_SCHEME_TOML)
@@ -20146,9 +20180,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Gnometerm (terminal.sexy)" => Some(BUILTIN_GNOMETERM_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Gogh (Gogh)" => Some(BUILTIN_GOGH_GOGH_COLOR_SCHEME_TOML),
         "Gooey (Gogh)" | "gooey (Gogh)" => Some(BUILTIN_GOOEY_GOGH_COLOR_SCHEME_TOML),
-        "Google (dark) (terminal.sexy)" => {
-            Some(BUILTIN_GOOGLE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
-        }
+        "Google (dark) (terminal.sexy)" => Some(BUILTIN_GOOGLE_DARK_BASE16_COLOR_SCHEME_TOML),
         "Google (light) (terminal.sexy)" => {
             Some(BUILTIN_GOOGLE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
@@ -20167,9 +20199,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Grape (Gogh)" => Some(BUILTIN_GRAPE_GOGH_COLOR_SCHEME_TOML),
         "Grass" => Some(BUILTIN_GRASS_COLOR_SCHEME_TOML),
         "Grass (Gogh)" => Some(BUILTIN_GRASS_GOGH_COLOR_SCHEME_TOML),
-        "Grayscale (dark) (terminal.sexy)" => {
-            Some(BUILTIN_GRAYSCALE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
-        }
+        "Grayscale (dark) (terminal.sexy)" => Some(BUILTIN_GRAYSCALE_DARK_BASE16_COLOR_SCHEME_TOML),
         "Grayscale (light) (terminal.sexy)" => {
             Some(BUILTIN_GRAYSCALE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
@@ -20185,7 +20215,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Grey-green" => Some(BUILTIN_GREY_GREEN_COLOR_SCHEME_TOML),
         "Gruber (base16)" => Some(BUILTIN_GRUBER_BASE16_COLOR_SCHEME_TOML),
         "Gruvbox (Gogh)" => Some(BUILTIN_GRUVBOX_GOGH_COLOR_SCHEME_TOML),
-        "Gruvbox Dark (Gogh)" => Some(BUILTIN_GRUVBOX_DARK_GOGH_COLOR_SCHEME_TOML),
+        "Gruvbox Dark (Gogh)" => Some(BUILTIN_GRUVBOXDARK_COLOR_SCHEME_TOML),
         "Gruvbox dark, hard (base16)" => Some(BUILTIN_GRUVBOX_DARK_HARD_BASE16_COLOR_SCHEME_TOML),
         "Gruvbox dark, medium (base16)" => {
             Some(BUILTIN_GRUVBOX_DARK_MEDIUM_BASE16_COLOR_SCHEME_TOML)
@@ -20230,10 +20260,10 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Hivacruz" => Some(BUILTIN_HIVACRUZ_COLOR_SCHEME_TOML),
         "Homebrew" => Some(BUILTIN_HOMEBREW_COLOR_SCHEME_TOML),
         "Homebrew (Gogh)" => Some(BUILTIN_HOMEBREW_GOGH_COLOR_SCHEME_TOML),
-        "Homebrew Light (Gogh)" => Some(BUILTIN_HOMEBREW_LIGHT_GOGH_COLOR_SCHEME_TOML),
-        "Homebrew Ocean (Gogh)" => Some(BUILTIN_HOMEBREW_OCEAN_GOGH_COLOR_SCHEME_TOML),
+        "Homebrew Light (Gogh)" => Some(BUILTIN_TERMINAL_BASIC_COLOR_SCHEME_TOML),
+        "Homebrew Ocean (Gogh)" => Some(BUILTIN_OCEAN_COLOR_SCHEME_TOML),
         "Hopscotch" => Some(BUILTIN_HOPSCOTCH_COLOR_SCHEME_TOML),
-        "Hopscotch (base16)" => Some(BUILTIN_HOPSCOTCH_BASE16_COLOR_SCHEME_TOML),
+        "Hopscotch (base16)" => Some(BUILTIN_HOPSCOTCH_256_COLOR_SCHEME_TOML),
         "Hopscotch.256" => Some(BUILTIN_HOPSCOTCH_256_COLOR_SCHEME_TOML),
         "Horizon Bright (Gogh)" | "HorizonBright (Gogh)" => {
             Some(BUILTIN_HORIZON_BRIGHT_GOGH_COLOR_SCHEME_TOML)
@@ -20258,7 +20288,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Ic Green Ppl (Gogh)" | "ICGreenPPL (Gogh)" => {
             Some(BUILTIN_IC_GREEN_PPL_GOGH_COLOR_SCHEME_TOML)
         }
-        "Ic Orange Ppl (Gogh)" => Some(BUILTIN_IC_ORANGE_PPL_GOGH_COLOR_SCHEME_TOML),
+        "Ic Orange Ppl (Gogh)" => Some(BUILTIN_IC_ORANGE_PPL_COLOR_SCHEME_TOML),
         "IC_Green_PPL" => Some(BUILTIN_IC_GREEN_PPL_COLOR_SCHEME_TOML),
         "IC_Orange_PPL" | "ICOrangePPL (Gogh)" => Some(BUILTIN_IC_ORANGE_PPL_COLOR_SCHEME_TOML),
         "Iceberg (Gogh)" => Some(BUILTIN_ICEBERG_GOGH_COLOR_SCHEME_TOML),
@@ -20266,7 +20296,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "iceberg-light" => Some(BUILTIN_ICEBERG_LIGHT_COLOR_SCHEME_TOML),
         "Icy Dark (base16)" => Some(BUILTIN_ICY_DARK_BASE16_COLOR_SCHEME_TOML),
         "idea" => Some(BUILTIN_IDEA_COLOR_SCHEME_TOML),
-        "Idle Toes (Gogh)" => Some(BUILTIN_IDLE_TOES_GOGH_COLOR_SCHEME_TOML),
+        "Idle Toes (Gogh)" => Some(BUILTIN_IDLETOES_COLOR_SCHEME_TOML),
         "idleToes" | "IdleToes (Gogh)" => Some(BUILTIN_IDLETOES_COLOR_SCHEME_TOML),
         "Iiamblack (terminal.sexy)" => Some(BUILTIN_IIAMBLACK_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Insignificato (terminal.sexy)" => {
@@ -20327,9 +20357,9 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Lavandula" => Some(BUILTIN_LAVANDULA_COLOR_SCHEME_TOML),
         "Lavandula (Gogh)" => Some(BUILTIN_LAVANDULA_GOGH_COLOR_SCHEME_TOML),
         "Light White (terminal.sexy)" => Some(BUILTIN_LIGHT_WHITE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
-        "Liquid Carbon (Gogh)" => Some(BUILTIN_LIQUID_CARBON_GOGH_COLOR_SCHEME_TOML),
+        "Liquid Carbon (Gogh)" => Some(BUILTIN_LIQUIDCARBON_COLOR_SCHEME_TOML),
         "Liquid Carbon Transparent (Gogh)" => {
-            Some(BUILTIN_LIQUID_CARBON_TRANSPARENT_GOGH_COLOR_SCHEME_TOML)
+            Some(BUILTIN_LIQUIDCARBONTRANSPARENT_COLOR_SCHEME_TOML)
         }
         "LiquidCarbon" => Some(BUILTIN_LIQUIDCARBON_COLOR_SCHEME_TOML),
         "LiquidCarbonTransparent" => Some(BUILTIN_LIQUIDCARBONTRANSPARENT_COLOR_SCHEME_TOML),
@@ -20425,7 +20455,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Modus-Vivendi-Tritanopia" => Some(BUILTIN_MODUS_VIVENDI_TRITANOPIA_COLOR_SCHEME_TOML),
         "Molokai" => Some(BUILTIN_MOLOKAI_COLOR_SCHEME_TOML),
         "Molokai (Gogh)" => Some(BUILTIN_MOLOKAI_GOGH_COLOR_SCHEME_TOML),
-        "Mona Lisa (Gogh)" => Some(BUILTIN_MONA_LISA_GOGH_COLOR_SCHEME_TOML),
+        "Mona Lisa (Gogh)" => Some(BUILTIN_MONALISA_COLOR_SCHEME_TOML),
         "MonaLisa" => Some(BUILTIN_MONALISA_COLOR_SCHEME_TOML),
         "Mono (terminal.sexy)" => Some(BUILTIN_MONO_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Mono Amber (Gogh)" | "mono-amber (Gogh)" => {
@@ -20528,7 +20558,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
             Some(BUILTIN_OCEAN_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
         "Ocean Dark (Gogh)" | "OceanDark (Gogh)" => Some(BUILTIN_OCEAN_DARK_GOGH_COLOR_SCHEME_TOML),
-        "Oceanic Next (Gogh)" => Some(BUILTIN_OCEANIC_NEXT_GOGH_COLOR_SCHEME_TOML),
+        "Oceanic Next (Gogh)" => Some(BUILTIN_OCEANIC_NEXT_COLOR_SCHEME_TOML),
         "Oceanic-Next" | "OceanicNext (Gogh)" => Some(BUILTIN_OCEANIC_NEXT_COLOR_SCHEME_TOML),
         "OceanicMaterial" => Some(BUILTIN_OCEANICMATERIAL_COLOR_SCHEME_TOML),
         "OceanicNext (base16)" => Some(BUILTIN_OCEANICNEXT_BASE16_COLOR_SCHEME_TOML),
@@ -20564,10 +20594,8 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Papercolor Light (Gogh)" | "PaperColorLight (Gogh)" => {
             Some(BUILTIN_PAPERCOLOR_LIGHT_GOGH_COLOR_SCHEME_TOML)
         }
-        "Paraiso (base16)" => Some(BUILTIN_PARAISO_BASE16_COLOR_SCHEME_TOML),
-        "Paraiso (dark) (terminal.sexy)" => {
-            Some(BUILTIN_PARAISO_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
-        }
+        "Paraiso (base16)" => Some(BUILTIN_PARAISO_DARK_COLOR_SCHEME_TOML),
+        "Paraiso (dark) (terminal.sexy)" => Some(BUILTIN_PARAISO_DARK_COLOR_SCHEME_TOML),
         "Paraiso (light) (terminal.sexy)" => {
             Some(BUILTIN_PARAISO_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
@@ -20582,8 +20610,8 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Paul Millr (Gogh)" | "PaulMillr (Gogh)" => Some(BUILTIN_PAUL_MILLR_GOGH_COLOR_SCHEME_TOML),
         "PaulMillr" => Some(BUILTIN_PAULMILLR_COLOR_SCHEME_TOML),
-        "Pencil Dark (Gogh)" => Some(BUILTIN_PENCIL_DARK_GOGH_COLOR_SCHEME_TOML),
-        "Pencil Light (Gogh)" => Some(BUILTIN_PENCIL_LIGHT_GOGH_COLOR_SCHEME_TOML),
+        "Pencil Dark (Gogh)" => Some(BUILTIN_PENCILDARK_COLOR_SCHEME_TOML),
+        "Pencil Light (Gogh)" => Some(BUILTIN_PENCILLIGHT_COLOR_SCHEME_TOML),
         "PencilDark" => Some(BUILTIN_PENCILDARK_COLOR_SCHEME_TOML),
         "PencilLight" => Some(BUILTIN_PENCILLIGHT_COLOR_SCHEME_TOML),
         "Peppermint" => Some(BUILTIN_PEPPERMINT_COLOR_SCHEME_TOML),
@@ -20669,7 +20697,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Sandcastle (base16)" => Some(BUILTIN_SANDCASTLE_BASE16_COLOR_SCHEME_TOML),
         "Sat (Gogh)" => Some(BUILTIN_SAT_GOGH_COLOR_SCHEME_TOML),
         "Scarlet Protocol" => Some(BUILTIN_SCARLET_PROTOCOL_COLOR_SCHEME_TOML),
-        "Sea Shells (Gogh)" => Some(BUILTIN_SEA_SHELLS_GOGH_COLOR_SCHEME_TOML),
+        "Sea Shells (Gogh)" => Some(BUILTIN_SEASHELLS_COLOR_SCHEME_TOML),
         "Seafoam Pastel" | "SeafoamPastel (Gogh)" => Some(BUILTIN_SEAFOAM_PASTEL_COLOR_SCHEME_TOML),
         "Seafoam Pastel (Gogh)" => Some(BUILTIN_SEAFOAM_PASTEL_GOGH_COLOR_SCHEME_TOML),
         "SeaShells" => Some(BUILTIN_SEASHELLS_COLOR_SCHEME_TOML),
@@ -20713,7 +20741,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Snazzy" => Some(BUILTIN_SNAZZY_COLOR_SCHEME_TOML),
         "Snazzy (base16)" => Some(BUILTIN_SNAZZY_BASE16_COLOR_SCHEME_TOML),
         "Snazzy (Gogh)" => Some(BUILTIN_SNAZZY_GOGH_COLOR_SCHEME_TOML),
-        "Soft Server (Gogh)" => Some(BUILTIN_SOFT_SERVER_GOGH_COLOR_SCHEME_TOML),
+        "Soft Server (Gogh)" => Some(BUILTIN_SOFTSERVER_COLOR_SCHEME_TOML),
         "SoftServer" => Some(BUILTIN_SOFTSERVER_COLOR_SCHEME_TOML),
         "Solar Flare (base16)" => Some(BUILTIN_SOLAR_FLARE_BASE16_COLOR_SCHEME_TOML),
         "Solar Flare Light (base16)" => Some(BUILTIN_SOLAR_FLARE_LIGHT_BASE16_COLOR_SCHEME_TOML),
@@ -20836,9 +20864,9 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Tokyo Night Storm (Gogh)" | "TokyoNightStorm (Gogh)" => {
             Some(BUILTIN_TOKYO_NIGHT_STORM_GOGH_COLOR_SCHEME_TOML)
         }
-        "tokyonight" => Some(BUILTIN_TOKYONIGHT_COLOR_SCHEME_TOML),
-        "tokyonight-day" => Some(BUILTIN_TOKYONIGHT_DASH_DAY_COLOR_SCHEME_TOML),
-        "tokyonight-storm" => Some(BUILTIN_TOKYONIGHT_DASH_STORM_COLOR_SCHEME_TOML),
+        "tokyonight" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_NIGHT_COLOR_SCHEME_TOML),
+        "tokyonight-day" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_DAY_COLOR_SCHEME_TOML),
+        "tokyonight-storm" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_STORM_COLOR_SCHEME_TOML),
         "tokyonight_day" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_DAY_COLOR_SCHEME_TOML),
         "tokyonight_moon" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_MOON_COLOR_SCHEME_TOML),
         "tokyonight_night" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_NIGHT_COLOR_SCHEME_TOML),
@@ -20868,7 +20896,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Tomorrow Night Eighties (Gogh)" | "TomorrowNightEighties (Gogh)" => {
             Some(BUILTIN_TOMORROW_NIGHT_EIGHTIES_GOGH_COLOR_SCHEME_TOML)
         }
-        "Toy Chest (Gogh)" => Some(BUILTIN_TOY_CHEST_GOGH_COLOR_SCHEME_TOML),
+        "Toy Chest (Gogh)" => Some(BUILTIN_TOY_CHEST_COLOR_SCHEME_TOML),
         "ToyChest" => Some(BUILTIN_TOY_CHEST_COLOR_SCHEME_TOML),
         "Treehouse" => Some(BUILTIN_TREEHOUSE_COLOR_SCHEME_TOML),
         "Treehouse (Gogh)" => Some(BUILTIN_TREEHOUSE_GOGH_COLOR_SCHEME_TOML),
@@ -20905,7 +20933,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Vaughn" => Some(BUILTIN_VAUGHN_COLOR_SCHEME_TOML),
         "Vaughn (Gogh)" => Some(BUILTIN_VAUGHN_GOGH_COLOR_SCHEME_TOML),
         "Vesper" => Some(BUILTIN_VESPER_COLOR_SCHEME_TOML),
-        "Vibrant Ink (Gogh)" => Some(BUILTIN_VIBRANT_INK_GOGH_COLOR_SCHEME_TOML),
+        "Vibrant Ink (Gogh)" => Some(BUILTIN_VIBRANTINK_COLOR_SCHEME_TOML),
         "VibrantInk" => Some(BUILTIN_VIBRANTINK_COLOR_SCHEME_TOML),
         "Vice Alt (base16)" => Some(BUILTIN_VICE_ALT_BASE16_COLOR_SCHEME_TOML),
         "Vice Dark (base16)" => Some(BUILTIN_VICE_DARK_BASE16_COLOR_SCHEME_TOML),
@@ -20925,13 +20953,13 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "vulcan (base16)" => Some(BUILTIN_VULCAN_BASE16_COLOR_SCHEME_TOML),
         "VWbug (terminal.sexy)" => Some(BUILTIN_VWBUG_TERMINAL_SEXY_COLOR_SCHEME_TOML),
-        "Warm Neon (Gogh)" => Some(BUILTIN_WARM_NEON_GOGH_COLOR_SCHEME_TOML),
+        "Warm Neon (Gogh)" => Some(BUILTIN_WARMNEON_COLOR_SCHEME_TOML),
         "WarmNeon" => Some(BUILTIN_WARMNEON_COLOR_SCHEME_TOML),
         "Website (Gogh)" => Some(BUILTIN_WEBSITE_GOGH_COLOR_SCHEME_TOML),
         "Wez" => Some(BUILTIN_WEZ_COLOR_SCHEME_TOML),
         "Wez (Gogh)" => Some(BUILTIN_WEZ_GOGH_COLOR_SCHEME_TOML),
         "Whimsy" => Some(BUILTIN_WHIMSY_COLOR_SCHEME_TOML),
-        "Wild Cherry (Gogh)" => Some(BUILTIN_WILD_CHERRY_GOGH_COLOR_SCHEME_TOML),
+        "Wild Cherry (Gogh)" => Some(BUILTIN_WILDCHERRY_COLOR_SCHEME_TOML),
         "WildCherry" => Some(BUILTIN_WILDCHERRY_COLOR_SCHEME_TOML),
         "wilmersdorf" => Some(BUILTIN_WILMERSDORF_COLOR_SCHEME_TOML),
         "Windows 10 (base16)" => Some(BUILTIN_WINDOWS_10_BASE16_COLOR_SCHEME_TOML),
@@ -20979,6 +21007,46 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         _ => None,
     }
 }
+
+// These generated upstream records are intentionally retained even though
+// WezTerm's ordered COLOR_SCHEMES construction shadows their names with a
+// later canonical record or alias.
+#[allow(dead_code)]
+const SHADOWED_WEZTERM_COLOR_SCHEME_TOML: [&str; 33] = [
+    BUILTIN_BIRDS_OF_PARADISE_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_CATPPUCCIN_LATTE_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_COBALT_2_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_CRAYON_PONY_FISH_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_DIMMED_MONOKAI_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_FRONTEND_DELIGHT_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_FRONTEND_FUN_FORREST_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_FRONTEND_GALAXY_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_GOOGLE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML,
+    BUILTIN_GRAYSCALE_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML,
+    BUILTIN_GRUVBOX_DARK_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_HOMEBREW_LIGHT_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_HOMEBREW_OCEAN_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_HOPSCOTCH_BASE16_COLOR_SCHEME_TOML,
+    BUILTIN_IC_ORANGE_PPL_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_IDLE_TOES_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_LIQUID_CARBON_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_LIQUID_CARBON_TRANSPARENT_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_MONA_LISA_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_OCEANIC_NEXT_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_PARAISO_BASE16_COLOR_SCHEME_TOML,
+    BUILTIN_PARAISO_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML,
+    BUILTIN_PENCIL_DARK_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_PENCIL_LIGHT_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_SEA_SHELLS_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_SOFT_SERVER_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_TOKYONIGHT_COLOR_SCHEME_TOML,
+    BUILTIN_TOKYONIGHT_DASH_DAY_COLOR_SCHEME_TOML,
+    BUILTIN_TOKYONIGHT_DASH_STORM_COLOR_SCHEME_TOML,
+    BUILTIN_TOY_CHEST_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_VIBRANT_INK_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_WARM_NEON_GOGH_COLOR_SCHEME_TOML,
+    BUILTIN_WILD_CHERRY_GOGH_COLOR_SCHEME_TOML,
+];
 
 const BUILTIN_3024_BASE16_COLOR_SCHEME_TOML: &str = r##"
 [colors]
@@ -131951,22 +132019,6 @@ mod tests {
     fn window_app_loads_wezterm_lua_birds_black_metal_builtin_color_schemes() {
         let cases = [
             (
-                "Birds Of Paradise (Gogh)",
-                Color::Rgb(224, 219, 183),
-                Color::Rgb(42, 31, 29),
-                Color::Rgb(224, 219, 183),
-                Some(Color::Rgb(42, 31, 29)),
-                None,
-                None,
-                Color::Rgb(87, 61, 38),
-                Color::Rgb(190, 45, 38),
-                Color::Rgb(107, 161, 138),
-                Color::Rgb(233, 157, 42),
-                Color::Rgb(155, 108, 74),
-                Color::Rgb(255, 249, 213),
-                None,
-            ),
-            (
                 "BirdsOfParadise",
                 Color::Rgb(224, 219, 183),
                 Color::Rgb(42, 31, 29),
@@ -133233,22 +133285,6 @@ mod tests {
                 Some(Color::Rgb(254, 100, 11)),
             ),
             (
-                "Catppuccin Latte (Gogh)",
-                Color::Rgb(76, 79, 105),
-                Color::Rgb(239, 241, 245),
-                Color::Rgb(76, 79, 105),
-                Some(Color::Rgb(239, 241, 245)),
-                None,
-                None,
-                Color::Rgb(92, 95, 119),
-                Color::Rgb(210, 15, 57),
-                Color::Rgb(64, 160, 43),
-                Color::Rgb(223, 142, 29),
-                Color::Rgb(108, 111, 133),
-                Color::Rgb(188, 192, 204),
-                None,
-            ),
-            (
                 "Catppuccin Macchiato",
                 Color::Rgb(202, 211, 245),
                 Color::Rgb(36, 39, 58),
@@ -133905,22 +133941,6 @@ mod tests {
                 None,
             ),
             (
-                "Cobalt 2 (Gogh)",
-                Color::Rgb(255, 255, 255),
-                Color::Rgb(19, 39, 56),
-                Color::Rgb(255, 255, 255),
-                Some(Color::Rgb(19, 39, 56)),
-                None,
-                None,
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(255, 0, 0),
-                Color::Rgb(56, 222, 33),
-                Color::Rgb(255, 229, 10),
-                Color::Rgb(85, 85, 85),
-                Color::Rgb(255, 255, 255),
-                None,
-            ),
-            (
                 "Cobalt Neon",
                 Color::Rgb(143, 245, 134),
                 Color::Rgb(20, 40, 56),
@@ -134226,22 +134246,6 @@ mod tests {
                 Color::Rgb(181, 29, 44),
                 Color::Rgb(94, 94, 94),
                 Color::Rgb(255, 255, 255),
-                None,
-            ),
-            (
-                "Crayon Pony Fish (Gogh)",
-                Color::Rgb(104, 82, 90),
-                Color::Rgb(21, 7, 7),
-                Color::Rgb(104, 82, 90),
-                Some(Color::Rgb(21, 7, 7)),
-                None,
-                None,
-                Color::Rgb(43, 27, 29),
-                Color::Rgb(145, 0, 43),
-                Color::Rgb(87, 149, 36),
-                Color::Rgb(171, 49, 27),
-                Color::Rgb(61, 43, 46),
-                Color::Rgb(176, 148, 157),
                 None,
             ),
             (
@@ -134978,22 +134982,6 @@ mod tests {
                 Color::Rgb(254, 207, 53),
                 Color::Rgb(95, 95, 95),
                 Color::Rgb(226, 226, 229),
-                None,
-            ),
-            (
-                "Dimmed Monokai (Gogh)",
-                Color::Rgb(185, 188, 186),
-                Color::Rgb(31, 31, 31),
-                Color::Rgb(185, 188, 186),
-                Some(Color::Rgb(31, 31, 31)),
-                None,
-                None,
-                Color::Rgb(58, 61, 67),
-                Color::Rgb(190, 63, 72),
-                Color::Rgb(135, 154, 59),
-                Color::Rgb(197, 166, 53),
-                Color::Rgb(136, 137, 135),
-                Color::Rgb(253, 255, 185),
                 None,
             ),
             (
@@ -137763,54 +137751,6 @@ mod tests {
                 None,
             ),
             (
-                "Frontend Delight (Gogh)",
-                Color::Rgb(173, 173, 173),
-                Color::Rgb(27, 28, 29),
-                Color::Rgb(173, 173, 173),
-                Some(Color::Rgb(27, 28, 29)),
-                None,
-                None,
-                Color::Rgb(36, 37, 38),
-                Color::Rgb(248, 81, 27),
-                Color::Rgb(86, 87, 71),
-                Color::Rgb(250, 119, 29),
-                Color::Rgb(95, 172, 109),
-                Color::Rgb(140, 115, 91),
-                None,
-            ),
-            (
-                "Frontend Fun Forrest (Gogh)",
-                Color::Rgb(222, 193, 101),
-                Color::Rgb(37, 18, 0),
-                Color::Rgb(222, 193, 101),
-                Some(Color::Rgb(37, 18, 0)),
-                None,
-                None,
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(214, 38, 43),
-                Color::Rgb(145, 156, 0),
-                Color::Rgb(190, 138, 19),
-                Color::Rgb(127, 106, 85),
-                Color::Rgb(255, 234, 163),
-                None,
-            ),
-            (
-                "Frontend Galaxy (Gogh)",
-                Color::Rgb(255, 255, 255),
-                Color::Rgb(29, 40, 55),
-                Color::Rgb(255, 255, 255),
-                Some(Color::Rgb(29, 40, 55)),
-                None,
-                None,
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(249, 85, 95),
-                Color::Rgb(33, 176, 137),
-                Color::Rgb(254, 240, 42),
-                Color::Rgb(85, 85, 85),
-                Color::Rgb(255, 255, 255),
-                None,
-            ),
-            (
                 "FrontEndDelight",
                 Color::Rgb(173, 173, 173),
                 Color::Rgb(27, 28, 29),
@@ -138223,22 +138163,6 @@ mod tests {
                 None,
             ),
             (
-                "Google (dark) (terminal.sexy)",
-                Color::Rgb(197, 200, 198),
-                Color::Rgb(29, 31, 33),
-                Color::Rgb(229, 229, 229),
-                None,
-                None,
-                None,
-                Color::Rgb(29, 31, 33),
-                Color::Rgb(204, 52, 43),
-                Color::Rgb(25, 136, 68),
-                Color::Rgb(251, 169, 34),
-                Color::Rgb(150, 152, 150),
-                Color::Rgb(255, 255, 255),
-                None,
-            ),
-            (
                 "Google (light) (terminal.sexy)",
                 Color::Rgb(55, 59, 65),
                 Color::Rgb(255, 255, 255),
@@ -138565,22 +138489,6 @@ mod tests {
                 None,
             ),
             (
-                "Grayscale (dark) (terminal.sexy)",
-                Color::Rgb(185, 185, 185),
-                Color::Rgb(16, 16, 16),
-                Color::Rgb(229, 229, 229),
-                None,
-                None,
-                None,
-                Color::Rgb(16, 16, 16),
-                Color::Rgb(124, 124, 124),
-                Color::Rgb(142, 142, 142),
-                Color::Rgb(160, 160, 160),
-                Color::Rgb(82, 82, 82),
-                Color::Rgb(247, 247, 247),
-                None,
-            ),
-            (
                 "Grayscale (light) (terminal.sexy)",
                 Color::Rgb(70, 70, 70),
                 Color::Rgb(247, 247, 247),
@@ -138784,22 +138692,6 @@ mod tests {
                 Color::Rgb(215, 153, 33),
                 Color::Rgb(146, 131, 116),
                 Color::Rgb(60, 56, 54),
-                None,
-            ),
-            (
-                "Gruvbox Dark (Gogh)",
-                Color::Rgb(235, 219, 178),
-                Color::Rgb(40, 40, 40),
-                Color::Rgb(235, 219, 178),
-                Some(Color::Rgb(40, 40, 40)),
-                None,
-                None,
-                Color::Rgb(40, 40, 40),
-                Color::Rgb(204, 36, 29),
-                Color::Rgb(152, 151, 26),
-                Color::Rgb(215, 153, 33),
-                Color::Rgb(146, 131, 116),
-                Color::Rgb(235, 219, 178),
                 None,
             ),
             (
@@ -139711,38 +139603,6 @@ mod tests {
                 None,
             ),
             (
-                "Homebrew Light (Gogh)",
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(255, 255, 255),
-                Color::Rgb(0, 0, 0),
-                Some(Color::Rgb(255, 255, 255)),
-                None,
-                None,
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(153, 0, 0),
-                Color::Rgb(0, 166, 0),
-                Color::Rgb(153, 153, 0),
-                Color::Rgb(102, 102, 102),
-                Color::Rgb(229, 229, 229),
-                None,
-            ),
-            (
-                "Homebrew Ocean (Gogh)",
-                Color::Rgb(255, 255, 255),
-                Color::Rgb(34, 79, 188),
-                Color::Rgb(255, 255, 255),
-                Some(Color::Rgb(34, 79, 188)),
-                None,
-                None,
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(153, 0, 0),
-                Color::Rgb(0, 166, 0),
-                Color::Rgb(153, 153, 0),
-                Color::Rgb(102, 102, 102),
-                Color::Rgb(229, 229, 229),
-                None,
-            ),
-            (
                 "Hopscotch",
                 Color::Rgb(185, 181, 184),
                 Color::Rgb(50, 41, 49),
@@ -139757,22 +139617,6 @@ mod tests {
                 Color::Rgb(121, 115, 121),
                 Color::Rgb(255, 255, 255),
                 None,
-            ),
-            (
-                "Hopscotch (base16)",
-                Color::Rgb(185, 181, 184),
-                Color::Rgb(50, 41, 49),
-                Color::Rgb(185, 181, 184),
-                Some(Color::Rgb(50, 41, 49)),
-                Some(Color::Rgb(185, 181, 184)),
-                Some(Some(Color::Rgb(50, 41, 49))),
-                Color::Rgb(50, 41, 49),
-                Color::Rgb(221, 70, 76),
-                Color::Rgb(143, 193, 62),
-                Color::Rgb(253, 204, 89),
-                Color::Rgb(121, 115, 121),
-                Color::Rgb(255, 255, 255),
-                Some(Color::Rgb(253, 139, 25)),
             ),
             (
                 "Hopscotch.256",
@@ -140235,22 +140079,6 @@ mod tests {
                 None,
             ),
             (
-                "Ic Orange Ppl (Gogh)",
-                Color::Rgb(255, 203, 131),
-                Color::Rgb(38, 38, 38),
-                Color::Rgb(255, 203, 131),
-                Some(Color::Rgb(38, 38, 38)),
-                None,
-                None,
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(193, 57, 0),
-                Color::Rgb(164, 169, 0),
-                Color::Rgb(202, 175, 0),
-                Color::Rgb(106, 79, 42),
-                Color::Rgb(250, 250, 255),
-                None,
-            ),
-            (
                 "IC_Green_PPL",
                 Color::Rgb(224, 241, 220),
                 Color::Rgb(44, 44, 44),
@@ -140440,22 +140268,6 @@ mod tests {
     #[test]
     fn window_app_loads_wezterm_lua_idle_toes_to_isotope_dark_builtin_color_schemes() {
         let cases = [
-            (
-                "Idle Toes (Gogh)",
-                Color::Rgb(255, 255, 255),
-                Color::Rgb(50, 50, 50),
-                Color::Rgb(255, 255, 255),
-                Some(Color::Rgb(50, 50, 50)),
-                None,
-                None,
-                Color::Rgb(50, 50, 50),
-                Color::Rgb(210, 82, 82),
-                Color::Rgb(127, 225, 115),
-                Color::Rgb(255, 198, 109),
-                Color::Rgb(83, 83, 83),
-                Color::Rgb(255, 255, 255),
-                None,
-            ),
             (
                 "idleToes",
                 Color::Rgb(255, 255, 255),
@@ -141676,38 +141488,6 @@ mod tests {
                 Color::Rgb(178, 155, 122),
                 Color::Rgb(156, 156, 156),
                 Color::Rgb(156, 156, 156),
-                None,
-            ),
-            (
-                "Liquid Carbon (Gogh)",
-                Color::Rgb(175, 194, 194),
-                Color::Rgb(48, 48, 48),
-                Color::Rgb(175, 194, 194),
-                Some(Color::Rgb(48, 48, 48)),
-                None,
-                None,
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(255, 48, 48),
-                Color::Rgb(85, 154, 112),
-                Color::Rgb(204, 172, 0),
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(188, 204, 204),
-                None,
-            ),
-            (
-                "Liquid Carbon Transparent (Gogh)",
-                Color::Rgb(175, 194, 194),
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(175, 194, 194),
-                Some(Color::Rgb(0, 0, 0)),
-                None,
-                None,
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(255, 48, 48),
-                Color::Rgb(85, 154, 112),
-                Color::Rgb(204, 172, 0),
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(188, 204, 204),
                 None,
             ),
             (
@@ -143250,22 +143030,6 @@ mod tests {
     #[test]
     fn window_app_loads_wezterm_lua_mona_lisa_to_monokai_remastered_builtin_color_schemes() {
         let cases = [
-            (
-                "Mona Lisa (Gogh)",
-                Color::Rgb(247, 214, 106),
-                Color::Rgb(18, 11, 13),
-                Color::Rgb(247, 214, 106),
-                Some(Color::Rgb(18, 11, 13)),
-                None,
-                None,
-                Color::Rgb(53, 27, 14),
-                Color::Rgb(155, 41, 28),
-                Color::Rgb(99, 98, 50),
-                Color::Rgb(195, 110, 40),
-                Color::Rgb(135, 66, 40),
-                Color::Rgb(255, 229, 152),
-                None,
-            ),
             (
                 "MonaLisa",
                 Color::Rgb(247, 214, 106),
@@ -145063,22 +144827,6 @@ mod tests {
                 None,
             ),
             (
-                "Oceanic Next (Gogh)",
-                Color::Rgb(179, 184, 195),
-                Color::Rgb(18, 27, 33),
-                Color::Rgb(179, 184, 195),
-                Some(Color::Rgb(18, 27, 33)),
-                None,
-                None,
-                Color::Rgb(18, 28, 33),
-                Color::Rgb(228, 71, 84),
-                Color::Rgb(137, 189, 130),
-                Color::Rgb(247, 189, 81),
-                Color::Rgb(82, 96, 107),
-                Color::Rgb(255, 255, 255),
-                None,
-            ),
-            (
                 "Oceanic-Next",
                 Color::Rgb(179, 184, 195),
                 Color::Rgb(18, 27, 33),
@@ -145903,38 +145651,6 @@ mod tests {
                 None,
             ),
             (
-                "Paraiso (base16)",
-                Color::Rgb(163, 158, 155),
-                Color::Rgb(47, 30, 46),
-                Color::Rgb(163, 158, 155),
-                Some(Color::Rgb(47, 30, 46)),
-                Some(Color::Rgb(163, 158, 155)),
-                Some(Some(Color::Rgb(47, 30, 46))),
-                Color::Rgb(47, 30, 46),
-                Color::Rgb(239, 97, 85),
-                Color::Rgb(72, 182, 133),
-                Color::Rgb(254, 196, 24),
-                Color::Rgb(119, 110, 113),
-                Color::Rgb(231, 233, 219),
-                Some(Color::Rgb(249, 155, 21)),
-            ),
-            (
-                "Paraiso (dark) (terminal.sexy)",
-                Color::Rgb(163, 158, 155),
-                Color::Rgb(47, 30, 46),
-                Color::Rgb(229, 229, 229),
-                None,
-                None,
-                None,
-                Color::Rgb(47, 30, 46),
-                Color::Rgb(239, 97, 85),
-                Color::Rgb(72, 182, 133),
-                Color::Rgb(254, 196, 24),
-                Color::Rgb(119, 110, 113),
-                Color::Rgb(231, 233, 219),
-                None,
-            ),
-            (
                 "Paraiso (light) (terminal.sexy)",
                 Color::Rgb(79, 66, 76),
                 Color::Rgb(231, 233, 219),
@@ -146156,22 +145872,6 @@ mod tests {
                 Color::Rgb(255, 255, 255),
                 None,
             ),
-            (
-                "Pencil Dark (Gogh)",
-                Color::Rgb(241, 241, 241),
-                Color::Rgb(33, 33, 33),
-                Color::Rgb(241, 241, 241),
-                Some(Color::Rgb(33, 33, 33)),
-                None,
-                None,
-                Color::Rgb(33, 33, 33),
-                Color::Rgb(195, 7, 113),
-                Color::Rgb(16, 167, 120),
-                Color::Rgb(168, 156, 20),
-                Color::Rgb(66, 66, 66),
-                Color::Rgb(241, 241, 241),
-                None,
-            ),
         ];
 
         for (
@@ -146234,22 +145934,6 @@ mod tests {
     #[test]
     fn window_app_loads_wezterm_lua_pencil_light_to_piatto_light_builtin_color_schemes() {
         let cases = [
-            (
-                "Pencil Light (Gogh)",
-                Color::Rgb(66, 66, 66),
-                Color::Rgb(241, 241, 241),
-                Color::Rgb(66, 66, 66),
-                Some(Color::Rgb(241, 241, 241)),
-                None,
-                None,
-                Color::Rgb(33, 33, 33),
-                Color::Rgb(195, 7, 113),
-                Color::Rgb(16, 167, 120),
-                Color::Rgb(168, 156, 20),
-                Color::Rgb(66, 66, 66),
-                Color::Rgb(241, 241, 241),
-                None,
-            ),
             (
                 "PencilDark",
                 Color::Rgb(241, 241, 241),
@@ -148027,22 +147711,6 @@ mod tests {
                 None,
             ),
             (
-                "Sea Shells (Gogh)",
-                Color::Rgb(222, 184, 141),
-                Color::Rgb(9, 20, 27),
-                Color::Rgb(222, 184, 141),
-                Some(Color::Rgb(9, 20, 27)),
-                None,
-                None,
-                Color::Rgb(23, 56, 76),
-                Color::Rgb(209, 81, 35),
-                Color::Rgb(2, 124, 155),
-                Color::Rgb(252, 160, 47),
-                Color::Rgb(67, 75, 83),
-                Color::Rgb(254, 228, 206),
-                None,
-            ),
-            (
                 "Seafoam Pastel",
                 Color::Rgb(212, 231, 212),
                 Color::Rgb(36, 52, 53),
@@ -148834,22 +148502,6 @@ mod tests {
                 Color::Rgb(243, 249, 157),
                 Color::Rgb(104, 104, 104),
                 Color::Rgb(239, 240, 235),
-                None,
-            ),
-            (
-                "Soft Server (Gogh)",
-                Color::Rgb(153, 163, 162),
-                Color::Rgb(36, 38, 38),
-                Color::Rgb(153, 163, 162),
-                Some(Color::Rgb(36, 38, 38)),
-                None,
-                None,
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(162, 104, 106),
-                Color::Rgb(154, 165, 106),
-                Color::Rgb(163, 144, 106),
-                Color::Rgb(102, 108, 108),
-                Color::Rgb(210, 224, 222),
                 None,
             ),
             (
@@ -151090,54 +150742,6 @@ mod tests {
                 None,
             ),
             (
-                &["tokyonight"][..],
-                Color::Rgb(192, 202, 245),
-                Color::Rgb(26, 27, 38),
-                Color::Rgb(192, 202, 245),
-                Some(Color::Rgb(21, 22, 30)),
-                Some(Color::Rgb(51, 70, 124)),
-                Some(Some(Color::Rgb(192, 202, 245))),
-                Color::Rgb(21, 22, 30),
-                Color::Rgb(247, 118, 142),
-                Color::Rgb(158, 206, 106),
-                Color::Rgb(224, 175, 104),
-                Color::Rgb(65, 72, 104),
-                Color::Rgb(192, 202, 245),
-                None,
-            ),
-            (
-                &["tokyonight-day"][..],
-                Color::Rgb(55, 96, 191),
-                Color::Rgb(225, 226, 231),
-                Color::Rgb(55, 96, 191),
-                Some(Color::Rgb(225, 226, 231)),
-                Some(Color::Rgb(153, 167, 223)),
-                Some(Some(Color::Rgb(55, 96, 191))),
-                Color::Rgb(233, 233, 237),
-                Color::Rgb(245, 42, 101),
-                Color::Rgb(88, 117, 57),
-                Color::Rgb(140, 108, 62),
-                Color::Rgb(161, 166, 197),
-                Color::Rgb(55, 96, 191),
-                None,
-            ),
-            (
-                &["tokyonight-storm"][..],
-                Color::Rgb(192, 202, 245),
-                Color::Rgb(36, 40, 59),
-                Color::Rgb(192, 202, 245),
-                Some(Color::Rgb(29, 32, 47)),
-                Some(Color::Rgb(54, 74, 130)),
-                Some(Some(Color::Rgb(192, 202, 245))),
-                Color::Rgb(29, 32, 47),
-                Color::Rgb(247, 118, 142),
-                Color::Rgb(158, 206, 106),
-                Color::Rgb(224, 175, 104),
-                Color::Rgb(65, 72, 104),
-                Color::Rgb(192, 202, 245),
-                None,
-            ),
-            (
                 &["tokyonight_day"][..],
                 Color::Rgb(55, 96, 191),
                 Color::Rgb(225, 226, 231),
@@ -151679,22 +151283,6 @@ mod tests {
                 None,
             ),
             (
-                &["Toy Chest (Gogh)"][..],
-                Color::Rgb(49, 208, 123),
-                Color::Rgb(36, 54, 75),
-                Color::Rgb(49, 208, 123),
-                Some(Color::Rgb(36, 54, 75)),
-                None,
-                None,
-                Color::Rgb(44, 63, 88),
-                Color::Rgb(190, 45, 38),
-                Color::Rgb(26, 145, 114),
-                Color::Rgb(219, 142, 39),
-                Color::Rgb(51, 104, 137),
-                Color::Rgb(213, 213, 213),
-                None,
-            ),
-            (
                 &["ToyChest"][..],
                 Color::Rgb(49, 208, 123),
                 Color::Rgb(36, 54, 75),
@@ -152175,22 +151763,6 @@ mod tests {
                 None,
             ),
             (
-                "Vibrant Ink (Gogh)",
-                Color::Rgb(255, 255, 255),
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(255, 255, 255),
-                Some(Color::Rgb(0, 0, 0)),
-                None,
-                None,
-                Color::Rgb(135, 135, 135),
-                Color::Rgb(255, 102, 0),
-                Color::Rgb(204, 255, 4),
-                Color::Rgb(255, 204, 0),
-                Color::Rgb(85, 85, 85),
-                Color::Rgb(229, 229, 229),
-                None,
-            ),
-            (
                 "VibrantInk",
                 Color::Rgb(255, 255, 255),
                 Color::Rgb(0, 0, 0),
@@ -152523,22 +152095,6 @@ mod tests {
                 None,
             ),
             (
-                "Warm Neon (Gogh)",
-                Color::Rgb(175, 218, 182),
-                Color::Rgb(64, 64, 64),
-                Color::Rgb(175, 218, 182),
-                Some(Color::Rgb(64, 64, 64)),
-                None,
-                None,
-                Color::Rgb(0, 0, 0),
-                Color::Rgb(226, 67, 70),
-                Color::Rgb(57, 177, 58),
-                Color::Rgb(218, 225, 69),
-                Color::Rgb(254, 252, 252),
-                Color::Rgb(216, 200, 187),
-                None,
-            ),
-            (
                 "WarmNeon",
                 Color::Rgb(175, 218, 182),
                 Color::Rgb(64, 64, 64),
@@ -152616,22 +152172,6 @@ mod tests {
                 Color::Rgb(253, 216, 119),
                 Color::Rgb(83, 81, 120),
                 Color::Rgb(255, 255, 255),
-                None,
-            ),
-            (
-                "Wild Cherry (Gogh)",
-                Color::Rgb(218, 250, 255),
-                Color::Rgb(31, 23, 38),
-                Color::Rgb(218, 250, 255),
-                Some(Color::Rgb(31, 23, 38)),
-                None,
-                None,
-                Color::Rgb(0, 5, 7),
-                Color::Rgb(217, 64, 133),
-                Color::Rgb(42, 178, 80),
-                Color::Rgb(255, 209, 111),
-                Color::Rgb(0, 156, 201),
-                Color::Rgb(228, 131, 141),
                 None,
             ),
             (
@@ -153491,6 +153031,71 @@ mod tests {
         assert!(
             missing.is_empty(),
             "missing built-in color scheme names or aliases: {missing:?}"
+        );
+    }
+
+    #[test]
+    fn builtin_color_scheme_lookup_matches_all_pinned_wezterm_palette_data() {
+        let data_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../refs/wezterm/docs/colorschemes/data.json");
+        let data = std::fs::read_to_string(&data_path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", data_path.display()));
+        let schemes: serde_json::Value = serde_json::from_str(&data)
+            .expect("pinned WezTerm color scheme data must be valid JSON");
+        let schemes = schemes
+            .as_array()
+            .expect("pinned WezTerm color scheme data must be an array");
+        let mut effective_palettes = BTreeMap::new();
+
+        for scheme in schemes {
+            let metadata = &scheme["metadata"];
+            let canonical_name = metadata["name"]
+                .as_str()
+                .expect("pinned WezTerm color scheme must have a name");
+            let aliases = metadata["aliases"]
+                .as_array()
+                .expect("pinned WezTerm color scheme aliases must be an array");
+
+            for name in std::iter::once(canonical_name).chain(
+                aliases
+                    .iter()
+                    .map(|alias| alias.as_str().expect("palette alias must be a string")),
+            ) {
+                // WezTerm builds COLOR_SCHEMES in this same order: each canonical
+                // name and its aliases are inserted, so later canonical collisions
+                // replace an earlier alias with the same spelling.
+                effective_palettes.insert(name, (&scheme["colors"], canonical_name));
+            }
+        }
+
+        let mut mismatched = Vec::new();
+        for (name, (expected_colors, canonical_name)) in &effective_palettes {
+            let toml_source = builtin_color_scheme_toml(name)
+                .unwrap_or_else(|| panic!("missing pinned palette name {name:?}"));
+            let toml_value = toml::from_str::<toml::Value>(toml_source)
+                .unwrap_or_else(|error| panic!("invalid TOML for {name:?}: {error}"));
+            let actual_colors = serde_json::to_value(
+                toml_value
+                    .get("colors")
+                    .unwrap_or_else(|| panic!("missing colors table for {name:?}")),
+            )
+            .expect("TOML colors must serialize as JSON");
+
+            if actual_colors != **expected_colors {
+                mismatched.push(format!("{name:?} => {canonical_name:?}"));
+            }
+        }
+
+        assert_eq!(schemes.len(), 1001, "unexpected pinned canonical count");
+        assert_eq!(
+            effective_palettes.len(),
+            1113,
+            "unexpected effective canonical-plus-alias count"
+        );
+        assert!(
+            mismatched.is_empty(),
+            "palette data mismatches: {}",
+            mismatched.join(", ")
         );
     }
 

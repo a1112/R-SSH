@@ -12,7 +12,7 @@ Current local references:
 | ghostty | Native terminal architecture, VT core, platform integration | `bfe633a` | https://github.com/ghostty-org/ghostty.git |
 | libssh2 | C SSH2 library compatibility reference | `44a66e8` | https://github.com/libssh2/libssh2.git |
 | russh | Pure Rust SSH protocol reference | `f1a0f18` | https://github.com/Eugeny/russh.git |
-| wezterm | Rust terminal, PTY, SSH, mux, GPU rendering reference | `577474d` | https://github.com/wezterm/wezterm.git |
+| wezterm | Rust terminal, PTY, SSH, mux, GPU rendering reference | `093bf6b` | https://github.com/wezterm/wezterm.git |
 | windows-terminal | Windows ConPTY, renderer, terminal state reference | `93bdbfa` | https://github.com/microsoft/terminal.git |
 
 To refresh a reference manually:
