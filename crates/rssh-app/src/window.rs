@@ -154897,6 +154897,152 @@ mod tests {
         }
     }
 
+    fn assert_wezterm_default_colors_config_overrides(overrides: &NativeConfigOverrides) {
+        let expected = super::native_wezterm_default_colors_palette();
+        let expected_ansi = std::array::from_fn(|index| {
+            if index < 8 {
+                expected.ansi[index]
+            } else {
+                expected.brights[index - 8]
+            }
+        });
+
+        assert_eq!(overrides.foreground_color, Some(expected.foreground));
+        assert_eq!(overrides.background_color, Some(expected.background));
+        assert_eq!(overrides.cursor_fg_color, expected.cursor_fg);
+        assert_eq!(overrides.cursor_bg_color, Some(expected.cursor_bg));
+        assert_eq!(overrides.cursor_border_color, expected.cursor_border);
+        assert_eq!(overrides.selection_fg_color, Some(None));
+        assert_eq!(overrides.selection_bg_color, expected.selection_bg);
+        assert_eq!(overrides.scrollbar_thumb_color, expected.scrollbar_thumb);
+        assert_eq!(overrides.split_color, expected.split);
+        assert_eq!(overrides.ansi_palette, Some(expected_ansi));
+
+        let indexed = overrides
+            .indexed_palette
+            .as_ref()
+            .expect("expected all WezTerm indexed colors");
+        assert_eq!(indexed, &expected.indexed);
+        assert!(indexed[..16].iter().all(Option::is_none));
+        assert_eq!(
+            indexed[16..].iter().filter(|color| color.is_some()).count(),
+            240
+        );
+
+        assert_eq!(overrides.compose_cursor_color, None);
+        assert_eq!(overrides.visual_bell_color, None);
+        assert_eq!(overrides.tab_bar_background_color, None);
+        assert_eq!(overrides.tab_bar_inactive_tab_edge_color, None);
+        assert_eq!(
+            overrides.tab_bar_active_tab_colors,
+            NativeTabBarItemColors::default()
+        );
+        assert_eq!(overrides.copy_mode_active_highlight_fg, None);
+        assert_eq!(overrides.copy_mode_active_highlight_bg, None);
+        assert_eq!(overrides.quick_select_label_fg, None);
+        assert_eq!(overrides.quick_select_label_bg, None);
+
+        let colors = overrides
+            .colors
+            .as_ref()
+            .expect("expected config.colors source palette");
+        assert_eq!(colors.foreground, Some(expected.foreground));
+        assert_eq!(colors.background, Some(expected.background));
+        assert_eq!(colors.cursor_fg, expected.cursor_fg);
+        assert_eq!(colors.cursor_bg, Some(expected.cursor_bg));
+        assert_eq!(colors.cursor_border, expected.cursor_border);
+        assert_eq!(colors.selection_fg, Some(None));
+        assert_eq!(colors.selection_bg, expected.selection_bg);
+        assert_eq!(colors.ansi, Some(expected.ansi));
+        assert_eq!(colors.brights, Some(expected.brights));
+        assert_eq!(colors.indexed, expected.indexed);
+        assert_eq!(
+            colors.indexed[16..]
+                .iter()
+                .filter(|color| color.is_some())
+                .count(),
+            240
+        );
+        assert_eq!(colors.scrollbar_thumb, expected.scrollbar_thumb);
+        assert_eq!(colors.split, expected.split);
+        assert_eq!(colors.compose_cursor, None);
+        assert_eq!(colors.visual_bell, None);
+        assert_eq!(colors.tab_bar_background, None);
+        assert_eq!(colors.tab_bar_inactive_tab_edge, None);
+        assert_eq!(colors.tab_bar_active_tab, NativeTabBarItemColors::default());
+        assert_eq!(colors.copy_mode_active_highlight_fg, None);
+        assert_eq!(colors.copy_mode_active_highlight_bg, None);
+        assert_eq!(colors.quick_select_label_fg, None);
+        assert_eq!(colors.quick_select_label_bg, None);
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_default_colors_directly() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+                local wezterm = require 'wezterm'
+                local config = wezterm.config_builder()
+                config.colors = wezterm.color.get_default_colors()
+                return config
+            "#,
+        )
+        .expect("expected direct WezTerm default colors config");
+
+        assert_wezterm_default_colors_config_overrides(&overrides);
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_default_colors_through_static_aliases() {
+        let cases = [
+            (
+                "module alias in return table",
+                r#"
+                    local wt = require 'wezterm'
+                    return {
+                        colors = wt.color.get_default_colors(),
+                    }
+                "#,
+            ),
+            (
+                "color namespace alias",
+                r#"
+                    local wezterm = require 'wezterm'
+                    local config = wezterm.config_builder()
+                    local color = wezterm.color
+                    config.colors = color.get_default_colors()
+                    return config
+                "#,
+            ),
+            (
+                "function alias",
+                r#"
+                    local wezterm = require 'wezterm'
+                    local config = wezterm.config_builder()
+                    local get_defaults = wezterm.color.get_default_colors
+                    config.colors = get_defaults()
+                    return config
+                "#,
+            ),
+            (
+                "static key aliases",
+                r#"
+                    local wezterm = require 'wezterm'
+                    local config = wezterm.config_builder()
+                    local color_key = 'color'
+                    local getter_key = 'get_default_colors'
+                    config.colors = wezterm[color_key][getter_key]()
+                    return config
+                "#,
+            ),
+        ];
+
+        for (label, source) in cases {
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(source)
+                .unwrap_or_else(|| panic!("expected static alias config for {label}"));
+            assert_wezterm_default_colors_config_overrides(&overrides);
+        }
+    }
+
     #[test]
     fn builtin_scheme_lookup_resolver_accepts_supported_forms_at_original_lookup_offset() {
         let cases = [
