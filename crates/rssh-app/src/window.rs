@@ -70538,6 +70538,9 @@ fn lua_wezterm_default_colors_from_query_with_static_source(
     query: &str,
 ) -> Option<()> {
     let call_max_start = lua_source_slice_start_offset(source, query)?;
+    if !lua_static_wezterm_default_colors_api_is_unmodified_before_offset(source, call_max_start)? {
+        return None;
+    }
     let canonical_query =
         lua_static_wezterm_default_colors_call_query_from_query(source, query, call_max_start)
             .or_else(|| {
@@ -70548,6 +70551,119 @@ fn lua_wezterm_default_colors_from_query_with_static_source(
                 )
             })?;
     lua_wezterm_default_colors_from_call_query(&canonical_query)
+}
+
+fn lua_static_wezterm_default_colors_api_is_unmodified_before_offset(
+    source: &str,
+    max_start: usize,
+) -> Option<bool> {
+    let statements = lua_top_level_logical_statements_before_offset(source, max_start)?;
+    for statement_range in statements {
+        let statement = source.get(statement_range.start..statement_range.end)?;
+        let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+        let statement = lua_trim_start_comments(statement)?;
+        let assignment_statement = if lua_source_keyword_at(statement, 0, "local") {
+            lua_trim_start_comments(statement.get("local".len()..)?)?
+        } else {
+            statement
+        };
+
+        if !lua_source_keyword_at(assignment_statement, 0, "function")
+            && let Some((targets, _)) =
+                split_lua_static_load_scheme_path_assignment_statement(assignment_statement)
+        {
+            for target in split_lua_top_level_arguments(targets)? {
+                if lua_static_wezterm_default_colors_assignment_target_may_modify_api(
+                    source,
+                    target,
+                    statement_range.start,
+                )? {
+                    return Some(false);
+                }
+            }
+            continue;
+        }
+
+        if !lua_source_keyword_at(statement, 0, "function") {
+            continue;
+        }
+        let normalized = lua_static_load_scheme_path_query_without_comments(statement)?;
+        let function_rest = normalized.get("function".len()..)?.trim_start();
+        let Some((target, _)) = function_rest.split_once('(') else {
+            continue;
+        };
+        let target = target.replace(':', ".");
+        if lua_static_wezterm_default_colors_assignment_target_may_modify_api(
+            source,
+            &target,
+            statement_range.start,
+        )? {
+            return Some(false);
+        }
+    }
+
+    Some(true)
+}
+
+fn lua_static_wezterm_default_colors_assignment_target_may_modify_api(
+    source: &str,
+    target: &str,
+    max_start: usize,
+) -> Option<bool> {
+    let normalized = lua_static_load_scheme_path_query_without_comments(target)?;
+    let target = normalized.trim();
+    if lua_static_load_scheme_path_assignment_target_identifier(target).is_some() {
+        return Some(false);
+    }
+
+    if let Some(module_rest) =
+        lua_static_wezterm_module_namespace_rest_from_query_with_depth(source, target, max_start, 0)
+    {
+        let rest = lua_trim_start_comments(module_rest)?;
+        if rest.is_empty() {
+            return Some(false);
+        }
+        let Some((field, rest)) = lua_static_string_field_key_from_query(source, max_start, rest)
+        else {
+            return Some(rest.starts_with('.') || rest.starts_with('['));
+        };
+        if field != "color" {
+            return Some(false);
+        }
+        return lua_static_wezterm_default_colors_namespace_target_rest_may_modify_api(
+            source, rest, max_start,
+        );
+    }
+
+    let Some(rest) =
+        lua_static_wezterm_color_namespace_rest_from_query_with_depth(source, target, max_start, 0)
+    else {
+        return Some(false);
+    };
+    lua_static_wezterm_default_colors_namespace_target_rest_may_modify_api(source, rest, max_start)
+}
+
+fn lua_static_wezterm_default_colors_namespace_target_rest_may_modify_api(
+    source: &str,
+    rest: &str,
+    max_start: usize,
+) -> Option<bool> {
+    let rest = lua_trim_start_comments(rest)?;
+    if rest.is_empty() {
+        return Some(true);
+    }
+    let Some((field, tail)) = lua_static_string_field_key_from_query(source, max_start, rest)
+    else {
+        return Some(rest.starts_with('.') || rest.starts_with('['));
+    };
+    if field != "get_default_colors" {
+        return Some(false);
+    }
+    Some(
+        lua_static_load_scheme_path_query_without_comments(tail)?
+            .trim()
+            .is_empty(),
+    )
 }
 
 fn lua_wezterm_default_colors_from_call_query(canonical_query: &str) -> Option<()> {
@@ -70639,6 +70755,69 @@ fn lua_static_wezterm_default_colors_function_value_is_exact_with_depth(
     lua_static_value_tail_is_value_end(rest)
 }
 
+fn lua_static_wezterm_module_namespace_rest_from_query_with_depth<'a>(
+    source: &str,
+    value: &'a str,
+    max_start: usize,
+    depth: usize,
+) -> Option<&'a str> {
+    if depth > LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH {
+        return None;
+    }
+    let value = lua_trim_start_comments(value)?;
+
+    if let Some(rest) = value.strip_prefix('(')
+        && let Some((module, tail)) = lua_parenthesized_argument_list_prefix_from_query(rest)
+        && let Some(module_rest) = lua_static_wezterm_module_namespace_rest_from_query_with_depth(
+            source,
+            module.trim(),
+            max_start,
+            depth + 1,
+        )
+        && lua_static_value_tail_is_value_end(module_rest)
+    {
+        return Some(tail);
+    }
+
+    if let Some(rest) = lua_static_wezterm_receiver_rest_from_query_with_strict_aliases_and_depth(
+        source,
+        max_start,
+        value,
+        depth + 1,
+    ) {
+        return Some(rest);
+    }
+
+    let alias = lua_identifier_literal_from_query(value)?;
+    let rest = value.get(alias.len()..)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let (binding, binding_start) =
+        lua_static_builtin_scheme_binding_before_offset(source, alias, max_start)?;
+    lua_static_wezterm_module_namespace_value_is_exact_with_depth(
+        source,
+        binding,
+        binding_start,
+        depth + 1,
+    )
+    .then_some(rest)
+}
+
+fn lua_static_wezterm_module_namespace_value_is_exact_with_depth(
+    source: &str,
+    value: &str,
+    max_start: usize,
+    depth: usize,
+) -> bool {
+    let Some(rest) = lua_static_wezterm_module_namespace_rest_from_query_with_depth(
+        source, value, max_start, depth,
+    ) else {
+        return false;
+    };
+    lua_static_value_tail_is_value_end(rest)
+}
+
 fn lua_static_wezterm_color_namespace_rest_from_query_with_depth<'a>(
     source: &str,
     value: &'a str,
@@ -70664,14 +70843,12 @@ fn lua_static_wezterm_color_namespace_rest_from_query_with_depth<'a>(
         }
     }
 
-    if let Some(receiver_rest) =
-        lua_static_wezterm_receiver_rest_from_query_with_strict_aliases_and_depth(
-            source,
-            max_start,
-            value,
-            depth + 1,
-        )
-        && let Some(rest) = lua_trim_start_comments(receiver_rest)
+    if let Some(receiver_rest) = lua_static_wezterm_module_namespace_rest_from_query_with_depth(
+        source,
+        value,
+        max_start,
+        depth + 1,
+    ) && let Some(rest) = lua_trim_start_comments(receiver_rest)
         && let Some((field, rest)) = lua_static_string_field_key_from_query(source, max_start, rest)
         && field == "color"
     {
@@ -154390,6 +154567,15 @@ mod tests {
                 "wt.color.get_default_colors()",
             ),
             (
+                "module identity alias chain",
+                r#"
+                    local wt = require 'wezterm'
+                    local module_alias = wt
+                    config.colors = module_alias.color.get_default_colors()
+                "#,
+                "module_alias.color.get_default_colors()",
+            ),
+            (
                 "static field keys",
                 r#"
                     local wt = require 'wezterm'
@@ -154424,12 +154610,40 @@ mod tests {
                 "color.get_default_colors()",
             ),
             (
+                "parenthesized color namespace",
+                "config.colors = (wezterm.color).get_default_colors()",
+                "(wezterm.color).get_default_colors()",
+            ),
+            (
+                "parenthesized require color namespace",
+                "config.colors = (require('wezterm').color).get_default_colors()",
+                "(require('wezterm').color).get_default_colors()",
+            ),
+            (
+                "parenthesized color namespace alias",
+                r#"
+                    local color = wezterm.color
+                    config.colors = (color).get_default_colors()
+                "#,
+                "(color).get_default_colors()",
+            ),
+            (
                 "call-site function binding",
                 r#"
                     local get_defaults = wezterm.color.get_default_colors
                     local palette = get_defaults()
                     get_defaults = choose_palette
                     config.colors = palette
+                "#,
+                "get_defaults()",
+            ),
+            (
+                "function capture survives namespace rebind",
+                r#"
+                    local color = wezterm.color
+                    local get_defaults = color.get_default_colors
+                    color = choose_color_namespace()
+                    config.colors = get_defaults()
                 "#,
                 "get_defaults()",
             ),
@@ -154581,9 +154795,96 @@ mod tests {
                 "#,
                 "wezterm.color.get_default_colors()",
             ),
+            (
+                "direct getter field replacement",
+                r#"
+                    wezterm.color.get_default_colors = choose_palette
+                    config.colors = wezterm.color.get_default_colors()
+                "#,
+                "wezterm.color.get_default_colors()",
+            ),
+            (
+                "module alias color field replacement",
+                r#"
+                    local wt = require 'wezterm'
+                    wt.color = choose_color_namespace()
+                    config.colors = wt.color.get_default_colors()
+                "#,
+                "wt.color.get_default_colors()",
+            ),
+            (
+                "module identity alias color field replacement",
+                r#"
+                    local wt = require 'wezterm'
+                    local module_alias = wt
+                    module_alias.color = choose_color_namespace()
+                    config.colors = wt.color.get_default_colors()
+                "#,
+                "wt.color.get_default_colors()",
+            ),
+            (
+                "color namespace getter replacement",
+                r#"
+                    local color = wezterm.color
+                    color.get_default_colors = choose_palette
+                    config.colors = color.get_default_colors()
+                "#,
+                "color.get_default_colors()",
+            ),
+            (
+                "static-key getter replacement",
+                r#"
+                    local color = wezterm.color
+                    local getter = 'get_default_colors'
+                    color[getter] = choose_palette
+                    config.colors = color.get_default_colors()
+                "#,
+                "color.get_default_colors()",
+            ),
+            (
+                "dynamic module field replacement",
+                r#"
+                    local wt = require 'wezterm'
+                    local field = choose_field()
+                    wt[field] = choose_value()
+                    config.colors = wt.color.get_default_colors()
+                "#,
+                "wt.color.get_default_colors()",
+            ),
+            (
+                "dynamic color namespace field replacement",
+                r#"
+                    local color = wezterm.color
+                    local field = choose_field()
+                    color[field] = choose_value()
+                    config.colors = color.get_default_colors()
+                "#,
+                "color.get_default_colors()",
+            ),
+            (
+                "named getter replacement",
+                r#"
+                    function wezterm.color.get_default_colors()
+                      return {}
+                    end
+                    config.colors = wezterm.color.get_default_colors()
+                "#,
+                "wezterm.color.get_default_colors()",
+            ),
+            (
+                "named method getter replacement",
+                r#"
+                    local color = wezterm.color
+                    function color:get_default_colors()
+                      return {}
+                    end
+                    config.colors = color.get_default_colors()
+                "#,
+                "color.get_default_colors()",
+            ),
         ] {
             let query_start = source
-                .find(marker)
+                .rfind(marker)
                 .expect("expected rejected default-colors marker");
             assert_eq!(
                 super::lua_wezterm_default_colors_from_query_with_static_source(
