@@ -122977,6 +122977,135 @@ mod tests {
     }
 
     #[test]
+    fn wezterm_default_colors_palette_matches_pinned_upstream() {
+        let palette = super::native_wezterm_default_colors_palette();
+
+        assert_eq!(palette.foreground, Color::Rgb(0xb2, 0xb2, 0xb2));
+        assert_eq!(palette.background, Color::Rgb(0x00, 0x00, 0x00));
+        assert_eq!(palette.cursor_fg, Some(Color::Rgb(0x00, 0x00, 0x00)));
+        assert_eq!(palette.cursor_bg, Color::Rgb(0x52, 0xad, 0x70));
+        assert_eq!(palette.cursor_border, Some(Color::Rgb(0x52, 0xad, 0x70)));
+        assert_eq!(palette.selection_fg, Some(None));
+        assert_eq!(palette.selection_bg, Some(Color::Rgba(127, 102, 153, 127)));
+        assert_eq!(palette.scrollbar_thumb, Some(Color::Rgb(0x22, 0x22, 0x22)));
+        assert_eq!(palette.split, Some(Color::Rgb(0x44, 0x44, 0x44)));
+
+        assert_eq!(
+            palette.ansi,
+            [
+                Color::Rgb(0x00, 0x00, 0x00),
+                Color::Rgb(0xcc, 0x55, 0x55),
+                Color::Rgb(0x55, 0xcc, 0x55),
+                Color::Rgb(0xcd, 0xcd, 0x55),
+                Color::Rgb(0x54, 0x55, 0xcb),
+                Color::Rgb(0xcc, 0x55, 0xcc),
+                Color::Rgb(0x7a, 0xca, 0xca),
+                Color::Rgb(0xcc, 0xcc, 0xcc),
+            ]
+        );
+        assert_eq!(
+            palette.brights,
+            [
+                Color::Rgb(0x55, 0x55, 0x55),
+                Color::Rgb(0xff, 0x55, 0x55),
+                Color::Rgb(0x55, 0xff, 0x55),
+                Color::Rgb(0xff, 0xff, 0x55),
+                Color::Rgb(0x55, 0x55, 0xff),
+                Color::Rgb(0xff, 0x55, 0xff),
+                Color::Rgb(0x55, 0xff, 0xff),
+                Color::Rgb(0xff, 0xff, 0xff),
+            ]
+        );
+
+        assert!(palette.indexed[..16].iter().all(Option::is_none));
+        assert_eq!(
+            palette.indexed[16..]
+                .iter()
+                .filter(|color| color.is_some())
+                .count(),
+            240
+        );
+
+        const CUBE_RAMP: [u8; 6] = [0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff];
+        let mut index = 16;
+        for red in CUBE_RAMP {
+            for green in CUBE_RAMP {
+                for blue in CUBE_RAMP {
+                    assert_eq!(
+                        palette.indexed[index],
+                        Some(Color::Rgb(red, green, blue)),
+                        "unexpected xterm color cube entry at index {index}"
+                    );
+                    index += 1;
+                }
+            }
+        }
+        assert_eq!(index, 232);
+
+        for index in 232..256 {
+            let grey = 8 + 10 * u8::try_from(index - 232).expect("grey index fits in u8");
+            assert_eq!(
+                palette.indexed[index],
+                Some(Color::Rgb(grey, grey, grey)),
+                "unexpected xterm grey ramp entry at index {index}"
+            );
+        }
+
+        for (index, expected) in [
+            (16, Color::Rgb(0x00, 0x00, 0x00)),
+            (17, Color::Rgb(0x00, 0x00, 0x5f)),
+            (21, Color::Rgb(0x00, 0x00, 0xff)),
+            (22, Color::Rgb(0x00, 0x5f, 0x00)),
+            (51, Color::Rgb(0x00, 0xff, 0xff)),
+            (52, Color::Rgb(0x5f, 0x00, 0x00)),
+            (88, Color::Rgb(0x87, 0x00, 0x00)),
+            (124, Color::Rgb(0xaf, 0x00, 0x00)),
+            (160, Color::Rgb(0xd7, 0x00, 0x00)),
+            (196, Color::Rgb(0xff, 0x00, 0x00)),
+            (231, Color::Rgb(0xff, 0xff, 0xff)),
+            (232, Color::Rgb(0x08, 0x08, 0x08)),
+            (249, Color::Rgb(0xb2, 0xb2, 0xb2)),
+            (255, Color::Rgb(0xee, 0xee, 0xee)),
+        ] {
+            assert_eq!(palette.indexed[index], Some(expected));
+        }
+
+        assert_eq!(palette.tab_bar_background, None);
+        assert_eq!(palette.tab_bar_inactive_tab_edge, None);
+        assert_eq!(
+            palette.tab_bar_active_tab,
+            NativeTabBarItemColors::default()
+        );
+        assert_eq!(
+            palette.tab_bar_inactive_tab,
+            NativeTabBarItemColors::default()
+        );
+        assert_eq!(
+            palette.tab_bar_inactive_tab_hover,
+            NativeTabBarItemColors::default()
+        );
+        assert_eq!(palette.tab_bar_new_tab, NativeTabBarItemColors::default());
+        assert_eq!(
+            palette.tab_bar_new_tab_hover,
+            NativeTabBarItemColors::default()
+        );
+        assert_eq!(palette.visual_bell, None);
+        assert_eq!(palette.compose_cursor, None);
+        assert_eq!(palette.copy_mode_active_highlight_fg, None);
+        assert_eq!(palette.copy_mode_active_highlight_bg, None);
+        assert_eq!(palette.copy_mode_inactive_highlight_fg, None);
+        assert_eq!(palette.copy_mode_inactive_highlight_bg, None);
+        assert_eq!(palette.quick_select_label_fg, None);
+        assert_eq!(palette.quick_select_label_bg, None);
+        assert_eq!(palette.quick_select_match_fg, None);
+        assert_eq!(palette.quick_select_match_bg, None);
+        assert_eq!(palette.input_selector_label_fg, None);
+        assert_eq!(palette.input_selector_label_bg, None);
+        assert_eq!(palette.launcher_label_fg, None);
+        assert_eq!(palette.launcher_label_bg, None);
+    }
+
+    #[test]
     fn demo_snapshot_contains_visible_terminal_cells() {
         let snapshot = demo_snapshot();
 
