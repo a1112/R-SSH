@@ -20,7 +20,9 @@ The observable palette contains:
 - foreground from palette index 249 (`#b2b2b2`);
 - background and cursor foreground `#000000`;
 - cursor background and border `#52ad70`;
-- selection foreground `rgba(0, 0, 0, 0)`;
+- selection foreground `rgba(0, 0, 0, 0)`, represented by R-SSH as the
+  explicit `Some(None)` selection-foreground override so rendering retains the
+  current cell foreground;
 - selection background `Color::Rgba(127, 102, 153, 127)` after WezTerm's
   truncating `SrgbaTuple::as_rgba_u8()` conversion;
 - scrollbar thumb `#222222` and split `#444444`;
@@ -69,8 +71,10 @@ cursor, selection, and indexed values. Reusing it would be incorrect.
 The new constructor computes the 256-entry upstream palette from compact ramp
 constants. It copies indices 0..15 into `ansi` and `brights`, then stores every
 index 16..255 as `Some(Color)` in `NativeResolvedPalette.indexed`. Scalar and
-alpha-bearing fields are assigned explicitly from the upstream contract; fields
-not present in WezTerm's converted `Palette` remain unset/default.
+alpha-bearing fields are assigned explicitly from the upstream contract. The
+fully transparent selection foreground uses R-SSH's established `Some(None)`
+framebuffer semantic; fields not present in WezTerm's converted `Palette`
+remain unset/default.
 
 ### Lua source recognition
 
