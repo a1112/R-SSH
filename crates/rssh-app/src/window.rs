@@ -4758,12 +4758,14 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
                     parsed |= apply_lua_color_variable_mutation_overrides(
                         config,
                         &variable.name,
+                        variable.mutation_min_start,
                         variable.mutation_max_start,
                         &mut overrides,
                     )?;
                     apply_lua_color_variable_mutation_overrides(
                         config,
                         &variable.name,
+                        variable.mutation_min_start,
                         variable.mutation_max_start,
                         &mut colors_overrides,
                     )?;
@@ -4782,12 +4784,14 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
                     parsed |= apply_lua_color_variable_mutation_overrides(
                         config,
                         &variable.name,
+                        variable.mutation_min_start,
                         variable.mutation_max_start,
                         &mut overrides,
                     )?;
                     apply_lua_color_variable_mutation_overrides(
                         config,
                         &variable.name,
+                        variable.mutation_min_start,
                         variable.mutation_max_start,
                         &mut colors_overrides,
                     )?;
@@ -4800,12 +4804,14 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
                     parsed |= apply_lua_color_variable_mutation_overrides(
                         config,
                         &variable.name,
+                        variable.mutation_min_start,
                         variable.mutation_max_start,
                         &mut overrides,
                     )?;
                     apply_lua_color_variable_mutation_overrides(
                         config,
                         &variable.name,
+                        variable.mutation_min_start,
                         variable.mutation_max_start,
                         &mut colors_overrides,
                     )?;
@@ -18188,6 +18194,7 @@ impl<'a> NativeColorSchemeLuaSource<'a> {
 #[derive(Debug, Clone)]
 struct NativeLoadSchemeVariableReference {
     name: String,
+    mutation_min_start: usize,
     mutation_max_start: usize,
 }
 
@@ -18225,6 +18232,7 @@ fn apply_lua_color_scheme_source_overrides(
                 parsed |= apply_lua_color_variable_mutation_overrides(
                     config,
                     &variable.name,
+                    variable.mutation_min_start,
                     variable.mutation_max_start,
                     overrides,
                 )?;
@@ -18253,6 +18261,7 @@ fn apply_lua_color_scheme_source_overrides(
                 parsed |= apply_lua_color_variable_mutation_overrides(
                     config,
                     &variable.name,
+                    variable.mutation_min_start,
                     variable.mutation_max_start,
                     overrides,
                 )?;
@@ -18281,6 +18290,7 @@ fn apply_lua_color_scheme_source_overrides(
                 parsed |= apply_lua_color_variable_mutation_overrides(
                     config,
                     &variable.name,
+                    variable.mutation_min_start,
                     variable.mutation_max_start,
                     overrides,
                 )?;
@@ -19136,65 +19146,205 @@ fn color_scheme_lua_source_value_from_query<'a>(
         return None;
     }
     let max_start = lua_source_slice_start_offset(source, value_query)?;
-    if let Some(colors) =
-        lua_static_table_variable_assignment_before_offset_from_query(source, variable, max_start)
-    {
-        let colors = colors.trim();
-        colors.strip_prefix('{')?.strip_suffix('}')?;
-        return Some(NativeColorSchemeLuaSource::Table {
-            colors,
-            variable: Some(NativeLoadSchemeVariableReference {
-                name: variable.to_owned(),
-                mutation_max_start: max_start,
-            }),
-            entry_mutation: None,
-        });
-    }
-    if let Some(path) =
-        lua_load_scheme_assignment_before_slice_from_query(source, variable, value_query)
-    {
-        return Some(NativeColorSchemeLuaSource::LoadScheme {
-            path,
-            variable: Some(NativeLoadSchemeVariableReference {
-                name: variable.to_owned(),
-                mutation_max_start: max_start,
-            }),
-            entry_mutation: None,
-        });
-    }
-    if let Some(name) =
-        lua_builtin_color_scheme_assignment_before_offset(source, variable, max_start)
-    {
-        return Some(NativeColorSchemeLuaSource::Builtin {
-            name,
-            variable: Some(NativeLoadSchemeVariableReference {
-                name: variable.to_owned(),
-                mutation_max_start: max_start,
-            }),
-            entry_mutation: None,
-        });
-    }
-
-    None
+    lua_color_variable_source_before_offset(source, variable, max_start)
 }
 
-fn lua_builtin_color_scheme_assignment_before_offset(
-    source: &str,
+fn lua_color_variable_source_before_offset<'a>(
+    source: &'a str,
     variable: &str,
-    max_start: usize,
-) -> Option<String> {
+    reference_start: usize,
+) -> Option<NativeColorSchemeLuaSource<'a>> {
+    let starts = lua_top_level_statement_start_indices_before_offset(source, reference_start)?;
+    let reference_statement_index = starts.iter().rposition(|start| *start <= reference_start)?;
+    let reference_statement_start = *starts.get(reference_statement_index)?;
     let mut selected = None;
+    let mut capturing_functions = Vec::new();
 
-    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
-        let statement = source.get(start..)?;
-        if let Some(name) =
-            lua_builtin_color_scheme_assignment_from_query(source, statement, variable)
-        {
-            selected = Some(name);
+    for (index, start) in starts
+        .iter()
+        .copied()
+        .enumerate()
+        .take(reference_statement_index)
+    {
+        let end = starts
+            .get(index + 1)
+            .copied()
+            .unwrap_or(reference_statement_start)
+            .min(reference_statement_start);
+        let statement = source.get(start..end)?;
+
+        if let Some(function) = lua_static_builtin_scheme_function_definition_name(statement)? {
+            capturing_functions.retain(|captured| captured != &function);
+            if selected.is_some()
+                && lua_static_query_contains_identifier(statement, variable)?
+            {
+                capturing_functions.push(function);
+            }
+            continue;
         }
+
+        if let Some(binding) =
+            lua_color_variable_known_binding_from_query(source, statement, variable)?
+        {
+            selected = Some(binding);
+            capturing_functions.clear();
+            continue;
+        }
+
+        if lua_color_variable_whole_assignment_value_from_query(statement, variable).is_some() {
+            selected = None;
+            capturing_functions.clear();
+            continue;
+        }
+
+        if selected.is_none() {
+            continue;
+        }
+        if capturing_functions.iter().any(|captured| {
+            lua_static_query_contains_identifier(statement, captured).unwrap_or(true)
+        }) {
+            selected = None;
+            capturing_functions.clear();
+            continue;
+        }
+        if !lua_static_query_contains_identifier(statement, variable)? {
+            continue;
+        }
+        if lua_color_variable_statement_is_direct_mutation(statement, variable)? {
+            continue;
+        }
+        selected = None;
+        capturing_functions.clear();
     }
 
-    selected
+    selected.map(|(binding, mutation_min_start)| {
+        let variable = Some(NativeLoadSchemeVariableReference {
+            name: variable.to_owned(),
+            mutation_min_start,
+            mutation_max_start: reference_start,
+        });
+        match binding {
+            NativeColorSchemeLuaSource::Table { colors, .. } => {
+                NativeColorSchemeLuaSource::Table {
+                    colors,
+                    variable,
+                    entry_mutation: None,
+                }
+            }
+            NativeColorSchemeLuaSource::LoadScheme { path, .. } => {
+                NativeColorSchemeLuaSource::LoadScheme {
+                    path,
+                    variable,
+                    entry_mutation: None,
+                }
+            }
+            NativeColorSchemeLuaSource::Builtin { name, .. } => {
+                NativeColorSchemeLuaSource::Builtin {
+                    name,
+                    variable,
+                    entry_mutation: None,
+                }
+            }
+        }
+    })
+}
+
+fn lua_color_variable_known_binding_from_query<'a>(
+    source: &'a str,
+    statement: &'a str,
+    variable: &str,
+) -> Option<Option<(NativeColorSchemeLuaSource<'a>, usize)>> {
+    let value = lua_color_variable_whole_assignment_value_from_query(statement, variable);
+    let Some(value) = value else {
+        return Some(None);
+    };
+
+    if let Some(table) = lua_braced_table_literal_from_query(value)
+        && lua_static_builtin_scheme_tail_is_statement_end(value.get(table.len()..)?)?
+    {
+        let binding_end = lua_source_slice_end_offset(source, table)?;
+        return Some(Some((
+            NativeColorSchemeLuaSource::Table {
+                colors: table,
+                variable: None,
+                entry_mutation: None,
+            },
+            binding_end,
+        )));
+    }
+    if let Some(path) = lua_load_scheme_assignment_path_from_query(source, statement, variable) {
+        let binding_end = color_scheme_lua_source_value_end_from_query(source, value, true)?;
+        return Some(Some((
+            NativeColorSchemeLuaSource::LoadScheme {
+                path,
+                variable: None,
+                entry_mutation: None,
+            },
+            binding_end,
+        )));
+    }
+    if let Some(name) = lua_builtin_color_scheme_assignment_from_query(source, statement, variable)
+    {
+        let binding_end = color_scheme_lua_source_value_end_from_query(source, value, true)?;
+        return Some(Some((
+            NativeColorSchemeLuaSource::Builtin {
+                name,
+                variable: None,
+                entry_mutation: None,
+            },
+            binding_end,
+        )));
+    }
+
+    Some(None)
+}
+
+fn lua_color_variable_whole_assignment_value_from_query<'a>(
+    statement: &'a str,
+    variable: &str,
+) -> Option<&'a str> {
+    let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+    let statement = lua_trim_start_comments(statement)?;
+    let statement = if lua_source_keyword_at(statement, 0, "local") {
+        lua_trim_start_comments(statement.get("local".len()..)?)?
+    } else {
+        statement
+    };
+    let (targets, value) = split_lua_static_load_scheme_path_assignment_statement(statement)?;
+    let targets = split_lua_top_level_arguments(targets)?;
+    let target = targets.first()?;
+    if lua_static_load_scheme_path_assignment_target_identifier(target).as_deref()
+        != Some(variable)
+    {
+        return None;
+    }
+    lua_trim_start_comments(value)
+}
+
+fn lua_color_variable_statement_is_direct_mutation(
+    statement: &str,
+    variable: &str,
+) -> Option<bool> {
+    let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+    let statement = lua_trim_start_comments(statement)?;
+    let Some((targets, _)) = split_lua_static_load_scheme_path_assignment_statement(statement)
+    else {
+        return Some(false);
+    };
+    let targets = split_lua_top_level_arguments(targets)?;
+    let [target] = targets.as_slice() else {
+        return Some(false);
+    };
+    let normalized = lua_static_load_scheme_path_query_without_comments(target)?;
+    let target = normalized.trim();
+    let Some(rest) = target.strip_prefix(variable) else {
+        return Some(false);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(false);
+    }
+    let rest = rest.trim_start();
+    Some(rest.starts_with('.') || rest.starts_with('['))
 }
 
 fn color_scheme_lua_source_value_end_from_query(
@@ -61686,13 +61836,17 @@ fn apply_lua_colors_table_overrides(
 fn apply_lua_color_variable_mutation_overrides(
     source: &str,
     variable: &str,
+    mutation_min_start: usize,
     mutation_max_start: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
-    if let Some(colors) =
-        lua_color_variable_mutation_table_from_query(source, variable, mutation_max_start)
-    {
+    if let Some(colors) = lua_color_variable_mutation_table_from_query(
+        source,
+        variable,
+        mutation_min_start,
+        mutation_max_start,
+    ) {
         parsed |= apply_lua_colors_table_overrides(
             Some(LuaStaticSource {
                 source,
@@ -61705,18 +61859,21 @@ fn apply_lua_color_variable_mutation_overrides(
     parsed |= apply_lua_color_variable_palette_slot_mutation_overrides(
         source,
         variable,
+        mutation_min_start,
         mutation_max_start,
         overrides,
     )?;
     parsed |= apply_lua_color_variable_tab_bar_mutation_overrides(
         source,
         variable,
+        mutation_min_start,
         mutation_max_start,
         overrides,
     )?;
     parsed |= apply_lua_color_variable_color_spec_mutation_overrides(
         source,
         variable,
+        mutation_min_start,
         mutation_max_start,
         overrides,
     )?;
@@ -61766,12 +61923,16 @@ fn apply_lua_config_colors_tab_bar_mutation_overrides(
 fn apply_lua_color_variable_color_spec_mutation_overrides(
     source: &str,
     variable: &str,
+    min_start: usize,
     max_start: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
 
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        if start < min_start {
+            continue;
+        }
         let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
             continue;
         };
@@ -67466,11 +67627,18 @@ fn lua_static_builtin_scheme_statement_preserves_map_identity(
     if !lua_static_query_contains_identifier(statement, variable)? {
         return Some(true);
     }
-    lua_static_builtin_scheme_statement_is_readonly_config_consumer(
-        source,
-        statement,
-        statement_start,
-        variable,
+    Some(
+        lua_static_builtin_scheme_statement_is_readonly_config_consumer(
+            source,
+            statement,
+            statement_start,
+            variable,
+        )? || lua_static_builtin_scheme_statement_is_readonly_palette_binding(
+            source,
+            statement,
+            statement_start,
+            variable,
+        )?,
     )
 }
 
@@ -68003,56 +68171,23 @@ fn lua_config_colors_variable_source_before_offset<'a>(
     variable: &str,
     reference_start: usize,
 ) -> Option<NativeConfigColorsLuaSource<'a>> {
-    let mut selected = None;
-
-    for start in lua_top_level_statement_start_indices_before_offset(source, reference_start)? {
-        let statement = source.get(start..)?;
-        let table_statement = if lua_source_keyword_at(source, start, "local") {
-            lua_trim_start_comments(source.get(start + "local".len()..)?)?
-        } else {
-            statement
-        };
-        if let Some(table) =
-            lua_static_table_variable_assignment_table_from_query(table_statement, variable)
-        {
-            selected = Some(NativeConfigColorsLuaSource::Table {
-                colors: table,
-                variable: Some(NativeLoadSchemeVariableReference {
-                    name: variable.to_owned(),
-                    mutation_max_start: reference_start,
-                }),
-            });
-            continue;
-        }
-        if let Some(path) = lua_load_scheme_assignment_path_from_query(source, statement, variable)
-        {
-            selected = Some(NativeConfigColorsLuaSource::LoadScheme(
-                NativeLoadSchemeColorsAssignment {
-                    path,
-                    variable: Some(NativeLoadSchemeVariableReference {
-                        name: variable.to_owned(),
-                        mutation_max_start: reference_start,
-                    }),
-                },
-            ));
-            continue;
-        }
-        if let Some(name) =
-            lua_builtin_color_scheme_assignment_from_query(source, statement, variable)
-        {
-            selected = Some(NativeConfigColorsLuaSource::Builtin(
-                NativeBuiltinColorSchemeAssignment {
-                    name,
-                    variable: Some(NativeLoadSchemeVariableReference {
-                        name: variable.to_owned(),
-                        mutation_max_start: reference_start,
-                    }),
-                },
-            ));
-        }
+    match lua_color_variable_source_before_offset(source, variable, reference_start)? {
+        NativeColorSchemeLuaSource::Table {
+            colors, variable, ..
+        } => Some(NativeConfigColorsLuaSource::Table { colors, variable }),
+        NativeColorSchemeLuaSource::LoadScheme { path, variable, .. } => Some(
+            NativeConfigColorsLuaSource::LoadScheme(NativeLoadSchemeColorsAssignment {
+                path,
+                variable,
+            }),
+        ),
+        NativeColorSchemeLuaSource::Builtin { name, variable, .. } => Some(
+            NativeConfigColorsLuaSource::Builtin(NativeBuiltinColorSchemeAssignment {
+                name,
+                variable,
+            }),
+        ),
     }
-
-    selected
 }
 
 fn lua_builtin_color_scheme_assignment_from_query(
@@ -68060,23 +68195,7 @@ fn lua_builtin_color_scheme_assignment_from_query(
     query: &str,
     variable: &str,
 ) -> Option<String> {
-    let rest = if let Some(rest) = query.trim_start().strip_prefix("local") {
-        if rest.chars().next().is_some_and(is_lua_identifier_character) {
-            return None;
-        }
-        lua_trim_start_comments(rest)?
-    } else {
-        query.trim_start()
-    };
-    let (names, value) = rest.split_once('=')?;
-    let value = lua_trim_start_comments(value)?;
-    if names.contains('\n') || names.contains('\r') || names.contains(';') {
-        return None;
-    }
-    let first_name = names.split(',').next()?.trim();
-    if first_name != variable {
-        return None;
-    }
+    let value = lua_color_variable_whole_assignment_value_from_query(query, variable)?;
     lua_wezterm_builtin_color_scheme_name_from_query_with_static_source(source, value)
         .or_else(|| lua_whole_map_builtin_color_scheme_name_from_query(source, value))
 }
@@ -68098,154 +68217,18 @@ fn lua_config_load_scheme_colors_assignment_from_query(
                 "colors",
                 lua_identifier_literal_from_query,
             )?;
-            let mutation_max_start = lua_source_slice_start_offset(source, colors_variable)?;
-            let path = lua_load_scheme_assignment_before_slice_from_query(
-                source,
-                colors_variable,
-                colors_variable,
-            )?;
-            Some(NativeLoadSchemeColorsAssignment {
-                path,
-                variable: Some(NativeLoadSchemeVariableReference {
-                    name: colors_variable.to_owned(),
-                    mutation_max_start,
-                }),
-            })
+            let reference_start = lua_source_slice_start_offset(source, colors_variable)?;
+            let NativeColorSchemeLuaSource::LoadScheme { path, variable, .. } =
+                lua_color_variable_source_before_offset(
+                    source,
+                    colors_variable,
+                    reference_start,
+                )?
+            else {
+                return None;
+            };
+            Some(NativeLoadSchemeColorsAssignment { path, variable })
         })
-}
-
-fn lua_load_scheme_assignment_before_slice_from_query(
-    source: &str,
-    variable: &str,
-    reference: &str,
-) -> Option<String> {
-    let reference_start = lua_source_slice_start_offset(source, reference)?;
-    lua_load_scheme_assignment_before_offset_from_query(source, variable, reference_start)
-}
-
-fn lua_load_scheme_assignment_before_offset_from_query(
-    source: &str,
-    variable: &str,
-    max_start: usize,
-) -> Option<String> {
-    let source = source.get(..max_start)?;
-    let mut quote = None;
-    let mut escape = false;
-    let mut line_comment = false;
-    let mut block_comment_end = None;
-    let mut long_bracket_end = None;
-    let mut lua_block_depth = 0usize;
-    let mut table_depth = 0usize;
-    let mut selected = None;
-
-    for (index, character) in source.char_indices() {
-        if let Some(end) = block_comment_end {
-            if index < end {
-                continue;
-            }
-            block_comment_end = None;
-        }
-
-        if let Some(end) = long_bracket_end {
-            if index < end {
-                continue;
-            }
-            long_bracket_end = None;
-        }
-
-        if line_comment {
-            if character == '\n' {
-                line_comment = false;
-            }
-            continue;
-        }
-
-        if let Some(active_quote) = quote {
-            if escape {
-                escape = false;
-            } else if character == '\\' {
-                escape = true;
-            } else if character == active_quote {
-                quote = None;
-            }
-            continue;
-        }
-
-        if source[index..].starts_with("--") {
-            if let Some((content_start, closing)) =
-                parse_lua_long_bracket_delimiters(&source[index + 2..])
-            {
-                let content_and_rest = &source[index + 2 + content_start..];
-                block_comment_end = Some(
-                    content_and_rest
-                        .find(&closing)
-                        .map_or(source.len(), |close_index| {
-                            index + 2 + content_start + close_index + closing.len()
-                        }),
-                );
-                continue;
-            }
-            line_comment = true;
-            continue;
-        }
-
-        match character {
-            '\'' | '"' => {
-                quote = Some(character);
-                continue;
-            }
-            '[' => {
-                if let Some((content_start, closing)) =
-                    parse_lua_long_bracket_delimiters(&source[index..])
-                {
-                    let content_and_rest = &source[index + content_start..];
-                    long_bracket_end = Some(
-                        content_and_rest
-                            .find(&closing)
-                            .map_or(source.len(), |close_index| {
-                                index + content_start + close_index + closing.len()
-                            }),
-                    );
-                    continue;
-                }
-            }
-            '{' => {
-                table_depth = table_depth.saturating_add(1);
-                continue;
-            }
-            '}' => {
-                table_depth = table_depth.saturating_sub(1);
-                continue;
-            }
-            _ => {}
-        }
-
-        if lua_source_keyword_at(source, index, "function")
-            || lua_source_keyword_at(source, index, "then")
-            || lua_source_keyword_at(source, index, "do")
-            || lua_source_keyword_at(source, index, "repeat")
-        {
-            lua_block_depth = lua_block_depth.saturating_add(1);
-            continue;
-        }
-        if lua_source_keyword_at(source, index, "end")
-            || lua_source_keyword_at(source, index, "until")
-        {
-            lua_block_depth = lua_block_depth.saturating_sub(1);
-            continue;
-        }
-
-        if lua_block_depth == 0
-            && table_depth == 0
-            && lua_source_index_starts_statement(source, index)
-            && let Some(path) =
-                lua_load_scheme_assignment_path_from_query(source, source.get(index..)?, variable)
-        {
-            selected = Some(path);
-        }
-    }
-
-    selected
 }
 
 fn lua_load_scheme_assignment_path_from_query(
@@ -68275,12 +68258,16 @@ fn lua_load_scheme_assignment_path_from_query(
 fn lua_color_variable_mutation_table_from_query(
     source: &str,
     variable: &str,
+    min_start: usize,
     max_start: usize,
 ) -> Option<String> {
     let mut fields = Vec::new();
     let mut indexed_fields = BTreeMap::new();
 
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        if start < min_start {
+            continue;
+        }
         let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
             continue;
         };
@@ -68373,12 +68360,16 @@ fn lua_color_variable_mutation_table_from_query(
 fn apply_lua_color_variable_palette_slot_mutation_overrides(
     source: &str,
     variable: &str,
+    min_start: usize,
     max_start: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
 
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        if start < min_start {
+            continue;
+        }
         let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
             continue;
         };
@@ -68466,12 +68457,16 @@ fn apply_lua_color_variable_palette_slot_mutation_overrides(
 fn apply_lua_color_variable_tab_bar_mutation_overrides(
     source: &str,
     variable: &str,
+    min_start: usize,
     max_start: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
 
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        if start < min_start {
+            continue;
+        }
         let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
             continue;
         };
@@ -129010,6 +129005,90 @@ mod tests {
             effective.ansi_palette.expect("expected ANSI palette")[0],
             Color::Rgb(251, 241, 199)
         );
+    }
+
+    #[test]
+    fn window_app_rejects_escaped_builtin_scheme_map_palette_variable_bindings() {
+        for (label, statement) in [
+            ("unknown rebind", "scheme = choose_palette()"),
+            ("unknown call argument", "mutate(scheme)"),
+            ("unknown call receiver", "scheme:mutate()"),
+            ("alias escape", "local alias = scheme\nalias.background = '#010203'"),
+            (
+                "called capturing closure",
+                "local function mutate_later()\n  scheme.background = '#010203'\nend\nmutate_later()",
+            ),
+        ] {
+            let source = format!(
+                r##"
+                local wezterm = require 'wezterm'
+                local config = {{}}
+                local schemes = wezterm.color.get_builtin_schemes()
+                local scheme = schemes['Gruvbox Light']
+
+                {statement}
+                config.color_schemes = {{ ['Mine'] = scheme }}
+                config.color_scheme = 'Mine'
+                return config
+                "##,
+            );
+
+            assert!(
+                super::native_config_overrides_from_wezterm_lua_config(&source).is_none(),
+                "{label} must fail closed"
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_ignores_palette_mutations_before_builtin_scheme_map_variable_binding() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local scheme = {}
+            scheme.background = '#010203'
+            local schemes = wezterm.color.get_builtin_schemes()
+            scheme = schemes['Gruvbox Light']
+
+            config.color_schemes = { ['Mine'] = scheme }
+            config.color_scheme = 'Mine'
+            return config
+            "##,
+        )
+        .expect("expected the latest built-in palette variable binding");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(40, 40, 40));
+        assert_eq!(effective.background_color, Color::Rgb(251, 241, 199));
+    }
+
+    #[test]
+    fn window_app_resets_palette_mutations_after_known_builtin_scheme_map_variable_rebind() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local schemes = wezterm.color.get_builtin_schemes()
+            local scheme = schemes['Gruvbox Light']
+            scheme.background = '#010203'
+            scheme = choose_palette()
+            scheme = schemes['Builtin Solarized Dark']
+
+            config.color_schemes = { ['Mine'] = scheme }
+            config.color_scheme = 'Mine'
+            return config
+            "##,
+        )
+        .expect("expected the latest known built-in palette variable binding");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(131, 148, 150));
+        assert_eq!(effective.background_color, Color::Rgb(0, 43, 54));
     }
 
     #[test]
