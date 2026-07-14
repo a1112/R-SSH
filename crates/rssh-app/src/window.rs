@@ -3568,6 +3568,28 @@ fn native_wezterm_default_colors_palette() -> NativeResolvedPalette {
     }
 }
 
+fn apply_wezterm_default_colors_overrides(overrides: &mut NativeConfigOverrides) -> bool {
+    let palette = native_wezterm_default_colors_palette();
+    overrides.foreground_color = Some(palette.foreground);
+    overrides.background_color = Some(palette.background);
+    overrides.cursor_fg_color = palette.cursor_fg;
+    overrides.cursor_bg_color = Some(palette.cursor_bg);
+    overrides.cursor_border_color = palette.cursor_border;
+    overrides.selection_fg_color = palette.selection_fg;
+    overrides.selection_bg_color = palette.selection_bg;
+    overrides.ansi_palette = Some(std::array::from_fn(|index| {
+        if index < 8 {
+            palette.ansi[index]
+        } else {
+            palette.brights[index - 8]
+        }
+    }));
+    overrides.indexed_palette = Some(palette.indexed);
+    overrides.scrollbar_thumb_color = palette.scrollbar_thumb;
+    overrides.split_color = palette.split;
+    true
+}
+
 fn native_split_ansi_palette(palette: [Color; 16]) -> ([Color; 8], [Color; 8]) {
     (
         std::array::from_fn(|index| palette[index]),
@@ -4871,6 +4893,22 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
                 parsed |= apply_builtin_color_scheme_overrides(&builtin.name, &mut overrides)?;
                 apply_builtin_color_scheme_overrides(&builtin.name, &mut colors_overrides)?;
                 if let Some(variable) = builtin.variable.as_ref() {
+                    parsed |= apply_lua_color_variable_mutation_overrides(
+                        config,
+                        variable,
+                        &mut overrides,
+                    )?;
+                    apply_lua_color_variable_mutation_overrides(
+                        config,
+                        variable,
+                        &mut colors_overrides,
+                    )?;
+                }
+            }
+            NativeConfigColorsLuaSource::DefaultColors { variable } => {
+                parsed |= apply_wezterm_default_colors_overrides(&mut overrides);
+                apply_wezterm_default_colors_overrides(&mut colors_overrides);
+                if let Some(variable) = variable.as_ref() {
                     parsed |= apply_lua_color_variable_mutation_overrides(
                         config,
                         variable,
@@ -18228,6 +18266,10 @@ enum NativeColorSchemeLuaSource<'a> {
         variable: Option<NativeLoadSchemeVariableReference>,
         entry_mutation: Option<NativeColorSchemeEntryVariableReference>,
     },
+    DefaultColors {
+        variable: Option<NativeLoadSchemeVariableReference>,
+        entry_mutation: Option<NativeColorSchemeEntryVariableReference>,
+    },
 }
 
 impl<'a> NativeColorSchemeLuaSource<'a> {
@@ -18243,10 +18285,12 @@ impl<'a> NativeColorSchemeLuaSource<'a> {
             | Self::LoadScheme {
                 entry_mutation: slot,
                 ..
-            } => {
-                *slot = Some(entry_mutation);
             }
-            Self::Builtin {
+            | Self::Builtin {
+                entry_mutation: slot,
+                ..
+            }
+            | Self::DefaultColors {
                 entry_mutation: slot,
                 ..
             } => {
@@ -18345,6 +18389,28 @@ fn apply_lua_color_scheme_source_overrides(
             entry_mutation,
         } => {
             let mut parsed = apply_builtin_color_scheme_overrides(&name, overrides)?;
+            if let Some(variable) = variable.as_ref() {
+                parsed |= apply_lua_color_variable_mutation_overrides(config, variable, overrides)?;
+            }
+            if let Some(entry_mutation) = entry_mutation.as_ref() {
+                parsed |= apply_lua_color_scheme_entry_mutation_overrides(
+                    config,
+                    color_scheme,
+                    NativeColorSchemeEntryMutationTarget::Variable {
+                        variable: &entry_mutation.variable,
+                    },
+                    entry_mutation.mutation_start,
+                    entry_mutation.mutation_max_start,
+                    overrides,
+                )?;
+            }
+            Some(parsed)
+        }
+        NativeColorSchemeLuaSource::DefaultColors {
+            variable,
+            entry_mutation,
+        } => {
+            let mut parsed = apply_wezterm_default_colors_overrides(overrides);
             if let Some(variable) = variable.as_ref() {
                 parsed |= apply_lua_color_variable_mutation_overrides(config, variable, overrides)?;
             }
@@ -19192,6 +19258,12 @@ fn color_scheme_lua_source_value_from_query<'a>(
             entry_mutation: None,
         });
     }
+    if lua_wezterm_default_colors_from_query_with_static_source(source, value_query).is_some() {
+        return Some(NativeColorSchemeLuaSource::DefaultColors {
+            variable: None,
+            entry_mutation: None,
+        });
+    }
 
     let variable_query = value_query;
     let variable = lua_identifier_literal_from_query(variable_query)?;
@@ -19334,6 +19406,12 @@ fn lua_color_variable_source_before_offset<'a>(
                     entry_mutation: None,
                 }
             }
+            NativeColorSchemeLuaSource::DefaultColors { .. } => {
+                NativeColorSchemeLuaSource::DefaultColors {
+                    variable,
+                    entry_mutation: None,
+                }
+            }
         }
     })
 }
@@ -19420,6 +19498,16 @@ fn lua_color_variable_known_binding_from_query<'a>(
         return Some(Some((
             NativeColorSchemeLuaSource::Builtin {
                 name,
+                variable: None,
+                entry_mutation: None,
+            },
+            binding_end,
+        )));
+    }
+    if lua_wezterm_default_colors_from_query_with_static_source(source, value).is_some() {
+        let binding_end = lua_source_slice_end_offset(source, value.trim_end())?;
+        return Some(Some((
+            NativeColorSchemeLuaSource::DefaultColors {
                 variable: None,
                 entry_mutation: None,
             },
@@ -67795,6 +67883,9 @@ enum NativeConfigColorsLuaSource<'a> {
     },
     LoadScheme(NativeLoadSchemeColorsAssignment),
     Builtin(NativeBuiltinColorSchemeAssignment),
+    DefaultColors {
+        variable: Option<NativeLoadSchemeVariableReference>,
+    },
 }
 
 fn lua_config_colors_source_from_query<'a>(
@@ -68004,6 +68095,9 @@ fn lua_config_colors_source_value_from_query<'a>(
                 variable: None,
             },
         ));
+    }
+    if lua_wezterm_default_colors_from_query_with_static_source(source, value).is_some() {
+        return Some(NativeConfigColorsLuaSource::DefaultColors { variable: None });
     }
 
     let variable = lua_identifier_literal_from_query(value)?;
@@ -68712,6 +68806,9 @@ fn lua_config_colors_variable_source_before_offset<'a>(
             Some(NativeConfigColorsLuaSource::Builtin(
                 NativeBuiltinColorSchemeAssignment { name, variable },
             ))
+        }
+        NativeColorSchemeLuaSource::DefaultColors { variable, .. } => {
+            Some(NativeConfigColorsLuaSource::DefaultColors { variable })
         }
     }
 }
@@ -69687,6 +69784,9 @@ fn lua_static_load_scheme_path_binding_state_before_offset<'a>(
         let statement = source.get(start..statement_end)?;
         let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
         statement_index = next_statement_index;
+        if lua_source_keyword_at(statement, 0, "return") {
+            continue;
+        }
         if lua_source_keyword_at(statement, 0, "function") {
             if lua_named_function_params_and_body_from_statement(statement, variable).is_some() {
                 selected = LuaStaticLoadSchemePathBinding::Shadowed;
