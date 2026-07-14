@@ -155144,6 +155144,157 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reduces_wezterm_default_color_mutations_in_source_order() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+                local wezterm = require 'wezterm'
+                local config = {}
+                local colors = wezterm.color.get_default_colors()
+
+                colors.background = '#010203'
+                colors.background = '#040506'
+
+                colors.indexed[16] = '#070809'
+                colors.indexed = {
+                  [17] = '#0a0b0c',
+                }
+                colors.indexed[18] = '#0d0e0f'
+
+                colors.ansi[1] = '#101112'
+                colors.ansi = {
+                  '#131415', '#161718', '#191a1b', '#1c1d1e',
+                  '#1f2021', '#222324', '#252627', '#28292a',
+                }
+                colors.ansi[2] = '#2b2c2d'
+
+                config.colors = colors
+                return config
+            "##,
+        )
+        .expect("expected ordered WezTerm default-color mutations");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.background_color, Color::Rgb(4, 5, 6));
+
+        let indexed = effective
+            .indexed_palette
+            .expect("expected replaced indexed palette");
+        assert_eq!(indexed[16], None);
+        assert_eq!(indexed[17], Some(Color::Rgb(10, 11, 12)));
+        assert_eq!(indexed[18], Some(Color::Rgb(13, 14, 15)));
+        assert_eq!(indexed[19], None);
+
+        let ansi = effective.ansi_palette.expect("expected ANSI palette");
+        assert_eq!(ansi[0], Color::Rgb(19, 20, 21));
+        assert_eq!(ansi[1], Color::Rgb(43, 44, 45));
+        assert_eq!(ansi[2], Color::Rgb(25, 26, 27));
+    }
+
+    #[test]
+    fn window_app_resets_wezterm_default_color_mutations_on_fresh_binding() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+                local wezterm = require 'wezterm'
+                local config = {}
+                local colors = wezterm.color.get_default_colors()
+
+                colors.background = '#010203'
+                colors.indexed = {}
+                colors.ansi = {
+                  '#101112', '#131415', '#161718', '#191a1b',
+                  '#1c1d1e', '#1f2021', '#222324', '#252627',
+                }
+
+                colors = wezterm.color.get_default_colors()
+                colors.cursor_bg = '#040506'
+                colors.indexed[16] = '#070809'
+
+                config.colors = colors
+                return config
+            "##,
+        )
+        .expect("expected fresh WezTerm default-color replacement");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.background_color, Color::Rgb(0, 0, 0));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(4, 5, 6));
+
+        let ansi = effective.ansi_palette.expect("expected ANSI palette");
+        assert_eq!(ansi[0], Color::Rgb(0, 0, 0));
+        assert_eq!(ansi[1], Color::Rgb(0xcc, 0x55, 0x55));
+
+        let indexed = effective.indexed_palette.expect("expected indexed palette");
+        assert_eq!(indexed[16], Some(Color::Rgb(7, 8, 9)));
+        assert_eq!(indexed[17], Some(Color::Rgb(0, 0, 0x5f)));
+        assert_eq!(indexed[255], Some(Color::Rgb(0xee, 0xee, 0xee)));
+    }
+
+    #[test]
+    fn window_app_uses_latest_wezterm_default_color_binding_before_reference() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+                local wezterm = require 'wezterm'
+                local config = {}
+                local colors = {
+                  foreground = '#010203',
+                  background = '#040506',
+                }
+
+                colors = wezterm.color.get_default_colors()
+                colors.foreground = '#070809'
+                config.colors = colors
+
+                colors = wezterm.color.get_default_colors()
+                colors.foreground = '#0a0b0c'
+                return config
+            "##,
+        )
+        .expect("expected latest default-color binding before config.colors");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(7, 8, 9));
+        assert_eq!(effective.background_color, Color::Rgb(0, 0, 0));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(0x52, 0xad, 0x70));
+    }
+
+    #[test]
+    fn window_app_rejects_dynamic_wezterm_default_color_identity() {
+        for (label, statement) in [
+            (
+                "palette alias escape",
+                "local alias = colors\nalias.background = '#010203'",
+            ),
+            (
+                "dynamic indexed key",
+                "local slot = choose_index()\ncolors.indexed[slot] = '#040506'",
+            ),
+        ] {
+            let source = format!(
+                r##"
+                    local wezterm = require 'wezterm'
+                    local config = {{}}
+                    local colors = wezterm.color.get_default_colors()
+
+                    {statement}
+                    config.colors = colors
+                    return config
+                "##,
+            );
+
+            assert!(
+                super::native_config_overrides_from_wezterm_lua_config(&source).is_none(),
+                "{label} must fail closed"
+            );
+        }
+    }
+
+    #[test]
     fn builtin_scheme_lookup_resolver_accepts_supported_forms_at_original_lookup_offset() {
         let cases = [
             (
