@@ -155295,6 +155295,110 @@ mod tests {
     }
 
     #[test]
+    fn window_app_uses_wezterm_default_colors_in_inline_custom_color_scheme() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+                local wezterm = require 'wezterm'
+                local config = {}
+                config.color_schemes = {
+                  ['Default Copy'] = wezterm.color.get_default_colors(),
+                }
+                config.color_scheme = 'Default Copy'
+                return config
+            "#,
+        )
+        .expect("expected inline custom scheme from WezTerm default colors");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let scheme = effective
+            .color_schemes
+            .get("Default Copy")
+            .expect("expected inline default-copy scheme");
+        assert_eq!(scheme, &super::native_wezterm_default_colors_palette());
+        assert_eq!(effective.resolved_palette, *scheme);
+    }
+
+    #[test]
+    fn window_app_uses_wezterm_default_colors_in_direct_custom_scheme_assignment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+                local wt = require 'wezterm'
+                local config = wt.config_builder()
+                local color = wt.color
+                local get_defaults = color.get_default_colors
+                config.color_schemes['Default Copy'] = get_defaults()
+                config.color_scheme = 'Default Copy'
+                return config
+            "#,
+        )
+        .expect("expected direct custom scheme from aliased WezTerm default colors");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let scheme = effective
+            .color_schemes
+            .get("Default Copy")
+            .expect("expected directly assigned default-copy scheme");
+        assert_eq!(scheme, &super::native_wezterm_default_colors_palette());
+        assert_eq!(scheme.selection_fg, Some(None));
+        assert_eq!(
+            scheme.indexed[16..]
+                .iter()
+                .filter(|color| color.is_some())
+                .count(),
+            240
+        );
+        assert_eq!(effective.resolved_palette, *scheme);
+    }
+
+    #[test]
+    fn window_app_mutates_wezterm_default_colors_in_custom_color_scheme() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+                local wezterm = require 'wezterm'
+                local config = {}
+                local get_defaults = wezterm.color.get_default_colors
+                local scheme = get_defaults()
+                scheme.indexed[249] = '#010203'
+
+                config.color_schemes = {
+                  ['Default Copy'] = scheme,
+                }
+                config.color_schemes['Default Copy'].selection_bg = 'rgba(4,5,6,0.5)'
+                config.color_scheme = 'Default Copy'
+                return config
+            "##,
+        )
+        .expect("expected mutated custom scheme from WezTerm default colors");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let scheme = effective
+            .color_schemes
+            .get("Default Copy")
+            .expect("expected mutated default-copy scheme");
+        let mut expected = super::native_wezterm_default_colors_palette();
+        expected.indexed[249] = Some(Color::Rgb(1, 2, 3));
+        expected.selection_bg = Some(Color::Rgba(4, 5, 6, 127));
+        assert_eq!(scheme, &expected);
+        assert_eq!(scheme.selection_fg, Some(None));
+        assert_eq!(scheme.indexed[16], Some(Color::Rgb(0, 0, 0)));
+        assert_eq!(scheme.indexed[255], Some(Color::Rgb(238, 238, 238)));
+        assert_eq!(
+            scheme.indexed[16..]
+                .iter()
+                .filter(|color| color.is_some())
+                .count(),
+            240
+        );
+        assert_eq!(effective.resolved_palette, *scheme);
+    }
+
+    #[test]
     fn builtin_scheme_lookup_resolver_accepts_supported_forms_at_original_lookup_offset() {
         let cases = [
             (
