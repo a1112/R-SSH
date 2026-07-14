@@ -3490,6 +3490,84 @@ impl Default for NativeResolvedPalette {
     }
 }
 
+/// Returns the default palette exposed by `wezterm.color.get_default_colors()`.
+///
+/// This is pinned to WezTerm commit `093bf6b`, primarily
+/// `term/src/color.rs::ColorPalette::compute_default` and the conversion in
+/// `config/src/color.rs`. It intentionally does not use R-SSH's own palette
+/// defaults.
+#[cfg_attr(not(test), allow(dead_code))]
+fn native_wezterm_default_colors_palette() -> NativeResolvedPalette {
+    const ANSI_COLORS: [Color; 16] = [
+        Color::Rgb(0x00, 0x00, 0x00),
+        Color::Rgb(0xcc, 0x55, 0x55),
+        Color::Rgb(0x55, 0xcc, 0x55),
+        Color::Rgb(0xcd, 0xcd, 0x55),
+        Color::Rgb(0x54, 0x55, 0xcb),
+        Color::Rgb(0xcc, 0x55, 0xcc),
+        Color::Rgb(0x7a, 0xca, 0xca),
+        Color::Rgb(0xcc, 0xcc, 0xcc),
+        Color::Rgb(0x55, 0x55, 0x55),
+        Color::Rgb(0xff, 0x55, 0x55),
+        Color::Rgb(0x55, 0xff, 0x55),
+        Color::Rgb(0xff, 0xff, 0x55),
+        Color::Rgb(0x55, 0x55, 0xff),
+        Color::Rgb(0xff, 0x55, 0xff),
+        Color::Rgb(0x55, 0xff, 0xff),
+        Color::Rgb(0xff, 0xff, 0xff),
+    ];
+    const CUBE_RAMP: [u8; 6] = [0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff];
+
+    let (ansi, brights) = native_split_ansi_palette(ANSI_COLORS);
+    let mut indexed = [None; 256];
+    for cube_index in 0..216 {
+        let blue = CUBE_RAMP[cube_index % 6];
+        let green = CUBE_RAMP[cube_index / 6 % 6];
+        let red = CUBE_RAMP[cube_index / 36];
+        indexed[16 + cube_index] = Some(Color::Rgb(red, green, blue));
+    }
+    for grey_index in 0_u8..24 {
+        let grey = 8 + 10 * grey_index;
+        indexed[232 + usize::from(grey_index)] = Some(Color::Rgb(grey, grey, grey));
+    }
+
+    NativeResolvedPalette {
+        foreground: Color::Rgb(0xb2, 0xb2, 0xb2),
+        background: Color::Rgb(0x00, 0x00, 0x00),
+        cursor_fg: Some(Color::Rgb(0x00, 0x00, 0x00)),
+        cursor_bg: Color::Rgb(0x52, 0xad, 0x70),
+        cursor_border: Some(Color::Rgb(0x52, 0xad, 0x70)),
+        selection_fg: Some(None),
+        selection_bg: Some(Color::Rgba(127, 102, 153, 127)),
+        ansi,
+        brights,
+        indexed,
+        tab_bar_background: None,
+        tab_bar_inactive_tab_edge: None,
+        tab_bar_active_tab: NativeTabBarItemColors::default(),
+        tab_bar_inactive_tab: NativeTabBarItemColors::default(),
+        tab_bar_inactive_tab_hover: NativeTabBarItemColors::default(),
+        tab_bar_new_tab: NativeTabBarItemColors::default(),
+        tab_bar_new_tab_hover: NativeTabBarItemColors::default(),
+        scrollbar_thumb: Some(Color::Rgb(0x22, 0x22, 0x22)),
+        split: Some(Color::Rgb(0x44, 0x44, 0x44)),
+        visual_bell: None,
+        compose_cursor: None,
+        copy_mode_active_highlight_fg: None,
+        copy_mode_active_highlight_bg: None,
+        copy_mode_inactive_highlight_fg: None,
+        copy_mode_inactive_highlight_bg: None,
+        quick_select_label_fg: None,
+        quick_select_label_bg: None,
+        quick_select_match_fg: None,
+        quick_select_match_bg: None,
+        input_selector_label_fg: None,
+        input_selector_label_bg: None,
+        launcher_label_fg: None,
+        launcher_label_bg: None,
+    }
+}
+
 fn native_split_ansi_palette(palette: [Color; 16]) -> ([Color; 8], [Color; 8]) {
     (
         std::array::from_fn(|index| palette[index]),
