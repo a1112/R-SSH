@@ -108111,6 +108111,11 @@ fn parse_maybe_static_query_text(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<String> {
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_color_string_from_query(static_source, value)
+    {
+        return (!value.is_empty()).then_some(value);
+    }
     if let Some(value) = lua_static_string_value_from_expression(static_source, None, value) {
         return (!value.is_empty()).then_some(value);
     }
@@ -108123,6 +108128,15 @@ fn parse_maybe_static_query_text_with_static_sources(
     outer_static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<String> {
+    if let Some(value) = static_source
+        .and_then(|source| lua_static_color_string_from_query(source, value))
+        .or_else(|| {
+            outer_static_source
+                .and_then(|source| lua_static_color_string_from_query(source, value))
+        })
+    {
+        return (!value.is_empty()).then_some(value);
+    }
     if let Some(value) =
         lua_static_string_value_from_expression(static_source, outer_static_source, value)
     {
@@ -108136,6 +108150,11 @@ fn parse_maybe_static_query_bool(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<bool> {
+    if let Some(value) =
+        static_source.and_then(|source| lua_static_color_bool_from_query(source, value))
+    {
+        return Some(value);
+    }
     if let Some(static_source) = static_source
         && let Some(value) = lua_static_bool_assignment_value_before_offset_from_query(
             static_source.source,
@@ -108155,6 +108174,14 @@ fn parse_maybe_static_query_bool_with_static_sources(
     outer_static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<bool> {
+    if let Some(value) = static_source
+        .and_then(|source| lua_static_color_bool_from_query(source, value))
+        .or_else(|| {
+            outer_static_source.and_then(|source| lua_static_color_bool_from_query(source, value))
+        })
+    {
+        return Some(value);
+    }
     if let Some(static_source) = static_source
         && let Some(value) = lua_static_bool_assignment_value_before_offset_from_query(
             static_source.source,
@@ -108243,6 +108270,11 @@ fn parse_maybe_static_query_f64(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<f64> {
+    if let Some(value) =
+        static_source.and_then(|source| lua_static_color_number_from_query(source, value))
+    {
+        return Some(value);
+    }
     let value = if let Some(static_source) = static_source {
         lua_static_number_assignment_value_before_offset_from_query(
             static_source.source,
@@ -110631,6 +110663,33 @@ fn lua_static_wezterm_color_value_from_query_with_depth(
         return None;
     }
     let query = lua_trim_start_comments(query)?;
+    if let Some(argument) = lua_tostring_argument_from_query(query) {
+        let color = lua_static_wezterm_color_value_from_query_with_depth(
+            static_source,
+            argument,
+            depth + 1,
+        )?
+        .into_scalar()?
+        .as_color()?;
+        return Some(NativeStaticLuaColorValue::String(color.to_string()));
+    }
+    if let Some((left, right, equal)) = lua_static_wezterm_color_equality_operands(query) {
+        let left = lua_static_wezterm_color_value_from_query_with_depth(
+            static_source,
+            left,
+            depth + 1,
+        )?
+        .into_scalar()?
+        .as_color()?;
+        let right = lua_static_wezterm_color_value_from_query_with_depth(
+            static_source,
+            right,
+            depth + 1,
+        )?
+        .into_scalar()?
+        .as_color()?;
+        return Some(NativeStaticLuaColorValue::Bool((left == right) == equal));
+    }
     let (mut value, mut tail) = if let Some((constructor, arguments, tail)) =
         lua_static_wezterm_color_constructor_call_from_query(static_source, query)
     {
@@ -110714,6 +110773,22 @@ fn lua_static_wezterm_color_value_from_query_with_depth(
     }
 }
 
+fn lua_static_wezterm_color_equality_operands(query: &str) -> Option<(&str, &str, bool)> {
+    let (left, right, equal) = if let Some((left, right)) = query.split_once("~=") {
+        (!right.contains("~=") && !left.contains("==") && !right.contains("=="))
+            .then_some((left, right, false))?
+    } else {
+        let (left, right) = query.split_once("==")?;
+        (!right.contains("==") && !left.contains("~=") && !right.contains("~="))
+            .then_some((left, right, true))?
+    };
+    let left = lua_trim_start_comments(left)?;
+    let left = lua_trim_end_comments(left)?.trim();
+    let right = lua_trim_start_comments(right)?;
+    let right = lua_trim_end_comments(right)?.trim();
+    (!left.is_empty() && !right.is_empty()).then_some((left, right, equal))
+}
+
 fn lua_static_wezterm_color_method_number(
     static_source: LuaStaticSource<'_>,
     query: &str,
@@ -110722,6 +110797,18 @@ fn lua_static_wezterm_color_method_number(
     let query = lua_trim_end_comments(query)?.trim();
     let number = parse_maybe_static_query_f64(Some(static_source), query)?;
     number.is_finite().then_some(number)
+}
+
+fn lua_static_wezterm_color_method_color(
+    static_source: LuaStaticSource<'_>,
+    query: &str,
+    depth: usize,
+) -> Option<wezterm_color_types::SrgbaTuple> {
+    let query = lua_trim_start_comments(query)?;
+    let query = lua_trim_end_comments(query)?.trim();
+    lua_static_wezterm_color_value_from_query_with_depth(static_source, query, depth + 1)?
+        .into_scalar()?
+        .as_color()
 }
 
 fn native_static_lua_number_tuple(
@@ -110822,6 +110909,20 @@ fn lua_static_wezterm_color_method_result(
         }
         ("hsla", []) => native_static_lua_number_tuple(receiver.to_hsla()),
         ("laba", []) => native_static_lua_number_tuple(receiver.to_laba()),
+        ("contrast_ratio", [other]) => NativeStaticLuaColorValue::Number(
+            receiver.contrast_ratio(&lua_static_wezterm_color_method_color(
+                static_source,
+                other,
+                depth + 1,
+            )?),
+        ),
+        ("delta_e", [other]) => NativeStaticLuaColorValue::Number(f64::from(
+            receiver.delta_e(&lua_static_wezterm_color_method_color(
+                static_source,
+                other,
+                depth + 1,
+            )?),
+        )),
         _ => return None,
     };
     Some(value)
@@ -110877,6 +110978,37 @@ fn lua_static_color_value_binding_before_offset(
     }
 
     selected
+}
+
+fn lua_static_color_number_from_query(
+    static_source: LuaStaticSource<'_>,
+    query: &str,
+) -> Option<f64> {
+    match lua_static_wezterm_color_value_from_query(static_source, query)?.into_scalar()? {
+        NativeStaticLuaColorValue::Number(value) => Some(value),
+        NativeStaticLuaColorValue::Integer(value) => Some(f64::from(value)),
+        _ => None,
+    }
+}
+
+fn lua_static_color_bool_from_query(
+    static_source: LuaStaticSource<'_>,
+    query: &str,
+) -> Option<bool> {
+    match lua_static_wezterm_color_value_from_query(static_source, query)?.into_scalar()? {
+        NativeStaticLuaColorValue::Bool(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn lua_static_color_string_from_query(
+    static_source: LuaStaticSource<'_>,
+    query: &str,
+) -> Option<String> {
+    match lua_static_wezterm_color_value_from_query(static_source, query)?.into_scalar()? {
+        NativeStaticLuaColorValue::String(value) => Some(value),
+        _ => None,
+    }
 }
 
 fn lua_color_query_with_static_source(
@@ -128352,6 +128484,73 @@ local lab_l, lab_a, lab_b, lab_alpha = base:laba()
             };
             assert!((actual - expected).abs() < 1e-9, "{variable}");
         }
+    }
+
+    #[test]
+    fn static_wezterm_color_value_evaluator_resolves_scalar_results() {
+        let source = r#"
+local red = wezterm.color.parse('red')
+local navy = wezterm.color.parse('navy')
+local ratio = red:contrast_ratio(navy)
+local distance = red:delta_e(navy)
+local same = red == wezterm.color.parse('red')
+local different = red ~= navy
+local text = tostring(red:darken(0.2))
+"#;
+        let red = "red"
+            .parse::<wezterm_color_types::SrgbaTuple>()
+            .unwrap();
+        let navy = "navy"
+            .parse::<wezterm_color_types::SrgbaTuple>()
+            .unwrap();
+        let evaluate = |variable: &str| {
+            super::lua_static_wezterm_color_value_from_query(
+                super::LuaStaticSource {
+                    source,
+                    max_start: source.len(),
+                },
+                variable,
+            )
+            .unwrap_or_else(|| panic!("expected static value for {variable}"))
+        };
+
+        assert_eq!(
+            evaluate("ratio"),
+            super::NativeStaticLuaColorValue::Number(red.contrast_ratio(&navy))
+        );
+        assert_eq!(
+            evaluate("distance"),
+            super::NativeStaticLuaColorValue::Number(f64::from(red.delta_e(&navy)))
+        );
+        assert_eq!(
+            evaluate("same"),
+            super::NativeStaticLuaColorValue::Bool(true)
+        );
+        assert_eq!(
+            evaluate("different"),
+            super::NativeStaticLuaColorValue::Bool(true)
+        );
+        assert_eq!(
+            evaluate("text"),
+            super::NativeStaticLuaColorValue::String(red.lighten(-0.2).to_string())
+        );
+
+        let static_source = super::LuaStaticSource {
+            source,
+            max_start: source.len(),
+        };
+        assert_eq!(
+            super::parse_maybe_static_query_f64(Some(static_source), "ratio"),
+            Some(red.contrast_ratio(&navy))
+        );
+        assert_eq!(
+            super::parse_maybe_static_query_bool(Some(static_source), "same"),
+            Some(true)
+        );
+        assert_eq!(
+            super::parse_maybe_static_query_text(Some(static_source), "text"),
+            Some(red.lighten(-0.2).to_string())
+        );
     }
 
     #[test]
