@@ -110630,44 +110630,153 @@ fn lua_static_wezterm_color_value_from_query_with_depth(
     if depth > LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH {
         return None;
     }
-    let (constructor, arguments, tail) =
-        lua_static_wezterm_color_constructor_call_from_query(static_source, query)?;
-    if !lua_static_value_tail_is_value_end(tail) {
-        return None;
-    }
-    let arguments = split_lua_top_level_arguments(arguments)?;
-
-    let color = match constructor {
-        LuaStaticWeztermColorConstructor::Parse => {
-            let [argument] = arguments.as_slice() else {
-                return None;
-            };
-            let value = parse_maybe_static_query_text(Some(static_source), argument)?;
-            value.parse::<wezterm_color_types::SrgbaTuple>().ok()?
-        }
-        LuaStaticWeztermColorConstructor::FromHsla => {
-            let [hue, saturation, lightness, alpha] = arguments.as_slice() else {
-                return None;
-            };
-            let values = [hue, saturation, lightness, alpha]
-                .map(|value| {
-                    lua_trim_start_comments(value)
-                        .and_then(lua_trim_end_comments)
-                        .and_then(|value| {
-                            parse_maybe_static_query_f64(Some(static_source), value.trim())
-                        })
-                })
-                .into_iter()
-                .collect::<Option<Vec<_>>>()?;
-            if values.iter().any(|value| !value.is_finite()) {
-                return None;
+    let query = lua_trim_start_comments(query)?;
+    let (mut value, mut tail) = if let Some((constructor, arguments, tail)) =
+        lua_static_wezterm_color_constructor_call_from_query(static_source, query)
+    {
+        let arguments = split_lua_top_level_arguments(arguments)?;
+        let color = match constructor {
+            LuaStaticWeztermColorConstructor::Parse => {
+                let [argument] = arguments.as_slice() else {
+                    return None;
+                };
+                let value = parse_maybe_static_query_text(Some(static_source), argument)?;
+                value.parse::<wezterm_color_types::SrgbaTuple>().ok()?
             }
-            wezterm_color_types::SrgbaTuple::from_hsla(
-                values[0], values[1], values[2], values[3],
-            )
+            LuaStaticWeztermColorConstructor::FromHsla => {
+                let [hue, saturation, lightness, alpha] = arguments.as_slice() else {
+                    return None;
+                };
+                let values = [hue, saturation, lightness, alpha]
+                    .map(|value| {
+                        lua_trim_start_comments(value)
+                            .and_then(lua_trim_end_comments)
+                            .and_then(|value| {
+                                parse_maybe_static_query_f64(Some(static_source), value.trim())
+                            })
+                    })
+                    .into_iter()
+                    .collect::<Option<Vec<_>>>()?;
+                if values.iter().any(|value| !value.is_finite()) {
+                    return None;
+                }
+                wezterm_color_types::SrgbaTuple::from_hsla(
+                    values[0], values[1], values[2], values[3],
+                )
+            }
+        };
+        (NativeStaticLuaColorValue::Color(color), tail)
+    } else {
+        let variable = lua_identifier_literal_from_query(query)?;
+        let tail = query.get(variable.len()..)?;
+        if tail
+            .chars()
+            .next()
+            .is_some_and(is_lua_identifier_character)
+        {
+            return None;
         }
+        let (binding, binding_start) = lua_static_builtin_scheme_binding_before_offset(
+            static_source.source,
+            variable,
+            static_source.max_start,
+        )?;
+        let value = lua_static_wezterm_color_value_from_query_with_depth(
+            LuaStaticSource {
+                source: static_source.source,
+                max_start: binding_start,
+            },
+            binding,
+            depth + 1,
+        )?
+        .into_scalar()?;
+        (value, tail)
     };
 
+    loop {
+        if lua_static_value_tail_is_value_end(tail) {
+            return Some(value);
+        }
+        let rest = lua_trim_start_comments(tail)?.strip_prefix(':')?;
+        let rest = lua_trim_start_comments(rest)?;
+        let method = lua_identifier_literal_from_query(rest)?;
+        let rest = lua_trim_start_comments(rest.get(method.len()..)?)?.strip_prefix('(')?;
+        let (arguments, next_tail) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        let arguments = if lua_static_load_scheme_path_query_without_comments(arguments)?
+            .trim()
+            .is_empty()
+        {
+            Vec::new()
+        } else {
+            split_lua_top_level_arguments(arguments)?
+        };
+        let receiver = value.as_color()?;
+        value = lua_static_wezterm_color_method_result(
+            static_source,
+            receiver,
+            method,
+            &arguments,
+            depth + 1,
+        )?;
+        tail = next_tail;
+    }
+}
+
+fn lua_static_wezterm_color_method_number(
+    static_source: LuaStaticSource<'_>,
+    query: &str,
+) -> Option<f64> {
+    let query = lua_trim_start_comments(query)?;
+    let query = lua_trim_end_comments(query)?.trim();
+    let number = parse_maybe_static_query_f64(Some(static_source), query)?;
+    number.is_finite().then_some(number)
+}
+
+fn lua_static_wezterm_color_method_result(
+    static_source: LuaStaticSource<'_>,
+    receiver: wezterm_color_types::SrgbaTuple,
+    method: &str,
+    arguments: &[&str],
+    depth: usize,
+) -> Option<NativeStaticLuaColorValue> {
+    if depth > LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH {
+        return None;
+    }
+    let color = match (method, arguments) {
+        ("complement", []) => receiver.complement(),
+        ("complement_ryb", []) => receiver.complement_ryb(),
+        ("saturate", [factor]) => {
+            receiver.saturate(lua_static_wezterm_color_method_number(static_source, factor)?)
+        }
+        ("desaturate", [factor]) => {
+            receiver.saturate(-lua_static_wezterm_color_method_number(static_source, factor)?)
+        }
+        ("saturate_fixed", [amount]) => receiver.saturate_fixed(
+            lua_static_wezterm_color_method_number(static_source, amount)?,
+        ),
+        ("desaturate_fixed", [amount]) => receiver.saturate_fixed(
+            -lua_static_wezterm_color_method_number(static_source, amount)?,
+        ),
+        ("lighten", [factor]) => {
+            receiver.lighten(lua_static_wezterm_color_method_number(static_source, factor)?)
+        }
+        ("darken", [factor]) => {
+            receiver.lighten(-lua_static_wezterm_color_method_number(static_source, factor)?)
+        }
+        ("lighten_fixed", [amount]) => receiver.lighten_fixed(
+            lua_static_wezterm_color_method_number(static_source, amount)?,
+        ),
+        ("darken_fixed", [amount]) => receiver.lighten_fixed(
+            -lua_static_wezterm_color_method_number(static_source, amount)?,
+        ),
+        ("adjust_hue_fixed", [amount]) => receiver.adjust_hue_fixed(
+            lua_static_wezterm_color_method_number(static_source, amount)?,
+        ),
+        ("adjust_hue_fixed_ryb", [amount]) => receiver.adjust_hue_fixed_ryb(
+            lua_static_wezterm_color_method_number(static_source, amount)?,
+        ),
+        _ => return None,
+    };
     Some(NativeStaticLuaColorValue::Color(color))
 }
 
@@ -128011,6 +128120,65 @@ mod tests {
             .unwrap_or_else(|| panic!("expected static Color from {source:?}"));
             assert_eq!(value.as_color().unwrap().to_string(), expected);
         }
+    }
+
+    #[test]
+    fn static_wezterm_color_value_evaluator_matches_all_color_methods() {
+        let base: wezterm_color_types::SrgbaTuple =
+            "rgba(25% 50% 75% 80%)".parse().unwrap();
+        let cases = [
+            ("complement()", base.complement()),
+            ("complement_ryb()", base.complement_ryb()),
+            ("saturate(0.2)", base.saturate(0.2)),
+            ("desaturate(0.2)", base.saturate(-0.2)),
+            ("saturate_fixed(0.2)", base.saturate_fixed(0.2)),
+            ("desaturate_fixed(0.2)", base.saturate_fixed(-0.2)),
+            ("lighten(0.2)", base.lighten(0.2)),
+            ("darken(0.2)", base.lighten(-0.2)),
+            ("lighten_fixed(0.2)", base.lighten_fixed(0.2)),
+            ("darken_fixed(0.2)", base.lighten_fixed(-0.2)),
+            ("adjust_hue_fixed(45)", base.adjust_hue_fixed(45.0)),
+            (
+                "adjust_hue_fixed_ryb(45)",
+                base.adjust_hue_fixed_ryb(45.0),
+            ),
+        ];
+
+        for (method, expected) in cases {
+            let expression =
+                format!("wezterm.color.parse('rgba(25% 50% 75% 80%)'):{method}");
+            let actual = super::lua_static_wezterm_color_value_from_query(
+                super::LuaStaticSource {
+                    source: &expression,
+                    max_start: 0,
+                },
+                &expression,
+            )
+            .unwrap_or_else(|| panic!("expected static Color from {expression:?}"));
+            assert_eq!(actual.as_color(), Some(expected), "{method}");
+        }
+
+        let source = r#"
+local base = wezterm.color.parse('yellow')
+local transformed = base:complement_ryb():darken(0.2):saturate_fixed(0.1)
+transformed
+"#;
+        let start = source.rfind("transformed").unwrap();
+        let actual = super::lua_static_wezterm_color_value_from_query(
+            super::LuaStaticSource {
+                source,
+                max_start: start,
+            },
+            &source[start..],
+        )
+        .expect("expected chained Color variable");
+        let expected = "yellow"
+            .parse::<wezterm_color_types::SrgbaTuple>()
+            .unwrap()
+            .complement_ryb()
+            .lighten(-0.2)
+            .saturate_fixed(0.1);
+        assert_eq!(actual.as_color(), Some(expected));
     }
 
     #[test]
