@@ -127775,6 +127775,36 @@ mod tests {
     }
 
     #[test]
+    fn static_wezterm_color_value_evaluator_parses_constructors() {
+        use wezterm_color_types::SrgbaTuple;
+
+        let hsla_expected = SrgbaTuple::from_hsla(120.0, 1.0, 0.25, 0.5).to_string();
+        for (source, marker, expected) in [
+            (
+                "config.colors = { foreground = wezterm.color.parse('rgba(1,2,3,0.5)') }",
+                "wezterm.color.parse",
+                "rgba(0.39215686274509803% 0.7843137254901961% 1.1764705882352942% 49.80392156862745%)".to_owned(),
+            ),
+            (
+                "config.colors = { foreground = wezterm.color.from_hsla(120, 1, 0.25, 0.5) }",
+                "wezterm.color.from_hsla",
+                hsla_expected,
+            ),
+        ] {
+            let start = source.find(marker).unwrap();
+            let value = super::lua_static_wezterm_color_value_from_query(
+                super::LuaStaticSource {
+                    source,
+                    max_start: start,
+                },
+                &source[start..source.rfind('}').unwrap()],
+            )
+            .expect("expected static Color");
+            assert_eq!(value.as_color().unwrap().to_string(), expected);
+        }
+    }
+
+    #[test]
     fn window_app_parses_wezterm_color_parse_dotted_comment_for_lua_colors_fields() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
