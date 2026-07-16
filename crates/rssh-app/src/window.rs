@@ -110603,6 +110603,12 @@ fn lua_static_wezterm_color_constructor_call_from_query<'a>(
     static_source: LuaStaticSource<'_>,
     query: &'a str,
 ) -> Option<(LuaStaticWeztermColorConstructor, &'a str, &'a str)> {
+    if !lua_static_wezterm_color_object_api_is_unmodified_before_offset(
+        static_source.source,
+        static_source.max_start,
+    )? {
+        return None;
+    }
     let query = lua_trim_start_comments(query)?;
     let direct = lua_static_wezterm_color_constructor_function_rest_from_query_with_depth(
         static_source.source,
@@ -110635,6 +110641,86 @@ fn lua_static_wezterm_color_constructor_call_from_query<'a>(
     let rest = lua_trim_start_comments(rest)?.strip_prefix('(')?;
     let (arguments, tail) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
     Some((constructor, arguments, tail))
+}
+
+fn lua_static_wezterm_color_object_api_is_unmodified_before_offset(
+    source: &str,
+    max_start: usize,
+) -> Option<bool> {
+    for statement_range in lua_top_level_logical_statements_before_offset(source, max_start)? {
+        let statement = source.get(statement_range.start..statement_range.end)?;
+        let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
+        let statement = lua_trim_start_comments(statement)?;
+        let assignment_statement = if lua_source_keyword_at(statement, 0, "local") {
+            lua_trim_start_comments(statement.get("local".len()..)?)?
+        } else {
+            statement
+        };
+
+        if !lua_source_keyword_at(assignment_statement, 0, "function")
+            && let Some((targets, _)) =
+                split_lua_static_load_scheme_path_assignment_statement(assignment_statement)
+        {
+            for target in split_lua_top_level_arguments(targets)? {
+                if lua_static_wezterm_color_object_assignment_target_may_modify_api(
+                    source,
+                    target,
+                    statement_range.start,
+                )? {
+                    return Some(false);
+                }
+            }
+            continue;
+        }
+
+        if lua_source_keyword_at(statement, 0, "function") {
+            let normalized = lua_static_load_scheme_path_query_without_comments(statement)?;
+            let function_rest = normalized.get("function".len()..)?.trim_start();
+            let Some((target, _)) = function_rest.split_once('(') else {
+                continue;
+            };
+            if lua_static_wezterm_color_object_assignment_target_may_modify_api(
+                source,
+                &target.replace(':', "."),
+                statement_range.start,
+            )? {
+                return Some(false);
+            }
+        }
+    }
+    Some(true)
+}
+
+fn lua_static_wezterm_color_object_assignment_target_may_modify_api(
+    source: &str,
+    target: &str,
+    max_start: usize,
+) -> Option<bool> {
+    let normalized = lua_static_load_scheme_path_query_without_comments(target)?;
+    let target = normalized.trim();
+    if lua_static_load_scheme_path_assignment_target_identifier(target).is_some() {
+        return Some(false);
+    }
+
+    if let Some(module_rest) =
+        lua_static_wezterm_module_namespace_rest_from_query_with_depth(source, target, max_start, 0)
+    {
+        let rest = lua_trim_start_comments(module_rest)?;
+        let Some((field, _)) = lua_static_string_field_key_from_query(source, max_start, rest) else {
+            return Some(rest.starts_with('.') || rest.starts_with('['));
+        };
+        return Some(field == "color");
+    }
+
+    if lua_static_wezterm_color_namespace_rest_from_query_with_depth(
+        source, target, max_start, 0,
+    )
+    .is_some()
+    {
+        return Some(true);
+    }
+
+    Some(false)
 }
 
 fn lua_static_wezterm_color_value_from_query(
@@ -110697,13 +110783,7 @@ fn lua_static_wezterm_color_value_from_query_with_depth(
                     return None;
                 };
                 let values = [hue, saturation, lightness, alpha]
-                    .map(|value| {
-                        lua_trim_start_comments(value)
-                            .and_then(lua_trim_end_comments)
-                            .and_then(|value| {
-                                parse_maybe_static_query_f64(Some(static_source), value.trim())
-                            })
-                    })
+                    .map(|value| lua_static_wezterm_color_method_number(static_source, value))
                     .into_iter()
                     .collect::<Option<Vec<_>>>()?;
                 if values.iter().any(|value| !value.is_finite()) {
@@ -110783,9 +110863,43 @@ fn lua_static_wezterm_color_method_number(
     static_source: LuaStaticSource<'_>,
     query: &str,
 ) -> Option<f64> {
+    lua_static_wezterm_color_method_number_with_depth(static_source, query, 0)
+}
+
+fn lua_static_wezterm_color_method_number_with_depth(
+    static_source: LuaStaticSource<'_>,
+    query: &str,
+    depth: usize,
+) -> Option<f64> {
+    if depth > LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH {
+        return None;
+    }
     let query = lua_trim_start_comments(query)?;
     let query = lua_trim_end_comments(query)?.trim();
-    let number = parse_maybe_static_query_f64(Some(static_source), query)?;
+    let number: f64 = if let Some(literal) = lua_signed_number_literal_from_query(query)
+        && lua_static_value_tail_is_value_end(query.get(literal.len()..)?)
+    {
+        literal.parse().ok()?
+    } else {
+        let variable = lua_identifier_literal_from_query(query)?;
+        let rest = query.get(variable.len()..)?;
+        if !lua_static_value_tail_is_value_end(rest) {
+            return None;
+        }
+        let (binding, binding_start) = lua_static_builtin_scheme_binding_before_offset(
+            static_source.source,
+            variable,
+            static_source.max_start,
+        )?;
+        return lua_static_wezterm_color_method_number_with_depth(
+            LuaStaticSource {
+                source: static_source.source,
+                max_start: binding_start,
+            },
+            binding,
+            depth + 1,
+        );
+    };
     number.is_finite().then_some(number)
 }
 
@@ -110942,6 +111056,13 @@ fn lua_static_color_value_binding_before_offset(
             continue;
         }
         let targets = split_lua_top_level_arguments(targets)?;
+        if targets.iter().any(|target| {
+            lua_static_color_assignment_target_may_modify_variable(target, variable)
+                .unwrap_or(true)
+        }) {
+            selected = None;
+            continue;
+        }
         let Some(target_index) = targets.iter().position(|target| {
             lua_static_load_scheme_path_assignment_target_identifier(target).as_deref()
                 == Some(variable)
@@ -110952,6 +111073,11 @@ fn lua_static_color_value_binding_before_offset(
             selected = None;
             continue;
         };
+        let alias_variable = lua_identifier_literal_from_query(value).filter(|alias| {
+            value
+                .get(alias.len()..)
+                .is_some_and(lua_static_value_tail_is_value_end)
+        });
         let evaluated = lua_static_wezterm_color_value_from_query_with_depth(
             LuaStaticSource {
                 source,
@@ -110960,6 +111086,17 @@ fn lua_static_color_value_binding_before_offset(
             value,
             depth + 1,
         );
+        if let Some(alias_variable) = alias_variable
+            && lua_static_color_variable_is_modified_between_offsets(
+                source,
+                alias_variable,
+                start,
+                max_start,
+            )?
+        {
+            selected = None;
+            continue;
+        }
         selected = match evaluated {
             Some(NativeStaticLuaColorValue::Tuple(values)) => values.get(target_index).cloned(),
             Some(value) if targets.len() == 1 && target_index == 0 => value.into_scalar(),
@@ -110968,6 +111105,55 @@ fn lua_static_color_value_binding_before_offset(
     }
 
     selected
+}
+
+fn lua_static_color_variable_is_modified_between_offsets(
+    source: &str,
+    variable: &str,
+    min_start: usize,
+    max_start: usize,
+) -> Option<bool> {
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        if start <= min_start {
+            continue;
+        }
+        let rest = if lua_source_keyword_at(source, start, "local") {
+            lua_trim_start_comments(source.get(start + "local".len()..)?)?
+        } else {
+            source.get(start..)?
+        };
+        let Some((targets, _)) = rest.split_once('=') else {
+            continue;
+        };
+        if targets.contains('\n') || targets.contains('\r') || targets.contains(';') {
+            continue;
+        }
+        for target in split_lua_top_level_arguments(targets)? {
+            if lua_static_load_scheme_path_assignment_target_identifier(target).as_deref()
+                == Some(variable)
+                || lua_static_color_assignment_target_may_modify_variable(target, variable)?
+            {
+                return Some(true);
+            }
+        }
+    }
+    Some(false)
+}
+
+fn lua_static_color_assignment_target_may_modify_variable(
+    target: &str,
+    variable: &str,
+) -> Option<bool> {
+    let normalized = lua_static_load_scheme_path_query_without_comments(target)?;
+    let target = normalized.trim();
+    let Some(rest) = target.strip_prefix(variable) else {
+        return Some(false);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    Some(rest.starts_with('.') || rest.starts_with('['))
 }
 
 fn lua_static_color_number_from_query(
@@ -128768,6 +128954,94 @@ return config
         assert_eq!(
             scheme_effective.cursor_bg_color,
             terminal(accent.lighten(0.1))
+        );
+    }
+
+    #[test]
+    fn static_wezterm_color_value_evaluator_rejects_unprovable_forms() {
+        for expression in [
+            "wezterm.color.parse()",
+            "wezterm.color.parse('red', 'blue')",
+            "wezterm.color.from_hsla(0, 1, 0.5)",
+            "wezterm.color.from_hsla(0, 1, 0.5, 1 / 0)",
+            "wezterm.color.parse('red'):complement(1)",
+            "wezterm.color.parse('red'):saturate()",
+            "wezterm.color.parse('red').complement()",
+            "wezterm.color.parse('red'):contrast_ratio(dynamic_color)",
+            "wezterm.color.parse('red') == wezterm.color.parse('red') == wezterm.color.parse('red')",
+        ] {
+            assert!(
+                super::lua_static_wezterm_color_value_from_query(
+                    super::LuaStaticSource {
+                        source: expression,
+                        max_start: 0,
+                    },
+                    expression,
+                )
+                .is_none(),
+                "unexpectedly accepted {expression:?}"
+            );
+        }
+
+        for (source, query) in [
+            (
+                "local c = wezterm.color.parse('red')\nc = dynamic()\nc",
+                "c",
+            ),
+            (
+                "local base = wezterm.color.parse('red')\nlocal method = base.complement\nmethod()",
+                "method()",
+            ),
+            (
+                "local base = wezterm.color.parse('red')\nlocal a, b, missing = base:triad()\nmissing",
+                "missing",
+            ),
+            (
+                "local base = wezterm.color.parse('red')\nlocal a, b = base\na",
+                "a",
+            ),
+            (
+                "wezterm.color.parse = dynamic\nwezterm.color.parse('red')",
+                "wezterm.color.parse('red')",
+            ),
+            (
+                "local c = wezterm.color.parse('red')\nc.extra = dynamic\nc",
+                "c",
+            ),
+            (
+                "local c = wezterm.color.parse('red')\nlocal alias = c\nc.extra = dynamic\nalias",
+                "alias",
+            ),
+            ("local a = b\nlocal b = a\na", "a"),
+            (
+                "if dynamic then\n  local c = wezterm.color.parse('red')\nend\nc",
+                "c",
+            ),
+        ] {
+            let start = source.rfind(query).unwrap();
+            assert!(
+                super::lua_static_wezterm_color_value_from_query(
+                    super::LuaStaticSource {
+                        source,
+                        max_start: start,
+                    },
+                    &source[start..],
+                )
+                .is_none(),
+                "unexpectedly accepted source {source:?}"
+            );
+        }
+
+        let tuple = "wezterm.color.parse('red'):triad()";
+        let static_source = super::LuaStaticSource {
+            source: tuple,
+            max_start: 0,
+        };
+        assert!(super::lua_static_color_number_from_query(static_source, tuple).is_none());
+        assert!(super::lua_static_color_bool_from_query(static_source, tuple).is_none());
+        assert!(super::lua_static_color_string_from_query(static_source, tuple).is_none());
+        assert!(
+            super::lua_color_from_query_with_static_source(Some(static_source), tuple).is_none()
         );
     }
 
