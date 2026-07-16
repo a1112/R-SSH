@@ -110543,16 +110543,6 @@ impl NativeStaticLuaColorValue {
     }
 }
 
-fn native_static_lua_color_from_terminal_color(
-    color: Color,
-) -> Option<wezterm_color_types::SrgbaTuple> {
-    match color {
-        Color::Rgb(red, green, blue) => Some((red, green, blue).into()),
-        Color::Rgba(red, green, blue, alpha) => Some((red, green, blue, alpha).into()),
-        Color::Default | Color::Indexed(_) => None,
-    }
-}
-
 fn terminal_color_from_native_static_lua_color(
     color: wezterm_color_types::SrgbaTuple,
 ) -> Color {
@@ -111035,6 +111025,13 @@ fn lua_color_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<Color> {
+    if let Some(color) = static_source
+        .and_then(|source| lua_static_wezterm_color_value_from_query(source, value))
+        .and_then(|value| value.into_scalar())
+        .and_then(|value| value.as_color())
+    {
+        return Some(terminal_color_from_native_static_lua_color(color));
+    }
     let value = lua_color_query_with_static_source(static_source, value);
     lua_color_from_query(&value)
 }
@@ -111043,6 +111040,15 @@ fn lua_opaque_color_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<Color> {
+    if let Some(color) = static_source
+        .and_then(|source| lua_static_wezterm_color_value_from_query(source, value))
+        .and_then(|value| value.into_scalar())
+        .and_then(|value| value.as_color())
+    {
+        return Some(opaque_color(terminal_color_from_native_static_lua_color(
+            color,
+        )));
+    }
     let value = lua_color_query_with_static_source(static_source, value);
     lua_opaque_color_from_query(&value)
 }
@@ -111052,6 +111058,19 @@ fn lua_opaque_color_from_query_with_static_sources(
     outer_static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<Color> {
+    if let Some(color) = static_source
+        .and_then(|source| lua_static_wezterm_color_value_from_query(source, value))
+        .or_else(|| {
+            outer_static_source
+                .and_then(|source| lua_static_wezterm_color_value_from_query(source, value))
+        })
+        .and_then(|value| value.into_scalar())
+        .and_then(|value| value.as_color())
+    {
+        return Some(opaque_color(terminal_color_from_native_static_lua_color(
+            color,
+        )));
+    }
     let value = lua_color_query_with_static_sources(static_source, outer_static_source, value);
     lua_opaque_color_from_query(&value)
 }
@@ -111372,7 +111391,8 @@ fn color_array_lua_table_field_from_query_with_static_source(
         if colors.is_some() {
             return None;
         }
-        let values = split_lua_table_string_array_with_static_source(static_source, value.trim())?;
+        let values =
+            split_lua_table_color_expression_array_with_static_source(static_source, value.trim())?;
         let parsed = values
             .iter()
             .map(|value| lua_opaque_color_from_query_with_static_source(static_source, value))
@@ -111966,7 +111986,71 @@ fn split_lua_gradient_color_array_with_static_source(
         return Some(colors);
     }
 
-    split_lua_table_string_array_with_static_source(static_source, value)
+    split_lua_table_color_expression_array_with_static_source(static_source, value)
+}
+
+fn split_lua_table_color_expression_array_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Vec<String>> {
+    let color_expression = |query: &str| {
+        let query = query.trim();
+        if query.starts_with('"') || query.starts_with('\'') || query.starts_with('[') {
+            return parse_maybe_quoted_query_text(query);
+        }
+        if let Some(static_source) = static_source
+            && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
+                static_source.source,
+                query,
+                static_source.max_start,
+            )
+            .and_then(parse_maybe_quoted_query_text)
+        {
+            return Some(value);
+        }
+        (!query.is_empty()).then(|| query.to_owned())
+    };
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut values = Vec::new();
+    let mut indexed_values = BTreeMap::new();
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !values.is_empty() || index == 0 || indexed_values.contains_key(&index) {
+                return None;
+            }
+            indexed_values.insert(index, color_expression(value)?);
+            continue;
+        }
+        if !indexed_values.is_empty() {
+            return None;
+        }
+        values.push(color_expression(field)?);
+    }
+    if !indexed_values.is_empty() {
+        return (1..=indexed_values.len())
+            .map(|index| indexed_values.remove(&index))
+            .collect();
+    }
+    Some(values)
 }
 
 fn lua_wezterm_gradient_color_array_from_query(
@@ -128550,6 +128634,140 @@ local text = tostring(red:darken(0.2))
         assert_eq!(
             super::parse_maybe_static_query_text(Some(static_source), "text"),
             Some(red.lighten(-0.2).to_string())
+        );
+    }
+
+    #[test]
+    fn window_app_routes_wezterm_color_objects_through_shared_consumers() {
+        let mut app = NativeWindowApp::new(None);
+        let source = r#"
+local wezterm = require 'wezterm'
+local config = {}
+local base = wezterm.color.parse('yellow')
+local accent = base:complement_ryb():darken(0.2)
+local triad_a, triad_b = accent:triad()
+
+config.colors = {
+  foreground = base,
+  background = accent,
+  cursor_bg = triad_a,
+  selection_bg = triad_b,
+  quick_select_match_fg = { Color = accent:lighten(0.1) },
+}
+config.window_background_gradient = {
+  colors = { base, accent },
+}
+config.window_frame = {
+  active_titlebar_bg = accent,
+}
+config.integrated_title_button_color = accent
+
+return config
+"#;
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(source)
+        .expect("expected WezTerm Color object consumers");
+
+        let base = "yellow"
+            .parse::<wezterm_color_types::SrgbaTuple>()
+            .unwrap();
+        let accent = base.complement_ryb().lighten(-0.2);
+        let (triad_a, triad_b) = accent.triad();
+        let terminal = |color: wezterm_color_types::SrgbaTuple| {
+            let (red, green, blue, alpha) = color.to_srgb_u8();
+            if alpha == u8::MAX {
+                Color::Rgb(red, green, blue)
+            } else {
+                Color::Rgba(red, green, blue, alpha)
+            }
+        };
+        let gradient_start = source.find("config.window_background_gradient").unwrap();
+        let static_source = super::LuaStaticSource {
+            source,
+            max_start: gradient_start,
+        };
+        assert_eq!(
+            super::lua_opaque_color_from_query_with_static_source(Some(static_source), "base"),
+            Some(terminal(base))
+        );
+        assert_eq!(
+            super::split_lua_table_color_expression_array_with_static_source(
+                Some(static_source),
+                "{ base, accent }",
+            ),
+            Some(vec!["base".to_owned(), "accent".to_owned()])
+        );
+        assert_eq!(
+            overrides
+                .window_background_gradient
+                .as_ref()
+                .expect("expected raw gradient")
+                .colors,
+            vec![terminal(base), terminal(accent)]
+        );
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let colors = effective.colors.expect("expected colors");
+        assert_eq!(colors.foreground, Some(terminal(base)));
+        assert_eq!(colors.background, Some(terminal(accent)));
+        assert_eq!(colors.cursor_bg, Some(terminal(triad_a)));
+        assert_eq!(colors.selection_bg, Some(terminal(triad_b)));
+        assert_eq!(
+            effective.quick_select_match_fg,
+            Some(NativeColorSpec::Color(terminal(accent.lighten(0.1))))
+        );
+        assert_eq!(
+            effective.window_frame_appearance.active_titlebar_bg,
+            Some(terminal(accent))
+        );
+        assert_eq!(
+            effective.integrated_title_button_color,
+            NativeIntegratedTitleButtonColor::Color(terminal(accent))
+        );
+
+        let background_overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+local wezterm = require 'wezterm'
+local config = {}
+local accent = wezterm.color.parse('yellow'):complement_ryb():darken(0.2)
+config.background = {
+  { source = { Color = accent } },
+}
+return config
+"#,
+        )
+        .expect("expected Color object background layer");
+        assert_eq!(
+            background_overrides.background,
+            Some(vec![super::NativeWindowBackgroundVisualLayer::Color(
+                terminal(accent)
+            )])
+        );
+
+        let scheme_overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+local wezterm = require 'wezterm'
+local config = {}
+local accent = wezterm.color.parse('yellow'):complement_ryb():darken(0.2)
+config.color_schemes = {
+  Project = {
+    foreground = accent,
+    background = '#000000',
+  },
+}
+config.color_schemes.Project.cursor_bg = accent:lighten(0.1)
+config.color_scheme = 'Project'
+return config
+"#,
+        )
+        .expect("expected Color object custom scheme mutation");
+        let mut scheme_app = NativeWindowApp::new(None);
+        scheme_app.set_config_overrides(scheme_overrides);
+        let scheme_effective = scheme_app.native_effective_config();
+        assert_eq!(scheme_effective.foreground_color, terminal(accent));
+        assert_eq!(
+            scheme_effective.cursor_bg_color,
+            terminal(accent.lighten(0.1))
         );
     }
 
