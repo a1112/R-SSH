@@ -24,6 +24,7 @@ sysinfo = { version = "=0.36.1", default-features = false, features = ["system"]
 toml = "0.8"
 unicode_names2 = "3.1"
 unicode-segmentation = "1"
+wezterm-color-types = "=0.3.0"
 winit = "0.30"
 
 [dev-dependencies]

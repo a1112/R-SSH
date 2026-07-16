@@ -2330,6 +2330,17 @@ runtime storage for tabs and split panes.
   shutdown from the window manager.
 - Native window title surfaces app-shell state as `[workspace:X tab:Y pane:Z]` so
   smoke runs can verify transitions without opening multiple PTY sessions.
+- Static WezTerm Color objects now use the pinned
+  `wezterm-color-types 0.3.0` implementation end to end. The bounded evaluator
+  supports `wezterm.color.parse`, `wezterm.color.from_hsla`, all 20 upstream
+  Color methods, precision-preserving colon chains, Color variables and
+  constructor/module/namespace/static-key aliases, tuple methods with
+  multi-target assignment, `contrast_ratio`, `delta_e`, equality, and
+  `tostring(Color)`. Results flow through the existing palette, custom-scheme,
+  mutation, gradient, background-layer, window-frame, integrated-title-button,
+  and ColorSpec consumers. Dynamic arguments/control flow, extracted or
+  dot-called methods, tuple-to-table expansion, and ambiguous identity/API
+  mutation remain deliberately fail-closed.
 
 ## Known Limitations
 
