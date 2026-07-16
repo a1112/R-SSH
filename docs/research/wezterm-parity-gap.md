@@ -4307,6 +4307,18 @@ what remains before WezTerm-style parity in key UX/composition areas.
 - Command palette close actions now follow WezTerm's pane/tab/window lifecycle:
   closing the final pane in a tab closes the tab when possible, and closing the
   final tab/pane requests native-window shutdown.
+- The pinned WezTerm `ColorWrap` surface is complete for bounded-static Lua:
+  both constructors (`parse` and `from_hsla`), all 20 methods, precision-
+  preserving Color chains, direct/module/namespace/static-key/constructor
+  aliases, Color variables, tuple-returning methods with multi-target
+  assignments, numeric comparison results, equality, and `tostring` are
+  evaluated through `wezterm-color-types 0.3.0`. Color results are converted
+  once at the shared consumer boundary and cover config palettes, named custom
+  schemes and mutations, gradients, background layers, window frame colors,
+  integrated title button color, and ColorSpec fields. Upstream method
+  extraction/dot-call userdata behavior, tuple table expansion, arbitrary Lua
+  control flow, dynamic arguments/keys, and unprovable identity or API
+  mutation remain open and fail closed.
 
 The next layer is full App Shell v2 integration (multi-window focus/lifecycle
 polish, remaining pane focus/selection polish, broader Lua/dynamic callback

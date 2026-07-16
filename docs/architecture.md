@@ -158,14 +158,23 @@ keyboard, mouse, paste, resize
   Horizontal/Vertical/Linear-angle/Radial color-list fills with colorgrad
   interpolation/blend/segment controls, `wezterm.color.gradient(...)` and legacy
   `wezterm.gradient_colors(...)` color helpers through direct calls or
-  top-level static helper aliases, `wezterm.color.parse(...)` color helpers
-  through direct calls or top-level static helper aliases for scalar,
+  top-level static helper aliases, and bounded-static WezTerm Color object
+  evaluation backed by `wezterm-color-types 0.3.0`. The evaluator covers
+  `wezterm.color.parse(...)`, `wezterm.color.from_hsla(...)`, all 20 pinned
+  `ColorWrap` methods, colon-method chains without intermediate 8-bit
+  quantization, color/number/bool/string results, tuple-returning
+  `triad`/`square`/`srgba_u8`/`linear_rgba`/`hsla`/`laba`, multi-target
+  assignments, equality, and `tostring(Color)`. Direct, module, namespace,
+  static-key, and constructor aliases feed the same typed resolver before
+  adapting Color results once for scalar,
   palette, indexed, tab-bar, visual-bell, selector overlay colors,
   `win32_acrylic_accent_color`, `integrated_title_button_color`,
   `config.background` Color sources, `window_background_gradient.colors`
   entries, and ColorSpec `colors.*` fields plus `window_frame`
   titlebar/button/border color fields, static `config.colors` variable
-  mutations, and static `config.color_schemes` entry mutations, and colorgrad
+  mutations, and static `config.color_schemes` entry mutations. Dynamic Lua,
+  method extraction/dot-call rebinding, tuple table expansion, and unprovable
+  identity/API mutations remain fail-closed. Colorgrad
   preset fills for default window backgrounds,
   and WezTerm `config.background` Color layers composed with source-over alpha
   plus single Gradient layers inline or through top-level
