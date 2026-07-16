@@ -110676,20 +110676,12 @@ fn lua_static_wezterm_color_value_from_query_with_depth(
         {
             return None;
         }
-        let (binding, binding_start) = lua_static_builtin_scheme_binding_before_offset(
+        let value = lua_static_color_value_binding_before_offset(
             static_source.source,
             variable,
             static_source.max_start,
-        )?;
-        let value = lua_static_wezterm_color_value_from_query_with_depth(
-            LuaStaticSource {
-                source: static_source.source,
-                max_start: binding_start,
-            },
-            binding,
             depth + 1,
-        )?
-        .into_scalar()?;
+        )?;
         (value, tail)
     };
 
@@ -110732,6 +110724,17 @@ fn lua_static_wezterm_color_method_number(
     number.is_finite().then_some(number)
 }
 
+fn native_static_lua_number_tuple(
+    values: (f64, f64, f64, f64),
+) -> NativeStaticLuaColorValue {
+    NativeStaticLuaColorValue::Tuple(vec![
+        NativeStaticLuaColorValue::Number(values.0),
+        NativeStaticLuaColorValue::Number(values.1),
+        NativeStaticLuaColorValue::Number(values.2),
+        NativeStaticLuaColorValue::Number(values.3),
+    ])
+}
+
 fn lua_static_wezterm_color_method_result(
     static_source: LuaStaticSource<'_>,
     receiver: wezterm_color_types::SrgbaTuple,
@@ -110742,42 +110745,138 @@ fn lua_static_wezterm_color_method_result(
     if depth > LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH {
         return None;
     }
-    let color = match (method, arguments) {
-        ("complement", []) => receiver.complement(),
-        ("complement_ryb", []) => receiver.complement_ryb(),
+    let value = match (method, arguments) {
+        ("complement", []) => NativeStaticLuaColorValue::Color(receiver.complement()),
+        ("complement_ryb", []) => {
+            NativeStaticLuaColorValue::Color(receiver.complement_ryb())
+        }
         ("saturate", [factor]) => {
-            receiver.saturate(lua_static_wezterm_color_method_number(static_source, factor)?)
+            NativeStaticLuaColorValue::Color(
+                receiver.saturate(lua_static_wezterm_color_method_number(static_source, factor)?),
+            )
         }
-        ("desaturate", [factor]) => {
-            receiver.saturate(-lua_static_wezterm_color_method_number(static_source, factor)?)
-        }
-        ("saturate_fixed", [amount]) => receiver.saturate_fixed(
-            lua_static_wezterm_color_method_number(static_source, amount)?,
+        ("desaturate", [factor]) => NativeStaticLuaColorValue::Color(
+            receiver.saturate(-lua_static_wezterm_color_method_number(static_source, factor)?),
         ),
-        ("desaturate_fixed", [amount]) => receiver.saturate_fixed(
-            -lua_static_wezterm_color_method_number(static_source, amount)?,
+        ("saturate_fixed", [amount]) => NativeStaticLuaColorValue::Color(
+            receiver.saturate_fixed(lua_static_wezterm_color_method_number(static_source, amount)?),
+        ),
+        ("desaturate_fixed", [amount]) => NativeStaticLuaColorValue::Color(
+            receiver
+                .saturate_fixed(-lua_static_wezterm_color_method_number(static_source, amount)?),
         ),
         ("lighten", [factor]) => {
-            receiver.lighten(lua_static_wezterm_color_method_number(static_source, factor)?)
+            NativeStaticLuaColorValue::Color(
+                receiver.lighten(lua_static_wezterm_color_method_number(static_source, factor)?),
+            )
         }
-        ("darken", [factor]) => {
-            receiver.lighten(-lua_static_wezterm_color_method_number(static_source, factor)?)
+        ("darken", [factor]) => NativeStaticLuaColorValue::Color(
+            receiver.lighten(-lua_static_wezterm_color_method_number(static_source, factor)?),
+        ),
+        ("lighten_fixed", [amount]) => NativeStaticLuaColorValue::Color(
+            receiver.lighten_fixed(lua_static_wezterm_color_method_number(static_source, amount)?),
+        ),
+        ("darken_fixed", [amount]) => NativeStaticLuaColorValue::Color(
+            receiver.lighten_fixed(-lua_static_wezterm_color_method_number(static_source, amount)?),
+        ),
+        ("adjust_hue_fixed", [amount]) => NativeStaticLuaColorValue::Color(
+            receiver
+                .adjust_hue_fixed(lua_static_wezterm_color_method_number(static_source, amount)?),
+        ),
+        ("adjust_hue_fixed_ryb", [amount]) => NativeStaticLuaColorValue::Color(
+            receiver
+                .adjust_hue_fixed_ryb(lua_static_wezterm_color_method_number(static_source, amount)?),
+        ),
+        ("triad", []) => {
+            let (first, second) = receiver.triad();
+            NativeStaticLuaColorValue::Tuple(vec![
+                NativeStaticLuaColorValue::Color(first),
+                NativeStaticLuaColorValue::Color(second),
+            ])
         }
-        ("lighten_fixed", [amount]) => receiver.lighten_fixed(
-            lua_static_wezterm_color_method_number(static_source, amount)?,
-        ),
-        ("darken_fixed", [amount]) => receiver.lighten_fixed(
-            -lua_static_wezterm_color_method_number(static_source, amount)?,
-        ),
-        ("adjust_hue_fixed", [amount]) => receiver.adjust_hue_fixed(
-            lua_static_wezterm_color_method_number(static_source, amount)?,
-        ),
-        ("adjust_hue_fixed_ryb", [amount]) => receiver.adjust_hue_fixed_ryb(
-            lua_static_wezterm_color_method_number(static_source, amount)?,
-        ),
+        ("square", []) => {
+            let (first, second, third) = receiver.square();
+            NativeStaticLuaColorValue::Tuple(vec![
+                NativeStaticLuaColorValue::Color(first),
+                NativeStaticLuaColorValue::Color(second),
+                NativeStaticLuaColorValue::Color(third),
+            ])
+        }
+        ("srgba_u8", []) => {
+            let (red, green, blue, alpha) = receiver.to_srgb_u8();
+            NativeStaticLuaColorValue::Tuple(vec![
+                NativeStaticLuaColorValue::Integer(red),
+                NativeStaticLuaColorValue::Integer(green),
+                NativeStaticLuaColorValue::Integer(blue),
+                NativeStaticLuaColorValue::Integer(alpha),
+            ])
+        }
+        ("linear_rgba", []) => {
+            let linear = receiver.to_linear();
+            NativeStaticLuaColorValue::Tuple(vec![
+                NativeStaticLuaColorValue::Number(f64::from(linear.0)),
+                NativeStaticLuaColorValue::Number(f64::from(linear.1)),
+                NativeStaticLuaColorValue::Number(f64::from(linear.2)),
+                NativeStaticLuaColorValue::Number(f64::from(linear.3)),
+            ])
+        }
+        ("hsla", []) => native_static_lua_number_tuple(receiver.to_hsla()),
+        ("laba", []) => native_static_lua_number_tuple(receiver.to_laba()),
         _ => return None,
     };
-    Some(NativeStaticLuaColorValue::Color(color))
+    Some(value)
+}
+
+fn lua_static_color_value_binding_before_offset(
+    source: &str,
+    variable: &str,
+    max_start: usize,
+    depth: usize,
+) -> Option<NativeStaticLuaColorValue> {
+    if depth > LUA_STATIC_LOAD_SCHEME_PATH_MAX_DEPTH {
+        return None;
+    }
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let rest = if lua_source_keyword_at(source, start, "local") {
+            lua_trim_start_comments(source.get(start + "local".len()..)?)?
+        } else {
+            source.get(start..)?
+        };
+        let Some((targets, value)) = rest.split_once('=') else {
+            continue;
+        };
+        if targets.contains('\n') || targets.contains('\r') || targets.contains(';') {
+            continue;
+        }
+        let targets = split_lua_top_level_arguments(targets)?;
+        let Some(target_index) = targets.iter().position(|target| {
+            lua_static_load_scheme_path_assignment_target_identifier(target).as_deref()
+                == Some(variable)
+        }) else {
+            continue;
+        };
+        let Some(value) = lua_top_level_statement_value_from_query(value) else {
+            selected = None;
+            continue;
+        };
+        let evaluated = lua_static_wezterm_color_value_from_query_with_depth(
+            LuaStaticSource {
+                source,
+                max_start: start,
+            },
+            value,
+            depth + 1,
+        );
+        selected = match evaluated {
+            Some(NativeStaticLuaColorValue::Tuple(values)) => values.get(target_index).cloned(),
+            Some(value) if targets.len() == 1 && target_index == 0 => value.into_scalar(),
+            Some(_) | None => None,
+        };
+    }
+
+    selected
 }
 
 fn lua_color_query_with_static_source(
@@ -128179,6 +128278,80 @@ transformed
             .lighten(-0.2)
             .saturate_fixed(0.1);
         assert_eq!(actual.as_color(), Some(expected));
+    }
+
+    #[test]
+    fn static_wezterm_color_value_evaluator_resolves_multi_target_results() {
+        let source = r#"
+local base = wezterm.color.parse('yellow')
+local triad_a, triad_b = base:triad()
+local square_a, square_b, square_c = base:square()
+local red, green, blue, alpha = base:srgba_u8()
+local linear_red, linear_green, linear_blue, linear_alpha = base:linear_rgba()
+local hue, saturation, lightness, hsla_alpha = base:hsla()
+local lab_l, lab_a, lab_b, lab_alpha = base:laba()
+"#;
+        let base = "yellow"
+            .parse::<wezterm_color_types::SrgbaTuple>()
+            .unwrap();
+        let (triad_a, triad_b) = base.triad();
+        let (square_a, square_b, square_c) = base.square();
+        let (red, green, blue, alpha) = base.to_srgb_u8();
+        let linear = base.to_linear();
+        let hsla = base.to_hsla();
+        let laba = base.to_laba();
+
+        let evaluate = |variable: &str| {
+            super::lua_static_wezterm_color_value_from_query(
+                super::LuaStaticSource {
+                    source,
+                    max_start: source.len(),
+                },
+                variable,
+            )
+            .unwrap_or_else(|| panic!("expected static value for {variable}"))
+        };
+
+        for (variable, expected) in [
+            ("triad_a", triad_a),
+            ("triad_b", triad_b),
+            ("square_a", square_a),
+            ("square_b", square_b),
+            ("square_c", square_c),
+        ] {
+            assert_eq!(evaluate(variable).as_color(), Some(expected), "{variable}");
+        }
+        for (variable, expected) in [
+            ("red", red),
+            ("green", green),
+            ("blue", blue),
+            ("alpha", alpha),
+        ] {
+            assert_eq!(
+                evaluate(variable),
+                super::NativeStaticLuaColorValue::Integer(expected),
+                "{variable}"
+            );
+        }
+        for (variable, expected) in [
+            ("linear_red", f64::from(linear.0)),
+            ("linear_green", f64::from(linear.1)),
+            ("linear_blue", f64::from(linear.2)),
+            ("linear_alpha", f64::from(linear.3)),
+            ("hue", hsla.0),
+            ("saturation", hsla.1),
+            ("lightness", hsla.2),
+            ("hsla_alpha", hsla.3),
+            ("lab_l", laba.0),
+            ("lab_a", laba.1),
+            ("lab_b", laba.2),
+            ("lab_alpha", laba.3),
+        ] {
+            let super::NativeStaticLuaColorValue::Number(actual) = evaluate(variable) else {
+                panic!("expected numeric value for {variable}");
+            };
+            assert!((actual - expected).abs() < 1e-9, "{variable}");
+        }
     }
 
     #[test]
