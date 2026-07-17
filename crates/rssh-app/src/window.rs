@@ -84333,7 +84333,6 @@ impl NativeWindowApp {
         let session_tty_name = self.session_tty_name.take();
         let writer = self.writer.take();
         let reader_thread = self.reader_thread.take();
-        self.capture_ordinary_selection_from_projection_if_needed();
         let ordinary_selection = self.ordinary_selection.take();
         self.selection = None;
         self.selecting = false;
@@ -89021,7 +89020,6 @@ impl NativeWindowApp {
     }
 
     fn handle_active_pane_output(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.capture_ordinary_selection_from_projection_if_needed();
         let started = Instant::now();
         self.metrics.record_pty_chunk(bytes.len());
         let runtime_output = self.runtime.feed_pty_output_with_display(bytes);
@@ -89149,34 +89147,6 @@ impl NativeWindowApp {
             row: viewport_top
                 .saturating_add(StableRowIndex::try_from(cell.row).unwrap_or(StableRowIndex::MAX)),
             column: usize::from(cell.column),
-        }
-    }
-
-    fn stable_ordinary_selection_from_projection(
-        &self,
-        selection: WindowSelection,
-    ) -> StableOrdinarySelection {
-        let anchor = self.stable_source_cell_for_viewport_cell(selection.anchor);
-        let focus = self.stable_source_cell_for_viewport_cell(selection.focus);
-        let sequence = self.runtime.terminal().current_seqno();
-        if selection.rectangular {
-            StableOrdinarySelection::rectangular(anchor, focus, sequence)
-        } else {
-            StableOrdinarySelection::new(anchor, focus, sequence)
-        }
-    }
-
-    fn capture_ordinary_selection_from_projection_if_needed(&mut self) {
-        if self.ordinary_selection.is_some()
-            || self.quick_select.is_some()
-            || self.search.is_some()
-            || self.copy_mode.is_some()
-        {
-            return;
-        }
-        if let Some(selection) = self.selection {
-            self.ordinary_selection =
-                Some(self.stable_ordinary_selection_from_projection(selection));
         }
     }
 
@@ -89346,7 +89316,6 @@ impl NativeWindowApp {
 
     fn rebuild_snapshot(&mut self) {
         self.stable_viewport.clamp_main(self.runtime.terminal());
-        self.capture_ordinary_selection_from_projection_if_needed();
         self.update_selection_projection();
         let size = self.runtime.terminal().grid().size();
         let inactive_search_selections = self.copy_mode_inactive_search_selections(size);
@@ -89486,7 +89455,6 @@ impl NativeWindowApp {
             return;
         }
 
-        self.capture_ordinary_selection_from_projection_if_needed();
         self.stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), next_offset);
         self.update_selection_projection();
@@ -89525,7 +89493,6 @@ impl NativeWindowApp {
             return;
         }
 
-        self.capture_ordinary_selection_from_projection_if_needed();
         self.stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), next_offset);
         self.update_selection_projection();
@@ -89542,7 +89509,6 @@ impl NativeWindowApp {
         if next_top == self.current_stable_viewport_top() {
             return;
         }
-        self.capture_ordinary_selection_from_projection_if_needed();
         self.stable_viewport.main_top = next_top;
         self.update_selection_projection();
         self.pane_select = None;
@@ -90201,7 +90167,6 @@ impl NativeWindowApp {
             || self.prompt_input_line.is_some()
             || self.input_selector.is_some()
             || self.copy_mode.is_some();
-        self.capture_ordinary_selection_from_projection_if_needed();
         self.stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), offset);
         self.update_selection_projection();
@@ -94222,7 +94187,6 @@ impl NativeWindowApp {
                 let Some(cell) = self.selection_source_cell_from_mouse_position() else {
                     return false;
                 };
-                self.capture_ordinary_selection_from_projection_if_needed();
                 self.search = None;
                 self.copy_mode = None;
                 if self.modifiers == ModifiersState::SHIFT && self.ordinary_selection.is_some() {
@@ -94371,7 +94335,6 @@ impl NativeWindowApp {
     }
 
     fn extend_selection_to_mouse_cursor(&mut self, mode: WindowMouseSelectionMode) -> bool {
-        self.capture_ordinary_selection_from_projection_if_needed();
         let Some(current) = self.ordinary_selection else {
             return false;
         };
@@ -94454,7 +94417,6 @@ impl NativeWindowApp {
 
     fn complete_selection_to(&mut self, destination: WindowCopyDestination) -> bool {
         self.selecting = false;
-        self.capture_ordinary_selection_from_projection_if_needed();
         if self
             .ordinary_selection
             .is_some_and(StableOrdinarySelection::is_single_cell)
@@ -95555,7 +95517,7 @@ impl NativeWindowApp {
 
     fn enter_search_mode(&mut self) {
         let initial_query = self
-            .selected_text()
+            .ordinary_selected_text()
             .map(|text| single_line_search_query_from_selection(&text))
             .filter(|query| !query.is_empty());
         if self.command_palette.is_some() {
@@ -98516,10 +98478,11 @@ impl NativeWindowApp {
             return (!text.is_empty()).then_some(text);
         }
 
-        let selection = self.ordinary_selection.or_else(|| {
-            self.selection
-                .map(|selection| self.stable_ordinary_selection_from_projection(selection))
-        })?;
+        self.ordinary_selected_text()
+    }
+
+    fn ordinary_selected_text(&self) -> Option<String> {
+        let selection = self.ordinary_selection?;
         let text = selection.text_from_terminal(self.runtime.terminal())?;
         (!text.is_empty()).then_some(text)
     }
@@ -160734,10 +160697,13 @@ return config
         .expect("expected WezTerm selection color config");
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"A").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 0 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 0 },
+            ),
+        );
         app.refresh_snapshot();
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
 
@@ -160785,10 +160751,13 @@ return config
         .expect("expected WezTerm rgb function color config");
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"AB").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 0 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 0 },
+            ),
+        );
         app.refresh_snapshot();
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
 
@@ -160855,10 +160824,13 @@ return config
         .expect("expected WezTerm CSS rgb color config");
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"AB").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 0 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 0 },
+            ),
+        );
         app.refresh_snapshot();
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
 
@@ -160992,10 +160964,13 @@ return config
         .expect("expected WezTerm HSL color config");
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"AB").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 0 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 0 },
+            ),
+        );
         app.refresh_snapshot();
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
 
@@ -161061,10 +161036,13 @@ return config
         .expect("expected WezTerm HSLA color config");
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"AB").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 0 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 0 },
+            ),
+        );
         app.refresh_snapshot();
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
 
@@ -161131,10 +161109,13 @@ return config
         .expect("expected WezTerm HSV color config");
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"AB").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 0 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 0 },
+            ),
+        );
         app.refresh_snapshot();
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
 
@@ -161201,10 +161182,13 @@ return config
         .expect("expected WezTerm HWB color config");
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"AB").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 0 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 0 },
+            ),
+        );
         app.refresh_snapshot();
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
 
@@ -161271,10 +161255,13 @@ return config
         .expect("expected WezTerm named color config");
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"AB").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 0 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 0 },
+            ),
+        );
         app.refresh_snapshot();
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
 
@@ -161340,10 +161327,13 @@ return config
         .expect("expected WezTerm selection_fg none config");
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"A").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 0 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 0 },
+            ),
+        );
         app.refresh_snapshot();
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
 
@@ -161390,10 +161380,13 @@ return config
         .expect("expected WezTerm selection_bg alpha config");
         app.set_config_overrides(overrides);
         app.handle_pty_output(b"A").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 0 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 0 },
+            ),
+        );
         app.refresh_snapshot();
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
 
@@ -164365,10 +164358,13 @@ return config
 
         app.handle_pty_output(b"rose bud\x1b=\x1b[?1003h\x07\x07")
             .unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 3 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 3 },
+            ),
+        );
         app.handle_pane_pty_output(
             rssh_core::PaneId::new(1),
             b"left\x1b]1337;SetBadgeFormat=Y3VycmVudCBtZXRyaWNzOiBcKHRhYi5jdXJyZW50U2Vzc2lvbi5jb2x1bW5zKXhcKHRhYi5jdXJyZW50U2Vzc2lvbi5yb3dzKXxcKHRhYi5jdXJyZW50U2Vzc2lvbi5hcHBsaWNhdGlvbktleXBhZCl8XCh0YWIuY3VycmVudFNlc3Npb24ubW91c2VSZXBvcnRpbmdNb2RlKXxcKHRhYi5jdXJyZW50U2Vzc2lvbi5iZWxsQ291bnQpfFwodGFiLmN1cnJlbnRTZXNzaW9uLnNlbGVjdGlvbil8XCh0YWIuY3VycmVudFNlc3Npb24uc2VsZWN0aW9uTGVuZ3RoKQ==\x07",
@@ -164964,10 +164960,13 @@ return config
 
         app.handle_pty_output(b"rose bud\x1b=\x1b[?1003h\x07\x07")
             .unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 3 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 3 },
+            ),
+        );
         app.handle_pane_pty_output(
             rssh_core::PaneId::new(1),
             b"left\x1b]1337;SetBadgeFormat=dyBjdXJyZW50IG1ldHJpY3M6IFwodGFiLndpbmRvdy5jdXJyZW50VGFiLmN1cnJlbnRTZXNzaW9uLmNvbHVtbnMpeFwodGFiLndpbmRvdy5jdXJyZW50VGFiLmN1cnJlbnRTZXNzaW9uLnJvd3MpfFwodGFiLndpbmRvdy5jdXJyZW50VGFiLmN1cnJlbnRTZXNzaW9uLmFwcGxpY2F0aW9uS2V5cGFkKXxcKHRhYi53aW5kb3cuY3VycmVudFRhYi5jdXJyZW50U2Vzc2lvbi5tb3VzZVJlcG9ydGluZ01vZGUpfFwodGFiLndpbmRvdy5jdXJyZW50VGFiLmN1cnJlbnRTZXNzaW9uLmJlbGxDb3VudCl8XCh0YWIud2luZG93LmN1cnJlbnRUYWIuY3VycmVudFNlc3Npb24uc2VsZWN0aW9uKXxcKHRhYi53aW5kb3cuY3VycmVudFRhYi5jdXJyZW50U2Vzc2lvbi5zZWxlY3Rpb25MZW5ndGgp\x07",
@@ -165201,10 +165200,13 @@ return config
             b"alpha beta\x1b]1337;SetBadgeFormat=c2VsOiBcKHNlc3Npb24uc2VsZWN0aW9uKQ==\x07",
         )
         .unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 4 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 4 },
+            ),
+        );
 
         let snapshot = app.render_snapshot();
         let first_terminal_row = snapshot_row_text(&snapshot, TAB_BAR_ROWS, TERMINAL_COLUMNS);
@@ -165223,10 +165225,13 @@ return config
             b"caf\xc3\xa9 zip\x1b]1337;SetBadgeFormat=bGVuOiBcKHNlc3Npb24uc2VsZWN0aW9uTGVuZ3RoKQ==\x07",
         )
         .unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 3 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 3 },
+            ),
+        );
 
         let snapshot = app.render_snapshot();
         let first_terminal_row = snapshot_row_text(&snapshot, TAB_BAR_ROWS, TERMINAL_COLUMNS);
@@ -183428,10 +183433,13 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
         app.handle_pty_output(b"left").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 3 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 3 },
+            ),
+        );
         app.refresh_snapshot();
 
         app.dispatch_app_action(AppAction::SplitPane {
@@ -183448,10 +183456,13 @@ return config
         );
 
         app.handle_pty_output(b"right").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 4 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 4 },
+            ),
+        );
         app.refresh_snapshot();
         assert_eq!(app.selected_text().as_deref(), Some("right"));
         app
@@ -183565,10 +183576,11 @@ return config
         app.scroll_viewport_lines(1);
         assert_eq!(app.current_scrollback_offset(), 1);
         assert!(!app.runtime.terminal().scrollback().is_empty());
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.refresh_snapshot();
 
         app.dispatch_app_action(AppAction::MovePaneToNewWindow {
@@ -183595,10 +183607,13 @@ return config
     fn window_app_restores_independent_selection_for_each_pane() {
         let mut app = NativeWindowApp::new(None);
         app.handle_pty_output(b"left").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 3 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 3 },
+            ),
+        );
         app.refresh_snapshot();
 
         app.dispatch_app_action(AppAction::SplitPane {
@@ -183611,10 +183626,13 @@ return config
         assert!(app.selection.is_none());
 
         app.handle_pty_output(b"right").unwrap();
-        app.selection = Some(WindowSelection::new(
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 0, column: 4 },
-        ));
+        set_ordinary_viewport_selection_for_test(
+            &mut app,
+            WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 4 },
+            ),
+        );
         app.refresh_snapshot();
 
         app.dispatch_app_action(AppAction::ActivatePane {
@@ -183637,7 +183655,7 @@ return config
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 1 },
         );
-        app.selection = Some(selection);
+        set_ordinary_viewport_selection_for_test(&mut app, selection);
         app.selecting = true;
 
         app.dispatch_app_action(AppAction::SplitPane {
@@ -186643,7 +186661,7 @@ return config
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 3 },
         );
-        app.selection = Some(selection);
+        set_ordinary_viewport_selection_for_test(&mut app, selection);
         assert!(app.copy_mode.is_none());
         assert!(app.search.is_none());
         assert!(app.quick_select.is_none());
@@ -186682,6 +186700,90 @@ return config
         });
         app.update_selection_projection();
         app.refresh_snapshot();
+    }
+
+    fn set_ordinary_viewport_selection_for_test(
+        app: &mut NativeWindowApp,
+        selection: WindowSelection,
+    ) {
+        let anchor = ordinary_source_cell_for_viewport(
+            app,
+            selection.anchor.row,
+            usize::from(selection.anchor.column),
+        );
+        let focus = ordinary_source_cell_for_viewport(
+            app,
+            selection.focus.row,
+            usize::from(selection.focus.column),
+        );
+        set_ordinary_stable_selection_for_test(app, anchor, focus, selection.rectangular);
+    }
+
+    fn set_ordinary_viewport_range_for_test(
+        app: &mut NativeWindowApp,
+        anchor: SelectionCell,
+        focus: SelectionCell,
+    ) {
+        set_ordinary_viewport_selection_for_test(app, WindowSelection::new(anchor, focus));
+    }
+
+    #[test]
+    fn window_app_presentation_selection_is_never_promoted_to_ordinary_storage() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"ordinary").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        ));
+
+        app.refresh_snapshot();
+        app.handle_pty_output(b"!").unwrap();
+
+        assert!(app.ordinary_selection.is_none());
+        assert!(app.selected_text().is_none());
+    }
+
+    #[test]
+    fn window_app_search_current_selection_prefers_ordinary_over_transient_projection() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(24, 1));
+        app.handle_pty_output(b"ordinary transient").unwrap();
+        let dimensions = app.runtime.terminal().stable_dimensions();
+        let anchor = SelectionSourceCell {
+            domain: dimensions.domain,
+            row: dimensions.physical_top,
+            column: 0,
+        };
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            anchor,
+            SelectionSourceCell {
+                column: 7,
+                ..anchor
+            },
+            false,
+        );
+        app.quick_select = Some(WindowQuickSelect {
+            matches: vec![WindowSearchMatch {
+                domain: dimensions.domain,
+                source_row: dimensions.physical_top,
+                start_column: 9,
+                end_source_row: dimensions.physical_top,
+                end_column: 17,
+            }],
+            labels: vec!["a".to_owned()],
+            ..WindowQuickSelect::default()
+        });
+        app.update_selection_projection();
+        assert_eq!(app.selected_text().as_deref(), Some("transient"));
+
+        app.enter_search_mode_with_query(&WindowSearchCommandQuery::CurrentSelectionOrEmptyString);
+
+        assert_eq!(
+            app.search.as_ref().map(|search| search.query.as_str()),
+            Some("ordinary")
+        );
     }
 
     #[test]
@@ -186844,7 +186946,7 @@ return config
         let anchor = SelectionSourceCell {
             domain: app.runtime.terminal().stable_dimensions().domain,
             row: retained.start,
-            column: 0,
+            column: 1,
         };
         let focus = SelectionSourceCell {
             row: retained.end - 1,
@@ -191266,10 +191368,11 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
 
         app.refresh_snapshot();
 
@@ -191367,10 +191470,11 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
         app.handle_pty_output(b"abcdefgh").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 3 },
-        ));
+        );
         app.modifiers = ModifiersState::SHIFT;
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(super::CELL_WIDTH * 6),
@@ -191403,10 +191507,11 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
         app.handle_pty_output(b"abcdefgh").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 3 },
-        ));
+        );
         app.clipboard_writer = Box::new(move |text: &str| {
             recorded_clipboard.lock().unwrap().push(text.to_owned());
             true
@@ -191479,10 +191584,11 @@ return config
         app.runtime.resize(rssh_core::TerminalSize::new(6, 3));
         app.handle_pty_output(b"abcdef\r\nghijkl\r\nmnopqr")
             .unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.modifiers = ModifiersState::ALT | ModifiersState::SHIFT;
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(super::CELL_WIDTH * 3),
@@ -191516,10 +191622,11 @@ return config
         app.runtime.resize(rssh_core::TerminalSize::new(6, 3));
         app.handle_pty_output(b"abcdef\r\nghijkl\r\nmnopqr")
             .unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.clipboard_writer = Box::new(move |text: &str| {
             recorded_clipboard.lock().unwrap().push(text.to_owned());
             true
@@ -192064,10 +192171,11 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
         app.handle_pty_output(b"run alpha-beta").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.selecting = true;
         app.search = Some(WindowSearch {
             query: "alpha".to_owned(),
@@ -192103,10 +192211,11 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
         app.handle_pty_output(b"run alpha-beta").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(super::CELL_WIDTH * 6),
             f64::from(tab_bar_pixel_height()),
@@ -192132,10 +192241,11 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
         app.handle_pty_output(b"first\r\nsecond").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 3 },
-        ));
+        );
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(super::CELL_WIDTH * 2),
             f64::from(tab_bar_pixel_height() + super::CELL_HEIGHT),
@@ -192162,10 +192272,11 @@ return config
         app.runtime.resize(rssh_core::TerminalSize::new(6, 3));
         app.handle_pty_output(b"abcdef\r\nghijkl\r\nmnopqr")
             .unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(super::CELL_WIDTH * 3),
             f64::from(tab_bar_pixel_height() + super::CELL_HEIGHT * 2),
@@ -192192,10 +192303,11 @@ return config
         app.runtime.resize(rssh_core::TerminalSize::new(6, 3));
         app.handle_pty_output(b"abcdef\r\nghijkl\r\nmnopqr")
             .unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(super::CELL_WIDTH * 3),
             f64::from(tab_bar_pixel_height() + super::CELL_HEIGHT * 2),
@@ -192226,10 +192338,11 @@ return config
             b"ready\r\n\x1b]133;A\x07> \x1b]133;B\x07cargo test\r\n\x1b]133;C\x07ok",
         )
         .unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 1, column: 0 },
             SelectionCell { row: 1, column: 1 },
-        ));
+        );
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(super::CELL_WIDTH * 4),
             f64::from(tab_bar_pixel_height() + super::CELL_HEIGHT),
@@ -192735,10 +192848,11 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.selecting = true;
         app.refresh_snapshot();
         app.clipboard_writer = Box::new(move |text: &str| {
@@ -192782,10 +192896,11 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.selecting = true;
         app.refresh_snapshot();
         app.clipboard_writer = Box::new(move |text: &str| {
@@ -192827,10 +192942,11 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.selecting = true;
         app.refresh_snapshot();
         app.clipboard_writer = Box::new(move |text: &str| {
@@ -192971,10 +193087,11 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.selecting = true;
         app.refresh_snapshot();
         app.clipboard_writer = Box::new(move |text: &str| {
@@ -193254,10 +193371,11 @@ return config
         app.runtime.resize(rssh_core::TerminalSize::new(16, 3));
         app.handle_pty_output(b"alpha\r\nbeta\r\nalpha beta")
             .unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 1, column: 3 },
-        ));
+        );
 
         assert_eq!(app.selected_text().as_deref(), Some("alpha\nbeta"));
 
@@ -225891,10 +226009,11 @@ act.Confirmation {
         });
         app.runtime.resize(rssh_core::TerminalSize::new(20, 4));
         app.handle_pty_output(b"A").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 0 },
-        ));
+        );
         app.refresh_snapshot();
 
         app.dispatch_app_action(AppAction::SplitPane {
@@ -225904,10 +226023,11 @@ act.Confirmation {
         })
         .unwrap();
         app.handle_pty_output(b"B").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 0 },
-        ));
+        );
         app.refresh_snapshot();
 
         let layout = app.pane_render_layout();
@@ -225951,10 +226071,11 @@ act.Confirmation {
         });
         app.runtime.resize(rssh_core::TerminalSize::new(20, 4));
         app.handle_pty_output(b"A").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 0 },
-        ));
+        );
         app.refresh_snapshot();
 
         app.dispatch_app_action(AppAction::SplitPane {
@@ -225990,10 +226111,11 @@ act.Confirmation {
             ..NativeConfigOverrides::default()
         });
         app.handle_pty_output(b"\x1b[48;2;20;40;60mA").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 0 },
-        ));
+        );
         app.refresh_snapshot();
 
         let snapshot = app.render_snapshot();
@@ -238668,10 +238790,11 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
         app.handle_pty_output(b"alpha beta alpha").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 6 },
             SelectionCell { row: 0, column: 9 },
-        ));
+        );
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -238697,10 +238820,11 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
         app.handle_pty_output(b"alpha beta alpha").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 6 },
             SelectionCell { row: 0, column: 9 },
-        ));
+        );
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -238729,10 +238853,11 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
         app.handle_pty_output(b"alpha beta alpha").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 6 },
             SelectionCell { row: 0, column: 9 },
-        ));
+        );
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -238763,10 +238888,11 @@ act.Confirmation {
         app.runtime.resize(rssh_core::TerminalSize::new(16, 3));
         app.handle_pty_output(b"alpha\r\nbeta\r\nalpha beta")
             .unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 1, column: 3 },
-        ));
+        );
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -238891,10 +239017,11 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
         app.handle_pty_output(b"alpha beta alpha").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 6 },
             SelectionCell { row: 0, column: 9 },
-        ));
+        );
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239895,10 +240022,11 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.refresh_snapshot();
         assert!(snapshot_cell(&app.snapshot, 0, 1).unwrap().inverse);
 
@@ -239918,10 +240046,11 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.refresh_snapshot();
         app.clipboard_writer = Box::new(move |text: &str| {
             recorded.lock().unwrap().push(text.to_owned());
@@ -239950,10 +240079,11 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.refresh_snapshot();
         app.clipboard_writer = Box::new(move |text: &str| {
             recorded_clipboard.lock().unwrap().push(text.to_owned());
@@ -239987,10 +240117,11 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.refresh_snapshot();
         app.clipboard_writer = Box::new(move |text: &str| {
             recorded_clipboard.lock().unwrap().push(text.to_owned());
@@ -240025,10 +240156,11 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.refresh_snapshot();
         app.clipboard_writer = Box::new(move |text: &str| {
             recorded_clipboard.lock().unwrap().push(text.to_owned());
@@ -240210,10 +240342,11 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.refresh_snapshot();
         app.clipboard_writer = Box::new(move |text: &str| {
             recorded_clipboard.lock().unwrap().push(text.to_owned());
@@ -240243,10 +240376,11 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.selecting = true;
         app.refresh_snapshot();
         app.clipboard_writer = Box::new(move |text: &str| {
@@ -240278,10 +240412,11 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.selecting = true;
         app.refresh_snapshot();
         app.clipboard_writer = Box::new(move |text: &str| {
@@ -240311,10 +240446,11 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
         app.handle_pty_output(b"abcd").unwrap();
-        app.selection = Some(WindowSelection::new(
+        set_ordinary_viewport_range_for_test(
+            &mut app,
             SelectionCell { row: 0, column: 1 },
             SelectionCell { row: 0, column: 2 },
-        ));
+        );
         app.refresh_snapshot();
         app.clipboard_writer = Box::new(move |text: &str| {
             recorded.lock().unwrap().push(text.to_owned());
