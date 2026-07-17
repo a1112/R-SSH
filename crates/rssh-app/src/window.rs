@@ -80602,6 +80602,36 @@ fn apply_focus_transitions<Id: Copy + Eq>(
     focus.apply(id, focused)
 }
 
+fn dispatch_window_focus_changed<Id: Copy + Eq + std::hash::Hash>(
+    focus: &mut WindowFocusCoordinator<Id>,
+    apps: &mut HashMap<Id, NativeWindowApp>,
+    id: Id,
+    focused: bool,
+) -> io::Result<()> {
+    if !apps.contains_key(&id) {
+        return Ok(());
+    }
+
+    let transitions = apply_focus_transitions(focus, id, focused);
+    if let Some(blur) = transitions.blur {
+        if let Some(app) = apps.get_mut(&blur) {
+            let _ = app.handle_focus_changed(false)?;
+            if let Some(window) = &app.window {
+                window.request_redraw();
+            }
+        }
+    }
+    if let Some(focus) = transitions.focus {
+        if let Some(app) = apps.get_mut(&focus) {
+            let _ = app.handle_focus_changed(true)?;
+            if let Some(window) = &app.window {
+                window.request_redraw();
+            }
+        }
+    }
+    Ok(())
+}
+
 type TabTitleFormatter = dyn Fn(&NativeTabTitleFormat) -> Option<NativeTabTitle> + Send;
 type WindowTitleFormatter = dyn Fn(&NativeWindowTitleFormat) -> Option<String> + Send;
 type WindowStatusUpdateHandler =
@@ -81178,25 +81208,7 @@ impl NativeWindowManager {
         window_id: winit::window::WindowId,
         focused: bool,
     ) -> io::Result<()> {
-        let transitions = apply_focus_transitions(&mut self.focus, window_id, focused);
-
-        if let Some(blur) = transitions.blur {
-            if let Some(app) = self.windows.get_mut(&blur) {
-                let _ = app.handle_focus_changed(false)?;
-                if let Some(window) = &app.window {
-                    window.request_redraw();
-                }
-            }
-        }
-        if let Some(focus) = transitions.focus {
-            if let Some(app) = self.windows.get_mut(&focus) {
-                let _ = app.handle_focus_changed(true)?;
-                if let Some(window) = &app.window {
-                    window.request_redraw();
-                }
-            }
-        }
-        Ok(())
+        dispatch_window_focus_changed(&mut self.focus, &mut self.windows, window_id, focused)
     }
 
     fn close_window(&mut self, window_id: winit::window::WindowId) -> bool {
@@ -124288,12 +124300,12 @@ mod tests {
         WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
         WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
-        activate_window_relative_index, apply_focus_transitions,
-        command_palette_basic_structured_query_command, default_gui_startup_args,
-        default_hyperlink_rules, default_integrated_title_buttons, default_mux_env_remove,
-        default_native_unix_domains, default_skip_close_confirmation_for_processes_named,
-        default_tiling_desktop_environments, demo_snapshot, encode_window_focus_event,
-        encode_window_key, encode_window_key_with_kitty, encode_window_key_with_kitty_event,
+        activate_window_relative_index, command_palette_basic_structured_query_command,
+        default_gui_startup_args, default_hyperlink_rules, default_integrated_title_buttons,
+        default_mux_env_remove, default_native_unix_domains,
+        default_skip_close_confirmation_for_processes_named, default_tiling_desktop_environments,
+        demo_snapshot, dispatch_window_focus_changed, encode_window_focus_event, encode_window_key,
+        encode_window_key_with_kitty, encode_window_key_with_kitty_event,
         encode_window_mouse_event, encode_window_mouse_event_with_pixels, encode_window_paste,
         input_selector_options_from_query, native_window_key_assignment_entries,
         native_window_resize_increments_supported, nerd_font_icon_for_name,
@@ -186950,11 +186962,35 @@ return config
     }
 
     #[test]
-    fn window_manager_focus_dispatches_exclusive_logical_transitions() {
+    fn window_manager_focus_dispatches_exclusive_app_transitions() {
         let first = rssh_core::WindowId::new(1);
         let second = rssh_core::WindowId::new(2);
         let mut focus = WindowFocusCoordinator::default();
-        let mut events = Vec::new();
+        let changes = Arc::new(Mutex::new(Vec::new()));
+        let mut apps = HashMap::new();
+
+        let mut first_app = NativeWindowApp::new(None);
+        let recorded = Arc::clone(&changes);
+        first_app.focus_change_handler = Box::new(move |change| {
+            recorded
+                .lock()
+                .unwrap()
+                .push((change.window_id, change.focused));
+            true
+        });
+        apps.insert(first, first_app);
+
+        let mut second_app = NativeWindowApp::new(None);
+        second_app.app_window_id = second;
+        let recorded = Arc::clone(&changes);
+        second_app.focus_change_handler = Box::new(move |change| {
+            recorded
+                .lock()
+                .unwrap()
+                .push((change.window_id, change.focused));
+            true
+        });
+        apps.insert(second, second_app);
 
         for (window_id, focused) in [
             (first, true),
@@ -186962,17 +186998,11 @@ return config
             (first, false),
             (second, false),
         ] {
-            let transitions = apply_focus_transitions(&mut focus, window_id, focused);
-            if let Some(blur) = transitions.blur {
-                events.push((blur, false));
-            }
-            if let Some(focus) = transitions.focus {
-                events.push((focus, true));
-            }
+            dispatch_window_focus_changed(&mut focus, &mut apps, window_id, focused).unwrap();
         }
 
         assert_eq!(
-            events,
+            changes.lock().unwrap().as_slice(),
             [
                 (first, true),
                 (first, false),
@@ -186980,6 +187010,37 @@ return config
                 (second, false),
             ]
         );
+    }
+
+    #[test]
+    fn window_manager_focus_ignores_unknown_and_removed_window_ids() {
+        let known = rssh_core::WindowId::new(1);
+        let unknown = rssh_core::WindowId::new(99);
+        let mut focus = WindowFocusCoordinator::default();
+        let changes = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&changes);
+        let mut app = NativeWindowApp::new(None);
+        app.focus_change_handler = Box::new(move |change| {
+            recorded
+                .lock()
+                .unwrap()
+                .push((change.window_id, change.focused));
+            true
+        });
+        let mut apps = HashMap::from([(known, app)]);
+
+        dispatch_window_focus_changed(&mut focus, &mut apps, known, true).unwrap();
+        dispatch_window_focus_changed(&mut focus, &mut apps, unknown, true).unwrap();
+
+        assert_eq!(focus.focused(), Some(known));
+        assert_eq!(changes.lock().unwrap().as_slice(), [(known, true)]);
+
+        apps.remove(&known);
+        assert!(focus.remove(known));
+        dispatch_window_focus_changed(&mut focus, &mut apps, known, true).unwrap();
+
+        assert_eq!(focus.focused(), None);
+        assert_eq!(changes.lock().unwrap().as_slice(), [(known, true)]);
     }
 
     #[test]
