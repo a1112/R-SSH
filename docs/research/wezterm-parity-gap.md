@@ -296,10 +296,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   minimizing the platform window when available.
 - Native window state now exposes WezTerm-style `HideApplication`: the
   macOS-default `Super+H` shortcut, command-palette `Hide Application` entry,
-  and action-name `hideapplication` query record an application-hide request
-  and use native window minimization as the current platform fallback when
-  available. The default `KEY_ASSIGNMENTS` list includes `Super+H` only on
-  macOS, matching WezTerm's platform-specific default.
+  and action-name `hideapplication` query produce a manager-consumed, single-use
+  request. On macOS the manager calls the locked winit native application-hide
+  API; `cfg(not(target_os = "macos"))` builds use a platform no-op. The action
+  neither minimizes the current window nor synthesizes focus; subsequent OS
+  focus events remain authoritative. The default `KEY_ASSIGNMENTS` list includes
+  `Super+H` only on macOS, matching WezTerm's platform-specific default.
 - Native window state now exposes WezTerm-style `QuitApplication` through the
   command-palette `Quit Application` entry and action-name `quitapplication`
   query, requesting whole-application shutdown, dropping pending native-window
@@ -4294,15 +4296,16 @@ what remains before WezTerm-style parity in key UX/composition areas.
   refreshes, or PTY focus-reporting bytes. Permanent window removal clears stale
   ownership.
 - Startup and pending-window materialization request platform activation without
-  changing observable focus before OS confirmation. Only the last successfully
-  materialized window in a pending batch requests focus, and `ActivateWindow*`
-  shares the same show/unminimize/focus path.
+  changing observable focus before OS confirmation. After an entire pending
+  batch materializes successfully, only its final window requests focus, and
+  `ActivateWindow*` shares the same show/unminimize/focus path.
 - `HideApplication` is a single-consumption manager request. macOS dispatches
   winit's native application-hide operation and relies on OS focus events;
-  non-macOS builds use the platform no-op. Pure coordinator/policy tests and the
-  Windows native suite validate the lifecycle. The macOS call matches the locked
-  winit API type and signature, but has not been claimed as a complete macOS
-  runtime validation.
+  `cfg(not(target_os = "macos"))` builds use the platform no-op. `rssh-app`
+  app/unit tests on the Windows host/build verify the logical lifecycle; there
+  is no real Windows or macOS native multi-window focus-event end-to-end run in
+  this slice. The macOS call matches the locked winit API type and signature;
+  cross-target checking is blocked by a third-party C-toolchain dependency.
 - PTY reader events now carry app-shell `WindowId` plus `PaneId`, avoiding
   pane-id-only routing once independent windows create their own panes. PTY EOF
   handling waits for process status and honors native `exit_behavior` overrides

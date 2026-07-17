@@ -101,8 +101,8 @@ runtime storage for tabs and split panes.
   - `Super+C` / `Ctrl+Shift+C` / `Copy` copy to clipboard
   - `Super+V` / `Ctrl+Shift+V` / `Paste` paste from clipboard
   - `Super+M` hide/minimize the native window
-  - `Super+H` hide the application on macOS, falling back to native-window
-    minimization
+  - `Super+H` request native application hide on macOS; non-macOS builds use the
+    compile-time platform no-op
   - `Ctrl`/`Super` with `-`, `=`, and `0` decrease, increase, and reset the
     logical native-window font-size scale
   - `Ctrl+Shift+L` show the native debug overlay state
@@ -754,9 +754,11 @@ runtime storage for tabs and split panes.
   dispatch the same command.
 - WezTerm-style `HideApplication` is exposed through the macOS-default
   `Super+H` shortcut, command-palette `Hide Application` entry, and
-  action-name `hideapplication` query. It records an application-hide request
-  and uses native window minimization as the current platform fallback when a
-  window exists. The default `KEY_ASSIGNMENTS` list includes `Super+H` only on
+  action-name `hideapplication` query. The window manager consumes its request
+  exactly once and calls the locked winit native application-hide API on macOS;
+  `cfg(not(target_os = "macos"))` builds use a platform no-op. It neither
+  minimizes the current window nor synthesizes focus, leaving OS focus events
+  authoritative. The default `KEY_ASSIGNMENTS` list includes `Super+H` only on
   macOS, matching WezTerm's platform-specific default.
 - WezTerm-style `QuitApplication` is exposed through command-palette `Quit
   Application` and action-name `quitapplication` queries. It requests
@@ -2333,14 +2335,16 @@ runtime storage for tabs and split panes.
   duplicate Lua/native focus handlers, status refreshes, and PTY focus-reporting
   sequences. A window's permanent removal clears stale ownership. Startup and
   pending-window materialization request show/unminimize/focus without claiming
-  focus early; only the last successfully materialized window in a pending batch
-  is activated, and `ActivateWindow*` uses the same request path.
+  focus early; after an entire pending batch materializes successfully, only its
+  final window is activated, and `ActivateWindow*` uses the same request path.
 - `HideApplication` is consumed once by the window manager. On macOS it calls
   winit's native application-hide API and lets subsequent OS focus events drive
-  state; other platforms retain the configured no-op path. Pure focus/policy
-  tests and the Windows native suite cover this lifecycle. The macOS path is
-  wired to the locked winit API type and signature, not claimed as a complete
-  macOS runtime validation.
+  state; `cfg(not(target_os = "macos"))` builds use the platform no-op.
+  `rssh-app` app/unit tests on the Windows host/build verify this logical
+  lifecycle. This slice has no real Windows or macOS native multi-window
+  focus-event end-to-end run. The macOS path was checked against the locked
+  winit API type and signature; cross-target checking is blocked by a
+  third-party C-toolchain dependency.
 - Native window title surfaces app-shell state as `[workspace:X tab:Y pane:Z]` so
   smoke runs can verify transitions without opening multiple PTY sessions.
 - Static WezTerm Color objects now use the pinned
@@ -2528,6 +2532,9 @@ cargo test -p rssh-app window_manager_collects_detached_app
 cargo test -p rssh-app focus_changed
 cargo test -p rssh-app focus_reporting
 cargo test -p rssh-app window_focus_coordinator
+cargo test -p rssh-app window_app_focus
+cargo test -p rssh-app window_manager_focus
+cargo test -p rssh-app pending_window_batch
 cargo test -p rssh-app activate_window
 cargo test -p rssh-app hide_application
 cargo test -p rssh-app window_app_palette_close

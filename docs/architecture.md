@@ -1042,10 +1042,13 @@ keyboard, mouse, paste, resize
   command.
 - Completed in v1: WezTerm-style `HideApplication` routes the macOS-default
   `Super+H` shortcut, command-palette `Hide Application` entry, and
-  action-name `hideapplication` query to an application-hide request, using
-  native window minimization as the current platform fallback when available.
-  The default `KEY_ASSIGNMENTS` list includes `Super+H` only on macOS,
-  matching WezTerm's platform-specific default.
+  action-name `hideapplication` query to a manager-consumed, single-use
+  application-hide request. On macOS the manager calls the locked winit native
+  application-hide API; `cfg(not(target_os = "macos"))` builds use a platform
+  no-op. This action neither minimizes the current window nor synthesizes focus;
+  subsequent OS focus events remain authoritative. The default
+  `KEY_ASSIGNMENTS` list includes `Super+H` only on macOS, matching WezTerm's
+  platform-specific default.
 - Completed in v1: WezTerm-style `QuitApplication` is exposed through the
   command-palette `Quit Application` entry and action-name `quitapplication`
   query. It requests whole-application shutdown, drops pending native-window
@@ -1203,15 +1206,16 @@ keyboard, mouse, paste, resize
   manager so at most one managed window owns focus. Apps start unfocused until
   the OS reports focus, and duplicate or out-of-order focus events suppress
   repeated Lua/native handlers, status refreshes, and terminal focus-reporting
-  bytes. Removing a window clears stale manager ownership. Startup and only the
-  last successfully materialized window in a pending batch request
-  show/unminimize/focus, while `ActivateWindow*` reuses that same request path;
-  observable focus still changes only when the OS confirms it. `HideApplication`
+  bytes. Removing a window clears stale manager ownership. Startup and, after an
+  entire pending batch materializes successfully, only its final window request
+  show/unminimize/focus; `ActivateWindow*` reuses that same request path.
+  Observable focus still changes only when the OS confirms it. `HideApplication`
   is consumed once by the manager and dispatches winit's native application hide
-  on macOS without synthesizing focus changes. Pure coordinator/policy tests and
-  the Windows native test suite cover the cross-window lifecycle; the macOS call
-  is integrated against the locked winit API type and signature, without a claim
-  of a complete macOS runtime test.
+  on macOS without synthesizing focus changes. `rssh-app` app/unit tests on the
+  Windows host/build verify the logical lifecycle; neither Windows nor macOS has
+  a real native multi-window focus-event end-to-end run in this slice. The macOS
+  call was checked against the locked winit API type and signature, while the
+  cross-target build is blocked by a third-party C-toolchain dependency.
 - In-progress after v1: pane focus visuals, pane-local scrollbar/selection
   polish, richer split drag affordances, custom tab formatting, arbitrary Lua
   callbacks, external CLI/mux tab-title control, and mux/window registry plus
