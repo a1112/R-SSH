@@ -97989,7 +97989,7 @@ impl NativeWindowApp {
         }
 
         self.window_focused = focused;
-        self.mouse_click_may_focus_window = focused;
+        self.mouse_click_may_focus_window = focused && self.active_mouse_button.is_none();
 
         let change = NativeWindowFocusChange {
             window_id: self.app_window_id,
@@ -182733,9 +182733,11 @@ return config
 
     #[test]
     fn window_app_mouse_input_before_os_focus_does_not_claim_focus() {
+        let written = Arc::new(Mutex::new(Vec::new()));
         let changes = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&changes);
         let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.focus_change_handler = Box::new(move |change| {
             recorded.lock().unwrap().push(*change);
             true
@@ -182744,14 +182746,22 @@ return config
             swallow_mouse_click_on_window_focus: Some(true),
             ..NativeConfigOverrides::default()
         });
+        app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
 
         assert!(
             app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
                 .unwrap()
         );
+        assert!(written.lock().unwrap().is_empty());
         assert!(!app.window_focused);
         assert!(!app.mouse_click_may_focus_window);
         assert!(app.handle_focus_changed(true).unwrap());
+        assert!(!app.mouse_click_may_focus_window);
 
         assert_eq!(
             changes.lock().unwrap().as_slice(),
@@ -182761,6 +182771,17 @@ return config
                 focused: true,
             }]
         );
+
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+        written.lock().unwrap().clear();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert_eq!(written.lock().unwrap().as_slice(), b"\x1b[<0;2;1M");
     }
 
     #[test]
