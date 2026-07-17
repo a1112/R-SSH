@@ -81062,6 +81062,16 @@ struct NativeWindowApp {
     pane_bell_counts: HashMap<rssh_core::PaneId, u64>,
 }
 
+#[cfg(target_os = "macos")]
+fn hide_native_application(event_loop: &ActiveEventLoop) {
+    use winit::platform::macos::ActiveEventLoopExtMacOS;
+
+    event_loop.hide_application();
+}
+
+#[cfg(not(target_os = "macos"))]
+fn hide_native_application(_event_loop: &ActiveEventLoop) {}
+
 struct NativeWindowManager {
     startup_app: Option<NativeWindowApp>,
     windows: HashMap<winit::window::WindowId, NativeWindowApp>,
@@ -82717,11 +82727,6 @@ impl NativeWindowApp {
     }
 
     #[cfg(test)]
-    fn application_hide_requested_for_test(&self) -> bool {
-        self.application_hide_requested
-    }
-
-    #[cfg(test)]
     fn application_quit_requested_for_test(&self) -> bool {
         self.application_quit_requested
     }
@@ -83020,9 +83025,10 @@ impl NativeWindowApp {
 
     fn hide_application(&mut self) {
         self.application_hide_requested = true;
-        if let Some(window) = &self.window {
-            window.set_minimized(true);
-        }
+    }
+
+    fn take_application_hide_request(&mut self) -> bool {
+        std::mem::take(&mut self.application_hide_requested)
     }
 
     fn toggle_window_maximized(&mut self) {
@@ -123708,6 +123714,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
         app.window_event(event_loop, window_id, event);
         self.collect_pending_window_apps_from_app(&mut app);
         let activate_window_request = app.take_activate_window_request();
+        let application_hide_requested = app.take_application_hide_request();
         if app.take_window_close_request() {
             self.focus.remove(window_id);
             self.quit_when_all_windows_are_closed = app.quit_when_all_windows_are_closed;
@@ -123726,6 +123733,9 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
             self.windows.insert(window_id, app);
             if let Some(request) = activate_window_request {
                 self.activate_window_relative_from(window_id, request);
+            }
+            if application_hide_requested {
+                hide_native_application(event_loop);
             }
         }
 
@@ -196955,8 +196965,20 @@ return config
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::HideApplication);
 
-        assert!(app.application_hide_requested_for_test());
+        assert!(app.take_application_hide_request());
+        assert!(!app.take_application_hide_request());
         assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_hide_application_request_is_consumed_once() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.hide_application();
+
+        assert!(app.take_application_hide_request());
+        assert!(!app.take_application_hide_request());
+        assert!(!app.window_hide_requested);
     }
 
     #[test]
@@ -221847,7 +221869,7 @@ act.Confirmation {
     fn window_app_hide_application_shortcut_requests_application_hide() {
         let mut app = NativeWindowApp::new(None);
 
-        assert!(!app.application_hide_requested_for_test());
+        assert!(!app.take_application_hide_request());
         #[cfg(target_os = "macos")]
         assert!(
             app.handle_application_hide_shortcut(
@@ -221863,9 +221885,12 @@ act.Confirmation {
             )
         );
         #[cfg(target_os = "macos")]
-        assert!(app.application_hide_requested_for_test());
+        {
+            assert!(app.take_application_hide_request());
+            assert!(!app.take_application_hide_request());
+        }
         #[cfg(not(target_os = "macos"))]
-        assert!(!app.application_hide_requested_for_test());
+        assert!(!app.take_application_hide_request());
         assert!(!app.handle_application_hide_shortcut(
             &Key::Character("h".into()),
             ModifiersState::SUPER | ModifiersState::SHIFT
