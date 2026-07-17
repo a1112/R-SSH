@@ -25,6 +25,20 @@ pub struct TerminalStableDimensions {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StableSelectionCoordinate {
+    pub domain: TerminalScreenDomain,
+    pub row: StableRowIndex,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StableSelectionRange {
+    pub start: StableSelectionCoordinate,
+    pub end: StableSelectionCoordinate,
+    pub rectangular: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
     Default,
     Indexed(u8),
@@ -140,6 +154,22 @@ impl SemanticZone {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemanticCommandExit {
     pub row: usize,
+    pub exit_code: Option<i32>,
+    pub aid: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StableSemanticZone {
+    pub start_x: usize,
+    pub start_y: StableRowIndex,
+    pub end_x: usize,
+    pub end_y: StableRowIndex,
+    pub semantic_type: SemanticType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StableSemanticCommandExit {
+    pub row: StableRowIndex,
     pub exit_code: Option<i32>,
     pub aid: Option<String>,
 }

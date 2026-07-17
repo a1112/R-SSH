@@ -13,7 +13,8 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
     Cell, Color, CursorShape, CursorStyle, InlineImageFormat, ItermInlineImage, ScrollbackLine,
-    SemanticCommandExit, SemanticType, SemanticZone, SequenceNo, StableRowIndex, TerminalGrid,
+    SemanticCommandExit, SemanticType, SemanticZone, SequenceNo, StableRowIndex,
+    StableSelectionRange, StableSemanticCommandExit, StableSemanticZone, TerminalGrid,
     TerminalScreenDomain, TerminalStableDimensions, UnderlineStyle,
 };
 
@@ -2731,8 +2732,124 @@ impl Terminal {
     }
 
     #[must_use]
+    pub fn stable_semantic_prompt_rows(&self) -> Vec<StableRowIndex> {
+        if self.alternate_screen_active() {
+            return Vec::new();
+        }
+        self.semantic_prompt_rows
+            .iter()
+            .filter_map(|row| self.history_index_to_stable_row(*row))
+            .collect()
+    }
+
+    #[must_use]
+    pub fn stable_semantic_zones(&self) -> Vec<StableSemanticZone> {
+        if self.alternate_screen_active() {
+            return Vec::new();
+        }
+        self.semantic_zones()
+            .into_iter()
+            .filter_map(|zone| {
+                Some(StableSemanticZone {
+                    start_x: zone.start_x,
+                    start_y: self.history_index_to_stable_row(zone.start_y)?,
+                    end_x: zone.end_x,
+                    end_y: self.history_index_to_stable_row(zone.end_y)?,
+                    semantic_type: zone.semantic_type,
+                })
+            })
+            .collect()
+    }
+
+    #[must_use]
+    pub fn stable_semantic_zone_at(
+        &self,
+        column: usize,
+        row: StableRowIndex,
+    ) -> Option<StableSemanticZone> {
+        if self.alternate_screen_active() {
+            return None;
+        }
+        let history_row = self.stable_row_to_history_index(row)?;
+        let zone = self.semantic_zone_at(column, history_row)?;
+        Some(StableSemanticZone {
+            start_x: zone.start_x,
+            start_y: self.history_index_to_stable_row(zone.start_y)?,
+            end_x: zone.end_x,
+            end_y: self.history_index_to_stable_row(zone.end_y)?,
+            semantic_type: zone.semantic_type,
+        })
+    }
+
+    #[must_use]
+    pub fn stable_semantic_command_exits(&self) -> Vec<StableSemanticCommandExit> {
+        if self.alternate_screen_active() {
+            return Vec::new();
+        }
+        self.semantic_command_exits
+            .iter()
+            .filter_map(|command| {
+                Some(StableSemanticCommandExit {
+                    row: self.history_index_to_stable_row(command.row)?,
+                    exit_code: command.exit_code,
+                    aid: command.aid.clone(),
+                })
+            })
+            .collect()
+    }
+
+    #[must_use]
     pub fn text_from_semantic_zone(&self, zone: SemanticZone) -> Option<String> {
         self.text_from_region(zone.start_x, zone.start_y, zone.end_x, zone.end_y)
+    }
+
+    #[must_use]
+    pub fn text_from_stable_selection(&self, selection: StableSelectionRange) -> Option<String> {
+        let dimensions = self.stable_dimensions();
+        if selection.start.domain != selection.end.domain
+            || selection.start.domain != dimensions.domain
+        {
+            return None;
+        }
+
+        let (first, last) = if (selection.start.row, selection.start.column)
+            <= (selection.end.row, selection.end.column)
+        {
+            (selection.start, selection.end)
+        } else {
+            (selection.end, selection.start)
+        };
+        let retained = self.retained_stable_range();
+        let retained_last = retained.end.checked_sub(1)?;
+        let first_retained = first.row.max(retained.start);
+        let last_retained = last.row.min(retained_last);
+        if first_retained > last_retained {
+            return None;
+        }
+
+        let first_history = self.stable_row_to_history_index(first_retained)?;
+        let last_history = self.stable_row_to_history_index(last_retained)?;
+        if selection.rectangular {
+            let first_column = selection.start.column.min(selection.end.column);
+            let last_column = selection.start.column.max(selection.end.column);
+            let mut rows = Vec::new();
+            for row in first_history..=last_history {
+                rows.push(self.text_from_region(first_column, row, last_column, row)?);
+            }
+            return Some(rows.join("\n"));
+        }
+
+        let first_column = if first_retained == first.row {
+            first.column
+        } else {
+            0
+        };
+        let last_column = if last_retained == last.row {
+            last.column
+        } else {
+            usize::MAX
+        };
+        self.text_from_region(first_column, first_history, last_column, last_history)
     }
 
     #[must_use]
@@ -2883,11 +3000,14 @@ impl Terminal {
     }
 
     fn cells_for_history_row(&self, row: usize) -> Option<Vec<Cell>> {
-        if let Some(line) = self.scrollback.get(row) {
-            return Some(line.cells().to_vec());
-        }
-
-        let grid_row = row.checked_sub(self.scrollback.len())?;
+        let grid_row = if self.alternate_screen_active() {
+            row
+        } else {
+            if let Some(line) = self.scrollback.get(row) {
+                return Some(line.cells().to_vec());
+            }
+            row.checked_sub(self.scrollback.len())?
+        };
         let grid_row = u16::try_from(grid_row).ok()?;
         if grid_row >= self.grid.size().rows {
             return None;
@@ -2901,11 +3021,14 @@ impl Terminal {
     }
 
     fn history_row_is_wrapped(&self, row: usize) -> Option<bool> {
-        if let Some(line) = self.scrollback.get(row) {
-            return Some(line.is_wrapped());
-        }
-
-        let grid_row = row.checked_sub(self.scrollback.len())?;
+        let grid_row = if self.alternate_screen_active() {
+            row
+        } else {
+            if let Some(line) = self.scrollback.get(row) {
+                return Some(line.is_wrapped());
+            }
+            row.checked_sub(self.scrollback.len())?
+        };
         let grid_row = u16::try_from(grid_row).ok()?;
         if grid_row >= self.grid.size().rows {
             return None;
@@ -6687,6 +6810,32 @@ fn shift_image_and_placeholder_suffix_metadata(
 mod stable_row_tests {
     use super::*;
 
+    fn stable_coordinate(
+        terminal: &Terminal,
+        history_row: usize,
+        column: usize,
+    ) -> crate::StableSelectionCoordinate {
+        crate::StableSelectionCoordinate {
+            domain: terminal.stable_dimensions().domain,
+            row: terminal
+                .history_index_to_stable_row(history_row)
+                .expect("history row has a stable identity"),
+            column,
+        }
+    }
+
+    fn stable_selection(
+        start: crate::StableSelectionCoordinate,
+        end: crate::StableSelectionCoordinate,
+        rectangular: bool,
+    ) -> crate::StableSelectionRange {
+        crate::StableSelectionRange {
+            start,
+            end,
+            rectangular,
+        }
+    }
+
     fn stable_row_text(terminal: &Terminal, row: StableRowIndex) -> Option<String> {
         let history_row = terminal.stable_row_to_history_index(row)?;
         Some(
@@ -6822,6 +6971,289 @@ mod stable_row_tests {
             }
         );
         assert_eq!(terminal.retained_stable_range(), 0..3);
+    }
+
+    #[test]
+    fn terminal_stable_text_reads_offscreen_rows() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        terminal.feed(b"first\r\nsecond\r\nthird");
+        let start = stable_coordinate(&terminal, 0, 1);
+        let end = stable_coordinate(&terminal, 0, 3);
+
+        assert_eq!(
+            terminal.text_from_stable_selection(stable_selection(start, end, false)),
+            Some("irs".to_owned())
+        );
+    }
+
+    #[test]
+    fn terminal_stable_text_returns_surviving_partial_prefix_prune() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        terminal.feed(b"first\r\nsecond\r\nthird");
+        let start = stable_coordinate(&terminal, 0, 2);
+        let end = stable_coordinate(&terminal, 2, 2);
+
+        terminal.set_scrollback_limit(0);
+
+        assert_eq!(
+            terminal.text_from_stable_selection(stable_selection(start, end, false)),
+            Some("second\nthi".to_owned())
+        );
+    }
+
+    #[test]
+    fn terminal_stable_text_returns_surviving_partial_suffix_prune() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+        terminal.feed(b"first\r\nsecond\r\nthird");
+        let start = stable_coordinate(&terminal, 0, 2);
+        let end = stable_coordinate(&terminal, 2, 2);
+
+        terminal.resize(TerminalSize::new(6, 2));
+
+        assert_eq!(
+            terminal.text_from_stable_selection(stable_selection(start, end, false)),
+            Some("rst\nsecond".to_owned())
+        );
+    }
+
+    #[test]
+    fn terminal_stable_text_reverse_anchor_focus_survives_partial_prune() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        terminal.feed(b"first\r\nsecond\r\nthird");
+        let anchor = stable_coordinate(&terminal, 2, 2);
+        let focus = stable_coordinate(&terminal, 0, 2);
+
+        terminal.set_scrollback_limit(0);
+
+        assert_eq!(
+            terminal.text_from_stable_selection(stable_selection(anchor, focus, false)),
+            Some("second\nthi".to_owned())
+        );
+    }
+
+    #[test]
+    fn terminal_stable_text_rejects_mixed_or_inactive_domains() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        terminal.feed(b"main");
+        let main = stable_coordinate(&terminal, 0, 0);
+        let alternate = crate::StableSelectionCoordinate {
+            domain: TerminalScreenDomain::Alternate,
+            row: 0,
+            column: 1,
+        };
+
+        assert_eq!(
+            terminal.text_from_stable_selection(stable_selection(main, alternate, false)),
+            None
+        );
+
+        terminal.feed(b"\x1b[?1049h");
+
+        assert_eq!(
+            terminal.text_from_stable_selection(stable_selection(main, main, false)),
+            None
+        );
+    }
+
+    #[test]
+    fn terminal_stable_rectangular_text_keeps_original_columns_after_prune() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        terminal.feed(b"abcdef\r\nghijkl\r\nmnopqr");
+        let start = stable_coordinate(&terminal, 0, 1);
+        let end = stable_coordinate(&terminal, 2, 3);
+
+        terminal.set_scrollback_limit(0);
+
+        assert_eq!(
+            terminal.text_from_stable_selection(stable_selection(start, end, true)),
+            Some("hij\nnop".to_owned())
+        );
+    }
+
+    #[test]
+    fn terminal_stable_soft_wrapped_text_joins_surviving_spans() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"abcdefgh");
+        let start = stable_coordinate(&terminal, 0, 1);
+        let end = stable_coordinate(&terminal, 1, 2);
+
+        assert_eq!(
+            terminal.text_from_stable_selection(stable_selection(start, end, false)),
+            Some("bcdefg".to_owned())
+        );
+    }
+
+    #[test]
+    fn terminal_stable_text_fully_pruned_returns_none() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        terminal.feed(b"first\r\nsecond\r\nthird");
+        let start = stable_coordinate(&terminal, 0, 1);
+        let end = stable_coordinate(&terminal, 0, 3);
+
+        terminal.set_scrollback_limit(0);
+
+        assert_eq!(
+            terminal.text_from_stable_selection(stable_selection(start, end, false)),
+            None
+        );
+    }
+
+    #[test]
+    fn terminal_screen_domain_changes_on_alternate_switch() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        let main = terminal.stable_dimensions();
+
+        terminal.feed(b"\x1b[?1049h");
+        let alternate = terminal.stable_dimensions();
+
+        assert_eq!(main.domain, TerminalScreenDomain::Main);
+        assert_eq!(alternate.domain, TerminalScreenDomain::Alternate);
+        assert_eq!(alternate.scrollback_rows, alternate.viewport_rows);
+        assert_eq!(alternate.scrollback_top, 0);
+        assert_eq!(alternate.physical_top, 0);
+
+        terminal.feed(b"\x1b[?1049l");
+
+        assert_eq!(terminal.stable_dimensions(), main);
+    }
+
+    #[test]
+    fn terminal_alternate_stable_text_never_reads_main_history() {
+        let mut terminal = Terminal::new(TerminalSize::new(5, 2));
+        terminal.feed(b"main1\r\nmain2\r\nmain3");
+        let main_row = stable_coordinate(&terminal, 0, 0);
+
+        terminal.feed(b"\x1b[?1049h");
+        terminal.feed(b"alt");
+        let alternate_row = stable_coordinate(&terminal, 0, 0);
+
+        assert_eq!(
+            terminal.text_from_stable_selection(stable_selection(
+                alternate_row,
+                crate::StableSelectionCoordinate {
+                    column: 2,
+                    ..alternate_row
+                },
+                false,
+            )),
+            Some("alt".to_owned())
+        );
+        assert_eq!(
+            terminal.text_from_stable_selection(stable_selection(main_row, main_row, false)),
+            None
+        );
+    }
+
+    #[test]
+    fn terminal_height_resize_reports_identity_boundary() {
+        let mut terminal = Terminal::new(TerminalSize::new(5, 3));
+        terminal.feed(b"one\r\ntwo\r\nthree");
+        let before = terminal.stable_dimensions();
+
+        terminal.resize(TerminalSize::new(5, 2));
+        let after = terminal.stable_dimensions();
+
+        assert_eq!(before.domain, after.domain);
+        assert_eq!(before.viewport_rows, 3);
+        assert_eq!(after.viewport_rows, 2);
+        assert_ne!(before, after);
+        assert_eq!(after.scrollback_top, before.scrollback_top);
+        assert_eq!(after.physical_top, before.physical_top);
+    }
+
+    #[test]
+    fn terminal_width_resize_marks_replaced_rows_changed() {
+        let mut terminal = Terminal::new(TerminalSize::new(5, 3));
+        let before = terminal.current_seqno();
+
+        terminal.resize(TerminalSize::new(7, 3));
+
+        assert_eq!(
+            terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+            vec![0, 1, 2]
+        );
+    }
+
+    #[test]
+    fn terminal_stable_semantic_prompt_rows_survive_history_growth() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"\x1b]133;A\x07> one");
+        let prompt = terminal.stable_semantic_prompt_rows();
+
+        terminal.feed(b"\r\noutput\r\ntail");
+
+        assert_eq!(prompt, vec![0]);
+        assert_eq!(terminal.stable_semantic_prompt_rows(), prompt);
+    }
+
+    #[test]
+    fn terminal_stable_semantic_zones_survive_prune_without_retargeting() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"\x1b]133;A\x07> \x1b]133;B\x07run\r\n\x1b]133;C\x07out\r\ntail");
+        let removed = terminal
+            .stable_semantic_zones()
+            .into_iter()
+            .find(|zone| zone.semantic_type == SemanticType::Prompt)
+            .expect("prompt zone before prune");
+        let surviving = terminal
+            .stable_semantic_zones()
+            .into_iter()
+            .find(|zone| zone.start_y == 1 && zone.semantic_type == SemanticType::Output)
+            .expect("output zone before prune");
+
+        terminal.set_scrollback_limit(0);
+        let zones = terminal.stable_semantic_zones();
+
+        assert!(
+            zones
+                .iter()
+                .all(|zone| zone.start_y != removed.start_y && zone.end_y != removed.end_y)
+        );
+        assert!(zones.iter().any(|zone| {
+            zone.start_y == surviving.start_y
+                && zone.end_y == surviving.end_y
+                && zone.semantic_type == surviving.semantic_type
+        }));
+    }
+
+    #[test]
+    fn terminal_stable_semantic_zone_at_uses_stable_row() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"old\r\n\x1b]133;A\x07> \x1b]133;B\x07run\r\ntail");
+        let input_row = terminal
+            .stable_semantic_zones()
+            .into_iter()
+            .find(|zone| zone.semantic_type == SemanticType::Input)
+            .expect("input zone")
+            .start_y;
+
+        terminal.set_scrollback_limit(1);
+
+        assert_eq!(
+            terminal
+                .stable_semantic_zone_at(3, input_row)
+                .map(|zone| zone.semantic_type),
+            Some(SemanticType::Input)
+        );
+        assert_eq!(terminal.stable_semantic_zone_at(3, input_row - 1), None);
+    }
+
+    #[test]
+    fn terminal_stable_semantic_command_exits_survive_prune() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"old\r\n\x1b]133;C\x07build\x1b]133;D;7;aid=42\x07\r\ntail");
+        let before = terminal.stable_semantic_command_exits();
+
+        terminal.set_scrollback_limit(0);
+
+        assert_eq!(
+            terminal.stable_semantic_command_exits(),
+            vec![crate::StableSemanticCommandExit {
+                row: before[0].row,
+                exit_code: Some(7),
+                aid: Some("42".to_owned()),
+            }]
+        );
     }
 
     #[test]
