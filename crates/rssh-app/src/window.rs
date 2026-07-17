@@ -81113,7 +81113,9 @@ impl NativeWindowManager {
         let Some(app) = self.startup_app.take() else {
             return Ok(());
         };
-        self.materialize_app(event_loop, app)
+        let window_id = self.materialize_app(event_loop, app)?;
+        self.request_window_focus(window_id);
+        Ok(())
     }
 
     fn materialize_pending_apps(
@@ -81121,8 +81123,21 @@ impl NativeWindowManager {
         event_loop: &ActiveEventLoop,
     ) -> Result<(), Box<dyn Error>> {
         let pending = std::mem::take(&mut self.pending_apps);
+        let pending_len = pending.len();
+        let mut materialized_window_ids = Vec::with_capacity(pending_len);
         for app in pending {
-            self.materialize_app(event_loop, app)?;
+            let window_id = self.materialize_app(event_loop, app)?;
+            materialized_window_ids.push(window_id);
+        }
+        let focus_window_id =
+            materialized_window_ids
+                .into_iter()
+                .enumerate()
+                .find_map(|(index, window_id)| {
+                    should_focus_materialized_window(index, pending_len).then_some(window_id)
+                });
+        if let Some(window_id) = focus_window_id {
+            self.request_window_focus(window_id);
         }
         Ok(())
     }
@@ -81131,7 +81146,7 @@ impl NativeWindowManager {
         &mut self,
         event_loop: &ActiveEventLoop,
         mut app: NativeWindowApp,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<winit::window::WindowId, Box<dyn Error>> {
         app.create_window(event_loop)?;
         app.spawn_pty()?;
         let Some(window_id) = app.window_id() else {
@@ -81141,7 +81156,7 @@ impl NativeWindowManager {
             window.request_redraw();
         }
         self.windows.insert(window_id, app);
-        Ok(())
+        Ok(window_id)
     }
 
     fn collect_pending_window_apps_from_app(&mut self, app: &mut NativeWindowApp) {
@@ -81191,10 +81206,15 @@ impl NativeWindowManager {
         let Some((target_window_id, _)) = window_order.get(target_index) else {
             return false;
         };
-        let Some(target_app) = self.windows.get(target_window_id) else {
-            return false;
-        };
-        let Some(window) = &target_app.window else {
+        self.request_window_focus(*target_window_id)
+    }
+
+    fn request_window_focus(&self, window_id: winit::window::WindowId) -> bool {
+        let Some(window) = self
+            .windows
+            .get(&window_id)
+            .and_then(|app| app.window.as_ref())
+        else {
             return false;
         };
         window.set_visible(true);
@@ -116658,6 +116678,10 @@ fn activate_window_absolute_index(index: usize, len: usize) -> Option<usize> {
     (index < len).then_some(index)
 }
 
+const fn should_focus_materialized_window(index: usize, len: usize) -> bool {
+    len > 0 && index + 1 == len
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WindowCommand {
     ActivateLastTab,
@@ -124317,9 +124341,9 @@ mod tests {
         pty_command_from_pane_launch_with_default_cwd,
         pty_command_from_pane_launch_with_environment, pty_command_from_pane_launch_with_term,
         pty_command_from_pane_launch_with_term_session_id, quick_select_options_from_query,
-        quote_dropped_file_name, show_launcher_args_from_query, split_pane_source_size_delta,
-        tab_bar_new_tab_label, tab_bar_pixel_height, tab_bar_tab_label,
-        terminal_size_from_window_pixels, window_application_hide_shortcut,
+        quote_dropped_file_name, should_focus_materialized_window, show_launcher_args_from_query,
+        split_pane_source_size_delta, tab_bar_new_tab_label, tab_bar_pixel_height,
+        tab_bar_tab_label, terminal_size_from_window_pixels, window_application_hide_shortcut,
         window_char_select_shortcut, window_clear_scrollback_shortcut,
         window_copy_destination_for_shortcut, window_copy_mode_shortcut, window_font_size_shortcut,
         window_hide_shortcut, window_paste_source_for_shortcut, window_quick_select_shortcut,
@@ -187098,20 +187122,30 @@ return config
                 .expect("expected spawn window action");
             assert!(matches!(&action, AppAction::SpawnWindow { launch: None }));
             primary.dispatch_app_action(action).unwrap();
+            primary
+                .dispatch_app_action(AppAction::SpawnWindow { launch: None })
+                .unwrap();
         }
 
         manager.collect_pending_window_apps_from_primary_for_test();
 
-        assert_eq!(manager.pending_app_count_for_test(), 1);
+        assert_eq!(manager.pending_app_count_for_test(), 2);
         let spawned_app = manager
             .pending_app_for_test(0)
-            .expect("manager should hold spawned window app");
+            .expect("manager should hold the first spawned window app");
         assert_eq!(
             spawned_app.app_window_id_for_test(),
             rssh_core::WindowId::new(2)
         );
         assert_eq!(spawned_app.active_tab_id(), rssh_core::TabId::new(2));
         assert_eq!(spawned_app.active_pane_id(), rssh_core::PaneId::new(2));
+        let second_spawned_app = manager
+            .pending_app_for_test(1)
+            .expect("manager should hold the second spawned window app");
+        assert_eq!(
+            second_spawned_app.app_window_id_for_test(),
+            rssh_core::WindowId::new(3)
+        );
     }
 
     #[test]
@@ -195755,6 +195789,14 @@ return config
         assert_eq!(activate_window_absolute_index(2, 3), Some(2));
         assert_eq!(activate_window_absolute_index(3, 3), None);
         assert_eq!(activate_window_absolute_index(0, 0), None);
+    }
+
+    #[test]
+    fn pending_window_batch_focuses_only_the_last_materialized_window() {
+        assert!(!should_focus_materialized_window(0, 3));
+        assert!(!should_focus_materialized_window(1, 3));
+        assert!(should_focus_materialized_window(2, 3));
+        assert!(!should_focus_materialized_window(0, 0));
     }
 
     #[test]
