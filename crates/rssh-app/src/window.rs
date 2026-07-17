@@ -37,8 +37,8 @@ use rssh_renderer::{
 };
 use rssh_terminal::{
     CellWidthOverride, Color, CursorStyle, DEFAULT_SCROLLBACK_LIMIT, InlineImageFormat,
-    SemanticType, StableRowIndex, StableSelectionCoordinate, StableSelectionRange, Terminal,
-    TerminalScreenDomain, UnderlineStyle, VerticalAlign,
+    SemanticType, SequenceNo, StableRowIndex, StableSelectionCoordinate, StableSelectionRange,
+    Terminal, TerminalScreenDomain, UnderlineStyle, VerticalAlign,
 };
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
@@ -80754,6 +80754,7 @@ struct NativeWindowApp {
     mouse_cursor_icon: CursorIcon,
     active_mouse_button: Option<MouseButton>,
     last_mouse_info: Option<ItermMouseInfo>,
+    ordinary_selection: Option<StableOrdinarySelection>,
     selection: Option<WindowSelection>,
     selecting: bool,
     scrollbar_dragging: bool,
@@ -81374,7 +81375,7 @@ struct PaneRuntime {
     reader_thread: Option<thread::JoinHandle<()>>,
     snapshot: TerminalRenderSnapshot,
     stable_viewport: PaneStableViewport,
-    selection: Option<WindowSelection>,
+    ordinary_selection: Option<StableOrdinarySelection>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -82427,6 +82428,7 @@ impl NativeWindowApp {
             mouse_cursor_icon: CursorIcon::Default,
             active_mouse_button: None,
             last_mouse_info: None,
+            ordinary_selection: None,
             selection: None,
             selecting: false,
             scrollbar_dragging: false,
@@ -83554,7 +83556,7 @@ impl NativeWindowApp {
             .pane_runtimes
             .remove(&active_pane)
             .unwrap_or_else(|| self.new_inactive_pane_runtime());
-        runtime.selection = None;
+        runtime.ordinary_selection = None;
         let bell_count = self.pane_bell_counts.remove(&active_pane);
         let app_shell = AppShell::from_pending_window(pending_window);
         let mut detached_app = Self::new_with_command_and_osc52_policy(
@@ -84331,7 +84333,9 @@ impl NativeWindowApp {
         let session_tty_name = self.session_tty_name.take();
         let writer = self.writer.take();
         let reader_thread = self.reader_thread.take();
-        let selection = self.selection.take();
+        self.capture_ordinary_selection_from_projection_if_needed();
+        let ordinary_selection = self.ordinary_selection.take();
+        self.selection = None;
         self.selecting = false;
 
         let mut replacement_runtime = TerminalRuntime::new(size);
@@ -84365,7 +84369,7 @@ impl NativeWindowApp {
             reader_thread,
             snapshot: old_snapshot,
             stable_viewport,
-            selection,
+            ordinary_selection,
         }
     }
 
@@ -84397,7 +84401,7 @@ impl NativeWindowApp {
             reader_thread: None,
             snapshot,
             stable_viewport: PaneStableViewport::default(),
-            selection: None,
+            ordinary_selection: None,
         }
     }
 
@@ -84430,7 +84434,8 @@ impl NativeWindowApp {
         self.writer = runtime.writer.take();
         self.reader_thread = runtime.reader_thread.take();
         self.stable_viewport = runtime.stable_viewport;
-        self.selection = runtime.selection.take();
+        self.ordinary_selection = runtime.ordinary_selection.take();
+        self.update_selection_projection();
         self.selecting = false;
         self.rebuild_snapshot();
 
@@ -86395,7 +86400,7 @@ impl NativeWindowApp {
     }
 
     fn clear_selection(&mut self) {
-        self.selection = None;
+        self.clear_ordinary_selection();
         self.refresh_snapshot();
         self.apply_window_title();
     }
@@ -89016,6 +89021,7 @@ impl NativeWindowApp {
     }
 
     fn handle_active_pane_output(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.capture_ordinary_selection_from_projection_if_needed();
         let started = Instant::now();
         self.metrics.record_pty_chunk(bytes.len());
         let runtime_output = self.runtime.feed_pty_output_with_display(bytes);
@@ -89128,14 +89134,65 @@ impl NativeWindowApp {
             }
         }
 
-        self.update_transient_selection_projection();
+        self.update_selection_projection();
     }
 
-    fn update_transient_selection_projection(&mut self) -> bool {
-        if self.quick_select.is_none() && self.search.is_none() && self.copy_mode.is_none() {
-            return false;
+    fn stable_source_cell_for_viewport_cell(&self, cell: SelectionCell) -> SelectionSourceCell {
+        let terminal = self.runtime.terminal();
+        let dimensions = terminal.stable_dimensions();
+        let viewport_top = self
+            .stable_viewport
+            .active_top(terminal)
+            .unwrap_or(dimensions.physical_top);
+        SelectionSourceCell {
+            domain: dimensions.domain,
+            row: viewport_top
+                .saturating_add(StableRowIndex::try_from(cell.row).unwrap_or(StableRowIndex::MAX)),
+            column: usize::from(cell.column),
         }
+    }
 
+    fn stable_ordinary_selection_from_projection(
+        &self,
+        selection: WindowSelection,
+    ) -> StableOrdinarySelection {
+        let anchor = self.stable_source_cell_for_viewport_cell(selection.anchor);
+        let focus = self.stable_source_cell_for_viewport_cell(selection.focus);
+        let sequence = self.runtime.terminal().current_seqno();
+        if selection.rectangular {
+            StableOrdinarySelection::rectangular(anchor, focus, sequence)
+        } else {
+            StableOrdinarySelection::new(anchor, focus, sequence)
+        }
+    }
+
+    fn capture_ordinary_selection_from_projection_if_needed(&mut self) {
+        if self.ordinary_selection.is_some()
+            || self.quick_select.is_some()
+            || self.search.is_some()
+            || self.copy_mode.is_some()
+        {
+            return;
+        }
+        if let Some(selection) = self.selection {
+            self.ordinary_selection =
+                Some(self.stable_ordinary_selection_from_projection(selection));
+        }
+    }
+
+    fn set_ordinary_selection(&mut self, selection: StableOrdinarySelection) {
+        self.ordinary_selection = Some(selection);
+        self.update_selection_projection();
+    }
+
+    fn clear_ordinary_selection(&mut self) {
+        self.ordinary_selection = None;
+        if self.quick_select.is_none() && self.search.is_none() && self.copy_mode.is_none() {
+            self.selection = None;
+        }
+    }
+
+    fn update_selection_projection(&mut self) -> bool {
         let terminal = self.runtime.terminal();
         let dimensions = terminal.stable_dimensions();
         let viewport_top = self
@@ -89148,6 +89205,8 @@ impl NativeWindowApp {
             .as_ref()
             .and_then(WindowQuickSelect::current_match)
             .or_else(|| self.search.as_ref().and_then(|search| search.current));
+        let transient_active =
+            self.quick_select.is_some() || self.search.is_some() || self.copy_mode.is_some();
         self.selection = if let Some(matched) = presented_match {
             matched.viewport_selection_for_top(dimensions.domain, viewport_top, size)
         } else if let Some(copy_mode) = self.copy_mode.as_ref() {
@@ -89155,9 +89214,16 @@ impl NativeWindowApp {
                 |selection| selection.viewport_selection(dimensions.domain, viewport_top, size),
             )
         } else {
-            None
+            self.ordinary_selection.and_then(|selection| {
+                selection.viewport_selection(dimensions.domain, viewport_top, size)
+            })
         };
-        true
+        transient_active
+    }
+
+    #[cfg(test)]
+    fn update_transient_selection_projection(&mut self) -> bool {
+        self.update_selection_projection()
     }
 
     fn handle_inactive_pane_output(
@@ -89280,6 +89346,8 @@ impl NativeWindowApp {
 
     fn rebuild_snapshot(&mut self) {
         self.stable_viewport.clamp_main(self.runtime.terminal());
+        self.capture_ordinary_selection_from_projection_if_needed();
+        self.update_selection_projection();
         let size = self.runtime.terminal().grid().size();
         let inactive_search_selections = self.copy_mode_inactive_search_selections(size);
         let mut snapshot = terminal_runtime_snapshot(&self.runtime, self.stable_viewport);
@@ -89418,11 +89486,10 @@ impl NativeWindowApp {
             return;
         }
 
+        self.capture_ordinary_selection_from_projection_if_needed();
         self.stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), next_offset);
-        if !self.update_transient_selection_projection() {
-            self.selection = None;
-        }
+        self.update_selection_projection();
         self.pane_select = None;
         self.refresh_snapshot();
         self.apply_window_title();
@@ -89458,11 +89525,10 @@ impl NativeWindowApp {
             return;
         }
 
+        self.capture_ordinary_selection_from_projection_if_needed();
         self.stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), next_offset);
-        if !self.update_transient_selection_projection() {
-            self.selection = None;
-        }
+        self.update_selection_projection();
         self.pane_select = None;
         self.refresh_snapshot();
         self.apply_window_title();
@@ -89476,10 +89542,9 @@ impl NativeWindowApp {
         if next_top == self.current_stable_viewport_top() {
             return;
         }
+        self.capture_ordinary_selection_from_projection_if_needed();
         self.stable_viewport.main_top = next_top;
-        if !self.update_transient_selection_projection() {
-            self.selection = None;
-        }
+        self.update_selection_projection();
         self.pane_select = None;
         self.refresh_snapshot();
         self.apply_window_title();
@@ -90136,11 +90201,10 @@ impl NativeWindowApp {
             || self.prompt_input_line.is_some()
             || self.input_selector.is_some()
             || self.copy_mode.is_some();
+        self.capture_ordinary_selection_from_projection_if_needed();
         self.stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), offset);
-        if !self.update_transient_selection_projection() {
-            self.selection = None;
-        }
+        self.update_selection_projection();
         self.pane_select = None;
         self.prompt_input_line = None;
         self.input_selector = None;
@@ -90379,9 +90443,22 @@ impl NativeWindowApp {
                     .pane_runtimes
                     .get(&rect.pane_id)
                     .expect("rendered inactive pane must have a runtime");
+                let terminal = runtime.runtime.terminal();
+                let dimensions = terminal.stable_dimensions();
+                let viewport_top = runtime
+                    .stable_viewport
+                    .active_top(terminal)
+                    .unwrap_or(dimensions.physical_top);
+                let selection = runtime.ordinary_selection.and_then(|selection| {
+                    selection.viewport_selection(
+                        dimensions.domain,
+                        viewport_top,
+                        terminal.grid().size(),
+                    )
+                });
                 pane_snapshot = ordinary_selection_snapshot(
                     pane_snapshot,
-                    runtime.selection,
+                    selection,
                     runtime.runtime.terminal().grid().size(),
                     self.selection_fg_color,
                     self.selection_bg_color,
@@ -94142,21 +94219,26 @@ impl NativeWindowApp {
 
         match state {
             ElementState::Pressed => {
-                let Some(cell) = self.selection_cell_from_mouse_position() else {
+                let Some(cell) = self.selection_source_cell_from_mouse_position() else {
                     return false;
                 };
+                self.capture_ordinary_selection_from_projection_if_needed();
                 self.search = None;
                 self.copy_mode = None;
-                if self.modifiers == ModifiersState::SHIFT && self.selection.is_some() {
+                if self.modifiers == ModifiersState::SHIFT && self.ordinary_selection.is_some() {
                     return self.extend_selection_to_mouse_cursor(WindowMouseSelectionMode::Cell);
                 }
                 if self.modifiers == (ModifiersState::ALT | ModifiersState::SHIFT)
-                    && self.selection.is_some()
+                    && self.ordinary_selection.is_some()
                 {
                     return self.extend_selection_to_mouse_cursor(WindowMouseSelectionMode::Block);
                 }
                 if self.modifiers == ModifiersState::ALT {
-                    self.selection = Some(WindowSelection::rectangular(cell, cell));
+                    self.set_ordinary_selection(StableOrdinarySelection::rectangular(
+                        cell,
+                        cell,
+                        self.runtime.terminal().current_seqno(),
+                    ));
                     self.selecting = true;
                     self.last_left_click = None;
                     self.refresh_snapshot();
@@ -94165,7 +94247,12 @@ impl NativeWindowApp {
                 }
                 let click = self.next_left_click(cell, Instant::now());
                 if click.count >= 3 {
-                    self.selection = Some(self.line_selection_at_cell(cell));
+                    let selection = self.line_source_selection_at_cell(cell);
+                    self.set_ordinary_selection(StableOrdinarySelection::new(
+                        selection.anchor,
+                        selection.focus,
+                        self.runtime.terminal().current_seqno(),
+                    ));
                     self.selecting = false;
                     self.last_left_click = Some(click);
                     self.refresh_snapshot();
@@ -94174,7 +94261,11 @@ impl NativeWindowApp {
                 }
                 if click.count == 2 {
                     if let Some(selection) = self.double_click_word_selection(cell) {
-                        self.selection = Some(selection);
+                        self.set_ordinary_selection(StableOrdinarySelection::new(
+                            selection.anchor,
+                            selection.focus,
+                            self.runtime.terminal().current_seqno(),
+                        ));
                         self.selecting = false;
                         self.last_left_click = Some(click);
                         self.refresh_snapshot();
@@ -94182,7 +94273,11 @@ impl NativeWindowApp {
                         return true;
                     }
                 }
-                self.selection = Some(WindowSelection::new(cell, cell));
+                self.set_ordinary_selection(StableOrdinarySelection::new(
+                    cell,
+                    cell,
+                    self.runtime.terminal().current_seqno(),
+                ));
                 self.selecting = true;
                 self.last_left_click = Some(click);
                 self.refresh_snapshot();
@@ -94194,7 +94289,7 @@ impl NativeWindowApp {
                     if (self.modifiers == ModifiersState::SHIFT
                         || self.modifiers == (ModifiersState::ALT | ModifiersState::SHIFT))
                         && self
-                            .selection
+                            .ordinary_selection
                             .is_some_and(|selection| !selection.is_single_cell())
                     {
                         let _ = self.copy_selection_to_clipboard_and_primary_selection();
@@ -94205,7 +94300,7 @@ impl NativeWindowApp {
                     if self.modifiers.is_empty()
                         && self.last_left_click.is_some_and(|click| click.count >= 2)
                         && self
-                            .selection
+                            .ordinary_selection
                             .is_some_and(|selection| !selection.is_single_cell())
                     {
                         let _ = self.copy_selection_to_clipboard_and_primary_selection();
@@ -94216,8 +94311,11 @@ impl NativeWindowApp {
                     return false;
                 }
                 self.selecting = false;
-                if self.selection.is_some_and(WindowSelection::is_single_cell) {
-                    self.selection = None;
+                if self
+                    .ordinary_selection
+                    .is_some_and(StableOrdinarySelection::is_single_cell)
+                {
+                    self.clear_ordinary_selection();
                     if self.modifiers.is_empty() || self.modifiers == ModifiersState::SHIFT {
                         let _ = self.open_link_at_mouse_cursor();
                     }
@@ -94232,16 +94330,18 @@ impl NativeWindowApp {
     }
 
     fn select_text_at_mouse_cursor(&mut self, mode: WindowMouseSelectionMode) -> bool {
-        let Some(cell) = self.selection_cell_from_mouse_position() else {
+        let Some(cell) = self.selection_source_cell_from_mouse_position() else {
             return false;
         };
 
         let selection = match mode {
-            WindowMouseSelectionMode::Cell => Some(WindowSelection::new(cell, cell)),
-            WindowMouseSelectionMode::Word => self.word_selection_at_cell(cell),
-            WindowMouseSelectionMode::Line => Some(self.line_selection_at_cell(cell)),
-            WindowMouseSelectionMode::Block => Some(WindowSelection::rectangular(cell, cell)),
-            WindowMouseSelectionMode::SemanticZone => self.semantic_zone_selection_at_cell(cell),
+            WindowMouseSelectionMode::Cell => Some(WindowSourceSelection::new(cell, cell)),
+            WindowMouseSelectionMode::Word => self.word_source_selection_at_cell(cell),
+            WindowMouseSelectionMode::Line => Some(self.line_source_selection_at_cell(cell)),
+            WindowMouseSelectionMode::Block => Some(WindowSourceSelection::rectangular(cell, cell)),
+            WindowMouseSelectionMode::SemanticZone => {
+                copy_mode_semantic_zone_source_selection(self.runtime.terminal(), cell)
+            }
         };
         let Some(selection) = selection else {
             return false;
@@ -94249,7 +94349,20 @@ impl NativeWindowApp {
 
         self.search = None;
         self.copy_mode = None;
-        self.selection = Some(selection);
+        let stable = if selection.rectangular {
+            StableOrdinarySelection::rectangular(
+                selection.anchor,
+                selection.focus,
+                self.runtime.terminal().current_seqno(),
+            )
+        } else {
+            StableOrdinarySelection::new(
+                selection.anchor,
+                selection.focus,
+                self.runtime.terminal().current_seqno(),
+            )
+        };
+        self.set_ordinary_selection(stable);
         self.selecting = false;
         self.last_left_click = None;
         self.refresh_snapshot();
@@ -94258,19 +94371,24 @@ impl NativeWindowApp {
     }
 
     fn extend_selection_to_mouse_cursor(&mut self, mode: WindowMouseSelectionMode) -> bool {
-        let Some(current) = self.selection else {
+        self.capture_ordinary_selection_from_projection_if_needed();
+        let Some(current) = self.ordinary_selection else {
             return false;
         };
-        let Some(cell) = self.selection_cell_from_mouse_position() else {
+        let Some(cell) = self.selection_source_cell_from_mouse_position() else {
             return false;
         };
 
         let target = match mode {
-            WindowMouseSelectionMode::Cell => Some(WindowSelection::new(cell, cell)),
-            WindowMouseSelectionMode::Word => self.word_selection_at_cell(cell),
-            WindowMouseSelectionMode::Line => Some(self.line_selection_at_cell(cell)),
+            WindowMouseSelectionMode::Cell => Some(WindowSourceSelection::new(cell, cell)),
+            WindowMouseSelectionMode::Word => self.word_source_selection_at_cell(cell),
+            WindowMouseSelectionMode::Line => Some(self.line_source_selection_at_cell(cell)),
             WindowMouseSelectionMode::Block => {
-                self.selection = Some(WindowSelection::rectangular(current.anchor, cell));
+                self.set_ordinary_selection(StableOrdinarySelection::rectangular(
+                    current.anchor,
+                    cell,
+                    self.runtime.terminal().current_seqno(),
+                ));
                 self.search = None;
                 self.copy_mode = None;
                 self.selecting = false;
@@ -94279,16 +94397,22 @@ impl NativeWindowApp {
                 self.apply_window_title();
                 return true;
             }
-            WindowMouseSelectionMode::SemanticZone => self.semantic_zone_selection_at_cell(cell),
+            WindowMouseSelectionMode::SemanticZone => {
+                copy_mode_semantic_zone_source_selection(self.runtime.terminal(), cell)
+            }
         };
         let Some(target) = target else {
             return false;
         };
 
-        let focus = selection_focus_for_extension(current, target);
+        let focus = stable_selection_focus_for_extension(current, target);
         self.search = None;
         self.copy_mode = None;
-        self.selection = Some(WindowSelection::new(current.anchor, focus));
+        self.set_ordinary_selection(StableOrdinarySelection::new(
+            current.anchor,
+            focus,
+            self.runtime.terminal().current_seqno(),
+        ));
         self.selecting = false;
         self.last_left_click = None;
         self.refresh_snapshot();
@@ -94330,8 +94454,12 @@ impl NativeWindowApp {
 
     fn complete_selection_to(&mut self, destination: WindowCopyDestination) -> bool {
         self.selecting = false;
-        if self.selection.is_some_and(WindowSelection::is_single_cell) {
-            self.selection = None;
+        self.capture_ordinary_selection_from_projection_if_needed();
+        if self
+            .ordinary_selection
+            .is_some_and(StableOrdinarySelection::is_single_cell)
+        {
+            self.clear_ordinary_selection();
             self.refresh_snapshot();
             self.apply_window_title();
             return false;
@@ -94393,10 +94521,10 @@ impl NativeWindowApp {
     }
 
     fn update_selection_from_mouse_position(&mut self) -> bool {
-        let Some(cell) = self.selection_cell_from_mouse_position() else {
+        let Some(cell) = self.selection_source_cell_from_mouse_position() else {
             return false;
         };
-        let Some(selection) = self.selection else {
+        let Some(selection) = self.ordinary_selection else {
             return false;
         };
 
@@ -94406,19 +94534,23 @@ impl NativeWindowApp {
             && click.count >= 2
         {
             let target = if click.count == 2 {
-                self.word_selection_at_cell(cell)
+                self.word_source_selection_at_cell(cell)
             } else {
-                Some(self.line_selection_at_cell(cell))
+                Some(self.line_source_selection_at_cell(cell))
             };
             let Some(target) = target else {
                 return false;
             };
-            let focus = selection_focus_for_extension(selection, target);
+            let focus = stable_selection_focus_for_extension(selection, target);
             if selection.focus == focus {
                 return false;
             }
 
-            self.selection = Some(WindowSelection::new(selection.anchor, focus));
+            self.set_ordinary_selection(StableOrdinarySelection::new(
+                selection.anchor,
+                focus,
+                self.runtime.terminal().current_seqno(),
+            ));
             self.selecting = true;
             self.refresh_snapshot();
             return true;
@@ -94427,7 +94559,7 @@ impl NativeWindowApp {
         if !self.selecting {
             return false;
         }
-        let Some(selection) = self.selection.as_mut() else {
+        let Some(selection) = self.ordinary_selection.as_mut() else {
             return false;
         };
         if selection.focus == cell {
@@ -94435,7 +94567,9 @@ impl NativeWindowApp {
         }
 
         selection.set_focus(cell);
+        selection.sequence = self.runtime.terminal().current_seqno();
         self.last_left_click = None;
+        self.update_selection_projection();
         self.refresh_snapshot();
         true
     }
@@ -94450,123 +94584,63 @@ impl NativeWindowApp {
         Some(SelectionCell { row, column })
     }
 
-    fn next_left_click(&self, cell: SelectionCell, time: Instant) -> WindowClick {
+    fn selection_source_cell_from_mouse_position(&self) -> Option<SelectionSourceCell> {
+        self.selection_cell_from_mouse_position()
+            .map(|cell| self.stable_source_cell_for_viewport_cell(cell))
+    }
+
+    fn next_left_click(&self, cell: SelectionSourceCell, time: Instant) -> WindowClick {
         let count = self
             .last_left_click
             .and_then(|last_click| {
                 let elapsed = time.checked_duration_since(last_click.time)?;
-                (elapsed <= DOUBLE_CLICK_MAX_INTERVAL).then_some(last_click.count.saturating_add(1))
+                (elapsed <= DOUBLE_CLICK_MAX_INTERVAL
+                    && last_click.cell.domain == cell.domain
+                    && last_click.cell.row == cell.row)
+                    .then_some(last_click.count.saturating_add(1))
             })
             .unwrap_or(1);
 
         WindowClick { cell, time, count }
     }
 
-    fn double_click_word_selection(&self, cell: SelectionCell) -> Option<WindowSelection> {
+    fn double_click_word_selection(
+        &self,
+        cell: SelectionSourceCell,
+    ) -> Option<WindowSourceSelection> {
         let last_click = self.last_left_click?;
-        let selection = self.word_selection_at_cell(cell)?;
-        let size = self.runtime.terminal().grid().size();
-        if selection.contains(last_click.cell.row, last_click.cell.column, size) {
+        let selection = self.word_source_selection_at_cell(cell)?;
+        let (start, end) = selection.normalized();
+        if last_click.cell.domain == start.domain
+            && compare_selection_source_cell(last_click.cell, start) != std::cmp::Ordering::Less
+            && compare_selection_source_cell(last_click.cell, end) != std::cmp::Ordering::Greater
+        {
             Some(selection)
         } else {
             None
         }
     }
 
-    fn line_selection_at_cell(&self, cell: SelectionCell) -> WindowSelection {
+    fn line_source_selection_at_cell(&self, cell: SelectionSourceCell) -> WindowSourceSelection {
         let size = self.runtime.terminal().grid().size();
-        WindowSelection::new(
-            SelectionCell {
-                row: cell.row,
-                column: 0,
-            },
-            SelectionCell {
-                row: cell.row,
-                column: size.columns.saturating_sub(1),
+        WindowSourceSelection::new(
+            SelectionSourceCell { column: 0, ..cell },
+            SelectionSourceCell {
+                column: usize::from(size.columns.saturating_sub(1)),
+                ..cell
             },
         )
     }
 
-    fn semantic_zone_selection_at_cell(&self, cell: SelectionCell) -> Option<WindowSelection> {
-        let terminal = self.runtime.terminal();
-        let size = terminal.grid().size();
-        if cell.row >= size.rows || cell.column >= size.columns {
-            return None;
-        }
-
-        let dimensions = terminal.stable_dimensions();
-        let viewport_top = self.current_viewport_stable_top();
-        let source_row = viewport_top
-            .saturating_add(StableRowIndex::try_from(cell.row).unwrap_or(StableRowIndex::MAX));
-        let zone = terminal.stable_semantic_zone_at(usize::from(cell.column), source_row)?;
-        let viewport_bottom = viewport_top
-            .saturating_add(StableRowIndex::try_from(size.rows).unwrap_or(StableRowIndex::MAX));
-        if zone.end_y < viewport_top || zone.start_y >= viewport_bottom {
-            return None;
-        }
-        debug_assert_eq!(dimensions.domain, TerminalScreenDomain::Main);
-        Some(WindowSelection::new(
-            SelectionCell {
-                row: u16::try_from(zone.start_y.saturating_sub(viewport_top))
-                    .unwrap_or(0)
-                    .min(size.rows.saturating_sub(1)),
-                column: u16::try_from(zone.start_x)
-                    .unwrap_or(u16::MAX)
-                    .min(size.columns.saturating_sub(1)),
-            },
-            SelectionCell {
-                row: u16::try_from(zone.end_y.saturating_sub(viewport_top))
-                    .unwrap_or(u16::MAX)
-                    .min(size.rows.saturating_sub(1)),
-                column: u16::try_from(zone.end_x)
-                    .unwrap_or(u16::MAX)
-                    .min(size.columns.saturating_sub(1)),
-            },
-        ))
-    }
-
-    fn word_selection_at_cell(&self, cell: SelectionCell) -> Option<WindowSelection> {
-        let size = self.runtime.terminal().grid().size();
-        if cell.row >= size.rows || cell.column >= size.columns {
-            return None;
-        }
-        if !is_word_selection_character(
-            snapshot_character(&self.snapshot, cell.row, cell.column),
+    fn word_source_selection_at_cell(
+        &self,
+        cell: SelectionSourceCell,
+    ) -> Option<WindowSourceSelection> {
+        copy_mode_word_source_selection(
+            self.runtime.terminal(),
+            cell,
             &self.selection_word_boundary,
-        ) {
-            return None;
-        }
-
-        let mut start_column = cell.column;
-        while start_column > 0
-            && is_word_selection_character(
-                snapshot_character(&self.snapshot, cell.row, start_column - 1),
-                &self.selection_word_boundary,
-            )
-        {
-            start_column -= 1;
-        }
-
-        let mut end_column = cell.column;
-        while end_column + 1 < size.columns
-            && is_word_selection_character(
-                snapshot_character(&self.snapshot, cell.row, end_column + 1),
-                &self.selection_word_boundary,
-            )
-        {
-            end_column += 1;
-        }
-
-        Some(WindowSelection::new(
-            SelectionCell {
-                row: cell.row,
-                column: start_column,
-            },
-            SelectionCell {
-                row: cell.row,
-                column: end_column,
-            },
-        ))
+        )
     }
 
     fn handle_scrollback_shortcut(&mut self, key: &Key, modifiers: ModifiersState) -> bool {
@@ -95036,7 +95110,7 @@ impl NativeWindowApp {
             reader_thread: Some(reader_thread),
             snapshot,
             stable_viewport: PaneStableViewport::default(),
-            selection: None,
+            ordinary_selection: None,
         })
     }
 
@@ -98437,9 +98511,16 @@ impl NativeWindowApp {
             }
         }
 
-        let selection = self.selection?;
-        let text =
-            selection.text_from_snapshot(&self.snapshot, self.runtime.terminal().grid().size());
+        if let Some(matched) = self.search.as_ref().and_then(|search| search.current) {
+            let text = matched.text_from_terminal(self.runtime.terminal())?;
+            return (!text.is_empty()).then_some(text);
+        }
+
+        let selection = self.ordinary_selection.or_else(|| {
+            self.selection
+                .map(|selection| self.stable_ordinary_selection_from_projection(selection))
+        })?;
+        let text = selection.text_from_terminal(self.runtime.terminal())?;
         (!text.is_empty()).then_some(text)
     }
 
@@ -100717,7 +100798,7 @@ enum WindowMouseSelectionMode {
 
 #[derive(Clone, Copy, Debug)]
 struct WindowClick {
-    cell: SelectionCell,
+    cell: SelectionSourceCell,
     time: Instant,
     count: u8,
 }
@@ -100739,6 +100820,74 @@ struct WindowSelection {
     rectangular: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct StableOrdinarySelection {
+    anchor: SelectionSourceCell,
+    focus: SelectionSourceCell,
+    rectangular: bool,
+    sequence: SequenceNo,
+}
+
+impl StableOrdinarySelection {
+    const fn new(
+        anchor: SelectionSourceCell,
+        focus: SelectionSourceCell,
+        sequence: SequenceNo,
+    ) -> Self {
+        Self {
+            anchor,
+            focus,
+            rectangular: false,
+            sequence,
+        }
+    }
+
+    const fn rectangular(
+        anchor: SelectionSourceCell,
+        focus: SelectionSourceCell,
+        sequence: SequenceNo,
+    ) -> Self {
+        Self {
+            anchor,
+            focus,
+            rectangular: true,
+            sequence,
+        }
+    }
+
+    const fn source_selection(self) -> WindowSourceSelection {
+        WindowSourceSelection {
+            anchor: self.anchor,
+            focus: self.focus,
+            rectangular: self.rectangular,
+        }
+    }
+
+    fn viewport_selection(
+        self,
+        domain: TerminalScreenDomain,
+        viewport_top: StableRowIndex,
+        size: TerminalSize,
+    ) -> Option<WindowSelection> {
+        self.source_selection()
+            .viewport_selection(domain, viewport_top, size)
+    }
+
+    fn text_from_terminal(self, terminal: &Terminal) -> Option<String> {
+        self.source_selection().text_from_terminal(terminal)
+    }
+
+    fn set_focus(&mut self, focus: SelectionSourceCell) {
+        self.focus = focus;
+    }
+
+    fn is_single_cell(self) -> bool {
+        self.anchor.domain == self.focus.domain
+            && self.anchor.row == self.focus.row
+            && self.anchor.column == self.focus.column
+    }
+}
+
 impl WindowSelection {
     const fn new(anchor: SelectionCell, focus: SelectionCell) -> Self {
         Self {
@@ -100754,14 +100903,6 @@ impl WindowSelection {
             focus,
             rectangular: true,
         }
-    }
-
-    fn set_focus(&mut self, focus: SelectionCell) {
-        self.focus = focus;
-    }
-
-    const fn is_single_cell(self) -> bool {
-        self.anchor.row == self.focus.row && self.anchor.column == self.focus.column
     }
 
     fn contains(self, row: u16, column: u16, size: TerminalSize) -> bool {
@@ -100795,6 +100936,7 @@ impl WindowSelection {
         }
     }
 
+    #[cfg(test)]
     fn text_from_snapshot(self, snapshot: &TerminalRenderSnapshot, size: TerminalSize) -> String {
         if size.columns == 0 || size.rows == 0 {
             return String::new();
@@ -100884,22 +101026,28 @@ impl WindowSelection {
     }
 }
 
-fn compare_selection_cell(left: SelectionCell, right: SelectionCell) -> std::cmp::Ordering {
+fn compare_selection_source_cell(
+    left: SelectionSourceCell,
+    right: SelectionSourceCell,
+) -> std::cmp::Ordering {
+    debug_assert_eq!(left.domain, right.domain);
     (left.row, left.column).cmp(&(right.row, right.column))
 }
 
-fn selection_focus_for_extension(
-    current: WindowSelection,
-    target: WindowSelection,
-) -> SelectionCell {
+fn stable_selection_focus_for_extension(
+    current: StableOrdinarySelection,
+    target: WindowSourceSelection,
+) -> SelectionSourceCell {
     let (target_start, target_end) = target.normalized();
     match (
-        compare_selection_cell(current.anchor, target_start),
-        compare_selection_cell(current.anchor, target_end),
+        compare_selection_source_cell(current.anchor, target_start),
+        compare_selection_source_cell(current.anchor, target_end),
     ) {
         (std::cmp::Ordering::Greater, _) => target_start,
         (_, std::cmp::Ordering::Less) => target_end,
-        _ if compare_selection_cell(current.focus, current.anchor) == std::cmp::Ordering::Less => {
+        _ if compare_selection_source_cell(current.focus, current.anchor)
+            == std::cmp::Ordering::Less =>
+        {
             target_start
         }
         _ => target_end,
@@ -101208,12 +101356,14 @@ fn pane_select_label_for_index(index: usize, alphabet: &[char]) -> Option<String
     Some(format!("{}{}", alphabet.get(first)?, alphabet.get(second)?))
 }
 
+#[cfg(test)]
 fn trim_trailing_spaces(text: &mut String) {
     while text.ends_with(' ') {
         text.pop();
     }
 }
 
+#[cfg(test)]
 fn snapshot_character(snapshot: &TerminalRenderSnapshot, row: u16, column: u16) -> char {
     snapshot
         .cells()
@@ -124727,7 +124877,9 @@ mod tests {
         RenderBackgroundImageAttachment, RenderGeometry, RenderScrollbarThumbSize,
         SCROLLBAR_THUMB_COLOR, TerminalRenderSnapshot, color_to_rgba,
     };
-    use rssh_terminal::{Color, CursorShape};
+    use rssh_terminal::{
+        Color, CursorShape, StableRowIndex, StableSelectionCoordinate, StableSelectionRange,
+    };
 
     use crate::{
         cli::Osc52Policy,
@@ -124826,18 +124978,19 @@ mod tests {
         NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
         NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
         NativeWslDomain, PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection,
-        SelectionCell, SelectionSourceCell, TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS,
-        WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
-        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
-        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
-        WindowDomainSelector, WindowEmitEvent, WindowFocusCoordinator, WindowFocusTransitions,
-        WindowFontSizeAction, WindowInputSelectorAction, WindowInputSelectorChoice,
-        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
-        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
-        WindowPromptInputLineAction, WindowPromptInputLineOptions, WindowQuickSelect,
-        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
-        WindowSearchCommandQuery, WindowSearchMatch, WindowSearchMatchType, WindowSelection,
-        WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
+        SelectionCell, SelectionSourceCell, StableOrdinarySelection, TAB_BAR_ROWS,
+        TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
+        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
+        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
+        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFocusCoordinator,
+        WindowFocusTransitions, WindowFontSizeAction, WindowInputSelectorAction,
+        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
+        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
+        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineAction,
+        WindowPromptInputLineOptions, WindowQuickSelect, WindowQuickSelectAction,
+        WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery,
+        WindowSearchMatch, WindowSearchMatchType, WindowSelection, WindowSendKey,
+        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
         WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
@@ -183288,14 +183441,10 @@ return config
         })
         .unwrap();
         assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
-        assert_eq!(
+        assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
-                .and_then(|runtime| runtime.selection),
-            Some(WindowSelection::new(
-                SelectionCell { row: 0, column: 0 },
-                SelectionCell { row: 0, column: 3 },
-            ))
+                .is_some_and(|runtime| runtime.ordinary_selection.is_some())
         );
 
         app.handle_pty_output(b"right").unwrap();
@@ -183386,14 +183535,10 @@ return config
 
         assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(3));
         assert!(app.selection.is_none());
-        assert_eq!(
+        assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(2))
-                .and_then(|runtime| runtime.selection),
-            Some(WindowSelection::new(
-                SelectionCell { row: 0, column: 0 },
-                SelectionCell { row: 0, column: 4 },
-            ))
+                .is_some_and(|runtime| runtime.ordinary_selection.is_some())
         );
     }
 
@@ -183433,7 +183578,7 @@ return config
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(2))
-                .is_some_and(|runtime| runtime.selection.is_some())
+                .is_some_and(|runtime| runtime.ordinary_selection.is_some())
         );
         let detached = app
             .take_next_pending_window_app()
@@ -183503,11 +183648,10 @@ return config
         .unwrap();
 
         assert!(!app.selecting);
-        assert_eq!(
+        assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
-                .and_then(|runtime| runtime.selection),
-            Some(selection)
+                .is_some_and(|runtime| runtime.ordinary_selection.is_some())
         );
     }
 
@@ -183533,7 +183677,7 @@ return config
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
-                .and_then(|runtime| runtime.selection)
+                .and_then(|runtime| runtime.ordinary_selection)
                 .is_none()
         );
     }
@@ -186506,7 +186650,545 @@ return config
 
         app.handle_pty_output(b"!").unwrap();
 
-        assert_eq!(app.selection, Some(selection));
+        assert!(app.ordinary_selection.is_some());
+        assert_eq!(app.selected_text().as_deref(), Some("ordi"));
+    }
+
+    fn ordinary_source_cell_for_viewport(
+        app: &NativeWindowApp,
+        row: u16,
+        column: usize,
+    ) -> SelectionSourceCell {
+        SelectionSourceCell {
+            domain: app.runtime.terminal().stable_dimensions().domain,
+            row: app
+                .current_viewport_stable_top()
+                .saturating_add(StableRowIndex::try_from(row).unwrap()),
+            column,
+        }
+    }
+
+    fn set_ordinary_stable_selection_for_test(
+        app: &mut NativeWindowApp,
+        anchor: SelectionSourceCell,
+        focus: SelectionSourceCell,
+        rectangular: bool,
+    ) {
+        app.ordinary_selection = Some(StableOrdinarySelection {
+            anchor,
+            focus,
+            rectangular,
+            sequence: app.runtime.terminal().current_seqno(),
+        });
+        app.update_selection_projection();
+        app.refresh_snapshot();
+    }
+
+    #[test]
+    fn window_app_ordinary_selection_survives_scrolling_out_and_back() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
+        let selected = ordinary_source_cell_for_viewport(&app, 1, 0);
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            selected,
+            SelectionSourceCell {
+                column: 1,
+                ..selected
+            },
+            false,
+        );
+
+        app.scroll_viewport_lines(1);
+        assert!(app.selection.is_none());
+        assert_eq!(app.selected_text().as_deref(), Some("cc"));
+
+        app.scroll_viewport_lines(-1);
+        assert!(app.selection.is_some());
+        assert_eq!(app.selected_text().as_deref(), Some("cc"));
+    }
+
+    #[test]
+    fn window_app_wheel_keeps_ordinary_selection_while_viewport_moves() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
+        let selected = ordinary_source_cell_for_viewport(&app, 0, 0);
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            selected,
+            SelectionSourceCell {
+                column: 1,
+                ..selected
+            },
+            false,
+        );
+        let ordinary = app.ordinary_selection;
+
+        assert!(app.handle_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0)));
+
+        assert_eq!(app.ordinary_selection, ordinary);
+        assert_eq!(app.selected_text().as_deref(), Some("bb"));
+    }
+
+    #[test]
+    fn window_app_page_scroll_keeps_ordinary_selection_while_viewport_moves() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
+            .unwrap();
+        let selected = ordinary_source_cell_for_viewport(&app, 1, 0);
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            selected,
+            SelectionSourceCell {
+                column: 1,
+                ..selected
+            },
+            false,
+        );
+        let ordinary = app.ordinary_selection;
+
+        app.command_palette_execute(WindowCommand::ScrollPageUp);
+
+        assert_eq!(app.ordinary_selection, ordinary);
+        assert_eq!(app.selected_text().as_deref(), Some("ee"));
+    }
+
+    #[test]
+    fn window_app_scrollbar_drag_keeps_ordinary_selection_while_viewport_moves() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            enable_scroll_bar: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
+            .unwrap();
+        let selected = ordinary_source_cell_for_viewport(&app, 1, 0);
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            selected,
+            SelectionSourceCell {
+                column: 1,
+                ..selected
+            },
+            false,
+        );
+        let ordinary = app.ordinary_selection;
+
+        assert!(app.scroll_to_scrollbar_position(PhysicalPosition::new(
+            f64::from(FRAME_WIDTH - 1),
+            f64::from(tab_bar_pixel_height()),
+        )));
+
+        assert_eq!(app.ordinary_selection, ordinary);
+        assert_eq!(app.selected_text().as_deref(), Some("ee"));
+    }
+
+    #[test]
+    fn window_app_ordinary_selection_copies_offscreen_stable_text() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
+        let dimensions = app.runtime.terminal().stable_dimensions();
+        let selected = SelectionSourceCell {
+            domain: dimensions.domain,
+            row: dimensions.scrollback_top,
+            column: 0,
+        };
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            selected,
+            SelectionSourceCell {
+                column: 1,
+                ..selected
+            },
+            false,
+        );
+
+        assert!(app.selection.is_none());
+        assert_eq!(app.selected_text().as_deref(), Some("aa"));
+    }
+
+    #[test]
+    fn window_app_ordinary_selection_survives_full_screen_scroll_into_history() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb").unwrap();
+        let selected = ordinary_source_cell_for_viewport(&app, 0, 0);
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            selected,
+            SelectionSourceCell {
+                column: 1,
+                ..selected
+            },
+            false,
+        );
+
+        app.handle_pty_output(b"\r\ncc\r\ndd").unwrap();
+
+        assert_eq!(app.selected_text().as_deref(), Some("aa"));
+        assert!(app.ordinary_selection.is_some());
+    }
+
+    #[test]
+    fn window_app_ordinary_selection_partial_prune_copies_only_surviving_rows() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.runtime.set_scrollback_limit(3);
+        app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
+        let retained = app.runtime.terminal().retained_stable_range();
+        let anchor = SelectionSourceCell {
+            domain: app.runtime.terminal().stable_dimensions().domain,
+            row: retained.start,
+            column: 0,
+        };
+        let focus = SelectionSourceCell {
+            row: retained.end - 1,
+            column: 1,
+            ..anchor
+        };
+        set_ordinary_stable_selection_for_test(&mut app, anchor, focus, false);
+
+        app.runtime.set_scrollback_limit(1);
+        app.handle_pty_output(b"\r\ndd").unwrap();
+
+        assert_eq!(app.selected_text().as_deref(), Some("bb\ncc"));
+    }
+
+    #[test]
+    fn window_app_ordinary_rectangular_selection_keeps_columns_after_prune() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.runtime.set_scrollback_limit(3);
+        app.handle_pty_output(b"abcd\r\nefgh\r\nijkl").unwrap();
+        let retained = app.runtime.terminal().retained_stable_range();
+        let anchor = SelectionSourceCell {
+            domain: app.runtime.terminal().stable_dimensions().domain,
+            row: retained.start,
+            column: 1,
+        };
+        let focus = SelectionSourceCell {
+            row: retained.end - 1,
+            column: 2,
+            ..anchor
+        };
+        set_ordinary_stable_selection_for_test(&mut app, anchor, focus, true);
+
+        app.runtime.set_scrollback_limit(1);
+        app.handle_pty_output(b"\r\nmnop").unwrap();
+
+        assert_eq!(app.selected_text().as_deref(), Some("fg\njk"));
+    }
+
+    #[test]
+    fn window_app_ordinary_soft_wrap_selection_uses_stable_rows() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"abcdef").unwrap();
+        let anchor = ordinary_source_cell_for_viewport(&app, 0, 2);
+        let focus = ordinary_source_cell_for_viewport(&app, 1, 1);
+        set_ordinary_stable_selection_for_test(&mut app, anchor, focus, false);
+
+        app.scroll_viewport_lines(1);
+
+        assert_eq!(app.selected_text().as_deref(), Some("cdef"));
+    }
+
+    #[test]
+    fn window_app_fully_pruned_selection_never_copies_new_oldest_row() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.runtime.set_scrollback_limit(1);
+        app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
+        let dimensions = app.runtime.terminal().stable_dimensions();
+        let selected = SelectionSourceCell {
+            domain: dimensions.domain,
+            row: dimensions.scrollback_top,
+            column: 0,
+        };
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            selected,
+            SelectionSourceCell {
+                column: 1,
+                ..selected
+            },
+            false,
+        );
+
+        app.handle_pty_output(b"\r\ndd\r\nee").unwrap();
+
+        assert!(app.selected_text().is_none());
+        assert_ne!(
+            app.runtime
+                .terminal()
+                .text_from_stable_selection(StableSelectionRange {
+                    start: StableSelectionCoordinate {
+                        domain: dimensions.domain,
+                        row: app.runtime.terminal().retained_stable_range().start,
+                        column: 0,
+                    },
+                    end: StableSelectionCoordinate {
+                        domain: dimensions.domain,
+                        row: app.runtime.terminal().retained_stable_range().start,
+                        column: 1,
+                    },
+                    rectangular: false,
+                })
+                .as_deref(),
+            Some("aa")
+        );
+    }
+
+    #[test]
+    fn window_app_multi_click_cache_uses_stable_rows() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"oldword\r\nnewword\r\nlastword")
+            .unwrap();
+        app.handle_cursor_moved(PhysicalPosition::new(
+            0.0,
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+            .unwrap();
+        app.scroll_viewport_lines(1);
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert!(app.selecting);
+        assert!(
+            app.ordinary_selection
+                .is_some_and(StableOrdinarySelection::is_single_cell)
+        );
+    }
+
+    #[test]
+    fn window_app_focus_switch_restores_each_stable_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"left\r\nhistory\r\nlive").unwrap();
+        let left = SelectionSourceCell {
+            domain: app.runtime.terminal().stable_dimensions().domain,
+            row: app.runtime.terminal().retained_stable_range().start,
+            column: 0,
+        };
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            left,
+            SelectionSourceCell { column: 3, ..left },
+            false,
+        );
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"right").unwrap();
+        let right = ordinary_source_cell_for_viewport(&app, 0, 0);
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            right,
+            SelectionSourceCell { column: 4, ..right },
+            false,
+        );
+
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+        assert_eq!(app.selected_text().as_deref(), Some("left"));
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(2),
+        })
+        .unwrap();
+        assert_eq!(app.selected_text().as_deref(), Some("right"));
+    }
+
+    #[test]
+    fn window_app_new_split_starts_without_stable_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"source").unwrap();
+        let selected = ordinary_source_cell_for_viewport(&app, 0, 0);
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            selected,
+            SelectionSourceCell {
+                column: 5,
+                ..selected
+            },
+            false,
+        );
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        assert!(app.ordinary_selection.is_none());
+        assert!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(1))
+                .is_some_and(|runtime| runtime.ordinary_selection.is_some())
+        );
+    }
+
+    #[test]
+    fn window_app_close_removes_only_closed_stable_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"left").unwrap();
+        let left = ordinary_source_cell_for_viewport(&app, 0, 0);
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            left,
+            SelectionSourceCell { column: 3, ..left },
+            false,
+        );
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"right").unwrap();
+        let right = ordinary_source_cell_for_viewport(&app, 0, 0);
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            right,
+            SelectionSourceCell { column: 4, ..right },
+            false,
+        );
+
+        app.dispatch_app_action(AppAction::ClosePane {
+            pane: rssh_core::PaneId::new(2),
+        })
+        .unwrap();
+
+        assert_eq!(app.selected_text().as_deref(), Some("left"));
+        assert!(!app.pane_runtimes.contains_key(&rssh_core::PaneId::new(2)));
+    }
+
+    #[test]
+    fn window_app_move_to_new_tab_preserves_stable_selection_and_viewport() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
+        app.scroll_viewport_lines(1);
+        let selected = ordinary_source_cell_for_viewport(&app, 0, 0);
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            selected,
+            SelectionSourceCell {
+                column: 1,
+                ..selected
+            },
+            false,
+        );
+        let top = app.current_stable_viewport_top();
+        let ordinary = app.ordinary_selection;
+
+        app.dispatch_app_action(AppAction::MovePaneToNewTab {
+            pane: rssh_core::PaneId::new(2),
+        })
+        .unwrap();
+
+        assert_eq!(app.current_stable_viewport_top(), top);
+        assert_eq!(app.ordinary_selection, ordinary);
+        assert_eq!(app.selected_text().as_deref(), Some("aa"));
+    }
+
+    #[test]
+    fn window_app_move_to_new_window_clears_gui_selection_but_preserves_stable_viewport() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
+        app.scroll_viewport_lines(1);
+        let selected = ordinary_source_cell_for_viewport(&app, 0, 0);
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            selected,
+            SelectionSourceCell {
+                column: 1,
+                ..selected
+            },
+            false,
+        );
+
+        app.dispatch_app_action(AppAction::MovePaneToNewWindow {
+            pane: rssh_core::PaneId::new(2),
+        })
+        .unwrap();
+        let detached = app
+            .take_next_pending_window_app()
+            .expect("pane should materialize as a detached window");
+
+        assert!(detached.ordinary_selection.is_none());
+        assert!(detached.selection.is_none());
+        assert_eq!(detached.current_scrollback_offset(), 1);
+        assert!(!detached.runtime.terminal().scrollback().is_empty());
+    }
+
+    #[test]
+    fn window_app_transient_match_never_becomes_ordinary_stable_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
+        app.handle_pty_output(b"transient").unwrap();
+        let dimensions = app.runtime.terminal().stable_dimensions();
+        app.quick_select = Some(WindowQuickSelect {
+            matches: vec![WindowSearchMatch {
+                domain: dimensions.domain,
+                source_row: dimensions.physical_top,
+                start_column: 0,
+                end_source_row: dimensions.physical_top,
+                end_column: 8,
+            }],
+            labels: vec!["a".to_owned()],
+            ..WindowQuickSelect::default()
+        });
+        app.update_selection_projection();
+        assert!(app.selection.is_some());
+        assert!(app.ordinary_selection.is_none());
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        assert!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(1))
+                .is_some_and(|runtime| runtime.ordinary_selection.is_none())
+        );
     }
 
     #[test]
