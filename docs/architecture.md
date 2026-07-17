@@ -231,11 +231,30 @@ keyboard, mouse, paste, resize
   closing a pane retires only that pane's selection. `MovePaneToNewTab`
   preserves selection inside the same GUI window, while
   `MovePaneToNewWindow` clears GUI selection at the window boundary without
-  discarding terminal runtime, scrollback, or viewport state. This completes
-  the ordinary pane-local selection ownership slice, not full selection
-  parity: stable scrollback-row coordinates, terminal sequence-number
-  (`seqno`)/dirty-line-aware invalidation, and pane-local search, copy-mode,
-  quick-select, and other overlay controllers remain open.
+  discarding terminal runtime, scrollback, or viewport state.
+- Completed after v1: the stable-selection and dirty-invalidation slice gives
+  terminal rows stable scrollback identity with strict stable/physical
+  conversion and tracks a terminal sequence number (`seqno`) plus per-row
+  sequence values. Ordinary selection and each pane viewport use stable rows;
+  selected-text extraction works while rows are offscreen; and scrollback
+  pruning preserves surviving row identities instead of retargeting a
+  selection. Active and inactive panes invalidate visible stable rows from
+  their own dirty-row state. Search, Copy, and Quick Select overlays are exempt
+  from ordinary dirty-selection retirement, defer base repaint, and apply
+  accumulated dirty state when the overlay exits. Effective palette changes
+  mark every active-domain line dirty. Screen-domain switches and height
+  changes synchronously retire GUI selection, drag/multi-click state, and
+  transient modes. Lua pane dimensions and cursor coordinates expose stable
+  rows.
+- This bounded slice does not claim full selection parity, full App Shell v2,
+  or general WezTerm parity. Full WezTerm-compatible width reflow and
+  resize-time selection persistence, pane-local Search/Copy/Quick controller
+  ownership, cell-level horizontal bounded-margin scrolling, inactive-pane
+  hover-wheel routing without focus transfer, richer pane focus visuals,
+  arbitrary Lua callbacks, external CLI title control, and a real mux/window
+  registry with domain, protocol, and renderer parity remain open. The
+  cell-level horizontal bounded-margin scroll behavior was explicitly not
+  implemented in this slice.
 - Completed in v1: tab bar entries include a configurable clickable close
   marker honoring `show_close_tab_button_in_tabs` that closes non-final tabs or
   requests native-window shutdown when the final tab is closed.
@@ -1232,15 +1251,19 @@ keyboard, mouse, paste, resize
   a real native multi-window focus-event end-to-end run in this slice. The macOS
   call was checked against the locked winit API type and signature, while the
   cross-target build is blocked by a third-party C-toolchain dependency.
-- In-progress after v1: richer pane focus visuals, stable scrollback selection
-  coordinates and precise terminal sequence-number (`seqno`)/dirty-line
-  invalidation, pane-local search/copy-mode/quick-select/overlay controllers,
-  inactive-pane hover wheel routing without focus transfer, richer split drag
-  affordances, custom tab formatting, arbitrary Lua callbacks, external
-  CLI/mux tab-title control, and mux/window registry plus domain, protocol, and
-  renderer parity. The pinned WezTerm contract uses one window-right scrollbar
-  bound to the active pane, which is already the implemented layout; per-pane
-  scrollbar tracks are not a parity requirement.
+- In-progress after v1: full WezTerm-compatible width reflow and resize-time
+  selection persistence, pane-local Search/Copy/Quick controller ownership,
+  inactive-pane hover-wheel routing without focus transfer, richer pane focus
+  visuals and split-drag affordances, custom tab formatting, arbitrary Lua
+  callbacks, external CLI title control, and a real mux/window registry with
+  domain, protocol, and renderer parity. Cell-level horizontal bounded-margin
+  scrolling was explicitly excluded from the completed stable-selection
+  slice. The pinned WezTerm contract uses one window-right scrollbar bound to
+  the active pane, which is already the implemented layout; per-pane scrollbar
+  tracks are not a parity requirement. The completed stable-row,
+  per-row-`seqno`, visible-dirty-row, overlay-accumulation, and stable Lua
+  coordinate work does not imply full selection parity, full App Shell v2, or
+  general WezTerm parity.
 - Implemented in v1: minimal `Ctrl+Shift+P` command palette dispatch for
   tab/pane/window/workspace actions including `Spawn Window`,
   `Toggle Full Screen`, Split Horizontal, Split Vertical, Close Current Tab,

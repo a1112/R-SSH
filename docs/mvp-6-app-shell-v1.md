@@ -960,10 +960,29 @@ runtime storage for tabs and split panes.
   `MovePaneToNewTab` preserves selection inside the same GUI window.
   `MovePaneToNewWindow` intentionally clears GUI selection at the window
   boundary while retaining terminal runtime, scrollback, and viewport state,
-  matching the pinned WezTerm ownership boundary. This slice does not claim
-  full selection parity: stable scrollback-row coordinates, terminal
-  sequence-number (`seqno`)/dirty-line-aware invalidation, and pane-local
-  search, copy-mode, quick-select, and other overlay controllers remain open.
+  matching the pinned WezTerm ownership boundary.
+- The completed stable-selection and dirty-invalidation slice gives terminal
+  rows stable scrollback identity with strict stable/physical conversion and
+  tracks a terminal sequence number (`seqno`) plus per-row sequence values.
+  Ordinary selection and each pane viewport use stable rows; selected-text
+  extraction works while rows are offscreen; and scrollback pruning preserves
+  surviving row identities instead of retargeting a selection. Active and
+  inactive panes invalidate visible stable rows from their own dirty-row state.
+  Search, Copy, and Quick Select overlays are exempt from ordinary
+  dirty-selection retirement, defer base repaint, and apply accumulated dirty
+  state when the overlay exits. Effective palette changes mark every
+  active-domain line dirty. Screen-domain switches and height changes
+  synchronously retire GUI selection, drag/multi-click state, and transient
+  modes. Lua pane dimensions and cursor coordinates expose stable rows.
+- This bounded slice does not claim full selection parity, full App Shell v2,
+  or general WezTerm parity. Full WezTerm-compatible width reflow and
+  resize-time selection persistence, pane-local Search/Copy/Quick controller
+  ownership, cell-level horizontal bounded-margin scrolling, inactive-pane
+  hover-wheel routing without focus transfer, richer pane focus visuals,
+  arbitrary Lua callbacks, external CLI title control, and a real mux/window
+  registry with domain, protocol, and renderer parity remain open. The
+  cell-level horizontal bounded-margin scroll behavior was explicitly not
+  implemented in this slice.
 - `rssh-app` exposes WezTerm-style `ActivateCommandPalette` through the command
   palette and the default `Ctrl+Shift+P` shortcut; invoking it from the palette
   closes the current palette action and reopens a fresh command palette.
@@ -2401,10 +2420,22 @@ runtime storage for tabs and split panes.
   including independent active/inactive rendering, inactive-output retention,
   active-only clear/copy, close cleanup, same-window MoveToNewTab retention, and
   cross-GUI-window selection clearing while runtime and viewport transfer.
-  Richer pane focus visuals, stable scrollback selection coordinates, terminal
-  sequence-number (`seqno`)/dirty-line-aware invalidation, pane-local
-  search/copy-mode/quick-select/overlay controllers, and inactive-pane hover
-  wheel routing without focus transfer remain pending.
+  The completed stable-selection and dirty-invalidation slice adds strict
+  stable/physical row conversion, per-row `seqno` tracking, stable ordinary
+  selection and pane viewport state, offscreen text extraction without
+  prune-time retargeting, active/inactive visible dirty-row invalidation,
+  Search/Copy/Quick overlay exemption with accumulated dirty application,
+  effective-palette whole-line dirtying, synchronous selection/transient
+  retirement on screen or height changes, and stable Lua pane dimensions and
+  cursor coordinates.
+- Full WezTerm-compatible width reflow and resize-time selection persistence,
+  pane-local Search/Copy/Quick controller ownership, inactive-pane hover-wheel
+  routing without focus transfer, richer pane focus visuals, arbitrary Lua
+  callbacks, external CLI title control, a real mux/window registry with
+  domain, protocol, and renderer parity, and cell-level horizontal
+  bounded-margin scrolling remain pending. The bounded-margin behavior was
+  explicitly not implemented in this slice; the completed work does not imply
+  full selection parity, full App Shell v2, or general WezTerm parity.
 - No mux/window registry or domain model exists yet beyond action/state support.
 - Arbitrary Lua callbacks and external CLI/mux tab-title control remain outside
   the implemented bounded-static/native surfaces.
@@ -2575,13 +2606,21 @@ cargo test -p rssh-app copy_mode
 
 ## Next Milestone
 
-- App Shell v2: harden stable scrollback selection coordinates, terminal
-  sequence-number (`seqno`)/dirty-line invalidation, pane-local
-  search/copy-mode/quick-select controllers, richer pane focus visuals, and
-  inactive-pane hover-wheel routing without focus transfer. Ordinary
-  pane-local selection ownership and the pinned single window-right
-  active-pane scrollbar layout are complete.
+- App Shell v2: add full WezTerm-compatible width reflow and resize-time
+  selection persistence, pane-local Search/Copy/Quick controller ownership,
+  richer pane focus visuals, and inactive-pane hover-wheel routing without
+  focus transfer. Stable terminal row identity and strict conversion, per-row
+  `seqno` tracking, stable ordinary selection and pane viewport state,
+  offscreen text extraction with prune-time no-retarget behavior,
+  active/inactive visible dirty-row invalidation, Search/Copy/Quick overlay
+  exemption with accumulated dirty application, effective-palette whole-line
+  dirtying, screen/height synchronous retirement, stable Lua pane
+  dimensions/cursor coordinates, ordinary pane-local selection ownership, and
+  the pinned single window-right active-pane scrollbar layout are complete.
 - Add richer mouse drag split resizing and retain arbitrary Lua callback work as
-  a separate bounded slice.
-- Add a mux/window registry, external CLI tab-title control, domain, protocol,
-  and renderer parity work.
+  a separate bounded slice. Cell-level horizontal bounded-margin scrolling was
+  explicitly not implemented by the stable-selection slice and remains open.
+- Add a real mux/window registry, external CLI title control, domain, protocol,
+  and renderer parity work. None of these milestones or the completed bounded
+  slice claims full selection parity, full App Shell v2, or general WezTerm
+  parity.

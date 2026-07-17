@@ -4142,10 +4142,29 @@ what remains before WezTerm-style parity in key UX/composition areas.
   only its selection. `MovePaneToNewTab` preserves selection within the same
   GUI window. `MovePaneToNewWindow` clears selection at the GUI-window
   boundary while preserving terminal runtime, scrollback, and viewport state,
-  matching pinned WezTerm. This is the ordinary selection ownership slice, not
-  complete selection parity: stable scrollback-row coordinates, terminal
-  sequence-number (`seqno`)/dirty-line-aware invalidation, and pane-local
-  search, copy-mode, quick-select, and other overlay controllers remain open.
+  matching pinned WezTerm.
+- The completed stable-selection and dirty-invalidation slice gives terminal
+  rows stable scrollback identity with strict stable/physical conversion and
+  tracks a terminal sequence number (`seqno`) plus per-row sequence values.
+  Ordinary selection and each pane viewport use stable rows; selected-text
+  extraction works while rows are offscreen; and scrollback pruning preserves
+  surviving row identities instead of retargeting a selection. Active and
+  inactive panes invalidate visible stable rows from their own dirty-row state.
+  Search, Copy, and Quick Select overlays are exempt from ordinary
+  dirty-selection retirement, defer base repaint, and apply accumulated dirty
+  state when the overlay exits. Effective palette changes mark every
+  active-domain line dirty. Screen-domain switches and height changes
+  synchronously retire GUI selection, drag/multi-click state, and transient
+  modes. Lua pane dimensions and cursor coordinates expose stable rows.
+- This bounded slice does not claim complete selection parity, full App Shell
+  v2, or general WezTerm parity. Full WezTerm-compatible width reflow and
+  resize-time selection persistence, pane-local Search/Copy/Quick controller
+  ownership, cell-level horizontal bounded-margin scrolling, inactive-pane
+  hover-wheel routing without focus transfer, richer pane focus visuals,
+  arbitrary Lua callbacks, external CLI title control, and a real mux/window
+  registry with domain, protocol, and renderer parity remain open. The
+  cell-level horizontal bounded-margin scroll behavior was explicitly not
+  implemented in this slice.
 - Native `enable_scroll_bar` defaults to false. When true, the scrollback
   scrollbar renders and accepts click/drag input; when false, scrollback remains
   wheel/command driven without the scrollbar affordance. The thumb minimum
@@ -4352,14 +4371,21 @@ what remains before WezTerm-style parity in key UX/composition areas.
   control flow, dynamic arguments/keys, and unprovable identity or API
   mutation remain open and fail closed.
 
-The next App Shell v2 layers remain richer pane focus visuals, stable
-scrollback selection coordinates and terminal sequence-number
-(`seqno`)/dirty-line-aware invalidation, pane-local
-search/copy-mode/quick-select/overlay controllers, inactive-pane hover-wheel
-routing without focus transfer, arbitrary Lua callbacks, external CLI
-tab-title control, and a real mux/window registry before mux/domain, protocol,
-and renderer extensions are scaled. Ordinary
-pane-local selection ownership is complete, and the pinned WezTerm scrollbar
-contract is already the single window-right scrollbar bound to the active
-pane; neither statement implies full selection parity, full App Shell v2, or
-general WezTerm parity.
+The completed stable-selection and dirty-invalidation layer covers terminal
+stable row identity with strict conversion, per-row `seqno` tracking, stable
+ordinary selection and pane viewport state, offscreen extraction with
+prune-time no-retarget behavior, active/inactive visible dirty-row
+invalidation, Search/Copy/Quick overlay exemption with accumulated dirty
+application, effective-palette whole-line dirtying, screen/height synchronous
+retirement, and stable Lua pane dimensions/cursor coordinates.
+
+The next App Shell v2 layers remain full WezTerm-compatible width reflow and
+resize-time selection persistence, pane-local Search/Copy/Quick controller
+ownership, inactive-pane hover-wheel routing without focus transfer, richer
+pane focus visuals, arbitrary Lua callbacks, external CLI title control, and a
+real mux/window registry with domain, protocol, and renderer parity. Cell-level
+horizontal bounded-margin scrolling was explicitly not implemented in this
+slice and remains open. Ordinary pane-local selection ownership and the pinned
+single window-right active-pane scrollbar contract are also complete. None of
+these completed bounded slices implies full selection parity, full App Shell
+v2, or general WezTerm parity.
