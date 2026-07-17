@@ -5152,7 +5152,7 @@ mod tests {
 
     #[test]
     fn pixel_renderer_draws_basic_sixel_image() {
-        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        let mut terminal = Terminal::new(TerminalSize::new(1, 2));
         terminal.feed(b"\x1b[?25l");
         terminal.feed(b"\x1bPq\"1;1;1;6#1;2;100;0;0#1~\x1b\\");
         let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
@@ -5187,7 +5187,7 @@ mod tests {
 
     #[test]
     fn pixel_renderer_draws_sixel_hls_color_definition() {
-        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        let mut terminal = Terminal::new(TerminalSize::new(1, 2));
         terminal.feed(b"\x1b[?25l");
         terminal.feed(b"\x1bPq#1;1;240;50;100#1~\x1b\\");
         let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
