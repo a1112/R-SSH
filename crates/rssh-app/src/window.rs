@@ -80557,6 +80557,7 @@ impl<Id> Default for WindowFocusCoordinator<Id> {
 }
 
 impl<Id: Copy + Eq> WindowFocusCoordinator<Id> {
+    #[cfg(test)]
     const fn focused(&self) -> Option<Id> {
         self.focused
     }
@@ -80591,6 +80592,14 @@ impl<Id: Copy + Eq> WindowFocusCoordinator<Id> {
         self.focused = None;
         true
     }
+}
+
+fn apply_focus_transitions<Id: Copy + Eq>(
+    focus: &mut WindowFocusCoordinator<Id>,
+    id: Id,
+    focused: bool,
+) -> WindowFocusTransitions<Id> {
+    focus.apply(id, focused)
 }
 
 type TabTitleFormatter = dyn Fn(&NativeTabTitleFormat) -> Option<NativeTabTitle> + Send;
@@ -81164,6 +81173,32 @@ impl NativeWindowManager {
         true
     }
 
+    fn handle_window_focus_changed(
+        &mut self,
+        window_id: winit::window::WindowId,
+        focused: bool,
+    ) -> io::Result<()> {
+        let transitions = apply_focus_transitions(&mut self.focus, window_id, focused);
+
+        if let Some(blur) = transitions.blur {
+            if let Some(app) = self.windows.get_mut(&blur) {
+                let _ = app.handle_focus_changed(false)?;
+                if let Some(window) = &app.window {
+                    window.request_redraw();
+                }
+            }
+        }
+        if let Some(focus) = transitions.focus {
+            if let Some(app) = self.windows.get_mut(&focus) {
+                let _ = app.handle_focus_changed(true)?;
+                if let Some(window) = &app.window {
+                    window.request_redraw();
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn close_window(&mut self, window_id: winit::window::WindowId) -> bool {
         if let Some(mut app) = self.windows.remove(&window_id) {
             app.handle_window_close_requested();
@@ -81175,6 +81210,7 @@ impl NativeWindowManager {
             self.last_metrics = Some(app.metrics_snapshot());
             drop(app);
         }
+        self.focus.remove(window_id);
         self.should_exit_when_idle()
     }
 
@@ -81182,6 +81218,7 @@ impl NativeWindowManager {
         self.last_metrics = Some(app.metrics_snapshot());
         drop(app);
         self.windows.clear();
+        self.focus = WindowFocusCoordinator::default();
         self.startup_app = None;
         self.pending_apps.clear();
     }
@@ -123590,6 +123627,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
 
         self.collect_pending_window_apps_from_app(&mut app);
         if close_window {
+            self.focus.remove(window_id);
             self.quit_when_all_windows_are_closed = app.quit_when_all_windows_are_closed;
             self.last_metrics = Some(app.metrics_snapshot());
             drop(app);
@@ -123620,6 +123658,14 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
             return;
         }
 
+        if let WindowEvent::Focused(focused) = &event {
+            if let Err(error) = self.handle_window_focus_changed(window_id, *focused) {
+                eprintln!("PTY focus error: {error}");
+                event_loop.exit();
+            }
+            return;
+        }
+
         let Some(mut app) = self.windows.remove(&window_id) else {
             return;
         };
@@ -123627,6 +123673,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
         self.collect_pending_window_apps_from_app(&mut app);
         let activate_window_request = app.take_activate_window_request();
         if app.take_window_close_request() {
+            self.focus.remove(window_id);
             self.quit_when_all_windows_are_closed = app.quit_when_all_windows_are_closed;
             self.last_metrics = Some(app.metrics_snapshot());
             drop(app);
@@ -123635,6 +123682,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
                 return;
             }
         } else if app.take_application_quit_request() {
+            self.focus.remove(window_id);
             self.quit_application_from_app(app);
             event_loop.exit();
             return;
@@ -123782,13 +123830,6 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     self.right_alt_pressed = false;
                 }
             }
-            WindowEvent::Focused(focused) => match self.handle_focus_changed(focused) {
-                Ok(_transitioned) => {}
-                Err(error) => {
-                    eprintln!("PTY focus error: {error}");
-                    event_loop.exit();
-                }
-            },
             WindowEvent::CursorMoved { position, .. } => {
                 if let Err(error) = self.handle_cursor_moved(position) {
                     eprintln!("PTY mouse error: {error}");
@@ -124247,13 +124288,13 @@ mod tests {
         WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
         WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
-        activate_window_relative_index, command_palette_basic_structured_query_command,
-        default_gui_startup_args, default_hyperlink_rules, default_integrated_title_buttons,
-        default_mux_env_remove, default_native_unix_domains,
-        default_skip_close_confirmation_for_processes_named, default_tiling_desktop_environments,
-        demo_snapshot, encode_window_focus_event, encode_window_key, encode_window_key_with_kitty,
-        encode_window_key_with_kitty_event, encode_window_mouse_event,
-        encode_window_mouse_event_with_pixels, encode_window_paste,
+        activate_window_relative_index, apply_focus_transitions,
+        command_palette_basic_structured_query_command, default_gui_startup_args,
+        default_hyperlink_rules, default_integrated_title_buttons, default_mux_env_remove,
+        default_native_unix_domains, default_skip_close_confirmation_for_processes_named,
+        default_tiling_desktop_environments, demo_snapshot, encode_window_focus_event,
+        encode_window_key, encode_window_key_with_kitty, encode_window_key_with_kitty_event,
+        encode_window_mouse_event, encode_window_mouse_event_with_pixels, encode_window_paste,
         input_selector_options_from_query, native_window_key_assignment_entries,
         native_window_resize_increments_supported, nerd_font_icon_for_name,
         pane_select_activate_alphabet_from_query,
@@ -186906,6 +186947,39 @@ return config
             }
         );
         assert_eq!(focus.focused(), None);
+    }
+
+    #[test]
+    fn window_manager_focus_dispatches_exclusive_logical_transitions() {
+        let first = rssh_core::WindowId::new(1);
+        let second = rssh_core::WindowId::new(2);
+        let mut focus = WindowFocusCoordinator::default();
+        let mut events = Vec::new();
+
+        for (window_id, focused) in [
+            (first, true),
+            (second, true),
+            (first, false),
+            (second, false),
+        ] {
+            let transitions = apply_focus_transitions(&mut focus, window_id, focused);
+            if let Some(blur) = transitions.blur {
+                events.push((blur, false));
+            }
+            if let Some(focus) = transitions.focus {
+                events.push((focus, true));
+            }
+        }
+
+        assert_eq!(
+            events,
+            [
+                (first, true),
+                (first, false),
+                (second, true),
+                (second, false),
+            ]
+        );
     }
 
     #[test]
