@@ -80530,6 +80530,69 @@ enum WindowActivateWindowRequest {
     Relative { offset: isize, wrap: bool },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WindowFocusTransitions<Id> {
+    blur: Option<Id>,
+    focus: Option<Id>,
+}
+
+impl<Id> Default for WindowFocusTransitions<Id> {
+    fn default() -> Self {
+        Self {
+            blur: None,
+            focus: None,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct WindowFocusCoordinator<Id> {
+    focused: Option<Id>,
+}
+
+impl<Id> Default for WindowFocusCoordinator<Id> {
+    fn default() -> Self {
+        Self { focused: None }
+    }
+}
+
+impl<Id: Copy + Eq> WindowFocusCoordinator<Id> {
+    const fn focused(&self) -> Option<Id> {
+        self.focused
+    }
+
+    fn apply(&mut self, id: Id, focused: bool) -> WindowFocusTransitions<Id> {
+        if focused {
+            if self.focused == Some(id) {
+                return WindowFocusTransitions::default();
+            }
+            let blur = self.focused.replace(id);
+            return WindowFocusTransitions {
+                blur,
+                focus: Some(id),
+            };
+        }
+
+        if self.focused == Some(id) {
+            self.focused = None;
+            return WindowFocusTransitions {
+                blur: Some(id),
+                focus: None,
+            };
+        }
+
+        WindowFocusTransitions::default()
+    }
+
+    fn remove(&mut self, id: Id) -> bool {
+        if self.focused != Some(id) {
+            return false;
+        }
+        self.focused = None;
+        true
+    }
+}
+
 type TabTitleFormatter = dyn Fn(&NativeTabTitleFormat) -> Option<NativeTabTitle> + Send;
 type WindowTitleFormatter = dyn Fn(&NativeWindowTitleFormat) -> Option<String> + Send;
 type WindowStatusUpdateHandler =
@@ -80964,6 +81027,7 @@ struct NativeWindowManager {
     startup_app: Option<NativeWindowApp>,
     windows: HashMap<winit::window::WindowId, NativeWindowApp>,
     pending_apps: Vec<NativeWindowApp>,
+    focus: WindowFocusCoordinator<winit::window::WindowId>,
     last_metrics: Option<WindowMetricsSnapshot>,
     quit_when_all_windows_are_closed: bool,
 }
@@ -80975,6 +81039,7 @@ impl NativeWindowManager {
             startup_app: Some(startup_app),
             windows: HashMap::new(),
             pending_apps: Vec::new(),
+            focus: WindowFocusCoordinator::default(),
             last_metrics: None,
             quit_when_all_windows_are_closed,
         }
@@ -124173,21 +124238,22 @@ mod tests {
         WindowActivateKeyTable, WindowActivateWindowRequest, WindowCharSelectOptions,
         WindowClearScrollbackMode, WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry,
         WindowConfirmationOptions, WindowCopyDestination, WindowDomainSelector, WindowEmitEvent,
-        WindowFontSizeAction, WindowInputSelectorAction, WindowInputSelectorChoice,
-        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
-        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
-        WindowPromptInputLineAction, WindowPromptInputLineOptions, WindowQuickSelectAction,
-        WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery,
-        WindowSearchMatchType, WindowSelection, WindowSendKey, WindowShowLauncherArgs,
-        WindowShowLauncherFlags, WindowSpawnCommandQuery, WindowSpawnTabDomain,
-        WindowSplitPaneOptions, WindowSplitPaneSize, WindowSwitchToWorkspaceOptions,
-        activate_window_absolute_index, activate_window_relative_index,
-        command_palette_basic_structured_query_command, default_gui_startup_args,
-        default_hyperlink_rules, default_integrated_title_buttons, default_mux_env_remove,
-        default_native_unix_domains, default_skip_close_confirmation_for_processes_named,
-        default_tiling_desktop_environments, demo_snapshot, encode_window_focus_event,
-        encode_window_key, encode_window_key_with_kitty, encode_window_key_with_kitty_event,
-        encode_window_mouse_event, encode_window_mouse_event_with_pixels, encode_window_paste,
+        WindowFocusCoordinator, WindowFocusTransitions, WindowFontSizeAction,
+        WindowInputSelectorAction, WindowInputSelectorChoice, WindowInputSelectorOptions,
+        WindowMouseEvent, WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
+        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineAction,
+        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
+        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
+        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
+        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
+        activate_window_relative_index, command_palette_basic_structured_query_command,
+        default_gui_startup_args, default_hyperlink_rules, default_integrated_title_buttons,
+        default_mux_env_remove, default_native_unix_domains,
+        default_skip_close_confirmation_for_processes_named, default_tiling_desktop_environments,
+        demo_snapshot, encode_window_focus_event, encode_window_key, encode_window_key_with_kitty,
+        encode_window_key_with_kitty_event, encode_window_mouse_event,
+        encode_window_mouse_event_with_pixels, encode_window_paste,
         input_selector_options_from_query, native_window_key_assignment_entries,
         native_window_resize_increments_supported, nerd_font_icon_for_name,
         pane_select_activate_alphabet_from_query,
@@ -186808,6 +186874,48 @@ return config
             .expect("pending window should create a detached app");
 
         assert_eq!(detached_app.native_effective_config(), expected_config);
+    }
+
+    #[test]
+    fn window_focus_coordinator_transfers_exclusive_focus() {
+        let mut focus = WindowFocusCoordinator::default();
+
+        assert_eq!(
+            focus.apply(10_u64, true),
+            WindowFocusTransitions {
+                blur: None,
+                focus: Some(10),
+            }
+        );
+        assert_eq!(focus.focused(), Some(10));
+        assert_eq!(focus.apply(10, true), WindowFocusTransitions::default());
+        assert_eq!(
+            focus.apply(20, true),
+            WindowFocusTransitions {
+                blur: Some(10),
+                focus: Some(20),
+            }
+        );
+        assert_eq!(focus.focused(), Some(20));
+        assert_eq!(focus.apply(10, false), WindowFocusTransitions::default());
+        assert_eq!(
+            focus.apply(20, false),
+            WindowFocusTransitions {
+                blur: Some(20),
+                focus: None,
+            }
+        );
+        assert_eq!(focus.focused(), None);
+    }
+
+    #[test]
+    fn window_focus_coordinator_forgets_removed_focus_owner() {
+        let mut focus = WindowFocusCoordinator::default();
+        focus.apply(10_u64, true);
+
+        assert!(!focus.remove(20));
+        assert!(focus.remove(10));
+        assert_eq!(focus.focused(), None);
     }
 
     #[test]
