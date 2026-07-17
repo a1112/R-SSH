@@ -87933,6 +87933,14 @@ impl NativeWindowApp {
                 };
 
                 if let Some(matched) = matched {
+                    if let Some(quick_select) = self.quick_select.as_mut()
+                        && let Some(current) = quick_select
+                            .matches
+                            .iter()
+                            .position(|candidate| *candidate == matched)
+                    {
+                        quick_select.current = current;
+                    }
                     self.apply_quick_select_match(matched);
                     self.accept_quick_select_match(input != input.to_ascii_lowercase());
                     self.exit_quick_select_mode();
@@ -89072,6 +89080,7 @@ impl NativeWindowApp {
         }
 
         if let Some(quick_select) = self.quick_select.as_mut() {
+            let current_match = quick_select.current_match();
             let retained_indices = quick_select
                 .matches
                 .iter()
@@ -89087,11 +89096,24 @@ impl NativeWindowApp {
                     .iter()
                     .filter_map(|index| quick_select.labels.get(*index).cloned())
                     .collect();
-                quick_select.current = quick_select
-                    .current
-                    .min(quick_select.matches.len().saturating_sub(1));
+                if let Some(current_match) = current_match {
+                    if let Some(current) = quick_select
+                        .matches
+                        .iter()
+                        .position(|matched| *matched == current_match)
+                    {
+                        quick_select.current = current;
+                    } else if !quick_select.matches.is_empty() {
+                        self.quick_select = None;
+                        self.selection = None;
+                    }
+                }
             }
-            if quick_select.matches.is_empty() {
+            if self
+                .quick_select
+                .as_ref()
+                .is_some_and(|quick_select| quick_select.matches.is_empty())
+            {
                 self.selection = None;
             }
         }
@@ -89099,7 +89121,11 @@ impl NativeWindowApp {
         self.update_transient_selection_projection();
     }
 
-    fn update_transient_selection_projection(&mut self) {
+    fn update_transient_selection_projection(&mut self) -> bool {
+        if self.quick_select.is_none() && self.search.is_none() && self.copy_mode.is_none() {
+            return false;
+        }
+
         let terminal = self.runtime.terminal();
         let dimensions = terminal.stable_dimensions();
         let viewport_top = self
@@ -89121,6 +89147,7 @@ impl NativeWindowApp {
         } else {
             None
         };
+        true
     }
 
     fn handle_inactive_pane_output(
@@ -89386,7 +89413,9 @@ impl NativeWindowApp {
 
         self.stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), next_offset);
-        self.update_transient_selection_projection();
+        if !self.update_transient_selection_projection() {
+            self.selection = None;
+        }
         self.pane_select = None;
         self.refresh_snapshot();
         self.apply_window_title();
@@ -89424,7 +89453,9 @@ impl NativeWindowApp {
 
         self.stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), next_offset);
-        self.update_transient_selection_projection();
+        if !self.update_transient_selection_projection() {
+            self.selection = None;
+        }
         self.pane_select = None;
         self.refresh_snapshot();
         self.apply_window_title();
@@ -89439,7 +89470,9 @@ impl NativeWindowApp {
             return;
         }
         self.stable_viewport.main_top = next_top;
-        self.update_transient_selection_projection();
+        if !self.update_transient_selection_projection() {
+            self.selection = None;
+        }
         self.pane_select = None;
         self.refresh_snapshot();
         self.apply_window_title();
@@ -90098,7 +90131,9 @@ impl NativeWindowApp {
             || self.copy_mode.is_some();
         self.stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), offset);
-        self.update_transient_selection_projection();
+        if !self.update_transient_selection_projection() {
+            self.selection = None;
+        }
         self.pane_select = None;
         self.prompt_input_line = None;
         self.input_selector = None;
@@ -98356,6 +98391,15 @@ impl NativeWindowApp {
     }
 
     fn selected_text(&self) -> Option<String> {
+        if let Some(matched) = self
+            .quick_select
+            .as_ref()
+            .and_then(WindowQuickSelect::current_match)
+        {
+            let text = matched.text_from_terminal(self.runtime.terminal())?;
+            return (!text.is_empty()).then_some(text);
+        }
+
         if let Some(copy_mode) = self.copy_mode.as_ref() {
             if let Some(selection) = copy_mode_source_selection(
                 copy_mode,
@@ -119333,6 +119377,22 @@ impl WindowSearchMatch {
                 .is_some_and(|end| terminal.is_stable_range_fully_retained(self.source_row..end))
     }
 
+    fn text_from_terminal(self, terminal: &Terminal) -> Option<String> {
+        terminal.text_from_stable_selection(StableSelectionRange {
+            start: StableSelectionCoordinate {
+                domain: self.domain,
+                row: self.source_row,
+                column: usize::from(self.start_column),
+            },
+            end: StableSelectionCoordinate {
+                domain: self.domain,
+                row: self.end_source_row,
+                column: usize::from(self.end_column),
+            },
+            rectangular: false,
+        })
+    }
+
     fn viewport_selection(self, terminal: &Terminal) -> Option<(usize, WindowSelection)> {
         let dimensions = terminal.stable_dimensions();
         if !self.is_retained(terminal) {
@@ -119371,18 +119431,24 @@ impl WindowSearchMatch {
 
         let last_row = size.rows.saturating_sub(1);
         let last_column = size.columns.saturating_sub(1);
-        let start_row = self
-            .source_row
-            .saturating_sub(viewport_top)
-            .try_into()
-            .unwrap_or(u16::MAX)
-            .min(last_row);
-        let end_row = self
-            .end_source_row
-            .saturating_sub(viewport_top)
-            .try_into()
-            .unwrap_or(u16::MAX)
-            .min(last_row);
+        let start_row = if self.source_row < viewport_top {
+            0
+        } else {
+            self.source_row
+                .saturating_sub(viewport_top)
+                .try_into()
+                .unwrap_or(u16::MAX)
+                .min(last_row)
+        };
+        let end_row = if self.end_source_row >= viewport_bottom {
+            last_row
+        } else {
+            self.end_source_row
+                .saturating_sub(viewport_top)
+                .try_into()
+                .unwrap_or(u16::MAX)
+                .min(last_row)
+        };
         let start_column = if self.source_row < viewport_top {
             0
         } else {
@@ -124740,10 +124806,11 @@ mod tests {
         WindowInputSelectorAction, WindowInputSelectorChoice, WindowInputSelectorOptions,
         WindowMouseEvent, WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
         WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineAction,
-        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
-        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
-        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
-        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        WindowPromptInputLineOptions, WindowQuickSelect, WindowQuickSelectAction,
+        WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery,
+        WindowSearchMatch, WindowSearchMatchType, WindowSelection, WindowSendKey,
+        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
+        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_gui_startup_args, default_hyperlink_rules, default_integrated_title_buttons,
@@ -186396,6 +186463,25 @@ return config
     }
 
     #[test]
+    fn window_app_pty_output_preserves_ordinary_selection_without_transient_controller() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"ordinary").unwrap();
+        let selection = WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+        app.selection = Some(selection);
+        assert!(app.copy_mode.is_none());
+        assert!(app.search.is_none());
+        assert!(app.quick_select.is_none());
+
+        app.handle_pty_output(b"!").unwrap();
+
+        assert_eq!(app.selection, Some(selection));
+    }
+
+    #[test]
     fn window_app_main_viewport_restores_after_alternate_screen() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
@@ -186431,20 +186517,25 @@ return config
     fn window_app_active_and_inactive_stable_viewports_are_independent() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
-        app.handle_pty_output(b"left-1\r\nleft-2\r\nleft-3")
+        app.handle_pty_output(b"left-1\r\nleft-2\r\nleft-3\r\nleft-4\r\nleft-5\r\nleft-6")
             .unwrap();
-        app.scroll_viewport_lines(1);
+        let left_physical_top = app.runtime.terminal().stable_dimensions().physical_top;
+        app.scroll_viewport_lines(2);
         let left_top = app.current_stable_viewport_top();
+        assert_eq!(left_top, Some(left_physical_top.saturating_sub(2)));
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
             direction: SplitDirection::Right,
             launch: None,
         })
         .unwrap();
-        app.handle_pty_output(b"right-1\r\nright-2\r\nright-3")
+        app.handle_pty_output(b"right-1\r\nright-2\r\nright-3\r\nright-4")
             .unwrap();
+        let right_physical_top = app.runtime.terminal().stable_dimensions().physical_top;
         app.scroll_viewport_lines(1);
         let right_top = app.current_stable_viewport_top();
+        assert_eq!(right_top, Some(right_physical_top.saturating_sub(1)));
+        assert_ne!(left_top, right_top);
 
         app.dispatch_app_action(AppAction::ActivatePaneByIndex { index: 0 })
             .unwrap();
@@ -186521,6 +186612,63 @@ return config
     }
 
     #[test]
+    fn window_app_search_multiline_match_clips_across_stable_viewport_edges() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 3));
+        app.handle_pty_output(b"row-0\r\nrow-1\r\nrow-2\r\nrow-3\r\nrow-4\r\nrow-5")
+            .unwrap();
+        let dimensions = app.runtime.terminal().stable_dimensions();
+        let viewport_top = app.current_viewport_stable_top();
+        let matched = WindowSearchMatch {
+            domain: dimensions.domain,
+            source_row: viewport_top.saturating_sub(1),
+            start_column: 4,
+            end_source_row: viewport_top.saturating_add(3),
+            end_column: 2,
+        };
+        app.search = Some(WindowSearch {
+            current: Some(matched),
+            ..WindowSearch::default()
+        });
+
+        app.update_transient_selection_projection();
+
+        let selection = app.selection.expect("projected search selection");
+        assert_eq!(selection.anchor, SelectionCell { row: 0, column: 0 });
+        assert_eq!(selection.focus, SelectionCell { row: 2, column: 7 });
+        assert!(selection.anchor.row <= selection.focus.row);
+    }
+
+    #[test]
+    fn window_app_quick_select_multiline_match_clips_across_stable_viewport_edges() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 3));
+        app.handle_pty_output(b"row-0\r\nrow-1\r\nrow-2\r\nrow-3\r\nrow-4\r\nrow-5")
+            .unwrap();
+        let dimensions = app.runtime.terminal().stable_dimensions();
+        let viewport_top = app.current_viewport_stable_top();
+        let matched = WindowSearchMatch {
+            domain: dimensions.domain,
+            source_row: viewport_top.saturating_sub(1),
+            start_column: 5,
+            end_source_row: viewport_top.saturating_add(3),
+            end_column: 1,
+        };
+        app.quick_select = Some(WindowQuickSelect {
+            matches: vec![matched],
+            labels: vec!["a".to_owned()],
+            ..WindowQuickSelect::default()
+        });
+
+        app.update_transient_selection_projection();
+
+        let selection = app.selection.expect("projected quick-select selection");
+        assert_eq!(selection.anchor, SelectionCell { row: 0, column: 0 });
+        assert_eq!(selection.focus, SelectionCell { row: 2, column: 7 });
+        assert!(selection.anchor.row <= selection.focus.row);
+    }
+
+    #[test]
     fn window_app_quick_select_matches_do_not_retarget_after_prune() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
@@ -186546,6 +186694,70 @@ return config
                 .history_index_to_stable_row(0)
                 .unwrap(),
             matched.source_row
+        );
+    }
+
+    #[test]
+    fn window_app_quick_select_current_prune_does_not_retarget_surviving_match() {
+        let copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_copy = Arc::clone(&copied);
+        let mut app = NativeWindowApp::new(None);
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_copy.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+        app.runtime.set_scrollback_limit(3);
+        app.handle_pty_output(b"https://old.test\r\nhttps://later.test\r\nkeep\r\nlive")
+            .unwrap();
+        app.enter_quick_select_mode();
+        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        assert_eq!(quick_select.matches.len(), 2);
+        let pruned = quick_select.matches[0];
+        let survivor = quick_select.matches[1];
+        let survivor_label = quick_select.labels[1].clone();
+
+        app.handle_pty_output(b"\r\nnew-1\r\nnew-2").unwrap();
+
+        assert!(!pruned.is_retained(app.runtime.terminal()));
+        assert!(survivor.is_retained(app.runtime.terminal()));
+        assert!(app.quick_select.is_none());
+        assert!(app.selection.is_none());
+        assert!(!app.handle_quick_select_logical_key(
+            &Key::Character(survivor_label.into()),
+            ModifiersState::empty()
+        ));
+        assert!(copied.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn window_app_quick_select_accept_uses_stable_match_text_after_viewport_moves() {
+        let copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_copy = Arc::clone(&copied);
+        let mut app = NativeWindowApp::new(None);
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_copy.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+        app.handle_pty_output(b"https://stable.test\r\nline-1\r\nline-2\r\nline-3")
+            .unwrap();
+        app.enter_quick_select_mode();
+        assert!(
+            app.quick_select
+                .as_ref()
+                .and_then(WindowQuickSelect::current_match)
+                .is_some()
+        );
+
+        app.set_scrollback_offset(0);
+        assert!(app.selection.is_none());
+        app.accept_quick_select_match(false);
+        app.exit_quick_select_mode();
+
+        assert_eq!(
+            copied.lock().unwrap().as_slice(),
+            ["https://stable.test".to_owned()]
         );
     }
 
