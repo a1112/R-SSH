@@ -164938,13 +164938,14 @@ return config
         .expect("expected WezTerm is_focused status setter");
         app.set_config_overrides(overrides);
 
+        assert!(app.handle_focus_changed(true).unwrap());
         app.dispatch_update_status();
         assert_eq!(app.right_status, "FOCUSED");
 
-        app.handle_focus_changed(false).unwrap();
+        assert!(app.handle_focus_changed(false).unwrap());
         assert_eq!(app.right_status, "BLURRED");
 
-        app.handle_focus_changed(true).unwrap();
+        assert!(app.handle_focus_changed(true).unwrap());
         assert_eq!(app.right_status, "FOCUSED");
     }
 
@@ -181489,6 +181490,7 @@ return config
             ..NativeConfigOverrides::default()
         });
 
+        assert!(app.handle_focus_changed(true).unwrap());
         let active_snapshot = app.render_snapshot();
         let title_bar_sample_column = app
             .runtime
@@ -181540,7 +181542,7 @@ return config
             Color::Rgb(31, 32, 33)
         );
 
-        app.handle_focus_changed(false).unwrap();
+        assert!(app.handle_focus_changed(false).unwrap());
         let inactive_snapshot = app.render_snapshot();
         let inactive_tab_label = snapshot_row_text(&inactive_snapshot, 0, 12)
             .find("ws:")
@@ -182740,8 +182742,8 @@ return config
             ..NativeConfigOverrides::default()
         });
         app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
-        app.handle_focus_changed(false).unwrap();
-        app.handle_focus_changed(true).unwrap();
+        assert!(!app.handle_focus_changed(false).unwrap());
+        assert!(app.handle_focus_changed(true).unwrap());
 
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(CELL_WIDTH),
@@ -182768,8 +182770,8 @@ return config
             ..NativeConfigOverrides::default()
         });
         app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
-        app.handle_focus_changed(false).unwrap();
-        app.handle_focus_changed(true).unwrap();
+        assert!(!app.handle_focus_changed(false).unwrap());
+        assert!(app.handle_focus_changed(true).unwrap());
 
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(CELL_WIDTH),
@@ -241640,6 +241642,7 @@ act.Confirmation {
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedPane),
             ..NativeConfigOverrides::default()
         });
+        assert!(app.handle_focus_changed(true).unwrap());
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
 
@@ -241669,6 +241672,7 @@ act.Confirmation {
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedTab),
             ..NativeConfigOverrides::default()
         });
+        assert!(app.handle_focus_changed(true).unwrap());
         app.dispatch_app_action(AppAction::SplitPane {
             pane: app.active_pane_id(),
             direction: rssh_core::app_shell::SplitDirection::Right,
@@ -241709,8 +241713,9 @@ act.Confirmation {
             ..NativeConfigOverrides::default()
         });
 
+        assert!(app.handle_focus_changed(true).unwrap());
         app.handle_pty_output(b"\x1b]9;focused hidden\x07").unwrap();
-        app.handle_focus_changed(false).unwrap();
+        assert!(app.handle_focus_changed(false).unwrap());
         app.handle_pty_output(b"\x1b]9;unfocused shown\x07")
             .unwrap();
 
