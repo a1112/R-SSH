@@ -84323,6 +84323,7 @@ impl NativeWindowApp {
             self.selection = None;
         }
         self.selecting = false;
+        self.last_left_click = None;
     }
 
     fn take_active_runtime(&mut self) -> PaneRuntime {
@@ -87242,7 +87243,7 @@ impl NativeWindowApp {
         };
 
         if kind == NativeMouseAssignmentEventKind::Drag {
-            self.selection = None;
+            self.clear_ordinary_selection();
             self.selecting = false;
         }
 
@@ -90028,7 +90029,7 @@ impl NativeWindowApp {
                     return false;
                 };
 
-                self.selection = None;
+                self.clear_ordinary_selection();
                 self.selecting = false;
                 self.split_resize_dragging = Some(drag);
                 self.update_split_resize_cursor_icon();
@@ -100650,28 +100651,27 @@ impl WindowSourceSelection {
             return None;
         }
 
+        let visible_column_end = usize::from(size.columns);
         let first_column = if first_row == start.row {
             start.column
         } else {
             0
         };
         let last_column = if last_row == end.row {
-            end.column.min(usize::from(size.columns.saturating_sub(1)))
+            end.column.min(visible_column_end.saturating_sub(1))
         } else {
-            usize::from(size.columns.saturating_sub(1))
+            visible_column_end.saturating_sub(1)
         };
 
         if self.rectangular {
             let (start, end) = self.normalized_rectangular();
             let first_row = start.row.max(viewport_top);
             let last_row = end.row.min(viewport_bottom);
-            if first_row > last_row {
+            if first_row > last_row || start.column >= visible_column_end {
                 return None;
             }
-            let first_column = start
-                .column
-                .min(usize::from(size.columns.saturating_sub(1)));
-            let last_column = end.column.min(usize::from(size.columns.saturating_sub(1)));
+            let first_column = start.column;
+            let last_column = end.column.min(visible_column_end.saturating_sub(1));
 
             return Some(WindowSelection::rectangular(
                 SelectionCell {
@@ -100683,6 +100683,10 @@ impl WindowSourceSelection {
                     column: u16::try_from(last_column).ok()?,
                 },
             ));
+        }
+
+        if first_row == last_row && first_column > last_column {
+            return None;
         }
 
         Some(WindowSelection::new(
@@ -124842,6 +124846,7 @@ mod tests {
     };
     use rssh_terminal::{
         Color, CursorShape, StableRowIndex, StableSelectionCoordinate, StableSelectionRange,
+        TerminalScreenDomain,
     };
 
     use crate::{
@@ -124953,8 +124958,8 @@ mod tests {
         WindowPromptInputLineOptions, WindowQuickSelect, WindowQuickSelectAction,
         WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery,
         WindowSearchMatch, WindowSearchMatchType, WindowSelection, WindowSendKey,
-        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
-        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSourceSelection,
+        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_gui_startup_args, default_hyperlink_rules, default_integrated_title_buttons,
@@ -184210,6 +184215,37 @@ return config
     }
 
     #[test]
+    fn window_app_split_resize_start_clears_stable_ordinary_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"right").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 4 },
+        );
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(39_u32 * CELL_WIDTH),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        app.refresh_snapshot();
+
+        assert!(app.ordinary_selection.is_none());
+        assert!(app.selection.is_none());
+    }
+
+    #[test]
     fn window_app_zoomed_split_pane_fills_tab_region() {
         let mut app = NativeWindowApp::new(None);
         app.handle_pty_output(b"left").unwrap();
@@ -186745,6 +186781,96 @@ return config
     }
 
     #[test]
+    fn window_source_selection_same_row_width_shrink_does_not_retarget_right_edge() {
+        let source = WindowSourceSelection::new(
+            SelectionSourceCell {
+                domain: TerminalScreenDomain::Main,
+                row: 0,
+                column: 6,
+            },
+            SelectionSourceCell {
+                domain: TerminalScreenDomain::Main,
+                row: 0,
+                column: 7,
+            },
+        );
+
+        assert!(
+            source
+                .viewport_selection(
+                    TerminalScreenDomain::Main,
+                    0,
+                    rssh_core::TerminalSize::new(8, 1),
+                )
+                .is_some()
+        );
+        assert_eq!(
+            source.viewport_selection(
+                TerminalScreenDomain::Main,
+                0,
+                rssh_core::TerminalSize::new(7, 1),
+            ),
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 6 },
+                SelectionCell { row: 0, column: 6 },
+            ))
+        );
+        assert_eq!(
+            source.viewport_selection(
+                TerminalScreenDomain::Main,
+                0,
+                rssh_core::TerminalSize::new(4, 1),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn window_source_rectangular_selection_width_shrink_does_not_retarget_right_edge() {
+        let source = WindowSourceSelection::rectangular(
+            SelectionSourceCell {
+                domain: TerminalScreenDomain::Main,
+                row: 0,
+                column: 6,
+            },
+            SelectionSourceCell {
+                domain: TerminalScreenDomain::Main,
+                row: 1,
+                column: 7,
+            },
+        );
+
+        assert!(
+            source
+                .viewport_selection(
+                    TerminalScreenDomain::Main,
+                    0,
+                    rssh_core::TerminalSize::new(8, 2),
+                )
+                .is_some()
+        );
+        assert_eq!(
+            source.viewport_selection(
+                TerminalScreenDomain::Main,
+                0,
+                rssh_core::TerminalSize::new(7, 2),
+            ),
+            Some(WindowSelection::rectangular(
+                SelectionCell { row: 0, column: 6 },
+                SelectionCell { row: 1, column: 6 },
+            ))
+        );
+        assert_eq!(
+            source.viewport_selection(
+                TerminalScreenDomain::Main,
+                0,
+                rssh_core::TerminalSize::new(4, 2),
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn window_app_search_current_selection_prefers_ordinary_over_transient_projection() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(24, 1));
@@ -187075,6 +187201,63 @@ return config
             app.ordinary_selection
                 .is_some_and(StableOrdinarySelection::is_single_cell)
         );
+    }
+
+    #[test]
+    fn window_app_pane_switch_resets_multi_click_cache_for_same_stable_cell() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"same").unwrap();
+        app.handle_cursor_moved(PhysicalPosition::new(
+            1.0,
+            f64::from(tab_bar_pixel_height()) + 1.0,
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+            .unwrap();
+        let first_click = app
+            .last_left_click
+            .expect("first pane click should be cached");
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"same").unwrap();
+        let active_pane = app.active_pane_id();
+        let active_rect = app
+            .pane_render_layout()
+            .panes
+            .into_iter()
+            .find(|pane| pane.pane_id == active_pane)
+            .expect("active pane render rect");
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(u32::from(active_rect.column) * CELL_WIDTH) + 1.0,
+            f64::from(u32::from(active_rect.row) * CELL_HEIGHT) + 1.0,
+        ))
+        .unwrap();
+        let second_cell = app
+            .selection_source_cell_from_mouse_position()
+            .expect("second pane source cell");
+        assert_eq!(second_cell.domain, first_click.cell.domain);
+        assert_eq!(second_cell.row, first_click.cell.row);
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert!(app.selecting);
+        assert!(
+            app.ordinary_selection
+                .is_some_and(StableOrdinarySelection::is_single_cell)
+        );
+        assert_eq!(app.last_left_click.map(|click| click.count), Some(1));
     }
 
     #[test]
@@ -198122,6 +198305,41 @@ return config
         assert!(app.window_drag_requested_for_test());
         assert!(app.selection.is_none());
         assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_custom_mouse_drag_clears_stable_ordinary_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"ordinary").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+        app.modifiers = ModifiersState::ALT;
+        app.mouse_assignments = vec![NativeUserMouseAssignment {
+            event: NativeMouseAssignmentEvent {
+                kind: NativeMouseAssignmentEventKind::Drag,
+                button: NativeMouseAssignmentButton::Mouse(MouseButton::Left),
+                streak: 1,
+            },
+            modifiers: ModifiersState::ALT,
+            mouse_reporting: false,
+            alt_screen: NativeMouseAssignmentAltScreen::Any,
+            command: WindowCommand::StartWindowDrag,
+        }];
+
+        assert!(app.handle_user_mouse_assignment(
+            NativeMouseAssignmentEventKind::Drag,
+            NativeMouseAssignmentButton::Mouse(MouseButton::Left),
+            1,
+            false,
+            false,
+        ));
+        app.refresh_snapshot();
+
+        assert!(app.ordinary_selection.is_none());
+        assert!(app.selection.is_none());
     }
 
     #[test]
