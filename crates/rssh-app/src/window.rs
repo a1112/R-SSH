@@ -81448,6 +81448,11 @@ impl PaneStableViewport {
 }
 
 impl PaneRuntime {
+    fn reconcile_terminal_mutation(&mut self) {
+        self.stable_viewport.clamp_main(self.runtime.terminal());
+        self.snapshot = terminal_runtime_snapshot(&self.runtime, self.stable_viewport);
+    }
+
     fn close(&mut self) {
         if let Some(session) = self.session.as_mut() {
             let _ = session.kill();
@@ -89014,7 +89019,7 @@ impl NativeWindowApp {
         let started = Instant::now();
         self.metrics.record_pty_chunk(bytes.len());
         let runtime_output = self.runtime.feed_pty_output_with_display(bytes);
-        self.reconcile_transient_stable_coordinates();
+        self.reconcile_active_terminal_mutation();
         self.write_session_log(&runtime_output.display)?;
         self.record_unknown_escape_sequence_warnings(
             self.app_shell.active_pane_id(),
@@ -89051,6 +89056,11 @@ impl NativeWindowApp {
         self.metrics.record_pty_chunk_process(started.elapsed());
 
         Ok(())
+    }
+
+    fn reconcile_active_terminal_mutation(&mut self) {
+        self.stable_viewport.clamp_main(self.runtime.terminal());
+        self.reconcile_transient_stable_coordinates();
     }
 
     fn reconcile_transient_stable_coordinates(&mut self) {
@@ -89215,10 +89225,7 @@ impl NativeWindowApp {
             runtime.runtime.terminal().badge_format().map(str::to_owned),
         );
         self.sync_pane_progress_from_value(pane_id, runtime.runtime.progress());
-        runtime
-            .stable_viewport
-            .clamp_main(runtime.runtime.terminal());
-        runtime.snapshot = terminal_runtime_snapshot(&runtime.runtime, runtime.stable_viewport);
+        runtime.reconcile_terminal_mutation();
         self.record_pane_bells(pane_id, runtime_output.bells);
         self.metrics.record_bells(runtime_output.bells);
         self.dispatch_bells(pane_id, runtime_output.bells);
@@ -93535,10 +93542,13 @@ impl NativeWindowApp {
         self.enable_scroll_bar = overrides
             .enable_scroll_bar
             .unwrap_or(DEFAULT_ENABLE_SCROLL_BAR);
-        self.scrollback_lines = overrides
+        let scrollback_lines = overrides
             .scrollback_lines
             .unwrap_or(DEFAULT_SCROLLBACK_LIMIT);
-        self.apply_scrollback_limit_to_runtimes();
+        if self.scrollback_lines != scrollback_lines {
+            self.scrollback_lines = scrollback_lines;
+            self.apply_scrollback_limit_to_runtimes();
+        }
         self.min_scroll_bar_height = overrides
             .min_scroll_bar_height
             .or(DEFAULT_MIN_SCROLL_BAR_HEIGHT);
@@ -93893,18 +93903,16 @@ impl NativeWindowApp {
 
     fn apply_scrollback_limit_to_runtimes(&mut self) {
         self.runtime.set_scrollback_limit(self.scrollback_lines);
-        self.stable_viewport.clamp_main(self.runtime.terminal());
 
         for pane_runtime in self.pane_runtimes.values_mut() {
             pane_runtime
                 .runtime
                 .set_scrollback_limit(self.scrollback_lines);
-            pane_runtime
-                .stable_viewport
-                .clamp_main(pane_runtime.runtime.terminal());
+            pane_runtime.reconcile_terminal_mutation();
         }
 
-        self.frame_needs_full_repaint = true;
+        self.reconcile_active_terminal_mutation();
+        self.refresh_snapshot();
     }
 
     fn native_tab_information(
@@ -96135,15 +96143,33 @@ impl NativeWindowApp {
         else {
             return false;
         };
-        let Some((target_offset, target)) = copy_mode_viewport_cell_for_source_position(
-            source_history_row,
-            source_cursor.column,
-            current_offset,
-            history_len,
-            size,
-        ) else {
-            return false;
-        };
+        let (target_offset, target_viewport_top, target) =
+            if dimensions.domain == TerminalScreenDomain::Alternate {
+                let Some(target) = copy_mode_cell_for_source_position(
+                    source_history_row,
+                    source_cursor.column,
+                    0,
+                    size,
+                ) else {
+                    return false;
+                };
+                (0, 0, target)
+            } else {
+                let Some((target_offset, target)) = copy_mode_viewport_cell_for_source_position(
+                    source_history_row,
+                    source_cursor.column,
+                    current_offset,
+                    history_len,
+                    size,
+                ) else {
+                    return false;
+                };
+                (
+                    target_offset,
+                    copy_mode_viewport_top(history_len, target_offset),
+                    target,
+                )
+            };
         let Some(copy_mode) = self.copy_mode.as_ref() else {
             return false;
         };
@@ -96170,7 +96196,7 @@ impl NativeWindowApp {
                 copy_mode_cell_for_source_position(
                     source_row,
                     anchor.column,
-                    copy_mode_viewport_top(history_len, target_offset),
+                    target_viewport_top,
                     size,
                 )
             });
@@ -119719,14 +119745,16 @@ fn terminal_search_lines(terminal: &rssh_terminal::Terminal) -> Vec<String> {
     let size = terminal.grid().size();
     let mut lines = Vec::new();
 
-    for line in terminal.scrollback() {
-        lines.push(
-            line.cells()
-                .iter()
-                .take(usize::from(size.columns))
-                .map(|cell| cell.ch)
-                .collect(),
-        );
+    if terminal.stable_dimensions().domain == TerminalScreenDomain::Main {
+        for line in terminal.scrollback() {
+            lines.push(
+                line.cells()
+                    .iter()
+                    .take(usize::from(size.columns))
+                    .map(|cell| cell.ch)
+                    .collect(),
+            );
+        }
     }
 
     for row in 0..size.rows {
@@ -124798,18 +124826,18 @@ mod tests {
         NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
         NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
         NativeWslDomain, PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection,
-        SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS,
-        WindowActivateKeyTable, WindowActivateWindowRequest, WindowCharSelectOptions,
-        WindowClearScrollbackMode, WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry,
-        WindowConfirmationOptions, WindowCopyDestination, WindowDomainSelector, WindowEmitEvent,
-        WindowFocusCoordinator, WindowFocusTransitions, WindowFontSizeAction,
-        WindowInputSelectorAction, WindowInputSelectorChoice, WindowInputSelectorOptions,
-        WindowMouseEvent, WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
-        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineAction,
-        WindowPromptInputLineOptions, WindowQuickSelect, WindowQuickSelectAction,
-        WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery,
-        WindowSearchMatch, WindowSearchMatchType, WindowSelection, WindowSendKey,
-        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
+        SelectionCell, SelectionSourceCell, TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS,
+        WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
+        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
+        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
+        WindowDomainSelector, WindowEmitEvent, WindowFocusCoordinator, WindowFocusTransitions,
+        WindowFontSizeAction, WindowInputSelectorAction, WindowInputSelectorChoice,
+        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
+        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
+        WindowPromptInputLineAction, WindowPromptInputLineOptions, WindowQuickSelect,
+        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
+        WindowSearchCommandQuery, WindowSearchMatch, WindowSearchMatchType, WindowSelection,
+        WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
         WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
@@ -186759,6 +186787,266 @@ return config
             copied.lock().unwrap().as_slice(),
             ["https://stable.test".to_owned()]
         );
+    }
+
+    #[test]
+    fn window_app_search_uses_only_active_alternate_screen_domain() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 3));
+        app.handle_pty_output(b"main-only-needle\r\nmain-1\r\nmain-2\r\nmain-3\r\nmain-4")
+            .unwrap();
+        app.handle_pty_output(b"\x1b[?1049h\x1b[2J\x1b[Halt-only-needle\r\nalt-1\r\nalt-2")
+            .unwrap();
+        assert_eq!(
+            app.runtime.terminal().stable_dimensions().domain,
+            rssh_terminal::TerminalScreenDomain::Alternate
+        );
+
+        app.enter_search_mode();
+        assert!(!app.update_search_query("main-only-needle"));
+        assert!(
+            app.search
+                .as_ref()
+                .is_some_and(|search| search.current.is_none())
+        );
+
+        assert!(app.update_search_query("alt-only-needle"));
+        let matched = app.search.as_ref().unwrap().current.unwrap();
+        assert_eq!(
+            matched.domain,
+            rssh_terminal::TerminalScreenDomain::Alternate
+        );
+        assert_eq!(matched.source_row, 0);
+        assert_eq!(app.selected_text().as_deref(), Some("alt-only-needle"));
+    }
+
+    #[test]
+    fn window_app_quick_select_uses_and_copies_only_active_alternate_screen_domain() {
+        let copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_copy = Arc::clone(&copied);
+        let mut app = NativeWindowApp::new(None);
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_copy.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(40, 3));
+        app.handle_pty_output(b"https://main-only.test\r\nmain-1\r\nmain-2\r\nmain-3\r\nmain-4")
+            .unwrap();
+        app.handle_pty_output(b"\x1b[?1049h\x1b[2J\x1b[Hhttps://alt-only.test\r\nalt-1\r\nalt-2")
+            .unwrap();
+
+        app.enter_quick_select_mode();
+
+        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        assert_eq!(quick_select.matches.len(), 1);
+        assert_eq!(
+            quick_select.matches[0].domain,
+            rssh_terminal::TerminalScreenDomain::Alternate
+        );
+        assert_eq!(quick_select.matches[0].source_row, 0);
+        let label = quick_select.labels[0].clone();
+        assert!(app.handle_quick_select_logical_key(
+            &Key::Character(label.into()),
+            ModifiersState::empty()
+        ));
+        assert_eq!(
+            copied.lock().unwrap().as_slice(),
+            ["https://alt-only.test".to_owned()]
+        );
+    }
+
+    #[test]
+    fn window_copy_mode_moves_and_selects_across_alternate_rows_with_main_history() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 3));
+        app.handle_pty_output(b"main-0\r\nmain-1\r\nmain-2\r\nmain-3\r\nmain-4")
+            .unwrap();
+        assert!(app.runtime.terminal().scrollback().len() >= 2);
+        app.handle_pty_output(b"\x1b[?1049h\x1b[2J\x1b[Halt-0\r\nalt-1\r\nalt-2")
+            .unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.set_copy_mode_cursor(0, 0));
+        assert!(app.handle_copy_mode_key(&Key::Character("v".into()), ModifiersState::empty()));
+        assert!(app.handle_copy_mode_key(&Key::Character("j".into()), ModifiersState::empty()));
+        assert!(app.handle_copy_mode_key(&Key::Character("j".into()), ModifiersState::empty()));
+
+        let copy_mode = app.copy_mode.as_ref().expect("copy mode");
+        assert_eq!(copy_mode.cursor, SelectionCell { row: 2, column: 0 });
+        assert_eq!(copy_mode.anchor, Some(SelectionCell { row: 0, column: 0 }));
+        assert_eq!(
+            copy_mode.source_cursor,
+            SelectionSourceCell {
+                domain: rssh_terminal::TerminalScreenDomain::Alternate,
+                row: 2,
+                column: 0,
+            }
+        );
+        assert_eq!(
+            copy_mode.source_anchor,
+            Some(SelectionSourceCell {
+                domain: rssh_terminal::TerminalScreenDomain::Alternate,
+                row: 0,
+                column: 0,
+            })
+        );
+        assert_eq!(app.current_scrollback_offset(), 0);
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 2, column: 0 },
+            ))
+        );
+        assert_eq!(app.selected_text().as_deref(), Some("alt-0\nalt-1\na"));
+    }
+
+    #[test]
+    fn window_app_config_scrollback_limit_reconciles_active_search_and_snapshot() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(20, 2));
+        app.handle_pty_output(b"needle-old\r\nkeep-1\r\nkeep-2\r\nlive")
+            .unwrap();
+        app.enter_search_mode();
+        assert!(app.update_search_query("needle-old"));
+        let matched = app.search.as_ref().unwrap().current.unwrap();
+        assert!(matched.is_retained(app.runtime.terminal()));
+        assert_eq!(
+            snapshot_row_text(&app.snapshot, 0, 20),
+            "needle-old          "
+        );
+
+        app.set_config_overrides(NativeConfigOverrides {
+            scrollback_lines: Some(1),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert!(!matched.is_retained(app.runtime.terminal()));
+        assert!(
+            app.search
+                .as_ref()
+                .is_some_and(|search| search.current.is_none())
+        );
+        assert!(app.selection.is_none());
+        assert_eq!(
+            snapshot_row_text(&app.snapshot, 0, 20),
+            "keep-1              "
+        );
+    }
+
+    #[test]
+    fn window_app_config_scrollback_limit_reconciles_active_copy_mode_and_snapshot() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(20, 2));
+        app.handle_pty_output(b"copy-old\r\nkeep-1\r\nkeep-2\r\nlive")
+            .unwrap();
+        app.enter_copy_mode();
+        assert!(app.move_copy_mode_to_scrollback_top());
+        let source_cursor = app.copy_mode.as_ref().unwrap().source_cursor;
+        assert_eq!(
+            snapshot_row_text(&app.snapshot, 0, 20),
+            "copy-old            "
+        );
+
+        app.set_config_overrides(NativeConfigOverrides {
+            scrollback_lines: Some(1),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert!(
+            !app.runtime
+                .terminal()
+                .retained_stable_range()
+                .contains(&source_cursor.row)
+        );
+        assert!(app.copy_mode.is_none());
+        assert!(app.selection.is_none());
+        assert_eq!(
+            snapshot_row_text(&app.snapshot, 0, 20),
+            "keep-1              "
+        );
+    }
+
+    #[test]
+    fn window_app_config_scrollback_limit_reconciles_active_quick_select_and_snapshot() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+        app.handle_pty_output(b"https://old.test\r\nkeep-1\r\nkeep-2\r\nlive")
+            .unwrap();
+        app.enter_quick_select_mode();
+        let matched = app
+            .quick_select
+            .as_ref()
+            .and_then(WindowQuickSelect::current_match)
+            .expect("quick-select match");
+        assert!(matched.is_retained(app.runtime.terminal()));
+        assert_eq!(
+            snapshot_row_text(&app.snapshot, 0, 32),
+            "https://old.test                "
+        );
+
+        app.set_config_overrides(NativeConfigOverrides {
+            scrollback_lines: Some(1),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert!(!matched.is_retained(app.runtime.terminal()));
+        assert!(
+            app.quick_select
+                .as_ref()
+                .is_some_and(|quick_select| quick_select.matches.is_empty())
+        );
+        assert!(app.selection.is_none());
+        assert_eq!(
+            snapshot_row_text(&app.snapshot, 0, 32),
+            "keep-1                          "
+        );
+    }
+
+    #[test]
+    fn window_app_config_scrollback_limit_rebuilds_asymmetric_inactive_pane_snapshot() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        let left_pane = app.app_shell.active_pane_id();
+        app.handle_pty_output(b"left-old\r\nleft-1\r\nleft-2\r\nleft-3\r\nleft-live")
+            .unwrap();
+        app.scroll_viewport_lines(3);
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 16), "left-old        ");
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"right-old\r\nright-1\r\nright-live")
+            .unwrap();
+        app.scroll_viewport_lines(1);
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 16), "right-old       ");
+
+        app.set_config_overrides(NativeConfigOverrides {
+            scrollback_lines: Some(1),
+            ..NativeConfigOverrides::default()
+        });
+
+        let inactive = app.pane_runtimes.get(&left_pane).expect("left runtime");
+        assert_eq!(inactive.runtime.terminal().scrollback().len(), 1);
+        assert_eq!(
+            inactive
+                .stable_viewport
+                .active_top(inactive.runtime.terminal()),
+            Some(
+                inactive
+                    .runtime
+                    .terminal()
+                    .stable_dimensions()
+                    .scrollback_top
+            )
+        );
+        assert_eq!(
+            snapshot_row_text(&inactive.snapshot, 0, 16),
+            "left-2          "
+        );
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 16), "right-old       ");
     }
 
     #[test]
