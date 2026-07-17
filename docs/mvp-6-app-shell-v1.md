@@ -966,11 +966,13 @@ runtime storage for tabs and split panes.
   tracks a terminal sequence number (`seqno`) plus per-row sequence values.
   Ordinary selection and each pane viewport use stable rows; selected-text
   extraction works while rows are offscreen; and scrollback pruning preserves
-  surviving row identities instead of retargeting a selection. Active and
-  inactive panes invalidate visible stable rows from their own dirty-row state.
-  Search, Copy, and Quick Select overlays are exempt from ordinary
-  dirty-selection retirement, defer base repaint, and apply accumulated dirty
-  state when the overlay exits. Effective palette changes mark every
+  surviving row identities instead of retargeting a selection. For both active
+  and inactive panes, an ordinary selection is cleared only when its selected
+  stable rows intersect visible rows changed since that pane's last presented
+  sequence. While Search, Copy, or Quick Select is active, only
+  ordinary-selection dirty-row retirement is exempted: PTY processing and
+  base-snapshot repaint continue normally, and accumulated row changes are
+  evaluated when the overlay exits. Effective palette changes mark every
   active-domain line dirty. Screen-domain switches and height changes
   synchronously retire GUI selection, drag/multi-click state, and transient
   modes. Lua pane dimensions and cursor coordinates expose stable rows.
@@ -2406,11 +2408,12 @@ runtime storage for tabs and split panes.
   covers the native `exit_behavior`, `clean_exit_codes`, and
   `exit_behavior_messaging` subset, including static Lua config parsing for
   those fields.
-- The tab bar is basic text UI only; Lua/custom tab title formatting,
-  external CLI/mux tab-title control, richer new-tab launcher behavior,
-  richer split-drag affordances, and richer focus indicators are not yet
-  implemented. The single window-right active-pane scrollbar matches pinned
-  WezTerm; per-pane scrollbar UI is not required for parity.
+- The tab bar remains a basic native text UI, but its typed hook and
+  bounded-static `format-tab-title` Lua surface are implemented. Full
+  arbitrary-Lua/custom tab-formatting parity, external CLI title control,
+  richer new-tab launcher behavior, richer split-drag affordances, and richer
+  focus indicators remain open. The single window-right active-pane scrollbar
+  matches pinned WezTerm; per-pane scrollbar UI is not required for parity.
 - Pane select Activate, swap, MoveToNewTab, and MoveToNewWindow action paths are
   implemented. MoveToNewWindow can now produce a detached native-window app
   state with the selected pane runtime, and the event loop can materialize it as
@@ -2423,22 +2426,22 @@ runtime storage for tabs and split panes.
   The completed stable-selection and dirty-invalidation slice adds strict
   stable/physical row conversion, per-row `seqno` tracking, stable ordinary
   selection and pane viewport state, offscreen text extraction without
-  prune-time retargeting, active/inactive visible dirty-row invalidation,
-  Search/Copy/Quick overlay exemption with accumulated dirty application,
-  effective-palette whole-line dirtying, synchronous selection/transient
-  retirement on screen or height changes, and stable Lua pane dimensions and
-  cursor coordinates.
-- Full WezTerm-compatible width reflow and resize-time selection persistence,
-  pane-local Search/Copy/Quick controller ownership, inactive-pane hover-wheel
-  routing without focus transfer, richer pane focus visuals, arbitrary Lua
-  callbacks, external CLI title control, a real mux/window registry with
-  domain, protocol, and renderer parity, and cell-level horizontal
-  bounded-margin scrolling remain pending. The bounded-margin behavior was
-  explicitly not implemented in this slice; the completed work does not imply
+  prune-time retargeting, active/inactive ordinary-selection clearing only on
+  selected-stable-row/visible-changed-row intersection, Search/Copy/Quick
+  ordinary-selection retirement exemption with accumulated row-change
+  evaluation on exit, effective-palette whole-line dirtying, synchronous
+  selection/transient retirement on screen or height changes, and stable Lua
+  pane dimensions and cursor coordinates.
+- The remaining backlog includes pane-local Search/Copy/Quick controller
+  ownership, full WezTerm-compatible width reflow and resize-time selection
+  persistence, inactive-pane hover-wheel routing without focus transfer,
+  richer pane focus visuals, arbitrary Lua callbacks including full
+  arbitrary-Lua/custom tab-formatting parity, external CLI title control, a
+  real mux/window registry with domain, protocol, and renderer parity, and
+  cell-level horizontal bounded-margin scrolling. The bounded-static
+  `format-tab-title` surface is complete; the bounded-margin behavior was
+  explicitly not implemented in this slice. This completed work does not imply
   full selection parity, full App Shell v2, or general WezTerm parity.
-- No mux/window registry or domain model exists yet beyond action/state support.
-- Arbitrary Lua callbacks and external CLI/mux tab-title control remain outside
-  the implemented bounded-static/native surfaces.
 - Command palette UX is minimal: richer discovery and configurable Lua bindings
   are still pending. The native `augment-command-palette` hook currently covers
   typed `WindowCommand` entries only.
@@ -2606,21 +2609,27 @@ cargo test -p rssh-app copy_mode
 
 ## Next Milestone
 
-- App Shell v2: add full WezTerm-compatible width reflow and resize-time
-  selection persistence, pane-local Search/Copy/Quick controller ownership,
-  richer pane focus visuals, and inactive-pane hover-wheel routing without
-  focus transfer. Stable terminal row identity and strict conversion, per-row
-  `seqno` tracking, stable ordinary selection and pane viewport state,
-  offscreen text extraction with prune-time no-retarget behavior,
-  active/inactive visible dirty-row invalidation, Search/Copy/Quick overlay
-  exemption with accumulated dirty application, effective-palette whole-line
-  dirtying, screen/height synchronous retirement, stable Lua pane
-  dimensions/cursor coordinates, ordinary pane-local selection ownership, and
-  the pinned single window-right active-pane scrollbar layout are complete.
-- Add richer mouse drag split resizing and retain arbitrary Lua callback work as
-  a separate bounded slice. Cell-level horizontal bounded-margin scrolling was
-  explicitly not implemented by the stable-selection slice and remains open.
-- Add a real mux/window registry, external CLI title control, domain, protocol,
-  and renderer parity work. None of these milestones or the completed bounded
-  slice claims full selection parity, full App Shell v2, or general WezTerm
-  parity.
+- Implement one bounded App Shell v2 slice: pane-local Search/Copy/Quick
+  controller ownership.
+- Minimum completion contract: each pane owns independent Search, Copy Mode,
+  and Quick Select state; focus and tab changes save and restore that state
+  without cross-pane projection; input, rendering, and copy actions resolve
+  only the addressed pane's controller; inactive PTY output and stable-row
+  pruning reconcile only the owning controller; and closing a pane retires only
+  its controller state.
+- Acceptance boundary: focused two-pane and two-tab tests for all three
+  controllers must cover save/restore, inactive output and pruning,
+  addressed-pane-only dispatch, and close cleanup.
+
+### Subsequent Milestones and Backlog
+
+- Full WezTerm-compatible width reflow and resize-time selection persistence,
+  richer pane focus visuals, inactive-pane hover-wheel routing without focus
+  transfer, richer split-drag affordances, arbitrary Lua callbacks including
+  full arbitrary-Lua/custom tab-formatting parity, external CLI title control,
+  and a real mux/window registry with domain, protocol, and renderer parity.
+  The bounded-static `format-tab-title` surface is already implemented.
+- Cell-level horizontal bounded-margin scrolling was explicitly not implemented
+  by the stable-selection slice and remains open. None of these backlog items
+  or the completed bounded slices claims full selection parity, full App Shell
+  v2, or general WezTerm parity.

@@ -4148,11 +4148,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   tracks a terminal sequence number (`seqno`) plus per-row sequence values.
   Ordinary selection and each pane viewport use stable rows; selected-text
   extraction works while rows are offscreen; and scrollback pruning preserves
-  surviving row identities instead of retargeting a selection. Active and
-  inactive panes invalidate visible stable rows from their own dirty-row state.
-  Search, Copy, and Quick Select overlays are exempt from ordinary
-  dirty-selection retirement, defer base repaint, and apply accumulated dirty
-  state when the overlay exits. Effective palette changes mark every
+  surviving row identities instead of retargeting a selection. For both active
+  and inactive panes, an ordinary selection is cleared only when its selected
+  stable rows intersect visible rows changed since that pane's last presented
+  sequence. While Search, Copy, or Quick Select is active, only
+  ordinary-selection dirty-row retirement is exempted: PTY processing and
+  base-snapshot repaint continue normally, and accumulated row changes are
+  evaluated when the overlay exits. Effective palette changes mark every
   active-domain line dirty. Screen-domain switches and height changes
   synchronously retire GUI selection, drag/multi-click state, and transient
   modes. Lua pane dimensions and cursor coordinates expose stable rows.
@@ -4374,16 +4376,28 @@ what remains before WezTerm-style parity in key UX/composition areas.
 The completed stable-selection and dirty-invalidation layer covers terminal
 stable row identity with strict conversion, per-row `seqno` tracking, stable
 ordinary selection and pane viewport state, offscreen extraction with
-prune-time no-retarget behavior, active/inactive visible dirty-row
-invalidation, Search/Copy/Quick overlay exemption with accumulated dirty
-application, effective-palette whole-line dirtying, screen/height synchronous
-retirement, and stable Lua pane dimensions/cursor coordinates.
+prune-time no-retarget behavior, active/inactive ordinary-selection clearing
+only on selected-stable-row/visible-changed-row intersection, Search/Copy/Quick
+ordinary-selection retirement exemption with accumulated row-change
+evaluation on exit, effective-palette whole-line dirtying, screen/height
+synchronous retirement, and stable Lua pane dimensions/cursor coordinates.
 
-The next App Shell v2 layers remain full WezTerm-compatible width reflow and
-resize-time selection persistence, pane-local Search/Copy/Quick controller
-ownership, inactive-pane hover-wheel routing without focus transfer, richer
-pane focus visuals, arbitrary Lua callbacks, external CLI title control, and a
-real mux/window registry with domain, protocol, and renderer parity. Cell-level
+The next bounded App Shell v2 slice is pane-local Search/Copy/Quick controller
+ownership. Each pane must own independent Search, Copy Mode, and Quick Select
+state; focus and tab changes must save and restore that state without
+cross-pane projection; input, rendering, and copy actions must resolve only the
+addressed pane's controller; inactive PTY output and stable-row pruning must
+reconcile only the owning controller; and closing a pane must retire only its
+controller state. Acceptance requires focused two-pane and two-tab tests for
+all three controllers covering save/restore, inactive output and pruning,
+addressed-pane-only dispatch, and close cleanup.
+
+Subsequent parity backlog remains full WezTerm-compatible width reflow and
+resize-time selection persistence, inactive-pane hover-wheel routing without
+focus transfer, richer pane focus visuals, arbitrary Lua callbacks including
+full arbitrary-Lua/custom tab-formatting parity, external CLI title control,
+and a real mux/window registry with domain, protocol, and renderer parity. The
+bounded-static `format-tab-title` surface is already implemented. Cell-level
 horizontal bounded-margin scrolling was explicitly not implemented in this
 slice and remains open. Ordinary pane-local selection ownership and the pinned
 single window-right active-pane scrollbar contract are also complete. None of

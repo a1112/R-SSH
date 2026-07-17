@@ -238,10 +238,12 @@ keyboard, mouse, paste, resize
   sequence values. Ordinary selection and each pane viewport use stable rows;
   selected-text extraction works while rows are offscreen; and scrollback
   pruning preserves surviving row identities instead of retargeting a
-  selection. Active and inactive panes invalidate visible stable rows from
-  their own dirty-row state. Search, Copy, and Quick Select overlays are exempt
-  from ordinary dirty-selection retirement, defer base repaint, and apply
-  accumulated dirty state when the overlay exits. Effective palette changes
+  selection. For both active and inactive panes, an ordinary selection is
+  cleared only when its selected stable rows intersect visible rows changed
+  since that pane's last presented sequence. While Search, Copy, or Quick
+  Select is active, only ordinary-selection dirty-row retirement is exempted:
+  PTY processing and base-snapshot repaint continue normally, and accumulated
+  row changes are evaluated when the overlay exits. Effective palette changes
   mark every active-domain line dirty. Screen-domain switches and height
   changes synchronously retire GUI selection, drag/multi-click state, and
   transient modes. Lua pane dimensions and cursor coordinates expose stable
@@ -1251,19 +1253,30 @@ keyboard, mouse, paste, resize
   a real native multi-window focus-event end-to-end run in this slice. The macOS
   call was checked against the locked winit API type and signature, while the
   cross-target build is blocked by a third-party C-toolchain dependency.
-- In-progress after v1: full WezTerm-compatible width reflow and resize-time
-  selection persistence, pane-local Search/Copy/Quick controller ownership,
-  inactive-pane hover-wheel routing without focus transfer, richer pane focus
-  visuals and split-drag affordances, custom tab formatting, arbitrary Lua
-  callbacks, external CLI title control, and a real mux/window registry with
-  domain, protocol, and renderer parity. Cell-level horizontal bounded-margin
+- Next bounded slice after v1: pane-local Search/Copy/Quick controller
+  ownership. Each pane must own independent Search, Copy Mode, and Quick Select
+  state; focus and tab changes must save and restore that state without
+  cross-pane projection; input, rendering, and copy actions must resolve only
+  the addressed pane's controller; inactive PTY output and stable-row pruning
+  must reconcile only the owning controller; and closing a pane must retire
+  only its controller state. Acceptance requires focused two-pane and two-tab
+  tests for all three controllers covering save/restore, inactive output and
+  pruning, addressed-pane-only dispatch, and close cleanup.
+- Subsequent parity backlog: full WezTerm-compatible width reflow and
+  resize-time selection persistence, inactive-pane hover-wheel routing without
+  focus transfer, richer pane focus visuals and split-drag affordances,
+  arbitrary Lua callbacks including full arbitrary-Lua/custom tab-formatting
+  parity, external CLI title control, and a real mux/window registry with
+  domain, protocol, and renderer parity. The bounded-static `format-tab-title`
+  surface is already implemented. Cell-level horizontal bounded-margin
   scrolling was explicitly excluded from the completed stable-selection
   slice. The pinned WezTerm contract uses one window-right scrollbar bound to
   the active pane, which is already the implemented layout; per-pane scrollbar
   tracks are not a parity requirement. The completed stable-row,
-  per-row-`seqno`, visible-dirty-row, overlay-accumulation, and stable Lua
-  coordinate work does not imply full selection parity, full App Shell v2, or
-  general WezTerm parity.
+  per-row-`seqno`, ordinary-selection selected/visible-changed-row intersection
+  rule, overlay accumulated-row-change evaluation, and stable Lua coordinate
+  work does not imply full selection parity, full App Shell v2, or general
+  WezTerm parity.
 - Implemented in v1: minimal `Ctrl+Shift+P` command palette dispatch for
   tab/pane/window/workspace actions including `Spawn Window`,
   `Toggle Full Screen`, Split Horizontal, Split Vertical, Close Current Tab,
