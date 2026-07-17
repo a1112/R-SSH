@@ -645,6 +645,16 @@ impl Terminal {
 
     pub fn feed(&mut self, bytes: &[u8]) {
         self.advance_seqno();
+        self.feed_at_current_seqno(bytes);
+    }
+
+    pub fn feed_with_all_lines_changed(&mut self, bytes: &[u8]) {
+        self.advance_seqno();
+        self.feed_at_current_seqno(bytes);
+        self.mark_all_lines_changed_at_current_seqno();
+    }
+
+    fn feed_at_current_seqno(&mut self, bytes: &[u8]) {
         let mut input = std::mem::take(&mut self.pending_utf8);
         input.extend_from_slice(bytes);
         let complete_utf8_len = complete_utf8_prefix_len(&input);
@@ -664,6 +674,22 @@ impl Terminal {
             } else {
                 index = self.consume_text_run_or_ascii_control(&chars, index);
             }
+        }
+    }
+
+    pub fn mark_all_lines_changed(&mut self) {
+        self.advance_seqno();
+        self.mark_all_lines_changed_at_current_seqno();
+    }
+
+    fn mark_all_lines_changed_at_current_seqno(&mut self) {
+        if !self.alternate_screen_active() {
+            for line in &mut self.scrollback {
+                line.set_last_change_seqno(self.seqno);
+            }
+        }
+        for row in 0..self.grid.size().rows {
+            self.grid.set_row_last_change_seqno(row, self.seqno);
         }
     }
 
@@ -894,7 +920,7 @@ impl Terminal {
 
         let mut normalized_cell = previous_cell;
         normalized_cell.ch = normalized_ch;
-        if self.grid.set(row, column, normalized_cell) {
+        if self.set_grid_cell(row, column, normalized_cell) {
             self.record_damage(DamageRegion::new(column, row, previous_width, 1));
             self.last_printable = Some(normalized_ch);
             return leading_end;
@@ -2592,6 +2618,49 @@ impl Terminal {
     }
 
     #[must_use]
+    pub fn changed_stable_rows_since(
+        &self,
+        rows: Range<StableRowIndex>,
+        seqno: SequenceNo,
+    ) -> Vec<StableRowIndex> {
+        if rows.start >= rows.end {
+            return Vec::new();
+        }
+
+        let retained = self.retained_stable_range();
+        let start = rows.start.max(retained.start);
+        let end = rows.end.min(retained.end);
+        if start >= end {
+            return Vec::new();
+        }
+
+        (start..end)
+            .filter(|stable_row| {
+                let Some(history_row) = self.stable_row_to_history_index(*stable_row) else {
+                    return false;
+                };
+                let line_seqno = if self.alternate_screen_active() {
+                    let Some(grid_row) = u16::try_from(history_row).ok() else {
+                        return false;
+                    };
+                    self.grid.row_last_change_seqno(grid_row).unwrap_or(0)
+                } else if let Some(line) = self.scrollback.get(history_row) {
+                    line.last_change_seqno()
+                } else {
+                    let Some(grid_row) = history_row
+                        .checked_sub(self.scrollback.len())
+                        .and_then(|row| u16::try_from(row).ok())
+                    else {
+                        return false;
+                    };
+                    self.grid.row_last_change_seqno(grid_row).unwrap_or(0)
+                };
+                line_seqno == 0 || line_seqno > seqno
+            })
+            .collect()
+    }
+
+    #[must_use]
     pub fn history_index_to_stable_row(&self, row: usize) -> Option<StableRowIndex> {
         let dimensions = self.stable_dimensions();
         if row >= dimensions.scrollback_rows {
@@ -2906,7 +2975,7 @@ impl Terminal {
     pub fn erase_scrollback_and_viewport(&mut self) {
         self.advance_seqno();
         let size = self.grid.size();
-        self.scrollback.clear();
+        self.prune_scrollback_rows(self.scrollback.len());
         self.title_stack.clear();
         self.inline_images.clear();
         self.pending_kitty_graphics = None;
@@ -2944,6 +3013,7 @@ impl Terminal {
                 self.grid.set(row, column, blank.clone());
             }
             self.grid.set_row_wrapped(row, false);
+            self.grid.set_row_last_change_seqno(row, self.seqno);
         }
 
         for (column, cell) in cursor_line.into_iter().enumerate() {
@@ -2981,8 +3051,8 @@ impl Terminal {
 
     fn reset_terminal(&mut self) {
         let size = self.grid.size();
+        self.prune_scrollback_rows(self.scrollback.len());
         self.grid = TerminalGrid::new_with_seqno(size, self.seqno);
-        self.scrollback.clear();
         self.inline_images.clear();
         self.pending_kitty_graphics = None;
         self.kitty_images.clear();
@@ -3074,9 +3144,9 @@ impl Terminal {
         };
         for row in 0..size.rows {
             for column in 0..size.columns {
-                self.grid.set(row, column, cell.clone());
+                self.set_grid_cell(row, column, cell.clone());
             }
-            self.grid.set_row_wrapped(row, false);
+            self.set_grid_row_wrapped(row, false);
         }
 
         self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
@@ -3115,7 +3185,7 @@ impl Terminal {
         } else if self.cursor_row + 1 < rows {
             self.cursor_row += 1;
         }
-        self.grid.set_row_wrapped(self.cursor_row, wrapped);
+        self.set_grid_row_wrapped(self.cursor_row, wrapped);
         self.clear_semantic_type_due_to_movement();
     }
 
@@ -3230,47 +3300,16 @@ impl Terminal {
     }
 
     fn scroll_up_region(&mut self, top: u16, bottom: u16) {
-        let size = self.grid.size();
-        if size.rows == 0 || size.columns == 0 {
-            return;
-        }
-
-        let top = top.min(size.rows - 1);
-        let bottom = bottom.min(size.rows - 1);
-        if top >= bottom {
-            return;
-        }
-
-        let records_scrollback = self.should_record_scrollback_for_scroll(top, bottom);
-        if records_scrollback {
-            self.record_scrollback_line(top);
-        } else {
-            self.scroll_inline_images_up_region(top, bottom, 1);
-            self.scroll_kitty_placeholder_cells_up_region(top, bottom, 1);
-        }
-
-        for row in top.saturating_add(1)..=bottom {
-            for column in 0..size.columns {
-                let cell = self.grid.get(row, column).cloned().unwrap_or_default();
-                self.grid.set(row - 1, column, cell);
-            }
-            self.grid.copy_row_wrapped(row, row - 1);
-            self.grid.copy_row_last_change_seqno(row, row - 1);
-        }
-
-        for column in 0..size.columns {
-            self.grid.set(bottom, column, self.blank_cell());
-        }
-        self.grid.set_row_wrapped(bottom, false);
-
-        self.record_damage(DamageRegion::new(0, top, size.columns, bottom - top + 1));
+        self.scroll_up_region_by(top, bottom, 1);
     }
 
     fn should_record_scrollback_for_scroll(&self, top: u16, bottom: u16) -> bool {
         let size = self.grid.size();
         self.main_screen.is_none()
             && top == 0
-            && bottom == size.rows.saturating_sub(1)
+            && bottom < size.rows
+            && self.left_margin == 0
+            && self.right_margin == size.columns.saturating_sub(1)
             && size.columns > 0
     }
 
@@ -3289,28 +3328,43 @@ impl Terminal {
     fn trim_scrollback_to_limit(&mut self) {
         if self.scrollback.len() > self.scrollback_limit {
             let overflow = self.scrollback.len() - self.scrollback_limit;
-            self.scrollback.drain(..overflow);
-            self.semantic_prompt_rows = self
-                .semantic_prompt_rows
-                .iter()
-                .filter_map(|row| row.checked_sub(overflow))
-                .collect();
-            self.semantic_command_exits = self
-                .semantic_command_exits
-                .iter()
-                .filter_map(|command| {
-                    command
-                        .row
-                        .checked_sub(overflow)
-                        .map(|row| SemanticCommandExit {
-                            row,
-                            exit_code: command.exit_code,
-                            aid: command.aid.clone(),
-                        })
-                })
-                .collect();
-            self.rebase_inline_images_after_history_prune(overflow);
+            self.prune_scrollback_rows(overflow);
         }
+    }
+
+    fn prune_scrollback_rows(&mut self, rows: usize) {
+        let rows = rows.min(self.scrollback.len());
+        if rows == 0 {
+            return;
+        }
+
+        self.scrollback.drain(..rows);
+        let stable_rows =
+            StableRowIndex::try_from(rows).expect("pruned row count must fit a stable row index");
+        self.main_stable_row_offset = self
+            .main_stable_row_offset
+            .checked_add(stable_rows)
+            .expect("stable row index overflow while pruning scrollback");
+        self.semantic_prompt_rows = self
+            .semantic_prompt_rows
+            .iter()
+            .filter_map(|row| row.checked_sub(rows))
+            .collect();
+        self.semantic_command_exits = self
+            .semantic_command_exits
+            .iter()
+            .filter_map(|command| {
+                command
+                    .row
+                    .checked_sub(rows)
+                    .map(|row| SemanticCommandExit {
+                        row,
+                        exit_code: command.exit_code,
+                        aid: command.aid.clone(),
+                    })
+            })
+            .collect();
+        self.rebase_inline_images_after_history_prune(rows);
     }
 
     fn write_char(&mut self, ch: char) {
@@ -3363,13 +3417,13 @@ impl Terminal {
         let mut cell = self.style.clone();
         cell.ch = ch;
 
-        if self.grid.set(row, column, cell) {
+        if self.set_grid_cell(row, column, cell) {
             self.clear_kitty_placeholder_cells(history_row, column, write_width);
             if write_width > 1 {
                 let mut continuation = self.style.clone();
                 continuation.ch = ' ';
                 for offset in 1..write_width {
-                    self.grid.set(row, column + offset, continuation.clone());
+                    self.set_grid_cell(row, column + offset, continuation.clone());
                 }
             }
 
@@ -3446,11 +3500,11 @@ impl Terminal {
             let mut continuation = previous_cell;
             continuation.ch = ' ';
             for offset in previous_width..sequence_width {
-                self.grid.set(row, column + offset, continuation.clone());
+                self.set_grid_cell(row, column + offset, continuation.clone());
             }
         } else {
             for offset in sequence_width..previous_width {
-                self.grid.set(row, column + offset, self.blank_cell());
+                self.set_grid_cell(row, column + offset, self.blank_cell());
             }
         }
 
@@ -4252,11 +4306,7 @@ impl Terminal {
 
     fn erase_display(&mut self, mode: u16, selective: bool) {
         if mode == 3 {
-            let removed_rows = self.scrollback.len();
-            self.scrollback.clear();
-            self.semantic_prompt_rows.clear();
-            self.semantic_command_exits.clear();
-            self.rebase_inline_images_after_history_prune(removed_rows);
+            self.prune_scrollback_rows(self.scrollback.len());
             return;
         }
 
@@ -4442,7 +4492,6 @@ impl Terminal {
                     self.grid.set(row + count, column, cell);
                 }
                 self.grid.copy_row_wrapped(row, row + count);
-                self.grid.copy_row_last_change_seqno(row, row + count);
             }
         }
 
@@ -4451,6 +4500,9 @@ impl Terminal {
                 self.grid.set(row, column, self.blank_cell());
             }
             self.grid.set_row_wrapped(row, false);
+        }
+        for row in top..=bottom {
+            self.grid.set_row_last_change_seqno(row, self.seqno);
         }
 
         self.record_damage(DamageRegion::new(0, top, size.columns, height));
@@ -4612,8 +4664,15 @@ impl Terminal {
 
         let height = bottom - top + 1;
         let count = count.min(height);
-        self.scroll_inline_images_up_region(top, bottom, count);
-        self.scroll_kitty_placeholder_cells_up_region(top, bottom, count);
+        let records_scrollback = self.should_record_scrollback_for_scroll(top, bottom);
+        if records_scrollback {
+            for row in top..top.saturating_add(count) {
+                self.record_scrollback_line(row);
+            }
+        } else {
+            self.scroll_inline_images_up_region(top, bottom, count);
+            self.scroll_kitty_placeholder_cells_up_region(top, bottom, count);
+        }
 
         if count < height {
             let shift_bottom = bottom - count;
@@ -4627,7 +4686,9 @@ impl Terminal {
                     self.grid.set(row, column, cell);
                 }
                 self.grid.copy_row_wrapped(row + count, row);
-                self.grid.copy_row_last_change_seqno(row + count, row);
+                if records_scrollback {
+                    self.grid.copy_row_last_change_seqno(row + count, row);
+                }
             }
         }
 
@@ -4641,6 +4702,17 @@ impl Terminal {
                 self.grid.set(row, column, self.blank_cell());
             }
             self.grid.set_row_wrapped(row, false);
+            self.grid.set_row_last_change_seqno(row, self.seqno);
+        }
+
+        if records_scrollback {
+            for row in bottom.saturating_add(1)..size.rows {
+                self.grid.set_row_last_change_seqno(row, self.seqno);
+            }
+        } else {
+            for row in top..=bottom {
+                self.grid.set_row_last_change_seqno(row, self.seqno);
+            }
         }
 
         self.record_damage(DamageRegion::new(0, top, size.columns, height));
@@ -4661,11 +4733,11 @@ impl Terminal {
                 .get(self.cursor_row, column)
                 .cloned()
                 .unwrap_or_default();
-            self.grid.set(self.cursor_row, column + count, cell);
+            self.set_grid_cell(self.cursor_row, column + count, cell);
         }
 
         for column in self.cursor_column..self.cursor_column + count {
-            self.grid.set(self.cursor_row, column, self.blank_cell());
+            self.set_grid_cell(self.cursor_row, column, self.blank_cell());
         }
 
         self.record_damage(DamageRegion::new(
@@ -4691,11 +4763,11 @@ impl Terminal {
                 .get(self.cursor_row, column + count)
                 .cloned()
                 .unwrap_or_default();
-            self.grid.set(self.cursor_row, column, cell);
+            self.set_grid_cell(self.cursor_row, column, cell);
         }
 
         for column in shift_end..size.columns {
-            self.grid.set(self.cursor_row, column, self.blank_cell());
+            self.set_grid_cell(self.cursor_row, column, self.blank_cell());
         }
 
         self.record_damage(DamageRegion::new(
@@ -4715,7 +4787,7 @@ impl Terminal {
 
         let count = count.min(size.columns - self.cursor_column);
         for column in self.cursor_column..self.cursor_column + count {
-            self.grid.set(self.cursor_row, column, self.blank_cell());
+            self.set_grid_cell(self.cursor_row, column, self.blank_cell());
         }
 
         self.record_damage(DamageRegion::new(
@@ -4763,10 +4835,10 @@ impl Terminal {
             if selective {
                 self.clear_kitty_placeholder_cells(source_row, column, 1);
             }
-            self.grid.set(row, column, self.blank_cell());
+            self.set_grid_cell(row, column, self.blank_cell());
         }
         if start_column == 0 && end_column >= columns {
-            self.grid.set_row_wrapped(row, false);
+            self.set_grid_row_wrapped(row, false);
         }
 
         self.record_damage(DamageRegion::new(
@@ -4781,6 +4853,22 @@ impl Terminal {
         let mut cell = self.style.clone();
         cell.ch = ' ';
         cell
+    }
+
+    fn set_grid_cell(&mut self, row: u16, column: u16, cell: Cell) -> bool {
+        if !self.grid.set(row, column, cell) {
+            return false;
+        }
+        self.grid.set_row_last_change_seqno(row, self.seqno);
+        true
+    }
+
+    fn set_grid_row_wrapped(&mut self, row: u16, wrapped: bool) {
+        if self.grid.row_wrapped(row) == wrapped {
+            return;
+        }
+        self.grid.set_row_wrapped(row, wrapped);
+        self.grid.set_row_last_change_seqno(row, self.seqno);
     }
 
     fn apply_sgr(&mut self, params: &[char]) {
@@ -6496,6 +6584,26 @@ fn non_empty_unicode_version_label(label: &str) -> Option<String> {
 mod stable_row_tests {
     use super::*;
 
+    fn stable_row_text(terminal: &Terminal, row: StableRowIndex) -> Option<String> {
+        let history_row = terminal.stable_row_to_history_index(row)?;
+        Some(
+            terminal
+                .cells_for_history_row(history_row)?
+                .iter()
+                .map(|cell| cell.ch)
+                .collect(),
+        )
+    }
+
+    fn stable_row_seqno(terminal: &Terminal, row: StableRowIndex) -> Option<SequenceNo> {
+        let history_row = terminal.stable_row_to_history_index(row)?;
+        if let Some(line) = terminal.scrollback.get(history_row) {
+            return Some(line.last_change_seqno());
+        }
+        let grid_row = u16::try_from(history_row.checked_sub(terminal.scrollback.len())?).ok()?;
+        terminal.grid.row_last_change_seqno(grid_row)
+    }
+
     #[test]
     fn terminal_stable_dimensions_start_on_main_screen() {
         let terminal = Terminal::new(TerminalSize::new(4, 3));
@@ -6650,10 +6758,11 @@ mod stable_row_tests {
     #[test]
     fn terminal_scrollback_preserves_captured_row_sequence() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"aa\r\nbb");
         let captured = terminal.current_seqno().checked_add(10).unwrap();
         assert!(terminal.grid.set_row_last_change_seqno(0, captured));
 
-        terminal.feed(b"aa\r\nbb\r\ncc");
+        terminal.feed(b"\r\ncc");
 
         assert!(!terminal.scrollback.is_empty());
         assert_eq!(terminal.scrollback[0].last_change_seqno(), captured);
@@ -6661,5 +6770,492 @@ mod stable_row_tests {
         let updated = captured.checked_add(1).unwrap();
         terminal.scrollback[0].set_last_change_seqno(updated);
         assert_eq!(terminal.scrollback[0].last_change_seqno(), updated);
+    }
+
+    #[test]
+    fn terminal_full_screen_scroll_preserves_stable_row_identity() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        terminal.feed(b"aa");
+        terminal.feed(b"\r\nbb");
+        terminal.feed(b"\r\ncc");
+        let rows = (0..3)
+            .map(|row| {
+                let stable = terminal
+                    .history_index_to_stable_row(row)
+                    .expect("visible stable row");
+                (
+                    stable,
+                    stable_row_text(&terminal, stable).unwrap(),
+                    stable_row_seqno(&terminal, stable).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        terminal.feed(b"\r\ndd");
+
+        assert_eq!(terminal.stable_dimensions().physical_top, 1);
+        for (stable, text, seqno) in rows {
+            assert_eq!(
+                stable_row_text(&terminal, stable).as_deref(),
+                Some(text.as_str())
+            );
+            assert_eq!(stable_row_seqno(&terminal, stable), Some(seqno));
+        }
+    }
+
+    #[test]
+    fn terminal_full_screen_scroll_marks_only_new_bottom_row_changed() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        terminal.feed(b"aa\r\nbb\r\ncc");
+        let before = terminal.current_seqno();
+
+        terminal.feed(b"\r\ndd");
+
+        let retained = terminal.retained_stable_range();
+        assert_eq!(
+            terminal.changed_stable_rows_since(retained, before),
+            vec![3]
+        );
+    }
+
+    #[test]
+    fn terminal_top_anchored_short_su_records_history_and_dirties_suffix() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+        terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
+        let before = terminal.current_seqno();
+        let stable_rows = (0..4)
+            .map(|row| terminal.history_index_to_stable_row(row).unwrap())
+            .collect::<Vec<_>>();
+        let old_seqnos = stable_rows
+            .iter()
+            .map(|row| stable_row_seqno(&terminal, *row).unwrap())
+            .collect::<Vec<_>>();
+
+        terminal.feed(b"\x1b[1;3r\x1b[S");
+
+        assert_eq!(terminal.scrollback.len(), 1);
+        assert_eq!(
+            stable_row_text(&terminal, stable_rows[0]).as_deref(),
+            Some("aa  ")
+        );
+        assert_eq!(
+            stable_row_text(&terminal, stable_rows[1]).as_deref(),
+            Some("bb  ")
+        );
+        assert_eq!(
+            stable_row_text(&terminal, stable_rows[2]).as_deref(),
+            Some("cc  ")
+        );
+        assert_eq!(
+            stable_row_seqno(&terminal, stable_rows[0]),
+            Some(old_seqnos[0])
+        );
+        assert_eq!(
+            stable_row_seqno(&terminal, stable_rows[1]),
+            Some(old_seqnos[1])
+        );
+        assert_eq!(
+            stable_row_seqno(&terminal, stable_rows[2]),
+            Some(old_seqnos[2])
+        );
+        assert_eq!(
+            terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+            vec![3, 4]
+        );
+        assert_eq!(stable_row_text(&terminal, 4).as_deref(), Some("dd  "));
+    }
+
+    #[test]
+    fn terminal_row_zero_delete_line_records_history() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+        terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
+        let before = terminal.current_seqno();
+        let old_seqnos = (0..3)
+            .map(|row| stable_row_seqno(&terminal, row).unwrap())
+            .collect::<Vec<_>>();
+
+        terminal.feed(b"\x1b[1;1H\x1b[1;3r\x1b[M");
+
+        assert_eq!(terminal.scrollback.len(), 1);
+        assert_eq!(stable_row_text(&terminal, 0).as_deref(), Some("aa  "));
+        assert_eq!(stable_row_text(&terminal, 1).as_deref(), Some("bb  "));
+        assert_eq!(stable_row_text(&terminal, 2).as_deref(), Some("cc  "));
+        assert_eq!(stable_row_seqno(&terminal, 0), Some(old_seqnos[0]));
+        assert_eq!(stable_row_seqno(&terminal, 1), Some(old_seqnos[1]));
+        assert_eq!(stable_row_seqno(&terminal, 2), Some(old_seqnos[2]));
+        assert_eq!(
+            terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+            vec![3, 4]
+        );
+    }
+
+    #[test]
+    fn terminal_top_zero_narrow_margin_scroll_does_not_record_history() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        terminal.feed(b"aa\r\nbb\r\ncc");
+        let physical_top = terminal.stable_dimensions().physical_top;
+
+        terminal.feed(b"\x1b[?69h\x1b[2;3s\x1b[1;3r\x1b[S");
+
+        assert!(terminal.scrollback.is_empty());
+        assert_eq!(terminal.stable_dimensions().physical_top, physical_top);
+    }
+
+    #[test]
+    fn terminal_scrollback_prune_advances_stable_top_without_retargeting() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
+        let removed = terminal.history_index_to_stable_row(0).unwrap();
+        let survivor = terminal.history_index_to_stable_row(1).unwrap();
+        let survivor_text = stable_row_text(&terminal, survivor).unwrap();
+        let survivor_seqno = stable_row_seqno(&terminal, survivor).unwrap();
+
+        terminal.set_scrollback_limit(1);
+
+        assert_eq!(terminal.stable_dimensions().scrollback_top, survivor);
+        assert_eq!(terminal.stable_row_to_history_index(removed), None);
+        assert_eq!(
+            stable_row_text(&terminal, survivor).as_deref(),
+            Some(survivor_text.as_str())
+        );
+        assert_eq!(stable_row_seqno(&terminal, survivor), Some(survivor_seqno));
+    }
+
+    #[test]
+    fn terminal_zero_scrollback_limit_keeps_ids_monotonic() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.set_scrollback_limit(0);
+        let initial_top = terminal.stable_dimensions().physical_top;
+
+        terminal.feed(b"aa\r\nbb\r\ncc");
+        let first_top = terminal.stable_dimensions().physical_top;
+        terminal.feed(b"\r\ndd");
+        let second_top = terminal.stable_dimensions().physical_top;
+
+        assert!(first_top > initial_top);
+        assert!(second_top > first_top);
+        assert!(terminal.scrollback.is_empty());
+    }
+
+    #[test]
+    fn terminal_runtime_limit_reduction_preserves_survivor_ids() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"aa\r\nbb\r\ncc\r\ndd\r\nee");
+        let survivor = terminal.history_index_to_stable_row(2).unwrap();
+        let text = stable_row_text(&terminal, survivor).unwrap();
+
+        terminal.set_scrollback_limit(1);
+
+        assert_eq!(terminal.stable_dimensions().scrollback_top, survivor);
+        assert_eq!(
+            stable_row_text(&terminal, survivor).as_deref(),
+            Some(text.as_str())
+        );
+    }
+
+    #[test]
+    fn terminal_ed3_removes_history_without_dirtying_visible_rows() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
+        let removed = terminal.history_index_to_stable_row(0).unwrap();
+        let visible_top = terminal.stable_dimensions().physical_top;
+        let before = terminal.current_seqno();
+
+        terminal.feed(b"\x1b[3J");
+
+        assert!(terminal.scrollback.is_empty());
+        assert_eq!(terminal.stable_dimensions().physical_top, visible_top);
+        assert_eq!(terminal.stable_row_to_history_index(removed), None);
+        assert!(
+            terminal
+                .changed_stable_rows_since(terminal.retained_stable_range(), before)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn terminal_erase_scrollback_and_viewport_prunes_then_dirties_replaced_rows() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
+        let removed = terminal.history_index_to_stable_row(0).unwrap();
+        let visible_top = terminal.stable_dimensions().physical_top;
+        let before = terminal.current_seqno();
+
+        terminal.erase_scrollback_and_viewport();
+
+        assert!(terminal.scrollback.is_empty());
+        assert_eq!(terminal.stable_dimensions().physical_top, visible_top);
+        assert_eq!(terminal.stable_row_to_history_index(removed), None);
+        assert_eq!(
+            terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+            vec![visible_top, visible_top + 1]
+        );
+    }
+
+    #[test]
+    fn terminal_ris_prunes_history_without_stable_retargeting_and_dirties_new_grid() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
+        let removed = terminal.history_index_to_stable_row(0).unwrap();
+        let visible_top = terminal.stable_dimensions().physical_top;
+        let before = terminal.current_seqno();
+
+        terminal.feed(b"\x1bc");
+
+        assert!(terminal.scrollback.is_empty());
+        assert_eq!(terminal.stable_dimensions().physical_top, visible_top);
+        assert_eq!(terminal.stable_row_to_history_index(removed), None);
+        assert_eq!(
+            terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+            vec![visible_top, visible_top + 1]
+        );
+    }
+
+    #[test]
+    fn terminal_prune_rebases_semantic_metadata_without_retargeting() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"\x1b]133;A\x07> one\r\n");
+        terminal.feed(b"\x1b]133;C\x07run\x1b]133;D;0\x07\r\n");
+        terminal.feed(b"tail\r\nmore");
+        assert_eq!(terminal.semantic_prompt_rows, vec![0]);
+        assert_eq!(terminal.semantic_command_exits[0].row, 1);
+        let command_stable = terminal.history_index_to_stable_row(1).unwrap();
+
+        terminal.set_scrollback_limit(1);
+
+        assert!(terminal.semantic_prompt_rows.is_empty());
+        assert_eq!(terminal.semantic_command_exits[0].row, 0);
+        assert_eq!(
+            terminal.history_index_to_stable_row(terminal.semantic_command_exits[0].row),
+            Some(command_stable)
+        );
+    }
+
+    #[test]
+    fn terminal_prune_rebases_inline_image_metadata() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"history\r\n");
+        terminal.feed(b"\x1b]1337;File=inline=1;width=1;height=1:QUJDRA==\x07\r\n");
+        terminal.feed(b"tail\r\nmore");
+        assert_eq!(terminal.inline_images.len(), 1);
+        let image_stable = terminal
+            .history_index_to_stable_row(terminal.inline_images[0].row)
+            .unwrap();
+
+        terminal.set_scrollback_limit(1);
+
+        assert_eq!(terminal.inline_images.len(), 1);
+        assert_eq!(
+            terminal.history_index_to_stable_row(terminal.inline_images[0].row),
+            Some(image_stable)
+        );
+    }
+
+    #[test]
+    fn terminal_prune_rebases_kitty_placeholder_metadata() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"history\r\n");
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=57,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[2;1H\x1b[38;5;57m");
+        terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
+        terminal.feed(b"\x1b[2;1H\r\n");
+        terminal.feed(b"tail\r\nmore");
+        assert_eq!(terminal.kitty_placeholder_cells.len(), 1);
+        let ((placeholder_row, _), _) = terminal.kitty_placeholder_cells.iter().next().unwrap();
+        let placeholder_stable = terminal
+            .history_index_to_stable_row(*placeholder_row)
+            .unwrap();
+
+        terminal.set_scrollback_limit(1);
+
+        let ((placeholder_row, _), _) = terminal.kitty_placeholder_cells.iter().next().unwrap();
+        assert_eq!(
+            terminal.history_index_to_stable_row(*placeholder_row),
+            Some(placeholder_stable)
+        );
+    }
+
+    #[test]
+    fn terminal_cursor_only_batch_does_not_mark_lines_changed() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        let before = terminal.current_seqno();
+
+        terminal.feed(b"\x1b[2;3H");
+
+        assert!(
+            terminal
+                .changed_stable_rows_since(terminal.retained_stable_range(), before)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn terminal_line_feed_without_scroll_does_not_mark_lines_changed() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        let before = terminal.current_seqno();
+
+        terminal.feed(b"\n");
+
+        assert!(
+            terminal
+                .changed_stable_rows_since(terminal.retained_stable_range(), before)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn terminal_same_size_resize_does_not_mark_lines_changed() {
+        let size = TerminalSize::new(4, 3);
+        let mut terminal = Terminal::new(size);
+        let before = terminal.current_seqno();
+
+        terminal.resize(size);
+
+        assert!(
+            terminal
+                .changed_stable_rows_since(terminal.retained_stable_range(), before)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn terminal_width_resize_marks_retained_rows_changed() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        terminal.feed(b"aa\r\nbb");
+        let before = terminal.current_seqno();
+
+        terminal.resize(TerminalSize::new(6, 3));
+
+        assert_eq!(
+            terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+            vec![0, 1, 2]
+        );
+    }
+
+    #[test]
+    fn terminal_placeholder_cell_assignment_marks_row_changed() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=57,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[2;1H\x1b[38;5;57m");
+        let before = terminal.current_seqno();
+
+        terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
+
+        assert_eq!(
+            terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+            vec![1]
+        );
+    }
+
+    #[test]
+    fn terminal_mark_all_lines_changed_marks_active_domain_rows_changed() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"aa\r\nbb\r\ncc");
+        let before = terminal.current_seqno();
+
+        terminal.mark_all_lines_changed();
+
+        assert_eq!(
+            terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+            terminal.retained_stable_range().collect::<Vec<_>>()
+        );
+
+        terminal.feed(b"\x1b[?1049h");
+        let before = terminal.current_seqno();
+        terminal.mark_all_lines_changed();
+        assert_eq!(
+            terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+            vec![0, 1]
+        );
+    }
+
+    #[test]
+    fn terminal_public_mark_all_lines_changed_advances_sequence_once() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        let before = terminal.current_seqno();
+
+        terminal.mark_all_lines_changed();
+
+        assert_eq!(terminal.current_seqno(), before.checked_add(1).unwrap());
+    }
+
+    #[test]
+    fn terminal_feed_with_all_lines_changed_advances_sequence_once() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        let before = terminal.current_seqno();
+
+        terminal.feed_with_all_lines_changed(b"\x1b[2;2H");
+
+        assert_eq!(terminal.current_seqno(), before.checked_add(1).unwrap());
+        assert_eq!(
+            terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+            vec![0, 1]
+        );
+    }
+
+    #[test]
+    fn terminal_ris_with_whole_line_dirty_advances_sequence_once() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"aa\r\nbb\r\ncc");
+        let before = terminal.current_seqno();
+
+        terminal.feed_with_all_lines_changed(b"\x1bc");
+
+        assert_eq!(terminal.current_seqno(), before.checked_add(1).unwrap());
+        assert_eq!(
+            terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+            terminal.retained_stable_range().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn terminal_partial_region_scroll_marks_only_affected_slots_changed() {
+        let cases: &[(&str, &[u8], &[u8], &[StableRowIndex])] = &[
+            ("non-top SU", b"\x1b[2;4r", b"\x1b[S", &[1, 2, 3]),
+            ("non-top SD", b"\x1b[2;4r", b"\x1b[T", &[1, 2, 3]),
+            ("insert line", b"\x1b[2;4r\x1b[2;1H", b"\x1b[L", &[1, 2, 3]),
+            ("delete line", b"\x1b[2;4r\x1b[2;1H", b"\x1b[M", &[1, 2, 3]),
+            (
+                // This case locks stable row identity/sequence metadata only.
+                // Cell-level horizontal-margin scrolling is a separate parity slice.
+                "top narrow margins",
+                b"\x1b[?69h\x1b[2;3s\x1b[1;3r",
+                b"\x1b[S",
+                &[0, 1, 2],
+            ),
+        ];
+
+        for (name, setup, operation, expected) in cases {
+            let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+            terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
+            terminal.feed(setup);
+            let before = terminal.current_seqno();
+
+            terminal.feed(operation);
+
+            assert_eq!(
+                terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+                *expected,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_alternate_scroll_marks_alt_slots_changed_without_main_history() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        terminal.feed(b"main\r\nhistory\r\nline");
+        let main_history = terminal.scrollback.len();
+        terminal.feed(b"\x1b[?1049h");
+        terminal.feed(b"aa\r\nbb\r\ncc");
+        let before = terminal.current_seqno();
+
+        terminal.feed(b"\r\ndd");
+
+        assert_eq!(terminal.scrollback.len(), main_history);
+        assert_eq!(
+            terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+            vec![0, 1, 2]
+        );
     }
 }

@@ -350,10 +350,14 @@ impl TerminalGrid {
                 .get(usize::from(row))
                 .copied()
                 .unwrap_or(false);
-            self.last_change_seqno[usize::from(row)] = old_last_change_seqno
-                .get(usize::from(row))
-                .copied()
-                .unwrap_or(new_row_seqno);
+            self.last_change_seqno[usize::from(row)] = if old_size.columns == size.columns {
+                old_last_change_seqno
+                    .get(usize::from(row))
+                    .copied()
+                    .unwrap_or(new_row_seqno)
+            } else {
+                new_row_seqno
+            };
         }
     }
 
@@ -1297,7 +1301,7 @@ mod tests {
         terminal.feed(b"\x1b[2;3H");
         terminal.feed(b"\x1b_Ga=T,i=7,f=24,s=1,v=1,c=1,r=1,C=1;/wAA\x1b\\");
 
-        terminal.feed(b"\x1b[S");
+        terminal.feed(b"\x1b[?69h\x1b[2;7s\x1b[S");
 
         assert_eq!(row_text(&terminal, 0), "22222222");
         assert_eq!(row_text(&terminal, 1), "33333333");
@@ -1315,7 +1319,7 @@ mod tests {
         terminal.feed(b"\x1b[1;3H");
         terminal.feed(b"\x1b_Ga=T,i=7,f=24,s=1,v=1,c=1,r=1,C=1;/wAA\x1b\\");
 
-        terminal.feed(b"\x1b[S");
+        terminal.feed(b"\x1b[?69h\x1b[2;7s\x1b[S");
 
         assert!(terminal.inline_images().is_empty());
     }
@@ -3681,7 +3685,7 @@ mod tests {
 
         assert_eq!(terminal.inline_images().len(), 2);
 
-        terminal.feed(b"\x1b[1;2r\x1b[2;1H\n");
+        terminal.feed(b"\x1b[?69h\x1b[2;23s\x1b[1;2r\x1b[2;1H\n");
 
         assert!(terminal.inline_images().is_empty());
 
