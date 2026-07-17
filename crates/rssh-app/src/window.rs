@@ -3450,6 +3450,27 @@ struct NativeResolvedPalette {
     launcher_label_bg: Option<NativeColorSpec>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeTerminalLinePalette {
+    foreground: Color,
+    background: Color,
+    ansi: [Color; 8],
+    brights: [Color; 8],
+    indexed: [Option<Color>; 256],
+}
+
+impl NativeResolvedPalette {
+    fn terminal_line_palette(&self) -> NativeTerminalLinePalette {
+        NativeTerminalLinePalette {
+            foreground: self.foreground,
+            background: self.background,
+            ansi: self.ansi,
+            brights: self.brights,
+            indexed: self.indexed,
+        }
+    }
+}
+
 impl Default for NativeResolvedPalette {
     fn default() -> Self {
         let (ansi, brights) = native_split_ansi_palette(DEFAULT_ANSI_PALETTE_COLORS);
@@ -84289,6 +84310,7 @@ impl NativeWindowApp {
 
         if active_was_replaced {
             self.end_transient_selection_modes_for_pane_change();
+            self.invalidate_active_ordinary_selection_for_presentation();
             let previous_runtime = self.take_active_runtime();
             if valid_pane_ids.contains(&previous_active_pane) {
                 self.pane_runtimes
@@ -89190,6 +89212,20 @@ impl NativeWindowApp {
         }
     }
 
+    fn invalidate_active_ordinary_selection_for_presentation(&mut self) {
+        let transient_overlay_active =
+            self.search.is_some() || self.copy_mode.is_some() || self.quick_select.is_some();
+        if !transient_overlay_active
+            && ordinary_selection_is_invalidated_by_visible_dirty_rows(
+                self.runtime.terminal(),
+                self.stable_viewport.active_top(self.runtime.terminal()),
+                self.ordinary_selection,
+            )
+        {
+            self.clear_ordinary_selection();
+        }
+    }
+
     fn update_selection_projection(&mut self) -> bool {
         let terminal = self.runtime.terminal();
         let dimensions = terminal.stable_dimensions();
@@ -89352,17 +89388,7 @@ impl NativeWindowApp {
 
     fn rebuild_snapshot(&mut self) {
         self.stable_viewport.clamp_main(self.runtime.terminal());
-        let transient_overlay_active =
-            self.search.is_some() || self.copy_mode.is_some() || self.quick_select.is_some();
-        if !transient_overlay_active
-            && ordinary_selection_is_invalidated_by_visible_dirty_rows(
-                self.runtime.terminal(),
-                self.stable_viewport.active_top(self.runtime.terminal()),
-                self.ordinary_selection,
-            )
-        {
-            self.clear_ordinary_selection();
-        }
+        self.invalidate_active_ordinary_selection_for_presentation();
         self.update_selection_projection();
         let size = self.runtime.terminal().grid().size();
         let inactive_search_selections = self.copy_mode_inactive_search_selections(size);
@@ -93051,6 +93077,7 @@ impl NativeWindowApp {
     #[allow(dead_code)]
     fn set_config_overrides(&mut self, overrides: NativeConfigOverrides) {
         let previous_palette = self.native_resolved_palette();
+        let previous_terminal_line_palette = previous_palette.terminal_line_palette();
         self.config_overrides = overrides.clone();
         self.configured_dpi = overrides.dpi;
         self.dpi_by_screen = overrides.dpi_by_screen.clone().unwrap_or_default();
@@ -93643,12 +93670,15 @@ impl NativeWindowApp {
             .min_scroll_bar_height
             .or(DEFAULT_MIN_SCROLL_BAR_HEIGHT);
         self.reload_configuration();
-        if self.native_resolved_palette() != previous_palette {
+        let palette = self.native_resolved_palette();
+        if palette.terminal_line_palette() != previous_terminal_line_palette {
             self.runtime.mark_all_lines_changed();
             for runtime in self.pane_runtimes.values_mut() {
                 runtime.runtime.mark_all_lines_changed();
                 runtime.reconcile_terminal_mutation();
             }
+        }
+        if palette != previous_palette {
             self.refresh_snapshot();
         }
         self.apply_window_title();
@@ -187077,6 +187107,131 @@ return config
                 .changed_stable_rows_since(inactive_rows.clone(), inactive_before),
             inactive_rows.collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn window_app_window_decoration_palette_changes_preserve_terminal_selection_and_seqno() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"selected\r\nother").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+        let ordinary = app.ordinary_selection;
+        let rows = app.runtime.terminal().retained_stable_range();
+        let before = app.runtime.terminal().current_seqno();
+        let selection_background = Color::Rgb(1, 2, 3);
+
+        app.set_config_overrides(NativeConfigOverrides {
+            selection_bg_color: Some(selection_background),
+            tab_bar_background_color: Some(Color::Rgb(4, 5, 6)),
+            scrollbar_thumb_color: Some(Color::Rgb(7, 8, 9)),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert_eq!(app.runtime.terminal().current_seqno(), before);
+        assert!(
+            app.runtime
+                .terminal()
+                .changed_stable_rows_since(rows, before)
+                .is_empty()
+        );
+        assert_eq!(app.ordinary_selection, ordinary);
+        assert_eq!(app.selection_bg_color, Some(selection_background));
+        assert_eq!(
+            snapshot_cell(&app.snapshot, 0, 0).map(|cell| cell.background),
+            Some(selection_background)
+        );
+        let palette = app.native_resolved_palette();
+        assert_eq!(palette.tab_bar_background, Some(Color::Rgb(4, 5, 6)));
+        assert_eq!(palette.scrollbar_thumb, Some(Color::Rgb(7, 8, 9)));
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum PaneSwitchOverlay {
+        Search,
+        Copy,
+        Quick,
+    }
+
+    fn assert_dirty_ordinary_selection_is_retired_before_pane_switch(overlay: PaneSwitchOverlay) {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.handle_pty_output(b"https://selected.test\r\nother")
+            .unwrap();
+        let selection_background = Color::Rgb(255, 0, 255);
+        app.selection_bg_color = Some(selection_background);
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+        assert_eq!(
+            snapshot_cell(&app.snapshot, 0, 0).map(|cell| cell.background),
+            Some(selection_background),
+            "{overlay:?} test requires an ordinary highlight before overlay entry"
+        );
+
+        match overlay {
+            PaneSwitchOverlay::Search => app.enter_search_mode(),
+            PaneSwitchOverlay::Copy => app.enter_copy_mode(),
+            PaneSwitchOverlay::Quick => app.enter_quick_select_mode(),
+        }
+        app.handle_pty_output(b"\x1b[1;1HX").unwrap();
+        assert!(
+            app.ordinary_selection.is_some(),
+            "{overlay:?} should defer invalidation while active"
+        );
+
+        let original_pane = app.active_pane_id();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: original_pane,
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        let inactive = app
+            .pane_runtimes
+            .get(&original_pane)
+            .expect("original pane should become inactive");
+        assert!(
+            inactive.ordinary_selection.is_none(),
+            "{overlay:?} left a dirty ordinary selection in inactive storage"
+        );
+
+        let original_rect = app
+            .pane_render_layout()
+            .panes
+            .into_iter()
+            .find(|rect| rect.pane_id == original_pane)
+            .expect("original pane render rect");
+        let snapshot = app.render_snapshot();
+        let selected_cell = snapshot_cell(&snapshot, original_rect.row, original_rect.column)
+            .expect("original pane selected cell");
+        let unselected_cell = snapshot_cell(
+            &snapshot,
+            original_rect.row,
+            original_rect.column.saturating_add(4),
+        )
+        .expect("original pane unselected cell");
+        assert_eq!(
+            selected_cell.background, unselected_cell.background,
+            "{overlay:?} left an inactive selection highlight"
+        );
+    }
+
+    #[test]
+    fn window_app_pane_switch_retires_search_copy_and_quick_dirty_ordinary_selection() {
+        for overlay in [
+            PaneSwitchOverlay::Search,
+            PaneSwitchOverlay::Copy,
+            PaneSwitchOverlay::Quick,
+        ] {
+            assert_dirty_ordinary_selection_is_retired_before_pane_switch(overlay);
+        }
     }
 
     #[test]

@@ -2670,23 +2670,63 @@ impl TerminalColorState {
     }
 
     fn apply(&mut self, change: OscColorChange) -> bool {
-        let before = self.effective_colors();
         match change {
-            OscColorChange::DefaultForeground(color) => self.foreground = color,
-            OscColorChange::DefaultBackground(color) => self.background = color,
-            OscColorChange::Cursor(color) => self.cursor_override = Some(color),
+            OscColorChange::DefaultForeground(color) => {
+                let changed = self.foreground != color;
+                self.foreground = color;
+                changed
+            }
+            OscColorChange::DefaultBackground(color) => {
+                let changed = self.background != color;
+                self.background = color;
+                changed
+            }
+            OscColorChange::Cursor(color) => {
+                let before = self.cursor_color();
+                self.cursor_override = Some(color);
+                before != self.cursor_color()
+            }
             OscColorChange::ResetDefaultForeground => {
+                let before = self.foreground;
                 self.foreground = DynamicColor::rgb8(DEFAULT_FOREGROUND);
+                before != self.foreground
             }
             OscColorChange::ResetDefaultBackground => {
+                let before = self.background;
                 self.background = DynamicColor::rgb8(DEFAULT_BACKGROUND);
+                before != self.background
             }
-            OscColorChange::ResetCursor => self.cursor_override = None,
-            OscColorChange::ResetPalette(indices) => self
-                .palette_overrides
-                .retain(|(palette_index, _)| !indices.contains(palette_index)),
-            OscColorChange::ResetPaletteAll => self.palette_overrides.clear(),
+            OscColorChange::ResetCursor => {
+                let before = self.cursor_color();
+                self.cursor_override = None;
+                before != self.cursor_color()
+            }
+            OscColorChange::ResetPalette(indices) => {
+                let changed = self.palette_overrides.iter().any(|(index, color)| {
+                    indices.contains(index) && *color != indexed_color(*index)
+                });
+                self.palette_overrides
+                    .retain(|(index, _)| !indices.contains(index));
+                changed
+            }
+            OscColorChange::ResetPaletteAll => {
+                let changed = self
+                    .palette_overrides
+                    .iter()
+                    .any(|(index, color)| *color != indexed_color(*index));
+                self.palette_overrides.clear();
+                changed
+            }
             OscColorChange::Palette(changes) => {
+                let mut before = Vec::new();
+                for (index, _) in &changes {
+                    if before
+                        .iter()
+                        .all(|(existing_index, _)| existing_index != index)
+                    {
+                        before.push((*index, self.palette_color(*index)));
+                    }
+                }
                 for (index, color) in changes {
                     if let Some((_, existing)) = self
                         .palette_overrides
@@ -2698,20 +2738,11 @@ impl TerminalColorState {
                         self.palette_overrides.push((index, color));
                     }
                 }
+                before
+                    .into_iter()
+                    .any(|(index, color)| self.palette_color(index) != color)
             }
         }
-        before != self.effective_colors()
-    }
-
-    fn effective_colors(&self) -> (DynamicColor, DynamicColor, DynamicColor, [[u8; 3]; 256]) {
-        (
-            self.foreground,
-            self.background,
-            self.cursor_color(),
-            std::array::from_fn(|index| {
-                self.palette_color(u8::try_from(index).expect("palette index is in u8 range"))
-            }),
-        )
     }
 
     fn palette_color(&self, index: u8) -> [u8; 3] {
