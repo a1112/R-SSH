@@ -4349,33 +4349,22 @@ impl Terminal {
         if removed_rows == 0 {
             return;
         }
-        self.inline_images = self
-            .inline_images
-            .iter()
-            .filter_map(|image| {
-                let mut image = image.clone();
-                image.row = image.row.checked_sub(removed_rows)?;
-                Some(image)
-            })
-            .collect();
-        self.rebase_kitty_placeholder_cells_after_history_prune(removed_rows);
-        self.delete_orphan_kitty_relative_children();
-    }
-
-    fn rebase_kitty_placeholder_cells_after_history_prune(&mut self, removed_rows: usize) {
-        self.kitty_placeholder_cells = self
-            .kitty_placeholder_cells
-            .drain()
-            .filter_map(|((row, column), mut placeholder)| {
-                let row = row.checked_sub(removed_rows)?;
-                placeholder.row = row;
-                Some(((row, column), placeholder))
-            })
-            .collect();
-        self.last_kitty_placeholder = self.last_kitty_placeholder.and_then(|mut placeholder| {
-            placeholder.row = placeholder.row.checked_sub(removed_rows)?;
-            Some(placeholder)
-        });
+        if let Some(main_screen) = self.main_screen.as_mut() {
+            rebase_image_and_placeholder_metadata(
+                &mut main_screen.inline_images,
+                &mut main_screen.kitty_placeholder_cells,
+                &mut main_screen.last_kitty_placeholder,
+                removed_rows,
+            );
+        } else {
+            rebase_image_and_placeholder_metadata(
+                &mut self.inline_images,
+                &mut self.kitty_placeholder_cells,
+                &mut self.last_kitty_placeholder,
+                removed_rows,
+            );
+            self.delete_orphan_kitty_relative_children();
+        }
     }
 
     fn delete_visible_inline_images(&mut self) {
@@ -4666,6 +4655,13 @@ impl Terminal {
         let count = count.min(height);
         let records_scrollback = self.should_record_scrollback_for_scroll(top, bottom);
         if records_scrollback {
+            let suffix_start = self
+                .scrollback
+                .len()
+                .checked_add(usize::from(bottom))
+                .and_then(|row| row.checked_add(1))
+                .expect("terminal metadata row overflow");
+            self.shift_suffix_metadata_for_recorded_rows(suffix_start, usize::from(count));
             for row in top..top.saturating_add(count) {
                 self.record_scrollback_line(row);
             }
@@ -4716,6 +4712,34 @@ impl Terminal {
         }
 
         self.record_damage(DamageRegion::new(0, top, size.columns, height));
+    }
+
+    fn shift_suffix_metadata_for_recorded_rows(&mut self, suffix_start: usize, rows: usize) {
+        if rows == 0 {
+            return;
+        }
+        debug_assert!(!self.alternate_screen_active());
+
+        for row in &mut self.semantic_prompt_rows {
+            if *row >= suffix_start {
+                *row = row.checked_add(rows).expect("semantic prompt row overflow");
+            }
+        }
+        for command in &mut self.semantic_command_exits {
+            if command.row >= suffix_start {
+                command.row = command
+                    .row
+                    .checked_add(rows)
+                    .expect("semantic command row overflow");
+            }
+        }
+        shift_image_and_placeholder_suffix_metadata(
+            &mut self.inline_images,
+            &mut self.kitty_placeholder_cells,
+            &mut self.last_kitty_placeholder,
+            suffix_start,
+            rows,
+        );
     }
 
     fn insert_blank_characters(&mut self, count: u16) {
@@ -6580,6 +6604,72 @@ fn non_empty_unicode_version_label(label: &str) -> Option<String> {
     (!label.is_empty()).then(|| label.to_owned())
 }
 
+fn rebase_image_and_placeholder_metadata(
+    inline_images: &mut Vec<ItermInlineImage>,
+    kitty_placeholder_cells: &mut HashMap<(usize, u16), LastKittyPlaceholder>,
+    last_kitty_placeholder: &mut Option<LastKittyPlaceholder>,
+    removed_rows: usize,
+) {
+    *inline_images = inline_images
+        .iter()
+        .filter_map(|image| {
+            let mut image = image.clone();
+            image.row = image.row.checked_sub(removed_rows)?;
+            Some(image)
+        })
+        .collect();
+    *kitty_placeholder_cells = kitty_placeholder_cells
+        .drain()
+        .filter_map(|((row, column), mut placeholder)| {
+            let row = row.checked_sub(removed_rows)?;
+            placeholder.row = row;
+            Some(((row, column), placeholder))
+        })
+        .collect();
+    *last_kitty_placeholder = last_kitty_placeholder.and_then(|mut placeholder| {
+        placeholder.row = placeholder.row.checked_sub(removed_rows)?;
+        Some(placeholder)
+    });
+}
+
+fn shift_image_and_placeholder_suffix_metadata(
+    inline_images: &mut [ItermInlineImage],
+    kitty_placeholder_cells: &mut HashMap<(usize, u16), LastKittyPlaceholder>,
+    last_kitty_placeholder: &mut Option<LastKittyPlaceholder>,
+    suffix_start: usize,
+    rows: usize,
+) {
+    for image in inline_images {
+        if image.row >= suffix_start {
+            image.row = image
+                .row
+                .checked_add(rows)
+                .expect("inline image row overflow");
+        }
+    }
+    *kitty_placeholder_cells = kitty_placeholder_cells
+        .drain()
+        .map(|((row, column), mut placeholder)| {
+            let row = if row >= suffix_start {
+                row.checked_add(rows)
+                    .expect("kitty placeholder row overflow")
+            } else {
+                row
+            };
+            placeholder.row = row;
+            ((row, column), placeholder)
+        })
+        .collect();
+    if let Some(placeholder) = last_kitty_placeholder {
+        if placeholder.row >= suffix_start {
+            placeholder.row = placeholder
+                .row
+                .checked_add(rows)
+                .expect("last kitty placeholder row overflow");
+        }
+    }
+}
+
 #[cfg(test)]
 mod stable_row_tests {
     use super::*;
@@ -6602,6 +6692,74 @@ mod stable_row_tests {
         }
         let grid_row = u16::try_from(history_row.checked_sub(terminal.scrollback.len())?).ok()?;
         terminal.grid.row_last_change_seqno(grid_row)
+    }
+
+    fn metadata_test_image(row: usize, name: &str) -> ItermInlineImage {
+        ItermInlineImage {
+            row,
+            column: 0,
+            name: Some(name.to_owned()),
+            kitty_image_id: None,
+            kitty_placement_id: None,
+            kitty_z_index: None,
+            size: None,
+            width: None,
+            height: None,
+            preserve_aspect_ratio: None,
+            image_format: InlineImageFormat::Encoded,
+            pixel_width: None,
+            pixel_height: None,
+            source_x: None,
+            source_y: None,
+            source_width: None,
+            source_height: None,
+            target_x: None,
+            target_y: None,
+            data: Vec::new(),
+        }
+    }
+
+    fn metadata_test_placeholder(row: usize) -> LastKittyPlaceholder {
+        LastKittyPlaceholder {
+            row,
+            column: 0,
+            foreground: Color::Default,
+            underline_color: Color::Default,
+            image_id_high_byte: 0,
+            placeholder_row: 0,
+            placeholder_column: 0,
+        }
+    }
+
+    fn install_suffix_metadata(terminal: &mut Terminal, row: usize) {
+        terminal.semantic_prompt_rows.push(row);
+        terminal.semantic_command_exits.push(SemanticCommandExit {
+            row,
+            exit_code: Some(0),
+            aid: Some("suffix".to_owned()),
+        });
+        terminal
+            .inline_images
+            .push(metadata_test_image(row, "suffix"));
+        let placeholder = metadata_test_placeholder(row);
+        terminal
+            .kitty_placeholder_cells
+            .insert((row, 0), placeholder);
+        terminal.last_kitty_placeholder = Some(placeholder);
+    }
+
+    fn assert_suffix_metadata_row(terminal: &Terminal, row: usize) {
+        assert_eq!(terminal.semantic_prompt_rows, vec![row]);
+        assert_eq!(terminal.semantic_command_exits[0].row, row);
+        assert_eq!(terminal.inline_images[0].row, row);
+        assert!(terminal.kitty_placeholder_cells.contains_key(&(row, 0)));
+        assert_eq!(
+            terminal
+                .last_kitty_placeholder
+                .expect("last placeholder")
+                .row,
+            row
+        );
     }
 
     #[test]
@@ -6866,6 +7024,47 @@ mod stable_row_tests {
     }
 
     #[test]
+    fn terminal_top_anchored_short_scroll_rebases_suffix_metadata_with_spare_capacity() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+        terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
+        install_suffix_metadata(&mut terminal, 2);
+
+        terminal.feed(b"\x1b[1;2r\x1b[S");
+
+        assert_eq!(terminal.scrollback.len(), 1);
+        assert_eq!(stable_row_text(&terminal, 2).as_deref(), Some("        "));
+        assert_eq!(stable_row_text(&terminal, 3).as_deref(), Some("cc      "));
+        assert_suffix_metadata_row(&terminal, 3);
+    }
+
+    #[test]
+    fn terminal_top_anchored_short_scroll_rebases_suffix_metadata_at_capacity() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+        terminal.set_scrollback_limit(1);
+        terminal.feed(b"old\r\naa\r\nbb\r\ncc\r\ndd");
+        assert_eq!(terminal.scrollback.len(), 1);
+        let suffix_row = terminal.scrollback.len() + 2;
+        install_suffix_metadata(&mut terminal, suffix_row);
+        let suffix_stable = terminal.history_index_to_stable_row(suffix_row).unwrap();
+        let suffix_text = stable_row_text(&terminal, suffix_stable).unwrap();
+
+        terminal.feed(b"\x1b[1;2r\x1b[S");
+
+        assert_eq!(terminal.scrollback.len(), 1);
+        assert_suffix_metadata_row(&terminal, suffix_row);
+        let rebased_suffix_stable = terminal.history_index_to_stable_row(suffix_row).unwrap();
+        assert_eq!(
+            stable_row_text(&terminal, rebased_suffix_stable).as_deref(),
+            Some(suffix_text.as_str())
+        );
+        assert_eq!(
+            terminal.history_index_to_stable_row(terminal.inline_images[0].row),
+            Some(rebased_suffix_stable)
+        );
+        assert!(rebased_suffix_stable > suffix_stable);
+    }
+
+    #[test]
     fn terminal_row_zero_delete_line_records_history() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 4));
         terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
@@ -7072,6 +7271,51 @@ mod stable_row_tests {
         assert_eq!(
             terminal.history_index_to_stable_row(*placeholder_row),
             Some(placeholder_stable)
+        );
+    }
+
+    #[test]
+    fn terminal_runtime_prune_rebases_dormant_main_metadata() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
+        assert_eq!(terminal.scrollback.len(), 2);
+        let survivor_stable = terminal.history_index_to_stable_row(1).unwrap();
+        terminal
+            .inline_images
+            .push(metadata_test_image(0, "pruned"));
+        terminal
+            .inline_images
+            .push(metadata_test_image(1, "survivor"));
+        let pruned_placeholder = metadata_test_placeholder(0);
+        let survivor_placeholder = metadata_test_placeholder(1);
+        terminal
+            .kitty_placeholder_cells
+            .insert((0, 0), pruned_placeholder);
+        terminal
+            .kitty_placeholder_cells
+            .insert((1, 0), survivor_placeholder);
+        terminal.last_kitty_placeholder = Some(survivor_placeholder);
+
+        terminal.feed(b"\x1b[?1049h");
+        terminal.set_scrollback_limit(1);
+        terminal.feed(b"\x1b[?1049l");
+
+        assert_eq!(terminal.scrollback.len(), 1);
+        assert_eq!(terminal.inline_images.len(), 1);
+        assert_eq!(terminal.inline_images[0].name.as_deref(), Some("survivor"));
+        assert_eq!(terminal.inline_images[0].row, 0);
+        assert_eq!(
+            terminal.history_index_to_stable_row(terminal.inline_images[0].row),
+            Some(survivor_stable)
+        );
+        assert_eq!(terminal.kitty_placeholder_cells.len(), 1);
+        assert!(terminal.kitty_placeholder_cells.contains_key(&(0, 0)));
+        assert_eq!(
+            terminal
+                .last_kitty_placeholder
+                .expect("surviving placeholder")
+                .row,
+            0
         );
     }
 
