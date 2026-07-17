@@ -4663,6 +4663,9 @@ impl Terminal {
                 .checked_add(usize::from(bottom))
                 .and_then(|row| row.checked_add(1))
                 .expect("terminal metadata row overflow");
+            if bottom.saturating_add(1) < size.rows {
+                self.drop_inline_images_crossing_history_boundary(suffix_start);
+            }
             self.shift_suffix_metadata_for_recorded_rows(suffix_start, usize::from(count));
             for row in top..top.saturating_add(count) {
                 self.record_scrollback_line(row);
@@ -4714,6 +4717,14 @@ impl Terminal {
         }
 
         self.record_damage(DamageRegion::new(0, top, size.columns, height));
+    }
+
+    fn drop_inline_images_crossing_history_boundary(&mut self, boundary: usize) {
+        self.inline_images.retain(|image| {
+            let (top, bottom) = kitty_image_row_range(image);
+            !(top < boundary && bottom > boundary)
+        });
+        self.delete_orphan_kitty_relative_children();
     }
 
     fn shift_suffix_metadata_for_recorded_rows(&mut self, suffix_start: usize, rows: usize) {
@@ -6764,6 +6775,38 @@ mod stable_row_tests {
         );
     }
 
+    fn install_cross_boundary_real_images(terminal: &mut Terminal) {
+        terminal.feed(b"\x1b[2;1H");
+        terminal.feed(b"\x1b]1337;File=inline=1;name=Y3Jvc3M=;width=1;height=2:QUJDRA==\x07");
+        terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b_Ga=p,i=30,p=4,c=2,r=2,C=1\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=2,c=1,r=1,C=1\x1b\\");
+        terminal.take_kitty_graphics_responses();
+
+        assert_eq!(terminal.inline_images.len(), 3);
+        assert!(
+            terminal
+                .inline_images
+                .iter()
+                .any(|image| image.name.as_deref() == Some("cross"))
+        );
+        assert!(
+            terminal
+                .inline_images
+                .iter()
+                .any(|image| image.kitty_image_id == Some(30))
+        );
+        assert!(
+            terminal
+                .inline_images
+                .iter()
+                .any(|image| image.kitty_image_id == Some(7))
+        );
+        assert_eq!(terminal.kitty_relative_parents.get(&(7, 2)), Some(&(30, 4)));
+    }
+
     #[test]
     fn terminal_stable_dimensions_start_on_main_screen() {
         let terminal = Terminal::new(TerminalSize::new(4, 3));
@@ -7064,6 +7107,40 @@ mod stable_row_tests {
             Some(rebased_suffix_stable)
         );
         assert!(rebased_suffix_stable > suffix_stable);
+    }
+
+    #[test]
+    fn terminal_top_anchored_short_scroll_drops_cross_boundary_images_with_spare_capacity() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+        terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
+        install_cross_boundary_real_images(&mut terminal);
+
+        terminal.feed(b"\x1b[1;2r\x1b[S");
+
+        assert_eq!(terminal.scrollback.len(), 1);
+        assert_eq!(stable_row_text(&terminal, 2).as_deref(), Some("        "));
+        assert!(terminal.inline_images.is_empty());
+        assert!(terminal.kitty_relative_parents.is_empty());
+    }
+
+    #[test]
+    fn terminal_top_anchored_short_scroll_drops_cross_boundary_images_at_capacity() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+        terminal.set_scrollback_limit(1);
+        terminal.feed(b"old\r\naa\r\nbb\r\ncc\r\ndd");
+        assert_eq!(terminal.scrollback.len(), 1);
+        install_cross_boundary_real_images(&mut terminal);
+
+        terminal.feed(b"\x1b[1;2r\x1b[S");
+
+        assert_eq!(terminal.scrollback.len(), 1);
+        let blank_row = terminal.history_index_to_stable_row(2).unwrap();
+        assert_eq!(
+            stable_row_text(&terminal, blank_row).as_deref(),
+            Some("        ")
+        );
+        assert!(terminal.inline_images.is_empty());
+        assert!(terminal.kitty_relative_parents.is_empty());
     }
 
     #[test]
@@ -7545,6 +7622,18 @@ mod stable_row_tests {
             terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
             terminal.feed(setup);
             let before = terminal.current_seqno();
+            let unaffected = terminal
+                .retained_stable_range()
+                .filter(|row| !expected.contains(row))
+                .map(|row| {
+                    (
+                        row,
+                        terminal.stable_row_to_history_index(row).unwrap(),
+                        stable_row_text(&terminal, row).unwrap(),
+                        stable_row_seqno(&terminal, row).unwrap(),
+                    )
+                })
+                .collect::<Vec<_>>();
 
             terminal.feed(operation);
 
@@ -7553,6 +7642,23 @@ mod stable_row_tests {
                 *expected,
                 "{name}"
             );
+            for (row, history_index, text, seqno) in &unaffected {
+                assert_eq!(
+                    terminal.stable_row_to_history_index(*row),
+                    Some(*history_index),
+                    "{name}: unaffected stable identity {row}"
+                );
+                assert_eq!(
+                    stable_row_text(&terminal, *row).as_deref(),
+                    Some(text.as_str()),
+                    "{name}: unaffected text at {row}"
+                );
+                assert_eq!(
+                    stable_row_seqno(&terminal, *row),
+                    Some(*seqno),
+                    "{name}: unaffected sequence at {row}"
+                );
+            }
         }
     }
 
