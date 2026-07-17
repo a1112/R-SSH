@@ -37,7 +37,8 @@ use rssh_renderer::{
 };
 use rssh_terminal::{
     CellWidthOverride, Color, CursorStyle, DEFAULT_SCROLLBACK_LIMIT, InlineImageFormat,
-    SemanticType, Terminal, UnderlineStyle, VerticalAlign,
+    SemanticType, StableRowIndex, StableSelectionCoordinate, StableSelectionRange, Terminal,
+    TerminalScreenDomain, UnderlineStyle, VerticalAlign,
 };
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
@@ -80745,7 +80746,7 @@ struct NativeWindowApp {
     modifiers: ModifiersState,
     left_alt_pressed: bool,
     right_alt_pressed: bool,
-    scrollback_offset: usize,
+    stable_viewport: PaneStableViewport,
     mouse_pixel_position: Option<PhysicalPosition<f64>>,
     mouse_position: Option<(u16, u16)>,
     current_mouse_wheel_delta: Option<MouseScrollDelta>,
@@ -81372,8 +81373,78 @@ struct PaneRuntime {
     writer: Option<Box<dyn Write + Send>>,
     reader_thread: Option<thread::JoinHandle<()>>,
     snapshot: TerminalRenderSnapshot,
-    scrollback_offset: usize,
+    stable_viewport: PaneStableViewport,
     selection: Option<WindowSelection>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct PaneStableViewport {
+    main_top: Option<StableRowIndex>,
+}
+
+impl PaneStableViewport {
+    fn normalized_main_top(
+        terminal: &Terminal,
+        requested: Option<StableRowIndex>,
+    ) -> Option<StableRowIndex> {
+        let dimensions = terminal.stable_dimensions();
+        if dimensions.domain != TerminalScreenDomain::Main || dimensions.viewport_rows == 0 {
+            return None;
+        }
+        let requested = requested?;
+        if requested >= dimensions.physical_top {
+            return None;
+        }
+        Some(requested.max(dimensions.scrollback_top))
+    }
+
+    fn active_top(self, terminal: &Terminal) -> Option<StableRowIndex> {
+        if terminal.stable_dimensions().domain != TerminalScreenDomain::Main {
+            return None;
+        }
+        Self::normalized_main_top(terminal, self.main_top)
+    }
+
+    fn clamp_main(&mut self, terminal: &Terminal) {
+        if terminal.stable_dimensions().domain == TerminalScreenDomain::Main {
+            self.main_top = Self::normalized_main_top(terminal, self.main_top);
+        }
+    }
+
+    fn scrollback_offset(self, terminal: &Terminal) -> usize {
+        let dimensions = terminal.stable_dimensions();
+        if dimensions.domain != TerminalScreenDomain::Main {
+            return 0;
+        }
+        self.active_top(terminal)
+            .and_then(|top| dimensions.physical_top.checked_sub(top))
+            .and_then(|offset| usize::try_from(offset).ok())
+            .unwrap_or(0)
+            .min(
+                dimensions
+                    .scrollback_rows
+                    .saturating_sub(dimensions.viewport_rows),
+            )
+    }
+
+    fn set_scrollback_offset(&mut self, terminal: &Terminal, offset: usize) {
+        let dimensions = terminal.stable_dimensions();
+        if dimensions.domain != TerminalScreenDomain::Main || dimensions.viewport_rows == 0 {
+            return;
+        }
+        let history_len = dimensions
+            .scrollback_rows
+            .saturating_sub(dimensions.viewport_rows);
+        let offset = offset.min(history_len);
+        self.main_top = if offset == 0 {
+            None
+        } else {
+            dimensions
+                .physical_top
+                .checked_sub(StableRowIndex::try_from(offset).unwrap_or(StableRowIndex::MAX))
+        };
+        self.clamp_main(terminal);
+    }
 }
 
 impl PaneRuntime {
@@ -81905,8 +81976,9 @@ fn has_redundant_trailing_path_separator(path: &str) -> bool {
 
 fn terminal_runtime_snapshot(
     runtime: &TerminalRuntime,
-    scrollback_offset: usize,
+    stable_viewport: PaneStableViewport,
 ) -> TerminalRenderSnapshot {
+    let scrollback_offset = stable_viewport.scrollback_offset(runtime.terminal());
     TerminalRenderSnapshot::from_terminal_viewport(runtime.terminal(), scrollback_offset)
         .with_cursor_color(runtime.cursor_color_override())
 }
@@ -82246,7 +82318,7 @@ impl NativeWindowApp {
         initial_window_position: Option<WindowPosition>,
     ) -> Self {
         let runtime = TerminalRuntime::new(TerminalSize::new(TERMINAL_COLUMNS, TERMINAL_ROWS));
-        let snapshot = terminal_runtime_snapshot(&runtime, 0);
+        let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
         let startup_uses_default_shell = pty_command_matches_default_shell(&startup_command);
         let startup_workspace_was_explicit = startup_workspace.is_some();
         let app_shell = app_shell_from_pty_command(&startup_command, startup_workspace);
@@ -82342,7 +82414,7 @@ impl NativeWindowApp {
             modifiers: ModifiersState::empty(),
             left_alt_pressed: false,
             right_alt_pressed: false,
-            scrollback_offset: 0,
+            stable_viewport: PaneStableViewport::default(),
             mouse_pixel_position: None,
             mouse_position: None,
             current_mouse_wheel_delta: None,
@@ -84248,7 +84320,7 @@ impl NativeWindowApp {
 
     fn take_active_runtime(&mut self) -> PaneRuntime {
         let size = self.runtime.terminal().grid().size();
-        let scrollback_offset = self.scrollback_offset;
+        let stable_viewport = self.stable_viewport;
         let session = self.session.take();
         let session_process_id = self.session_process_id.take();
         let session_tty_name = self.session_tty_name.take();
@@ -84276,8 +84348,8 @@ impl NativeWindowApp {
         replacement_runtime.set_scrollback_limit(self.scrollback_lines);
         replacement_runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
         let old_runtime = std::mem::replace(&mut self.runtime, replacement_runtime);
-        let old_snapshot = terminal_runtime_snapshot(&old_runtime, scrollback_offset);
-        self.scrollback_offset = 0;
+        let old_snapshot = terminal_runtime_snapshot(&old_runtime, stable_viewport);
+        self.stable_viewport = PaneStableViewport::default();
 
         PaneRuntime {
             runtime: old_runtime,
@@ -84287,7 +84359,7 @@ impl NativeWindowApp {
             writer,
             reader_thread,
             snapshot: old_snapshot,
-            scrollback_offset,
+            stable_viewport,
             selection,
         }
     }
@@ -84310,7 +84382,7 @@ impl NativeWindowApp {
         runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
         runtime.set_scrollback_limit(self.scrollback_lines);
         runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
-        let snapshot = terminal_runtime_snapshot(&runtime, 0);
+        let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
         PaneRuntime {
             runtime,
             session: None,
@@ -84319,14 +84391,15 @@ impl NativeWindowApp {
             writer: None,
             reader_thread: None,
             snapshot,
-            scrollback_offset: 0,
+            stable_viewport: PaneStableViewport::default(),
             selection: None,
         }
     }
 
     fn install_active_runtime(&mut self, mut runtime: PaneRuntime) {
         let mut runtime_runtime = TerminalRuntime::new(self.runtime.terminal().grid().size());
-        let mut runtime_snapshot = terminal_runtime_snapshot(&self.runtime, 0);
+        let mut runtime_snapshot =
+            terminal_runtime_snapshot(&self.runtime, PaneStableViewport::default());
 
         std::mem::swap(&mut runtime.runtime, &mut runtime_runtime);
         std::mem::swap(&mut runtime.snapshot, &mut runtime_snapshot);
@@ -84351,7 +84424,7 @@ impl NativeWindowApp {
         self.session_tty_name = runtime.session_tty_name.take();
         self.writer = runtime.writer.take();
         self.reader_thread = runtime.reader_thread.take();
-        self.scrollback_offset = runtime.scrollback_offset;
+        self.stable_viewport = runtime.stable_viewport;
         self.selection = runtime.selection.take();
         self.selecting = false;
         self.rebuild_snapshot();
@@ -87736,9 +87809,10 @@ impl NativeWindowApp {
     }
 
     fn quick_select_step_page(&mut self, direction: SearchDirection) -> bool {
-        let history_len = self.runtime.terminal().scrollback().len();
         let viewport_rows = usize::from(self.runtime.terminal().grid().size().rows);
-        let viewport_top = copy_mode_viewport_top(history_len, self.scrollback_offset);
+        let viewport_top = self.current_viewport_stable_top();
+        let viewport_rows_stable =
+            StableRowIndex::try_from(viewport_rows).unwrap_or(StableRowIndex::MAX);
 
         let Some(active) = self.quick_select.as_mut().and_then(|quick_select| {
             if quick_select.matches.is_empty() || viewport_rows == 0 {
@@ -87749,7 +87823,7 @@ impl NativeWindowApp {
             let last = quick_select.matches.len().saturating_sub(1);
             let target = match direction {
                 SearchDirection::Next => {
-                    let bottom = viewport_top.saturating_add(viewport_rows);
+                    let bottom = viewport_top.saturating_add(viewport_rows_stable);
                     quick_select
                         .matches
                         .iter()
@@ -87757,13 +87831,13 @@ impl NativeWindowApp {
                         .unwrap_or_else(|| current.min(last))
                 }
                 SearchDirection::Previous => {
-                    let top = isize::try_from(viewport_top).unwrap_or(isize::MAX);
-                    let prior = top.saturating_sub(isize::try_from(viewport_rows).unwrap_or(0));
+                    let top = viewport_top;
+                    let prior = top.saturating_sub(viewport_rows_stable);
                     quick_select
                         .matches
                         .iter()
                         .position(|candidate| {
-                            let row = isize::try_from(candidate.source_row).unwrap_or(isize::MAX);
+                            let row = candidate.source_row;
                             row > prior && row < top
                         })
                         .unwrap_or_else(|| current.saturating_sub(1))
@@ -88183,7 +88257,7 @@ impl NativeWindowApp {
 
         let (row_start, row_end) = quick_select_source_row_scope(
             self.runtime.terminal(),
-            self.scrollback_offset,
+            self.current_scrollback_offset(),
             scope_lines,
         );
         let matches = find_window_quick_select_matches_with_patterns(
@@ -88932,6 +89006,7 @@ impl NativeWindowApp {
         let started = Instant::now();
         self.metrics.record_pty_chunk(bytes.len());
         let runtime_output = self.runtime.feed_pty_output_with_display(bytes);
+        self.reconcile_transient_stable_coordinates();
         self.write_session_log(&runtime_output.display)?;
         self.record_unknown_escape_sequence_warnings(
             self.app_shell.active_pane_id(),
@@ -88968,6 +89043,84 @@ impl NativeWindowApp {
         self.metrics.record_pty_chunk_process(started.elapsed());
 
         Ok(())
+    }
+
+    fn reconcile_transient_stable_coordinates(&mut self) {
+        let terminal = self.runtime.terminal();
+        let dimensions = terminal.stable_dimensions();
+        let retained = terminal.retained_stable_range();
+
+        let copy_mode_retained = self.copy_mode.as_ref().is_none_or(|copy_mode| {
+            copy_mode.source_cursor.domain == dimensions.domain
+                && retained.contains(&copy_mode.source_cursor.row)
+                && copy_mode.source_anchor.is_none_or(|anchor| {
+                    anchor.domain == dimensions.domain && retained.contains(&anchor.row)
+                })
+        });
+        if !copy_mode_retained {
+            self.copy_mode = None;
+            self.selection = None;
+        }
+
+        if let Some(search) = self.search.as_mut()
+            && search
+                .current
+                .is_some_and(|matched| !matched.is_retained(terminal))
+        {
+            search.current = None;
+            self.selection = None;
+        }
+
+        if let Some(quick_select) = self.quick_select.as_mut() {
+            let retained_indices = quick_select
+                .matches
+                .iter()
+                .enumerate()
+                .filter_map(|(index, matched)| matched.is_retained(terminal).then_some(index))
+                .collect::<Vec<_>>();
+            if retained_indices.len() != quick_select.matches.len() {
+                quick_select.matches = retained_indices
+                    .iter()
+                    .map(|index| quick_select.matches[*index])
+                    .collect();
+                quick_select.labels = retained_indices
+                    .iter()
+                    .filter_map(|index| quick_select.labels.get(*index).cloned())
+                    .collect();
+                quick_select.current = quick_select
+                    .current
+                    .min(quick_select.matches.len().saturating_sub(1));
+            }
+            if quick_select.matches.is_empty() {
+                self.selection = None;
+            }
+        }
+
+        self.update_transient_selection_projection();
+    }
+
+    fn update_transient_selection_projection(&mut self) {
+        let terminal = self.runtime.terminal();
+        let dimensions = terminal.stable_dimensions();
+        let viewport_top = self
+            .stable_viewport
+            .active_top(terminal)
+            .unwrap_or(dimensions.physical_top);
+        let size = terminal.grid().size();
+        let presented_match = self
+            .quick_select
+            .as_ref()
+            .and_then(WindowQuickSelect::current_match)
+            .or_else(|| self.search.as_ref().and_then(|search| search.current));
+        self.selection = if let Some(matched) = presented_match {
+            matched.viewport_selection_for_top(dimensions.domain, viewport_top, size)
+        } else if let Some(copy_mode) = self.copy_mode.as_ref() {
+            copy_mode_source_selection(copy_mode, terminal, &self.selection_word_boundary).and_then(
+                |selection| selection.viewport_selection(dimensions.domain, viewport_top, size),
+            )
+        } else {
+            None
+        };
     }
 
     fn handle_inactive_pane_output(
@@ -89035,10 +89188,10 @@ impl NativeWindowApp {
             runtime.runtime.terminal().badge_format().map(str::to_owned),
         );
         self.sync_pane_progress_from_value(pane_id, runtime.runtime.progress());
-        runtime.scrollback_offset = runtime
-            .scrollback_offset
-            .min(runtime.runtime.terminal().scrollback().len());
-        runtime.snapshot = terminal_runtime_snapshot(&runtime.runtime, runtime.scrollback_offset);
+        runtime
+            .stable_viewport
+            .clamp_main(runtime.runtime.terminal());
+        runtime.snapshot = terminal_runtime_snapshot(&runtime.runtime, runtime.stable_viewport);
         self.record_pane_bells(pane_id, runtime_output.bells);
         self.metrics.record_bells(runtime_output.bells);
         self.dispatch_bells(pane_id, runtime_output.bells);
@@ -89092,12 +89245,10 @@ impl NativeWindowApp {
     }
 
     fn rebuild_snapshot(&mut self) {
-        self.scrollback_offset = self
-            .scrollback_offset
-            .min(self.runtime.terminal().scrollback().len());
+        self.stable_viewport.clamp_main(self.runtime.terminal());
         let size = self.runtime.terminal().grid().size();
         let inactive_search_selections = self.copy_mode_inactive_search_selections(size);
-        let mut snapshot = terminal_runtime_snapshot(&self.runtime, self.scrollback_offset);
+        let mut snapshot = terminal_runtime_snapshot(&self.runtime, self.stable_viewport);
 
         if self.quick_select.is_some() && self.quick_select_remove_styling {
             snapshot = quick_select_remove_styling_snapshot(snapshot);
@@ -89179,19 +89330,19 @@ impl NativeWindowApp {
             return Vec::new();
         }
 
-        let history_len = self.runtime.terminal().scrollback().len();
-        let viewport_top = copy_mode_viewport_top(history_len, self.scrollback_offset);
+        let dimensions = self.runtime.terminal().stable_dimensions();
+        let viewport_top = self.current_viewport_stable_top();
         window_search_matches_with_type(self.runtime.terminal(), &search.query, search.match_type)
             .into_iter()
             .filter(|matched| Some(*matched) != search.current)
-            .filter_map(|matched| matched.viewport_selection_for_top(viewport_top, size))
+            .filter_map(|matched| {
+                matched.viewport_selection_for_top(dimensions.domain, viewport_top, size)
+            })
             .collect()
     }
 
     fn refresh_snapshot_after_terminal_damage(&mut self, damage: &[DamageRegion]) {
-        self.scrollback_offset = self
-            .scrollback_offset
-            .min(self.runtime.terminal().scrollback().len());
+        self.stable_viewport.clamp_main(self.runtime.terminal());
         if self.can_update_snapshot_from_damage() {
             let cursor_color = self.runtime.cursor_color_override();
             let cursor_color_changed = self.snapshot.cursor_color() != cursor_color;
@@ -89211,7 +89362,7 @@ impl NativeWindowApp {
     }
 
     fn can_update_snapshot_from_damage(&self) -> bool {
-        self.scrollback_offset == 0
+        self.current_scrollback_offset() == 0
             && self.selection.is_none()
             && self.search.is_none()
             && self.copy_mode.is_none()
@@ -89220,35 +89371,36 @@ impl NativeWindowApp {
 
     fn scroll_viewport_lines(&mut self, lines: isize) {
         let history_len = self.runtime.terminal().scrollback().len();
+        let current_offset = self.current_scrollback_offset();
         let next_offset = if lines.is_positive() {
-            self.scrollback_offset
+            current_offset
                 .saturating_add(lines.unsigned_abs())
                 .min(history_len)
         } else {
-            self.scrollback_offset.saturating_sub(lines.unsigned_abs())
+            current_offset.saturating_sub(lines.unsigned_abs())
         };
 
-        if next_offset == self.scrollback_offset {
+        if next_offset == current_offset {
             return;
         }
 
-        self.scrollback_offset = next_offset;
-        self.selection = None;
-        self.search = None;
-        self.copy_mode = None;
+        self.stable_viewport
+            .set_scrollback_offset(self.runtime.terminal(), next_offset);
+        self.update_transient_selection_projection();
         self.pane_select = None;
         self.refresh_snapshot();
         self.apply_window_title();
     }
 
     fn scroll_to_prompt(&mut self, amount: isize) {
-        let prompt_rows = self.runtime.terminal().semantic_prompt_rows();
+        let prompt_rows = self.runtime.terminal().stable_semantic_prompt_rows();
         if prompt_rows.is_empty() || amount == 0 {
             return;
         }
 
-        let history_len = self.runtime.terminal().scrollback().len();
-        let viewport_top = history_len.saturating_sub(self.scrollback_offset.min(history_len));
+        let viewport_top = self
+            .current_stable_viewport_top()
+            .unwrap_or(self.runtime.terminal().stable_dimensions().physical_top);
         let index = match prompt_rows.binary_search(&viewport_top) {
             Ok(index) | Err(index) => index,
         };
@@ -89261,22 +89413,56 @@ impl NativeWindowApp {
             return;
         };
 
-        self.set_scrollback_offset(history_len.saturating_sub(prompt_row));
+        self.set_stable_viewport_top(Some(prompt_row));
     }
 
     fn set_scrollback_offset(&mut self, offset: usize) {
         let next_offset = offset.min(self.runtime.terminal().scrollback().len());
-        if next_offset == self.scrollback_offset {
+        if next_offset == self.current_scrollback_offset() {
             return;
         }
 
-        self.scrollback_offset = next_offset;
-        self.selection = None;
-        self.search = None;
-        self.copy_mode = None;
+        self.stable_viewport
+            .set_scrollback_offset(self.runtime.terminal(), next_offset);
+        self.update_transient_selection_projection();
         self.pane_select = None;
         self.refresh_snapshot();
         self.apply_window_title();
+    }
+
+    fn set_stable_viewport_top(&mut self, top: Option<StableRowIndex>) {
+        if self.runtime.terminal().stable_dimensions().domain != TerminalScreenDomain::Main {
+            return;
+        }
+        let next_top = PaneStableViewport::normalized_main_top(self.runtime.terminal(), top);
+        if next_top == self.current_stable_viewport_top() {
+            return;
+        }
+        self.stable_viewport.main_top = next_top;
+        self.update_transient_selection_projection();
+        self.pane_select = None;
+        self.refresh_snapshot();
+        self.apply_window_title();
+    }
+
+    fn current_stable_viewport_top(&self) -> Option<StableRowIndex> {
+        self.stable_viewport.active_top(self.runtime.terminal())
+    }
+
+    fn current_scrollback_offset(&self) -> usize {
+        self.stable_viewport
+            .scrollback_offset(self.runtime.terminal())
+    }
+
+    fn current_viewport_stable_top(&self) -> StableRowIndex {
+        self.current_stable_viewport_top()
+            .unwrap_or(self.runtime.terminal().stable_dimensions().physical_top)
+    }
+
+    #[cfg(test)]
+    fn set_scrollback_offset_for_test(&mut self, offset: usize) {
+        self.stable_viewport
+            .set_scrollback_offset(self.runtime.terminal(), offset);
     }
 
     fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) -> bool {
@@ -89902,7 +90088,7 @@ impl NativeWindowApp {
         self.selecting = false;
         self.last_left_click = None;
 
-        let old_offset = self.scrollback_offset;
+        let old_offset = self.current_scrollback_offset();
         let had_overlay = self.selection.is_some()
             || self.search.is_some()
             || self.quick_select.is_some()
@@ -89910,17 +90096,15 @@ impl NativeWindowApp {
             || self.prompt_input_line.is_some()
             || self.input_selector.is_some()
             || self.copy_mode.is_some();
-        self.scrollback_offset = offset.min(self.runtime.terminal().scrollback().len());
-        self.selection = None;
-        self.search = None;
-        self.quick_select = None;
+        self.stable_viewport
+            .set_scrollback_offset(self.runtime.terminal(), offset);
+        self.update_transient_selection_projection();
         self.pane_select = None;
         self.prompt_input_line = None;
         self.input_selector = None;
         self.confirmation = None;
-        self.copy_mode = None;
 
-        if self.scrollback_offset != old_offset || had_overlay {
+        if self.current_scrollback_offset() != old_offset || had_overlay {
             self.refresh_snapshot();
             self.apply_window_title();
         }
@@ -90646,9 +90830,10 @@ impl NativeWindowApp {
             return Vec::new();
         }
 
-        let history_len = self.runtime.terminal().scrollback().len();
-        let viewport_top = copy_mode_viewport_top(history_len, self.scrollback_offset);
-        let viewport_bottom = viewport_top.saturating_add(usize::from(size.rows));
+        let dimensions = self.runtime.terminal().stable_dimensions();
+        let viewport_top = self.current_viewport_stable_top();
+        let viewport_bottom = viewport_top
+            .saturating_add(StableRowIndex::try_from(size.rows).unwrap_or(StableRowIndex::MAX));
         let foreground = self
             .quick_select_label_fg
             .map(native_color_spec_to_render_color)
@@ -90662,7 +90847,8 @@ impl NativeWindowApp {
 
         let input_prefix = quick_select.input.to_ascii_lowercase();
         for (matched, label) in quick_select.matches.iter().zip(&quick_select.labels) {
-            if label.is_empty()
+            if matched.domain != dimensions.domain
+                || label.is_empty()
                 || matched.source_row < viewport_top
                 || matched.source_row >= viewport_bottom
                 || (!input_prefix.is_empty() && !label.starts_with(&input_prefix))
@@ -93591,12 +93777,14 @@ impl NativeWindowApp {
         let cursor_style = CursorStyle::from(self.default_cursor_style);
         self.runtime.set_default_cursor_style(cursor_style);
         self.snapshot
-            .update_cursor_from_terminal(self.runtime.terminal(), self.scrollback_offset);
+            .update_cursor_from_terminal(self.runtime.terminal(), self.current_scrollback_offset());
         for pane_runtime in self.pane_runtimes.values_mut() {
             pane_runtime.runtime.set_default_cursor_style(cursor_style);
             pane_runtime.snapshot.update_cursor_from_terminal(
                 pane_runtime.runtime.terminal(),
-                pane_runtime.scrollback_offset,
+                pane_runtime
+                    .stable_viewport
+                    .scrollback_offset(pane_runtime.runtime.terminal()),
             );
         }
         self.frame_needs_full_repaint = true;
@@ -93670,17 +93858,15 @@ impl NativeWindowApp {
 
     fn apply_scrollback_limit_to_runtimes(&mut self) {
         self.runtime.set_scrollback_limit(self.scrollback_lines);
-        self.scrollback_offset = self
-            .scrollback_offset
-            .min(self.runtime.terminal().scrollback().len());
+        self.stable_viewport.clamp_main(self.runtime.terminal());
 
         for pane_runtime in self.pane_runtimes.values_mut() {
             pane_runtime
                 .runtime
                 .set_scrollback_limit(self.scrollback_lines);
-            pane_runtime.scrollback_offset = pane_runtime
-                .scrollback_offset
-                .min(pane_runtime.runtime.terminal().scrollback().len());
+            pane_runtime
+                .stable_viewport
+                .clamp_main(pane_runtime.runtime.terminal());
         }
 
         self.frame_needs_full_repaint = true;
@@ -93877,13 +94063,15 @@ impl NativeWindowApp {
         let (history_len, scrollback_offset) = if pane == self.app_shell.active_pane_id() {
             (
                 self.runtime.terminal().scrollback().len(),
-                self.scrollback_offset,
+                self.current_scrollback_offset(),
             )
         } else {
             self.pane_runtimes.get(&pane).map_or((0, 0), |runtime| {
                 (
                     runtime.runtime.terminal().scrollback().len(),
-                    runtime.scrollback_offset,
+                    runtime
+                        .stable_viewport
+                        .scrollback_offset(runtime.runtime.terminal()),
                 )
             })
         };
@@ -94263,21 +94451,35 @@ impl NativeWindowApp {
             return None;
         }
 
-        let history_len = terminal.scrollback().len();
-        let viewport_top = copy_mode_viewport_top(history_len, self.scrollback_offset);
-        let source_row = viewport_top.saturating_add(usize::from(cell.row));
-        let zone = terminal.semantic_zone_at(usize::from(cell.column), source_row)?;
-        WindowSourceSelection::new(
-            SelectionSourceCell {
-                row: zone.start_y,
-                column: zone.start_x,
+        let dimensions = terminal.stable_dimensions();
+        let viewport_top = self.current_viewport_stable_top();
+        let source_row = viewport_top
+            .saturating_add(StableRowIndex::try_from(cell.row).unwrap_or(StableRowIndex::MAX));
+        let zone = terminal.stable_semantic_zone_at(usize::from(cell.column), source_row)?;
+        let viewport_bottom = viewport_top
+            .saturating_add(StableRowIndex::try_from(size.rows).unwrap_or(StableRowIndex::MAX));
+        if zone.end_y < viewport_top || zone.start_y >= viewport_bottom {
+            return None;
+        }
+        debug_assert_eq!(dimensions.domain, TerminalScreenDomain::Main);
+        Some(WindowSelection::new(
+            SelectionCell {
+                row: u16::try_from(zone.start_y.saturating_sub(viewport_top))
+                    .unwrap_or(0)
+                    .min(size.rows.saturating_sub(1)),
+                column: u16::try_from(zone.start_x)
+                    .unwrap_or(u16::MAX)
+                    .min(size.columns.saturating_sub(1)),
             },
-            SelectionSourceCell {
-                row: zone.end_y,
-                column: zone.end_x,
+            SelectionCell {
+                row: u16::try_from(zone.end_y.saturating_sub(viewport_top))
+                    .unwrap_or(u16::MAX)
+                    .min(size.rows.saturating_sub(1)),
+                column: u16::try_from(zone.end_x)
+                    .unwrap_or(u16::MAX)
+                    .min(size.columns.saturating_sub(1)),
             },
-        )
-        .viewport_selection(viewport_top, size)
+        ))
     }
 
     fn word_selection_at_cell(&self, cell: SelectionCell) -> Option<WindowSelection> {
@@ -94663,7 +94865,8 @@ impl NativeWindowApp {
 
         let history_len = self.runtime.terminal().scrollback().len();
         let rows = self.runtime.terminal().grid().size().rows;
-        let mut scrollbar = ScrollbackScrollbar::new(history_len, rows, self.scrollback_offset)?;
+        let mut scrollbar =
+            ScrollbackScrollbar::new(history_len, rows, self.current_scrollback_offset())?;
         if let Some(thumb_color) = self.scrollbar_thumb_color {
             scrollbar = scrollbar.with_thumb_color(color_to_rgba(
                 thumb_color,
@@ -94742,7 +94945,7 @@ impl NativeWindowApp {
         runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
         runtime.set_scrollback_limit(self.scrollback_lines);
         runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
-        let snapshot = terminal_runtime_snapshot(&runtime, 0);
+        let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
 
         let reader_thread = thread::spawn(move || {
             let mut buffer = [0; 8192];
@@ -94789,7 +94992,7 @@ impl NativeWindowApp {
             writer: Some(Box::new(writer)),
             reader_thread: Some(reader_thread),
             snapshot,
-            scrollback_offset: 0,
+            stable_viewport: PaneStableViewport::default(),
             selection: None,
         })
     }
@@ -95275,7 +95478,7 @@ impl NativeWindowApp {
     }
 
     fn clear_scrollback(&mut self) {
-        self.scrollback_offset = 0;
+        self.stable_viewport = PaneStableViewport::default();
         if let Err(error) = self.handle_active_pane_output(b"\x1b[3J") {
             eprintln!("clear scrollback command failed: {error}");
         }
@@ -95284,7 +95487,7 @@ impl NativeWindowApp {
     }
 
     fn clear_scrollback_and_viewport(&mut self) {
-        self.scrollback_offset = 0;
+        self.stable_viewport = PaneStableViewport::default();
         let damage = self.runtime.erase_scrollback_and_viewport();
         self.metrics.record_damage(&damage);
         self.refresh_snapshot();
@@ -95327,14 +95530,18 @@ impl NativeWindowApp {
         }
 
         let (row, column) = self.runtime.terminal().cursor();
-        let history_len = self.runtime.terminal().scrollback().len();
-        let source_row = history_len.saturating_add(usize::from(row));
+        let terminal = self.runtime.terminal();
+        let dimensions = terminal.stable_dimensions();
+        let source_row = dimensions
+            .physical_top
+            .saturating_add(StableRowIndex::try_from(row).unwrap_or(StableRowIndex::MAX));
         self.copy_mode = Some(WindowCopyMode {
             cursor: SelectionCell {
                 row: row.min(size.rows.saturating_sub(1)),
                 column: column.min(size.columns.saturating_sub(1)),
             },
             source_cursor: SelectionSourceCell {
+                domain: dimensions.domain,
                 row: source_row,
                 column: usize::from(column.min(size.columns.saturating_sub(1))),
             },
@@ -95359,7 +95566,7 @@ impl NativeWindowApp {
     }
 
     fn scroll_to_bottom_and_exit_copy_mode(&mut self) {
-        self.scrollback_offset = 0;
+        self.stable_viewport = PaneStableViewport::default();
         self.exit_copy_mode();
     }
 
@@ -95772,14 +95979,14 @@ impl NativeWindowApp {
             return;
         }
 
-        let history_len = self.runtime.terminal().scrollback().len();
-        let viewport_top = copy_mode_viewport_top(history_len, self.scrollback_offset);
+        let dimensions = self.runtime.terminal().stable_dimensions();
+        let viewport_top = self.current_viewport_stable_top();
         self.selection = copy_mode_source_selection(
             copy_mode,
             self.runtime.terminal(),
             &self.selection_word_boundary,
         )
-        .and_then(|selection| selection.viewport_selection(viewport_top, size));
+        .and_then(|selection| selection.viewport_selection(dimensions.domain, viewport_top, size));
         self.refresh_snapshot();
         self.apply_window_title();
     }
@@ -95789,9 +95996,8 @@ impl NativeWindowApp {
         if size.rows == 0 || size.columns == 0 {
             return false;
         }
-        let history_len = self.runtime.terminal().scrollback().len();
-        let total_rows = history_len.saturating_add(usize::from(size.rows));
-        if total_rows == 0 {
+        let retained = self.runtime.terminal().retained_stable_range();
+        if retained.start >= retained.end {
             return false;
         }
 
@@ -95799,13 +96005,14 @@ impl NativeWindowApp {
             return false;
         };
 
-        let max_row = total_rows.saturating_sub(1);
+        let min_row = retained.start;
+        let max_row = retained.end.saturating_sub(1);
         let max_column = usize::from(size.columns.saturating_sub(1));
-        let next_row = apply_isize_delta_to_usize(
-            copy_mode.source_cursor.row.min(max_row),
-            row_delta,
-            max_row,
-        );
+        let next_row = copy_mode
+            .source_cursor
+            .row
+            .saturating_add(row_delta)
+            .clamp(min_row, max_row);
         let next_column = apply_isize_delta_to_usize(
             copy_mode.source_cursor.column.min(max_column),
             col_delta,
@@ -95825,8 +96032,8 @@ impl NativeWindowApp {
         if size.rows == 0 || size.columns == 0 {
             return false;
         }
-        let history_len = self.runtime.terminal().scrollback().len();
-        let viewport_top = copy_mode_viewport_top(history_len, self.scrollback_offset);
+        let dimensions = self.runtime.terminal().stable_dimensions();
+        let viewport_top = self.current_viewport_stable_top();
         let Some(copy_mode) = self.copy_mode.as_mut() else {
             return false;
         };
@@ -95842,7 +96049,10 @@ impl NativeWindowApp {
 
         copy_mode.cursor = target;
         copy_mode.source_cursor = SelectionSourceCell {
-            row: viewport_top.saturating_add(usize::from(target.row)),
+            domain: dimensions.domain,
+            row: viewport_top.saturating_add(
+                StableRowIndex::try_from(target.row).unwrap_or(StableRowIndex::MAX),
+            ),
             column: usize::from(target.column),
         };
         self.apply_copy_mode_selection();
@@ -95851,15 +96061,17 @@ impl NativeWindowApp {
 
     fn set_copy_mode_cursor_for_source_position(
         &mut self,
-        source_row: usize,
+        source_row: StableRowIndex,
         source_column: usize,
     ) -> bool {
+        let domain = self.runtime.terminal().stable_dimensions().domain;
         let source_anchor = self
             .copy_mode
             .as_ref()
             .and_then(|copy_mode| copy_mode.source_anchor);
         self.set_copy_mode_cursor_and_anchor_for_source_position(
             SelectionSourceCell {
+                domain,
                 row: source_row,
                 column: source_column,
             },
@@ -95877,10 +96089,19 @@ impl NativeWindowApp {
             return false;
         }
 
-        let history_len = self.runtime.terminal().scrollback().len();
-        let current_offset = self.scrollback_offset.min(history_len);
+        let terminal = self.runtime.terminal();
+        let dimensions = terminal.stable_dimensions();
+        if source_cursor.domain != dimensions.domain {
+            return false;
+        }
+        let history_len = terminal.scrollback().len();
+        let current_offset = self.current_scrollback_offset().min(history_len);
+        let Some(source_history_row) = terminal.stable_row_to_history_index(source_cursor.row)
+        else {
+            return false;
+        };
         let Some((target_offset, target)) = copy_mode_viewport_cell_for_source_position(
-            source_cursor.row,
+            source_history_row,
             source_cursor.column,
             current_offset,
             history_len,
@@ -95900,14 +96121,19 @@ impl NativeWindowApp {
             return false;
         }
 
-        self.scrollback_offset = target_offset;
+        self.stable_viewport
+            .set_scrollback_offset(self.runtime.terminal(), target_offset);
         if let Some(copy_mode) = self.copy_mode.as_mut() {
             copy_mode.cursor = target;
             copy_mode.source_cursor = source_cursor;
             copy_mode.source_anchor = source_anchor;
             copy_mode.anchor = source_anchor.and_then(|anchor| {
+                let source_row = self
+                    .runtime
+                    .terminal()
+                    .stable_row_to_history_index(anchor.row)?;
                 copy_mode_cell_for_source_position(
-                    anchor.row,
+                    source_row,
                     anchor.column,
                     copy_mode_viewport_top(history_len, target_offset),
                     size,
@@ -95941,10 +96167,12 @@ impl NativeWindowApp {
 
         self.set_copy_mode_cursor_and_anchor_for_source_position(
             SelectionSourceCell {
+                domain: source_cursor.domain,
                 row: source_cursor.row,
                 column: source_anchor.column,
             },
             Some(SelectionSourceCell {
+                domain: source_anchor.domain,
                 row: source_anchor.row,
                 column: source_cursor.column,
             }),
@@ -95975,7 +96203,7 @@ impl NativeWindowApp {
         let terminal = self.runtime.terminal();
         let cursor_y = copy_mode.source_cursor.row;
         let cursor_x = copy_mode.source_cursor.column;
-        let zones = terminal.semantic_zones();
+        let zones = terminal.stable_semantic_zones();
         let mut index = match zones.binary_search_by(|zone| match zone.start_y.cmp(&cursor_y) {
             std::cmp::Ordering::Equal => zone.start_x.cmp(&cursor_x),
             ordering => ordering,
@@ -95998,7 +96226,7 @@ impl NativeWindowApp {
                 previous
             };
 
-            let Some(zone) = zones.get(index).copied() else {
+            let Some(zone) = zones.get(index).cloned() else {
                 return false;
             };
             if semantic_type.is_some_and(|semantic_type| zone.semantic_type != semantic_type) {
@@ -96269,7 +96497,10 @@ impl NativeWindowApp {
         let Some(copy_mode) = self.copy_mode.as_ref() else {
             return false;
         };
-        self.set_copy_mode_cursor_for_source_position(0, copy_mode.source_cursor.column)
+        self.set_copy_mode_cursor_for_source_position(
+            self.runtime.terminal().retained_stable_range().start,
+            copy_mode.source_cursor.column,
+        )
     }
 
     fn move_copy_mode_to_scrollback_bottom(&mut self) -> bool {
@@ -96277,9 +96508,8 @@ impl NativeWindowApp {
         if size.rows == 0 {
             return false;
         }
-        let history_len = self.runtime.terminal().scrollback().len();
-        let total_rows = history_len.saturating_add(usize::from(size.rows));
-        if total_rows == 0 {
+        let retained = self.runtime.terminal().retained_stable_range();
+        if retained.start >= retained.end {
             return false;
         }
 
@@ -96287,7 +96517,7 @@ impl NativeWindowApp {
             return false;
         };
         self.set_copy_mode_cursor_for_source_position(
-            total_rows.saturating_sub(1),
+            retained.end.saturating_sub(1),
             copy_mode.source_cursor.column,
         )
     }
@@ -96304,9 +96534,11 @@ impl NativeWindowApp {
             return false;
         };
         let source_row = copy_mode.source_cursor.row;
-        let Some((content_start, _)) =
-            copy_mode_line_content_bounds(self.runtime.terminal(), source_row)
-        else {
+        let Some((content_start, _)) = copy_mode_line_content_bounds(
+            self.runtime.terminal(),
+            copy_mode.source_cursor.domain,
+            source_row,
+        ) else {
             return false;
         };
         self.set_copy_mode_cursor_for_source_position(source_row, content_start)
@@ -96317,9 +96549,11 @@ impl NativeWindowApp {
             return false;
         };
         let source_row = copy_mode.source_cursor.row;
-        let Some((_, content_end)) =
-            copy_mode_line_content_bounds(self.runtime.terminal(), source_row)
-        else {
+        let Some((_, content_end)) = copy_mode_line_content_bounds(
+            self.runtime.terminal(),
+            copy_mode.source_cursor.domain,
+            source_row,
+        ) else {
             return false;
         };
         self.set_copy_mode_cursor_for_source_position(source_row, content_end)
@@ -96553,8 +96787,7 @@ impl NativeWindowApp {
             return self.step_search(direction);
         }
 
-        let history_len = self.runtime.terminal().scrollback().len();
-        let viewport_top = copy_mode_viewport_top(history_len, self.scrollback_offset);
+        let viewport_top = self.current_viewport_stable_top();
         let found = find_window_search_page_match_with_type(
             self.runtime.terminal(),
             &search.query,
@@ -96584,13 +96817,23 @@ impl NativeWindowApp {
     }
 
     fn apply_search_match(&mut self, search_match: WindowSearchMatch) {
-        let scrollback_len = self.runtime.terminal().scrollback().len();
-        let (offset, selection) = search_match.viewport_selection(scrollback_len);
-        self.scrollback_offset = offset;
+        let Some((offset, selection)) = search_match.viewport_selection(self.runtime.terminal())
+        else {
+            if let Some(search) = self.search.as_mut() {
+                search.current = None;
+            }
+            self.selection = None;
+            self.refresh_snapshot();
+            self.apply_window_title();
+            return;
+        };
+        self.stable_viewport
+            .set_scrollback_offset(self.runtime.terminal(), offset);
         self.selection = Some(selection);
         if let Some(copy_mode) = self.copy_mode.as_mut() {
             copy_mode.cursor = selection.anchor;
             copy_mode.source_cursor = SelectionSourceCell {
+                domain: search_match.domain,
                 row: search_match.source_row,
                 column: usize::from(search_match.start_column),
             };
@@ -98245,11 +98488,10 @@ impl NativeWindowApp {
             if let Some(session) = runtime.session.as_mut() {
                 session.resize(PtySize::try_new(terminal_size.columns, terminal_size.rows)?)?;
             }
-            runtime.scrollback_offset = runtime
-                .scrollback_offset
-                .min(runtime.runtime.terminal().scrollback().len());
-            runtime.snapshot =
-                terminal_runtime_snapshot(&runtime.runtime, runtime.scrollback_offset);
+            runtime
+                .stable_viewport
+                .clamp_main(runtime.runtime.terminal());
+            runtime.snapshot = terminal_runtime_snapshot(&runtime.runtime, runtime.stable_viewport);
         }
 
         if let Some(session) = self.session.as_mut() {
@@ -99698,13 +99940,24 @@ fn copy_mode_semantic_zone_type_for_key(character: &str) -> Option<SemanticType>
     }
 }
 
-fn copy_mode_line_content_bounds(terminal: &Terminal, source_row: usize) -> Option<(usize, usize)> {
+fn copy_mode_line_content_bounds(
+    terminal: &Terminal,
+    domain: TerminalScreenDomain,
+    source_row: StableRowIndex,
+) -> Option<(usize, usize)> {
     let columns = usize::from(terminal.grid().size().columns);
     if columns == 0 {
         return None;
     }
 
-    let line = terminal.text_from_region(0, source_row, columns.saturating_sub(1), source_row)?;
+    let line = copy_mode_source_line(
+        terminal,
+        SelectionSourceCell {
+            domain,
+            row: source_row,
+            column: 0,
+        },
+    )?;
     let mut bounds = None;
     for (column, character) in line.chars().enumerate() {
         if character != ' ' {
@@ -99729,7 +99982,7 @@ fn copy_mode_jump_target(
         return None;
     }
 
-    let line = copy_mode_source_line(terminal, cursor.row)?;
+    let line = copy_mode_source_line(terminal, cursor)?;
     let mut candidates = line
         .chars()
         .enumerate()
@@ -99761,6 +100014,7 @@ fn copy_mode_jump_target(
     .min(columns.saturating_sub(1));
 
     Some(SelectionSourceCell {
+        domain: cursor.domain,
         row: cursor.row,
         column: target_column,
     })
@@ -99776,11 +100030,11 @@ fn copy_mode_word_target(
         return None;
     }
 
-    let row_count = terminal
-        .scrollback()
-        .len()
-        .saturating_add(usize::from(terminal.grid().size().rows));
-    if cursor.row >= row_count {
+    let retained = terminal.retained_stable_range();
+    if cursor.domain != terminal.stable_dimensions().domain
+        || cursor.row < retained.start
+        || cursor.row >= retained.end
+    {
         return None;
     }
 
@@ -99796,18 +100050,26 @@ fn copy_mode_backward_word_target(
     cursor: SelectionSourceCell,
 ) -> Option<SelectionSourceCell> {
     if cursor.column == 0 && cursor.row > 0 {
-        let previous_line = copy_mode_source_line(terminal, cursor.row.saturating_sub(1))?;
+        let previous_line = copy_mode_source_line(
+            terminal,
+            SelectionSourceCell {
+                domain: cursor.domain,
+                row: cursor.row.saturating_sub(1),
+                column: 0,
+            },
+        )?;
         let previous_column = previous_line.chars().count().saturating_sub(1);
         return copy_mode_backward_word_target(
             terminal,
             SelectionSourceCell {
+                domain: cursor.domain,
                 row: cursor.row.saturating_sub(1),
                 column: previous_column,
             },
         );
     }
 
-    let line = copy_mode_source_line(terminal, cursor.row)?;
+    let line = copy_mode_source_line(terminal, cursor)?;
     let line_len = line.chars().count();
     if line_len == 0 {
         return None;
@@ -99845,11 +100107,19 @@ fn copy_mode_backward_word_target(
     }
 
     if last_was_whitespace && cursor.row > 0 {
-        let previous_line = copy_mode_source_line(terminal, cursor.row.saturating_sub(1))?;
+        let previous_line = copy_mode_source_line(
+            terminal,
+            SelectionSourceCell {
+                domain: cursor.domain,
+                row: cursor.row.saturating_sub(1),
+                column: 0,
+            },
+        )?;
         let previous_column = previous_line.chars().count().saturating_sub(1);
         return copy_mode_backward_word_target(
             terminal,
             SelectionSourceCell {
+                domain: cursor.domain,
                 row: cursor.row.saturating_sub(1),
                 column: previous_column,
             },
@@ -99857,6 +100127,7 @@ fn copy_mode_backward_word_target(
     }
 
     Some(SelectionSourceCell {
+        domain: cursor.domain,
         row: cursor.row,
         column: target_column,
     })
@@ -99866,10 +100137,10 @@ fn copy_mode_forward_word_target(
     terminal: &Terminal,
     cursor: SelectionSourceCell,
 ) -> Option<SelectionSourceCell> {
-    let line = copy_mode_source_line(terminal, cursor.row)?;
+    let line = copy_mode_source_line(terminal, cursor)?;
     let line_len = line.chars().count();
     if line_len == 0 {
-        return copy_mode_next_line_content_target(terminal, cursor.row);
+        return copy_mode_next_line_content_target(terminal, cursor.domain, cursor.row);
     }
 
     let cursor_column = cursor.column.min(line_len);
@@ -99890,8 +100161,9 @@ fn copy_mode_forward_word_target(
     }
 
     if target_column >= line_len {
-        return copy_mode_next_line_content_target(terminal, cursor.row).or(Some(
+        return copy_mode_next_line_content_target(terminal, cursor.domain, cursor.row).or(Some(
             SelectionSourceCell {
+                domain: cursor.domain,
                 row: cursor.row,
                 column: line_len.saturating_sub(1),
             },
@@ -99899,6 +100171,7 @@ fn copy_mode_forward_word_target(
     }
 
     Some(SelectionSourceCell {
+        domain: cursor.domain,
         row: cursor.row,
         column: target_column,
     })
@@ -99908,20 +100181,21 @@ fn copy_mode_forward_word_end_target(
     terminal: &Terminal,
     cursor: SelectionSourceCell,
 ) -> Option<SelectionSourceCell> {
-    let line = copy_mode_source_line(terminal, cursor.row)?;
+    let line = copy_mode_source_line(terminal, cursor)?;
     let line_len = line.chars().count();
     if line_len == 0 {
-        return copy_mode_next_line_content_target(terminal, cursor.row);
+        return copy_mode_next_line_content_target(terminal, cursor.domain, cursor.row);
     }
 
     let cursor_column = cursor.column.min(line_len.saturating_sub(1));
     if cursor_column >= line_len.saturating_sub(1) {
-        return copy_mode_next_line_first_word_end_target(terminal, cursor.row).or(Some(
-            SelectionSourceCell {
+        return copy_mode_next_line_first_word_end_target(terminal, cursor.domain, cursor.row).or(
+            Some(SelectionSourceCell {
+                domain: cursor.domain,
                 row: cursor.row,
                 column: line_len.saturating_sub(1),
-            },
-        ));
+            }),
+        );
     }
 
     let suffix = copy_mode_suffix_word_segments(&copy_mode_word_segments(&line), cursor_column);
@@ -99946,6 +100220,7 @@ fn copy_mode_forward_word_end_target(
     }
 
     Some(SelectionSourceCell {
+        domain: cursor.domain,
         row: cursor.row,
         column: word_end.saturating_sub(1),
     })
@@ -99953,19 +100228,18 @@ fn copy_mode_forward_word_end_target(
 
 fn copy_mode_next_line_content_target(
     terminal: &Terminal,
-    source_row: usize,
+    domain: TerminalScreenDomain,
+    source_row: StableRowIndex,
 ) -> Option<SelectionSourceCell> {
     let next_row = source_row.checked_add(1)?;
-    let row_count = terminal
-        .scrollback()
-        .len()
-        .saturating_add(usize::from(terminal.grid().size().rows));
-    if next_row >= row_count {
+    let retained = terminal.retained_stable_range();
+    if domain != terminal.stable_dimensions().domain || next_row >= retained.end {
         return None;
     }
 
-    let (column, _) = copy_mode_line_content_bounds(terminal, next_row)?;
+    let (column, _) = copy_mode_line_content_bounds(terminal, domain, next_row)?;
     Some(SelectionSourceCell {
+        domain,
         row: next_row,
         column,
     })
@@ -99973,19 +100247,32 @@ fn copy_mode_next_line_content_target(
 
 fn copy_mode_next_line_first_word_end_target(
     terminal: &Terminal,
-    source_row: usize,
+    domain: TerminalScreenDomain,
+    source_row: StableRowIndex,
 ) -> Option<SelectionSourceCell> {
-    let target = copy_mode_next_line_content_target(terminal, source_row)?;
+    let target = copy_mode_next_line_content_target(terminal, domain, source_row)?;
     copy_mode_forward_word_end_target(terminal, target)
 }
 
-fn copy_mode_source_line(terminal: &Terminal, source_row: usize) -> Option<String> {
+fn copy_mode_source_line(terminal: &Terminal, source: SelectionSourceCell) -> Option<String> {
     let columns = usize::from(terminal.grid().size().columns);
     if columns == 0 {
         return None;
     }
 
-    terminal.text_from_region(0, source_row, columns.saturating_sub(1), source_row)
+    terminal.text_from_stable_selection(StableSelectionRange {
+        start: StableSelectionCoordinate {
+            domain: source.domain,
+            row: source.row,
+            column: 0,
+        },
+        end: StableSelectionCoordinate {
+            domain: source.domain,
+            row: source.row,
+            column: columns.saturating_sub(1),
+        },
+        rectangular: false,
+    })
 }
 
 fn copy_mode_word_segments(line: &str) -> Vec<WindowCopyWordSegment> {
@@ -100078,10 +100365,12 @@ fn copy_mode_source_selection(
 
             Some(WindowSourceSelection::new(
                 SelectionSourceCell {
+                    domain: copy_mode.source_cursor.domain,
                     row: copy_mode.source_cursor.row,
                     column: 0,
                 },
                 SelectionSourceCell {
+                    domain: copy_mode.source_cursor.domain,
                     row: copy_mode.source_cursor.row,
                     column: usize::from(size.columns.saturating_sub(1)),
                 },
@@ -100103,7 +100392,7 @@ fn copy_mode_word_source_selection(
         return None;
     }
 
-    let line = copy_mode_source_line(terminal, cursor.row)?;
+    let line = copy_mode_source_line(terminal, cursor)?;
     let characters = line.chars().collect::<Vec<_>>();
     if characters.is_empty() {
         return None;
@@ -100135,10 +100424,12 @@ fn copy_mode_word_source_selection(
 
     Some(WindowSourceSelection::new(
         SelectionSourceCell {
+            domain: cursor.domain,
             row: cursor.row,
             column: start_column,
         },
         SelectionSourceCell {
+            domain: cursor.domain,
             row: cursor.row,
             column: end_column,
         },
@@ -100150,21 +100441,24 @@ fn copy_mode_semantic_zone_source_selection(
     cursor: SelectionSourceCell,
 ) -> Option<WindowSourceSelection> {
     let size = terminal.grid().size();
-    let row_count = terminal
-        .scrollback()
-        .len()
-        .saturating_add(usize::from(size.rows));
-    if cursor.row >= row_count || cursor.column >= usize::from(size.columns) {
+    let retained = terminal.retained_stable_range();
+    if cursor.domain != terminal.stable_dimensions().domain
+        || cursor.row < retained.start
+        || cursor.row >= retained.end
+        || cursor.column >= usize::from(size.columns)
+    {
         return None;
     }
 
-    let zone = terminal.semantic_zone_at(cursor.column, cursor.row)?;
+    let zone = terminal.stable_semantic_zone_at(cursor.column, cursor.row)?;
     Some(WindowSourceSelection::new(
         SelectionSourceCell {
+            domain: cursor.domain,
             row: zone.start_y,
             column: zone.start_x,
         },
         SelectionSourceCell {
+            domain: cursor.domain,
             row: zone.end_y,
             column: zone.end_x,
         },
@@ -100173,7 +100467,8 @@ fn copy_mode_semantic_zone_source_selection(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SelectionSourceCell {
-    row: usize,
+    domain: TerminalScreenDomain,
+    row: StableRowIndex,
     column: usize,
 }
 
@@ -100202,30 +100497,39 @@ impl WindowSourceSelection {
     }
 
     fn text_from_terminal(self, terminal: &Terminal) -> Option<String> {
-        if self.rectangular {
-            let (start, end) = self.normalized_rectangular();
-            let mut lines = Vec::new();
-            for row in start.row..=end.row {
-                lines.push(terminal.text_from_region(start.column, row, end.column, row)?);
-            }
-            return Some(lines.join("\n"));
-        }
-
-        let (start, end) = self.normalized();
-        terminal.text_from_region(start.column, start.row, end.column, end.row)
+        terminal.text_from_stable_selection(StableSelectionRange {
+            start: StableSelectionCoordinate {
+                domain: self.anchor.domain,
+                row: self.anchor.row,
+                column: self.anchor.column,
+            },
+            end: StableSelectionCoordinate {
+                domain: self.focus.domain,
+                row: self.focus.row,
+                column: self.focus.column,
+            },
+            rectangular: self.rectangular,
+        })
     }
 
     fn viewport_selection(
         self,
-        viewport_top: usize,
+        domain: TerminalScreenDomain,
+        viewport_top: StableRowIndex,
         size: TerminalSize,
     ) -> Option<WindowSelection> {
-        if size.rows == 0 || size.columns == 0 {
+        if size.rows == 0
+            || size.columns == 0
+            || self.anchor.domain != domain
+            || self.focus.domain != domain
+        {
             return None;
         }
 
         let (start, end) = self.normalized();
-        let viewport_bottom = viewport_top.saturating_add(usize::from(size.rows.saturating_sub(1)));
+        let viewport_bottom = viewport_top.saturating_add(
+            StableRowIndex::try_from(size.rows.saturating_sub(1)).unwrap_or(StableRowIndex::MAX),
+        );
         let first_row = start.row.max(viewport_top);
         let last_row = end.row.min(viewport_bottom);
         if first_row > last_row {
@@ -100313,10 +100617,12 @@ impl WindowSourceSelection {
 
         (
             SelectionSourceCell {
+                domain: self.anchor.domain,
                 row: start_row,
                 column: start_column,
             },
             SelectionSourceCell {
+                domain: self.anchor.domain,
                 row: end_row,
                 column: end_column,
             },
@@ -118785,8 +119091,8 @@ fn quick_select_labels_for_alphabet(alphabet: &str, num_matches: usize) -> Vec<S
 fn find_window_quick_select_matches_with_patterns(
     terminal: &rssh_terminal::Terminal,
     patterns: &[WindowQuickSelectPatternRef<'_>],
-    source_row_start: usize,
-    source_row_end: usize,
+    source_row_start: StableRowIndex,
+    source_row_end: StableRowIndex,
 ) -> Vec<WindowSearchMatch> {
     let cells = terminal_search_cells(terminal)
         .into_iter()
@@ -118851,17 +119157,24 @@ fn quick_select_source_row_scope(
     terminal: &rssh_terminal::Terminal,
     scrollback_offset: usize,
     scope_lines: usize,
-) -> (usize, usize) {
-    let history_len = terminal.scrollback().len();
+) -> (StableRowIndex, StableRowIndex) {
+    let dimensions = terminal.stable_dimensions();
     let viewport_rows = usize::from(terminal.grid().size().rows);
-    let viewport_top = copy_mode_viewport_top(history_len, scrollback_offset);
-    let total_rows = history_len.saturating_add(viewport_rows);
+    let viewport_top = dimensions
+        .physical_top
+        .saturating_sub(StableRowIndex::try_from(scrollback_offset).unwrap_or(StableRowIndex::MAX));
     let effective_scope_lines = scope_lines.max(viewport_rows);
-    let row_start = viewport_top.saturating_sub(effective_scope_lines);
+    let effective_scope_lines =
+        StableRowIndex::try_from(effective_scope_lines).unwrap_or(StableRowIndex::MAX);
+    let viewport_rows = StableRowIndex::try_from(viewport_rows).unwrap_or(StableRowIndex::MAX);
+    let retained = terminal.retained_stable_range();
+    let row_start = viewport_top
+        .saturating_sub(effective_scope_lines)
+        .max(retained.start);
     let row_end = viewport_top
         .saturating_add(viewport_rows)
         .saturating_add(effective_scope_lines)
-        .min(total_rows);
+        .min(retained.end);
     (row_start, row_end)
 }
 
@@ -118959,6 +119272,7 @@ fn byte_range_to_window_search_match(
     let start = cells.get(start_index)?;
     let end = cells.get(end_index)?;
     Some(WindowSearchMatch {
+        domain: start.domain,
         source_row: start.source_row,
         start_column: start.column,
         end_source_row: end.source_row,
@@ -119003,53 +119317,54 @@ fn notification_status(notification: &TerminalNotification) -> String {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WindowSearchMatch {
-    source_row: usize,
+    domain: TerminalScreenDomain,
+    source_row: StableRowIndex,
     start_column: u16,
-    end_source_row: usize,
+    end_source_row: StableRowIndex,
     end_column: u16,
 }
 
 impl WindowSearchMatch {
-    fn viewport_position(self, scrollback_len: usize) -> (usize, u16) {
-        if self.source_row < scrollback_len {
-            (scrollback_len - self.source_row, 0)
-        } else {
-            let row = self.source_row.saturating_sub(scrollback_len);
-            (0, u16::try_from(row).unwrap_or(u16::MAX))
-        }
+    fn is_retained(self, terminal: &Terminal) -> bool {
+        self.domain == terminal.stable_dimensions().domain
+            && self
+                .end_source_row
+                .checked_add(1)
+                .is_some_and(|end| terminal.is_stable_range_fully_retained(self.source_row..end))
     }
 
-    fn viewport_selection(self, scrollback_len: usize) -> (usize, WindowSelection) {
-        let (offset, start_row) = self.viewport_position(scrollback_len);
-        let first_source_row = scrollback_len.saturating_sub(offset);
-        let end_row = self.end_source_row.saturating_sub(first_source_row);
-        let end_row = u16::try_from(end_row).unwrap_or(u16::MAX);
-
-        (
+    fn viewport_selection(self, terminal: &Terminal) -> Option<(usize, WindowSelection)> {
+        let dimensions = terminal.stable_dimensions();
+        if !self.is_retained(terminal) {
+            return None;
+        }
+        let top = if self.source_row < dimensions.physical_top {
+            self.source_row.max(dimensions.scrollback_top)
+        } else {
+            dimensions.physical_top
+        };
+        let offset = dimensions
+            .physical_top
+            .checked_sub(top)
+            .and_then(|offset| usize::try_from(offset).ok())?;
+        Some((
             offset,
-            WindowSelection::new(
-                SelectionCell {
-                    row: start_row,
-                    column: self.start_column,
-                },
-                SelectionCell {
-                    row: end_row,
-                    column: self.end_column,
-                },
-            ),
-        )
+            self.viewport_selection_for_top(dimensions.domain, top, terminal.grid().size())?,
+        ))
     }
 
     fn viewport_selection_for_top(
         self,
-        viewport_top: usize,
+        domain: TerminalScreenDomain,
+        viewport_top: StableRowIndex,
         size: rssh_core::TerminalSize,
     ) -> Option<WindowSelection> {
-        if size.rows == 0 || size.columns == 0 {
+        if size.rows == 0 || size.columns == 0 || self.domain != domain {
             return None;
         }
 
-        let viewport_bottom = viewport_top.saturating_add(usize::from(size.rows));
+        let viewport_bottom = viewport_top
+            .saturating_add(StableRowIndex::try_from(size.rows).unwrap_or(StableRowIndex::MAX));
         if self.end_source_row < viewport_top || self.source_row >= viewport_bottom {
             return None;
         }
@@ -119139,7 +119454,7 @@ fn find_window_search_match_with_type(
 fn find_window_search_page_match_with_type(
     terminal: &rssh_terminal::Terminal,
     query: &str,
-    viewport_top: usize,
+    viewport_top: StableRowIndex,
     viewport_rows: usize,
     direction: SearchDirection,
     match_type: WindowSearchMatchType,
@@ -119153,14 +119468,29 @@ fn find_window_search_page_match_with_type(
         return None;
     }
 
+    let retained = terminal.retained_stable_range();
     let (page_start, page_end) = match direction {
         SearchDirection::Next => {
+            let viewport_rows =
+                StableRowIndex::try_from(viewport_rows).unwrap_or(StableRowIndex::MAX);
             let start = viewport_top.saturating_add(viewport_rows);
-            (start, start.saturating_add(viewport_rows.saturating_sub(1)))
+            (
+                start.min(retained.end),
+                start
+                    .saturating_add(viewport_rows.saturating_sub(1))
+                    .min(retained.end.saturating_sub(1)),
+            )
         }
         SearchDirection::Previous => {
-            let end = viewport_top.saturating_sub(1);
-            (viewport_top.saturating_sub(viewport_rows), end)
+            let viewport_rows =
+                StableRowIndex::try_from(viewport_rows).unwrap_or(StableRowIndex::MAX);
+            let end = viewport_top.saturating_sub(1).max(retained.start);
+            (
+                viewport_top
+                    .saturating_sub(viewport_rows)
+                    .max(retained.start),
+                end,
+            )
         }
     };
 
@@ -119266,6 +119596,7 @@ fn literal_window_search_matches(
                 let start = candidate.first()?;
                 let end = candidate.last()?;
                 Some(WindowSearchMatch {
+                    domain: start.domain,
                     source_row: start.source_row,
                     start_column: start.column,
                     end_source_row: end.source_row,
@@ -119308,6 +119639,7 @@ fn regex_window_search_matches(
             let start = cells.get(start_index)?;
             let end = cells.get(end_index)?;
             Some(WindowSearchMatch {
+                domain: start.domain,
                 source_row: start.source_row,
                 start_column: start.column,
                 end_source_row: end.source_row,
@@ -119345,21 +119677,27 @@ fn terminal_search_lines(terminal: &rssh_terminal::Terminal) -> Vec<String> {
 #[derive(Clone, Copy)]
 struct WindowSearchCell {
     character: char,
-    source_row: usize,
+    domain: TerminalScreenDomain,
+    source_row: StableRowIndex,
     column: u16,
 }
 
 fn terminal_search_cells(terminal: &rssh_terminal::Terminal) -> Vec<WindowSearchCell> {
+    let dimensions = terminal.stable_dimensions();
     terminal_search_lines(terminal)
         .into_iter()
         .enumerate()
         .flat_map(|(source_row, line)| {
+            let source_row = dimensions.scrollback_top.saturating_add(
+                StableRowIndex::try_from(source_row).unwrap_or(StableRowIndex::MAX),
+            );
             line.trim_end_matches(' ')
                 .chars()
                 .enumerate()
                 .filter_map(move |(column, character)| {
                     Some(WindowSearchCell {
                         character,
+                        domain: dimensions.domain,
                         source_row,
                         column: u16::try_from(column).ok()?,
                     })
@@ -121084,11 +121422,11 @@ fn badge_window_title_override<'a>(
 
 fn last_command_from_terminal(terminal: &Terminal) -> Option<String> {
     let latest_exit_row = terminal
-        .semantic_command_exits()
+        .stable_semantic_command_exits()
         .last()
         .map(|exit| exit.row);
     let mut input_zones = terminal
-        .semantic_zones()
+        .stable_semantic_zones()
         .into_iter()
         .rev()
         .filter(|zone| zone.semantic_type == SemanticType::Input);
@@ -121096,7 +121434,20 @@ fn last_command_from_terminal(terminal: &Terminal) -> Option<String> {
         Some(row) => input_zones.find(|zone| zone.start_y <= row)?,
         None => input_zones.next()?,
     };
-    let command = terminal.text_from_semantic_zone(zone)?;
+    let domain = terminal.stable_dimensions().domain;
+    let command = terminal.text_from_stable_selection(StableSelectionRange {
+        start: StableSelectionCoordinate {
+            domain,
+            row: zone.start_y,
+            column: zone.start_x,
+        },
+        end: StableSelectionCoordinate {
+            domain,
+            row: zone.end_y,
+            column: zone.end_x,
+        },
+        rectangular: false,
+    })?;
     let command = command.trim();
     (!command.is_empty()).then(|| command.to_owned())
 }
@@ -161206,12 +161557,19 @@ return config
 
         app.handle_pty_output(b"p2a\r\np2b\r\np2c\r\np2d\r\np2e\r\np2f\r\np2g")
             .unwrap();
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         let inactive_offset = app
             .pane_runtimes
             .get(&rssh_core::PaneId::new(1))
             .expect("pane one runtime should be inactive")
-            .scrollback_offset;
+            .stable_viewport
+            .scrollback_offset(
+                app.pane_runtimes
+                    .get(&rssh_core::PaneId::new(1))
+                    .expect("pane one runtime should be inactive")
+                    .runtime
+                    .terminal(),
+            );
         assert_eq!(inactive_offset, 1);
 
         app.handle_cursor_moved(PhysicalPosition::new(
@@ -161224,12 +161582,15 @@ return config
                 .unwrap()
         );
 
-        assert!(app.scrollback_offset > 0);
+        assert!(app.current_scrollback_offset() > 0);
+        let inactive_runtime = app
+            .pane_runtimes
+            .get(&rssh_core::PaneId::new(1))
+            .expect("pane one runtime should remain inactive");
         assert_eq!(
-            app.pane_runtimes
-                .get(&rssh_core::PaneId::new(1))
-                .expect("pane one runtime should remain inactive")
-                .scrollback_offset,
+            inactive_runtime
+                .stable_viewport
+                .scrollback_offset(inactive_runtime.runtime.terminal()),
             inactive_offset
         );
         assert!(
@@ -161400,7 +161761,7 @@ return config
                 .unwrap()
         );
 
-        assert_eq!(app.scrollback_offset, 3);
+        assert_eq!(app.current_scrollback_offset(), 3);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
         assert!(app.selection.is_none());
         assert!(!app.selecting);
@@ -161433,7 +161794,7 @@ return config
         ))
         .unwrap();
 
-        assert_eq!(app.scrollback_offset, 3);
+        assert_eq!(app.current_scrollback_offset(), 3);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
         assert!(
             app.handle_mouse_input(ElementState::Released, MouseButton::Left)
@@ -182962,7 +183323,7 @@ return config
         app.handle_pty_output(b"\rone\r\ntwo\r\nthree\r\nfour")
             .unwrap();
         app.scroll_viewport_lines(1);
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert!(!app.runtime.terminal().scrollback().is_empty());
         app.selection = Some(WindowSelection::new(
             SelectionCell { row: 0, column: 0 },
@@ -182984,7 +183345,7 @@ return config
             .expect("pane should materialize as a detached window");
 
         assert!(detached.selection.is_none());
-        assert_eq!(detached.scrollback_offset, 1);
+        assert_eq!(detached.current_scrollback_offset(), 1);
         assert!(!detached.runtime.terminal().scrollback().is_empty());
         assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
         assert_eq!(app.selected_text().as_deref(), Some("left"));
@@ -185897,7 +186258,7 @@ return config
         app.write_pty_bytes(b"x").unwrap();
 
         assert_eq!(written.lock().unwrap().as_slice(), b"x");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
     }
 
@@ -185917,7 +186278,7 @@ return config
         app.write_pty_bytes(b"x").unwrap();
 
         assert_eq!(written.lock().unwrap().as_slice(), b"x");
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
     }
 
@@ -185950,6 +186311,245 @@ return config
     }
 
     #[test]
+    fn window_app_wheel_updates_stable_viewport_top() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
+        let physical_top = app.runtime.terminal().stable_dimensions().physical_top;
+
+        assert!(app.handle_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0)));
+
+        assert_eq!(
+            app.current_stable_viewport_top(),
+            physical_top.checked_sub(1)
+        );
+    }
+
+    #[test]
+    fn window_app_page_scroll_updates_stable_viewport_top() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
+            .unwrap();
+
+        app.command_palette_execute(WindowCommand::ScrollPageUp);
+
+        assert_eq!(
+            app.current_stable_viewport_top(),
+            app.runtime
+                .terminal()
+                .stable_dimensions()
+                .physical_top
+                .checked_sub(2)
+        );
+    }
+
+    #[test]
+    fn window_app_scrollbar_drag_updates_stable_viewport_top() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            enable_scroll_bar: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
+            .unwrap();
+
+        assert!(app.scroll_to_scrollbar_position(PhysicalPosition::new(
+            f64::from(FRAME_WIDTH - 1),
+            f64::from(tab_bar_pixel_height()),
+        )));
+
+        assert_eq!(
+            app.current_stable_viewport_top(),
+            Some(app.runtime.terminal().stable_dimensions().scrollback_top)
+        );
+    }
+
+    #[test]
+    fn window_app_scroll_to_prompt_updates_stable_viewport_top() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(
+            b"\x1b]133;A\x07> one\r\nout1\r\n\x1b]133;A\x07> two\r\nout2\r\n\x1b]133;A\x07> three\r\nlive",
+        )
+        .unwrap();
+        let prompt_rows = app.runtime.terminal().stable_semantic_prompt_rows();
+
+        app.scroll_to_prompt(-2);
+
+        assert_eq!(app.current_stable_viewport_top(), Some(prompt_rows[0]));
+    }
+
+    #[test]
+    fn window_app_scrolled_back_viewport_stays_on_same_stable_top_after_output() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
+        app.scroll_viewport_lines(1);
+        let stable_top = app.current_stable_viewport_top();
+
+        app.handle_pty_output(b"\r\ndd").unwrap();
+
+        assert_eq!(app.current_stable_viewport_top(), stable_top);
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "aa  ");
+    }
+
+    #[test]
+    fn window_app_main_viewport_restores_after_alternate_screen() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
+        app.scroll_viewport_lines(1);
+        let main_top = app.current_stable_viewport_top();
+
+        app.handle_pty_output(b"\x1b[?1049halt").unwrap();
+        assert_eq!(app.current_stable_viewport_top(), None);
+
+        app.handle_pty_output(b"\x1b[?1049l").unwrap();
+        assert_eq!(app.current_stable_viewport_top(), main_top);
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "aa  ");
+    }
+
+    #[test]
+    fn window_app_prune_clamps_stable_viewport() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd").unwrap();
+        app.scroll_viewport_lines(2);
+
+        app.runtime.set_scrollback_limit(1);
+        app.refresh_snapshot();
+
+        assert_eq!(
+            app.current_stable_viewport_top(),
+            Some(app.runtime.terminal().stable_dimensions().scrollback_top)
+        );
+    }
+
+    #[test]
+    fn window_app_active_and_inactive_stable_viewports_are_independent() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"left-1\r\nleft-2\r\nleft-3")
+            .unwrap();
+        app.scroll_viewport_lines(1);
+        let left_top = app.current_stable_viewport_top();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"right-1\r\nright-2\r\nright-3")
+            .unwrap();
+        app.scroll_viewport_lines(1);
+        let right_top = app.current_stable_viewport_top();
+
+        app.dispatch_app_action(AppAction::ActivatePaneByIndex { index: 0 })
+            .unwrap();
+        assert_eq!(app.current_stable_viewport_top(), left_top);
+
+        app.dispatch_app_action(AppAction::ActivatePaneByIndex { index: 1 })
+            .unwrap();
+        assert_eq!(app.current_stable_viewport_top(), right_top);
+    }
+
+    #[test]
+    fn window_app_copy_mode_cursor_survives_history_growth() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
+        app.enter_copy_mode();
+        assert!(app.move_copy_mode_to_scrollback_top());
+        let source_cursor = app.copy_mode.as_ref().unwrap().source_cursor;
+
+        app.handle_pty_output(b"\r\ndd\r\nee").unwrap();
+
+        let retained_cursor = app.copy_mode.as_ref().unwrap().source_cursor;
+        assert_eq!(retained_cursor, source_cursor);
+        assert_eq!(
+            retained_cursor.domain,
+            rssh_terminal::TerminalScreenDomain::Main
+        );
+    }
+
+    #[test]
+    fn window_app_search_matches_do_not_retarget_after_prune() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.runtime.set_scrollback_limit(2);
+        app.handle_pty_output(b"needle-old\r\nkeep\r\nlive")
+            .unwrap();
+        app.enter_search_mode();
+        assert!(app.update_search_query("needle-old"));
+        let matched = app.search.as_ref().unwrap().current.unwrap();
+        assert_eq!(matched.domain, rssh_terminal::TerminalScreenDomain::Main);
+
+        app.handle_pty_output(b"\r\nnew-1\r\nnew-2\r\nnew-3")
+            .unwrap();
+
+        assert!(
+            app.search
+                .as_ref()
+                .is_some_and(|search| search.current.is_none())
+        );
+        assert_ne!(
+            app.runtime
+                .terminal()
+                .history_index_to_stable_row(0)
+                .unwrap(),
+            matched.source_row
+        );
+    }
+
+    #[test]
+    fn window_app_search_projection_tracks_stable_viewport() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 3));
+        app.handle_pty_output(b"foo 0\r\nfoo 1\r\nfoo 2\r\nfoo 3\r\nfoo 4")
+            .unwrap();
+        assert!(app.update_search_query("foo"));
+        assert!(app.step_search(SearchDirection::Previous));
+        let matched = app.search.as_ref().unwrap().current;
+        assert_eq!(app.selection.unwrap().anchor.row, 1);
+
+        app.scroll_viewport_lines(1);
+
+        assert_eq!(app.search.as_ref().unwrap().current, matched);
+        assert_eq!(app.selection.unwrap().anchor.row, 2);
+    }
+
+    #[test]
+    fn window_app_quick_select_matches_do_not_retarget_after_prune() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+        app.runtime.set_scrollback_limit(2);
+        app.handle_pty_output(b"https://old.test\r\nkeep\r\nlive")
+            .unwrap();
+        app.enter_quick_select_mode();
+        let matched = app.quick_select.as_ref().unwrap().matches[0];
+        assert_eq!(matched.domain, rssh_terminal::TerminalScreenDomain::Main);
+
+        app.handle_pty_output(b"\r\nnew-1\r\nnew-2\r\nnew-3")
+            .unwrap();
+
+        assert!(
+            app.quick_select
+                .as_ref()
+                .is_some_and(|quick_select| quick_select.matches.is_empty())
+        );
+        assert!(app.selection.is_none());
+        assert_ne!(
+            app.runtime
+                .terminal()
+                .history_index_to_stable_row(0)
+                .unwrap(),
+            matched.source_row
+        );
+    }
+
+    #[test]
     fn window_app_disable_default_mouse_bindings_suppresses_default_wheel_scrollback() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
@@ -185964,7 +186564,7 @@ return config
                 .unwrap()
         );
 
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
     }
 
@@ -185983,7 +186583,7 @@ return config
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"\x1b[A\x1b[A\x1b[A");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
     }
 
     #[test]
@@ -186028,7 +186628,7 @@ return config
         );
 
         assert!(written.lock().unwrap().is_empty());
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
     }
 
@@ -186068,7 +186668,7 @@ return config
                 .is_ok()
         );
 
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
     }
 
@@ -186084,7 +186684,7 @@ return config
                 .is_ok()
         );
 
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
 
         app.current_mouse_wheel_delta = Some(MouseScrollDelta::LineDelta(1.0, 0.0));
@@ -186093,7 +186693,7 @@ return config
                 .is_ok()
         );
 
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
     }
 
@@ -187827,12 +188427,12 @@ return config
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("g".into()), ModifiersState::empty()));
         assert!(app.handle_copy_mode_key(&Key::Character("V".into()), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 4);
+        assert_eq!(app.current_scrollback_offset(), 4);
 
         assert!(app.handle_copy_mode_key(&Key::Character("y".into()), ModifiersState::empty()));
 
         assert!(app.copy_mode.is_none());
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
         assert_eq!(clipboard.lock().unwrap().as_slice(), ["aa"]);
@@ -188098,7 +188698,7 @@ return config
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 12), "live        ");
 
         app.enter_copy_mode();
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 4 })
@@ -188117,7 +188717,7 @@ return config
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("z".into()), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
@@ -188147,7 +188747,7 @@ return config
         app.handle_copy_mode_key(&Key::Character("z".into()), ModifiersState::empty());
         app.handle_copy_mode_key(&Key::Character("z".into()), ModifiersState::empty());
 
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(app.selected_text().as_deref(), Some("midout\n> two\nlive"));
         assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
         assert!(snapshot_cell(&app.snapshot, 1, 0).unwrap().inverse);
@@ -188240,21 +188840,21 @@ return config
             .unwrap();
 
         app.enter_copy_mode();
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("k".into()), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("k".into()), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "cc  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "dd  ");
         assert_eq!(
@@ -188263,14 +188863,14 @@ return config
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("j".into()), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("j".into()), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "dd  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ee  ");
         assert_eq!(
@@ -188287,12 +188887,12 @@ return config
             .unwrap();
 
         app.enter_copy_mode();
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
 
         assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::PageUp), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "dd  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ee  ");
         assert_eq!(
@@ -188301,7 +188901,7 @@ return config
         );
 
         assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::PageDown), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
         assert_eq!(
@@ -188325,7 +188925,7 @@ return config
         app.command_palette_apply_command(command)
             .expect("CopyMode PageUp should dispatch");
 
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "dd  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ee  ");
         assert_eq!(
@@ -188339,7 +188939,7 @@ return config
         app.command_palette_apply_command(command)
             .expect("CopyMode PageDown should dispatch");
 
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
         assert_eq!(
@@ -188357,7 +188957,7 @@ return config
 
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::PageUp), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
 
         let command = super::command_palette_structured_query_command(
             "wezterm.action.CopyMode 'ScrollToBottom'",
@@ -188366,7 +188966,7 @@ return config
         app.command_palette_apply_command(command)
             .expect("CopyMode ScrollToBottom should dispatch");
 
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.copy_mode.is_some());
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
@@ -188392,7 +188992,7 @@ return config
         app.command_palette_apply_command(command)
             .expect("CopyMode MoveByPage up should dispatch");
 
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
@@ -188405,7 +189005,7 @@ return config
         app.command_palette_apply_command(command)
             .expect("CopyMode MoveByPage down should dispatch");
 
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 3, column: 2 })
@@ -188420,12 +189020,12 @@ return config
             .unwrap();
 
         app.enter_copy_mode();
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
 
         assert!(app.handle_copy_mode_key(&Key::Character("g".into()), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 4);
+        assert_eq!(app.current_scrollback_offset(), 4);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "aa  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "bb  ");
         assert_eq!(
@@ -188434,7 +189034,7 @@ return config
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("G".into()), ModifiersState::SHIFT));
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
         assert_eq!(
@@ -188452,13 +189052,13 @@ return config
 
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("g".into()), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 4);
+        assert_eq!(app.current_scrollback_offset(), 4);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "aa  ");
 
         assert!(app.handle_copy_mode_key(&Key::Character("q".into()), ModifiersState::empty()));
 
         assert!(app.copy_mode.is_none());
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
     }
@@ -188490,12 +189090,12 @@ return config
 
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("g".into()), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "aa  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 3, 4), "dd  ");
 
         assert!(app.handle_copy_mode_key(&Key::Character("G".into()), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "cc  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 3, 4), "ff  ");
         assert_eq!(
@@ -188531,7 +189131,7 @@ return config
 
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("g".into()), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "  aa    ");
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
@@ -188860,7 +189460,7 @@ return config
 
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("g".into()), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "aa bb   ");
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
@@ -188886,7 +189486,7 @@ return config
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("b".into()), ModifiersState::empty()));
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 3 })
@@ -191463,7 +192063,7 @@ return config
         assert_eq!(app.selected_text().as_deref(), Some("alpha"));
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
         assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(app.scrollback_offset > 0);
+        assert!(app.current_scrollback_offset() > 0);
     }
 
     #[test]
@@ -191535,7 +192135,7 @@ return config
         assert_eq!(snapshot_char(&app.snapshot, 1, 0), Some('b'));
         assert!(snapshot_cell(&app.snapshot, 0, 3).unwrap().inverse);
         assert!(snapshot_cell(&app.snapshot, 1, 3).unwrap().inverse);
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
     }
 
     #[test]
@@ -191551,7 +192151,7 @@ return config
         assert_eq!(snapshot_char(&app.snapshot, 1, 3), Some('a'));
         assert!(snapshot_cell(&app.snapshot, 0, 3).unwrap().inverse);
         assert!(snapshot_cell(&app.snapshot, 1, 3).unwrap().inverse);
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
     }
 
     #[test]
@@ -191567,7 +192167,7 @@ return config
         assert_eq!(snapshot_char(&app.snapshot, 1, 3), Some('a'));
         assert!(snapshot_cell(&app.snapshot, 0, 3).unwrap().inverse);
         assert!(snapshot_cell(&app.snapshot, 1, 3).unwrap().inverse);
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
     }
 
     #[test]
@@ -197128,13 +197728,13 @@ return config
         app.set_config_overrides(overrides);
         app.modifiers = ModifiersState::CONTROL;
 
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(
             app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 2.0))
                 .unwrap()
         );
 
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
     }
 
@@ -222123,7 +222723,7 @@ act.Confirmation {
         assert!(
             !app.handle_scrollback_shortcut(&Key::Named(NamedKey::PageUp), ModifiersState::SHIFT)
         );
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
     }
 
     #[test]
@@ -222139,7 +222739,7 @@ act.Confirmation {
         assert!(
             !app.handle_scrollback_shortcut(&Key::Named(NamedKey::PageUp), ModifiersState::SHIFT)
         );
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
     }
 
     #[test]
@@ -237167,7 +237767,7 @@ act.Confirmation {
         assert_eq!(app.runtime.terminal().scrollback().len(), 1);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "cd  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ef  ");
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -237176,7 +237776,7 @@ act.Confirmation {
         ));
 
         assert!(app.command_palette.is_none());
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.runtime.terminal().scrollback().is_empty());
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "cd  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ef  ");
@@ -237193,7 +237793,7 @@ act.Confirmation {
         assert_eq!(app.runtime.terminal().scrollback().len(), 1);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "cd  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ef  ");
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -237202,7 +237802,7 @@ act.Confirmation {
         ));
 
         assert!(app.command_palette.is_none());
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.runtime.terminal().scrollback().is_empty());
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "cd  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ef  ");
@@ -237220,7 +237820,7 @@ act.Confirmation {
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "cd  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ef  ");
         assert_eq!(app.runtime.terminal().cursor(), (1, 2));
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -237229,7 +237829,7 @@ act.Confirmation {
         ));
 
         assert!(app.command_palette.is_none());
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.runtime.terminal().scrollback().is_empty());
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ef  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "    ");
@@ -237245,7 +237845,7 @@ act.Confirmation {
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
         assert_eq!(app.runtime.terminal().scrollback().len(), 1);
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -237260,7 +237860,7 @@ act.Confirmation {
         app.command_palette_execute(commands[0].clone());
 
         assert!(app.command_palette.is_none());
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.runtime.terminal().scrollback().is_empty());
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "cd  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ef  ");
@@ -237276,7 +237876,7 @@ act.Confirmation {
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
         assert_eq!(app.runtime.terminal().scrollback().len(), 1);
         assert_eq!(app.runtime.terminal().cursor(), (1, 2));
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -237291,7 +237891,7 @@ act.Confirmation {
         app.command_palette_execute(commands[0].clone());
 
         assert!(app.command_palette.is_none());
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.runtime.terminal().scrollback().is_empty());
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ef  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "    ");
@@ -237460,7 +238060,7 @@ act.Confirmation {
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "cd  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ef  ");
         assert_eq!(app.runtime.terminal().cursor(), (1, 2));
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -237471,7 +238071,7 @@ act.Confirmation {
         app.command_palette_execute(commands[0].clone());
 
         assert!(app.command_palette.is_none());
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.runtime.terminal().scrollback().is_empty());
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ef  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "    ");
@@ -237487,7 +238087,7 @@ act.Confirmation {
             .unwrap();
         assert!(!app.runtime.terminal().cursor_visible());
         assert!(!app.runtime.terminal().scrollback().is_empty());
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -237498,7 +238098,7 @@ act.Confirmation {
         app.command_palette_execute(commands[0].clone());
 
         assert!(app.runtime.terminal().scrollback().is_empty());
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "    ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "    ");
         assert_eq!(app.runtime.terminal().cursor(), (0, 0));
@@ -237519,34 +238119,34 @@ act.Confirmation {
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ScrollToTop);
-        assert_eq!(app.scrollback_offset, 3);
+        assert_eq!(app.current_scrollback_offset(), 3);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
         assert!(app.command_palette.is_none());
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ScrollToBottom);
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('d'));
         assert!(app.command_palette.is_none());
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ScrollPageUp);
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert!(app.command_palette.is_none());
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ScrollLineDown);
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert!(app.command_palette.is_none());
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ScrollLineUp);
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert!(app.command_palette.is_none());
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ScrollPageDown);
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -237580,7 +238180,7 @@ act.Confirmation {
         app.command_palette_execute(WindowCommand::ScrollByPage(
             WindowScrollByPageAmount::from_per_mille(-500),
         ));
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
         assert!(app.command_palette.is_none());
 
@@ -237588,7 +238188,7 @@ act.Confirmation {
         app.command_palette_execute(WindowCommand::ScrollByPage(
             WindowScrollByPageAmount::from_per_mille(1_000),
         ));
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('d'));
         assert!(app.command_palette.is_none());
     }
@@ -237603,13 +238203,13 @@ act.Confirmation {
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ScrollByLine(-2));
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('b'));
         assert!(app.command_palette.is_none());
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ScrollByLine(1));
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
         assert!(app.command_palette.is_none());
     }
@@ -237626,13 +238226,13 @@ act.Confirmation {
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ScrollToPrompt(-2));
-        assert_eq!(app.scrollback_offset, 4);
+        assert_eq!(app.current_scrollback_offset(), 4);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "> one   ");
         assert!(app.command_palette.is_none());
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ScrollToPrompt(1));
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "> two   ");
         assert!(app.command_palette.is_none());
     }
@@ -237655,7 +238255,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::ScrollByLine(-2));
 
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('b'));
         assert!(app.command_palette.is_none());
     }
@@ -237678,7 +238278,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::ScrollByLine(-2));
 
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('b'));
         assert!(app.command_palette.is_none());
     }
@@ -237701,7 +238301,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::ScrollByLine(-2));
 
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('b'));
         assert!(app.command_palette.is_none());
     }
@@ -237724,7 +238324,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::ScrollByLine(-2));
 
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('b'));
         assert!(app.command_palette.is_none());
     }
@@ -237747,7 +238347,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::ScrollByLine(-2));
 
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('b'));
         assert!(app.command_palette.is_none());
     }
@@ -237770,7 +238370,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::ScrollByLine(-2));
 
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('b'));
         assert!(app.command_palette.is_none());
     }
@@ -237794,7 +238394,7 @@ act.Confirmation {
 
         app.command_palette_execute(expected);
 
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
         assert!(app.command_palette.is_none());
     }
@@ -237818,7 +238418,7 @@ act.Confirmation {
 
         app.command_palette_execute(expected);
 
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
         assert!(app.command_palette.is_none());
     }
@@ -237842,7 +238442,7 @@ act.Confirmation {
 
         app.command_palette_execute(expected);
 
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
         assert!(app.command_palette.is_none());
     }
@@ -237866,7 +238466,7 @@ act.Confirmation {
 
         app.command_palette_execute(expected);
 
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
         assert!(app.command_palette.is_none());
     }
@@ -237890,7 +238490,7 @@ act.Confirmation {
 
         app.command_palette_execute(expected);
 
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
         assert!(app.command_palette.is_none());
     }
@@ -237914,7 +238514,7 @@ act.Confirmation {
 
         app.command_palette_execute(expected);
 
-        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
         assert!(app.command_palette.is_none());
     }
@@ -237939,7 +238539,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::ScrollToPrompt(-2));
 
-        assert_eq!(app.scrollback_offset, 4);
+        assert_eq!(app.current_scrollback_offset(), 4);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "> one   ");
         assert!(app.command_palette.is_none());
     }
@@ -237964,7 +238564,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::ScrollToPrompt(-2));
 
-        assert_eq!(app.scrollback_offset, 4);
+        assert_eq!(app.current_scrollback_offset(), 4);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "> one   ");
         assert!(app.command_palette.is_none());
     }
@@ -237989,7 +238589,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::ScrollToPrompt(-2));
 
-        assert_eq!(app.scrollback_offset, 4);
+        assert_eq!(app.current_scrollback_offset(), 4);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "> one   ");
         assert!(app.command_palette.is_none());
     }
@@ -238014,7 +238614,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::ScrollToPrompt(-2));
 
-        assert_eq!(app.scrollback_offset, 4);
+        assert_eq!(app.current_scrollback_offset(), 4);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "> one   ");
         assert!(app.command_palette.is_none());
     }
@@ -238039,7 +238639,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::ScrollToPrompt(-2));
 
-        assert_eq!(app.scrollback_offset, 4);
+        assert_eq!(app.current_scrollback_offset(), 4);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "> one   ");
         assert!(app.command_palette.is_none());
     }
@@ -238064,7 +238664,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::ScrollToPrompt(-2));
 
-        assert_eq!(app.scrollback_offset, 4);
+        assert_eq!(app.current_scrollback_offset(), 4);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "> one   ");
         assert!(app.command_palette.is_none());
     }
@@ -238086,7 +238686,7 @@ act.Confirmation {
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ScrollToPreviousPrompt);
 
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "> two   ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 8), "out2    ");
         assert!(app.command_palette.is_none());
@@ -238094,7 +238694,7 @@ act.Confirmation {
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ScrollToPreviousPrompt);
 
-        assert_eq!(app.scrollback_offset, 4);
+        assert_eq!(app.current_scrollback_offset(), 4);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "> one   ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 8), "out1    ");
         assert!(app.command_palette.is_none());
@@ -238102,7 +238702,7 @@ act.Confirmation {
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ScrollToNextPrompt);
 
-        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(app.current_scrollback_offset(), 2);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "> two   ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 8), "out2    ");
         assert!(app.command_palette.is_none());
@@ -238764,14 +239364,14 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::SendString("\x1b b".to_owned()));
 
         assert_eq!(written.lock().unwrap().as_slice(), b"\x1b b");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -238784,7 +239384,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -238799,7 +239399,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -238851,7 +239451,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -238866,7 +239466,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -238879,7 +239479,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -238896,7 +239496,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -238909,7 +239509,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -238926,7 +239526,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha, beta");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -238939,7 +239539,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -238956,7 +239556,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -238969,7 +239569,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -238984,7 +239584,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -238997,7 +239597,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239014,7 +239614,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -239027,7 +239627,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239042,7 +239642,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -239055,7 +239655,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239072,7 +239672,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -239103,7 +239703,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239118,7 +239718,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -239131,7 +239731,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239146,7 +239746,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -239159,7 +239759,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239174,7 +239774,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"\x1b b");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -239187,7 +239787,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239202,7 +239802,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"\x1b b");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -239215,7 +239815,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239230,7 +239830,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"\x1b b");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -239243,7 +239843,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239258,7 +239858,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alphabeta");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -239271,7 +239871,7 @@ act.Confirmation {
         app.handle_pty_output(b"\x1b[?2004h").unwrap();
         assert!(app.runtime.bracketed_paste());
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239286,7 +239886,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -239297,7 +239897,7 @@ act.Confirmation {
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239307,7 +239907,7 @@ act.Confirmation {
         }));
 
         assert_eq!(written.lock().unwrap().as_slice(), b"\x1bb");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -239318,7 +239918,7 @@ act.Confirmation {
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239336,7 +239936,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"\x1bb");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
@@ -239379,7 +239979,7 @@ act.Confirmation {
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.scrollback_offset = 1;
+        app.set_scrollback_offset_for_test(1);
         app.refresh_snapshot();
 
         app.enter_command_palette_mode();
@@ -239397,7 +239997,7 @@ act.Confirmation {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"\x1bb");
-        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(app.current_scrollback_offset(), 0);
         assert!(app.command_palette.is_none());
     }
 
