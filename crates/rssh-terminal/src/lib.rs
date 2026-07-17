@@ -6,6 +6,24 @@ pub use parser::{
     CellWidthOverride, DEFAULT_SCROLLBACK_LIMIT, Terminal, TerminalUnknownEscapeSequence,
 };
 
+pub type StableRowIndex = isize;
+pub type SequenceNo = usize;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalScreenDomain {
+    Main,
+    Alternate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalStableDimensions {
+    pub domain: TerminalScreenDomain,
+    pub viewport_rows: usize,
+    pub scrollback_rows: usize,
+    pub scrollback_top: StableRowIndex,
+    pub physical_top: StableRowIndex,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
     Default,
@@ -214,15 +232,22 @@ pub struct TerminalGrid {
     size: TerminalSize,
     cells: Vec<Cell>,
     row_wrapped: Vec<bool>,
+    last_change_seqno: Vec<SequenceNo>,
 }
 
 impl TerminalGrid {
     #[must_use]
     pub fn new(size: TerminalSize) -> Self {
+        Self::new_with_seqno(size, 1)
+    }
+
+    #[must_use]
+    pub(crate) fn new_with_seqno(size: TerminalSize, seqno: SequenceNo) -> Self {
         Self {
             size,
             cells: vec![Cell::default(); size.cells()],
             row_wrapped: vec![false; usize::from(size.rows)],
+            last_change_seqno: vec![seqno; usize::from(size.rows)],
         }
     }
 
@@ -275,11 +300,39 @@ impl TerminalGrid {
         self.set_row_wrapped(to, wrapped);
     }
 
+    #[must_use]
+    pub(crate) fn row_last_change_seqno(&self, row: u16) -> Option<SequenceNo> {
+        self.last_change_seqno.get(usize::from(row)).copied()
+    }
+
+    pub(crate) fn set_row_last_change_seqno(&mut self, row: u16, seqno: SequenceNo) -> bool {
+        let Some(last_change_seqno) = self.last_change_seqno.get_mut(usize::from(row)) else {
+            return false;
+        };
+        *last_change_seqno = seqno;
+        true
+    }
+
+    pub(crate) fn copy_row_last_change_seqno(&mut self, from: u16, to: u16) {
+        if let Some(seqno) = self.row_last_change_seqno(from) {
+            self.set_row_last_change_seqno(to, seqno);
+        }
+    }
+
     pub fn resize(&mut self, size: TerminalSize) {
+        let new_row_seqno = self.last_change_seqno.iter().copied().max().unwrap_or(1);
+        self.resize_with_seqno(size, new_row_seqno);
+    }
+
+    pub(crate) fn resize_with_seqno(&mut self, size: TerminalSize, new_row_seqno: SequenceNo) {
         let old_size = self.size;
         let old_cells = std::mem::replace(&mut self.cells, vec![Cell::default(); size.cells()]);
         let old_row_wrapped =
             std::mem::replace(&mut self.row_wrapped, vec![false; usize::from(size.rows)]);
+        let old_last_change_seqno = std::mem::replace(
+            &mut self.last_change_seqno,
+            vec![new_row_seqno; usize::from(size.rows)],
+        );
         self.size = size;
 
         let rows = old_size.rows.min(size.rows);
@@ -297,6 +350,10 @@ impl TerminalGrid {
                 .get(usize::from(row))
                 .copied()
                 .unwrap_or(false);
+            self.last_change_seqno[usize::from(row)] = old_last_change_seqno
+                .get(usize::from(row))
+                .copied()
+                .unwrap_or(new_row_seqno);
         }
     }
 
@@ -314,12 +371,21 @@ impl TerminalGrid {
 pub struct ScrollbackLine {
     cells: Vec<Cell>,
     wrapped: bool,
+    sequence: SequenceNo,
 }
 
 impl ScrollbackLine {
     #[must_use]
-    pub(crate) const fn from_cells_wrapped(cells: Vec<Cell>, wrapped: bool) -> Self {
-        Self { cells, wrapped }
+    pub(crate) const fn from_cells_wrapped(
+        cells: Vec<Cell>,
+        wrapped: bool,
+        sequence: SequenceNo,
+    ) -> Self {
+        Self {
+            cells,
+            wrapped,
+            sequence,
+        }
     }
 
     #[must_use]
@@ -340,6 +406,17 @@ impl ScrollbackLine {
     #[must_use]
     pub const fn is_wrapped(&self) -> bool {
         self.wrapped
+    }
+
+    #[must_use]
+    #[allow(dead_code)] // Consumed by the follow-up stable changed-row implementation.
+    pub(crate) const fn last_change_seqno(&self) -> SequenceNo {
+        self.sequence
+    }
+
+    #[allow(dead_code)] // Consumed by the follow-up stable changed-row implementation.
+    pub(crate) fn set_last_change_seqno(&mut self, seqno: SequenceNo) {
+        self.sequence = seqno;
     }
 }
 

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -12,10 +13,12 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
     Cell, Color, CursorShape, CursorStyle, InlineImageFormat, ItermInlineImage, ScrollbackLine,
-    SemanticCommandExit, SemanticType, SemanticZone, TerminalGrid, UnderlineStyle,
+    SemanticCommandExit, SemanticType, SemanticZone, SequenceNo, StableRowIndex, TerminalGrid,
+    TerminalScreenDomain, TerminalStableDimensions, UnderlineStyle,
 };
 
 pub const DEFAULT_SCROLLBACK_LIMIT: usize = 3_500;
+const INITIAL_SEQUENCE_NO: SequenceNo = 1;
 const DEFAULT_UNICODE_VERSION: u32 = 9;
 const UNICODE_PRESENTATION_SELECTOR_VERSION: u32 = 14;
 const TEXT_PRESENTATION_SELECTOR: char = '\u{fe0e}';
@@ -425,6 +428,8 @@ pub struct Terminal {
     grid: TerminalGrid,
     scrollback: Vec<ScrollbackLine>,
     scrollback_limit: usize,
+    seqno: SequenceNo,
+    main_stable_row_offset: StableRowIndex,
     title: Option<String>,
     icon_title: Option<String>,
     window_title: Option<String>,
@@ -558,9 +563,11 @@ impl Terminal {
         default_cursor_style: CursorStyle,
     ) -> Self {
         Self {
-            grid: TerminalGrid::new(size),
+            grid: TerminalGrid::new_with_seqno(size, INITIAL_SEQUENCE_NO),
             scrollback: Vec::new(),
             scrollback_limit: DEFAULT_SCROLLBACK_LIMIT,
+            seqno: INITIAL_SEQUENCE_NO,
+            main_stable_row_offset: 0,
             title: None,
             icon_title: None,
             window_title: None,
@@ -637,6 +644,7 @@ impl Terminal {
     }
 
     pub fn feed(&mut self, bytes: &[u8]) {
+        self.advance_seqno();
         let mut input = std::mem::take(&mut self.pending_utf8);
         input.extend_from_slice(bytes);
         let complete_utf8_len = complete_utf8_prefix_len(&input);
@@ -2496,6 +2504,112 @@ impl Terminal {
         &self.scrollback
     }
 
+    #[must_use]
+    pub const fn current_seqno(&self) -> SequenceNo {
+        self.seqno
+    }
+
+    fn advance_seqno(&mut self) {
+        self.seqno = self
+            .seqno
+            .checked_add(1)
+            .expect("terminal sequence number overflow");
+    }
+
+    #[must_use]
+    pub fn stable_dimensions(&self) -> TerminalStableDimensions {
+        let viewport_rows = usize::from(self.grid.size().rows);
+        if self.alternate_screen_active() {
+            return TerminalStableDimensions {
+                domain: TerminalScreenDomain::Alternate,
+                viewport_rows,
+                scrollback_rows: viewport_rows,
+                scrollback_top: 0,
+                physical_top: 0,
+            };
+        }
+
+        let physical_top = self
+            .main_stable_row_offset
+            .checked_add(
+                StableRowIndex::try_from(self.scrollback.len())
+                    .expect("scrollback length must fit a stable row index"),
+            )
+            .expect("retained terminal rows must fit the stable row index");
+        let scrollback_rows = self
+            .scrollback
+            .len()
+            .checked_add(viewport_rows)
+            .expect("retained terminal row count must fit usize");
+        TerminalStableDimensions {
+            domain: TerminalScreenDomain::Main,
+            viewport_rows,
+            scrollback_rows,
+            scrollback_top: self.main_stable_row_offset,
+            physical_top,
+        }
+    }
+
+    #[must_use]
+    pub fn retained_stable_range(&self) -> Range<StableRowIndex> {
+        let dimensions = self.stable_dimensions();
+        let retained_rows = StableRowIndex::try_from(dimensions.scrollback_rows)
+            .expect("retained terminal row count must fit a stable row index");
+        let end = dimensions
+            .scrollback_top
+            .checked_add(retained_rows)
+            .expect("retained terminal rows must fit the stable row index");
+        dimensions.scrollback_top..end
+    }
+
+    #[must_use]
+    pub fn stable_bottom_exclusive(&self) -> Option<StableRowIndex> {
+        let dimensions = self.stable_dimensions();
+        let viewport_rows = StableRowIndex::try_from(dimensions.viewport_rows).ok()?;
+        dimensions.physical_top.checked_add(viewport_rows)
+    }
+
+    #[must_use]
+    pub fn viewport_stable_range(&self, top: Option<StableRowIndex>) -> Range<StableRowIndex> {
+        let dimensions = self.stable_dimensions();
+        let start = top.unwrap_or(dimensions.physical_top);
+        let Some(viewport_rows) = StableRowIndex::try_from(dimensions.viewport_rows).ok() else {
+            return start..start;
+        };
+        let Some(end) = start.checked_add(viewport_rows) else {
+            return start..start;
+        };
+        start..end
+    }
+
+    #[must_use]
+    pub fn is_stable_range_fully_retained(&self, rows: Range<StableRowIndex>) -> bool {
+        if rows.start > rows.end {
+            return false;
+        }
+        let retained = self.retained_stable_range();
+        rows.start >= retained.start && rows.end <= retained.end
+    }
+
+    #[must_use]
+    pub fn history_index_to_stable_row(&self, row: usize) -> Option<StableRowIndex> {
+        let dimensions = self.stable_dimensions();
+        if row >= dimensions.scrollback_rows {
+            return None;
+        }
+        dimensions
+            .scrollback_top
+            .checked_add(StableRowIndex::try_from(row).ok()?)
+    }
+
+    #[must_use]
+    pub fn stable_row_to_history_index(&self, row: StableRowIndex) -> Option<usize> {
+        let dimensions = self.stable_dimensions();
+        let retained_row = row.checked_sub(dimensions.scrollback_top)?;
+        let retained_row = usize::try_from(retained_row).ok()?;
+        (retained_row < dimensions.scrollback_rows).then_some(retained_row)
+    }
+
     pub fn set_scrollback_limit(&mut self, limit: usize) {
         self.scrollback_limit = limit;
         self.trim_scrollback_to_limit();
@@ -2790,6 +2904,7 @@ impl Terminal {
     }
 
     pub fn erase_scrollback_and_viewport(&mut self) {
+        self.advance_seqno();
         let size = self.grid.size();
         self.scrollback.clear();
         self.title_stack.clear();
@@ -2843,11 +2958,12 @@ impl Terminal {
     }
 
     pub fn resize(&mut self, size: TerminalSize) {
-        self.grid.resize(size);
+        self.advance_seqno();
+        self.grid.resize_with_seqno(size, self.seqno);
         self.tab_stops.resize(size);
 
         if let Some(screen) = self.main_screen.as_mut() {
-            screen.grid.resize(size);
+            screen.grid.resize_with_seqno(size, self.seqno);
             clamp_screen_state(screen, size);
         }
 
@@ -2865,7 +2981,7 @@ impl Terminal {
 
     fn reset_terminal(&mut self) {
         let size = self.grid.size();
-        self.grid = TerminalGrid::new(size);
+        self.grid = TerminalGrid::new_with_seqno(size, self.seqno);
         self.scrollback.clear();
         self.inline_images.clear();
         self.pending_kitty_graphics = None;
@@ -3139,6 +3255,7 @@ impl Terminal {
                 self.grid.set(row - 1, column, cell);
             }
             self.grid.copy_row_wrapped(row, row - 1);
+            self.grid.copy_row_last_change_seqno(row, row - 1);
         }
 
         for column in 0..size.columns {
@@ -3163,9 +3280,9 @@ impl Terminal {
             .map(|column| self.grid.get(row, column).cloned().unwrap_or_default())
             .collect();
         let wrapped = self.grid.row_wrapped(row);
-
+        let sequence = self.grid.row_last_change_seqno(row).unwrap_or(self.seqno);
         self.scrollback
-            .push(ScrollbackLine::from_cells_wrapped(cells, wrapped));
+            .push(ScrollbackLine::from_cells_wrapped(cells, wrapped, sequence));
         self.trim_scrollback_to_limit();
     }
 
@@ -3806,7 +3923,7 @@ impl Terminal {
 
             let size = self.grid.size();
             self.main_screen = Some(self.screen_state());
-            self.grid = TerminalGrid::new(size);
+            self.grid = TerminalGrid::new_with_seqno(size, self.seqno);
             self.inline_images.clear();
             self.last_kitty_placeholder = None;
             self.kitty_placeholder_cells.clear();
@@ -4325,6 +4442,7 @@ impl Terminal {
                     self.grid.set(row + count, column, cell);
                 }
                 self.grid.copy_row_wrapped(row, row + count);
+                self.grid.copy_row_last_change_seqno(row, row + count);
             }
         }
 
@@ -4509,6 +4627,7 @@ impl Terminal {
                     self.grid.set(row, column, cell);
                 }
                 self.grid.copy_row_wrapped(row + count, row);
+                self.grid.copy_row_last_change_seqno(row + count, row);
             }
         }
 
@@ -6371,4 +6490,176 @@ fn is_widened_in_unicode9(ch: char) -> bool {
 fn non_empty_unicode_version_label(label: &str) -> Option<String> {
     let label = label.trim();
     (!label.is_empty()).then(|| label.to_owned())
+}
+
+#[cfg(test)]
+mod stable_row_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_stable_dimensions_start_on_main_screen() {
+        let terminal = Terminal::new(TerminalSize::new(4, 3));
+
+        assert_eq!(
+            terminal.stable_dimensions(),
+            TerminalStableDimensions {
+                domain: TerminalScreenDomain::Main,
+                viewport_rows: 3,
+                scrollback_rows: 3,
+                scrollback_top: 0,
+                physical_top: 0,
+            }
+        );
+        assert_eq!(terminal.retained_stable_range(), 0..3);
+    }
+
+    #[test]
+    fn terminal_stable_row_conversion_is_strict() {
+        let terminal = Terminal::new(TerminalSize::new(4, 3));
+
+        assert_eq!(terminal.history_index_to_stable_row(0), Some(0));
+        assert_eq!(terminal.stable_row_to_history_index(0), Some(0));
+        assert_eq!(terminal.history_index_to_stable_row(3), None);
+        assert_eq!(terminal.stable_row_to_history_index(-1), None);
+        assert_eq!(terminal.stable_row_to_history_index(3), None);
+    }
+
+    #[test]
+    fn terminal_alternate_dimensions_have_no_main_scrollback() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"aa\r\nbb\r\ncc");
+        assert!(!terminal.scrollback().is_empty());
+
+        terminal.feed(b"\x1b[?1049h");
+
+        assert_eq!(
+            terminal.stable_dimensions(),
+            TerminalStableDimensions {
+                domain: TerminalScreenDomain::Alternate,
+                viewport_rows: 2,
+                scrollback_rows: 2,
+                scrollback_top: 0,
+                physical_top: 0,
+            }
+        );
+        assert_eq!(terminal.retained_stable_range(), 0..2);
+        assert_eq!(terminal.history_index_to_stable_row(0), Some(0));
+        assert_eq!(terminal.history_index_to_stable_row(2), None);
+        assert_eq!(terminal.stable_row_to_history_index(0), Some(0));
+        assert_eq!(terminal.stable_row_to_history_index(2), None);
+    }
+
+    #[test]
+    fn terminal_stable_bottom_and_viewport_range_are_checked() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
+
+        assert_eq!(terminal.stable_bottom_exclusive(), Some(4));
+        assert_eq!(terminal.viewport_stable_range(None), 1..4);
+        assert_eq!(terminal.viewport_stable_range(Some(0)), 0..3);
+
+        let mut overflow = Terminal::new(TerminalSize::new(1, 1));
+        overflow.main_stable_row_offset = StableRowIndex::MAX;
+        assert_eq!(overflow.stable_bottom_exclusive(), None);
+    }
+
+    #[test]
+    fn terminal_stable_range_retention_is_strict() {
+        let terminal = Terminal::new(TerminalSize::new(4, 3));
+
+        assert!(terminal.is_stable_range_fully_retained(0..3));
+        assert!(terminal.is_stable_range_fully_retained(1..2));
+        assert!(!terminal.is_stable_range_fully_retained(-1..2));
+        assert!(!terminal.is_stable_range_fully_retained(1..4));
+        assert!(!terminal.is_stable_range_fully_retained(2..1));
+        assert!(!terminal.is_stable_range_fully_retained(StableRowIndex::MIN..StableRowIndex::MAX));
+    }
+
+    #[test]
+    fn terminal_sequence_starts_non_zero() {
+        let terminal = Terminal::new(TerminalSize::new(4, 3));
+
+        assert_ne!(terminal.current_seqno(), 0);
+    }
+
+    #[test]
+    fn terminal_feed_advances_sequence_once_per_batch() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        let before = terminal.current_seqno();
+
+        terminal.feed(b"");
+
+        assert_eq!(terminal.current_seqno(), before.checked_add(1).unwrap());
+        let before = terminal.current_seqno();
+
+        terminal.feed(b"abc");
+
+        assert_eq!(terminal.current_seqno(), before.checked_add(1).unwrap());
+    }
+
+    #[test]
+    fn terminal_cursor_only_feed_advances_sequence_once() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        let before = terminal.current_seqno();
+
+        terminal.feed(b"\x1b[2;3H");
+
+        assert_eq!(terminal.current_seqno(), before.checked_add(1).unwrap());
+    }
+
+    #[test]
+    fn terminal_same_size_resize_advances_sequence_once() {
+        let size = TerminalSize::new(4, 3);
+        let mut terminal = Terminal::new(size);
+        let before = terminal.current_seqno();
+
+        terminal.resize(size);
+
+        assert_eq!(terminal.current_seqno(), before.checked_add(1).unwrap());
+    }
+
+    #[test]
+    fn terminal_public_erase_advances_sequence_once() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        let before = terminal.current_seqno();
+
+        terminal.erase_scrollback_and_viewport();
+
+        assert_eq!(terminal.current_seqno(), before.checked_add(1).unwrap());
+    }
+
+    #[test]
+    fn terminal_grid_row_sequences_initialize_and_resize() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        let initial = terminal.current_seqno();
+
+        assert_eq!(terminal.grid.row_last_change_seqno(0), Some(initial));
+        assert_eq!(terminal.grid.row_last_change_seqno(1), Some(initial));
+
+        terminal.resize(TerminalSize::new(4, 3));
+
+        assert_eq!(terminal.grid.row_last_change_seqno(0), Some(initial));
+        assert_eq!(terminal.grid.row_last_change_seqno(1), Some(initial));
+        assert_eq!(
+            terminal.grid.row_last_change_seqno(2),
+            Some(terminal.current_seqno())
+        );
+        assert_eq!(terminal.grid.row_last_change_seqno(3), None);
+    }
+
+    #[test]
+    fn terminal_scrollback_preserves_captured_row_sequence() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        let captured = terminal.current_seqno().checked_add(10).unwrap();
+        assert!(terminal.grid.set_row_last_change_seqno(0, captured));
+
+        terminal.feed(b"aa\r\nbb\r\ncc");
+
+        assert!(!terminal.scrollback.is_empty());
+        assert_eq!(terminal.scrollback[0].last_change_seqno(), captured);
+
+        let updated = captured.checked_add(1).unwrap();
+        terminal.scrollback[0].set_last_change_seqno(updated);
+        assert_eq!(terminal.scrollback[0].last_change_seqno(), updated);
+    }
 }
