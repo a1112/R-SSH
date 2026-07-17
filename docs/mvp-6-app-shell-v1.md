@@ -2532,6 +2532,7 @@ cargo test -p rssh-app window_manager_collects_detached_app
 cargo test -p rssh-app focus_changed
 cargo test -p rssh-app focus_reporting
 cargo test -p rssh-app window_focus_coordinator
+cargo test -p rssh-app starts_unfocused
 cargo test -p rssh-app window_app_focus
 cargo test -p rssh-app window_manager_focus
 cargo test -p rssh-app pending_window_batch
