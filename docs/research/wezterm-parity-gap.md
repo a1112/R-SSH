@@ -4381,8 +4381,9 @@ ordinary selection and pane viewport state, offscreen extraction with
 prune-time no-retarget behavior, active/inactive ordinary-selection clearing
 only on selected-stable-row/visible-changed-row intersection, Search/Copy/Quick
 ordinary-selection retirement exemption with accumulated row-change
-evaluation on exit, effective-palette whole-line dirtying, screen/height
-synchronous retirement, and stable Lua pane dimensions/cursor coordinates.
+evaluation at the next base-snapshot presentation after overlay exit,
+effective-palette whole-line dirtying, screen/height synchronous retirement,
+and stable Lua pane dimensions/cursor coordinates.
 
 The next bounded App Shell v2 slice is pane-local Search/Copy/Quick controller
 ownership. Each pane must own independent Search, Copy Mode, and Quick Select

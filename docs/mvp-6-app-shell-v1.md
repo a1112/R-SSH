@@ -2431,9 +2431,10 @@ runtime storage for tabs and split panes.
   prune-time retargeting, active/inactive ordinary-selection clearing only on
   selected-stable-row/visible-changed-row intersection, Search/Copy/Quick
   ordinary-selection retirement exemption with accumulated row-change
-  evaluation on exit, effective-palette whole-line dirtying, synchronous
-  selection/transient retirement on screen or height changes, and stable Lua
-  pane dimensions and cursor coordinates.
+  evaluation at the next base-snapshot presentation after overlay exit,
+  effective-palette whole-line dirtying, synchronous selection/transient
+  retirement on screen or height changes, and stable Lua pane dimensions and
+  cursor coordinates.
 - The remaining backlog includes pane-local Search/Copy/Quick controller
   ownership, full WezTerm-compatible width reflow and resize-time selection
   persistence, inactive-pane hover-wheel routing without focus transfer,
