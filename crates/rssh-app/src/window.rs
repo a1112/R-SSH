@@ -82158,7 +82158,7 @@ impl NativeWindowApp {
             char_select_recently_used: Vec::new(),
             char_select_recently_used_sequence: 0,
             char_select_recently_used_path: None,
-            window_focused: true,
+            window_focused: false,
             mouse_click_may_focus_window: false,
             window: None,
             pixels: None,
@@ -97984,14 +97984,13 @@ impl NativeWindowApp {
         Ok(true)
     }
 
-    fn handle_focus_changed(&mut self, focused: bool) -> io::Result<()> {
-        if focused {
-            self.mouse_click_may_focus_window = !self.window_focused;
-            self.window_focused = true;
-        } else {
-            self.window_focused = false;
-            self.mouse_click_may_focus_window = false;
+    fn handle_focus_changed(&mut self, focused: bool) -> io::Result<bool> {
+        if self.window_focused == focused {
+            return Ok(false);
         }
+
+        self.window_focused = focused;
+        self.mouse_click_may_focus_window = focused;
 
         let change = NativeWindowFocusChange {
             window_id: self.app_window_id,
@@ -98005,7 +98004,7 @@ impl NativeWindowApp {
             self.write_pty_bytes(&bytes)?;
         }
 
-        Ok(())
+        Ok(true)
     }
 
     fn handle_window_moved(&mut self, position: PhysicalPosition<i32>) {
@@ -123714,12 +123713,13 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     self.right_alt_pressed = false;
                 }
             }
-            WindowEvent::Focused(focused) => {
-                if let Err(error) = self.handle_focus_changed(focused) {
+            WindowEvent::Focused(focused) => match self.handle_focus_changed(focused) {
+                Ok(_transitioned) => {}
+                Err(error) => {
                     eprintln!("PTY focus error: {error}");
                     event_loop.exit();
                 }
-            }
+            },
             WindowEvent::CursorMoved { position, .. } => {
                 if let Err(error) = self.handle_cursor_moved(position) {
                     eprintln!("PTY mouse error: {error}");
@@ -125884,6 +125884,39 @@ mod tests {
     }
 
     #[test]
+    fn window_app_starts_unfocused_until_the_os_reports_focus() {
+        let app = NativeWindowApp::new(None);
+        assert!(!app.window_focused);
+        assert!(!app.mouse_click_may_focus_window);
+    }
+
+    #[test]
+    fn window_app_focus_changes_are_idempotent() {
+        let changes = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&changes);
+        let mut app = NativeWindowApp::new(None);
+        app.focus_change_handler = Box::new(move |change| {
+            recorded.lock().unwrap().push(*change);
+            true
+        });
+
+        assert!(app.handle_focus_changed(true).unwrap());
+        assert!(!app.handle_focus_changed(true).unwrap());
+        assert!(app.handle_focus_changed(false).unwrap());
+        assert!(!app.handle_focus_changed(false).unwrap());
+
+        assert_eq!(
+            changes
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|change| change.focused)
+                .collect::<Vec<_>>(),
+            [true, false]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_focus_changed_for_active_pane() {
         let changes = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&changes);
@@ -125894,8 +125927,8 @@ mod tests {
         });
         let active_pane = app.app_shell.active_pane_id();
 
-        app.handle_focus_changed(true).unwrap();
-        app.handle_focus_changed(false).unwrap();
+        assert!(app.handle_focus_changed(true).unwrap());
+        assert!(app.handle_focus_changed(false).unwrap());
 
         assert_eq!(
             changes.lock().unwrap().as_slice(),
@@ -125935,13 +125968,11 @@ mod tests {
         .expect("expected static WezTerm focus-changed event status setter");
         app.set_config_overrides(overrides);
 
-        app.handle_focus_changed(false).unwrap();
-
-        assert_eq!(app.right_status, "BLURRED");
-
-        app.handle_focus_changed(true).unwrap();
-
+        assert!(app.handle_focus_changed(true).unwrap());
         assert_eq!(app.right_status, "FOCUSED");
+
+        assert!(app.handle_focus_changed(false).unwrap());
+        assert_eq!(app.right_status, "BLURRED");
     }
 
     #[test]
