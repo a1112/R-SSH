@@ -89302,7 +89302,12 @@ impl NativeWindowApp {
             ElementState::Pressed => WindowMouseEventKind::Down(button),
             ElementState::Released => WindowMouseEventKind::Up(button),
         };
+        let released_active_mouse_button =
+            state == ElementState::Released && self.active_mouse_button == Some(button);
         self.update_active_mouse_button(state, button);
+        if released_active_mouse_button {
+            self.mouse_click_may_focus_window = false;
+        }
 
         let mouse_click_focuses_window = state == ElementState::Pressed
             && (!self.window_focused || self.mouse_click_may_focus_window);
@@ -97989,7 +97994,7 @@ impl NativeWindowApp {
         }
 
         self.window_focused = focused;
-        self.mouse_click_may_focus_window = focused && self.active_mouse_button.is_none();
+        self.mouse_click_may_focus_window = focused;
 
         let change = NativeWindowFocusChange {
             window_id: self.app_window_id,
@@ -182761,7 +182766,7 @@ return config
         assert!(!app.window_focused);
         assert!(!app.mouse_click_may_focus_window);
         assert!(app.handle_focus_changed(true).unwrap());
-        assert!(!app.mouse_click_may_focus_window);
+        assert!(app.mouse_click_may_focus_window);
 
         assert_eq!(
             changes.lock().unwrap().as_slice(),
@@ -182776,6 +182781,7 @@ return config
             app.handle_mouse_input(ElementState::Released, MouseButton::Left)
                 .unwrap()
         );
+        assert!(!app.mouse_click_may_focus_window);
         written.lock().unwrap().clear();
         assert!(
             app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
