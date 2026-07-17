@@ -4135,12 +4135,15 @@ what remains before WezTerm-style parity in key UX/composition areas.
   override path.
 - Ordinary selection is now pane-local. Focus and tab changes save and restore
   each pane's independent selection; active and inactive panes render their
-  selections simultaneously; and inactive PTY output cannot erase selection
-  because the ordinary selection overlay is applied at presentation time
-  before `inactive_pane_hsb`. `ClearSelection`, selected-text extraction, and
-  copy operations target only the active pane, while closing a pane retires
-  only its selection. `MovePaneToNewTab` preserves selection within the same
-  GUI window. `MovePaneToNewWindow` clears selection at the GUI-window
+  selections simultaneously; and a selection-free base snapshot rebuild from
+  inactive PTY output does not by itself unconditionally erase ordinary
+  selection because the overlay is applied at presentation before
+  `inactive_pane_hsb`. The selection is still cleared when its selected stable
+  rows intersect visible rows changed after its stored sequence.
+  `ClearSelection`, selected-text extraction, and copy operations target only
+  the active pane, while closing a pane retires only its selection.
+  `MovePaneToNewTab` preserves selection within the same GUI window.
+  `MovePaneToNewWindow` clears selection at the GUI-window
   boundary while preserving terminal runtime, scrollback, and viewport state,
   matching pinned WezTerm.
 - The completed stable-selection and dirty-invalidation slice gives terminal

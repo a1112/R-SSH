@@ -952,9 +952,11 @@ runtime storage for tabs and split panes.
 - Ordinary selection is owned per pane: focus and tab changes save and restore
   each pane's selection independently, and active and inactive panes can render
   different selections simultaneously. Inactive PTY output rebuilds a
-  selection-free base terminal snapshot, so its retained selection remains
-  visible; the ordinary selection overlay is applied before
-  `inactive_pane_hsb`.
+  selection-free base terminal snapshot, but that alone does not
+  unconditionally erase ordinary selection because its overlay is applied at
+  presentation before `inactive_pane_hsb`. The selection is still cleared when
+  its selected stable rows intersect visible rows changed after its stored
+  sequence.
   `ClearSelection`, selected-text extraction, and copy operations address only
   the active pane, and closing a pane retires only its selection.
   `MovePaneToNewTab` preserves selection inside the same GUI window.

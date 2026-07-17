@@ -224,12 +224,15 @@ keyboard, mouse, paste, resize
   transferring focus remains open.
 - Completed after v1: ordinary selection is owned per pane. Focus and tab
   changes save and restore each pane's independent selection, active and
-  inactive panes render their selections simultaneously, and inactive PTY
-  output cannot erase the retained selection because the selection overlay is
-  applied at presentation time before `inactive_pane_hsb`. `ClearSelection`,
-  selected-text extraction, and copy actions address only the active pane;
-  closing a pane retires only that pane's selection. `MovePaneToNewTab`
-  preserves selection inside the same GUI window, while
+  inactive panes render their selections simultaneously, and a selection-free
+  base snapshot rebuild from inactive PTY output does not by itself
+  unconditionally erase ordinary selection because the overlay is applied at
+  presentation before `inactive_pane_hsb`. The selection is still cleared when
+  its selected stable rows intersect visible rows changed after its stored
+  sequence. `ClearSelection`, selected-text extraction, and copy actions
+  address only the active pane; closing a pane retires only that pane's
+  selection. `MovePaneToNewTab` preserves selection inside the same GUI window,
+  while
   `MovePaneToNewWindow` clears GUI selection at the window boundary without
   discarding terminal runtime, scrollback, or viewport state.
 - Completed after v1: the stable-selection and dirty-invalidation slice gives
