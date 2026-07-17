@@ -89033,7 +89033,8 @@ impl NativeWindowApp {
         let previous_dimensions = self.runtime.terminal().stable_dimensions();
         let runtime_output = self.runtime.feed_pty_output_with_display(bytes);
         let dimensions = self.runtime.terminal().stable_dimensions();
-        if dimensions.domain != previous_dimensions.domain
+        if runtime_output.screen_identity_changed
+            || dimensions.domain != previous_dimensions.domain
             || dimensions.viewport_rows != previous_dimensions.viewport_rows
         {
             self.retire_active_terminal_identity_state();
@@ -89234,7 +89235,8 @@ impl NativeWindowApp {
         let previous_dimensions = runtime.runtime.terminal().stable_dimensions();
         let runtime_output = runtime.runtime.feed_pty_output_with_display(bytes);
         let dimensions = runtime.runtime.terminal().stable_dimensions();
-        if dimensions.domain != previous_dimensions.domain
+        if runtime_output.screen_identity_changed
+            || dimensions.domain != previous_dimensions.domain
             || dimensions.viewport_rows != previous_dimensions.viewport_rows
         {
             runtime.ordinary_selection = None;
@@ -188019,6 +188021,92 @@ return config
 
         assert_eq!(app.current_stable_viewport_top(), main_top);
         assert!(app.ordinary_selection.is_none());
+    }
+
+    #[test]
+    fn window_app_same_chunk_main_alt_main_retires_active_identity_state() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.handle_pty_output(b"old\r\nhttps://selected.test\r\nbottom")
+            .unwrap();
+        app.scroll_viewport_lines(1);
+        let main_top = app.current_stable_viewport_top();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+        app.enter_copy_mode();
+        app.search = Some(WindowSearch::default());
+        app.quick_select = Some(WindowQuickSelect::default());
+        app.selecting = true;
+        app.last_left_click = Some(WindowClick {
+            cell: ordinary_source_cell_for_viewport(&app, 0, 0),
+            time: Instant::now(),
+            count: 2,
+        });
+        app.last_mouse_assignment_click = Some(WindowMouseAssignmentClick {
+            button: MouseButton::Left,
+            modifiers: ModifiersState::empty(),
+            mouse_reporting: false,
+            alternate_screen_active: false,
+            time: Instant::now(),
+            count: 2,
+        });
+
+        app.handle_pty_output(b"\x1b[?1049halt\x1b[?1049l").unwrap();
+
+        assert_eq!(app.current_stable_viewport_top(), main_top);
+        assert!(app.ordinary_selection.is_none());
+        assert!(app.selection.is_none());
+        assert!(app.search.is_none());
+        assert!(app.copy_mode.is_none());
+        assert!(app.quick_select.is_none());
+        assert!(!app.selecting);
+        assert!(app.last_left_click.is_none());
+        assert!(app.last_mouse_assignment_click.is_none());
+        assert!(app.selected_text().is_none());
+    }
+
+    #[test]
+    fn window_app_same_chunk_main_alt_main_retires_inactive_identity_before_focus() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.handle_pty_output(b"old\r\nselected\r\nbottom").unwrap();
+        app.scroll_viewport_lines(1);
+        let inactive_top = app.current_stable_viewport_top();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.handle_pane_pty_output(rssh_core::PaneId::new(1), b"\x1b[?1049halt\x1b[?1049l")
+            .unwrap();
+
+        let inactive = app
+            .pane_runtimes
+            .get(&rssh_core::PaneId::new(1))
+            .expect("inactive pane runtime");
+        assert_eq!(
+            inactive
+                .stable_viewport
+                .active_top(inactive.runtime.terminal()),
+            inactive_top
+        );
+        assert!(inactive.ordinary_selection.is_none());
+
+        app.dispatch_app_action(AppAction::ActivatePaneByIndex { index: 0 })
+            .unwrap();
+        assert_eq!(app.current_stable_viewport_top(), inactive_top);
+        assert!(app.ordinary_selection.is_none());
+        assert!(app.selection.is_none());
     }
 
     #[test]

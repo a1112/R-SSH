@@ -55,6 +55,7 @@ pub(crate) struct TerminalRuntimeOutput {
     pub(crate) damage: Vec<DamageRegion>,
     pub(crate) bells: u64,
     pub(crate) unknown_escape_sequences: Vec<String>,
+    pub(crate) screen_identity_changed: bool,
 }
 
 impl TerminalRuntime {
@@ -85,6 +86,7 @@ impl TerminalRuntime {
     }
 
     pub(crate) fn feed_pty_output_with_display(&mut self, bytes: &[u8]) -> TerminalRuntimeOutput {
+        let screen_identity_generation = self.terminal.screen_identity_generation();
         self.clipboard_tracker.process(bytes);
         self.notification_tracker.process(bytes);
         let output = self.output_filter.process(bytes);
@@ -160,6 +162,8 @@ impl TerminalRuntime {
             damage,
             bells,
             unknown_escape_sequences,
+            screen_identity_changed: self.terminal.screen_identity_generation()
+                != screen_identity_generation,
         }
     }
 
@@ -2666,12 +2670,7 @@ impl TerminalColorState {
     }
 
     fn apply(&mut self, change: OscColorChange) -> bool {
-        let before = (
-            self.foreground,
-            self.background,
-            self.cursor_override,
-            self.palette_overrides.clone(),
-        );
+        let before = self.effective_colors();
         match change {
             OscColorChange::DefaultForeground(color) => self.foreground = color,
             OscColorChange::DefaultBackground(color) => self.background = color,
@@ -2701,13 +2700,18 @@ impl TerminalColorState {
                 }
             }
         }
-        before
-            != (
-                self.foreground,
-                self.background,
-                self.cursor_override,
-                self.palette_overrides.clone(),
-            )
+        before != self.effective_colors()
+    }
+
+    fn effective_colors(&self) -> (DynamicColor, DynamicColor, DynamicColor, [[u8; 3]; 256]) {
+        (
+            self.foreground,
+            self.background,
+            self.cursor_color(),
+            std::array::from_fn(|index| {
+                self.palette_color(u8::try_from(index).expect("palette index is in u8 range"))
+            }),
+        )
     }
 
     fn palette_color(&self, index: u8) -> [u8; 3] {
@@ -3625,6 +3629,28 @@ mod tests {
         assert_eq!(runtime.terminal().grid().get(0, 0).unwrap().ch, 'a');
         assert_eq!(runtime.terminal().grid().get(0, 1).unwrap().ch, 'b');
         assert_eq!(runtime.terminal().grid().get(0, 2).unwrap().ch, 'c');
+    }
+
+    #[test]
+    fn terminal_runtime_reports_same_chunk_screen_identity_roundtrip() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(10, 2));
+
+        let output = runtime.feed_pty_output_with_display(b"\x1b[?1049halt\x1b[?1049l");
+
+        assert!(output.screen_identity_changed);
+        assert_eq!(
+            runtime.terminal().stable_dimensions().domain,
+            rssh_terminal::TerminalScreenDomain::Main
+        );
+    }
+
+    #[test]
+    fn terminal_runtime_ignores_noop_screen_identity_sets() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(10, 2));
+
+        let output = runtime.feed_pty_output_with_display(b"\x1b[?1049l\x1b[?1049l");
+
+        assert!(!output.screen_identity_changed);
     }
 
     #[test]
@@ -5015,6 +5041,72 @@ mod tests {
             runtime
                 .terminal()
                 .changed_stable_rows_since(visible, before)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn terminal_runtime_palette_default_override_and_reset_are_effective_noops() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(8, 2));
+        runtime.feed_pty_output(b"one\r\ntwo");
+        let rows = runtime.terminal().viewport_stable_range(None);
+
+        let before_set = runtime.terminal().current_seqno();
+        runtime.feed_pty_output(b"\x1b]4;1;rgb:cd/31/31\x07");
+        assert_eq!(
+            runtime.terminal().current_seqno(),
+            before_set.checked_add(1).unwrap()
+        );
+        assert!(
+            runtime
+                .terminal()
+                .changed_stable_rows_since(rows.clone(), before_set)
+                .is_empty()
+        );
+
+        let before_reset = runtime.terminal().current_seqno();
+        runtime.feed_pty_output(b"\x1b]104;1\x07");
+        assert_eq!(
+            runtime.terminal().current_seqno(),
+            before_reset.checked_add(1).unwrap()
+        );
+        assert!(
+            runtime
+                .terminal()
+                .changed_stable_rows_since(rows, before_reset)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn terminal_runtime_cursor_default_override_and_reset_are_effective_noops() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(8, 2));
+        runtime.feed_pty_output(b"one\r\ntwo");
+        let rows = runtime.terminal().viewport_stable_range(None);
+
+        let before_set = runtime.terminal().current_seqno();
+        runtime.feed_pty_output(b"\x1b]12;rgb:e5/e5/e5\x07");
+        assert_eq!(
+            runtime.terminal().current_seqno(),
+            before_set.checked_add(1).unwrap()
+        );
+        assert!(
+            runtime
+                .terminal()
+                .changed_stable_rows_since(rows.clone(), before_set)
+                .is_empty()
+        );
+
+        let before_reset = runtime.terminal().current_seqno();
+        runtime.feed_pty_output(b"\x1b]112\x07");
+        assert_eq!(
+            runtime.terminal().current_seqno(),
+            before_reset.checked_add(1).unwrap()
+        );
+        assert!(
+            runtime
+                .terminal()
+                .changed_stable_rows_since(rows, before_reset)
                 .is_empty()
         );
     }

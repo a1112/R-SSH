@@ -430,6 +430,7 @@ pub struct Terminal {
     scrollback: Vec<ScrollbackLine>,
     scrollback_limit: usize,
     seqno: SequenceNo,
+    screen_identity_generation: SequenceNo,
     main_stable_row_offset: StableRowIndex,
     title: Option<String>,
     icon_title: Option<String>,
@@ -568,6 +569,7 @@ impl Terminal {
             scrollback: Vec::new(),
             scrollback_limit: DEFAULT_SCROLLBACK_LIMIT,
             seqno: INITIAL_SEQUENCE_NO,
+            screen_identity_generation: 0,
             main_stable_row_offset: 0,
             title: None,
             icon_title: None,
@@ -3071,6 +3073,11 @@ impl Terminal {
     }
 
     #[must_use]
+    pub const fn screen_identity_generation(&self) -> SequenceNo {
+        self.screen_identity_generation
+    }
+
+    #[must_use]
     pub const fn active_style(&self) -> &Cell {
         &self.style
     }
@@ -4101,6 +4108,10 @@ impl Terminal {
                 return;
             }
 
+            self.screen_identity_generation = self
+                .screen_identity_generation
+                .checked_add(1)
+                .expect("terminal screen identity generation overflow");
             let size = self.grid.size();
             self.main_screen = Some(self.screen_state());
             self.grid = TerminalGrid::new_with_seqno(size, self.seqno);
@@ -4122,6 +4133,10 @@ impl Terminal {
             self.right_margin = size.columns.saturating_sub(1);
             self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
         } else if let Some(screen) = self.main_screen.take() {
+            self.screen_identity_generation = self
+                .screen_identity_generation
+                .checked_add(1)
+                .expect("terminal screen identity generation overflow");
             self.restore_screen_state(screen);
             self.delete_orphan_kitty_relative_children();
             let size = self.grid.size();
@@ -7186,6 +7201,44 @@ mod stable_row_tests {
         terminal.feed(b"\x1b[?1049l");
 
         assert_eq!(terminal.stable_dimensions(), main);
+    }
+
+    #[test]
+    fn terminal_screen_identity_generation_tracks_same_feed_roundtrip() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        let before = terminal.screen_identity_generation();
+
+        terminal.feed(b"\x1b[?1049hinside\x1b[?1049l");
+
+        assert_eq!(
+            terminal.screen_identity_generation(),
+            before.checked_add(2).unwrap()
+        );
+        assert_eq!(
+            terminal.stable_dimensions().domain,
+            TerminalScreenDomain::Main
+        );
+    }
+
+    #[test]
+    fn terminal_screen_identity_generation_ignores_noop_screen_sets() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        let before = terminal.screen_identity_generation();
+
+        terminal.feed(b"\x1b[?1049l\x1b[?1049l");
+        assert_eq!(terminal.screen_identity_generation(), before);
+
+        terminal.feed(b"\x1b[?1049h\x1b[?1049h");
+        assert_eq!(
+            terminal.screen_identity_generation(),
+            before.checked_add(1).unwrap()
+        );
+
+        terminal.feed(b"\x1b[?1049l\x1b[?1049l");
+        assert_eq!(
+            terminal.screen_identity_generation(),
+            before.checked_add(2).unwrap()
+        );
     }
 
     #[test]
