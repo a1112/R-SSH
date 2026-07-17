@@ -125921,6 +125921,21 @@ mod tests {
     }
 
     #[test]
+    fn window_app_focus_reporting_suppresses_duplicate_sequences() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.runtime.feed_pty_output(b"\x1b[?1004h");
+
+        assert!(app.handle_focus_changed(true).unwrap());
+        assert!(!app.handle_focus_changed(true).unwrap());
+        assert!(app.handle_focus_changed(false).unwrap());
+        assert!(!app.handle_focus_changed(false).unwrap());
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"\x1b[I\x1b[O");
+    }
+
+    #[test]
     fn window_app_dispatches_focus_changed_for_active_pane() {
         let changes = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&changes);
