@@ -89307,7 +89307,6 @@ impl NativeWindowApp {
         let mouse_click_focuses_window = state == ElementState::Pressed
             && (!self.window_focused || self.mouse_click_may_focus_window);
         if mouse_click_focuses_window {
-            self.window_focused = true;
             self.mouse_click_may_focus_window = false;
             if self.swallow_mouse_click_on_window_focus {
                 return Ok(true);
@@ -182729,6 +182728,38 @@ return config
                 SelectionCell { row: 0, column: 1 },
                 SelectionCell { row: 0, column: 1 },
             ))
+        );
+    }
+
+    #[test]
+    fn window_app_mouse_input_before_os_focus_does_not_claim_focus() {
+        let changes = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&changes);
+        let mut app = NativeWindowApp::new(None);
+        app.focus_change_handler = Box::new(move |change| {
+            recorded.lock().unwrap().push(*change);
+            true
+        });
+        app.set_config_overrides(NativeConfigOverrides {
+            swallow_mouse_click_on_window_focus: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(!app.window_focused);
+        assert!(!app.mouse_click_may_focus_window);
+        assert!(app.handle_focus_changed(true).unwrap());
+
+        assert_eq!(
+            changes.lock().unwrap().as_slice(),
+            [NativeWindowFocusChange {
+                window_id: rssh_core::WindowId::new(1),
+                pane: rssh_core::PaneId::new(1),
+                focused: true,
+            }]
         );
     }
 
