@@ -182848,8 +182848,6 @@ return config
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 1 },
         ));
-        app.search = Some(WindowSearch::default());
-        app.quick_select = Some(super::WindowQuickSelect::default());
 
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
