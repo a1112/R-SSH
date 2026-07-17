@@ -951,9 +951,10 @@ runtime storage for tabs and split panes.
   through those paths for the OSC 133 semantic zone under the mouse.
 - Ordinary selection is owned per pane: focus and tab changes save and restore
   each pane's selection independently, and active and inactive panes can render
-  different selections simultaneously. Inactive PTY output rebuilds only the
-  pane's base terminal snapshot, so its retained selection remains visible;
-  the ordinary selection overlay is applied before `inactive_pane_hsb`.
+  different selections simultaneously. Inactive PTY output rebuilds a
+  selection-free base terminal snapshot, so its retained selection remains
+  visible; the ordinary selection overlay is applied before
+  `inactive_pane_hsb`.
   `ClearSelection`, selected-text extraction, and copy operations address only
   the active pane, and closing a pane retires only its selection.
   `MovePaneToNewTab` preserves selection inside the same GUI window.
@@ -2299,8 +2300,10 @@ runtime storage for tabs and split panes.
   `min_scroll_bar_height = "0.5cell"` behavior, with native px, DPI-scaled pt,
   cell, and percent units applied to rendering and hit testing. In split
   layouts it remains one window-right scrollbar bound to the active pane,
-  matching pinned WezTerm; per-pane scrollbar tracks are not a parity gap. Lua
-  config wiring remains later parity work.
+  matching pinned WezTerm; per-pane scrollbar tracks are not a parity gap.
+  Static WezTerm-style Lua assignments for `enable_scroll_bar` and
+  `min_scroll_bar_height` already feed the native override path; dynamic/general
+  Lua evaluation remains later parity work.
 - Terminal scrollback retention follows WezTerm's `scrollback_lines` default of
   `3500` lines. Native effective-config overrides update active and inactive
   pane runtimes, carry into newly spawned panes/windows, and immediately prune
