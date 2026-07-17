@@ -219,7 +219,23 @@ keyboard, mouse, paste, resize
   swallowing honoring `swallow_mouse_click_on_window_focus`, configurable
   focus-follows-mouse honoring `pane_focus_follows_mouse`, configurable
   mouse-reporting bypass via
-  `bypass_mouse_reporting_modifiers`, and pane-local wheel routing.
+  `bypass_mouse_reporting_modifiers`, and focus-targeted pane-local wheel
+  routing. Routing wheel input to an inactive pane under the pointer without
+  transferring focus remains open.
+- Completed after v1: ordinary selection is owned per pane. Focus and tab
+  changes save and restore each pane's independent selection, active and
+  inactive panes render their selections simultaneously, and inactive PTY
+  output cannot erase the retained selection because the selection overlay is
+  applied at presentation time before `inactive_pane_hsb`. `ClearSelection`,
+  selected-text extraction, and copy actions address only the active pane;
+  closing a pane retires only that pane's selection. `MovePaneToNewTab`
+  preserves selection inside the same GUI window, while
+  `MovePaneToNewWindow` clears GUI selection at the window boundary without
+  discarding terminal runtime, scrollback, or viewport state. This completes
+  the ordinary pane-local selection ownership slice, not full selection
+  parity: stable scrollback-row coordinates, terminal sequence-number
+  (`seqno`)/dirty-line-aware invalidation, and pane-local search, copy-mode,
+  quick-select, and other overlay controllers remain open.
 - Completed in v1: tab bar entries include a configurable clickable close
   marker honoring `show_close_tab_button_in_tabs` that closes non-final tabs or
   requests native-window shutdown when the final tab is closed.
@@ -1216,10 +1232,15 @@ keyboard, mouse, paste, resize
   a real native multi-window focus-event end-to-end run in this slice. The macOS
   call was checked against the locked winit API type and signature, while the
   cross-target build is blocked by a third-party C-toolchain dependency.
-- In-progress after v1: pane focus visuals, pane-local scrollbar/selection
-  polish, richer split drag affordances, custom tab formatting, arbitrary Lua
-  callbacks, external CLI/mux tab-title control, and mux/window registry plus
-  domain runtime orchestration.
+- In-progress after v1: richer pane focus visuals, stable scrollback selection
+  coordinates and precise terminal sequence-number (`seqno`)/dirty-line
+  invalidation, pane-local search/copy-mode/quick-select/overlay controllers,
+  inactive-pane hover wheel routing without focus transfer, richer split drag
+  affordances, custom tab formatting, arbitrary Lua callbacks, external
+  CLI/mux tab-title control, and mux/window registry plus domain, protocol, and
+  renderer parity. The pinned WezTerm contract uses one window-right scrollbar
+  bound to the active pane, which is already the implemented layout; per-pane
+  scrollbar tracks are not a parity requirement.
 - Implemented in v1: minimal `Ctrl+Shift+P` command palette dispatch for
   tab/pane/window/workspace actions including `Spawn Window`,
   `Toggle Full Screen`, Split Horizontal, Split Vertical, Close Current Tab,

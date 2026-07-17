@@ -4113,8 +4113,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   variables into the same native override path; font-metric-derived defaults
   remain later parity work.
 - Split panes now have pane-local mouse hit testing for click-to-focus,
-  optional focus-follows-mouse via `pane_focus_follows_mouse`, and wheel scroll
-  routing.
+  optional focus-follows-mouse via `pane_focus_follows_mouse`, and
+  focus-targeted wheel scroll routing. Routing wheel input to an inactive pane
+  under the pointer without transferring focus remains open.
 - Inactive-pane clicks preserve WezTerm's default click-through behavior, while
   `swallow_mouse_click_on_pane_focus=true` focuses the pane and consumes the
   initial click.
@@ -4132,6 +4133,19 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.swallow_mouse_click_on_window_focus`, and
   `config.bypass_mouse_reporting_modifiers` now parse into the same native
   override path.
+- Ordinary selection is now pane-local. Focus and tab changes save and restore
+  each pane's independent selection; active and inactive panes render their
+  selections simultaneously; and inactive PTY output cannot erase selection
+  because the ordinary selection overlay is applied at presentation time
+  before `inactive_pane_hsb`. `ClearSelection`, selected-text extraction, and
+  copy operations target only the active pane, while closing a pane retires
+  only its selection. `MovePaneToNewTab` preserves selection within the same
+  GUI window. `MovePaneToNewWindow` clears selection at the GUI-window
+  boundary while preserving terminal runtime, scrollback, and viewport state,
+  matching pinned WezTerm. This is the ordinary selection ownership slice, not
+  complete selection parity: stable scrollback-row coordinates, terminal
+  sequence-number (`seqno`)/dirty-line-aware invalidation, and pane-local
+  search, copy-mode, quick-select, and other overlay controllers remain open.
 - Native `enable_scroll_bar` defaults to false. When true, the scrollback
   scrollbar renders and accepts click/drag input; when false, scrollback remains
   wheel/command driven without the scrollbar affordance. The thumb minimum
@@ -4338,8 +4352,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   control flow, dynamic arguments/keys, and unprovable identity or API
   mutation remain open and fail closed.
 
-The next App Shell v2 layers remain pane focus visuals and selection polish,
-arbitrary Lua callbacks, external CLI tab-title control, and a real mux/window
-registry before mux/domain and protocol extensions are scaled. The completed
-native multi-window focus/lifecycle slice does not imply full App Shell v2 or
+The next App Shell v2 layers remain richer pane focus visuals, stable
+scrollback selection coordinates and terminal sequence-number
+(`seqno`)/dirty-line-aware invalidation, pane-local
+search/copy-mode/quick-select/overlay controllers, inactive-pane hover-wheel
+routing without focus transfer, arbitrary Lua callbacks, external CLI
+tab-title control, and a real mux/window registry before mux/domain, protocol,
+and renderer extensions are scaled. Ordinary
+pane-local selection ownership is complete, and the pinned WezTerm scrollbar
+contract is already the single window-right scrollbar bound to the active
+pane; neither statement implies full selection parity, full App Shell v2, or
 general WezTerm parity.

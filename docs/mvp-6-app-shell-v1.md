@@ -929,7 +929,8 @@ runtime storage for tabs and split panes.
   active PTY.
 - `rssh-app` exposes WezTerm-style `ClearSelection` through the command palette
   and structured `clearselection` action-name queries, clearing the active
-  window selection and refreshing the rendered highlight.
+  pane's ordinary selection and refreshing the rendered highlight without
+  clearing selections retained by inactive panes.
 - `rssh-app` exposes WezTerm-style `SelectTextAtMouseCursor` and
   `ExtendSelectionToMouseCursor` Cell, Word, Line, and Block modes through
   command-palette entries and native action payloads using the current mouse
@@ -948,6 +949,20 @@ runtime storage for tabs and split panes.
   ClipboardAndPrimarySelection. It
   also exposes WezTerm-style `SelectTextAtMouseCursor` SemanticZone selection
   through those paths for the OSC 133 semantic zone under the mouse.
+- Ordinary selection is owned per pane: focus and tab changes save and restore
+  each pane's selection independently, and active and inactive panes can render
+  different selections simultaneously. Inactive PTY output rebuilds only the
+  pane's base terminal snapshot, so its retained selection remains visible;
+  the ordinary selection overlay is applied before `inactive_pane_hsb`.
+  `ClearSelection`, selected-text extraction, and copy operations address only
+  the active pane, and closing a pane retires only its selection.
+  `MovePaneToNewTab` preserves selection inside the same GUI window.
+  `MovePaneToNewWindow` intentionally clears GUI selection at the window
+  boundary while retaining terminal runtime, scrollback, and viewport state,
+  matching the pinned WezTerm ownership boundary. This slice does not claim
+  full selection parity: stable scrollback-row coordinates, terminal
+  sequence-number (`seqno`)/dirty-line-aware invalidation, and pane-local
+  search, copy-mode, quick-select, and other overlay controllers remain open.
 - `rssh-app` exposes WezTerm-style `ActivateCommandPalette` through the command
   palette and the default `Ctrl+Shift+P` shortcut; invoking it from the palette
   closes the current palette action and reopens a fresh command palette.
@@ -2274,15 +2289,18 @@ runtime storage for tabs and split panes.
   native scroll handling instead of SGR mouse reporting.
 - `rssh-app` renders basic right/down pane split layouts by clipping and placing
   each pane snapshot into its app-shell split region with separator cells.
-- `rssh-app` maps mouse clicks and wheel input to the pane under the cursor, so
+- `rssh-app` maps mouse clicks and wheel input through pane hit testing, so
   split panes can be focused and scrolled independently at the native-window
-  layer.
+  layer. Wheel input over an inactive pane currently transfers focus before
+  scrolling it; routing hover-wheel input without focus transfer remains open.
 - The scrollback scrollbar follows WezTerm's `enable_scroll_bar` default: hidden
   by default and rendered/clickable only when the native effective-config field
   is true. Its thumb minimum follows WezTerm's default
   `min_scroll_bar_height = "0.5cell"` behavior, with native px, DPI-scaled pt,
-  cell, and percent units applied to rendering and hit testing; Lua config
-  wiring remains later parity work.
+  cell, and percent units applied to rendering and hit testing. In split
+  layouts it remains one window-right scrollbar bound to the active pane,
+  matching pinned WezTerm; per-pane scrollbar tracks are not a parity gap. Lua
+  config wiring remains later parity work.
 - Terminal scrollback retention follows WezTerm's `scrollback_lines` default of
   `3500` lines. Native effective-config overrides update active and inactive
   pane runtimes, carry into newly spawned panes/windows, and immediately prune
@@ -2368,14 +2386,22 @@ runtime storage for tabs and split panes.
   those fields.
 - The tab bar is basic text UI only; Lua/custom tab title formatting,
   external CLI/mux tab-title control, richer new-tab launcher behavior,
-  pane-local scrollbar UI, richer split-drag affordances, and richer focus
-  indicators are not yet implemented.
+  richer split-drag affordances, and richer focus indicators are not yet
+  implemented. The single window-right active-pane scrollbar matches pinned
+  WezTerm; per-pane scrollbar UI is not required for parity.
 - Pane select Activate, swap, MoveToNewTab, and MoveToNewWindow action paths are
   implemented. MoveToNewWindow can now produce a detached native-window app
   state with the selected pane runtime, and the event loop can materialize it as
   an additional OS window. Manager-owned exclusive window focus, pending-batch
   activation, and the shared `ActivateWindow*` show/unminimize/focus path are
-  implemented; richer pane focus visuals and selection polish remain pending.
+  implemented. Ordinary pane-local selection ownership is also implemented,
+  including independent active/inactive rendering, inactive-output retention,
+  active-only clear/copy, close cleanup, same-window MoveToNewTab retention, and
+  cross-GUI-window selection clearing while runtime and viewport transfer.
+  Richer pane focus visuals, stable scrollback selection coordinates, terminal
+  sequence-number (`seqno`)/dirty-line-aware invalidation, pane-local
+  search/copy-mode/quick-select/overlay controllers, and inactive-pane hover
+  wheel routing without focus transfer remain pending.
 - No mux/window registry or domain model exists yet beyond action/state support.
 - Arbitrary Lua callbacks and external CLI/mux tab-title control remain outside
   the implemented bounded-static/native surfaces.
@@ -2546,8 +2572,12 @@ cargo test -p rssh-app copy_mode
 
 ## Next Milestone
 
-- App Shell v2: harden pane focus visuals, pane-local selection, scrollbars,
-  and runtime lifecycle.
+- App Shell v2: harden stable scrollback selection coordinates, terminal
+  sequence-number (`seqno`)/dirty-line invalidation, pane-local
+  search/copy-mode/quick-select controllers, richer pane focus visuals, and
+  inactive-pane hover-wheel routing without focus transfer. Ordinary
+  pane-local selection ownership and the pinned single window-right
+  active-pane scrollbar layout are complete.
 - Add richer mouse drag split resizing and retain arbitrary Lua callback work as
   a separate bounded slice.
 - Add a mux/window registry, external CLI tab-title control, domain, protocol,
