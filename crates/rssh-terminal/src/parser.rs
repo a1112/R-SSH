@@ -4349,6 +4349,7 @@ impl Terminal {
         if removed_rows == 0 {
             return;
         }
+        let has_dormant_main = self.main_screen.is_some();
         if let Some(main_screen) = self.main_screen.as_mut() {
             rebase_image_and_placeholder_metadata(
                 &mut main_screen.inline_images,
@@ -4356,13 +4357,14 @@ impl Terminal {
                 &mut main_screen.last_kitty_placeholder,
                 removed_rows,
             );
-        } else {
-            rebase_image_and_placeholder_metadata(
-                &mut self.inline_images,
-                &mut self.kitty_placeholder_cells,
-                &mut self.last_kitty_placeholder,
-                removed_rows,
-            );
+        }
+        rebase_image_and_placeholder_metadata(
+            &mut self.inline_images,
+            &mut self.kitty_placeholder_cells,
+            &mut self.last_kitty_placeholder,
+            removed_rows,
+        );
+        if !has_dormant_main {
             self.delete_orphan_kitty_relative_children();
         }
     }
@@ -7317,6 +7319,75 @@ mod stable_row_tests {
                 .row,
             0
         );
+    }
+
+    #[test]
+    fn terminal_runtime_prune_rebases_active_alt_and_dormant_main_metadata() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"aa\r\nbb\r\ncc\r\ndd");
+        assert_eq!(terminal.scrollback.len(), 2);
+        let main_survivor_stable = terminal.history_index_to_stable_row(1).unwrap();
+        terminal
+            .inline_images
+            .push(metadata_test_image(1, "main-survivor"));
+        let main_placeholder = metadata_test_placeholder(1);
+        terminal
+            .kitty_placeholder_cells
+            .insert((1, 0), main_placeholder);
+        terminal.last_kitty_placeholder = Some(main_placeholder);
+
+        terminal.feed(b"\x1b[?1049h");
+        let alt_visible_row = 1;
+        let alt_metadata_row = terminal.scrollback.len() + alt_visible_row;
+        terminal
+            .inline_images
+            .push(metadata_test_image(alt_metadata_row, "alt"));
+        let alt_placeholder = metadata_test_placeholder(alt_metadata_row);
+        terminal
+            .kitty_placeholder_cells
+            .insert((alt_metadata_row, 0), alt_placeholder);
+        terminal.last_kitty_placeholder = Some(alt_placeholder);
+
+        terminal.set_scrollback_limit(1);
+
+        assert!(terminal.alternate_screen_active());
+        assert_eq!(terminal.scrollback.len(), 1);
+        assert_eq!(terminal.inline_images.len(), 1);
+        assert_eq!(terminal.inline_images[0].name.as_deref(), Some("alt"));
+        assert_eq!(
+            terminal.inline_images[0].row - terminal.scrollback.len(),
+            alt_visible_row
+        );
+        let rebased_alt_row = terminal.scrollback.len() + alt_visible_row;
+        assert!(
+            terminal
+                .kitty_placeholder_cells
+                .contains_key(&(rebased_alt_row, 0))
+        );
+        assert_eq!(
+            terminal
+                .last_kitty_placeholder
+                .expect("active alternate placeholder")
+                .row,
+            rebased_alt_row
+        );
+        let dormant_main = terminal.main_screen.as_ref().expect("dormant main screen");
+        assert_eq!(dormant_main.inline_images.len(), 1);
+        assert_eq!(dormant_main.inline_images[0].row, 0);
+        assert!(dormant_main.kitty_placeholder_cells.contains_key(&(0, 0)));
+
+        terminal.feed(b"\x1b[?1049l");
+
+        assert_eq!(terminal.inline_images.len(), 1);
+        assert_eq!(
+            terminal.inline_images[0].name.as_deref(),
+            Some("main-survivor")
+        );
+        assert_eq!(
+            terminal.history_index_to_stable_row(terminal.inline_images[0].row),
+            Some(main_survivor_stable)
+        );
+        assert!(terminal.kitty_placeholder_cells.contains_key(&(0, 0)));
     }
 
     #[test]
