@@ -2827,8 +2827,8 @@ impl Terminal {
             return None;
         }
 
-        let first_history = self.stable_row_to_history_index(first_retained)?;
-        let last_history = self.stable_row_to_history_index(last_retained)?;
+        let first_history = self.stable_row_to_text_history_index(first_retained)?;
+        let last_history = self.stable_row_to_text_history_index(last_retained)?;
         if selection.rectangular {
             let first_column = selection.start.column.min(selection.end.column);
             let last_column = selection.start.column.max(selection.end.column);
@@ -2850,6 +2850,15 @@ impl Terminal {
             usize::MAX
         };
         self.text_from_region(first_column, first_history, last_column, last_history)
+    }
+
+    fn stable_row_to_text_history_index(&self, row: StableRowIndex) -> Option<usize> {
+        let history_row = self.stable_row_to_history_index(row)?;
+        if self.alternate_screen_active() {
+            self.scrollback.len().checked_add(history_row)
+        } else {
+            Some(history_row)
+        }
     }
 
     #[must_use]
@@ -3000,14 +3009,11 @@ impl Terminal {
     }
 
     fn cells_for_history_row(&self, row: usize) -> Option<Vec<Cell>> {
-        let grid_row = if self.alternate_screen_active() {
-            row
-        } else {
-            if let Some(line) = self.scrollback.get(row) {
-                return Some(line.cells().to_vec());
-            }
-            row.checked_sub(self.scrollback.len())?
-        };
+        if let Some(line) = self.scrollback.get(row) {
+            return Some(line.cells().to_vec());
+        }
+
+        let grid_row = row.checked_sub(self.scrollback.len())?;
         let grid_row = u16::try_from(grid_row).ok()?;
         if grid_row >= self.grid.size().rows {
             return None;
@@ -3021,14 +3027,11 @@ impl Terminal {
     }
 
     fn history_row_is_wrapped(&self, row: usize) -> Option<bool> {
-        let grid_row = if self.alternate_screen_active() {
-            row
-        } else {
-            if let Some(line) = self.scrollback.get(row) {
-                return Some(line.is_wrapped());
-            }
-            row.checked_sub(self.scrollback.len())?
-        };
+        if let Some(line) = self.scrollback.get(row) {
+            return Some(line.is_wrapped());
+        }
+
+        let grid_row = row.checked_sub(self.scrollback.len())?;
         let grid_row = u16::try_from(grid_row).ok()?;
         if grid_row >= self.grid.size().rows {
             return None;
@@ -7095,6 +7098,74 @@ mod stable_row_tests {
         assert_eq!(
             terminal.text_from_stable_selection(stable_selection(start, end, false)),
             None
+        );
+    }
+
+    #[test]
+    fn terminal_stable_text_same_row_reverse_selection() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+        terminal.feed(b"abcdef");
+        let anchor = stable_coordinate(&terminal, 0, 4);
+        let focus = stable_coordinate(&terminal, 0, 1);
+
+        assert_eq!(
+            terminal.text_from_stable_selection(stable_selection(anchor, focus, false)),
+            Some("bcde".to_owned())
+        );
+    }
+
+    #[test]
+    fn terminal_stable_rectangular_text_supports_reverse_anchor_focus() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+        terminal.feed(b"abcdef\r\nghijkl\r\nmnopqr");
+        let anchor = stable_coordinate(&terminal, 2, 4);
+        let focus = stable_coordinate(&terminal, 0, 1);
+
+        assert_eq!(
+            terminal.text_from_stable_selection(stable_selection(anchor, focus, true)),
+            Some("bcde\nhijk\nnopq".to_owned())
+        );
+    }
+
+    #[test]
+    fn terminal_alternate_legacy_text_from_region_preserves_history_grid_ordinals() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        terminal.feed(b"main1\r\nmain2\r\nmain3");
+        let grid_top = terminal.scrollback.len();
+
+        terminal.feed(b"\x1b[?1049h");
+        terminal.feed(b"alt");
+
+        assert_eq!(
+            terminal.text_from_region(0, 0, 4, 0),
+            Some("main1".to_owned())
+        );
+        assert_eq!(
+            terminal.text_from_region(0, grid_top, 2, grid_top),
+            Some("alt".to_owned())
+        );
+    }
+
+    #[test]
+    fn terminal_alternate_legacy_text_from_semantic_zone_preserves_ordinals() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"main\r\nsecond\r\nthird");
+        let grid_top = terminal.scrollback.len();
+
+        terminal.feed(b"\x1b[?1049h");
+        terminal.feed(b"\x1b]133;A\x07> \x1b]133;B\x07run");
+        let main_zone = terminal.semantic_zone_at(1, 0).expect("main zone");
+        let input_zone = terminal
+            .semantic_zone_at(3, grid_top)
+            .expect("alternate input zone");
+
+        assert_eq!(
+            terminal.text_from_semantic_zone(main_zone),
+            Some("main".to_owned())
+        );
+        assert_eq!(
+            terminal.text_from_semantic_zone(input_zone),
+            Some("run".to_owned())
         );
     }
 
