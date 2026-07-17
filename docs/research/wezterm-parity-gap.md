@@ -4150,12 +4150,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   extraction works while rows are offscreen; and scrollback pruning preserves
   surviving row identities instead of retargeting a selection. For both active
   and inactive panes, an ordinary selection is cleared only when its selected
-  stable rows intersect visible rows changed since that pane's last presented
-  sequence. While Search, Copy, or Quick Select is active, only
+  stable rows intersect visible rows changed after the ordinary selection's
+  stored sequence number, captured when the selection was established or last
+  extended. While Search, Copy, or Quick Select is active, only
   ordinary-selection dirty-row retirement is exempted: PTY processing and
   base-snapshot repaint continue normally, and accumulated row changes are
-  evaluated when the overlay exits. Effective palette changes mark every
-  active-domain line dirty. Screen-domain switches and height changes
+  evaluated at the next base-snapshot presentation after the overlay exits.
+  Effective palette changes mark every active-domain line dirty. Screen-domain
+  switches and height changes
   synchronously retire GUI selection, drag/multi-click state, and transient
   modes. Lua pane dimensions and cursor coordinates expose stable rows.
 - This bounded slice does not claim complete selection parity, full App Shell
