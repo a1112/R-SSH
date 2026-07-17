@@ -96,9 +96,16 @@ impl TerminalRuntime {
         let mut unknown_escape_sequences = Vec::new();
         for event in output.events {
             match event {
-                FilteredOutputEvent::Display(display) => {
+                FilteredOutputEvent::Display {
+                    bytes: display,
+                    all_lines_changed,
+                } => {
                     self.mode_tracker.process_without_emitting(&display);
-                    self.terminal.feed(&display);
+                    if all_lines_changed {
+                        self.terminal.feed_with_all_lines_changed(&display);
+                    } else {
+                        self.terminal.feed(&display);
+                    }
                     unknown_escape_sequences.extend(
                         self.terminal
                             .take_unknown_escape_sequences()
@@ -189,6 +196,10 @@ impl TerminalRuntime {
 
     pub fn set_scrollback_limit(&mut self, limit: usize) {
         self.terminal.set_scrollback_limit(limit);
+    }
+
+    pub(crate) fn mark_all_lines_changed(&mut self) {
+        self.terminal.mark_all_lines_changed();
     }
 
     pub fn set_default_cursor_style(&mut self, default_cursor_style: CursorStyle) {
@@ -318,13 +329,23 @@ struct FilteredOutput {
 }
 
 enum FilteredOutputEvent {
-    Display(Vec<u8>),
+    Display {
+        bytes: Vec<u8>,
+        all_lines_changed: bool,
+    },
     Response(TerminalResponse),
     ResponseBytes(Vec<u8>),
     Enq,
-    SynchronizedOutputMode { bytes: Vec<u8>, enabled: bool },
-    KittyKeyboardMode { bytes: Vec<u8> },
-    KeyModifierOptions { bytes: Vec<u8> },
+    SynchronizedOutputMode {
+        bytes: Vec<u8>,
+        enabled: bool,
+    },
+    KittyKeyboardMode {
+        bytes: Vec<u8>,
+    },
+    KeyModifierOptions {
+        bytes: Vec<u8>,
+    },
 }
 
 impl TerminalOutputFilter {
@@ -560,8 +581,11 @@ impl TerminalOutputFilter {
         while let Some((index, event)) = self.find_next_event() {
             if index > 0 {
                 let display = self.pending[..index].to_vec();
-                self.color_state.process(&display);
-                events.push(FilteredOutputEvent::Display(display));
+                let all_lines_changed = self.color_state.process(&display);
+                events.push(FilteredOutputEvent::Display {
+                    bytes: display,
+                    all_lines_changed,
+                });
             }
             let consumed_end = index + event.consumed;
             let output_event = match event.event {
@@ -597,8 +621,11 @@ impl TerminalOutputFilter {
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             let display = self.pending[..writable].to_vec();
-            self.color_state.process(&display);
-            events.push(FilteredOutputEvent::Display(display));
+            let all_lines_changed = self.color_state.process(&display);
+            events.push(FilteredOutputEvent::Display {
+                bytes: display,
+                all_lines_changed,
+            });
             self.pending.drain(..writable);
         }
 
@@ -2578,17 +2605,18 @@ impl Default for TerminalColorState {
 impl TerminalColorState {
     const MAX_PENDING: usize = 1024 * 1024;
 
-    fn process(&mut self, bytes: &[u8]) {
+    fn process(&mut self, bytes: &[u8]) -> bool {
+        let mut changed = false;
         self.pending.extend_from_slice(bytes);
         if self.pending.len() > Self::MAX_PENDING {
             self.pending.clear();
-            return;
+            return false;
         }
 
         loop {
             let Some((index, prefix_len)) = find_next_osc_start(&self.pending) else {
                 self.retain_possible_prefix();
-                return;
+                return changed;
             };
             if is_inside_osc_or_st_control_string(&self.pending, index) {
                 self.pending.drain(..index.saturating_add(1));
@@ -2600,12 +2628,12 @@ impl TerminalColorState {
 
             let content_start = prefix_len;
             let Some(terminator) = find_osc_color_terminator(&self.pending[content_start..]) else {
-                return;
+                return changed;
             };
             let content_end = content_start + terminator.index;
             if let Some(change) = parse_osc_color_change(&self.pending[content_start..content_end])
             {
-                self.apply(change);
+                changed |= self.apply(change);
             }
             self.pending.drain(..content_end + terminator.length);
         }
@@ -2637,7 +2665,13 @@ impl TerminalColorState {
         response
     }
 
-    fn apply(&mut self, change: OscColorChange) {
+    fn apply(&mut self, change: OscColorChange) -> bool {
+        let before = (
+            self.foreground,
+            self.background,
+            self.cursor_override,
+            self.palette_overrides.clone(),
+        );
         match change {
             OscColorChange::DefaultForeground(color) => self.foreground = color,
             OscColorChange::DefaultBackground(color) => self.background = color,
@@ -2667,6 +2701,13 @@ impl TerminalColorState {
                 }
             }
         }
+        before
+            != (
+                self.foreground,
+                self.background,
+                self.cursor_override,
+                self.palette_overrides.clone(),
+            )
     }
 
     fn palette_color(&self, index: u8) -> [u8; 3] {
@@ -2921,7 +2962,7 @@ const DEFAULT_FOREGROUND: [u8; 3] = [229, 229, 229];
 const DEFAULT_BACKGROUND: [u8; 3] = [12, 12, 12];
 const DEFAULT_CURSOR: [u8; 3] = DEFAULT_FOREGROUND;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct DynamicColor {
     red: u16,
     green: u16,
@@ -4922,6 +4963,60 @@ mod tests {
             ]
         );
         assert!(output.display.is_empty());
+    }
+
+    #[test]
+    fn terminal_runtime_osc_palette_change_marks_active_domain_rows_changed() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(8, 2));
+        runtime.feed_pty_output(b"one\r\ntwo");
+        let before = runtime.terminal().current_seqno();
+        let visible = runtime.terminal().viewport_stable_range(None);
+
+        runtime.feed_pty_output(b"\x1b]4;1;rgb:01/02/03\x07");
+
+        assert_eq!(
+            runtime
+                .terminal()
+                .changed_stable_rows_since(visible.clone(), before),
+            visible.collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn terminal_runtime_osc_palette_change_advances_sequence_once() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(8, 2));
+        runtime.feed_pty_output(b"one\r\ntwo");
+        let before = runtime.terminal().current_seqno();
+
+        runtime.feed_pty_output(b"\x1b]4;1;rgb:01/02/03\x07");
+
+        assert_eq!(
+            runtime.terminal().current_seqno(),
+            before.checked_add(1).unwrap()
+        );
+    }
+
+    #[test]
+    fn terminal_runtime_palette_query_and_noop_do_not_mark_lines_changed() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(8, 2));
+        runtime.feed_pty_output(b"one\r\ntwo");
+        runtime.feed_pty_output(b"\x1b]4;1;rgb:01/02/03\x07");
+        let before = runtime.terminal().current_seqno();
+        let visible = runtime.terminal().viewport_stable_range(None);
+
+        runtime.feed_pty_output(b"\x1b]4;1;?\x07");
+        runtime.feed_pty_output(b"\x1b]4;1;rgb:01/02/03\x07");
+
+        assert_eq!(
+            runtime.terminal().current_seqno(),
+            before.checked_add(1).unwrap()
+        );
+        assert!(
+            runtime
+                .terminal()
+                .changed_stable_rows_since(visible, before)
+                .is_empty()
+        );
     }
 
     #[test]

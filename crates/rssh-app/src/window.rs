@@ -81451,6 +81451,13 @@ impl PaneStableViewport {
 impl PaneRuntime {
     fn reconcile_terminal_mutation(&mut self) {
         self.stable_viewport.clamp_main(self.runtime.terminal());
+        if ordinary_selection_is_invalidated_by_visible_dirty_rows(
+            self.runtime.terminal(),
+            self.stable_viewport.active_top(self.runtime.terminal()),
+            self.ordinary_selection,
+        ) {
+            self.ordinary_selection = None;
+        }
         self.snapshot = terminal_runtime_snapshot(&self.runtime, self.stable_viewport);
     }
 
@@ -89023,7 +89030,14 @@ impl NativeWindowApp {
     fn handle_active_pane_output(&mut self, bytes: &[u8]) -> io::Result<()> {
         let started = Instant::now();
         self.metrics.record_pty_chunk(bytes.len());
+        let previous_dimensions = self.runtime.terminal().stable_dimensions();
         let runtime_output = self.runtime.feed_pty_output_with_display(bytes);
+        let dimensions = self.runtime.terminal().stable_dimensions();
+        if dimensions.domain != previous_dimensions.domain
+            || dimensions.viewport_rows != previous_dimensions.viewport_rows
+        {
+            self.retire_active_terminal_identity_state();
+        }
         self.reconcile_active_terminal_mutation();
         self.write_session_log(&runtime_output.display)?;
         self.record_unknown_escape_sequence_warnings(
@@ -89061,6 +89075,18 @@ impl NativeWindowApp {
         self.metrics.record_pty_chunk_process(started.elapsed());
 
         Ok(())
+    }
+
+    fn retire_active_terminal_identity_state(&mut self) {
+        self.ordinary_selection = None;
+        self.selection = None;
+        self.search = None;
+        self.copy_mode = None;
+        self.quick_select = None;
+        self.selecting = false;
+        self.active_mouse_button = None;
+        self.last_left_click = None;
+        self.last_mouse_assignment_click = None;
     }
 
     fn reconcile_active_terminal_mutation(&mut self) {
@@ -89205,7 +89231,14 @@ impl NativeWindowApp {
     ) -> io::Result<()> {
         let started = Instant::now();
         self.metrics.record_pty_chunk(bytes.len());
+        let previous_dimensions = runtime.runtime.terminal().stable_dimensions();
         let runtime_output = runtime.runtime.feed_pty_output_with_display(bytes);
+        let dimensions = runtime.runtime.terminal().stable_dimensions();
+        if dimensions.domain != previous_dimensions.domain
+            || dimensions.viewport_rows != previous_dimensions.viewport_rows
+        {
+            runtime.ordinary_selection = None;
+        }
         self.record_unknown_escape_sequence_warnings(
             pane_id,
             &runtime_output.unknown_escape_sequences,
@@ -89317,6 +89350,17 @@ impl NativeWindowApp {
 
     fn rebuild_snapshot(&mut self) {
         self.stable_viewport.clamp_main(self.runtime.terminal());
+        let transient_overlay_active =
+            self.search.is_some() || self.copy_mode.is_some() || self.quick_select.is_some();
+        if !transient_overlay_active
+            && ordinary_selection_is_invalidated_by_visible_dirty_rows(
+                self.runtime.terminal(),
+                self.stable_viewport.active_top(self.runtime.terminal()),
+                self.ordinary_selection,
+            )
+        {
+            self.clear_ordinary_selection();
+        }
         self.update_selection_projection();
         let size = self.runtime.terminal().grid().size();
         let inactive_search_selections = self.copy_mode_inactive_search_selections(size);
@@ -93004,6 +93048,7 @@ impl NativeWindowApp {
 
     #[allow(dead_code)]
     fn set_config_overrides(&mut self, overrides: NativeConfigOverrides) {
+        let previous_palette = self.native_resolved_palette();
         self.config_overrides = overrides.clone();
         self.configured_dpi = overrides.dpi;
         self.dpi_by_screen = overrides.dpi_by_screen.clone().unwrap_or_default();
@@ -93596,6 +93641,14 @@ impl NativeWindowApp {
             .min_scroll_bar_height
             .or(DEFAULT_MIN_SCROLL_BAR_HEIGHT);
         self.reload_configuration();
+        if self.native_resolved_palette() != previous_palette {
+            self.runtime.mark_all_lines_changed();
+            for runtime in self.pane_runtimes.values_mut() {
+                runtime.runtime.mark_all_lines_changed();
+                runtime.reconcile_terminal_mutation();
+            }
+            self.refresh_snapshot();
+        }
         self.apply_window_title();
     }
 
@@ -98111,16 +98164,13 @@ impl NativeWindowApp {
 
     fn lua_pane_dimensions_field_text(&self, field: NativeLuaPaneDimensionsField) -> String {
         let terminal = self.runtime.terminal();
-        let size = terminal.grid().size();
-        let scrollback_len = terminal.scrollback().len();
+        let dimensions = terminal.stable_dimensions();
         match field {
-            NativeLuaPaneDimensionsField::Cols => size.columns.to_string(),
-            NativeLuaPaneDimensionsField::ViewportRows => size.rows.to_string(),
-            NativeLuaPaneDimensionsField::ScrollbackRows => scrollback_len
-                .saturating_add(usize::from(size.rows))
-                .to_string(),
-            NativeLuaPaneDimensionsField::PhysicalTop => scrollback_len.to_string(),
-            NativeLuaPaneDimensionsField::ScrollbackTop => "0".to_owned(),
+            NativeLuaPaneDimensionsField::Cols => terminal.grid().size().columns.to_string(),
+            NativeLuaPaneDimensionsField::ViewportRows => dimensions.viewport_rows.to_string(),
+            NativeLuaPaneDimensionsField::ScrollbackRows => dimensions.scrollback_rows.to_string(),
+            NativeLuaPaneDimensionsField::PhysicalTop => dimensions.physical_top.to_string(),
+            NativeLuaPaneDimensionsField::ScrollbackTop => dimensions.scrollback_top.to_string(),
         }
     }
 
@@ -98130,12 +98180,12 @@ impl NativeWindowApp {
     ) -> String {
         let terminal = self.runtime.terminal();
         let (row, column) = terminal.cursor();
+        let dimensions = terminal.stable_dimensions();
         match field {
             NativeLuaPaneCursorPositionField::X => column.to_string(),
-            NativeLuaPaneCursorPositionField::Y => terminal
-                .scrollback()
-                .len()
-                .saturating_add(usize::from(row))
+            NativeLuaPaneCursorPositionField::Y => dimensions
+                .physical_top
+                .saturating_add(StableRowIndex::try_from(row).unwrap_or(StableRowIndex::MAX))
                 .to_string(),
             NativeLuaPaneCursorPositionField::Shape => {
                 native_lua_cursor_shape_text(terminal.cursor_shape()).to_owned()
@@ -98597,9 +98647,19 @@ impl NativeWindowApp {
             pixels.resize_buffer(self.frame_width, self.frame_height)?;
         }
 
+        let active_height_changed =
+            self.runtime.terminal().grid().size().rows != terminal_size.rows;
         self.runtime.resize(terminal_size);
+        if active_height_changed {
+            self.retire_active_terminal_identity_state();
+        }
         for runtime in self.pane_runtimes.values_mut() {
+            let height_changed =
+                runtime.runtime.terminal().grid().size().rows != terminal_size.rows;
             runtime.runtime.resize(terminal_size);
+            if height_changed {
+                runtime.ordinary_selection = None;
+            }
             if let Some(session) = runtime.session.as_mut() {
                 session.resize(PtySize::try_new(terminal_size.columns, terminal_size.rows)?)?;
             }
@@ -100853,6 +100913,31 @@ impl StableOrdinarySelection {
             && self.anchor.row == self.focus.row
             && self.anchor.column == self.focus.column
     }
+}
+
+fn ordinary_selection_is_invalidated_by_visible_dirty_rows(
+    terminal: &Terminal,
+    viewport_top: Option<StableRowIndex>,
+    ordinary: Option<StableOrdinarySelection>,
+) -> bool {
+    let Some(ordinary) = ordinary else {
+        return false;
+    };
+    let dimensions = terminal.stable_dimensions();
+    if ordinary.anchor.domain != dimensions.domain || ordinary.focus.domain != dimensions.domain {
+        return false;
+    }
+
+    let visible_rows = terminal.viewport_stable_range(viewport_top);
+    if visible_rows.is_empty() {
+        return false;
+    }
+    let (selection_start, selection_end) = ordinary.source_selection().normalized();
+    let selected_rows = selection_start.row..selection_end.row.saturating_add(1);
+    terminal
+        .changed_stable_rows_since(visible_rows, ordinary.sequence)
+        .into_iter()
+        .any(|row| selected_rows.contains(&row))
 }
 
 impl WindowSelection {
@@ -124924,10 +125009,11 @@ mod tests {
         NativeIntegratedTitleButtonColor, NativeIntegratedTitleButtonStyle, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
         NativeLuaNewTabButtonClick, NativeLuaNewTabButtonClickAllowDefault, NativeLuaOpenUri,
-        NativeLuaTabTitle, NativeLuaWindowStatusText, NativeLuaWindowStatusUpdate,
-        NativeLuaWindowTitle, NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton,
-        NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind, NativeNotificationHandling,
-        NativePalette, NativePromptInputLine, NativeQuoteDroppedFiles, NativeRenderFrontEnd,
+        NativeLuaPaneCursorPositionField, NativeLuaPaneDimensionsField, NativeLuaTabTitle,
+        NativeLuaWindowStatusText, NativeLuaWindowStatusUpdate, NativeLuaWindowTitle,
+        NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
+        NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePalette,
+        NativePromptInputLine, NativeQuoteDroppedFiles, NativeRenderFrontEnd,
         NativeResolvedPalette, NativeScrollBarHeight, NativeSerialDomain, NativeShellAssumption,
         NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain, NativeSshMultiplexing,
         NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
@@ -124949,16 +125035,16 @@ mod tests {
         SelectionCell, SelectionSourceCell, StableOrdinarySelection, TAB_BAR_ROWS,
         TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
         WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
-        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
-        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFocusCoordinator,
-        WindowFocusTransitions, WindowFontSizeAction, WindowInputSelectorAction,
-        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
-        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
-        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineAction,
-        WindowPromptInputLineOptions, WindowQuickSelect, WindowQuickSelectAction,
-        WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery,
-        WindowSearchMatch, WindowSearchMatchType, WindowSelection, WindowSendKey,
-        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSourceSelection,
+        WindowClick, WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry,
+        WindowConfirmationOptions, WindowCopyDestination, WindowDomainSelector, WindowEmitEvent,
+        WindowFocusCoordinator, WindowFocusTransitions, WindowFontSizeAction,
+        WindowInputSelectorAction, WindowInputSelectorChoice, WindowInputSelectorOptions,
+        WindowMouseAssignmentClick, WindowMouseEvent, WindowMouseEventKind,
+        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
+        WindowPromptInputLineAction, WindowPromptInputLineOptions, WindowQuickSelect,
+        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
+        WindowSearchCommandQuery, WindowSearchMatch, WindowSearchMatchType, WindowSelection,
+        WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSourceSelection,
         WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
@@ -186764,6 +186850,305 @@ return config
     }
 
     #[test]
+    fn window_app_visible_dirty_selected_row_clears_ordinary_selection_on_paint() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"selected\r\nother").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+
+        app.handle_pty_output(b"\x1b[1;1HX").unwrap();
+
+        assert!(app.ordinary_selection.is_none());
+    }
+
+    #[test]
+    fn window_app_visible_dirty_unselected_row_preserves_ordinary_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"selected\r\nother").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+
+        app.handle_pty_output(b"\x1b[2;1HX").unwrap();
+
+        assert!(app.ordinary_selection.is_some());
+    }
+
+    #[test]
+    fn window_app_offscreen_dirty_selected_row_waits_until_visible_paint() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"old-0\r\nold-1\r\nold-2\r\nselected\r\nbottom")
+            .unwrap();
+        let selected = ordinary_source_cell_for_viewport(&app, 0, 0);
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            selected,
+            SelectionSourceCell {
+                column: 3,
+                ..selected
+            },
+            false,
+        );
+        app.scroll_viewport_lines(99);
+        assert!(app.selection.is_none());
+
+        app.handle_pty_output(b"\x1b[1;1HX").unwrap();
+        assert!(app.ordinary_selection.is_some());
+
+        app.set_scrollback_offset(0);
+        assert!(app.ordinary_selection.is_none());
+    }
+
+    #[test]
+    fn window_app_full_screen_scroll_preserves_unchanged_selected_row() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"selected\r\nother").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+
+        app.handle_pty_output(b"\r\nnew").unwrap();
+
+        assert!(app.ordinary_selection.is_some());
+        assert_eq!(app.selected_text().as_deref(), Some("sele"));
+    }
+
+    #[test]
+    fn window_app_inactive_visible_dirty_selected_row_clears_only_that_pane_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"left\r\npane").unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"right\r\npane").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 2 },
+        );
+        let inactive = app
+            .pane_runtimes
+            .get_mut(&rssh_core::PaneId::new(1))
+            .expect("inactive pane runtime");
+        let dimensions = inactive.runtime.terminal().stable_dimensions();
+        inactive.ordinary_selection = Some(StableOrdinarySelection {
+            anchor: SelectionSourceCell {
+                domain: dimensions.domain,
+                row: dimensions.physical_top,
+                column: 0,
+            },
+            focus: SelectionSourceCell {
+                domain: dimensions.domain,
+                row: dimensions.physical_top,
+                column: 2,
+            },
+            rectangular: false,
+            sequence: inactive.runtime.terminal().current_seqno(),
+        });
+        inactive.reconcile_terminal_mutation();
+
+        app.handle_pane_pty_output(rssh_core::PaneId::new(1), b"\x1b[1;1HX")
+            .unwrap();
+
+        assert!(app.ordinary_selection.is_some());
+        assert!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(1))
+                .is_some_and(|runtime| runtime.ordinary_selection.is_none())
+        );
+    }
+
+    #[test]
+    fn window_app_inactive_dirty_unselected_row_preserves_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"left\r\npane").unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let inactive = app
+            .pane_runtimes
+            .get_mut(&rssh_core::PaneId::new(1))
+            .expect("inactive pane runtime");
+        let dimensions = inactive.runtime.terminal().stable_dimensions();
+        inactive.ordinary_selection = Some(StableOrdinarySelection {
+            anchor: SelectionSourceCell {
+                domain: dimensions.domain,
+                row: dimensions.physical_top,
+                column: 0,
+            },
+            focus: SelectionSourceCell {
+                domain: dimensions.domain,
+                row: dimensions.physical_top,
+                column: 2,
+            },
+            rectangular: false,
+            sequence: inactive.runtime.terminal().current_seqno(),
+        });
+        inactive.reconcile_terminal_mutation();
+
+        app.handle_pane_pty_output(rssh_core::PaneId::new(1), b"\x1b[2;1HX")
+            .unwrap();
+
+        assert!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(1))
+                .is_some_and(|runtime| runtime.ordinary_selection.is_some())
+        );
+    }
+
+    #[test]
+    fn window_app_ed3_preserves_unchanged_visible_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"selected\r\nother").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+
+        app.clear_scrollback();
+
+        assert!(app.ordinary_selection.is_some());
+        assert_eq!(app.selected_text().as_deref(), Some("sele"));
+    }
+
+    #[test]
+    fn window_app_config_palette_change_marks_all_pane_active_domains_changed() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"left\r\npane").unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"right\r\npane").unwrap();
+        let active_before = app.runtime.terminal().current_seqno();
+        let active_rows = app.runtime.terminal().retained_stable_range();
+        let inactive = app
+            .pane_runtimes
+            .get(&rssh_core::PaneId::new(1))
+            .expect("inactive pane runtime");
+        let inactive_before = inactive.runtime.terminal().current_seqno();
+        let inactive_rows = inactive.runtime.terminal().retained_stable_range();
+
+        app.set_config_overrides(NativeConfigOverrides {
+            foreground_color: Some(Color::Rgb(1, 2, 3)),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert_eq!(
+            app.runtime
+                .terminal()
+                .changed_stable_rows_since(active_rows.clone(), active_before),
+            active_rows.collect::<Vec<_>>()
+        );
+        let inactive = app
+            .pane_runtimes
+            .get(&rssh_core::PaneId::new(1))
+            .expect("inactive pane runtime");
+        assert_eq!(
+            inactive
+                .runtime
+                .terminal()
+                .changed_stable_rows_since(inactive_rows.clone(), inactive_before),
+            inactive_rows.collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn window_app_search_overlay_defers_real_dirty_selection_invalidation() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.handle_pty_output(b"selected\r\nother").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+        let ordinary = app.ordinary_selection;
+        app.enter_search_mode();
+        assert!(app.search.is_some());
+        assert!(app.copy_mode.is_none());
+        assert!(app.quick_select.is_none());
+
+        app.handle_pty_output(b"\x1b[1;1HX").unwrap();
+        assert_eq!(app.ordinary_selection, ordinary);
+
+        app.exit_search_mode();
+        app.refresh_snapshot();
+        assert!(app.ordinary_selection.is_none());
+    }
+
+    #[test]
+    fn window_app_copy_mode_overlay_defers_real_dirty_selection_invalidation() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.handle_pty_output(b"selected\r\nother").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+        let ordinary = app.ordinary_selection;
+        app.enter_copy_mode();
+        assert!(app.copy_mode.is_some());
+        assert!(app.search.is_none());
+        assert!(app.quick_select.is_none());
+
+        app.handle_pty_output(b"\x1b[1;1HX").unwrap();
+        assert_eq!(app.ordinary_selection, ordinary);
+
+        app.exit_copy_mode();
+        assert!(app.ordinary_selection.is_none());
+    }
+
+    #[test]
+    fn window_app_quick_select_overlay_defers_real_dirty_selection_invalidation() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+        app.handle_pty_output(b"https://selected.test\r\nother")
+            .unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+        let ordinary = app.ordinary_selection;
+        app.enter_quick_select_mode();
+        assert!(app.quick_select.is_some());
+        assert!(app.search.is_none());
+        assert!(app.copy_mode.is_none());
+
+        app.handle_pty_output(b"\x1b[1;1HX").unwrap();
+        assert_eq!(app.ordinary_selection, ordinary);
+
+        app.exit_quick_select_mode();
+        assert!(app.ordinary_selection.is_none());
+    }
+
+    #[test]
     fn window_app_presentation_selection_is_never_promoted_to_ordinary_storage() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
@@ -187490,6 +187875,204 @@ return config
         app.handle_pty_output(b"\x1b[?1049l").unwrap();
         assert_eq!(app.current_stable_viewport_top(), main_top);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "aa  ");
+    }
+
+    #[test]
+    fn window_app_active_height_change_retires_selection_before_copy() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"selected\r\nother").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+
+        app.handle_window_resize(PhysicalSize::new(96, 80)).unwrap();
+
+        assert!(app.ordinary_selection.is_none());
+        assert!(app.selected_text().is_none());
+    }
+
+    #[test]
+    fn window_app_inactive_height_change_retires_selection_before_focus() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"left\r\npane").unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let inactive = app
+            .pane_runtimes
+            .get_mut(&rssh_core::PaneId::new(1))
+            .expect("inactive pane runtime");
+        let dimensions = inactive.runtime.terminal().stable_dimensions();
+        inactive.ordinary_selection = Some(StableOrdinarySelection::new(
+            SelectionSourceCell {
+                domain: dimensions.domain,
+                row: dimensions.physical_top,
+                column: 0,
+            },
+            SelectionSourceCell {
+                domain: dimensions.domain,
+                row: dimensions.physical_top,
+                column: 2,
+            },
+            inactive.runtime.terminal().current_seqno(),
+        ));
+
+        app.handle_window_resize(PhysicalSize::new(96, 80)).unwrap();
+
+        assert!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(1))
+                .is_some_and(|runtime| runtime.ordinary_selection.is_none())
+        );
+    }
+
+    #[test]
+    fn window_app_main_to_alt_retires_selection_before_projection() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"selected\r\nother").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+
+        app.handle_pty_output(b"\x1b[?1049h").unwrap();
+
+        assert!(app.ordinary_selection.is_none());
+        assert!(app.selection.is_none());
+    }
+
+    #[test]
+    fn window_app_alt_to_main_does_not_revive_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"selected\r\nother").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+
+        app.handle_pty_output(b"\x1b[?1049h").unwrap();
+        app.handle_pty_output(b"\x1b[?1049l").unwrap();
+
+        assert!(app.ordinary_selection.is_none());
+        assert!(app.selection.is_none());
+    }
+
+    #[test]
+    fn window_app_screen_switch_retires_transient_and_multiclick_state() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.handle_pty_output(b"https://test\r\nother").unwrap();
+        app.enter_copy_mode();
+        app.search = Some(WindowSearch::default());
+        app.quick_select = Some(WindowQuickSelect::default());
+        app.selecting = true;
+        app.last_left_click = Some(WindowClick {
+            cell: ordinary_source_cell_for_viewport(&app, 0, 0),
+            time: Instant::now(),
+            count: 2,
+        });
+        app.last_mouse_assignment_click = Some(WindowMouseAssignmentClick {
+            button: MouseButton::Left,
+            modifiers: ModifiersState::empty(),
+            mouse_reporting: false,
+            alternate_screen_active: false,
+            time: Instant::now(),
+            count: 2,
+        });
+
+        app.handle_pty_output(b"\x1b[?1049h").unwrap();
+
+        assert!(app.search.is_none());
+        assert!(app.copy_mode.is_none());
+        assert!(app.quick_select.is_none());
+        assert!(!app.selecting);
+        assert!(app.last_left_click.is_none());
+        assert!(app.last_mouse_assignment_click.is_none());
+    }
+
+    #[test]
+    fn window_app_main_viewport_restores_after_alt_selection_retirement() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd").unwrap();
+        app.scroll_viewport_lines(2);
+        let main_top = app.current_stable_viewport_top();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 1 },
+        );
+
+        app.handle_pty_output(b"\x1b[?1049h").unwrap();
+        app.handle_pty_output(b"\x1b[?1049l").unwrap();
+
+        assert_eq!(app.current_stable_viewport_top(), main_top);
+        assert!(app.ordinary_selection.is_none());
+    }
+
+    #[test]
+    fn window_app_lua_pane_dimensions_use_stable_scrollback_top() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.runtime.set_scrollback_limit(1);
+        app.handle_pty_output(b"zero\r\none\r\ntwo\r\nthree\r\nfour")
+            .unwrap();
+        let dimensions = app.runtime.terminal().stable_dimensions();
+        assert!(dimensions.scrollback_top > 0);
+
+        assert_eq!(
+            app.lua_pane_dimensions_field_text(NativeLuaPaneDimensionsField::ScrollbackTop),
+            dimensions.scrollback_top.to_string()
+        );
+    }
+
+    #[test]
+    fn window_app_lua_pane_dimensions_use_stable_physical_top() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.runtime.set_scrollback_limit(1);
+        app.handle_pty_output(b"zero\r\none\r\ntwo\r\nthree\r\nfour")
+            .unwrap();
+        let dimensions = app.runtime.terminal().stable_dimensions();
+        assert_ne!(
+            dimensions.physical_top,
+            StableRowIndex::try_from(app.runtime.terminal().scrollback().len()).unwrap()
+        );
+
+        assert_eq!(
+            app.lua_pane_dimensions_field_text(NativeLuaPaneDimensionsField::PhysicalTop),
+            dimensions.physical_top.to_string()
+        );
+    }
+
+    #[test]
+    fn window_app_lua_pane_cursor_y_uses_stable_row() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.runtime.set_scrollback_limit(1);
+        app.handle_pty_output(b"zero\r\none\r\ntwo\r\nthree\r\nfour")
+            .unwrap();
+        let dimensions = app.runtime.terminal().stable_dimensions();
+        let (row, _) = app.runtime.terminal().cursor();
+        let stable_cursor_y = dimensions
+            .physical_top
+            .saturating_add(StableRowIndex::try_from(row).unwrap());
+
+        assert_eq!(
+            app.lua_pane_cursor_position_field_text(NativeLuaPaneCursorPositionField::Y),
+            stable_cursor_y.to_string()
+        );
     }
 
     #[test]
@@ -226276,7 +226859,7 @@ act.Confirmation {
     }
 
     #[test]
-    fn window_app_keeps_inactive_selection_after_inactive_pty_output() {
+    fn window_app_keeps_inactive_selection_after_unselected_inactive_pty_output() {
         let mut app = NativeWindowApp::new(None);
         app.set_config_overrides(NativeConfigOverrides {
             selection_bg_color: Some(Color::Rgb(90, 110, 130)),
@@ -226302,7 +226885,7 @@ act.Confirmation {
             launch: None,
         })
         .unwrap();
-        app.handle_pane_pty_output(rssh_core::PaneId::new(1), b"\rZ")
+        app.handle_pane_pty_output(rssh_core::PaneId::new(1), b"\x1b[2;1HZ")
             .unwrap();
 
         let layout = app.pane_render_layout();
