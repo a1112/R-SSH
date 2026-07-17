@@ -2328,6 +2328,19 @@ runtime storage for tabs and split panes.
   palette close actions: closing the last pane in a tab closes that tab when a
   neighboring tab exists, and closing the final tab/pane requests native-window
   shutdown from the window manager.
+- Native multi-window focus now has one manager-owned focus owner. Each app
+  starts unfocused until an OS focus event, and app-local transitions suppress
+  duplicate Lua/native focus handlers, status refreshes, and PTY focus-reporting
+  sequences. A window's permanent removal clears stale ownership. Startup and
+  pending-window materialization request show/unminimize/focus without claiming
+  focus early; only the last successfully materialized window in a pending batch
+  is activated, and `ActivateWindow*` uses the same request path.
+- `HideApplication` is consumed once by the window manager. On macOS it calls
+  winit's native application-hide API and lets subsequent OS focus events drive
+  state; other platforms retain the configured no-op path. Pure focus/policy
+  tests and the Windows native suite cover this lifecycle. The macOS path is
+  wired to the locked winit API type and signature, not claimed as a complete
+  macOS runtime validation.
 - Native window title surfaces app-shell state as `[workspace:X tab:Y pane:Z]` so
   smoke runs can verify transitions without opening multiple PTY sessions.
 - Static WezTerm Color objects now use the pinned
@@ -2356,8 +2369,12 @@ runtime storage for tabs and split panes.
 - Pane select Activate, swap, MoveToNewTab, and MoveToNewWindow action paths are
   implemented. MoveToNewWindow can now produce a detached native-window app
   state with the selected pane runtime, and the event loop can materialize it as
-  an additional OS window. Platform focus/activation polish is still pending.
-- No mux/domain model exists yet beyond action/state support.
+  an additional OS window. Manager-owned exclusive window focus, pending-batch
+  activation, and the shared `ActivateWindow*` show/unminimize/focus path are
+  implemented; richer pane focus visuals and selection polish remain pending.
+- No mux/window registry or domain model exists yet beyond action/state support.
+- Arbitrary Lua callbacks and external CLI/mux tab-title control remain outside
+  the implemented bounded-static/native surfaces.
 - Command palette UX is minimal: richer discovery and configurable Lua bindings
   are still pending. The native `augment-command-palette` hook currently covers
   typed `WindowCommand` entries only.
@@ -2508,6 +2525,11 @@ cargo test -p rssh-app move_to_new_tab
 cargo test -p rssh-app move_to_new_window
 cargo test -p rssh-app consumes_pending_new_window
 cargo test -p rssh-app window_manager_collects_detached_app
+cargo test -p rssh-app focus_changed
+cargo test -p rssh-app focus_reporting
+cargo test -p rssh-app window_focus_coordinator
+cargo test -p rssh-app activate_window
+cargo test -p rssh-app hide_application
 cargo test -p rssh-app window_app_palette_close
 cargo test -p rssh-app palette
 cargo test -p rssh-app window_title_reports_app_shell_state
@@ -2516,7 +2538,9 @@ cargo test -p rssh-app copy_mode
 
 ## Next Milestone
 
-- App Shell v2: harden pane-local selection, scrollbars, and runtime lifecycle.
-- Harden multi-window focus/lifecycle behavior, then add pane focus UI and mouse
-  drag split resizing.
-- Add mux/domain, protocol, and renderer parity work.
+- App Shell v2: harden pane focus visuals, pane-local selection, scrollbars,
+  and runtime lifecycle.
+- Add richer mouse drag split resizing and retain arbitrary Lua callback work as
+  a separate bounded slice.
+- Add a mux/window registry, external CLI tab-title control, domain, protocol,
+  and renderer parity work.

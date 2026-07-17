@@ -1199,10 +1199,23 @@ keyboard, mouse, paste, resize
   trailing comma fields, and static WezTerm-style `config.keys` actions resolve
   top-level static bool variables for the `confirm` field and parenthesized
   static options table variables.
-- In-progress after v1: pane focus UI, pane-local scrollbar/selection polish,
-  platform focus policy for newly materialized windows, richer split drag
-  affordances, custom tab formatting, external CLI/mux tab-title control, and
-  mux/domain runtime orchestration.
+- Completed after v1: native multi-window focus is coordinated by the window
+  manager so at most one managed window owns focus. Apps start unfocused until
+  the OS reports focus, and duplicate or out-of-order focus events suppress
+  repeated Lua/native handlers, status refreshes, and terminal focus-reporting
+  bytes. Removing a window clears stale manager ownership. Startup and only the
+  last successfully materialized window in a pending batch request
+  show/unminimize/focus, while `ActivateWindow*` reuses that same request path;
+  observable focus still changes only when the OS confirms it. `HideApplication`
+  is consumed once by the manager and dispatches winit's native application hide
+  on macOS without synthesizing focus changes. Pure coordinator/policy tests and
+  the Windows native test suite cover the cross-window lifecycle; the macOS call
+  is integrated against the locked winit API type and signature, without a claim
+  of a complete macOS runtime test.
+- In-progress after v1: pane focus visuals, pane-local scrollbar/selection
+  polish, richer split drag affordances, custom tab formatting, arbitrary Lua
+  callbacks, external CLI/mux tab-title control, and mux/window registry plus
+  domain runtime orchestration.
 - Implemented in v1: minimal `Ctrl+Shift+P` command palette dispatch for
   tab/pane/window/workspace actions including `Spawn Window`,
   `Toggle Full Screen`, Split Horizontal, Split Vertical, Close Current Tab,

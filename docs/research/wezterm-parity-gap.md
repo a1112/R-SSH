@@ -4288,6 +4288,21 @@ what remains before WezTerm-style parity in key UX/composition areas.
   snapshot.
 - `rssh-app window` now runs through a multi-window manager that materializes
   detached MoveToNewWindow app states as additional native OS windows.
+- The manager now owns exclusive native-window focus. Apps remain unfocused
+  until an OS event establishes focus; transfers blur the previous owner, and
+  duplicate or late events cannot repeat Lua/native focus handlers, status
+  refreshes, or PTY focus-reporting bytes. Permanent window removal clears stale
+  ownership.
+- Startup and pending-window materialization request platform activation without
+  changing observable focus before OS confirmation. Only the last successfully
+  materialized window in a pending batch requests focus, and `ActivateWindow*`
+  shares the same show/unminimize/focus path.
+- `HideApplication` is a single-consumption manager request. macOS dispatches
+  winit's native application-hide operation and relies on OS focus events;
+  non-macOS builds use the platform no-op. Pure coordinator/policy tests and the
+  Windows native suite validate the lifecycle. The macOS call matches the locked
+  winit API type and signature, but has not been claimed as a complete macOS
+  runtime validation.
 - PTY reader events now carry app-shell `WindowId` plus `PaneId`, avoiding
   pane-id-only routing once independent windows create their own panes. PTY EOF
   handling waits for process status and honors native `exit_behavior` overrides
@@ -4320,7 +4335,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   control flow, dynamic arguments/keys, and unprovable identity or API
   mutation remain open and fail closed.
 
-The next layer is full App Shell v2 integration (multi-window focus/lifecycle
-polish, remaining pane focus/selection polish, broader Lua/dynamic callback
-compatibility, and external CLI/mux tab-title control) before mux/domain and
-protocol extensions are scaled.
+The next App Shell v2 layers remain pane focus visuals and selection polish,
+arbitrary Lua callbacks, external CLI tab-title control, and a real mux/window
+registry before mux/domain and protocol extensions are scaled. The completed
+native multi-window focus/lifecycle slice does not imply full App Shell v2 or
+general WezTerm parity.
