@@ -83473,10 +83473,11 @@ impl NativeWindowApp {
         let initial_window_position = self.pending_window_positions.remove(&app_window_id);
         let active_pane = pending_window.active_pane_id();
         let startup_command = self.pending_window_startup_command(&pending_window)?;
-        let runtime = self
+        let mut runtime = self
             .pane_runtimes
             .remove(&active_pane)
             .unwrap_or_else(|| self.new_inactive_pane_runtime());
+        runtime.selection = None;
         let bell_count = self.pane_bell_counts.remove(&active_pane);
         let app_shell = AppShell::from_pending_window(pending_window);
         let mut detached_app = Self::new_with_command_and_osc52_policy(
@@ -182812,6 +182813,181 @@ return config
         );
 
         assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
+    }
+
+    fn app_with_two_selected_panes_for_test() -> NativeWindowApp {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        app.handle_pty_output(b"left").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        ));
+        app.refresh_snapshot();
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        assert_eq!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(1))
+                .and_then(|runtime| runtime.selection),
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 3 },
+            ))
+        );
+
+        app.handle_pty_output(b"right").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 4 },
+        ));
+        app.refresh_snapshot();
+        assert_eq!(app.selected_text().as_deref(), Some("right"));
+        app
+    }
+
+    #[test]
+    fn window_app_clear_selection_only_clears_active_pane_selection() {
+        let mut app = app_with_two_selected_panes_for_test();
+
+        app.command_palette_apply_command(WindowCommand::ClearSelection)
+            .unwrap();
+
+        assert!(app.selection.is_none());
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+        assert_eq!(app.selected_text().as_deref(), Some("left"));
+    }
+
+    #[test]
+    fn window_app_copy_selection_only_copies_active_pane_selection() {
+        let clipboard = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clipboard = Arc::clone(&clipboard);
+        let mut app = app_with_two_selected_panes_for_test();
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_clipboard.lock().unwrap().push(text.to_owned());
+            true
+        });
+
+        app.command_palette_apply_command(WindowCommand::CopyToClipboard)
+            .unwrap();
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+        app.command_palette_apply_command(WindowCommand::CopyToClipboard)
+            .unwrap();
+
+        assert_eq!(clipboard.lock().unwrap().as_slice(), ["right", "left"]);
+    }
+
+    #[test]
+    fn window_app_closing_active_selected_pane_restores_surviving_selection() {
+        let mut app = app_with_two_selected_panes_for_test();
+
+        app.dispatch_app_action(AppAction::ClosePane {
+            pane: rssh_core::PaneId::new(2),
+        })
+        .unwrap();
+
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
+        assert_eq!(app.selected_text().as_deref(), Some("left"));
+        assert!(!app.pane_runtimes.contains_key(&rssh_core::PaneId::new(2)));
+    }
+
+    #[test]
+    fn window_app_closing_inactive_selected_pane_keeps_active_selection() {
+        let mut app = app_with_two_selected_panes_for_test();
+
+        app.dispatch_app_action(AppAction::ClosePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        assert_eq!(app.selected_text().as_deref(), Some("right"));
+        assert!(!app.pane_runtimes.contains_key(&rssh_core::PaneId::new(1)));
+    }
+
+    #[test]
+    fn window_app_new_split_pane_starts_without_source_selection() {
+        let mut app = app_with_two_selected_panes_for_test();
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(2),
+            direction: rssh_core::app_shell::SplitDirection::Down,
+            launch: None,
+        })
+        .unwrap();
+
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(3));
+        assert!(app.selection.is_none());
+        assert_eq!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(2))
+                .and_then(|runtime| runtime.selection),
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 4 },
+            ))
+        );
+    }
+
+    #[test]
+    fn window_app_move_selected_pane_to_new_tab_preserves_selection() {
+        let mut app = app_with_two_selected_panes_for_test();
+
+        app.dispatch_app_action(AppAction::MovePaneToNewTab {
+            pane: rssh_core::PaneId::new(2),
+        })
+        .unwrap();
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        assert_eq!(app.selected_text().as_deref(), Some("right"));
+    }
+
+    #[test]
+    fn window_app_move_selected_pane_to_new_window_drops_gui_selection_only() {
+        let mut app = app_with_two_selected_panes_for_test();
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        app.handle_pty_output(b"\rone\r\ntwo\r\nthree\r\nfour")
+            .unwrap();
+        app.scroll_viewport_lines(1);
+        assert_eq!(app.scrollback_offset, 1);
+        assert!(!app.runtime.terminal().scrollback().is_empty());
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 2 },
+        ));
+        app.refresh_snapshot();
+
+        app.dispatch_app_action(AppAction::MovePaneToNewWindow {
+            pane: rssh_core::PaneId::new(2),
+        })
+        .unwrap();
+        assert!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(2))
+                .is_some_and(|runtime| runtime.selection.is_some())
+        );
+        let detached = app
+            .take_next_pending_window_app()
+            .expect("pane should materialize as a detached window");
+
+        assert!(detached.selection.is_none());
+        assert_eq!(detached.scrollback_offset, 1);
+        assert!(!detached.runtime.terminal().scrollback().is_empty());
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
+        assert_eq!(app.selected_text().as_deref(), Some("left"));
     }
 
     #[test]
