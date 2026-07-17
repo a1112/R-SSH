@@ -81373,6 +81373,7 @@ struct PaneRuntime {
     reader_thread: Option<thread::JoinHandle<()>>,
     snapshot: TerminalRenderSnapshot,
     scrollback_offset: usize,
+    selection: Option<WindowSelection>,
 }
 
 impl PaneRuntime {
@@ -84200,6 +84201,7 @@ impl NativeWindowApp {
         let active_was_replaced = previous_active_pane != active_pane;
 
         if active_was_replaced {
+            self.end_transient_selection_modes_for_pane_change();
             let previous_runtime = self.take_active_runtime();
             if valid_pane_ids.contains(&previous_active_pane) {
                 self.pane_runtimes
@@ -84233,6 +84235,16 @@ impl NativeWindowApp {
             .retain(|pane_id, _| valid_pane_ids.contains(pane_id));
     }
 
+    fn end_transient_selection_modes_for_pane_change(&mut self) {
+        if self.search.is_some() || self.copy_mode.is_some() || self.quick_select.is_some() {
+            self.search = None;
+            self.copy_mode = None;
+            self.quick_select = None;
+            self.selection = None;
+        }
+        self.selecting = false;
+    }
+
     fn take_active_runtime(&mut self) -> PaneRuntime {
         let size = self.runtime.terminal().grid().size();
         let scrollback_offset = self.scrollback_offset;
@@ -84241,6 +84253,8 @@ impl NativeWindowApp {
         let session_tty_name = self.session_tty_name.take();
         let writer = self.writer.take();
         let reader_thread = self.reader_thread.take();
+        let selection = self.selection.take();
+        self.selecting = false;
 
         let mut replacement_runtime = TerminalRuntime::new(size);
         replacement_runtime.set_terminal_name(self.term.clone());
@@ -84273,6 +84287,7 @@ impl NativeWindowApp {
             reader_thread,
             snapshot: old_snapshot,
             scrollback_offset,
+            selection,
         }
     }
 
@@ -84304,6 +84319,7 @@ impl NativeWindowApp {
             reader_thread: None,
             snapshot,
             scrollback_offset: 0,
+            selection: None,
         }
     }
 
@@ -84335,6 +84351,9 @@ impl NativeWindowApp {
         self.writer = runtime.writer.take();
         self.reader_thread = runtime.reader_thread.take();
         self.scrollback_offset = runtime.scrollback_offset;
+        self.selection = runtime.selection.take();
+        self.selecting = false;
+        self.rebuild_snapshot();
 
         if let Some(writer) = self.writer.as_mut() {
             let _ = writer.flush();
@@ -94749,6 +94768,7 @@ impl NativeWindowApp {
             reader_thread: Some(reader_thread),
             snapshot,
             scrollback_offset: 0,
+            selection: None,
         })
     }
 
@@ -182753,6 +182773,100 @@ return config
         );
 
         assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
+    }
+
+    #[test]
+    fn window_app_restores_independent_selection_for_each_pane() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"left").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        ));
+        app.refresh_snapshot();
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        assert!(app.selection.is_none());
+
+        app.handle_pty_output(b"right").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 4 },
+        ));
+        app.refresh_snapshot();
+
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+        assert_eq!(app.selected_text().as_deref(), Some("left"));
+
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(2),
+        })
+        .unwrap();
+        assert_eq!(app.selected_text().as_deref(), Some("right"));
+    }
+
+    #[test]
+    fn window_app_switching_panes_ends_drag_but_preserves_source_selection() {
+        let mut app = NativeWindowApp::new(None);
+        let selection = WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 1 },
+        );
+        app.selection = Some(selection);
+        app.selecting = true;
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        assert!(!app.selecting);
+        assert_eq!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(1))
+                .and_then(|runtime| runtime.selection),
+            Some(selection)
+        );
+    }
+
+    #[test]
+    fn window_app_pane_switch_does_not_persist_copy_mode_selection_as_ordinary_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.enter_copy_mode();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 1 },
+        ));
+        app.search = Some(WindowSearch::default());
+        app.quick_select = Some(super::WindowQuickSelect::default());
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        assert!(app.copy_mode.is_none());
+        assert!(app.search.is_none());
+        assert!(app.quick_select.is_none());
+        assert!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(1))
+                .and_then(|runtime| runtime.selection)
+                .is_none()
+        );
     }
 
     #[test]
