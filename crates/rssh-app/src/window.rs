@@ -89121,7 +89121,15 @@ impl NativeWindowApp {
             );
         }
 
-        self.snapshot = if let Some(selection) = self.selection {
+        self.snapshot = if self.copy_mode.is_none() && self.quick_select.is_none() {
+            ordinary_selection_snapshot(
+                snapshot,
+                self.selection,
+                size,
+                self.selection_fg_color,
+                self.selection_bg_color,
+            )
+        } else if let Some(selection) = self.selection {
             let selection_fg_color = if self.copy_mode.is_some() {
                 self.copy_mode_active_highlight_fg
                     .map(native_color_spec_to_render_color)
@@ -90138,8 +90146,21 @@ impl NativeWindowApp {
             let Some(pane_snapshot) = self.pane_snapshot(rect.pane_id) else {
                 continue;
             };
-            let mut pane_snapshot =
-                foreground_text_hsb_snapshot(pane_snapshot.clone(), self.foreground_text_hsb);
+            let mut pane_snapshot = pane_snapshot.clone();
+            if rect.pane_id != active_pane {
+                let runtime = self
+                    .pane_runtimes
+                    .get(&rect.pane_id)
+                    .expect("rendered inactive pane must have a runtime");
+                pane_snapshot = ordinary_selection_snapshot(
+                    pane_snapshot,
+                    runtime.selection,
+                    runtime.runtime.terminal().grid().size(),
+                    self.selection_fg_color,
+                    self.selection_bg_color,
+                );
+            }
+            pane_snapshot = foreground_text_hsb_snapshot(pane_snapshot, self.foreground_text_hsb);
             pane_snapshot =
                 text_background_opacity_snapshot(pane_snapshot, self.text_background_opacity);
             pane_snapshot =
@@ -119650,6 +119671,24 @@ fn pixel_axis_to_cell(value: f64, cell_size: u32) -> Option<u16> {
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     Some(cell as u16)
+}
+
+fn ordinary_selection_snapshot(
+    snapshot: TerminalRenderSnapshot,
+    selection: Option<WindowSelection>,
+    size: rssh_core::TerminalSize,
+    selection_fg_color: Option<Option<Color>>,
+    selection_bg_color: Option<Color>,
+) -> TerminalRenderSnapshot {
+    let Some(selection) = selection else {
+        return snapshot;
+    };
+
+    snapshot.with_selection_colors_overlay(
+        |row, column| selection.contains(row, column, size),
+        selection_fg_color,
+        selection_bg_color,
+    )
 }
 
 fn inactive_pane_snapshot(
@@ -223877,6 +223916,135 @@ act.Confirmation {
         assert_eq!(
             inactive_cell.background,
             rssh_terminal::Color::Rgb(10, 20, 30)
+        );
+    }
+
+    #[test]
+    fn window_app_renders_active_and_inactive_pane_selections_together() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            selection_bg_color: Some(Color::Rgb(100, 120, 140)),
+            inactive_pane_hsb: Some(NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(1.0),
+                brightness: NativeHsbMultiplier::from_f32(0.5),
+            }),
+            ..NativeConfigOverrides::default()
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(20, 4));
+        app.handle_pty_output(b"A").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"B").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+
+        let layout = app.pane_render_layout();
+        let inactive_rect = layout
+            .panes
+            .iter()
+            .find(|rect| rect.pane_id == rssh_core::PaneId::new(1))
+            .expect("inactive pane rect");
+        let active_rect = layout
+            .panes
+            .iter()
+            .find(|rect| rect.pane_id == app.active_pane_id())
+            .expect("active pane rect");
+        let snapshot = app.render_snapshot();
+        let inactive_cell = snapshot_cell(&snapshot, inactive_rect.row, inactive_rect.column)
+            .expect("inactive selected cell");
+        let active_cell =
+            snapshot_cell(&snapshot, active_rect.row, active_rect.column).expect("active cell");
+
+        assert_eq!(
+            active_cell.background,
+            rssh_terminal::Color::Rgb(100, 120, 140)
+        );
+        assert_eq!(
+            inactive_cell.background,
+            rssh_terminal::Color::Rgb(50, 60, 70)
+        );
+    }
+
+    #[test]
+    fn window_app_keeps_inactive_selection_after_inactive_pty_output() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            selection_bg_color: Some(Color::Rgb(90, 110, 130)),
+            inactive_pane_hsb: Some(NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(1.0),
+                brightness: NativeHsbMultiplier::from_f32(1.0),
+            }),
+            ..NativeConfigOverrides::default()
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(20, 4));
+        app.handle_pty_output(b"A").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pane_pty_output(rssh_core::PaneId::new(1), b"\rZ")
+            .unwrap();
+
+        let layout = app.pane_render_layout();
+        let inactive_rect = layout
+            .panes
+            .iter()
+            .find(|rect| rect.pane_id == rssh_core::PaneId::new(1))
+            .expect("inactive pane rect");
+        let snapshot = app.render_snapshot();
+        let inactive_cell = snapshot_cell(&snapshot, inactive_rect.row, inactive_rect.column)
+            .expect("inactive selected cell");
+
+        assert_eq!(
+            inactive_cell.background,
+            rssh_terminal::Color::Rgb(90, 110, 130)
+        );
+    }
+
+    #[test]
+    fn window_app_single_pane_applies_translucent_selection_once() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            selection_bg_color: Some(Color::Rgba(100, 120, 140, 128)),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"\x1b[48;2;20;40;60mA").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+
+        let snapshot = app.render_snapshot();
+        let selected_cell =
+            snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("selected terminal cell");
+
+        assert_eq!(
+            selected_cell.background,
+            rssh_terminal::Color::Rgb(60, 80, 100)
         );
     }
 
