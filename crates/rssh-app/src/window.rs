@@ -89092,15 +89092,13 @@ impl NativeWindowApp {
         let dimensions = terminal.stable_dimensions();
         let retained = terminal.retained_stable_range();
 
-        let copy_mode_retained = self.active_ui.copy_search_mode()
-            != Some(WindowCopySearchMode::Copy)
-            || self.active_ui.copy_mode().is_none_or(|copy_mode| {
-                copy_mode.source_cursor.domain == dimensions.domain
-                    && retained.contains(&copy_mode.source_cursor.row)
-                    && copy_mode.source_anchor.is_none_or(|anchor| {
-                        anchor.domain == dimensions.domain && retained.contains(&anchor.row)
-                    })
-            });
+        let copy_mode_retained = self.active_ui.retained_copy_mode().is_none_or(|copy_mode| {
+            copy_mode.source_cursor.domain == dimensions.domain
+                && retained.contains(&copy_mode.source_cursor.row)
+                && copy_mode.source_anchor.is_none_or(|anchor| {
+                    anchor.domain == dimensions.domain && retained.contains(&anchor.row)
+                })
+        });
         if !copy_mode_retained {
             self.active_ui.exit_overlay();
             self.selection = None;
@@ -95411,11 +95409,18 @@ impl NativeWindowApp {
             return Ok(());
         }
 
-        if self.active_ui.copy_mode().is_some() {
-            if self.handle_copy_mode_key(logical_key, modifiers) {
+        match self.active_ui.copy_search_mode() {
+            Some(WindowCopySearchMode::Search) => {
+                self.handle_search_key(logical_key, modifiers);
                 return Ok(());
             }
-            return Ok(());
+            Some(WindowCopySearchMode::Copy) => {
+                if self.handle_copy_mode_key(logical_key, modifiers) {
+                    return Ok(());
+                }
+                return Ok(());
+            }
+            None => {}
         }
 
         if self.char_select.is_some() {
@@ -95525,11 +95530,6 @@ impl NativeWindowApp {
                 pattern: String::new(),
                 match_type: WindowSearchMatchType::CaseSensitive,
             });
-            return Ok(());
-        }
-
-        if self.active_ui.retained_search().is_some() {
-            self.handle_search_key(logical_key, modifiers);
             return Ok(());
         }
 
@@ -95682,7 +95682,7 @@ impl NativeWindowApp {
         self.active_ui.copy_search_mode() == Some(WindowCopySearchMode::Copy)
             || self
                 .active_ui
-                .copy_mode()
+                .retained_copy_mode()
                 .is_some_and(|copy_mode| copy_mode.search_direction.is_some())
     }
 
@@ -95881,6 +95881,10 @@ impl NativeWindowApp {
 
     #[allow(clippy::too_many_lines)]
     fn handle_copy_mode_key(&mut self, key: &Key, modifiers: ModifiersState) -> bool {
+        if self.active_ui.copy_search_mode() == Some(WindowCopySearchMode::Search) {
+            return self.handle_search_key(key, modifiers);
+        }
+
         let pending_jump = {
             let Some(copy_mode) = self.active_ui.copy_mode_mut() else {
                 return false;
@@ -96676,7 +96680,7 @@ impl NativeWindowApp {
 
     fn copy_mode_search_direction(&self) -> SearchDirection {
         self.active_ui
-            .copy_mode()
+            .retained_copy_mode()
             .and_then(|copy_mode| copy_mode.search_direction)
             .unwrap_or(SearchDirection::Next)
     }
@@ -96778,6 +96782,20 @@ impl NativeWindowApp {
     }
 
     fn handle_search_key(&mut self, key: &Key, modifiers: ModifiersState) -> bool {
+        if self.active_ui.retained_copy_mode().is_some() {
+            if Self::copy_mode_search_key_table_handles_key(key, modifiers) {
+                return self.handle_copy_mode_search_key(key, modifiers);
+            }
+            if Self::command_palette_shortcut(key, modifiers) {
+                self.enter_command_palette_mode();
+                return true;
+            }
+            if self.handle_copy_mode_app_shell_fallback(key, modifiers) {
+                return true;
+            }
+            return self.handle_copy_mode_search_key(key, modifiers);
+        }
+
         match key.as_ref() {
             Key::Named(NamedKey::Escape) => {
                 self.exit_search_mode();
@@ -96861,7 +96879,7 @@ impl NativeWindowApp {
 
     fn initial_search_direction(&self) -> SearchDirection {
         self.active_ui
-            .copy_mode()
+            .retained_copy_mode()
             .and_then(|copy_mode| copy_mode.search_direction)
             .unwrap_or(SearchDirection::Previous)
     }
@@ -96871,7 +96889,7 @@ impl NativeWindowApp {
             return false;
         }
 
-        let direction = if self.active_ui.copy_mode().is_some() {
+        let direction = if self.active_ui.retained_copy_mode().is_some() {
             self.copy_mode_search_direction()
         } else {
             SearchDirection::Next
@@ -96936,15 +96954,27 @@ impl NativeWindowApp {
             self.active_ui
                 .enter_search(initial_copy_mode, WindowSearch::default());
         }
-        let preserve_copy_state = self
-            .active_ui
-            .retained_search()
-            .is_some_and(|search| search.current.is_some());
-        if !self
+        let preserve_copy_state = self.active_ui.copy_search_mode()
+            == Some(WindowCopySearchMode::Search)
+            && self.active_ui.retained_copy_mode().is_some();
+        let pattern_changed = match self
             .active_ui
             .replace_search_pattern(query.to_owned(), match_type)
         {
-            return false;
+            Some(pattern_changed) => pattern_changed,
+            None => return false,
+        };
+        if !pattern_changed {
+            if query.is_empty() {
+                self.selection = None;
+                self.refresh_snapshot();
+                self.apply_window_title();
+                return false;
+            }
+            return self
+                .active_ui
+                .retained_search()
+                .is_some_and(|search| search.current.is_some());
         }
 
         if query.is_empty() {
@@ -97051,7 +97081,7 @@ impl NativeWindowApp {
             .stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), offset);
         self.selection = Some(selection);
-        if !preserve_copy_state && let Some(copy_mode) = self.active_ui.copy_mode_mut() {
+        if !preserve_copy_state && let Some(copy_mode) = self.active_ui.retained_copy_mode_mut() {
             copy_mode.cursor = selection.anchor;
             copy_mode.source_cursor = SelectionSourceCell {
                 domain: search_match.domain,
@@ -98574,33 +98604,36 @@ impl NativeWindowApp {
     }
 
     fn selected_text(&self) -> Option<String> {
-        if let Some(matched) = self
-            .active_ui
-            .quick_select()
-            .and_then(WindowQuickSelect::current_match)
-        {
-            let text = matched.text_from_terminal(self.runtime.terminal())?;
-            return (!text.is_empty()).then_some(text);
+        if let Some(quick_select) = self.active_ui.quick_select() {
+            return quick_select.current_match().and_then(|matched| {
+                let text = matched.text_from_terminal(self.runtime.terminal())?;
+                (!text.is_empty()).then_some(text)
+            });
         }
 
-        if let Some(copy_mode) = self.active_ui.copy_mode() {
-            if let Some(selection) = copy_mode_source_selection(
-                copy_mode,
-                self.runtime.terminal(),
-                &self.selection_word_boundary,
-            ) {
-                let text = selection.text_from_terminal(self.runtime.terminal())?;
-                return (!text.is_empty()).then_some(text);
+        match self.active_ui.copy_search_mode() {
+            Some(WindowCopySearchMode::Search) => {
+                return self
+                    .active_ui
+                    .search()
+                    .and_then(|search| search.current)
+                    .and_then(|matched| {
+                        let text = matched.text_from_terminal(self.runtime.terminal())?;
+                        (!text.is_empty()).then_some(text)
+                    });
             }
-        }
-
-        if let Some(matched) = self
-            .active_ui
-            .retained_search()
-            .and_then(|search| search.current)
-        {
-            let text = matched.text_from_terminal(self.runtime.terminal())?;
-            return (!text.is_empty()).then_some(text);
+            Some(WindowCopySearchMode::Copy) => {
+                return self.active_ui.copy_mode().and_then(|copy_mode| {
+                    let selection = copy_mode_source_selection(
+                        copy_mode,
+                        self.runtime.terminal(),
+                        &self.selection_word_boundary,
+                    )?;
+                    let text = selection.text_from_terminal(self.runtime.terminal())?;
+                    (!text.is_empty()).then_some(text)
+                });
+            }
+            None => {}
         }
 
         self.ordinary_selected_text()
@@ -101237,6 +101270,7 @@ mod pane_transient_overlay {
     #[derive(Debug)]
     struct WindowCopySearchController {
         mode: WindowCopySearchMode,
+        copy_mode_retained: bool,
         copy_mode: WindowCopyMode,
         search: Option<WindowSearch>,
     }
@@ -101282,6 +101316,7 @@ mod pane_transient_overlay {
                     self.overlay = Some(PaneTransientOverlay::CopySearch(
                         WindowCopySearchController {
                             mode: WindowCopySearchMode::Search,
+                            copy_mode_retained: false,
                             copy_mode: initial_copy_mode,
                             search: Some(requested),
                         },
@@ -101296,12 +101331,17 @@ mod pane_transient_overlay {
                     if let Some(search) = controller.search.as_mut() {
                         search.editing = false;
                     }
+                    if !controller.copy_mode_retained {
+                        controller.copy_mode = initial_copy_mode;
+                    }
                     controller.mode = WindowCopySearchMode::Copy;
+                    controller.copy_mode_retained = true;
                 }
                 _ => {
                     self.overlay = Some(PaneTransientOverlay::CopySearch(
                         WindowCopySearchController {
                             mode: WindowCopySearchMode::Copy,
+                            copy_mode_retained: true,
                             copy_mode: initial_copy_mode,
                             search: None,
                         },
@@ -101323,12 +101363,27 @@ mod pane_transient_overlay {
         }
 
         pub(super) fn copy_mode(&self) -> Option<&WindowCopyMode> {
-            self.copy_search().map(|controller| &controller.copy_mode)
+            let controller = self.copy_search()?;
+            (controller.mode == WindowCopySearchMode::Copy).then_some(&controller.copy_mode)
         }
 
         pub(super) fn copy_mode_mut(&mut self) -> Option<&mut WindowCopyMode> {
-            self.copy_search_mut()
-                .map(|controller| &mut controller.copy_mode)
+            let controller = self.copy_search_mut()?;
+            (controller.mode == WindowCopySearchMode::Copy).then_some(&mut controller.copy_mode)
+        }
+
+        pub(super) fn retained_copy_mode(&self) -> Option<&WindowCopyMode> {
+            let controller = self.copy_search()?;
+            controller
+                .copy_mode_retained
+                .then_some(&controller.copy_mode)
+        }
+
+        pub(super) fn retained_copy_mode_mut(&mut self) -> Option<&mut WindowCopyMode> {
+            let controller = self.copy_search_mut()?;
+            controller
+                .copy_mode_retained
+                .then_some(&mut controller.copy_mode)
         }
 
         pub(super) fn search(&self) -> Option<&WindowSearch> {
@@ -101360,17 +101415,24 @@ mod pane_transient_overlay {
             &mut self,
             query: String,
             match_type: WindowSearchMatchType,
-        ) -> bool {
+        ) -> Option<bool> {
             let Some(controller) = self.copy_search_mut() else {
-                return false;
+                return None;
             };
+            if controller
+                .search
+                .as_ref()
+                .is_some_and(|search| search.query == query && search.match_type == match_type)
+            {
+                return Some(false);
+            }
             controller.search = Some(WindowSearch {
                 query,
                 current: None,
                 match_type,
                 editing: controller.mode == WindowCopySearchMode::Search,
             });
-            true
+            Some(true)
         }
 
         pub(super) fn set_search_editing(&mut self, editing: bool) -> bool {
@@ -125419,7 +125481,7 @@ mod tests {
     }
 
     fn copy_mode_for_test(window: &NativeWindowApp) -> Option<&super::WindowCopyMode> {
-        window.active_ui.copy_mode()
+        window.active_ui.retained_copy_mode()
     }
 
     fn copy_search_mode_for_test(window: &NativeWindowApp) -> Option<super::WindowCopySearchMode> {
@@ -125451,6 +125513,12 @@ mod tests {
 
     fn active_copy_mode_for_test(app: &NativeWindowApp) -> &super::WindowCopyMode {
         copy_mode_for_test(app).expect("copy mode should be active")
+    }
+
+    fn retained_copy_mode_mut_for_test(app: &mut NativeWindowApp) -> &mut super::WindowCopyMode {
+        app.active_ui
+            .retained_copy_mode_mut()
+            .expect("copy mode state should be retained")
     }
 
     fn assert_pane_overlay_copy_mode(
@@ -125550,14 +125618,8 @@ mod tests {
             state.copy_search_mode(),
             Some(super::WindowCopySearchMode::Search)
         );
-        assert_pane_overlay_copy_mode(
-            state
-                .copy_mode()
-                .expect("search should install a copy/search controller"),
-            3,
-            7,
-            super::WindowCopySelectionMode::Word,
-        );
+        assert!(state.copy_mode().is_none());
+        assert!(state.retained_copy_mode().is_none());
         assert!(state.search().is_some_and(|search| search.editing));
 
         state.enter_copy_mode(pane_overlay_copy_mode(
@@ -125573,9 +125635,9 @@ mod tests {
             state
                 .copy_mode()
                 .expect("copy mode should retain the search controller"),
-            3,
-            7,
-            super::WindowCopySelectionMode::Word,
+            9,
+            11,
+            super::WindowCopySelectionMode::Line,
         );
         assert_eq!(
             state.retained_search().and_then(|search| search.current),
@@ -125597,11 +125659,11 @@ mod tests {
         );
         assert_pane_overlay_copy_mode(
             state
-                .copy_mode()
+                .retained_copy_mode()
                 .expect("search should retain the copy-mode state"),
-            3,
-            7,
-            super::WindowCopySelectionMode::Word,
+            9,
+            11,
+            super::WindowCopySelectionMode::Line,
         );
         assert_eq!(
             state.search().and_then(|search| search.current),
@@ -125653,7 +125715,7 @@ mod tests {
         assert_eq!(search.current, None);
         assert_pane_overlay_copy_mode(
             state
-                .copy_mode()
+                .retained_copy_mode()
                 .expect("new query should preserve copy-mode state"),
             2,
             5,
@@ -125661,7 +125723,10 @@ mod tests {
         );
 
         assert!(state.set_search_current(Some(pane_overlay_match(2))));
-        assert!(state.replace_search_pattern("beta".to_owned(), WindowSearchMatchType::Regex));
+        assert_eq!(
+            state.replace_search_pattern("beta".to_owned(), WindowSearchMatchType::Regex),
+            Some(true)
+        );
         let search = state
             .search()
             .expect("pattern replacement should keep search mode active");
@@ -125671,7 +125736,7 @@ mod tests {
         assert!(search.editing);
         assert_pane_overlay_copy_mode(
             state
-                .copy_mode()
+                .retained_copy_mode()
                 .expect("new match type should preserve copy-mode state"),
             2,
             5,
@@ -125743,8 +125808,9 @@ mod tests {
                 .retained_search()
                 .is_some_and(|search| !search.editing)
         );
-        assert!(
-            state.replace_search_pattern("copy-pattern".to_owned(), WindowSearchMatchType::Regex,)
+        assert_eq!(
+            state.replace_search_pattern("copy-pattern".to_owned(), WindowSearchMatchType::Regex,),
+            Some(true)
         );
         assert_eq!(
             state.retained_search().map(|search| (
@@ -192663,6 +192729,7 @@ return config
 
         app.enter_copy_mode();
         assert!(copy_mode_for_test(&app).is_some());
+        assert!(app.move_copy_mode_to_viewport_top());
         assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
         assert!(copy_mode_for_test(&app).is_some());
         assert!(search_for_test(&app).is_some());
@@ -192711,6 +192778,7 @@ return config
             .unwrap();
 
         app.enter_copy_mode();
+        assert!(app.move_copy_mode_to_viewport_top());
         assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
         for character in ["f", "o", "o"] {
             assert!(
@@ -192951,6 +193019,7 @@ return config
             .unwrap();
 
         app.enter_copy_mode();
+        assert!(app.move_copy_mode_to_viewport_top());
         assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
         for character in ["f", "o", "o"] {
             assert!(
@@ -193173,7 +193242,12 @@ return config
                 )
             );
         }
-        assert!(app.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
+        {
+            let copy_mode = retained_copy_mode_mut_for_test(&mut app);
+            copy_mode.selection_mode = super::WindowCopySelectionMode::Cell;
+            copy_mode.anchor = Some(copy_mode.cursor);
+            copy_mode.source_anchor = Some(copy_mode.source_cursor);
+        }
         let copy_mode = active_copy_mode_for_test(&app);
         let before_cursor = copy_mode.cursor;
         let before_source_cursor = copy_mode.source_cursor;
@@ -193237,6 +193311,179 @@ return config
         assert!(copy_mode_for_test(&app).is_none());
         assert!(search_for_test(&app).is_none());
         assert!(app.selection.is_none());
+    }
+
+    #[test]
+    fn window_app_keyboard_routes_by_active_overlay_variant() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.handle_pty_output(b"foo one\r\nfoo two").unwrap();
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character("f".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyF),
+            Some("f"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        app.modifiers = ModifiersState::empty();
+        for (character, physical_key) in [
+            ("f", WinitKeyCode::KeyF),
+            ("o", WinitKeyCode::KeyO),
+            ("o", WinitKeyCode::KeyO),
+        ] {
+            app.handle_keyboard_input_event(
+                &Key::Character(character.into()),
+                PhysicalKey::Code(physical_key),
+                Some(character),
+                ElementState::Pressed,
+                KittyKeyEventKind::Press,
+            )
+            .unwrap();
+        }
+        assert_eq!(active_search_for_test(&app).query, "foo");
+        let initial = active_search_for_test(&app).current;
+        app.handle_keyboard_input_event(
+            &Key::Named(NamedKey::ArrowDown),
+            PhysicalKey::Code(WinitKeyCode::ArrowDown),
+            None,
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_ne!(active_search_for_test(&app).current, initial);
+
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(20, 1));
+        app.handle_pty_output(b"copy old search").unwrap();
+        app.enter_copy_mode();
+        {
+            let copy_mode = retained_copy_mode_mut_for_test(&mut app);
+            copy_mode.cursor = SelectionCell { row: 0, column: 3 };
+            copy_mode.source_cursor.column = 3;
+            copy_mode.selection_mode = super::WindowCopySelectionMode::Cell;
+            copy_mode.anchor = Some(SelectionCell { row: 0, column: 0 });
+            copy_mode.source_anchor = Some(SelectionSourceCell {
+                column: 0,
+                ..copy_mode.source_cursor
+            });
+        }
+        app.apply_copy_mode_selection();
+        assert_eq!(app.selected_text().as_deref(), Some("copy"));
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        assert!(app.update_search_query("search"));
+        assert_eq!(
+            app.selected_text().as_deref(),
+            Some("search"),
+            "active Search must hide the retained Copy selection"
+        );
+    }
+
+    #[test]
+    fn window_app_same_search_pattern_preserves_current_match() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.handle_pty_output(b"foo one\r\nfoo two").unwrap();
+
+        assert!(app.update_search_query_with_type(
+            "foo",
+            SearchDirection::Next,
+            WindowSearchMatchType::CaseSensitive,
+        ));
+        assert!(app.step_search(SearchDirection::Next));
+        let stepped = active_search_for_test(&app)
+            .current
+            .expect("stepped search match");
+
+        assert!(app.update_search_query_with_type(
+            "foo",
+            SearchDirection::Next,
+            WindowSearchMatchType::CaseSensitive,
+        ));
+        assert_eq!(
+            active_search_for_test(&app).current,
+            Some(stepped),
+            "same query and match type must retain the current match"
+        );
+    }
+
+    #[test]
+    fn window_app_copy_search_new_pattern_without_old_match_preserves_full_copy_state() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.handle_pty_output(b"foo one\r\nfoo two").unwrap();
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        assert!(!app.update_search_query("missing"));
+        assert!(active_search_for_test(&app).current.is_none());
+
+        *retained_copy_mode_mut_for_test(&mut app) =
+            pane_overlay_copy_mode(0, 1, super::WindowCopySelectionMode::Cell);
+        let before = copy_mode_for_test(&app)
+            .map(|copy_mode| {
+                (
+                    copy_mode.cursor,
+                    copy_mode.source_cursor,
+                    copy_mode.anchor,
+                    copy_mode.source_anchor,
+                    copy_mode.selection_mode,
+                    copy_mode.pending_jump,
+                    copy_mode.last_jump,
+                    copy_mode.search_direction,
+                )
+            })
+            .expect("retained Copy state");
+
+        assert!(app.update_search_query_with_type(
+            "foo",
+            SearchDirection::Next,
+            WindowSearchMatchType::CaseSensitive,
+        ));
+
+        let after = copy_mode_for_test(&app)
+            .map(|copy_mode| {
+                (
+                    copy_mode.cursor,
+                    copy_mode.source_cursor,
+                    copy_mode.anchor,
+                    copy_mode.source_anchor,
+                    copy_mode.selection_mode,
+                    copy_mode.pending_jump,
+                    copy_mode.last_jump,
+                    copy_mode.search_direction,
+                )
+            })
+            .expect("retained Copy state after new pattern");
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn window_app_copy_search_reconcile_prunes_retained_copy_coordinates() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.runtime.set_scrollback_limit(2);
+        app.handle_pty_output(b"old-0\r\nold-1\r\nlive").unwrap();
+        app.enter_copy_mode();
+        assert!(app.move_copy_mode_to_scrollback_top());
+        let stale_source_row = active_copy_mode_for_test(&app).source_cursor.row;
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+
+        app.handle_pty_output(b"\r\nnew-1\r\nnew-2\r\nnew-3")
+            .unwrap();
+
+        assert!(
+            app.runtime.terminal().retained_stable_range().start > stale_source_row,
+            "test setup must prune the retained Copy cursor"
+        );
+        assert!(
+            !overlay_active_for_test(&app),
+            "Copy-search must retire when its retained Copy coordinates are pruned"
+        );
+        assert!(
+            !app.perform_copy_mode_assignment(super::WindowCopyModeAssignment::AcceptPattern),
+            "AcceptPattern must not revive stale Copy coordinates"
+        );
     }
 
     #[test]
