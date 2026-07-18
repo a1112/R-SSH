@@ -81621,6 +81621,16 @@ struct PaneSplitResizeDrag {
     last_column: u16,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct PanePointerTransientState {
+    selecting: bool,
+    active_mouse_button: Option<MouseButton>,
+    scrollbar_dragging: bool,
+    split_resize_dragging: Option<PaneSplitResizeDrag>,
+    last_mouse_assignment_click: Option<WindowMouseAssignmentClick>,
+    last_left_click: Option<WindowClick>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FrameRenderMode {
     Full,
@@ -83029,12 +83039,20 @@ impl NativeWindowApp {
         }
 
         let previous_active_pane = self.app_shell.active_pane_id();
-        self.end_transient_selection_modes_for_pane_change();
+        let previous_shell = self.app_shell.clone();
+        let pointer_transient = self.pointer_transient_state();
+        let preserve_split_resize_drag = matches!(&action, AppAction::ResizePane { .. });
+        self.end_pointer_modes_for_pane_change();
         let previous_runtime = self.take_active_runtime();
         if let Err(error) = self.app_shell.apply_action(action) {
+            self.app_shell = previous_shell;
             self.install_active_runtime(previous_runtime);
+            self.restore_pointer_transient_state(pointer_transient);
             self.apply_window_title();
             return Err(error);
+        }
+        if self.app_shell.active_pane_id() == previous_active_pane && preserve_split_resize_drag {
+            self.restore_split_resize_pointer_state(pointer_transient);
         }
         self.sync_pane_runtimes(previous_active_pane, previous_runtime);
         self.apply_window_title();
@@ -84344,14 +84362,42 @@ impl NativeWindowApp {
             .retain(|pane_id, _| valid_pane_ids.contains(pane_id));
     }
 
-    fn end_transient_selection_modes_for_pane_change(&mut self) {
-        self.selection = None;
+    fn end_pointer_modes_for_pane_change(&mut self) {
         self.selecting = false;
         self.active_mouse_button = None;
         self.scrollbar_dragging = false;
         self.split_resize_dragging = None;
         self.last_mouse_assignment_click = None;
         self.last_left_click = None;
+    }
+
+    fn pointer_transient_state(&self) -> PanePointerTransientState {
+        PanePointerTransientState {
+            selecting: self.selecting,
+            active_mouse_button: self.active_mouse_button,
+            scrollbar_dragging: self.scrollbar_dragging,
+            split_resize_dragging: self.split_resize_dragging,
+            last_mouse_assignment_click: self.last_mouse_assignment_click,
+            last_left_click: self.last_left_click,
+        }
+    }
+
+    fn restore_pointer_transient_state(&mut self, state: PanePointerTransientState) {
+        self.selecting = state.selecting;
+        self.active_mouse_button = state.active_mouse_button;
+        self.scrollbar_dragging = state.scrollbar_dragging;
+        self.split_resize_dragging = state.split_resize_dragging;
+        self.last_mouse_assignment_click = state.last_mouse_assignment_click;
+        self.last_left_click = state.last_left_click;
+    }
+
+    fn restore_split_resize_pointer_state(&mut self, state: PanePointerTransientState) {
+        self.active_mouse_button = state.active_mouse_button;
+        self.split_resize_dragging = state.split_resize_dragging;
+    }
+
+    fn clear_derived_selection_projection_for_shell_action(&mut self) {
+        self.selection = None;
     }
 
     fn take_active_runtime(&mut self) -> PaneRuntime {
@@ -84362,8 +84408,7 @@ impl NativeWindowApp {
         let writer = self.writer.take();
         let reader_thread = self.reader_thread.take();
         let ui = std::mem::take(&mut self.active_ui);
-        self.selection = None;
-        self.selecting = false;
+        self.clear_derived_selection_projection_for_shell_action();
 
         let mut replacement_runtime = TerminalRuntime::new(size);
         replacement_runtime.set_terminal_name(self.term.clone());
@@ -84459,7 +84504,6 @@ impl NativeWindowApp {
         self.reader_thread = runtime.reader_thread.take();
         self.active_ui = std::mem::take(&mut runtime.ui);
         self.update_selection_projection();
-        self.selecting = false;
         self.rebuild_snapshot();
 
         if let Some(writer) = self.writer.as_mut() {
@@ -185013,6 +185057,50 @@ return config
     }
 
     #[test]
+    fn window_app_multiple_partial_failure_restores_shell_runtime_and_ui_owner() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;OwnerOne\x07owner-one")
+            .unwrap();
+        let expected_title = install_distinct_pane_overlay_for_lifecycle_test(
+            &mut app,
+            PaneOverlayLifecycleClass::Search,
+            "rollback-owner",
+            0,
+            1,
+        );
+        let shell_before = app.app_shell.clone();
+        let pane_ids_before = app.app_shell.pane_ids();
+        app.refresh_snapshot();
+        let snapshot_before = app.snapshot.clone();
+
+        assert!(
+            app.dispatch_app_action(AppAction::Multiple {
+                actions: vec![
+                    AppAction::NewTab { launch: None },
+                    AppAction::SpawnWindow { launch: None },
+                    AppAction::ActivatePane {
+                        pane: rssh_core::PaneId::new(999),
+                    },
+                ],
+            })
+            .is_err()
+        );
+
+        assert_eq!(app.app_shell, shell_before);
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
+        assert_eq!(app.app_shell.pane_ids(), pane_ids_before);
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 9), "owner-one");
+        assert_eq!(app.snapshot, snapshot_before);
+        assert_eq!(app.effective_window_title(), expected_title);
+        assert_eq!(
+            search_for_test(&app).map(|search| search.query.as_str()),
+            Some("rollback-owner")
+        );
+        assert!(app.pane_runtimes.is_empty());
+        assert!(app.app_shell.pending_windows().is_empty());
+    }
+
+    #[test]
     fn window_app_pane_switch_never_promotes_overlay_projection_to_ordinary_selection() {
         for class in [
             PaneOverlayLifecycleClass::Search,
@@ -185570,6 +185658,7 @@ return config
                 .unwrap()
         );
         assert_eq!(app.mouse_cursor_icon, CursorIcon::EwResize);
+        assert!(app.split_resize_dragging.is_some());
 
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(43_u32 * CELL_WIDTH),
@@ -185577,22 +185666,65 @@ return config
         ))
         .unwrap();
         assert_eq!(app.mouse_cursor_icon, CursorIcon::EwResize);
+        assert!(app.split_resize_dragging.is_some());
+        assert_eq!(app.pane_render_layout().separators[0].column, 43);
 
         app.handle_cursor_moved(PhysicalPosition::new(
-            f64::from(200_u32 * CELL_WIDTH),
+            f64::from(47_u32 * CELL_WIDTH),
             f64::from(tab_bar_pixel_height()),
         ))
         .unwrap();
         assert_eq!(app.mouse_cursor_icon, CursorIcon::EwResize);
+        assert!(app.split_resize_dragging.is_some());
+        assert_eq!(app.pane_render_layout().separators[0].column, 47);
         assert!(
             app.handle_mouse_input(ElementState::Released, MouseButton::Left)
                 .unwrap()
         );
-        assert_eq!(app.mouse_cursor_icon, CursorIcon::Default);
+        assert_eq!(app.mouse_cursor_icon, CursorIcon::EwResize);
+        assert!(app.split_resize_dragging.is_none());
 
         let snapshot = app.render_snapshot();
-        assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS, 78), Some('|'));
-        assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS, 79), Some('r'));
+        assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS, 47), Some('|'));
+        assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS, 48), Some('r'));
+    }
+
+    #[test]
+    fn window_app_failed_shell_action_restores_split_resize_pointer_state() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(39_u32 * CELL_WIDTH),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        let drag = app.split_resize_dragging.expect("split resize drag");
+        assert_eq!(app.active_mouse_button, Some(MouseButton::Left));
+
+        assert!(
+            app.dispatch_app_action(AppAction::ActivatePane {
+                pane: rssh_core::PaneId::new(999),
+            })
+            .is_err()
+        );
+
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        assert_eq!(app.split_resize_dragging, Some(drag));
+        assert_eq!(app.active_mouse_button, Some(MouseButton::Left));
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(app.split_resize_dragging.is_none());
     }
 
     #[test]
