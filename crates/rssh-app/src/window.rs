@@ -101395,12 +101395,14 @@ mod pane_transient_overlay {
 
         pub(super) fn copy_mode(&self) -> Option<&WindowCopyMode> {
             let controller = self.copy_search()?;
-            (controller.mode == WindowCopySearchMode::Copy).then_some(&controller.copy_mode)
+            (controller.mode == WindowCopySearchMode::Copy && controller.copy_mode_retained)
+                .then_some(&controller.copy_mode)
         }
 
         pub(super) fn copy_mode_mut(&mut self) -> Option<&mut WindowCopyMode> {
             let controller = self.copy_search_mut()?;
-            (controller.mode == WindowCopySearchMode::Copy).then_some(&mut controller.copy_mode)
+            (controller.mode == WindowCopySearchMode::Copy && controller.copy_mode_retained)
+                .then_some(&mut controller.copy_mode)
         }
 
         pub(super) fn retained_copy_mode(&self) -> Option<&WindowCopyMode> {
@@ -101470,6 +101472,9 @@ mod pane_transient_overlay {
             let Some(controller) = self.copy_search_mut() else {
                 return false;
             };
+            if !editing && !controller.copy_mode_retained {
+                return false;
+            }
             let Some(search) = controller.search.as_mut() else {
                 return false;
             };
@@ -125899,6 +125904,30 @@ mod tests {
             state.copy_mode().map(|copy_mode| copy_mode.selection_mode),
             Some(super::WindowCopySelectionMode::Cell)
         );
+    }
+
+    #[test]
+    fn pane_transient_overlay_standalone_search_cannot_accept_as_copy() {
+        let mut state = super::PaneUiState::default();
+        state.enter_search(
+            pane_overlay_copy_mode(2, 4, super::WindowCopySelectionMode::Word),
+            pane_overlay_search(
+                "standalone",
+                WindowSearchMatchType::CaseSensitive,
+                Some(pane_overlay_match(2)),
+                true,
+            ),
+        );
+
+        assert!(!state.set_search_editing(false));
+
+        assert_eq!(
+            state.copy_search_mode(),
+            Some(super::WindowCopySearchMode::Search)
+        );
+        assert!(state.search().is_some_and(|search| search.editing));
+        assert!(state.retained_copy_mode().is_none());
+        assert!(state.copy_mode().is_none());
     }
 
     #[test]
@@ -193636,6 +193665,55 @@ return config
             app.selected_text().as_deref(),
             Some("f"),
             "a real Copy selection must take precedence over retained Search current"
+        );
+    }
+
+    #[test]
+    fn window_app_standalone_search_rejects_copy_accept_pattern_without_split_brain() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"foo bar").unwrap();
+        app.enter_search_mode_with_query(&WindowSearchCommandQuery::Pattern {
+            pattern: "foo".to_owned(),
+            match_type: WindowSearchMatchType::CaseSensitive,
+        });
+        let current = active_search_for_test(&app).current;
+        let selection = app.selection;
+        let title = app.effective_window_title();
+        assert!(current.is_some());
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode 'AcceptPattern'",
+        )
+        .expect("standalone Search AcceptPattern command");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode AcceptPattern command dispatch");
+
+        assert_eq!(
+            copy_search_mode_for_test(&app),
+            Some(super::WindowCopySearchMode::Search)
+        );
+        assert!(active_search_for_test(&app).editing);
+        assert_eq!(active_search_for_test(&app).query, "foo");
+        assert_eq!(active_search_for_test(&app).current, current);
+        assert_eq!(app.selection, selection);
+        assert_eq!(app.effective_window_title(), title);
+        assert_eq!(app.selected_text().as_deref(), Some("foo"));
+        assert!(app.active_ui.retained_copy_mode().is_none());
+        assert!(app.active_ui.copy_mode().is_none());
+
+        app.handle_keyboard_input_event(
+            &Key::Character("x".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyX),
+            Some("x"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(active_search_for_test(&app).query, "foox");
+        assert_eq!(
+            copy_search_mode_for_test(&app),
+            Some(super::WindowCopySearchMode::Search)
         );
     }
 
