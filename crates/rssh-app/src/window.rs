@@ -80767,7 +80767,7 @@ struct NativeWindowApp {
     modifiers: ModifiersState,
     left_alt_pressed: bool,
     right_alt_pressed: bool,
-    stable_viewport: PaneStableViewport,
+    active_ui: PaneUiState,
     mouse_pixel_position: Option<PhysicalPosition<f64>>,
     mouse_position: Option<(u16, u16)>,
     current_mouse_wheel_delta: Option<MouseScrollDelta>,
@@ -80775,20 +80775,16 @@ struct NativeWindowApp {
     mouse_cursor_icon: CursorIcon,
     active_mouse_button: Option<MouseButton>,
     last_mouse_info: Option<ItermMouseInfo>,
-    ordinary_selection: Option<StableOrdinarySelection>,
     selection: Option<WindowSelection>,
     selecting: bool,
     scrollbar_dragging: bool,
     split_resize_dragging: Option<PaneSplitResizeDrag>,
     last_mouse_assignment_click: Option<WindowMouseAssignmentClick>,
     last_left_click: Option<WindowClick>,
-    search: Option<WindowSearch>,
-    copy_mode: Option<WindowCopyMode>,
     command_palette: Option<WindowCommandPalette>,
     command_palette_frecency: HashMap<String, WindowCommandPaletteFrecency>,
     command_palette_frecency_sequence: u64,
     command_palette_frecency_path: Option<PathBuf>,
-    quick_select: Option<WindowQuickSelect>,
     pane_select: Option<WindowPaneSelect>,
     pending_window_positions: HashMap<rssh_core::WindowId, WindowPosition>,
     tab_navigator: Option<WindowTabNavigator>,
@@ -82448,7 +82444,7 @@ impl NativeWindowApp {
             modifiers: ModifiersState::empty(),
             left_alt_pressed: false,
             right_alt_pressed: false,
-            stable_viewport: PaneStableViewport::default(),
+            active_ui: PaneUiState::default(),
             mouse_pixel_position: None,
             mouse_position: None,
             current_mouse_wheel_delta: None,
@@ -82456,20 +82452,16 @@ impl NativeWindowApp {
             mouse_cursor_icon: CursorIcon::Default,
             active_mouse_button: None,
             last_mouse_info: None,
-            ordinary_selection: None,
             selection: None,
             selecting: false,
             scrollbar_dragging: false,
             split_resize_dragging: None,
             last_mouse_assignment_click: None,
             last_left_click: None,
-            search: None,
-            copy_mode: None,
             command_palette: None,
             command_palette_frecency: HashMap::new(),
             command_palette_frecency_sequence: 0,
             command_palette_frecency_path: None,
-            quick_select: None,
             pane_select: None,
             pending_window_positions: HashMap::new(),
             tab_navigator: None,
@@ -83267,10 +83259,8 @@ impl NativeWindowApp {
     }
 
     fn enter_char_select_mode_with_options(&mut self, mut options: WindowCharSelectOptions) {
-        self.search = None;
-        self.copy_mode = None;
+        self.active_ui.exit_overlay();
         self.command_palette = None;
-        self.quick_select = None;
         self.pane_select = None;
         self.tab_navigator = None;
         self.prompt_input_line = None;
@@ -84345,10 +84335,8 @@ impl NativeWindowApp {
     }
 
     fn end_transient_selection_modes_for_pane_change(&mut self) {
-        if self.search.is_some() || self.copy_mode.is_some() || self.quick_select.is_some() {
-            self.search = None;
-            self.copy_mode = None;
-            self.quick_select = None;
+        if self.active_ui.overlay_active() {
+            self.active_ui.exit_overlay();
             self.selection = None;
         }
         self.selecting = false;
@@ -84357,13 +84345,13 @@ impl NativeWindowApp {
 
     fn take_active_runtime(&mut self) -> PaneRuntime {
         let size = self.runtime.terminal().grid().size();
-        let stable_viewport = self.stable_viewport;
+        let stable_viewport = self.active_ui.stable_viewport;
         let session = self.session.take();
         let session_process_id = self.session_process_id.take();
         let session_tty_name = self.session_tty_name.take();
         let writer = self.writer.take();
         let reader_thread = self.reader_thread.take();
-        let ordinary_selection = self.ordinary_selection.take();
+        let ordinary_selection = self.active_ui.ordinary_selection.take();
         self.selection = None;
         self.selecting = false;
 
@@ -84387,7 +84375,7 @@ impl NativeWindowApp {
         replacement_runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
         let old_runtime = std::mem::replace(&mut self.runtime, replacement_runtime);
         let old_snapshot = terminal_runtime_snapshot(&old_runtime, stable_viewport);
-        self.stable_viewport = PaneStableViewport::default();
+        self.active_ui.stable_viewport = PaneStableViewport::default();
 
         PaneRuntime {
             runtime: old_runtime,
@@ -84462,8 +84450,8 @@ impl NativeWindowApp {
         self.session_tty_name = runtime.session_tty_name.take();
         self.writer = runtime.writer.take();
         self.reader_thread = runtime.reader_thread.take();
-        self.stable_viewport = runtime.stable_viewport;
-        self.ordinary_selection = runtime.ordinary_selection.take();
+        self.active_ui.stable_viewport = runtime.stable_viewport;
+        self.active_ui.ordinary_selection = runtime.ordinary_selection.take();
         self.update_selection_projection();
         self.selecting = false;
         self.rebuild_snapshot();
@@ -84801,9 +84789,7 @@ impl NativeWindowApp {
     }
 
     fn enter_command_palette_mode(&mut self) {
-        self.search = None;
-        self.copy_mode = None;
-        self.quick_select = None;
+        self.active_ui.exit_overlay();
         self.pane_select = None;
         self.tab_navigator = None;
         self.prompt_input_line = None;
@@ -84823,9 +84809,7 @@ impl NativeWindowApp {
     }
 
     fn enter_launcher_mode_with_args(&mut self, args: WindowShowLauncherArgs) {
-        self.search = None;
-        self.copy_mode = None;
-        self.quick_select = None;
+        self.active_ui.exit_overlay();
         self.pane_select = None;
         self.tab_navigator = None;
         self.prompt_input_line = None;
@@ -86599,9 +86583,7 @@ impl NativeWindowApp {
 
     fn enter_close_confirmation_mode(&mut self, target: WindowCloseTarget) {
         self.command_palette = None;
-        self.search = None;
-        self.copy_mode = None;
-        self.quick_select = None;
+        self.active_ui.exit_overlay();
         self.pane_select = None;
         self.tab_navigator = None;
         self.prompt_input_line = None;
@@ -86675,9 +86657,7 @@ impl NativeWindowApp {
 
     fn enter_confirmation_mode(&mut self, options: WindowConfirmationOptions) {
         self.command_palette = None;
-        self.search = None;
-        self.copy_mode = None;
-        self.quick_select = None;
+        self.active_ui.exit_overlay();
         self.pane_select = None;
         self.tab_navigator = None;
         self.prompt_input_line = None;
@@ -87001,9 +86981,7 @@ impl NativeWindowApp {
 
     fn enter_input_selector_mode(&mut self, options: WindowInputSelectorOptions) {
         self.command_palette = None;
-        self.search = None;
-        self.copy_mode = None;
-        self.quick_select = None;
+        self.active_ui.exit_overlay();
         self.pane_select = None;
         self.tab_navigator = None;
         self.prompt_input_line = None;
@@ -87501,9 +87479,7 @@ impl NativeWindowApp {
 
     fn enter_prompt_input_line_mode(&mut self, options: WindowPromptInputLineOptions) {
         self.command_palette = None;
-        self.search = None;
-        self.copy_mode = None;
-        self.quick_select = None;
+        self.active_ui.exit_overlay();
         self.pane_select = None;
         self.tab_navigator = None;
         self.input_selector = None;
@@ -87653,9 +87629,7 @@ impl NativeWindowApp {
         alphabet: &str,
     ) {
         self.command_palette = None;
-        self.search = None;
-        self.copy_mode = None;
-        self.quick_select = None;
+        self.active_ui.exit_overlay();
         self.tab_navigator = None;
         self.prompt_input_line = None;
         self.input_selector = None;
@@ -87684,9 +87658,7 @@ impl NativeWindowApp {
 
     fn enter_tab_navigator_mode(&mut self) {
         self.command_palette = None;
-        self.search = None;
-        self.copy_mode = None;
-        self.quick_select = None;
+        self.active_ui.exit_overlay();
         self.pane_select = None;
         self.prompt_input_line = None;
         self.input_selector = None;
@@ -87818,7 +87790,7 @@ impl NativeWindowApp {
     }
 
     fn quick_select_step(&mut self, direction: SearchDirection) -> bool {
-        let Some(quick_select) = self.quick_select.as_mut() else {
+        let Some(quick_select) = self.active_ui.quick_select_mut() else {
             return false;
         };
 
@@ -87853,7 +87825,7 @@ impl NativeWindowApp {
         let viewport_rows_stable =
             StableRowIndex::try_from(viewport_rows).unwrap_or(StableRowIndex::MAX);
 
-        let Some(active) = self.quick_select.as_mut().and_then(|quick_select| {
+        let Some(active) = self.active_ui.quick_select_mut().and_then(|quick_select| {
             if quick_select.matches.is_empty() || viewport_rows == 0 {
                 return None;
             }
@@ -87893,12 +87865,12 @@ impl NativeWindowApp {
     }
 
     fn apply_quick_select_match(&mut self, selection: WindowSearchMatch) {
-        self.apply_search_match(selection);
+        self.apply_search_match(selection, true);
         self.apply_window_title();
     }
 
     fn handle_quick_select_logical_key(&mut self, key: &Key, modifiers: ModifiersState) -> bool {
-        if self.quick_select.is_none() {
+        if self.active_ui.quick_select().is_none() {
             return false;
         }
 
@@ -87932,7 +87904,7 @@ impl NativeWindowApp {
                 true
             }
             Key::Named(NamedKey::Backspace) if modifiers.is_empty() => {
-                if let Some(quick_select) = self.quick_select.as_mut() {
+                if let Some(quick_select) = self.active_ui.quick_select_mut() {
                     quick_select.input.pop();
                 }
                 self.apply_window_title();
@@ -87955,14 +87927,14 @@ impl NativeWindowApp {
                     && !modifiers.alt_key()
                     && text.eq_ignore_ascii_case("u") =>
             {
-                if let Some(quick_select) = self.quick_select.as_mut() {
+                if let Some(quick_select) = self.active_ui.quick_select_mut() {
                     quick_select.input.clear();
                 }
                 self.apply_window_title();
                 true
             }
             Key::Character(text) if !modifiers.control_key() && !modifiers.alt_key() => {
-                let Some((input, matched)) = self.quick_select.as_ref().map(|quick_select| {
+                let Some((input, matched)) = self.active_ui.quick_select().map(|quick_select| {
                     let mut input = quick_select.input.clone();
                     input.push_str(text);
                     let matched = quick_select.match_for_label(&input);
@@ -87972,7 +87944,7 @@ impl NativeWindowApp {
                 };
 
                 if let Some(matched) = matched {
-                    if let Some(quick_select) = self.quick_select.as_mut()
+                    if let Some(quick_select) = self.active_ui.quick_select_mut()
                         && let Some(current) = quick_select
                             .matches
                             .iter()
@@ -87986,7 +87958,7 @@ impl NativeWindowApp {
                     return true;
                 }
 
-                if let Some(quick_select) = self.quick_select.as_mut() {
+                if let Some(quick_select) = self.active_ui.quick_select_mut() {
                     if quick_select.has_label_prefix(&input) {
                         quick_select.input = input;
                     } else {
@@ -88002,13 +87974,13 @@ impl NativeWindowApp {
 
     fn accept_quick_select_match(&mut self, paste: bool) {
         let action = self
-            .quick_select
-            .as_ref()
+            .active_ui
+            .quick_select()
             .map(|quick_select| quick_select.action.clone())
             .unwrap_or_default();
         let skip_action_on_paste = self
-            .quick_select
-            .as_ref()
+            .active_ui
+            .quick_select()
             .is_some_and(|quick_select| quick_select.skip_action_on_paste);
 
         match action {
@@ -88293,8 +88265,6 @@ impl NativeWindowApp {
         skip_action_on_paste: bool,
     ) {
         self.command_palette = None;
-        self.search = None;
-        self.copy_mode = None;
         self.pane_select = None;
         self.tab_navigator = None;
         self.prompt_input_line = None;
@@ -88324,7 +88294,7 @@ impl NativeWindowApp {
             skip_action_on_paste,
         };
         let current = quick_select.current_match();
-        self.quick_select = Some(quick_select);
+        self.active_ui.enter_quick_select(quick_select);
 
         if let Some(active) = current {
             self.apply_quick_select_match(active);
@@ -88336,7 +88306,7 @@ impl NativeWindowApp {
     }
 
     fn exit_quick_select_mode(&mut self) {
-        self.quick_select = None;
+        self.active_ui.exit_overlay();
         self.selection = None;
         self.refresh_snapshot();
         self.apply_window_title();
@@ -89101,11 +89071,9 @@ impl NativeWindowApp {
     }
 
     fn retire_active_terminal_identity_state(&mut self) {
-        self.ordinary_selection = None;
+        self.active_ui.ordinary_selection = None;
         self.selection = None;
-        self.search = None;
-        self.copy_mode = None;
-        self.quick_select = None;
+        self.active_ui.exit_overlay();
         self.selecting = false;
         self.active_mouse_button = None;
         self.last_left_click = None;
@@ -89113,7 +89081,9 @@ impl NativeWindowApp {
     }
 
     fn reconcile_active_terminal_mutation(&mut self) {
-        self.stable_viewport.clamp_main(self.runtime.terminal());
+        self.active_ui
+            .stable_viewport
+            .clamp_main(self.runtime.terminal());
         self.reconcile_transient_stable_coordinates();
     }
 
@@ -89122,28 +89092,31 @@ impl NativeWindowApp {
         let dimensions = terminal.stable_dimensions();
         let retained = terminal.retained_stable_range();
 
-        let copy_mode_retained = self.copy_mode.as_ref().is_none_or(|copy_mode| {
-            copy_mode.source_cursor.domain == dimensions.domain
-                && retained.contains(&copy_mode.source_cursor.row)
-                && copy_mode.source_anchor.is_none_or(|anchor| {
-                    anchor.domain == dimensions.domain && retained.contains(&anchor.row)
-                })
-        });
+        let copy_mode_retained = self.active_ui.copy_search_mode()
+            != Some(WindowCopySearchMode::Copy)
+            || self.active_ui.copy_mode().is_none_or(|copy_mode| {
+                copy_mode.source_cursor.domain == dimensions.domain
+                    && retained.contains(&copy_mode.source_cursor.row)
+                    && copy_mode.source_anchor.is_none_or(|anchor| {
+                        anchor.domain == dimensions.domain && retained.contains(&anchor.row)
+                    })
+            });
         if !copy_mode_retained {
-            self.copy_mode = None;
+            self.active_ui.exit_overlay();
             self.selection = None;
         }
 
-        if let Some(search) = self.search.as_mut()
-            && search
+        if self.active_ui.retained_search().is_some_and(|search| {
+            search
                 .current
                 .is_some_and(|matched| !matched.is_retained(terminal))
-        {
-            search.current = None;
+        }) {
+            self.active_ui.set_search_current(None);
             self.selection = None;
         }
 
-        if let Some(quick_select) = self.quick_select.as_mut() {
+        let mut exit_empty_quick_select = false;
+        if let Some(quick_select) = self.active_ui.quick_select_mut() {
             let current_match = quick_select.current_match();
             let retained_indices = quick_select
                 .matches
@@ -89168,18 +89141,17 @@ impl NativeWindowApp {
                     {
                         quick_select.current = current;
                     } else if !quick_select.matches.is_empty() {
-                        self.quick_select = None;
+                        exit_empty_quick_select = true;
                         self.selection = None;
                     }
                 }
             }
-            if self
-                .quick_select
-                .as_ref()
-                .is_some_and(|quick_select| quick_select.matches.is_empty())
-            {
+            if quick_select.matches.is_empty() {
                 self.selection = None;
             }
+        }
+        if exit_empty_quick_select {
+            self.active_ui.exit_overlay();
         }
 
         self.update_selection_projection();
@@ -89189,6 +89161,7 @@ impl NativeWindowApp {
         let terminal = self.runtime.terminal();
         let dimensions = terminal.stable_dimensions();
         let viewport_top = self
+            .active_ui
             .stable_viewport
             .active_top(terminal)
             .unwrap_or(dimensions.physical_top);
@@ -89201,25 +89174,29 @@ impl NativeWindowApp {
     }
 
     fn set_ordinary_selection(&mut self, selection: StableOrdinarySelection) {
-        self.ordinary_selection = Some(selection);
+        self.active_ui.ordinary_selection = Some(selection);
         self.update_selection_projection();
     }
 
     fn clear_ordinary_selection(&mut self) {
-        self.ordinary_selection = None;
-        if self.quick_select.is_none() && self.search.is_none() && self.copy_mode.is_none() {
+        self.active_ui.ordinary_selection = None;
+        if self.active_ui.quick_select().is_none()
+            && self.active_ui.retained_search().is_none()
+            && self.active_ui.copy_mode().is_none()
+        {
             self.selection = None;
         }
     }
 
     fn invalidate_active_ordinary_selection_for_presentation(&mut self) {
-        let transient_overlay_active =
-            self.search.is_some() || self.copy_mode.is_some() || self.quick_select.is_some();
+        let transient_overlay_active = self.active_ui.overlay_active();
         if !transient_overlay_active
             && ordinary_selection_is_invalidated_by_visible_dirty_rows(
                 self.runtime.terminal(),
-                self.stable_viewport.active_top(self.runtime.terminal()),
-                self.ordinary_selection,
+                self.active_ui
+                    .stable_viewport
+                    .active_top(self.runtime.terminal()),
+                self.active_ui.ordinary_selection,
             )
         {
             self.clear_ordinary_selection();
@@ -89230,25 +89207,29 @@ impl NativeWindowApp {
         let terminal = self.runtime.terminal();
         let dimensions = terminal.stable_dimensions();
         let viewport_top = self
+            .active_ui
             .stable_viewport
             .active_top(terminal)
             .unwrap_or(dimensions.physical_top);
         let size = terminal.grid().size();
         let presented_match = self
-            .quick_select
-            .as_ref()
+            .active_ui
+            .quick_select()
             .and_then(WindowQuickSelect::current_match)
-            .or_else(|| self.search.as_ref().and_then(|search| search.current));
-        let transient_active =
-            self.quick_select.is_some() || self.search.is_some() || self.copy_mode.is_some();
+            .or_else(|| {
+                self.active_ui
+                    .retained_search()
+                    .and_then(|search| search.current)
+            });
+        let transient_active = self.active_ui.overlay_active();
         self.selection = if let Some(matched) = presented_match {
             matched.viewport_selection_for_top(dimensions.domain, viewport_top, size)
-        } else if let Some(copy_mode) = self.copy_mode.as_ref() {
+        } else if let Some(copy_mode) = self.active_ui.copy_mode() {
             copy_mode_source_selection(copy_mode, terminal, &self.selection_word_boundary).and_then(
                 |selection| selection.viewport_selection(dimensions.domain, viewport_top, size),
             )
         } else {
-            self.ordinary_selection.and_then(|selection| {
+            self.active_ui.ordinary_selection.and_then(|selection| {
                 selection.viewport_selection(dimensions.domain, viewport_top, size)
             })
         };
@@ -89387,14 +89368,16 @@ impl NativeWindowApp {
     }
 
     fn rebuild_snapshot(&mut self) {
-        self.stable_viewport.clamp_main(self.runtime.terminal());
+        self.active_ui
+            .stable_viewport
+            .clamp_main(self.runtime.terminal());
         self.invalidate_active_ordinary_selection_for_presentation();
         self.update_selection_projection();
         let size = self.runtime.terminal().grid().size();
         let inactive_search_selections = self.copy_mode_inactive_search_selections(size);
-        let mut snapshot = terminal_runtime_snapshot(&self.runtime, self.stable_viewport);
+        let mut snapshot = terminal_runtime_snapshot(&self.runtime, self.active_ui.stable_viewport);
 
-        if self.quick_select.is_some() && self.quick_select_remove_styling {
+        if self.active_ui.quick_select().is_some() && self.quick_select_remove_styling {
             snapshot = quick_select_remove_styling_snapshot(snapshot);
         }
 
@@ -89417,7 +89400,8 @@ impl NativeWindowApp {
             );
         }
 
-        self.snapshot = if self.copy_mode.is_none() && self.quick_select.is_none() {
+        let copy_overlay_rendering = self.copy_overlay_rendering();
+        self.snapshot = if !copy_overlay_rendering && self.active_ui.quick_select().is_none() {
             ordinary_selection_snapshot(
                 snapshot,
                 self.selection,
@@ -89426,12 +89410,12 @@ impl NativeWindowApp {
                 self.selection_bg_color,
             )
         } else if let Some(selection) = self.selection {
-            let selection_fg_color = if self.copy_mode.is_some() {
+            let selection_fg_color = if copy_overlay_rendering {
                 self.copy_mode_active_highlight_fg
                     .map(native_color_spec_to_render_color)
                     .map(Some)
                     .or(self.selection_fg_color)
-            } else if self.quick_select.is_some() {
+            } else if self.active_ui.quick_select().is_some() {
                 self.quick_select_match_fg
                     .map(native_color_spec_to_render_color)
                     .map(Some)
@@ -89439,11 +89423,11 @@ impl NativeWindowApp {
             } else {
                 self.selection_fg_color
             };
-            let selection_bg_color = if self.copy_mode.is_some() {
+            let selection_bg_color = if copy_overlay_rendering {
                 self.copy_mode_active_highlight_bg
                     .map(native_color_spec_to_render_color)
                     .or(self.selection_bg_color)
-            } else if self.quick_select.is_some() {
+            } else if self.active_ui.quick_select().is_some() {
                 self.quick_select_match_bg
                     .map(native_color_spec_to_render_color)
                     .or(self.selection_bg_color)
@@ -89464,10 +89448,10 @@ impl NativeWindowApp {
         &self,
         size: rssh_core::TerminalSize,
     ) -> Vec<WindowSelection> {
-        if self.copy_mode.is_none() || size.rows == 0 || size.columns == 0 {
+        if !self.copy_overlay_rendering() || size.rows == 0 || size.columns == 0 {
             return Vec::new();
         }
-        let Some(search) = self.search.as_ref() else {
+        let Some(search) = self.active_ui.retained_search() else {
             return Vec::new();
         };
         if search.query.is_empty() {
@@ -89486,7 +89470,9 @@ impl NativeWindowApp {
     }
 
     fn refresh_snapshot_after_terminal_damage(&mut self, damage: &[DamageRegion]) {
-        self.stable_viewport.clamp_main(self.runtime.terminal());
+        self.active_ui
+            .stable_viewport
+            .clamp_main(self.runtime.terminal());
         if self.can_update_snapshot_from_damage() {
             let cursor_color = self.runtime.cursor_color_override();
             let cursor_color_changed = self.snapshot.cursor_color() != cursor_color;
@@ -89508,8 +89494,8 @@ impl NativeWindowApp {
     fn can_update_snapshot_from_damage(&self) -> bool {
         self.current_scrollback_offset() == 0
             && self.selection.is_none()
-            && self.search.is_none()
-            && self.copy_mode.is_none()
+            && self.active_ui.retained_search().is_none()
+            && self.active_ui.copy_mode().is_none()
             && self.pane_select.is_none()
     }
 
@@ -89528,7 +89514,8 @@ impl NativeWindowApp {
             return;
         }
 
-        self.stable_viewport
+        self.active_ui
+            .stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), next_offset);
         self.update_selection_projection();
         self.pane_select = None;
@@ -89566,7 +89553,8 @@ impl NativeWindowApp {
             return;
         }
 
-        self.stable_viewport
+        self.active_ui
+            .stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), next_offset);
         self.update_selection_projection();
         self.pane_select = None;
@@ -89582,7 +89570,7 @@ impl NativeWindowApp {
         if next_top == self.current_stable_viewport_top() {
             return;
         }
-        self.stable_viewport.main_top = next_top;
+        self.active_ui.stable_viewport.main_top = next_top;
         self.update_selection_projection();
         self.pane_select = None;
         self.refresh_snapshot();
@@ -89590,11 +89578,14 @@ impl NativeWindowApp {
     }
 
     fn current_stable_viewport_top(&self) -> Option<StableRowIndex> {
-        self.stable_viewport.active_top(self.runtime.terminal())
+        self.active_ui
+            .stable_viewport
+            .active_top(self.runtime.terminal())
     }
 
     fn current_scrollback_offset(&self) -> usize {
-        self.stable_viewport
+        self.active_ui
+            .stable_viewport
             .scrollback_offset(self.runtime.terminal())
     }
 
@@ -89605,7 +89596,8 @@ impl NativeWindowApp {
 
     #[cfg(test)]
     fn set_scrollback_offset_for_test(&mut self, offset: usize) {
-        self.stable_viewport
+        self.active_ui
+            .stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), offset);
     }
 
@@ -89816,7 +89808,7 @@ impl NativeWindowApp {
             }
         }
 
-        if self.quick_select.is_some() {
+        if self.active_ui.quick_select().is_some() {
             self.exit_quick_select_mode();
         }
 
@@ -89824,7 +89816,7 @@ impl NativeWindowApp {
             self.exit_pane_select_mode();
         }
 
-        if self.copy_mode.is_some() {
+        if self.active_ui.copy_mode().is_some() {
             self.exit_copy_mode();
         }
 
@@ -90234,13 +90226,14 @@ impl NativeWindowApp {
 
         let old_offset = self.current_scrollback_offset();
         let had_overlay = self.selection.is_some()
-            || self.search.is_some()
-            || self.quick_select.is_some()
+            || self.active_ui.retained_search().is_some()
+            || self.active_ui.quick_select().is_some()
             || self.pane_select.is_some()
             || self.prompt_input_line.is_some()
             || self.input_selector.is_some()
-            || self.copy_mode.is_some();
-        self.stable_viewport
+            || self.active_ui.copy_mode().is_some();
+        self.active_ui
+            .stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), offset);
         self.update_selection_projection();
         self.pane_select = None;
@@ -90975,7 +90968,7 @@ impl NativeWindowApp {
     }
 
     fn quick_select_cells(&self) -> Vec<RenderCell> {
-        let Some(quick_select) = self.quick_select.as_ref() else {
+        let Some(quick_select) = self.active_ui.quick_select() else {
             return Vec::new();
         };
         if quick_select.matches.is_empty() {
@@ -94273,13 +94266,14 @@ impl NativeWindowApp {
                 let Some(cell) = self.selection_source_cell_from_mouse_position() else {
                     return false;
                 };
-                self.search = None;
-                self.copy_mode = None;
-                if self.modifiers == ModifiersState::SHIFT && self.ordinary_selection.is_some() {
+                self.active_ui.exit_overlay();
+                if self.modifiers == ModifiersState::SHIFT
+                    && self.active_ui.ordinary_selection.is_some()
+                {
                     return self.extend_selection_to_mouse_cursor(WindowMouseSelectionMode::Cell);
                 }
                 if self.modifiers == (ModifiersState::ALT | ModifiersState::SHIFT)
-                    && self.ordinary_selection.is_some()
+                    && self.active_ui.ordinary_selection.is_some()
                 {
                     return self.extend_selection_to_mouse_cursor(WindowMouseSelectionMode::Block);
                 }
@@ -94339,6 +94333,7 @@ impl NativeWindowApp {
                     if (self.modifiers == ModifiersState::SHIFT
                         || self.modifiers == (ModifiersState::ALT | ModifiersState::SHIFT))
                         && self
+                            .active_ui
                             .ordinary_selection
                             .is_some_and(|selection| !selection.is_single_cell())
                     {
@@ -94350,6 +94345,7 @@ impl NativeWindowApp {
                     if self.modifiers.is_empty()
                         && self.last_left_click.is_some_and(|click| click.count >= 2)
                         && self
+                            .active_ui
                             .ordinary_selection
                             .is_some_and(|selection| !selection.is_single_cell())
                     {
@@ -94362,6 +94358,7 @@ impl NativeWindowApp {
                 }
                 self.selecting = false;
                 if self
+                    .active_ui
                     .ordinary_selection
                     .is_some_and(StableOrdinarySelection::is_single_cell)
                 {
@@ -94397,8 +94394,7 @@ impl NativeWindowApp {
             return false;
         };
 
-        self.search = None;
-        self.copy_mode = None;
+        self.active_ui.exit_overlay();
         let stable = if selection.rectangular {
             StableOrdinarySelection::rectangular(
                 selection.anchor,
@@ -94421,7 +94417,7 @@ impl NativeWindowApp {
     }
 
     fn extend_selection_to_mouse_cursor(&mut self, mode: WindowMouseSelectionMode) -> bool {
-        let Some(current) = self.ordinary_selection else {
+        let Some(current) = self.active_ui.ordinary_selection else {
             return false;
         };
         let Some(cell) = self.selection_source_cell_from_mouse_position() else {
@@ -94438,8 +94434,7 @@ impl NativeWindowApp {
                     cell,
                     self.runtime.terminal().current_seqno(),
                 ));
-                self.search = None;
-                self.copy_mode = None;
+                self.active_ui.exit_overlay();
                 self.selecting = false;
                 self.last_left_click = None;
                 self.refresh_snapshot();
@@ -94455,8 +94450,7 @@ impl NativeWindowApp {
         };
 
         let focus = stable_selection_focus_for_extension(current, target);
-        self.search = None;
-        self.copy_mode = None;
+        self.active_ui.exit_overlay();
         self.set_ordinary_selection(StableOrdinarySelection::new(
             current.anchor,
             focus,
@@ -94504,6 +94498,7 @@ impl NativeWindowApp {
     fn complete_selection_to(&mut self, destination: WindowCopyDestination) -> bool {
         self.selecting = false;
         if self
+            .active_ui
             .ordinary_selection
             .is_some_and(StableOrdinarySelection::is_single_cell)
         {
@@ -94572,7 +94567,7 @@ impl NativeWindowApp {
         let Some(cell) = self.selection_source_cell_from_mouse_position() else {
             return false;
         };
-        let Some(selection) = self.ordinary_selection else {
+        let Some(selection) = self.active_ui.ordinary_selection else {
             return false;
         };
 
@@ -94607,7 +94602,7 @@ impl NativeWindowApp {
         if !self.selecting {
             return false;
         }
-        let Some(selection) = self.ordinary_selection.as_mut() else {
+        let Some(selection) = self.active_ui.ordinary_selection.as_mut() else {
             return false;
         };
         if selection.focus == cell {
@@ -94918,17 +94913,27 @@ impl NativeWindowApp {
         let mut title = self.window_title.clone();
         title.push_str(&self.app_shell_state_id_suffix());
 
-        if let Some(copy_mode) = &self.copy_mode {
-            title.push_str(" - ");
-            title.push_str(&Self::copy_mode_status(copy_mode));
+        match self.active_ui.copy_search_mode() {
+            Some(WindowCopySearchMode::Search) => {
+                let search = self
+                    .active_ui
+                    .search()
+                    .expect("Search mode always owns Search state");
+                title.push_str(" - ");
+                title.push_str(&search_status(search));
+            }
+            Some(WindowCopySearchMode::Copy) => {
+                let copy_mode = self
+                    .active_ui
+                    .copy_mode()
+                    .expect("Copy mode always owns Copy state");
+                title.push_str(" - ");
+                title.push_str(&Self::copy_mode_status(copy_mode));
+            }
+            None => {}
         }
 
-        if let Some(search) = &self.search {
-            title.push_str(" - ");
-            title.push_str(&search_status(search));
-        }
-
-        if let Some(quick_select) = &self.quick_select {
+        if let Some(quick_select) = self.active_ui.quick_select() {
             title.push_str(" - ");
             title.push_str(&Self::quick_select_status(quick_select));
         }
@@ -95385,7 +95390,7 @@ impl NativeWindowApp {
             return Ok(());
         }
 
-        if self.quick_select.is_some() {
+        if self.active_ui.quick_select().is_some() {
             if self.handle_quick_select_logical_key(logical_key, modifiers) {
                 return Ok(());
             }
@@ -95406,7 +95411,7 @@ impl NativeWindowApp {
             return Ok(());
         }
 
-        if self.copy_mode.is_some() {
+        if self.active_ui.copy_mode().is_some() {
             if self.handle_copy_mode_key(logical_key, modifiers) {
                 return Ok(());
             }
@@ -95523,7 +95528,7 @@ impl NativeWindowApp {
             return Ok(());
         }
 
-        if self.search.is_some() {
+        if self.active_ui.retained_search().is_some() {
             self.handle_search_key(logical_key, modifiers);
             return Ok(());
         }
@@ -95609,15 +95614,14 @@ impl NativeWindowApp {
         if self.command_palette.is_some() {
             self.command_palette = None;
         }
-        self.quick_select = None;
-        self.copy_mode = None;
         self.pane_select = None;
         self.tab_navigator = None;
         self.prompt_input_line = None;
         self.input_selector = None;
         self.confirmation = None;
         self.close_confirmation = None;
-        self.search = Some(WindowSearch::default());
+        self.active_ui
+            .enter_search(self.initial_copy_mode(), WindowSearch::default());
         if let Some(query) = initial_query {
             self.update_search_query(&query);
         } else {
@@ -95643,7 +95647,7 @@ impl NativeWindowApp {
     }
 
     fn clear_scrollback(&mut self) {
-        self.stable_viewport = PaneStableViewport::default();
+        self.active_ui.stable_viewport = PaneStableViewport::default();
         if let Err(error) = self.handle_active_pane_output(b"\x1b[3J") {
             eprintln!("clear scrollback command failed: {error}");
         }
@@ -95652,7 +95656,7 @@ impl NativeWindowApp {
     }
 
     fn clear_scrollback_and_viewport(&mut self) {
-        self.stable_viewport = PaneStableViewport::default();
+        self.active_ui.stable_viewport = PaneStableViewport::default();
         let damage = self.runtime.erase_scrollback_and_viewport();
         self.metrics.record_damage(&damage);
         self.refresh_snapshot();
@@ -95674,10 +95678,50 @@ impl NativeWindowApp {
         }
     }
 
+    fn copy_overlay_rendering(&self) -> bool {
+        self.active_ui.copy_search_mode() == Some(WindowCopySearchMode::Copy)
+            || self
+                .active_ui
+                .copy_mode()
+                .is_some_and(|copy_mode| copy_mode.search_direction.is_some())
+    }
+
+    fn initial_copy_mode(&self) -> WindowCopyMode {
+        let size = self.runtime.terminal().grid().size();
+        let (row, column) = self.runtime.terminal().cursor();
+        let terminal = self.runtime.terminal();
+        let dimensions = terminal.stable_dimensions();
+        let row = if size.rows == 0 {
+            0
+        } else {
+            row.min(size.rows.saturating_sub(1))
+        };
+        let column = if size.columns == 0 {
+            0
+        } else {
+            column.min(size.columns.saturating_sub(1))
+        };
+        let source_row = dimensions
+            .physical_top
+            .saturating_add(StableRowIndex::try_from(row).unwrap_or(StableRowIndex::MAX));
+        WindowCopyMode {
+            cursor: SelectionCell { row, column },
+            source_cursor: SelectionSourceCell {
+                domain: dimensions.domain,
+                row: source_row,
+                column: usize::from(column),
+            },
+            pending_jump: None,
+            last_jump: None,
+            search_direction: None,
+            selection_mode: WindowCopySelectionMode::None,
+            anchor: None,
+            source_anchor: None,
+        }
+    }
+
     fn enter_copy_mode(&mut self) {
         self.command_palette = None;
-        self.search = None;
-        self.quick_select = None;
         self.pane_select = None;
         self.tab_navigator = None;
         self.prompt_input_line = None;
@@ -95687,56 +95731,33 @@ impl NativeWindowApp {
 
         let size = self.runtime.terminal().grid().size();
         if size.columns == 0 || size.rows == 0 {
-            self.copy_mode = None;
+            self.active_ui.exit_overlay();
             self.selection = None;
             self.refresh_snapshot();
             self.apply_window_title();
             return;
         }
 
-        let (row, column) = self.runtime.terminal().cursor();
-        let terminal = self.runtime.terminal();
-        let dimensions = terminal.stable_dimensions();
-        let source_row = dimensions
-            .physical_top
-            .saturating_add(StableRowIndex::try_from(row).unwrap_or(StableRowIndex::MAX));
-        self.copy_mode = Some(WindowCopyMode {
-            cursor: SelectionCell {
-                row: row.min(size.rows.saturating_sub(1)),
-                column: column.min(size.columns.saturating_sub(1)),
-            },
-            source_cursor: SelectionSourceCell {
-                domain: dimensions.domain,
-                row: source_row,
-                column: usize::from(column.min(size.columns.saturating_sub(1))),
-            },
-            pending_jump: None,
-            last_jump: None,
-            search_direction: None,
-            selection_mode: WindowCopySelectionMode::None,
-            anchor: None,
-            source_anchor: None,
-        });
+        self.active_ui.enter_copy_mode(self.initial_copy_mode());
         self.selection = None;
         self.refresh_snapshot();
         self.apply_window_title();
     }
 
     fn exit_copy_mode(&mut self) {
-        self.copy_mode = None;
-        self.search = None;
+        self.active_ui.exit_overlay();
         self.selection = None;
         self.refresh_snapshot();
         self.apply_window_title();
     }
 
     fn scroll_to_bottom_and_exit_copy_mode(&mut self) {
-        self.stable_viewport = PaneStableViewport::default();
+        self.active_ui.stable_viewport = PaneStableViewport::default();
         self.exit_copy_mode();
     }
 
     fn set_copy_mode_selection_mode(&mut self, mode: WindowCopySelectionMode) -> bool {
-        let Some(copy_mode) = self.copy_mode.as_mut() else {
+        let Some(copy_mode) = self.active_ui.copy_mode_mut() else {
             return false;
         };
 
@@ -95765,7 +95786,7 @@ impl NativeWindowApp {
     fn perform_copy_mode_assignment(&mut self, assignment: WindowCopyModeAssignment) -> bool {
         match assignment {
             WindowCopyModeAssignment::Close => {
-                if self.copy_mode.is_none() {
+                if self.active_ui.copy_mode().is_none() {
                     return false;
                 }
                 self.scroll_to_bottom_and_exit_copy_mode();
@@ -95861,7 +95882,7 @@ impl NativeWindowApp {
     #[allow(clippy::too_many_lines)]
     fn handle_copy_mode_key(&mut self, key: &Key, modifiers: ModifiersState) -> bool {
         let pending_jump = {
-            let Some(copy_mode) = self.copy_mode.as_mut() else {
+            let Some(copy_mode) = self.active_ui.copy_mode_mut() else {
                 return false;
             };
             copy_mode.pending_jump.take()
@@ -95871,8 +95892,8 @@ impl NativeWindowApp {
         }
 
         let in_copy_mode_search = self
-            .copy_mode
-            .as_ref()
+            .active_ui
+            .copy_mode()
             .is_some_and(|copy_mode| copy_mode.search_direction.is_some());
 
         if in_copy_mode_search && Self::copy_mode_search_key_table_handles_key(key, modifiers) {
@@ -95892,7 +95913,7 @@ impl NativeWindowApp {
             return self.handle_copy_mode_search_key(key, modifiers);
         }
 
-        let Some(copy_mode) = self.copy_mode.as_mut() else {
+        let Some(copy_mode) = self.active_ui.copy_mode_mut() else {
             return false;
         };
 
@@ -96135,7 +96156,7 @@ impl NativeWindowApp {
     }
 
     fn apply_copy_mode_selection(&mut self) {
-        let Some(copy_mode) = self.copy_mode.as_ref() else {
+        let Some(copy_mode) = self.active_ui.copy_mode() else {
             return;
         };
 
@@ -96166,7 +96187,7 @@ impl NativeWindowApp {
             return false;
         }
 
-        let Some(copy_mode) = self.copy_mode.as_ref() else {
+        let Some(copy_mode) = self.active_ui.copy_mode() else {
             return false;
         };
 
@@ -96199,7 +96220,7 @@ impl NativeWindowApp {
         }
         let dimensions = self.runtime.terminal().stable_dimensions();
         let viewport_top = self.current_viewport_stable_top();
-        let Some(copy_mode) = self.copy_mode.as_mut() else {
+        let Some(copy_mode) = self.active_ui.copy_mode_mut() else {
             return false;
         };
 
@@ -96231,8 +96252,8 @@ impl NativeWindowApp {
     ) -> bool {
         let domain = self.runtime.terminal().stable_dimensions().domain;
         let source_anchor = self
-            .copy_mode
-            .as_ref()
+            .active_ui
+            .copy_mode()
             .and_then(|copy_mode| copy_mode.source_anchor);
         self.set_copy_mode_cursor_and_anchor_for_source_position(
             SelectionSourceCell {
@@ -96292,7 +96313,7 @@ impl NativeWindowApp {
                     target,
                 )
             };
-        let Some(copy_mode) = self.copy_mode.as_ref() else {
+        let Some(copy_mode) = self.active_ui.copy_mode() else {
             return false;
         };
 
@@ -96304,9 +96325,10 @@ impl NativeWindowApp {
             return false;
         }
 
-        self.stable_viewport
+        self.active_ui
+            .stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), target_offset);
-        if let Some(copy_mode) = self.copy_mode.as_mut() {
+        if let Some(copy_mode) = self.active_ui.copy_mode_mut() {
             copy_mode.cursor = target;
             copy_mode.source_cursor = source_cursor;
             copy_mode.source_anchor = source_anchor;
@@ -96328,11 +96350,13 @@ impl NativeWindowApp {
     }
 
     fn move_copy_mode_to_selection_other_end(&mut self) -> bool {
-        let Some((source_cursor, source_anchor)) = self.copy_mode.as_ref().and_then(|copy_mode| {
-            copy_mode
-                .source_anchor
-                .map(|anchor| (copy_mode.source_cursor, anchor))
-        }) else {
+        let Some((source_cursor, source_anchor)) =
+            self.active_ui.copy_mode().and_then(|copy_mode| {
+                copy_mode
+                    .source_anchor
+                    .map(|anchor| (copy_mode.source_cursor, anchor))
+            })
+        else {
             return false;
         };
 
@@ -96340,11 +96364,13 @@ impl NativeWindowApp {
     }
 
     fn move_copy_mode_to_selection_other_end_horiz(&mut self) -> bool {
-        let Some((source_cursor, source_anchor)) = self.copy_mode.as_ref().and_then(|copy_mode| {
-            copy_mode
-                .source_anchor
-                .map(|anchor| (copy_mode.source_cursor, anchor))
-        }) else {
+        let Some((source_cursor, source_anchor)) =
+            self.active_ui.copy_mode().and_then(|copy_mode| {
+                copy_mode
+                    .source_anchor
+                    .map(|anchor| (copy_mode.source_cursor, anchor))
+            })
+        else {
             return false;
         };
 
@@ -96375,7 +96401,7 @@ impl NativeWindowApp {
             return false;
         }
 
-        let Some(copy_mode) = self.copy_mode.as_ref() else {
+        let Some(copy_mode) = self.active_ui.copy_mode() else {
             return false;
         };
         let size = self.runtime.terminal().grid().size();
@@ -96426,7 +96452,7 @@ impl NativeWindowApp {
     }
 
     fn move_copy_mode_by_word(&mut self, movement: WindowCopyWordMovement) -> bool {
-        let Some(copy_mode) = self.copy_mode.as_ref() else {
+        let Some(copy_mode) = self.active_ui.copy_mode() else {
             return false;
         };
         let Some(target) =
@@ -96439,7 +96465,7 @@ impl NativeWindowApp {
     }
 
     fn start_copy_mode_jump(&mut self, forward: bool, prev_char: bool) -> bool {
-        let Some(copy_mode) = self.copy_mode.as_mut() else {
+        let Some(copy_mode) = self.active_ui.copy_mode_mut() else {
             return false;
         };
 
@@ -96471,7 +96497,7 @@ impl NativeWindowApp {
             prev_char: pending_jump.prev_char,
             target,
         };
-        if let Some(copy_mode) = self.copy_mode.as_mut() {
+        if let Some(copy_mode) = self.active_ui.copy_mode_mut() {
             copy_mode.last_jump = Some(jump);
         }
         self.perform_copy_mode_jump(jump, false)
@@ -96479,8 +96505,8 @@ impl NativeWindowApp {
 
     fn repeat_copy_mode_jump(&mut self, reverse: bool) -> bool {
         let Some(mut jump) = self
-            .copy_mode
-            .as_ref()
+            .active_ui
+            .copy_mode()
             .and_then(|copy_mode| copy_mode.last_jump)
         else {
             return false;
@@ -96493,7 +96519,7 @@ impl NativeWindowApp {
     }
 
     fn perform_copy_mode_jump(&mut self, jump: WindowCopyJump, repeat: bool) -> bool {
-        let Some(copy_mode) = self.copy_mode.as_ref() else {
+        let Some(copy_mode) = self.active_ui.copy_mode() else {
             return false;
         };
         let cursor = copy_mode.source_cursor;
@@ -96506,12 +96532,14 @@ impl NativeWindowApp {
     }
 
     fn start_copy_mode_search(&mut self, direction: SearchDirection) -> bool {
-        let Some(copy_mode) = self.copy_mode.as_mut() else {
+        let Some(copy_mode) = self.active_ui.copy_mode_mut() else {
             return false;
         };
 
         copy_mode.search_direction = Some(direction);
-        self.search = Some(WindowSearch::default());
+        let initial_copy_mode = self.initial_copy_mode();
+        self.active_ui
+            .enter_search(initial_copy_mode, WindowSearch::default());
         self.selection = None;
         self.refresh_snapshot();
         self.apply_window_title();
@@ -96586,7 +96614,7 @@ impl NativeWindowApp {
                 true
             }
             Key::Named(NamedKey::Backspace) => {
-                let Some(search) = self.search.as_ref() else {
+                let Some(search) = self.active_ui.retained_search() else {
                     return true;
                 };
                 if !search.editing {
@@ -96619,7 +96647,7 @@ impl NativeWindowApp {
             Key::Character(character)
                 if modifiers.control_key() && character.eq_ignore_ascii_case("u") =>
             {
-                let Some(search) = self.search.as_ref() else {
+                let Some(search) = self.active_ui.retained_search() else {
                     return true;
                 };
                 if !search.editing {
@@ -96630,7 +96658,7 @@ impl NativeWindowApp {
                 true
             }
             Key::Character(text) if !modifiers.control_key() && !modifiers.alt_key() => {
-                let Some(search) = self.search.as_ref() else {
+                let Some(search) = self.active_ui.retained_search() else {
                     return true;
                 };
                 if !search.editing {
@@ -96647,8 +96675,8 @@ impl NativeWindowApp {
     }
 
     fn copy_mode_search_direction(&self) -> SearchDirection {
-        self.copy_mode
-            .as_ref()
+        self.active_ui
+            .copy_mode()
             .and_then(|copy_mode| copy_mode.search_direction)
             .unwrap_or(SearchDirection::Next)
     }
@@ -96677,7 +96705,7 @@ impl NativeWindowApp {
     }
 
     fn move_copy_mode_to_scrollback_top(&mut self) -> bool {
-        let Some(copy_mode) = self.copy_mode.as_ref() else {
+        let Some(copy_mode) = self.active_ui.copy_mode() else {
             return false;
         };
         self.set_copy_mode_cursor_for_source_position(
@@ -96696,7 +96724,7 @@ impl NativeWindowApp {
             return false;
         }
 
-        let Some(copy_mode) = self.copy_mode.as_ref() else {
+        let Some(copy_mode) = self.active_ui.copy_mode() else {
             return false;
         };
         self.set_copy_mode_cursor_for_source_position(
@@ -96706,14 +96734,14 @@ impl NativeWindowApp {
     }
 
     fn move_copy_mode_to_line_start(&mut self) -> bool {
-        let Some(copy_mode) = self.copy_mode.as_ref() else {
+        let Some(copy_mode) = self.active_ui.copy_mode() else {
             return false;
         };
         self.set_copy_mode_cursor(copy_mode.cursor.row, 0)
     }
 
     fn move_copy_mode_to_line_content_start(&mut self) -> bool {
-        let Some(copy_mode) = self.copy_mode.as_ref() else {
+        let Some(copy_mode) = self.active_ui.copy_mode() else {
             return false;
         };
         let source_row = copy_mode.source_cursor.row;
@@ -96728,7 +96756,7 @@ impl NativeWindowApp {
     }
 
     fn move_copy_mode_to_line_content_end(&mut self) -> bool {
-        let Some(copy_mode) = self.copy_mode.as_ref() else {
+        let Some(copy_mode) = self.active_ui.copy_mode() else {
             return false;
         };
         let source_row = copy_mode.source_cursor.row;
@@ -96743,7 +96771,9 @@ impl NativeWindowApp {
     }
 
     fn exit_search_mode(&mut self) {
-        self.search = None;
+        self.active_ui.exit_overlay();
+        self.selection = None;
+        self.refresh_snapshot();
         self.apply_window_title();
     }
 
@@ -96778,7 +96808,7 @@ impl NativeWindowApp {
             }
             Key::Named(NamedKey::Enter | NamedKey::F3) => self.step_search(SearchDirection::Next),
             Key::Named(NamedKey::Backspace) => {
-                let Some(search) = self.search.as_ref() else {
+                let Some(search) = self.active_ui.retained_search() else {
                     return false;
                 };
                 let mut query = search.query.clone();
@@ -96813,7 +96843,7 @@ impl NativeWindowApp {
                 true
             }
             Key::Character(text) if !modifiers.control_key() && !modifiers.alt_key() => {
-                let Some(search) = self.search.as_ref() else {
+                let Some(search) = self.active_ui.retained_search() else {
                     return false;
                 };
                 let mut query = search.query.clone();
@@ -96830,19 +96860,18 @@ impl NativeWindowApp {
     }
 
     fn initial_search_direction(&self) -> SearchDirection {
-        if self.copy_mode.is_some() {
-            self.copy_mode_search_direction()
-        } else {
-            SearchDirection::Previous
-        }
+        self.active_ui
+            .copy_mode()
+            .and_then(|copy_mode| copy_mode.search_direction)
+            .unwrap_or(SearchDirection::Previous)
     }
 
     fn clear_search_pattern(&mut self) -> bool {
-        if self.search.is_none() {
+        if self.active_ui.retained_search().is_none() {
             return false;
         }
 
-        let direction = if self.copy_mode.is_some() {
+        let direction = if self.active_ui.copy_mode().is_some() {
             self.copy_mode_search_direction()
         } else {
             SearchDirection::Next
@@ -96852,21 +96881,29 @@ impl NativeWindowApp {
     }
 
     fn set_search_pattern_editing(&mut self, editing: bool) -> bool {
-        let Some(search) = self.search.as_mut() else {
-            return false;
-        };
-
-        if search.editing == editing {
+        if self
+            .active_ui
+            .retained_search()
+            .is_some_and(|search| search.editing == editing)
+            && self.active_ui.copy_search_mode()
+                == Some(if editing {
+                    WindowCopySearchMode::Search
+                } else {
+                    WindowCopySearchMode::Copy
+                })
+        {
             return true;
         }
-        search.editing = editing;
+        if !self.active_ui.set_search_editing(editing) {
+            return false;
+        }
         self.refresh_snapshot();
         self.apply_window_title();
         true
     }
 
     fn cycle_search_match_type(&mut self) -> bool {
-        let Some(search) = self.search.as_ref() else {
+        let Some(search) = self.active_ui.retained_search() else {
             return false;
         };
         let query = search.query.clone();
@@ -96880,8 +96917,8 @@ impl NativeWindowApp {
         direction: SearchDirection,
     ) -> bool {
         let match_type = self
-            .search
-            .as_ref()
+            .active_ui
+            .retained_search()
             .map_or(WindowSearchMatchType::CaseSensitive, |search| {
                 search.match_type
             });
@@ -96894,16 +96931,23 @@ impl NativeWindowApp {
         direction: SearchDirection,
         match_type: WindowSearchMatchType,
     ) -> bool {
-        let editing = self.search.as_ref().map_or(true, |search| search.editing);
-        let mut search = WindowSearch {
-            query: query.to_owned(),
-            current: None,
-            match_type,
-            editing,
-        };
+        if self.active_ui.retained_search().is_none() {
+            let initial_copy_mode = self.initial_copy_mode();
+            self.active_ui
+                .enter_search(initial_copy_mode, WindowSearch::default());
+        }
+        let preserve_copy_state = self
+            .active_ui
+            .retained_search()
+            .is_some_and(|search| search.current.is_some());
+        if !self
+            .active_ui
+            .replace_search_pattern(query.to_owned(), match_type)
+        {
+            return false;
+        }
 
         if query.is_empty() {
-            self.search = Some(search);
             self.selection = None;
             self.refresh_snapshot();
             self.apply_window_title();
@@ -96917,8 +96961,7 @@ impl NativeWindowApp {
             direction,
             match_type,
         );
-        search.current = found;
-        self.search = Some(search);
+        self.active_ui.set_search_current(found);
 
         let Some(found) = found else {
             self.selection = None;
@@ -96927,12 +96970,12 @@ impl NativeWindowApp {
             return false;
         };
 
-        self.apply_search_match(found);
+        self.apply_search_match(found, preserve_copy_state);
         true
     }
 
     fn step_search(&mut self, direction: SearchDirection) -> bool {
-        let Some(search) = self.search.as_ref() else {
+        let Some(search) = self.active_ui.retained_search() else {
             return false;
         };
         if search.query.is_empty() {
@@ -96950,15 +96993,13 @@ impl NativeWindowApp {
             return false;
         };
 
-        if let Some(search) = self.search.as_mut() {
-            search.current = Some(found);
-        }
-        self.apply_search_match(found);
+        self.active_ui.set_search_current(Some(found));
+        self.apply_search_match(found, false);
         true
     }
 
     fn step_search_page(&mut self, direction: SearchDirection) -> bool {
-        let Some(search) = self.search.as_ref() else {
+        let Some(search) = self.active_ui.retained_search() else {
             return false;
         };
         if search.query.is_empty() {
@@ -96992,28 +97033,25 @@ impl NativeWindowApp {
             return false;
         };
 
-        if let Some(search) = self.search.as_mut() {
-            search.current = Some(found);
-        }
-        self.apply_search_match(found);
+        self.active_ui.set_search_current(Some(found));
+        self.apply_search_match(found, false);
         true
     }
 
-    fn apply_search_match(&mut self, search_match: WindowSearchMatch) {
+    fn apply_search_match(&mut self, search_match: WindowSearchMatch, preserve_copy_state: bool) {
         let Some((offset, selection)) = search_match.viewport_selection(self.runtime.terminal())
         else {
-            if let Some(search) = self.search.as_mut() {
-                search.current = None;
-            }
+            self.active_ui.set_search_current(None);
             self.selection = None;
             self.refresh_snapshot();
             self.apply_window_title();
             return;
         };
-        self.stable_viewport
+        self.active_ui
+            .stable_viewport
             .set_scrollback_offset(self.runtime.terminal(), offset);
         self.selection = Some(selection);
-        if let Some(copy_mode) = self.copy_mode.as_mut() {
+        if !preserve_copy_state && let Some(copy_mode) = self.active_ui.copy_mode_mut() {
             copy_mode.cursor = selection.anchor;
             copy_mode.source_cursor = SelectionSourceCell {
                 domain: search_match.domain,
@@ -98537,15 +98575,15 @@ impl NativeWindowApp {
 
     fn selected_text(&self) -> Option<String> {
         if let Some(matched) = self
-            .quick_select
-            .as_ref()
+            .active_ui
+            .quick_select()
             .and_then(WindowQuickSelect::current_match)
         {
             let text = matched.text_from_terminal(self.runtime.terminal())?;
             return (!text.is_empty()).then_some(text);
         }
 
-        if let Some(copy_mode) = self.copy_mode.as_ref() {
+        if let Some(copy_mode) = self.active_ui.copy_mode() {
             if let Some(selection) = copy_mode_source_selection(
                 copy_mode,
                 self.runtime.terminal(),
@@ -98556,7 +98594,11 @@ impl NativeWindowApp {
             }
         }
 
-        if let Some(matched) = self.search.as_ref().and_then(|search| search.current) {
+        if let Some(matched) = self
+            .active_ui
+            .retained_search()
+            .and_then(|search| search.current)
+        {
             let text = matched.text_from_terminal(self.runtime.terminal())?;
             return (!text.is_empty()).then_some(text);
         }
@@ -98565,7 +98607,7 @@ impl NativeWindowApp {
     }
 
     fn ordinary_selected_text(&self) -> Option<String> {
-        let selection = self.ordinary_selection?;
+        let selection = self.active_ui.ordinary_selection?;
         let text = selection.text_from_terminal(self.runtime.terminal())?;
         (!text.is_empty()).then_some(text)
     }
@@ -101331,6 +101373,22 @@ mod pane_transient_overlay {
             true
         }
 
+        pub(super) fn set_search_editing(&mut self, editing: bool) -> bool {
+            let Some(controller) = self.copy_search_mut() else {
+                return false;
+            };
+            let Some(search) = controller.search.as_mut() else {
+                return false;
+            };
+            controller.mode = if editing {
+                WindowCopySearchMode::Search
+            } else {
+                WindowCopySearchMode::Copy
+            };
+            search.editing = editing;
+            true
+        }
+
         pub(super) fn quick_select(&self) -> Option<&WindowQuickSelect> {
             match self.overlay.as_ref()? {
                 PaneTransientOverlay::QuickSelect(quick_select) => Some(quick_select),
@@ -101365,7 +101423,6 @@ mod pane_transient_overlay {
     }
 }
 
-#[cfg(test)]
 use pane_transient_overlay::{PaneUiState, WindowCopySearchMode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125329,6 +125386,71 @@ mod tests {
                 ..source_cursor
             }),
         }
+    }
+
+    fn set_app_search_for_test(window: &mut NativeWindowApp, search: WindowSearch) {
+        let current = search.current;
+        let initial_copy_mode = window.initial_copy_mode();
+        window.active_ui.enter_search(initial_copy_mode, search);
+        window.active_ui.set_search_current(current);
+    }
+
+    fn set_app_quick_select_for_test(
+        window: &mut NativeWindowApp,
+        quick_select: WindowQuickSelect,
+    ) {
+        window.active_ui.enter_quick_select(quick_select);
+    }
+
+    fn assert_app_search_mode(window: &NativeWindowApp) {
+        assert_eq!(
+            copy_search_mode_for_test(window),
+            Some(super::WindowCopySearchMode::Search)
+        );
+        assert!(search_for_test(window).is_some());
+    }
+
+    fn search_for_test(window: &NativeWindowApp) -> Option<&WindowSearch> {
+        window.active_ui.retained_search()
+    }
+
+    fn quick_select_for_test(window: &NativeWindowApp) -> Option<&WindowQuickSelect> {
+        window.active_ui.quick_select()
+    }
+
+    fn copy_mode_for_test(window: &NativeWindowApp) -> Option<&super::WindowCopyMode> {
+        window.active_ui.copy_mode()
+    }
+
+    fn copy_search_mode_for_test(window: &NativeWindowApp) -> Option<super::WindowCopySearchMode> {
+        window.active_ui.copy_search_mode()
+    }
+
+    fn overlay_active_for_test(window: &NativeWindowApp) -> bool {
+        window.active_ui.overlay_active()
+    }
+
+    fn ordinary_selection_for_test(window: &NativeWindowApp) -> Option<StableOrdinarySelection> {
+        window.active_ui.ordinary_selection
+    }
+
+    fn set_ordinary_selection_for_test(
+        window: &mut NativeWindowApp,
+        selection: Option<StableOrdinarySelection>,
+    ) {
+        window.active_ui.ordinary_selection = selection;
+    }
+
+    fn active_search_for_test(app: &NativeWindowApp) -> &WindowSearch {
+        search_for_test(app).expect("search mode should be active")
+    }
+
+    fn active_quick_select_for_test(app: &NativeWindowApp) -> &WindowQuickSelect {
+        quick_select_for_test(app).expect("quick select mode should be active")
+    }
+
+    fn active_copy_mode_for_test(app: &NativeWindowApp) -> &super::WindowCopyMode {
+        copy_mode_for_test(app).expect("copy mode should be active")
     }
 
     fn assert_pane_overlay_copy_mode(
@@ -184418,9 +184540,9 @@ return config
         })
         .unwrap();
 
-        assert!(app.copy_mode.is_none());
-        assert!(app.search.is_none());
-        assert!(app.quick_select.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
@@ -184965,7 +185087,7 @@ return config
         );
         app.refresh_snapshot();
 
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
         assert!(app.selection.is_none());
     }
 
@@ -187422,13 +187544,13 @@ return config
             SelectionCell { row: 0, column: 3 },
         );
         set_ordinary_viewport_selection_for_test(&mut app, selection);
-        assert!(app.copy_mode.is_none());
-        assert!(app.search.is_none());
-        assert!(app.quick_select.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(quick_select_for_test(&app).is_none());
 
         app.handle_pty_output(b"!").unwrap();
 
-        assert!(app.ordinary_selection.is_some());
+        assert!(ordinary_selection_for_test(&app).is_some());
         assert_eq!(app.selected_text().as_deref(), Some("ordi"));
     }
 
@@ -187452,12 +187574,16 @@ return config
         focus: SelectionSourceCell,
         rectangular: bool,
     ) {
-        app.ordinary_selection = Some(StableOrdinarySelection {
-            anchor,
-            focus,
-            rectangular,
-            sequence: app.runtime.terminal().current_seqno(),
-        });
+        let sequence = app.runtime.terminal().current_seqno();
+        set_ordinary_selection_for_test(
+            app,
+            Some(StableOrdinarySelection {
+                anchor,
+                focus,
+                rectangular,
+                sequence,
+            }),
+        );
         app.update_selection_projection();
         app.refresh_snapshot();
     }
@@ -187500,7 +187626,7 @@ return config
 
         app.handle_pty_output(b"\x1b[1;1HX").unwrap();
 
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
     }
 
     #[test]
@@ -187516,7 +187642,7 @@ return config
 
         app.handle_pty_output(b"\x1b[2;1HX").unwrap();
 
-        assert!(app.ordinary_selection.is_some());
+        assert!(ordinary_selection_for_test(&app).is_some());
     }
 
     #[test]
@@ -187539,10 +187665,10 @@ return config
         assert!(app.selection.is_none());
 
         app.handle_pty_output(b"\x1b[1;1HX").unwrap();
-        assert!(app.ordinary_selection.is_some());
+        assert!(ordinary_selection_for_test(&app).is_some());
 
         app.set_scrollback_offset(0);
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
     }
 
     #[test]
@@ -187558,7 +187684,7 @@ return config
 
         app.handle_pty_output(b"\r\nnew").unwrap();
 
-        assert!(app.ordinary_selection.is_some());
+        assert!(ordinary_selection_for_test(&app).is_some());
         assert_eq!(app.selected_text().as_deref(), Some("sele"));
     }
 
@@ -187603,7 +187729,7 @@ return config
         app.handle_pane_pty_output(rssh_core::PaneId::new(1), b"\x1b[1;1HX")
             .unwrap();
 
-        assert!(app.ordinary_selection.is_some());
+        assert!(ordinary_selection_for_test(&app).is_some());
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
@@ -187666,7 +187792,7 @@ return config
 
         app.clear_scrollback();
 
-        assert!(app.ordinary_selection.is_some());
+        assert!(ordinary_selection_for_test(&app).is_some());
         assert_eq!(app.selected_text().as_deref(), Some("sele"));
     }
 
@@ -187725,7 +187851,7 @@ return config
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 3 },
         );
-        let ordinary = app.ordinary_selection;
+        let ordinary = ordinary_selection_for_test(&app);
         let rows = app.runtime.terminal().retained_stable_range();
         let before = app.runtime.terminal().current_seqno();
         let selection_background = Color::Rgb(1, 2, 3);
@@ -187744,7 +187870,7 @@ return config
                 .changed_stable_rows_since(rows, before)
                 .is_empty()
         );
-        assert_eq!(app.ordinary_selection, ordinary);
+        assert_eq!(ordinary_selection_for_test(&app), ordinary);
         assert_eq!(app.selection_bg_color, Some(selection_background));
         assert_eq!(
             snapshot_cell(&app.snapshot, 0, 0).map(|cell| cell.background),
@@ -187787,7 +187913,7 @@ return config
         }
         app.handle_pty_output(b"\x1b[1;1HX").unwrap();
         assert!(
-            app.ordinary_selection.is_some(),
+            ordinary_selection_for_test(&app).is_some(),
             "{overlay:?} should defer invalidation while active"
         );
 
@@ -187850,18 +187976,18 @@ return config
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 3 },
         );
-        let ordinary = app.ordinary_selection;
+        let ordinary = ordinary_selection_for_test(&app);
         app.enter_search_mode();
-        assert!(app.search.is_some());
-        assert!(app.copy_mode.is_none());
-        assert!(app.quick_select.is_none());
+        assert!(search_for_test(&app).is_some());
+        assert_app_search_mode(&app);
+        assert!(quick_select_for_test(&app).is_none());
 
         app.handle_pty_output(b"\x1b[1;1HX").unwrap();
-        assert_eq!(app.ordinary_selection, ordinary);
+        assert_eq!(ordinary_selection_for_test(&app), ordinary);
 
         app.exit_search_mode();
         app.refresh_snapshot();
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
     }
 
     #[test]
@@ -187874,17 +188000,17 @@ return config
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 3 },
         );
-        let ordinary = app.ordinary_selection;
+        let ordinary = ordinary_selection_for_test(&app);
         app.enter_copy_mode();
-        assert!(app.copy_mode.is_some());
-        assert!(app.search.is_none());
-        assert!(app.quick_select.is_none());
+        assert!(copy_mode_for_test(&app).is_some());
+        assert!(search_for_test(&app).is_none());
+        assert!(quick_select_for_test(&app).is_none());
 
         app.handle_pty_output(b"\x1b[1;1HX").unwrap();
-        assert_eq!(app.ordinary_selection, ordinary);
+        assert_eq!(ordinary_selection_for_test(&app), ordinary);
 
         app.exit_copy_mode();
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
     }
 
     #[test]
@@ -187898,17 +188024,17 @@ return config
             SelectionCell { row: 0, column: 0 },
             SelectionCell { row: 0, column: 3 },
         );
-        let ordinary = app.ordinary_selection;
+        let ordinary = ordinary_selection_for_test(&app);
         app.enter_quick_select_mode();
-        assert!(app.quick_select.is_some());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(quick_select_for_test(&app).is_some());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
 
         app.handle_pty_output(b"\x1b[1;1HX").unwrap();
-        assert_eq!(app.ordinary_selection, ordinary);
+        assert_eq!(ordinary_selection_for_test(&app), ordinary);
 
         app.exit_quick_select_mode();
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
     }
 
     #[test]
@@ -187924,7 +188050,7 @@ return config
         app.refresh_snapshot();
         app.handle_pty_output(b"!").unwrap();
 
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
         assert!(app.selected_text().is_none());
     }
 
@@ -188038,24 +188164,27 @@ return config
             },
             false,
         );
-        app.quick_select = Some(WindowQuickSelect {
-            matches: vec![WindowSearchMatch {
-                domain: dimensions.domain,
-                source_row: dimensions.physical_top,
-                start_column: 9,
-                end_source_row: dimensions.physical_top,
-                end_column: 17,
-            }],
-            labels: vec!["a".to_owned()],
-            ..WindowQuickSelect::default()
-        });
+        set_app_quick_select_for_test(
+            &mut app,
+            WindowQuickSelect {
+                matches: vec![WindowSearchMatch {
+                    domain: dimensions.domain,
+                    source_row: dimensions.physical_top,
+                    start_column: 9,
+                    end_source_row: dimensions.physical_top,
+                    end_column: 17,
+                }],
+                labels: vec!["a".to_owned()],
+                ..WindowQuickSelect::default()
+            },
+        );
         app.update_selection_projection();
         assert_eq!(app.selected_text().as_deref(), Some("transient"));
 
         app.enter_search_mode_with_query(&WindowSearchCommandQuery::CurrentSelectionOrEmptyString);
 
         assert_eq!(
-            app.search.as_ref().map(|search| search.query.as_str()),
+            search_for_test(&app).map(|search| search.query.as_str()),
             Some("ordinary")
         );
     }
@@ -188100,11 +188229,11 @@ return config
             },
             false,
         );
-        let ordinary = app.ordinary_selection;
+        let ordinary = ordinary_selection_for_test(&app);
 
         assert!(app.handle_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0)));
 
-        assert_eq!(app.ordinary_selection, ordinary);
+        assert_eq!(ordinary_selection_for_test(&app), ordinary);
         assert_eq!(app.selected_text().as_deref(), Some("bb"));
     }
 
@@ -188124,11 +188253,11 @@ return config
             },
             false,
         );
-        let ordinary = app.ordinary_selection;
+        let ordinary = ordinary_selection_for_test(&app);
 
         app.command_palette_execute(WindowCommand::ScrollPageUp);
 
-        assert_eq!(app.ordinary_selection, ordinary);
+        assert_eq!(ordinary_selection_for_test(&app), ordinary);
         assert_eq!(app.selected_text().as_deref(), Some("ee"));
     }
 
@@ -188152,14 +188281,14 @@ return config
             },
             false,
         );
-        let ordinary = app.ordinary_selection;
+        let ordinary = ordinary_selection_for_test(&app);
 
         assert!(app.scroll_to_scrollbar_position(PhysicalPosition::new(
             f64::from(FRAME_WIDTH - 1),
             f64::from(tab_bar_pixel_height()),
         )));
 
-        assert_eq!(app.ordinary_selection, ordinary);
+        assert_eq!(ordinary_selection_for_test(&app), ordinary);
         assert_eq!(app.selected_text().as_deref(), Some("ee"));
     }
 
@@ -188207,7 +188336,7 @@ return config
         app.handle_pty_output(b"\r\ncc\r\ndd").unwrap();
 
         assert_eq!(app.selected_text().as_deref(), Some("aa"));
-        assert!(app.ordinary_selection.is_some());
+        assert!(ordinary_selection_for_test(&app).is_some());
     }
 
     #[test]
@@ -188346,8 +188475,7 @@ return config
 
         assert!(app.selecting);
         assert!(
-            app.ordinary_selection
-                .is_some_and(StableOrdinarySelection::is_single_cell)
+            ordinary_selection_for_test(&app).is_some_and(StableOrdinarySelection::is_single_cell)
         );
     }
 
@@ -188402,8 +188530,7 @@ return config
 
         assert!(app.selecting);
         assert!(
-            app.ordinary_selection
-                .is_some_and(StableOrdinarySelection::is_single_cell)
+            ordinary_selection_for_test(&app).is_some_and(StableOrdinarySelection::is_single_cell)
         );
         assert_eq!(app.last_left_click.map(|click| click.count), Some(1));
     }
@@ -188474,7 +188601,7 @@ return config
         })
         .unwrap();
 
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
@@ -188540,7 +188667,7 @@ return config
             false,
         );
         let top = app.current_stable_viewport_top();
-        let ordinary = app.ordinary_selection;
+        let ordinary = ordinary_selection_for_test(&app);
 
         app.dispatch_app_action(AppAction::MovePaneToNewTab {
             pane: rssh_core::PaneId::new(2),
@@ -188548,7 +188675,7 @@ return config
         .unwrap();
 
         assert_eq!(app.current_stable_viewport_top(), top);
-        assert_eq!(app.ordinary_selection, ordinary);
+        assert_eq!(ordinary_selection_for_test(&app), ordinary);
         assert_eq!(app.selected_text().as_deref(), Some("aa"));
     }
 
@@ -188583,7 +188710,7 @@ return config
             .take_next_pending_window_app()
             .expect("pane should materialize as a detached window");
 
-        assert!(detached.ordinary_selection.is_none());
+        assert!(detached.active_ui.ordinary_selection.is_none());
         assert!(detached.selection.is_none());
         assert_eq!(detached.current_scrollback_offset(), 1);
         assert!(!detached.runtime.terminal().scrollback().is_empty());
@@ -188595,20 +188722,23 @@ return config
         app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
         app.handle_pty_output(b"transient").unwrap();
         let dimensions = app.runtime.terminal().stable_dimensions();
-        app.quick_select = Some(WindowQuickSelect {
-            matches: vec![WindowSearchMatch {
-                domain: dimensions.domain,
-                source_row: dimensions.physical_top,
-                start_column: 0,
-                end_source_row: dimensions.physical_top,
-                end_column: 8,
-            }],
-            labels: vec!["a".to_owned()],
-            ..WindowQuickSelect::default()
-        });
+        set_app_quick_select_for_test(
+            &mut app,
+            WindowQuickSelect {
+                matches: vec![WindowSearchMatch {
+                    domain: dimensions.domain,
+                    source_row: dimensions.physical_top,
+                    start_column: 0,
+                    end_source_row: dimensions.physical_top,
+                    end_column: 8,
+                }],
+                labels: vec!["a".to_owned()],
+                ..WindowQuickSelect::default()
+            },
+        );
         app.update_selection_projection();
         assert!(app.selection.is_some());
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
 
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -188653,7 +188783,7 @@ return config
 
         app.handle_window_resize(PhysicalSize::new(96, 80)).unwrap();
 
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
         assert!(app.selected_text().is_none());
     }
 
@@ -188709,7 +188839,7 @@ return config
 
         app.handle_pty_output(b"\x1b[?1049h").unwrap();
 
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
         assert!(app.selection.is_none());
     }
 
@@ -188727,7 +188857,7 @@ return config
         app.handle_pty_output(b"\x1b[?1049h").unwrap();
         app.handle_pty_output(b"\x1b[?1049l").unwrap();
 
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
         assert!(app.selection.is_none());
     }
 
@@ -188737,8 +188867,8 @@ return config
         app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
         app.handle_pty_output(b"https://test\r\nother").unwrap();
         app.enter_copy_mode();
-        app.search = Some(WindowSearch::default());
-        app.quick_select = Some(WindowQuickSelect::default());
+        set_app_search_for_test(&mut app, WindowSearch::default());
+        set_app_quick_select_for_test(&mut app, WindowQuickSelect::default());
         app.selecting = true;
         app.last_left_click = Some(WindowClick {
             cell: ordinary_source_cell_for_viewport(&app, 0, 0),
@@ -188756,9 +188886,9 @@ return config
 
         app.handle_pty_output(b"\x1b[?1049h").unwrap();
 
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
-        assert!(app.quick_select.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(!app.selecting);
         assert!(app.last_left_click.is_none());
         assert!(app.last_mouse_assignment_click.is_none());
@@ -188781,7 +188911,7 @@ return config
         app.handle_pty_output(b"\x1b[?1049l").unwrap();
 
         assert_eq!(app.current_stable_viewport_top(), main_top);
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
     }
 
     #[test]
@@ -188798,8 +188928,8 @@ return config
             SelectionCell { row: 0, column: 3 },
         );
         app.enter_copy_mode();
-        app.search = Some(WindowSearch::default());
-        app.quick_select = Some(WindowQuickSelect::default());
+        set_app_search_for_test(&mut app, WindowSearch::default());
+        set_app_quick_select_for_test(&mut app, WindowQuickSelect::default());
         app.selecting = true;
         app.last_left_click = Some(WindowClick {
             cell: ordinary_source_cell_for_viewport(&app, 0, 0),
@@ -188818,11 +188948,11 @@ return config
         app.handle_pty_output(b"\x1b[?1049halt\x1b[?1049l").unwrap();
 
         assert_eq!(app.current_stable_viewport_top(), main_top);
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
         assert!(app.selection.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
-        assert!(app.quick_select.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(!app.selecting);
         assert!(app.last_left_click.is_none());
         assert!(app.last_mouse_assignment_click.is_none());
@@ -188866,7 +188996,7 @@ return config
         app.dispatch_app_action(AppAction::ActivatePaneByIndex { index: 0 })
             .unwrap();
         assert_eq!(app.current_stable_viewport_top(), inactive_top);
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
         assert!(app.selection.is_none());
     }
 
@@ -188980,11 +189110,11 @@ return config
         app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
         app.enter_copy_mode();
         assert!(app.move_copy_mode_to_scrollback_top());
-        let source_cursor = app.copy_mode.as_ref().unwrap().source_cursor;
+        let source_cursor = active_copy_mode_for_test(&app).source_cursor;
 
         app.handle_pty_output(b"\r\ndd\r\nee").unwrap();
 
-        let retained_cursor = app.copy_mode.as_ref().unwrap().source_cursor;
+        let retained_cursor = active_copy_mode_for_test(&app).source_cursor;
         assert_eq!(retained_cursor, source_cursor);
         assert_eq!(
             retained_cursor.domain,
@@ -189001,17 +189131,13 @@ return config
             .unwrap();
         app.enter_search_mode();
         assert!(app.update_search_query("needle-old"));
-        let matched = app.search.as_ref().unwrap().current.unwrap();
+        let matched = active_search_for_test(&app).current.unwrap();
         assert_eq!(matched.domain, rssh_terminal::TerminalScreenDomain::Main);
 
         app.handle_pty_output(b"\r\nnew-1\r\nnew-2\r\nnew-3")
             .unwrap();
 
-        assert!(
-            app.search
-                .as_ref()
-                .is_some_and(|search| search.current.is_none())
-        );
+        assert!(search_for_test(&app).is_some_and(|search| search.current.is_none()));
         assert_ne!(
             app.runtime
                 .terminal()
@@ -189029,12 +189155,12 @@ return config
             .unwrap();
         assert!(app.update_search_query("foo"));
         assert!(app.step_search(SearchDirection::Previous));
-        let matched = app.search.as_ref().unwrap().current;
+        let matched = active_search_for_test(&app).current;
         assert_eq!(app.selection.unwrap().anchor.row, 1);
 
         app.scroll_viewport_lines(1);
 
-        assert_eq!(app.search.as_ref().unwrap().current, matched);
+        assert_eq!(active_search_for_test(&app).current, matched);
         assert_eq!(app.selection.unwrap().anchor.row, 2);
     }
 
@@ -189053,10 +189179,13 @@ return config
             end_source_row: viewport_top.saturating_add(3),
             end_column: 2,
         };
-        app.search = Some(WindowSearch {
-            current: Some(matched),
-            ..WindowSearch::default()
-        });
+        set_app_search_for_test(
+            &mut app,
+            WindowSearch {
+                current: Some(matched),
+                ..WindowSearch::default()
+            },
+        );
 
         app.update_transient_selection_projection();
 
@@ -189081,11 +189210,14 @@ return config
             end_source_row: viewport_top.saturating_add(3),
             end_column: 1,
         };
-        app.quick_select = Some(WindowQuickSelect {
-            matches: vec![matched],
-            labels: vec!["a".to_owned()],
-            ..WindowQuickSelect::default()
-        });
+        set_app_quick_select_for_test(
+            &mut app,
+            WindowQuickSelect {
+                matches: vec![matched],
+                labels: vec!["a".to_owned()],
+                ..WindowQuickSelect::default()
+            },
+        );
 
         app.update_transient_selection_projection();
 
@@ -189103,16 +189235,14 @@ return config
         app.handle_pty_output(b"https://old.test\r\nkeep\r\nlive")
             .unwrap();
         app.enter_quick_select_mode();
-        let matched = app.quick_select.as_ref().unwrap().matches[0];
+        let matched = active_quick_select_for_test(&app).matches[0];
         assert_eq!(matched.domain, rssh_terminal::TerminalScreenDomain::Main);
 
         app.handle_pty_output(b"\r\nnew-1\r\nnew-2\r\nnew-3")
             .unwrap();
 
         assert!(
-            app.quick_select
-                .as_ref()
-                .is_some_and(|quick_select| quick_select.matches.is_empty())
+            quick_select_for_test(&app).is_some_and(|quick_select| quick_select.matches.is_empty())
         );
         assert!(app.selection.is_none());
         assert_ne!(
@@ -189138,7 +189268,7 @@ return config
         app.handle_pty_output(b"https://old.test\r\nhttps://later.test\r\nkeep\r\nlive")
             .unwrap();
         app.enter_quick_select_mode();
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 2);
         let pruned = quick_select.matches[0];
         let survivor = quick_select.matches[1];
@@ -189148,7 +189278,7 @@ return config
 
         assert!(!pruned.is_retained(app.runtime.terminal()));
         assert!(survivor.is_retained(app.runtime.terminal()));
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert!(!app.handle_quick_select_logical_key(
             &Key::Character(survivor_label.into()),
@@ -189171,8 +189301,7 @@ return config
             .unwrap();
         app.enter_quick_select_mode();
         assert!(
-            app.quick_select
-                .as_ref()
+            quick_select_for_test(&app)
                 .and_then(WindowQuickSelect::current_match)
                 .is_some()
         );
@@ -189203,14 +189332,10 @@ return config
 
         app.enter_search_mode();
         assert!(!app.update_search_query("main-only-needle"));
-        assert!(
-            app.search
-                .as_ref()
-                .is_some_and(|search| search.current.is_none())
-        );
+        assert!(search_for_test(&app).is_some_and(|search| search.current.is_none()));
 
         assert!(app.update_search_query("alt-only-needle"));
-        let matched = app.search.as_ref().unwrap().current.unwrap();
+        let matched = active_search_for_test(&app).current.unwrap();
         assert_eq!(
             matched.domain,
             rssh_terminal::TerminalScreenDomain::Alternate
@@ -189236,7 +189361,7 @@ return config
 
         app.enter_quick_select_mode();
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 1);
         assert_eq!(
             quick_select.matches[0].domain,
@@ -189270,7 +189395,7 @@ return config
         assert!(app.handle_copy_mode_key(&Key::Character("j".into()), ModifiersState::empty()));
         assert!(app.handle_copy_mode_key(&Key::Character("j".into()), ModifiersState::empty()));
 
-        let copy_mode = app.copy_mode.as_ref().expect("copy mode");
+        let copy_mode = active_copy_mode_for_test(&app);
         assert_eq!(copy_mode.cursor, SelectionCell { row: 2, column: 0 });
         assert_eq!(copy_mode.anchor, Some(SelectionCell { row: 0, column: 0 }));
         assert_eq!(
@@ -189308,7 +189433,7 @@ return config
             .unwrap();
         app.enter_search_mode();
         assert!(app.update_search_query("needle-old"));
-        let matched = app.search.as_ref().unwrap().current.unwrap();
+        let matched = active_search_for_test(&app).current.unwrap();
         assert!(matched.is_retained(app.runtime.terminal()));
         assert_eq!(
             snapshot_row_text(&app.snapshot, 0, 20),
@@ -189321,11 +189446,7 @@ return config
         });
 
         assert!(!matched.is_retained(app.runtime.terminal()));
-        assert!(
-            app.search
-                .as_ref()
-                .is_some_and(|search| search.current.is_none())
-        );
+        assert!(search_for_test(&app).is_some_and(|search| search.current.is_none()));
         assert!(app.selection.is_none());
         assert_eq!(
             snapshot_row_text(&app.snapshot, 0, 20),
@@ -189341,7 +189462,7 @@ return config
             .unwrap();
         app.enter_copy_mode();
         assert!(app.move_copy_mode_to_scrollback_top());
-        let source_cursor = app.copy_mode.as_ref().unwrap().source_cursor;
+        let source_cursor = active_copy_mode_for_test(&app).source_cursor;
         assert_eq!(
             snapshot_row_text(&app.snapshot, 0, 20),
             "copy-old            "
@@ -189358,7 +189479,7 @@ return config
                 .retained_stable_range()
                 .contains(&source_cursor.row)
         );
-        assert!(app.copy_mode.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert_eq!(
             snapshot_row_text(&app.snapshot, 0, 20),
@@ -189374,8 +189495,8 @@ return config
             .unwrap();
         app.enter_quick_select_mode();
         let matched = app
-            .quick_select
-            .as_ref()
+            .active_ui
+            .quick_select()
             .and_then(WindowQuickSelect::current_match)
             .expect("quick-select match");
         assert!(matched.is_retained(app.runtime.terminal()));
@@ -189391,9 +189512,7 @@ return config
 
         assert!(!matched.is_retained(app.runtime.terminal()));
         assert!(
-            app.quick_select
-                .as_ref()
-                .is_some_and(|quick_select| quick_select.matches.is_empty())
+            quick_select_for_test(&app).is_some_and(|quick_select| quick_select.matches.is_empty())
         );
         assert!(app.selection.is_none());
         assert_eq!(
@@ -189947,7 +190066,7 @@ return config
 
         app.enter_quick_select_mode();
         assert_eq!(
-            app.quick_select.as_ref().unwrap().labels.as_slice(),
+            active_quick_select_for_test(&app).labels.as_slice(),
             ["bb", "ba", "a"]
         );
 
@@ -189979,7 +190098,7 @@ return config
 
         app.enter_quick_select_mode();
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 2);
         assert_eq!(quick_select.labels.len(), 2);
         assert_eq!(app.selected_text().as_deref(), Some("dup@example.com"));
@@ -190105,15 +190224,16 @@ return config
     #[test]
     fn window_quick_select_clears_other_overlays() {
         let mut app = NativeWindowApp::new(None);
+        app.enter_search_mode();
         app.update_search_query("example");
-        assert!(app.search.is_some());
+        assert!(search_for_test(&app).is_some());
 
         app.enter_quick_select_mode();
-        assert!(app.search.is_none());
-        assert!(app.quick_select.is_some());
+        assert!(search_for_test(&app).is_none());
+        assert!(quick_select_for_test(&app).is_some());
 
         app.enter_command_palette_mode();
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.command_palette.is_some());
     }
 
@@ -190127,7 +190247,7 @@ return config
             app.effective_window_title(),
             "R-SSH [workspace:1 tab:1 pane:1] - Quick Select: no match"
         );
-        assert_eq!(app.quick_select.as_ref().unwrap().matches.len(), 0);
+        assert_eq!(active_quick_select_for_test(&app).matches.len(), 0);
     }
 
     #[test]
@@ -190150,7 +190270,7 @@ return config
             .unwrap();
 
         app.enter_quick_select_mode();
-        assert_eq!(app.quick_select.as_ref().unwrap().matches.len(), 3);
+        assert_eq!(active_quick_select_for_test(&app).matches.len(), 3);
 
         assert!(
             app.handle_quick_select_logical_key(
@@ -190159,7 +190279,7 @@ return config
             )
         );
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert_eq!(copied.lock().unwrap().as_slice(), ["test@x.io"]);
         assert_eq!(primary_copied.lock().unwrap().as_slice(), ["test@x.io"]);
@@ -190189,7 +190309,7 @@ return config
         });
 
         app.enter_quick_select_mode();
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.labels.as_slice(), ["y", "x"]);
 
         assert!(
@@ -190199,7 +190319,7 @@ return config
             )
         );
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert_eq!(copied.lock().unwrap().as_slice(), ["https://two.test"]);
         assert_eq!(
@@ -190221,7 +190341,7 @@ return config
 
         app.enter_quick_select_mode();
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 2);
         assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
         assert!(app.quick_select_step(SearchDirection::Next));
@@ -190242,7 +190362,7 @@ return config
 
         app.enter_quick_select_mode();
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 1);
         assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
     }
@@ -190268,7 +190388,7 @@ return config
             ModifiersState::empty()
         ));
 
-        assert!(app.quick_select.is_some());
+        assert!(quick_select_for_test(&app).is_some());
         assert!(copied.lock().unwrap().is_empty());
         assert_eq!(app.selected_text().as_deref(), Some("test@x.io"));
     }
@@ -190289,7 +190409,7 @@ return config
                 ModifiersState::CONTROL
             )
         );
-        assert!(app.quick_select.is_some());
+        assert!(quick_select_for_test(&app).is_some());
         assert_eq!(app.selected_text().as_deref(), Some("10.0.0.1"));
 
         assert!(
@@ -190298,7 +190418,7 @@ return config
                 ModifiersState::CONTROL
             )
         );
-        assert!(app.quick_select.is_some());
+        assert!(quick_select_for_test(&app).is_some());
         assert_eq!(app.selected_text().as_deref(), Some("https://example.com"));
     }
 
@@ -190312,21 +190432,21 @@ return config
         .unwrap();
 
         app.enter_quick_select_mode();
-        assert_eq!(app.quick_select.as_ref().unwrap().matches.len(), 5);
+        assert_eq!(active_quick_select_for_test(&app).matches.len(), 5);
         assert_eq!(app.selected_text().as_deref(), Some("u0@example.com"));
 
         assert!(app.handle_quick_select_logical_key(
             &Key::Named(NamedKey::PageDown),
             ModifiersState::empty()
         ));
-        assert!(app.quick_select.is_some());
+        assert!(quick_select_for_test(&app).is_some());
         assert_eq!(app.selected_text().as_deref(), Some("u3@example.com"));
 
         assert!(app.handle_quick_select_logical_key(
             &Key::Named(NamedKey::PageUp),
             ModifiersState::empty()
         ));
-        assert!(app.quick_select.is_some());
+        assert!(quick_select_for_test(&app).is_some());
         assert_eq!(app.selected_text().as_deref(), Some("u0@example.com"));
     }
 
@@ -190346,13 +190466,13 @@ return config
             .unwrap();
 
         app.enter_quick_select_mode();
-        assert_eq!(app.quick_select.as_ref().unwrap().matches.len(), 3);
+        assert_eq!(active_quick_select_for_test(&app).matches.len(), 3);
 
         assert!(
             app.handle_quick_select_logical_key(&Key::Character("A".into()), ModifiersState::SHIFT)
         );
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert!(copied.lock().unwrap().is_empty());
         assert_eq!(written.lock().unwrap().as_slice(), b"test@x.io");
@@ -190367,7 +190487,7 @@ return config
 
         app.enter_quick_select_mode();
 
-        assert_eq!(app.quick_select.as_ref().unwrap().matches.len(), 1);
+        assert_eq!(active_quick_select_for_test(&app).matches.len(), 1);
         assert_eq!(
             app.selected_text().as_deref(),
             Some("git@github.com:wezterm/wezterm.git")
@@ -190383,7 +190503,7 @@ return config
 
         app.enter_quick_select_mode();
 
-        assert_eq!(app.quick_select.as_ref().unwrap().matches.len(), 2);
+        assert_eq!(active_quick_select_for_test(&app).matches.len(), 2);
         assert_eq!(app.selected_text().as_deref(), Some("/var/log/rssh.log"));
         assert!(app.quick_select_step(SearchDirection::Next));
         assert_eq!(app.selected_text().as_deref(), Some("deadbeef"));
@@ -190400,7 +190520,7 @@ return config
 
         app.enter_quick_select_mode();
 
-        assert_eq!(app.quick_select.as_ref().unwrap().matches.len(), 3);
+        assert_eq!(active_quick_select_for_test(&app).matches.len(), 3);
         assert_eq!(
             app.selected_text().as_deref(),
             Some("https://example.com/path")
@@ -191091,14 +191211,14 @@ return config
         app.handle_pty_output(b"abcd").unwrap();
 
         app.enter_copy_mode();
-        assert!(app.copy_mode.is_some());
+        assert!(copy_mode_for_test(&app).is_some());
 
         assert!(
             app.handle_copy_mode_key(&Key::Character("\u{1b}".into()), ModifiersState::empty())
         );
 
-        assert!(app.copy_mode.is_none());
-        assert!(app.search.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(search_for_test(&app).is_none());
         assert_eq!(
             app.effective_window_title(),
             "R-SSH [workspace:1 tab:1 pane:1]"
@@ -191110,14 +191230,14 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.enter_copy_mode();
 
-        assert!(app.copy_mode.is_some());
+        assert!(copy_mode_for_test(&app).is_some());
 
         assert!(app.handle_copy_mode_key(
             &Key::Character("p".into()),
             ModifiersState::CONTROL | ModifiersState::SHIFT
         ));
 
-        assert!(app.copy_mode.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
         assert!(app.command_palette.is_some());
         assert_eq!(
             app.effective_window_title(),
@@ -191134,16 +191254,16 @@ return config
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
 
-        assert!(app.copy_mode.is_some());
-        assert!(app.search.is_some());
+        assert!(copy_mode_for_test(&app).is_some());
+        assert!(search_for_test(&app).is_some());
 
         assert!(app.handle_copy_mode_key(
             &Key::Character("p".into()),
             ModifiersState::CONTROL | ModifiersState::SHIFT
         ));
 
-        assert!(app.copy_mode.is_none());
-        assert!(app.search.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(search_for_test(&app).is_none());
         assert!(app.command_palette.is_some());
         assert_eq!(
             app.effective_window_title(),
@@ -191168,7 +191288,7 @@ return config
         };
 
         assert_eq!(tab_order(&app), vec![rssh_core::TabId::new(1)]);
-        assert!(app.copy_mode.is_some());
+        assert!(copy_mode_for_test(&app).is_some());
 
         assert!(app.handle_copy_mode_key(
             &Key::Character("t".into()),
@@ -191180,7 +191300,7 @@ return config
             vec![rssh_core::TabId::new(1), rssh_core::TabId::new(2)]
         );
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
-        assert!(app.copy_mode.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
         assert_eq!(
             app.effective_window_title(),
             "R-SSH [workspace:1 tab:2 pane:2]"
@@ -191202,8 +191322,8 @@ return config
         };
 
         assert_eq!(tab_order(&app), vec![rssh_core::TabId::new(1)]);
-        assert!(app.copy_mode.is_some());
-        assert!(app.search.is_some());
+        assert!(copy_mode_for_test(&app).is_some());
+        assert!(search_for_test(&app).is_some());
 
         assert!(app.handle_copy_mode_key(
             &Key::Character("t".into()),
@@ -191215,8 +191335,8 @@ return config
             vec![rssh_core::TabId::new(1), rssh_core::TabId::new(2)]
         );
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
-        assert!(app.copy_mode.is_none());
-        assert!(app.search.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(search_for_test(&app).is_none());
         assert_eq!(
             app.effective_window_title(),
             "R-SSH [workspace:1 tab:2 pane:2]"
@@ -191242,7 +191362,7 @@ return config
         app.handle_copy_mode_key(&Key::Character("h".into()), ModifiersState::empty());
         app.handle_copy_mode_key(&Key::Character("y".into()), ModifiersState::empty());
 
-        assert!(app.copy_mode.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
         assert_eq!(copied.lock().unwrap().as_slice(), ["abcd"]);
     }
 
@@ -191330,7 +191450,7 @@ return config
 
         assert!(app.handle_copy_mode_key(&Key::Character("y".into()), ModifiersState::empty()));
 
-        assert!(app.copy_mode.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
         assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
@@ -191357,7 +191477,7 @@ return config
         app.handle_copy_mode_key(&Key::Character("h".into()), ModifiersState::empty());
         app.handle_copy_mode_key(&Key::Character("y".into()), ModifiersState::empty());
 
-        assert!(app.copy_mode.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
         assert_eq!(copied.lock().unwrap().as_slice(), ["abcd"]);
     }
 
@@ -191377,7 +191497,7 @@ return config
         app.handle_copy_mode_key(&Key::Character("V".into()), ModifiersState::SHIFT);
         app.handle_copy_mode_key(&Key::Character("y".into()), ModifiersState::empty());
 
-        assert!(app.copy_mode.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
         assert_eq!(copied.lock().unwrap().as_slice(), ["abcdef"]);
     }
 
@@ -191397,7 +191517,7 @@ return config
         assert!(app.handle_copy_mode_key(&Key::Character("V".into()), ModifiersState::empty()));
         app.handle_copy_mode_key(&Key::Character("y".into()), ModifiersState::empty());
 
-        assert!(app.copy_mode.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
         assert_eq!(copied.lock().unwrap().as_slice(), ["abcdef"]);
     }
 
@@ -191412,25 +191532,25 @@ return config
 
         app.enter_copy_mode();
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 2, column: 8 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("z".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 2, column: 0 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("z".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("Z".into()), ModifiersState::SHIFT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 2, column: 0 })
         );
     }
@@ -191446,19 +191566,19 @@ return config
 
         app.enter_copy_mode();
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 2, column: 8 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("z".into()), ModifiersState::ALT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 2, column: 0 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("z".into()), ModifiersState::ALT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
 
@@ -191467,7 +191587,7 @@ return config
             ModifiersState::ALT | ModifiersState::SHIFT
         ));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 2, column: 0 })
         );
     }
@@ -191483,13 +191603,13 @@ return config
 
         app.enter_copy_mode();
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 2, column: 8 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("p".into()), ModifiersState::ALT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 0 })
         );
 
@@ -191498,7 +191618,7 @@ return config
             ModifiersState::ALT | ModifiersState::SHIFT
         ));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
     }
@@ -191514,7 +191634,7 @@ return config
 
         app.enter_copy_mode();
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 2, column: 8 })
         );
 
@@ -191526,7 +191646,7 @@ return config
             .expect("CopyMode backward semantic-zone type should dispatch");
 
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 0 })
         );
 
@@ -191538,7 +191658,7 @@ return config
             .expect("CopyMode forward semantic-zone type should dispatch");
 
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
     }
@@ -191554,7 +191674,7 @@ return config
 
         app.enter_copy_mode();
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 2, column: 8 })
         );
 
@@ -191566,7 +191686,7 @@ return config
             .expect("CopyMode backward zone type should dispatch");
 
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 0 })
         );
 
@@ -191578,7 +191698,7 @@ return config
             .expect("CopyMode forward zone type should dispatch");
 
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
     }
@@ -191599,26 +191719,26 @@ return config
         app.enter_copy_mode();
         assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 4 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("z".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 0 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("z".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("z".into()), ModifiersState::empty()));
         assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 12), "midout      ");
@@ -191653,7 +191773,7 @@ return config
 
         app.handle_copy_mode_key(&Key::Character("y".into()), ModifiersState::empty());
 
-        assert!(app.copy_mode.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
         assert_eq!(copied.lock().unwrap().as_slice(), ["midout\n> two\nlive"]);
     }
 
@@ -191673,7 +191793,7 @@ return config
         assert!(app.handle_copy_mode_key(&Key::Character("o".into()), ModifiersState::empty()));
 
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| (
+            copy_mode_for_test(&app).map(|copy_mode| (
                 copy_mode.source_cursor.row,
                 copy_mode.source_cursor.column,
                 copy_mode
@@ -191700,7 +191820,7 @@ return config
         assert!(app.handle_copy_mode_key(&Key::Character("O".into()), ModifiersState::SHIFT));
 
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| (
+            copy_mode_for_test(&app).map(|copy_mode| (
                 copy_mode.source_cursor.row,
                 copy_mode.source_cursor.column,
                 copy_mode
@@ -191741,14 +191861,14 @@ return config
         app.enter_copy_mode();
         assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("k".into()), ModifiersState::empty()));
         assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
 
@@ -191757,14 +191877,14 @@ return config
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "cc  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "dd  ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("j".into()), ModifiersState::empty()));
         assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
 
@@ -191773,7 +191893,7 @@ return config
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "dd  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ee  ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
     }
@@ -191795,7 +191915,7 @@ return config
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "dd  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ee  ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
 
@@ -191804,7 +191924,7 @@ return config
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
     }
@@ -191828,7 +191948,7 @@ return config
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "dd  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ee  ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
 
@@ -191842,7 +191962,7 @@ return config
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
     }
@@ -191866,7 +191986,7 @@ return config
             .expect("CopyMode ScrollToBottom should dispatch");
 
         assert_eq!(app.current_scrollback_offset(), 0);
-        assert!(app.copy_mode.is_some());
+        assert!(copy_mode_for_test(&app).is_some());
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
     }
@@ -191880,7 +192000,7 @@ return config
 
         app.enter_copy_mode();
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 3, column: 2 })
         );
 
@@ -191893,7 +192013,7 @@ return config
 
         assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
 
@@ -191906,7 +192026,7 @@ return config
 
         assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 3, column: 2 })
         );
     }
@@ -191928,7 +192048,7 @@ return config
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "aa  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "bb  ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
 
@@ -191937,7 +192057,7 @@ return config
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
     }
@@ -191956,7 +192076,7 @@ return config
 
         assert!(app.handle_copy_mode_key(&Key::Character("q".into()), ModifiersState::empty()));
 
-        assert!(app.copy_mode.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
         assert_eq!(app.current_scrollback_offset(), 0);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
@@ -191973,8 +192093,7 @@ return config
         assert!(app.handle_copy_mode_key(&Key::Character("\r".into()), ModifiersState::empty()));
 
         assert_eq!(
-            app.copy_mode
-                .as_ref()
+            copy_mode_for_test(&app)
                 .map(|copy_mode| (copy_mode.source_cursor.row, copy_mode.source_cursor.column)),
             Some((1, 0))
         );
@@ -191998,25 +192117,25 @@ return config
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "cc  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 3, 4), "ff  ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 3, column: 2 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("H".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("M".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 2, column: 0 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("L".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 3, column: 0 })
         );
     }
@@ -192033,19 +192152,19 @@ return config
         assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "  aa    ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 6 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("^".into()), ModifiersState::SHIFT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("$".into()), ModifiersState::SHIFT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 3 })
         );
     }
@@ -192060,14 +192179,14 @@ return config
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("g".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 6 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::End), ModifiersState::empty()));
 
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 3 })
         );
     }
@@ -192082,7 +192201,7 @@ return config
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("g".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 6 })
         );
 
@@ -192094,7 +192213,7 @@ return config
             .expect("copy mode assignment should dispatch");
 
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
     }
@@ -192107,9 +192226,7 @@ return config
 
         app.enter_copy_mode();
         assert!(matches!(
-            app.copy_mode
-                .as_ref()
-                .map(|copy_mode| copy_mode.selection_mode),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.selection_mode),
             Some(super::WindowCopySelectionMode::None)
         ));
 
@@ -192121,9 +192238,7 @@ return config
             .expect("copy mode assignment should dispatch");
 
         assert!(matches!(
-            app.copy_mode
-                .as_ref()
-                .map(|copy_mode| copy_mode.selection_mode),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.selection_mode),
             Some(super::WindowCopySelectionMode::Block)
         ));
         assert!(app.selection.is_some());
@@ -192184,9 +192299,7 @@ return config
         app.command_palette_apply_command(command)
             .expect("copy mode assignment should dispatch");
         assert!(matches!(
-            app.copy_mode
-                .as_ref()
-                .map(|copy_mode| copy_mode.selection_mode),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.selection_mode),
             Some(super::WindowCopySelectionMode::Cell)
         ));
         assert!(app.selection.is_some());
@@ -192199,9 +192312,7 @@ return config
             .expect("copy mode assignment should dispatch");
 
         assert!(matches!(
-            app.copy_mode
-                .as_ref()
-                .map(|copy_mode| copy_mode.selection_mode),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.selection_mode),
             Some(super::WindowCopySelectionMode::None)
         ));
         assert!(app.selection.is_none());
@@ -192221,9 +192332,7 @@ return config
         app.command_palette_apply_command(command)
             .expect("copy mode assignment should dispatch");
         assert!(matches!(
-            app.copy_mode
-                .as_ref()
-                .map(|copy_mode| copy_mode.selection_mode),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.selection_mode),
             Some(super::WindowCopySelectionMode::Cell)
         ));
         assert!(app.selection.is_some());
@@ -192271,14 +192380,14 @@ return config
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("g".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 6 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("m".into()), ModifiersState::ALT));
 
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
     }
@@ -192292,61 +192401,61 @@ return config
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("^".into()), ModifiersState::SHIFT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("w".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 9 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::Tab), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 14 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("e".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 18 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("b".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 14 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::Tab), ModifiersState::SHIFT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 9 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::ArrowRight), ModifiersState::ALT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 14 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::ArrowLeft), ModifiersState::ALT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 9 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("f".into()), ModifiersState::ALT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 14 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("b".into()), ModifiersState::ALT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 9 })
         );
     }
@@ -192362,32 +192471,32 @@ return config
         assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "aa bb   ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 4 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("w".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("e".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 3 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("b".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("b".into()), ModifiersState::empty()));
         assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 3 })
         );
     }
@@ -192401,38 +192510,38 @@ return config
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("0".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("f".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("a".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character(";".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 4 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character(",".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("t".into()), ModifiersState::empty()));
         assert!(app.handle_copy_mode_key(&Key::Character("d".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 4 })
         );
     }
@@ -192448,7 +192557,7 @@ return config
         assert!(app.handle_copy_mode_key(&Key::Character("f".into()), ModifiersState::empty()));
         assert!(app.handle_copy_mode_key(&Key::Character("a".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
 
@@ -192459,7 +192568,7 @@ return config
             .expect("CopyMode JumpAgain should dispatch");
 
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 4 })
         );
 
@@ -192471,7 +192580,7 @@ return config
             .expect("CopyMode JumpReverse should dispatch");
 
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
     }
@@ -192494,7 +192603,7 @@ return config
         assert!(app.handle_copy_mode_key(&Key::Character("a".into()), ModifiersState::empty()));
 
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
 
@@ -192507,7 +192616,7 @@ return config
         assert!(app.handle_copy_mode_key(&Key::Character("a".into()), ModifiersState::empty()));
 
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 1 })
         );
     }
@@ -192521,26 +192630,26 @@ return config
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("$".into()), ModifiersState::SHIFT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 5 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("F".into()), ModifiersState::SHIFT));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 5 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("a".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 4 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("T".into()), ModifiersState::SHIFT));
         assert!(app.handle_copy_mode_key(&Key::Character("b".into()), ModifiersState::empty()));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
         );
     }
@@ -192553,10 +192662,10 @@ return config
             .unwrap();
 
         app.enter_copy_mode();
-        assert!(app.copy_mode.is_some());
+        assert!(copy_mode_for_test(&app).is_some());
         assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
-        assert!(app.copy_mode.is_some());
-        assert!(app.search.is_some());
+        assert!(copy_mode_for_test(&app).is_some());
+        assert!(search_for_test(&app).is_some());
 
         for character in ["f", "o", "o"] {
             assert!(
@@ -192570,7 +192679,7 @@ return config
         assert_eq!(app.selected_text().as_deref(), Some("foo"));
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('f'));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
 
@@ -192580,7 +192689,7 @@ return config
         assert_eq!(app.selected_text().as_deref(), Some("foo"));
         assert_eq!(snapshot_char(&app.snapshot, 2, 0), Some('f'));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 2, column: 0 })
         );
 
@@ -192612,7 +192721,7 @@ return config
             );
         }
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
 
@@ -192625,7 +192734,7 @@ return config
             app.command_palette_apply_command(command)
                 .expect("copy mode search assignment should dispatch");
             assert_eq!(
-                app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+                copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
                 Some(SelectionCell {
                     row: expected_row,
                     column: 0
@@ -192661,8 +192770,7 @@ return config
             .expect("CopyMode NextMatchPage should dispatch");
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 2   ");
         assert_eq!(
-            app.copy_mode
-                .as_ref()
+            copy_mode_for_test(&app)
                 .map(|copy_mode| (copy_mode.source_cursor.row, copy_mode.source_cursor.column)),
             Some((3, 0))
         );
@@ -192675,7 +192783,7 @@ return config
             .expect("CopyMode PriorMatchPage should dispatch");
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 0   ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
     }
@@ -192697,7 +192805,7 @@ return config
             );
         }
         assert_eq!(
-            app.search.as_ref().map(|search| search.match_type),
+            search_for_test(&app).map(|search| search.match_type),
             Some(WindowSearchMatchType::CaseSensitive)
         );
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo     ");
@@ -192709,7 +192817,7 @@ return config
         app.command_palette_apply_command(command)
             .expect("CopyMode CycleMatchType should dispatch");
         assert_eq!(
-            app.search.as_ref().map(|search| search.match_type),
+            search_for_test(&app).map(|search| search.match_type),
             Some(WindowSearchMatchType::CaseInsensitive)
         );
 
@@ -192720,11 +192828,11 @@ return config
         app.command_palette_apply_command(command)
             .expect("CopyMode ClearPattern should dispatch");
         assert_eq!(
-            app.search.as_ref().map(|search| search.query.as_str()),
+            search_for_test(&app).map(|search| search.query.as_str()),
             Some("")
         );
         assert!(app.selection.is_none());
-        assert!(app.copy_mode.is_some());
+        assert!(copy_mode_for_test(&app).is_some());
     }
 
     #[test]
@@ -192744,7 +192852,7 @@ return config
             );
         }
         assert_eq!(
-            app.search.as_ref().map(|search| search.query.as_str()),
+            search_for_test(&app).map(|search| search.query.as_str()),
             Some("foo")
         );
 
@@ -192756,7 +192864,7 @@ return config
             .expect("CopyMode AcceptPattern should dispatch");
         assert!(app.handle_copy_mode_key(&Key::Character("x".into()), ModifiersState::empty()));
         assert_eq!(
-            app.search.as_ref().map(|search| search.query.as_str()),
+            search_for_test(&app).map(|search| search.query.as_str()),
             Some("foo")
         );
 
@@ -192768,7 +192876,7 @@ return config
             .expect("CopyMode EditPattern should dispatch");
         assert!(app.handle_copy_mode_key(&Key::Character("b".into()), ModifiersState::empty()));
         assert_eq!(
-            app.search.as_ref().map(|search| search.query.as_str()),
+            search_for_test(&app).map(|search| search.query.as_str()),
             Some("foob")
         );
     }
@@ -192794,19 +192902,19 @@ return config
             app.handle_copy_mode_key(&Key::Named(NamedKey::ArrowDown), ModifiersState::empty())
         );
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 2, column: 0 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("\r".into()), ModifiersState::empty()));
 
         assert_eq!(
-            app.search.as_ref().map(|search| search.query.as_str()),
+            search_for_test(&app).map(|search| search.query.as_str()),
             Some("foo")
         );
         assert_eq!(app.selected_text().as_deref(), Some("foo"));
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
     }
@@ -192820,15 +192928,15 @@ return config
 
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
-        assert!(app.copy_mode.is_some());
-        assert!(app.search.is_some());
+        assert!(copy_mode_for_test(&app).is_some());
+        assert!(search_for_test(&app).is_some());
 
         assert!(
             app.handle_copy_mode_key(&Key::Character("\u{1b}".into()), ModifiersState::empty())
         );
 
-        assert!(app.copy_mode.is_none());
-        assert!(app.search.is_none());
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(search_for_test(&app).is_none());
         assert_eq!(
             app.effective_window_title(),
             "R-SSH [workspace:1 tab:1 pane:1]"
@@ -192855,15 +192963,14 @@ return config
 
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 0   ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
 
         assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::PageDown), ModifiersState::empty()));
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 2   ");
         assert_eq!(
-            app.copy_mode
-                .as_ref()
+            copy_mode_for_test(&app)
                 .map(|copy_mode| (copy_mode.source_cursor.row, copy_mode.source_cursor.column)),
             Some((3, 0))
         );
@@ -192871,7 +192978,7 @@ return config
         assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::PageUp), ModifiersState::empty()));
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 0   ");
         assert_eq!(
-            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            copy_mode_for_test(&app).map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
     }
@@ -192906,8 +193013,7 @@ return config
         );
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 8), "FOO     ");
         assert_eq!(
-            app.copy_mode
-                .as_ref()
+            copy_mode_for_test(&app)
                 .map(|copy_mode| (copy_mode.source_cursor.row, copy_mode.source_cursor.column)),
             Some((1, 0))
         );
@@ -192929,27 +193035,208 @@ return config
         );
         assert_eq!(snapshot_row_text(&app.snapshot, 2, 8), "fao     ");
         assert_eq!(
-            app.copy_mode
-                .as_ref()
+            copy_mode_for_test(&app)
                 .map(|copy_mode| (copy_mode.source_cursor.row, copy_mode.source_cursor.column)),
             Some((2, 0))
         );
     }
 
     #[test]
-    fn window_copy_mode_clears_other_overlays() {
+    fn window_copy_mode_transitions_shared_search_and_replaces_quick_select() {
         let mut app = NativeWindowApp::new(None);
+        app.enter_search_mode();
         app.update_search_query("example");
-        assert!(app.search.is_some());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_some());
+        assert_eq!(
+            copy_search_mode_for_test(&app),
+            Some(super::WindowCopySearchMode::Search)
+        );
 
         app.enter_copy_mode();
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_some());
+        assert!(search_for_test(&app).is_some());
+        assert!(copy_mode_for_test(&app).is_some());
+        assert_eq!(
+            copy_search_mode_for_test(&app),
+            Some(super::WindowCopySearchMode::Copy)
+        );
 
         app.enter_quick_select_mode();
-        assert!(app.copy_mode.is_none());
-        assert!(app.quick_select.is_some());
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(quick_select_for_test(&app).is_some());
+    }
+
+    #[test]
+    fn window_app_search_and_copy_transition_in_one_active_overlay() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"alpha beta").unwrap();
+
+        app.enter_search_mode_with_query(&WindowSearchCommandQuery::Pattern {
+            pattern: "alpha".to_owned(),
+            match_type: WindowSearchMatchType::CaseSensitive,
+        });
+        assert_eq!(
+            search_for_test(&app).map(|search| search.query.as_str()),
+            Some("alpha")
+        );
+
+        app.enter_copy_mode();
+
+        assert!(copy_mode_for_test(&app).is_some());
+        assert_eq!(
+            search_for_test(&app).map(|search| search.query.as_str()),
+            Some("alpha"),
+            "Search and Copy must transition within one retained controller"
+        );
+    }
+
+    #[test]
+    fn window_app_quick_select_replaces_copy_search_and_exit_does_not_restore_it() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 1));
+        app.handle_pty_output(b"https://example.com").unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        app.enter_quick_select_mode();
+
+        assert!(quick_select_for_test(&app).is_some());
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(search_for_test(&app).is_none());
+
+        app.exit_quick_select_mode();
+
+        assert!(!overlay_active_for_test(&app));
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(search_for_test(&app).is_none());
+    }
+
+    #[test]
+    fn window_app_title_uses_only_active_overlay_variant() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"alpha beta").unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        for character in ["a", "l", "p", "h", "a"] {
+            assert!(
+                app.handle_copy_mode_key(
+                    &Key::Character(character.into()),
+                    ModifiersState::empty()
+                )
+            );
+        }
+
+        assert_eq!(
+            app.effective_window_title(),
+            "R-SSH [workspace:1 tab:1 pane:1] - Search: alpha",
+            "the active Search variant must not also render Copy status"
+        );
+    }
+
+    #[test]
+    fn window_app_search_exit_rebuilds_base_projection_immediately() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
+        app.handle_pty_output(b"hit base").unwrap();
+
+        app.enter_search_mode_with_query(&WindowSearchCommandQuery::Pattern {
+            pattern: "hit".to_owned(),
+            match_type: WindowSearchMatchType::CaseSensitive,
+        });
+        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+
+        assert!(app.handle_search_key(&Key::Named(NamedKey::Escape), ModifiersState::empty()));
+
+        assert!(search_for_test(&app).is_none());
+        assert!(app.selection.is_none());
+        assert!(
+            !snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse,
+            "Search exit must rebuild the base projection without a manual refresh"
+        );
+    }
+
+    #[test]
+    fn window_app_new_search_pattern_recomputes_results_without_resetting_copy_cursor() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.handle_pty_output(b"foo one\r\nfoo two").unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        for character in ["f", "o", "o"] {
+            assert!(
+                app.handle_copy_mode_key(
+                    &Key::Character(character.into()),
+                    ModifiersState::empty()
+                )
+            );
+        }
+        assert!(app.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
+        let copy_mode = active_copy_mode_for_test(&app);
+        let before_cursor = copy_mode.cursor;
+        let before_source_cursor = copy_mode.source_cursor;
+        let before_anchor = copy_mode.anchor;
+        let before_source_anchor = copy_mode.source_anchor;
+        let before_selection_mode = copy_mode.selection_mode;
+        let before_pending_jump = copy_mode.pending_jump;
+        let before_last_jump = copy_mode.last_jump;
+        let before_search_direction = copy_mode.search_direction;
+        assert!(active_search_for_test(&app).current.is_some());
+
+        assert!(app.update_search_query_with_type(
+            "f.o",
+            SearchDirection::Next,
+            WindowSearchMatchType::Regex,
+        ));
+
+        let search = active_search_for_test(&app);
+        assert_eq!(search.query, "f.o");
+        assert_eq!(search.match_type, WindowSearchMatchType::Regex);
+        assert!(
+            search.current.is_some(),
+            "the new pattern must be recomputed"
+        );
+        let copy_mode = active_copy_mode_for_test(&app);
+        assert_eq!(copy_mode.cursor, before_cursor);
+        assert_eq!(copy_mode.source_cursor, before_source_cursor);
+        assert_eq!(copy_mode.anchor, before_anchor);
+        assert_eq!(copy_mode.source_anchor, before_source_anchor);
+        assert_eq!(copy_mode.selection_mode, before_selection_mode);
+        assert_eq!(copy_mode.pending_jump, before_pending_jump);
+        assert_eq!(copy_mode.last_jump, before_last_jump);
+        assert_eq!(copy_mode.search_direction, before_search_direction);
+    }
+
+    #[test]
+    fn window_app_copy_search_mode_and_editing_state_change_atomically() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"alpha beta").unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        assert!(search_for_test(&app).is_some_and(|search| search.editing));
+
+        assert!(app.perform_copy_mode_assignment(super::WindowCopyModeAssignment::AcceptPattern));
+        assert!(search_for_test(&app).is_some_and(|search| !search.editing));
+        assert_eq!(
+            app.effective_window_title(),
+            "R-SSH [workspace:1 tab:1 pane:1] - Copy Mode"
+        );
+
+        assert!(app.perform_copy_mode_assignment(super::WindowCopyModeAssignment::EditPattern));
+        assert!(search_for_test(&app).is_some_and(|search| search.editing));
+        assert_eq!(
+            app.effective_window_title(),
+            "R-SSH [workspace:1 tab:1 pane:1] - Search"
+        );
+
+        assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::Escape), ModifiersState::empty()));
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(app.selection.is_none());
     }
 
     #[test]
@@ -193792,12 +194079,15 @@ return config
             SelectionCell { row: 0, column: 2 },
         );
         app.selecting = true;
-        app.search = Some(WindowSearch {
-            query: "alpha".to_owned(),
-            match_type: WindowSearchMatchType::CaseSensitive,
-            current: None,
-            editing: true,
-        });
+        set_app_search_for_test(
+            &mut app,
+            WindowSearch {
+                query: "alpha".to_owned(),
+                match_type: WindowSearchMatchType::CaseSensitive,
+                current: None,
+                editing: true,
+            },
+        );
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(super::CELL_WIDTH * 6),
             f64::from(tab_bar_pixel_height()),
@@ -193816,8 +194106,8 @@ return config
         );
         assert_eq!(app.selected_text().as_deref(), Some("run alp"));
         assert!(!app.selecting);
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
         assert!(app.command_palette.is_none());
     }
 
@@ -194997,7 +195287,7 @@ return config
         app.enter_search_mode();
 
         assert_eq!(
-            app.search.as_ref().map(|search| search.query.as_str()),
+            search_for_test(&app).map(|search| search.query.as_str()),
             Some("alpha beta")
         );
         assert_eq!(
@@ -195031,7 +195321,7 @@ return config
         )
         .unwrap();
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "");
         assert_eq!(search.match_type, WindowSearchMatchType::CaseSensitive);
         assert!(app.selection.is_none());
@@ -195210,7 +195500,7 @@ return config
         assert!(app.handle_search_key(&Key::Character("o".into()), ModifiersState::empty()));
         assert!(app.handle_search_key(&Key::Character("o".into()), ModifiersState::empty()));
         assert_eq!(
-            app.search.as_ref().map(|search| search.query.as_str()),
+            search_for_test(&app).map(|search| search.query.as_str()),
             Some("foo")
         );
         assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
@@ -195223,13 +195513,13 @@ return config
 
         assert!(app.handle_search_key(&Key::Character("u".into()), ModifiersState::CONTROL));
         assert_eq!(
-            app.search.as_ref().map(|search| search.query.as_str()),
+            search_for_test(&app).map(|search| search.query.as_str()),
             Some("")
         );
         assert!(app.selection.is_none());
 
         assert!(app.handle_search_key(&Key::Character("\u{1b}".into()), ModifiersState::empty()));
-        assert!(app.search.is_none());
+        assert!(search_for_test(&app).is_none());
     }
 
     #[test]
@@ -199770,7 +200060,7 @@ return config
         ));
         app.refresh_snapshot();
 
-        assert!(app.ordinary_selection.is_none());
+        assert!(ordinary_selection_for_test(&app).is_none());
         assert!(app.selection.is_none());
     }
 
@@ -235218,10 +235508,10 @@ act.Confirmation {
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::EnterCopyMode);
 
-        assert!(app.copy_mode.is_some());
+        assert!(copy_mode_for_test(&app).is_some());
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.quick_select.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(quick_select_for_test(&app).is_none());
     }
 
     #[test]
@@ -235237,10 +235527,10 @@ act.Confirmation {
             .expect("expected activate copy mode command");
         app.command_palette_execute(command);
 
-        assert!(app.copy_mode.is_some());
+        assert!(copy_mode_for_test(&app).is_some());
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.quick_select.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(quick_select_for_test(&app).is_none());
     }
 
     #[test]
@@ -235250,10 +235540,10 @@ act.Confirmation {
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ActivateCopyMode);
 
-        assert!(app.copy_mode.is_some());
+        assert!(copy_mode_for_test(&app).is_some());
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.quick_select.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(quick_select_for_test(&app).is_none());
     }
 
     #[test]
@@ -235263,10 +235553,10 @@ act.Confirmation {
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::EnterQuickSelect);
 
-        assert!(app.quick_select.is_some());
+        assert!(quick_select_for_test(&app).is_some());
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
     }
 
     #[test]
@@ -235282,10 +235572,10 @@ act.Confirmation {
             .expect("expected quick select command");
         app.command_palette_execute(command);
 
-        assert!(app.quick_select.is_some());
+        assert!(quick_select_for_test(&app).is_some());
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
     }
 
     #[test]
@@ -235308,12 +235598,12 @@ act.Confirmation {
 
             app.command_palette_execute(WindowCommand::EnterQuickSelect);
 
-            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            let quick_select = active_quick_select_for_test(&app);
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(app.selected_text().as_deref(), Some("https://example.test"));
             assert!(app.command_palette.is_none());
-            assert!(app.search.is_none());
-            assert!(app.copy_mode.is_none());
+            assert!(search_for_test(&app).is_none());
+            assert!(copy_mode_for_test(&app).is_none());
         }
     }
 
@@ -235338,11 +235628,11 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::EnterQuickSelect);
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.labels.as_slice(), ["2", "1"]);
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
     }
 
     #[test]
@@ -235366,11 +235656,11 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::EnterQuickSelect);
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.labels.as_slice(), ["2", "1"]);
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
     }
 
     #[test]
@@ -235390,12 +235680,12 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::EnterQuickSelect);
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 1);
         assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
     }
 
     #[test]
@@ -235417,12 +235707,12 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::EnterQuickSelect);
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 2);
         assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
     }
 
     #[test]
@@ -235442,12 +235732,12 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::EnterQuickSelect);
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 2);
         assert_eq!(app.selected_text().as_deref(), Some("foo ; bar"));
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
     }
 
     #[test]
@@ -235498,7 +235788,7 @@ act.Confirmation {
             scope_lines: Some(25),
         }));
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 1);
         assert_eq!(quick_select.labels.as_slice(), ["1"]);
         assert_eq!(quick_select.action_label.as_deref(), Some("open ticket"));
@@ -235506,8 +235796,8 @@ act.Confirmation {
         assert!(quick_select.skip_action_on_paste);
         assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
     }
 
     #[test]
@@ -235532,7 +235822,7 @@ act.Confirmation {
         );
         app.command_palette_execute(expected);
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 1);
         assert_eq!(quick_select.labels.as_slice(), ["1"]);
         assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
@@ -235566,7 +235856,7 @@ act.Confirmation {
         );
         app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 1);
         assert_eq!(quick_select.labels.as_slice(), ["1"]);
         assert_eq!(quick_select.action_label.as_deref(), Some("open ticket"));
@@ -235614,7 +235904,7 @@ act.Confirmation {
             );
             app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
-            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            let quick_select = active_quick_select_for_test(&app);
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(quick_select.action, expected_action);
             assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
@@ -235670,7 +235960,7 @@ act.Confirmation {
             );
             app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
-            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            let quick_select = active_quick_select_for_test(&app);
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(quick_select.action, expected_action);
             assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
@@ -235681,7 +235971,7 @@ act.Confirmation {
                 ModifiersState::empty()
             ));
 
-            assert!(app.quick_select.is_none());
+            assert!(quick_select_for_test(&app).is_none());
             assert!(app.selection.is_none());
             assert_eq!(copied.lock().unwrap().as_slice(), expected_clipboard);
             assert_eq!(primary_copied.lock().unwrap().as_slice(), expected_primary);
@@ -235743,7 +236033,7 @@ act.Confirmation {
             );
             app.command_palette_execute(expected_command);
 
-            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            let quick_select = active_quick_select_for_test(&app);
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
             let label = quick_select.labels[0].clone();
@@ -235753,7 +236043,7 @@ act.Confirmation {
                 ModifiersState::empty()
             ));
 
-            assert!(app.quick_select.is_none());
+            assert!(quick_select_for_test(&app).is_none());
             assert!(app.selection.is_none());
             assert_eq!(
                 written.lock().unwrap().as_slice(),
@@ -235813,7 +236103,7 @@ act.Confirmation {
             );
             app.command_palette_execute(expected_command);
 
-            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            let quick_select = active_quick_select_for_test(&app);
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
             let label = quick_select.labels[0].clone();
@@ -235823,7 +236113,7 @@ act.Confirmation {
                 ModifiersState::empty()
             ));
 
-            assert!(app.quick_select.is_none());
+            assert!(quick_select_for_test(&app).is_none());
             assert!(app.selection.is_none());
             assert_eq!(written.lock().unwrap().as_slice(), expected_written);
             assert!(copied.lock().unwrap().is_empty());
@@ -235876,7 +236166,7 @@ act.Confirmation {
             );
             app.command_palette_execute(expected_command);
 
-            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            let quick_select = active_quick_select_for_test(&app);
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
             let label = quick_select.labels[0].clone();
@@ -235886,7 +236176,7 @@ act.Confirmation {
                 ModifiersState::empty()
             ));
 
-            assert!(app.quick_select.is_none());
+            assert!(quick_select_for_test(&app).is_none());
             assert!(app.selection.is_none());
             assert_eq!(written.lock().unwrap().as_slice(), expected_written);
             assert!(copied.lock().unwrap().is_empty());
@@ -235943,7 +236233,7 @@ act.Confirmation {
             );
             app.command_palette_execute(expected_command);
 
-            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            let quick_select = active_quick_select_for_test(&app);
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
             let label = quick_select.labels[0].clone();
@@ -235953,7 +236243,7 @@ act.Confirmation {
                 ModifiersState::empty()
             ));
 
-            assert!(app.quick_select.is_none());
+            assert!(quick_select_for_test(&app).is_none());
             assert!(app.selection.is_none());
             assert_eq!(
                 events.lock().unwrap().as_slice(),
@@ -236009,7 +236299,7 @@ act.Confirmation {
             );
             app.command_palette_execute(expected_command);
 
-            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            let quick_select = active_quick_select_for_test(&app);
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
             let label = quick_select.labels[0].clone();
@@ -236019,7 +236309,7 @@ act.Confirmation {
                 ModifiersState::empty()
             ));
 
-            assert!(app.quick_select.is_none());
+            assert!(quick_select_for_test(&app).is_none());
             assert!(app.selection.is_none());
             assert_eq!(written.lock().unwrap().as_slice(), b"alpha");
             assert_eq!(
@@ -236068,7 +236358,7 @@ act.Confirmation {
             );
             app.command_palette_execute(expected_command);
 
-            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            let quick_select = active_quick_select_for_test(&app);
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
             let label = quick_select.labels[0].clone();
@@ -236078,7 +236368,7 @@ act.Confirmation {
                 ModifiersState::empty()
             ));
 
-            assert!(app.quick_select.is_none());
+            assert!(quick_select_for_test(&app).is_none());
             assert!(app.selection.is_none());
             assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
             let active = app.key_table_stack.last().expect("active key table");
@@ -236146,7 +236436,7 @@ act.Confirmation {
             );
             app.command_palette_execute(expected_command);
 
-            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            let quick_select = active_quick_select_for_test(&app);
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
             let label = quick_select.labels[0].clone();
@@ -236156,7 +236446,7 @@ act.Confirmation {
                 ModifiersState::empty()
             ));
 
-            assert!(app.quick_select.is_none());
+            assert!(quick_select_for_test(&app).is_none());
             assert!(app.selection.is_none());
             assert_eq!(app.active_key_table_for_test(), expected_active_table);
             assert!(copied.lock().unwrap().is_empty());
@@ -236203,7 +236493,7 @@ act.Confirmation {
             );
             app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
-            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            let quick_select = active_quick_select_for_test(&app);
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(quick_select.action, WindowQuickSelectAction::Nop);
             assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
@@ -236214,7 +236504,7 @@ act.Confirmation {
                 ModifiersState::empty()
             ));
 
-            assert!(app.quick_select.is_none());
+            assert!(quick_select_for_test(&app).is_none());
             assert!(app.selection.is_none());
             assert!(copied.lock().unwrap().is_empty());
             assert!(primary_copied.lock().unwrap().is_empty());
@@ -236259,7 +236549,7 @@ act.Confirmation {
         );
         app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 1);
         assert_eq!(quick_select.action, WindowQuickSelectAction::Nop);
         assert_eq!(quick_select.action_label.as_deref(), Some("open url"));
@@ -236271,7 +236561,7 @@ act.Confirmation {
             ModifiersState::empty()
         ));
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert!(copied.lock().unwrap().is_empty());
         assert!(primary_copied.lock().unwrap().is_empty());
@@ -236317,7 +236607,7 @@ act.Confirmation {
         );
         app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 1);
         assert_eq!(
             quick_select.action,
@@ -236331,7 +236621,7 @@ act.Confirmation {
             ModifiersState::empty()
         ));
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert_eq!(written.lock().unwrap().as_slice(), b"picked-ticket");
         assert!(copied.lock().unwrap().is_empty());
@@ -236376,7 +236666,7 @@ act.Confirmation {
         );
         app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 1);
         assert_eq!(
             quick_select.action,
@@ -236390,7 +236680,7 @@ act.Confirmation {
             ModifiersState::empty()
         ));
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert_eq!(written.lock().unwrap().as_slice(), b"ticket-1234");
         assert!(copied.lock().unwrap().is_empty());
@@ -236437,7 +236727,7 @@ act.Confirmation {
         );
         app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 1);
         assert_eq!(
             quick_select.action,
@@ -236451,7 +236741,7 @@ act.Confirmation {
             ModifiersState::empty()
         ));
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         let expected =
             encode_window_paste("ticket-1234", true, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
@@ -236522,7 +236812,7 @@ act.Confirmation {
         );
         app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 1);
         assert_eq!(quick_select.action, WindowQuickSelectAction::OpenUri);
         assert_eq!(app.selected_text().as_deref(), Some("https://example.test"));
@@ -236533,7 +236823,7 @@ act.Confirmation {
             ModifiersState::empty()
         ));
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert_eq!(
             open_uris.lock().unwrap().as_slice(),
@@ -236632,7 +236922,7 @@ act.Confirmation {
             );
             app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
-            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            let quick_select = active_quick_select_for_test(&app);
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(quick_select.action, case.action);
             assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
@@ -236643,7 +236933,7 @@ act.Confirmation {
                 ModifiersState::empty()
             ));
 
-            assert!(app.quick_select.is_none());
+            assert!(quick_select_for_test(&app).is_none());
             assert!(app.selection.is_none());
             assert_eq!(written.lock().unwrap().as_slice(), case.expected_written);
             assert_eq!(copied.lock().unwrap().as_slice(), case.expected_clipboard);
@@ -236681,7 +236971,7 @@ act.Confirmation {
         );
         app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 2);
         assert_eq!(quick_select.labels.len(), 2);
         assert_eq!(quick_select.action_label.as_deref(), Some("open match"));
@@ -236717,7 +237007,7 @@ act.Confirmation {
         );
         app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 1);
         assert_eq!(quick_select.labels.as_slice(), ["1"]);
         assert_eq!(quick_select.action_label.as_deref(), Some("Pick"));
@@ -236750,7 +237040,7 @@ act.Confirmation {
         );
         app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 1);
         assert_eq!(
             quick_select.action,
@@ -237112,8 +237402,8 @@ act.Confirmation {
             "R-SSH [workspace:1 tab:1 pane:1] - Quick Select open link: [1 / 1]"
         );
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
     }
 
     #[test]
@@ -237137,8 +237427,8 @@ act.Confirmation {
             "R-SSH [workspace:1 tab:1 pane:1] - Quick Select open link: [1 / 1]"
         );
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
     }
 
     #[test]
@@ -237188,7 +237478,7 @@ act.Confirmation {
             )
         );
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert_eq!(
             open_uris.lock().unwrap().as_slice(),
@@ -237263,7 +237553,7 @@ act.Confirmation {
             app.handle_quick_select_logical_key(&Key::Character("A".into()), ModifiersState::SHIFT)
         );
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert_eq!(written.lock().unwrap().as_slice(), b"https://example.test");
         assert!(open_uris.lock().unwrap().is_empty());
@@ -237369,7 +237659,7 @@ act.Confirmation {
             app.handle_quick_select_logical_key(&Key::Character("A".into()), ModifiersState::SHIFT)
         );
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert_eq!(written.lock().unwrap().as_slice(), b"https://example.test");
         assert!(open_uris.lock().unwrap().is_empty());
@@ -237421,7 +237711,7 @@ act.Confirmation {
             )
         );
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert_eq!(copied.lock().unwrap().as_slice(), ["https://example.test"]);
         assert!(primary_copied.lock().unwrap().is_empty());
@@ -237461,7 +237751,7 @@ act.Confirmation {
             )
         );
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert!(copied.lock().unwrap().is_empty());
         assert_eq!(
@@ -237506,7 +237796,7 @@ act.Confirmation {
             )
         );
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert!(copied.lock().unwrap().is_empty());
         assert_eq!(
@@ -237552,7 +237842,7 @@ act.Confirmation {
             )
         );
 
-        assert!(app.quick_select.is_none());
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert_eq!(copied.lock().unwrap().as_slice(), ["https://example.test"]);
         assert_eq!(
@@ -237580,7 +237870,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::EnterQuickSelect);
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 4);
         assert!(
             quick_select
@@ -237590,8 +237880,8 @@ act.Confirmation {
         );
         assert_eq!(app.selected_text().as_deref(), Some("near@example.com"));
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
     }
 
     #[test]
@@ -237613,7 +237903,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::EnterQuickSelect);
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 4);
         assert!(
             quick_select
@@ -237623,8 +237913,8 @@ act.Confirmation {
         );
         assert_eq!(app.selected_text().as_deref(), Some("near@example.com"));
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
     }
 
     #[test]
@@ -237646,7 +237936,7 @@ act.Confirmation {
 
         app.command_palette_execute(WindowCommand::EnterQuickSelect);
 
-        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 4);
         assert!(
             quick_select
@@ -237656,8 +237946,8 @@ act.Confirmation {
         );
         assert_eq!(app.selected_text().as_deref(), Some("near@example.com"));
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
     }
 
     #[test]
@@ -237685,9 +237975,9 @@ act.Confirmation {
 
         assert!(app.pane_select.is_some());
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
-        assert!(app.quick_select.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(quick_select_for_test(&app).is_none());
     }
 
     #[test]
@@ -237714,9 +238004,9 @@ act.Confirmation {
             Some(WindowPaneSelectMode::Activate)
         );
         assert!(app.command_palette.is_none());
-        assert!(app.search.is_none());
-        assert!(app.copy_mode.is_none());
-        assert!(app.quick_select.is_none());
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(quick_select_for_test(&app).is_none());
     }
 
     #[test]
@@ -240093,16 +240383,46 @@ act.Confirmation {
     }
 
     #[test]
+    fn window_app_native_search_current_selection_joins_multiline_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 3));
+        app.handle_pty_output(b"alpha\r\nbeta\r\nalpha beta")
+            .unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 1, column: 3 },
+        );
+        app.refresh_snapshot();
+
+        app.enter_command_palette_mode();
+        app.command_palette_execute(WindowCommand::Search(
+            WindowSearchCommandQuery::CurrentSelectionOrEmptyString,
+        ));
+
+        let search = active_search_for_test(&app);
+        assert_eq!(search.query, "alpha beta");
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 2, column: 0 },
+                SelectionCell { row: 2, column: 9 },
+            ))
+        );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
     fn window_app_dispatches_palette_enter_search_command() {
         let mut app = NativeWindowApp::new(None);
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::EnterSearch);
 
-        assert!(app.search.is_some());
+        assert!(search_for_test(&app).is_some());
         assert!(app.command_palette.is_none());
-        assert!(app.copy_mode.is_none());
-        assert!(app.quick_select.is_none());
+        assert_app_search_mode(&app);
+        assert!(quick_select_for_test(&app).is_none());
     }
 
     #[test]
@@ -240118,10 +240438,10 @@ act.Confirmation {
             .expect("expected search command");
         app.command_palette_execute(command);
 
-        assert!(app.search.is_some());
+        assert!(search_for_test(&app).is_some());
         assert!(app.command_palette.is_none());
-        assert!(app.copy_mode.is_none());
-        assert!(app.quick_select.is_none());
+        assert_app_search_mode(&app);
+        assert!(quick_select_for_test(&app).is_none());
     }
 
     #[test]
@@ -240136,7 +240456,7 @@ act.Confirmation {
         let command = commands.first().cloned().expect("expected search command");
         app.command_palette_execute(command);
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "alpha");
         assert_eq!(
             app.selection,
@@ -240146,8 +240466,8 @@ act.Confirmation {
             ))
         );
         assert!(app.command_palette.is_none());
-        assert!(app.copy_mode.is_none());
-        assert!(app.quick_select.is_none());
+        assert_app_search_mode(&app);
+        assert!(quick_select_for_test(&app).is_none());
     }
 
     #[test]
@@ -240162,7 +240482,7 @@ act.Confirmation {
         let command = commands.first().cloned().expect("expected search command");
         app.command_palette_execute(command);
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "alpha beta");
         assert_eq!(
             app.selection,
@@ -240185,7 +240505,7 @@ act.Confirmation {
         let command = commands.first().cloned().expect("expected search command");
         app.command_palette_execute(command);
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "\\d+");
         assert_eq!(search.match_type, WindowSearchMatchType::Regex);
         assert_eq!(
@@ -240209,7 +240529,7 @@ act.Confirmation {
         let command = commands.first().cloned().expect("expected search command");
         app.command_palette_execute(command);
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "\\d+");
         assert_eq!(search.match_type, WindowSearchMatchType::Regex);
         assert_eq!(
@@ -240233,7 +240553,7 @@ act.Confirmation {
         let command = commands.first().cloned().expect("expected search command");
         app.command_palette_execute(command);
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "\\d+");
         assert_eq!(search.match_type, WindowSearchMatchType::Regex);
         assert_eq!(
@@ -240286,13 +240606,13 @@ act.Confirmation {
             let command = commands.first().cloned().expect("expected search command");
             app.command_palette_execute(command);
 
-            let search = app.search.as_ref().expect("search mode should be active");
+            let search = active_search_for_test(&app);
             assert_eq!(search.query, expected_pattern);
             assert_eq!(search.match_type, expected_match_type);
             assert_eq!(app.selection, Some(expected_selection));
             assert!(app.command_palette.is_none());
-            assert!(app.copy_mode.is_none());
-            assert!(app.quick_select.is_none());
+            assert_app_search_mode(&app);
+            assert!(quick_select_for_test(&app).is_none());
         }
     }
 
@@ -240312,7 +240632,7 @@ act.Confirmation {
             let command = commands.first().cloned().expect("expected search command");
             app.command_palette_execute(command);
 
-            let search = app.search.as_ref().expect("search mode should be active");
+            let search = active_search_for_test(&app);
             assert_eq!(search.query, "ticket-[0-9]+");
             assert_eq!(search.match_type, WindowSearchMatchType::Regex);
             assert_eq!(
@@ -240323,8 +240643,8 @@ act.Confirmation {
                 ))
             );
             assert!(app.command_palette.is_none());
-            assert!(app.copy_mode.is_none());
-            assert!(app.quick_select.is_none());
+            assert_app_search_mode(&app);
+            assert!(quick_select_for_test(&app).is_none());
         }
     }
 
@@ -240342,7 +240662,7 @@ act.Confirmation {
         let command = commands.first().cloned().expect("expected search command");
         app.command_palette_execute(command);
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "\\d+");
         assert_eq!(search.match_type, WindowSearchMatchType::Regex);
         assert_eq!(
@@ -240353,8 +240673,8 @@ act.Confirmation {
             ))
         );
         assert!(app.command_palette.is_none());
-        assert!(app.copy_mode.is_none());
-        assert!(app.quick_select.is_none());
+        assert_app_search_mode(&app);
+        assert!(quick_select_for_test(&app).is_none());
     }
 
     #[test]
@@ -240369,7 +240689,7 @@ act.Confirmation {
         assert_eq!(commands, vec![WindowCommand::EnterSearch]);
         app.command_palette_execute(commands[0].clone());
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "pattern=\\d+");
         assert_eq!(search.match_type, WindowSearchMatchType::Regex);
         assert_eq!(
@@ -240380,8 +240700,8 @@ act.Confirmation {
             ))
         );
         assert!(app.command_palette.is_none());
-        assert!(app.copy_mode.is_none());
-        assert!(app.quick_select.is_none());
+        assert_app_search_mode(&app);
+        assert!(quick_select_for_test(&app).is_none());
     }
 
     #[test]
@@ -240396,7 +240716,7 @@ act.Confirmation {
             match_type: WindowSearchMatchType::Regex,
         }));
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "\\d+");
         assert_eq!(search.match_type, WindowSearchMatchType::Regex);
         assert_eq!(
@@ -240407,8 +240727,8 @@ act.Confirmation {
             ))
         );
         assert!(app.command_palette.is_none());
-        assert!(app.copy_mode.is_none());
-        assert!(app.quick_select.is_none());
+        assert_app_search_mode(&app);
+        assert!(quick_select_for_test(&app).is_none());
     }
 
     #[test]
@@ -240424,7 +240744,7 @@ act.Confirmation {
             match_type: WindowSearchMatchType::CaseSensitive,
         }));
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "hit");
         assert_eq!(
             app.selection,
@@ -240452,7 +240772,7 @@ act.Confirmation {
             WindowSearchCommandQuery::CurrentSelectionOrEmptyString,
         ));
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "beta");
         assert_eq!(search.match_type, WindowSearchMatchType::CaseSensitive);
         assert_eq!(
@@ -240485,7 +240805,7 @@ act.Confirmation {
         let command = commands.first().cloned().expect("expected search command");
         app.command_palette_execute(command);
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "beta");
         assert_eq!(search.match_type, WindowSearchMatchType::CaseSensitive);
         assert_eq!(
@@ -240518,7 +240838,7 @@ act.Confirmation {
         let command = commands.first().cloned().expect("expected search command");
         app.command_palette_execute(command);
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "beta");
         assert_eq!(search.match_type, WindowSearchMatchType::CaseSensitive);
         assert_eq!(
@@ -240526,37 +240846,6 @@ act.Confirmation {
             Some(WindowSelection::new(
                 SelectionCell { row: 0, column: 6 },
                 SelectionCell { row: 0, column: 9 },
-            ))
-        );
-        assert!(app.command_palette.is_none());
-    }
-
-    #[test]
-    fn window_app_dispatches_native_search_current_selection_payload_single_lines_multiline_selection()
-     {
-        let mut app = NativeWindowApp::new(None);
-        app.runtime.resize(rssh_core::TerminalSize::new(16, 3));
-        app.handle_pty_output(b"alpha\r\nbeta\r\nalpha beta")
-            .unwrap();
-        set_ordinary_viewport_range_for_test(
-            &mut app,
-            SelectionCell { row: 0, column: 0 },
-            SelectionCell { row: 1, column: 3 },
-        );
-        app.refresh_snapshot();
-
-        app.enter_command_palette_mode();
-        app.command_palette_execute(WindowCommand::Search(
-            WindowSearchCommandQuery::CurrentSelectionOrEmptyString,
-        ));
-
-        let search = app.search.as_ref().expect("search mode should be active");
-        assert_eq!(search.query, "alpha beta");
-        assert_eq!(
-            app.selection,
-            Some(WindowSelection::new(
-                SelectionCell { row: 2, column: 0 },
-                SelectionCell { row: 2, column: 9 },
             ))
         );
         assert!(app.command_palette.is_none());
@@ -240573,7 +240862,7 @@ act.Confirmation {
             WindowSearchCommandQuery::CurrentSelectionOrEmptyString,
         ));
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert!(search.query.is_empty());
         assert!(app.selection.is_none());
         assert!(app.command_palette.is_none());
@@ -240591,7 +240880,7 @@ act.Confirmation {
         let command = commands.first().cloned().expect("expected search command");
         app.command_palette_execute(command);
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "alpha");
         assert_eq!(search.match_type, WindowSearchMatchType::CaseInsensitive);
         assert_eq!(
@@ -240615,7 +240904,7 @@ act.Confirmation {
         let command = commands.first().cloned().expect("expected search command");
         app.command_palette_execute(command);
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "alpha");
         assert_eq!(search.match_type, WindowSearchMatchType::CaseInsensitive);
         assert_eq!(
@@ -240656,7 +240945,7 @@ act.Confirmation {
             let command = commands.first().cloned().expect("expected search command");
             app.command_palette_execute(command);
 
-            let search = app.search.as_ref().expect("search mode should be active");
+            let search = active_search_for_test(&app);
             assert_eq!(search.query, expected_pattern);
             assert_eq!(search.match_type, expected_match_type);
         }
@@ -240680,7 +240969,7 @@ act.Confirmation {
         assert_eq!(commands, vec![WindowCommand::EnterSearch]);
         app.command_palette_execute(commands[0].clone());
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "beta");
         assert_eq!(search.match_type, WindowSearchMatchType::CaseSensitive);
         assert_eq!(
@@ -240704,7 +240993,7 @@ act.Confirmation {
         let command = commands.first().cloned().expect("expected search command");
         app.command_palette_execute(command);
 
-        let search = app.search.as_ref().expect("search mode should be active");
+        let search = active_search_for_test(&app);
         assert_eq!(search.query, "alpha");
         assert_eq!(search.match_type, WindowSearchMatchType::CaseSensitive);
         assert_eq!(
