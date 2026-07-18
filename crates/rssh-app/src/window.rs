@@ -88512,7 +88512,8 @@ impl NativeWindowApp {
                 Ok(())
             }
             WindowCommand::CopyToClipboardAndPrimarySelection
-            | WindowCommand::CompleteSelection => {
+            | WindowCommand::CompleteSelection
+            | WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursor => {
                 if let Some(text) = selected_text {
                     self.write_text_to_copy_destination(
                         text,
@@ -88522,7 +88523,8 @@ impl NativeWindowApp {
                 Ok(())
             }
             WindowCommand::CopyTo(destination)
-            | WindowCommand::CompleteSelectionTo(destination) => {
+            | WindowCommand::CompleteSelectionTo(destination)
+            | WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursorTo(destination) => {
                 if let Some(text) = selected_text {
                     self.write_text_to_copy_destination(text, destination);
                 }
@@ -95485,6 +95487,17 @@ impl NativeWindowApp {
             .record_input_write(bytes.len(), started.elapsed());
         if self.scroll_to_bottom_on_input && !bytes.is_empty() {
             runtime.ui.stable_viewport.main_top = None;
+            runtime
+                .ui
+                .stable_viewport
+                .clamp_main(runtime.runtime.terminal());
+            runtime
+                .ui
+                .refresh_search_match_cache(runtime.runtime.terminal());
+            runtime.snapshot =
+                terminal_runtime_snapshot(&runtime.runtime, runtime.ui.stable_viewport);
+            self.metrics.record_snapshot_rebuild();
+            self.frame_needs_full_repaint = true;
         }
         Ok(())
     }
@@ -186129,6 +186142,145 @@ return config
                 .get(&rssh_core::PaneId::new(2))
                 .is_some_and(|runtime| !runtime.ui.overlay_active())
         );
+    }
+
+    #[test]
+    fn window_app_quick_multiple_complete_or_open_link_copies_captured_source_text() {
+        for command in [
+            WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursor,
+            WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursorTo(
+                WindowCopyDestination::Clipboard,
+            ),
+        ] {
+            let clipboard = Arc::new(Mutex::new(Vec::new()));
+            let recorded_clipboard = Arc::clone(&clipboard);
+            let mut app = NativeWindowApp::new(None);
+            app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+            app.handle_pty_output(b"target").unwrap();
+            set_ordinary_viewport_range_for_test(
+                &mut app,
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 2 },
+            );
+            let target_ordinary = ordinary_selection_for_test(&app).expect("target ordinary");
+            app.dispatch_app_action(AppAction::SplitPane {
+                pane: rssh_core::PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+            app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+            app.handle_pty_output(b"source").unwrap();
+            app.clipboard_writer = Box::new(move |text| {
+                recorded_clipboard.lock().unwrap().push(text.to_owned());
+                true
+            });
+            set_app_quick_select_for_test(
+                &mut app,
+                WindowQuickSelect {
+                    matches: vec![WindowSearchMatch {
+                        end_column: 6,
+                        ..pane_overlay_match(0)
+                    }],
+                    labels: vec!["a".to_owned()],
+                    action: WindowQuickSelectAction::Multiple(vec![
+                        WindowCommand::ActivatePane1,
+                        command,
+                    ]),
+                    ..WindowQuickSelect::default()
+                },
+            );
+            app.update_selection_projection();
+
+            app.accept_quick_select_match(false);
+
+            assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
+            assert_eq!(clipboard.lock().unwrap().as_slice(), ["source"]);
+            assert_eq!(ordinary_selection_for_test(&app), Some(target_ordinary));
+        }
+    }
+
+    #[test]
+    fn window_app_quick_source_bound_inactive_write_rebuilds_bottom_viewport() {
+        let source_written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        app.handle_pty_output(b"one\r\ntwo\r\nthree\r\nfour")
+            .unwrap();
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&source_written))));
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+        app.set_scrollback_offset_for_test(0);
+        app.refresh_snapshot();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        );
+        let ordinary = ordinary_selection_for_test(&app).expect("source ordinary selection");
+        let expected_bottom_rows = [
+            snapshot_row_text(&app.snapshot, 0, 12),
+            snapshot_row_text(&app.snapshot, 1, 12),
+        ];
+        app.set_scrollback_offset_for_test(1);
+        app.refresh_snapshot();
+        let scrolled_rows = [
+            snapshot_row_text(&app.snapshot, 0, 12),
+            snapshot_row_text(&app.snapshot, 1, 12),
+        ];
+        assert_ne!(scrolled_rows, expected_bottom_rows);
+        set_app_quick_select_for_test(
+            &mut app,
+            WindowQuickSelect {
+                matches: vec![pane_overlay_match(0)],
+                labels: vec!["a".to_owned()],
+                action: WindowQuickSelectAction::Multiple(vec![
+                    WindowCommand::ActivatePane2,
+                    WindowCommand::SendString("write".to_owned()),
+                ]),
+                ..WindowQuickSelect::default()
+            },
+        );
+        app.update_selection_projection();
+
+        app.accept_quick_select_match(false);
+
+        assert_eq!(source_written.lock().unwrap().as_slice(), b"write");
+        let source = app
+            .pane_runtimes
+            .get(&rssh_core::PaneId::new(1))
+            .expect("inactive source owner");
+        assert_eq!(
+            source.ui.stable_viewport,
+            super::PaneStableViewport::default()
+        );
+        assert_eq!(
+            [
+                snapshot_row_text(&source.snapshot, 0, 12),
+                snapshot_row_text(&source.snapshot, 1, 12),
+            ],
+            expected_bottom_rows
+        );
+        assert_eq!(source.ui.ordinary_selection, Some(ordinary));
+        let projected = super::pane_overlay_viewport_selection(
+            source.runtime.terminal(),
+            &source.ui,
+            &app.selection_word_boundary,
+        )
+        .expect("ordinary selection projects at bottom");
+        assert!(
+            projected.contains(0, 0, source.runtime.terminal().grid().size()),
+            "ordinary overlay stays aligned with rebuilt bottom viewport"
+        );
+        assert!(app.frame_needs_full_repaint);
     }
 
     fn active_pane_presentation_for_higher_level_ui_test(
