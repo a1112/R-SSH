@@ -184699,6 +184699,14 @@ return config
         Quick,
     }
 
+    fn pane_overlay_lifecycle_copy_selection_mode(tag: &str) -> super::WindowCopySelectionMode {
+        if tag.ends_with("-a") {
+            super::WindowCopySelectionMode::Word
+        } else {
+            super::WindowCopySelectionMode::Line
+        }
+    }
+
     fn install_distinct_pane_overlay_for_lifecycle_test(
         app: &mut NativeWindowApp,
         class: PaneOverlayLifecycleClass,
@@ -184728,7 +184736,11 @@ return config
             }
             PaneOverlayLifecycleClass::Copy => {
                 app.active_ui.enter_search(
-                    pane_overlay_copy_mode(row, column, super::WindowCopySelectionMode::Line),
+                    pane_overlay_copy_mode(
+                        row,
+                        column,
+                        pane_overlay_lifecycle_copy_selection_mode(tag),
+                    ),
                     pane_overlay_search(
                         tag,
                         WindowSearchMatchType::Regex,
@@ -184759,7 +184771,24 @@ return config
             }
         }
         app.apply_window_title();
-        app.window_title.clone()
+        let effective_title = app.effective_window_title();
+        match class {
+            PaneOverlayLifecycleClass::Search => {
+                assert!(effective_title.contains(&format!("Search: {tag}")));
+            }
+            PaneOverlayLifecycleClass::Copy => {
+                let status = match pane_overlay_lifecycle_copy_selection_mode(tag) {
+                    super::WindowCopySelectionMode::Word => "Copy Mode: Word",
+                    super::WindowCopySelectionMode::Line => "Copy Mode: Line",
+                    _ => unreachable!("lifecycle fixture only uses word and line copy modes"),
+                };
+                assert!(effective_title.contains(status));
+            }
+            PaneOverlayLifecycleClass::Quick => {
+                assert!(effective_title.contains(&format!("Quick Select action-{tag}: \"{tag}\"")));
+            }
+        }
+        effective_title
     }
 
     fn assert_distinct_pane_overlay_for_lifecycle_test(
@@ -184770,7 +184799,11 @@ return config
         column: u16,
         expected_title: &str,
     ) {
-        assert_eq!(app.window_title, expected_title, "{class:?} title");
+        assert_eq!(
+            app.effective_window_title(),
+            expected_title,
+            "{class:?} owner title"
+        );
         match class {
             PaneOverlayLifecycleClass::Search => {
                 assert_eq!(
@@ -184815,7 +184848,7 @@ return config
                     copy_mode_for_test(app).expect("copy overlay"),
                     row,
                     column,
-                    super::WindowCopySelectionMode::Line,
+                    pane_overlay_lifecycle_copy_selection_mode(tag),
                 );
             }
             PaneOverlayLifecycleClass::Quick => {
@@ -184865,6 +184898,7 @@ return config
             .unwrap();
             let b_title =
                 install_distinct_pane_overlay_for_lifecycle_test(&mut app, class, "pane-b", 3, 4);
+            assert_ne!(a_title, b_title, "{class:?} pane owner titles");
 
             for _ in 0..2 {
                 app.dispatch_app_action(AppAction::ActivatePane {
@@ -184899,6 +184933,7 @@ return config
                 .unwrap();
             let b_title =
                 install_distinct_pane_overlay_for_lifecycle_test(&mut app, class, "tab-b", 3, 4);
+            assert_ne!(a_title, b_title, "{class:?} tab owner titles");
 
             for _ in 0..2 {
                 app.dispatch_app_action(AppAction::ActivateTab {
@@ -184946,6 +184981,7 @@ return config
                 3,
                 4,
             );
+            assert_ne!(a_title, b_title, "{class:?} workspace owner titles");
 
             for _ in 0..2 {
                 app.dispatch_app_action(AppAction::SwitchWorkspace {
