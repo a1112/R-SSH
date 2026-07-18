@@ -89210,26 +89210,37 @@ impl NativeWindowApp {
             .active_top(terminal)
             .unwrap_or(dimensions.physical_top);
         let size = terminal.grid().size();
-        let presented_match = self
-            .active_ui
-            .quick_select()
-            .and_then(WindowQuickSelect::current_match)
-            .or_else(|| {
-                self.active_ui
-                    .retained_search()
-                    .and_then(|search| search.current)
-            });
         let transient_active = self.active_ui.overlay_active();
-        self.selection = if let Some(matched) = presented_match {
-            matched.viewport_selection_for_top(dimensions.domain, viewport_top, size)
-        } else if let Some(copy_mode) = self.active_ui.copy_mode() {
-            copy_mode_source_selection(copy_mode, terminal, &self.selection_word_boundary).and_then(
-                |selection| selection.viewport_selection(dimensions.domain, viewport_top, size),
-            )
-        } else {
-            self.active_ui.ordinary_selection.and_then(|selection| {
-                selection.viewport_selection(dimensions.domain, viewport_top, size)
+        self.selection = if let Some(quick_select) = self.active_ui.quick_select() {
+            quick_select.current_match().and_then(|matched| {
+                matched.viewport_selection_for_top(dimensions.domain, viewport_top, size)
             })
+        } else {
+            match self.active_ui.copy_search_mode() {
+                Some(WindowCopySearchMode::Search) => self
+                    .active_ui
+                    .search()
+                    .and_then(|search| search.current)
+                    .and_then(|matched| {
+                        matched.viewport_selection_for_top(dimensions.domain, viewport_top, size)
+                    }),
+                Some(WindowCopySearchMode::Copy) => self
+                    .active_ui
+                    .copy_mode()
+                    .and_then(|copy_mode| {
+                        copy_mode_source_selection(
+                            copy_mode,
+                            terminal,
+                            &self.selection_word_boundary,
+                        )
+                    })
+                    .and_then(|selection| {
+                        selection.viewport_selection(dimensions.domain, viewport_top, size)
+                    }),
+                None => self.active_ui.ordinary_selection.and_then(|selection| {
+                    selection.viewport_selection(dimensions.domain, viewport_top, size)
+                }),
+            }
         };
         transient_active
     }
@@ -101330,9 +101341,6 @@ mod pane_transient_overlay {
                 Some(PaneTransientOverlay::CopySearch(controller)) => {
                     if let Some(search) = controller.search.as_mut() {
                         search.editing = false;
-                    }
-                    if !controller.copy_mode_retained {
-                        controller.copy_mode = initial_copy_mode;
                     }
                     controller.mode = WindowCopySearchMode::Copy;
                     controller.copy_mode_retained = true;
@@ -125635,9 +125643,9 @@ mod tests {
             state
                 .copy_mode()
                 .expect("copy mode should retain the search controller"),
-            9,
-            11,
-            super::WindowCopySelectionMode::Line,
+            3,
+            7,
+            super::WindowCopySelectionMode::Word,
         );
         assert_eq!(
             state.retained_search().and_then(|search| search.current),
@@ -125661,9 +125669,9 @@ mod tests {
             state
                 .retained_copy_mode()
                 .expect("search should retain the copy-mode state"),
-            9,
-            11,
-            super::WindowCopySelectionMode::Line,
+            3,
+            7,
+            super::WindowCopySelectionMode::Word,
         );
         assert_eq!(
             state.search().and_then(|search| search.current),
@@ -193484,6 +193492,72 @@ return config
             !app.perform_copy_mode_assignment(super::WindowCopyModeAssignment::AcceptPattern),
             "AcceptPattern must not revive stale Copy coordinates"
         );
+    }
+
+    #[test]
+    fn window_app_active_overlay_without_match_hides_ordinary_projection() {
+        let mut search_app = NativeWindowApp::new(None);
+        search_app
+            .runtime
+            .resize(rssh_core::TerminalSize::new(12, 1));
+        search_app.handle_pty_output(b"base plain").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut search_app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+        search_app.enter_search_mode();
+        assert!(!search_app.update_search_query("missing"));
+
+        let mut quick_app = NativeWindowApp::new(None);
+        quick_app
+            .runtime
+            .resize(rssh_core::TerminalSize::new(12, 1));
+        quick_app.handle_pty_output(b"base plain").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut quick_app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+        quick_app.disable_default_quick_select_patterns = true;
+        quick_app.quick_select_patterns.clear();
+        quick_app.enter_quick_select_mode();
+
+        assert!(ordinary_selection_for_test(&search_app).is_some());
+        assert!(ordinary_selection_for_test(&quick_app).is_some());
+        assert!(search_app.selected_text().is_none());
+        assert!(quick_app.selected_text().is_none());
+        assert!(
+            quick_select_for_test(&quick_app)
+                .is_some_and(|quick_select| quick_select.matches.is_empty())
+        );
+        assert_eq!(
+            (
+                search_app.selection,
+                snapshot_cell(&search_app.snapshot, 0, 0)
+                    .expect("Search snapshot cell")
+                    .inverse,
+                quick_app.selection,
+                snapshot_cell(&quick_app.snapshot, 0, 0)
+                    .expect("QuickSelect snapshot cell")
+                    .inverse,
+            ),
+            (None, false, None, false),
+            "active overlays without a match must hide ordinary projection and highlighting"
+        );
+
+        assert!(
+            search_app.handle_search_key(&Key::Named(NamedKey::Escape), ModifiersState::empty())
+        );
+        quick_app.exit_quick_select_mode();
+        assert!(ordinary_selection_for_test(&search_app).is_some());
+        assert!(ordinary_selection_for_test(&quick_app).is_some());
+        assert_eq!(search_app.selected_text().as_deref(), Some("base"));
+        assert_eq!(quick_app.selected_text().as_deref(), Some("base"));
+        assert!(search_app.selection.is_some());
+        assert!(quick_app.selection.is_some());
+        assert!(snapshot_cell(&search_app.snapshot, 0, 0).unwrap().inverse);
+        assert!(snapshot_cell(&quick_app.snapshot, 0, 0).unwrap().inverse);
     }
 
     #[test]
