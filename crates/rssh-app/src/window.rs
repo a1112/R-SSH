@@ -81391,8 +81391,7 @@ struct PaneRuntime {
     writer: Option<Box<dyn Write + Send>>,
     reader_thread: Option<thread::JoinHandle<()>>,
     snapshot: TerminalRenderSnapshot,
-    stable_viewport: PaneStableViewport,
-    ordinary_selection: Option<StableOrdinarySelection>,
+    ui: PaneUiState,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -81467,15 +81466,17 @@ impl PaneStableViewport {
 
 impl PaneRuntime {
     fn reconcile_terminal_mutation(&mut self) {
-        self.stable_viewport.clamp_main(self.runtime.terminal());
-        if ordinary_selection_is_invalidated_by_visible_dirty_rows(
-            self.runtime.terminal(),
-            self.stable_viewport.active_top(self.runtime.terminal()),
-            self.ordinary_selection,
-        ) {
-            self.ordinary_selection = None;
+        self.ui.stable_viewport.clamp_main(self.runtime.terminal());
+        if !self.ui.overlay_active()
+            && ordinary_selection_is_invalidated_by_visible_dirty_rows(
+                self.runtime.terminal(),
+                self.ui.stable_viewport.active_top(self.runtime.terminal()),
+                self.ui.ordinary_selection,
+            )
+        {
+            self.ui.ordinary_selection = None;
         }
-        self.snapshot = terminal_runtime_snapshot(&self.runtime, self.stable_viewport);
+        self.snapshot = terminal_runtime_snapshot(&self.runtime, self.ui.stable_viewport);
     }
 
     fn close(&mut self) {
@@ -83028,8 +83029,14 @@ impl NativeWindowApp {
         }
 
         let previous_active_pane = self.app_shell.active_pane_id();
-        self.app_shell.apply_action(action)?;
-        self.sync_pane_runtimes(previous_active_pane);
+        self.end_transient_selection_modes_for_pane_change();
+        let previous_runtime = self.take_active_runtime();
+        if let Err(error) = self.app_shell.apply_action(action) {
+            self.install_active_runtime(previous_runtime);
+            self.apply_window_title();
+            return Err(error);
+        }
+        self.sync_pane_runtimes(previous_active_pane, previous_runtime);
         self.apply_window_title();
         Ok(())
     }
@@ -83574,7 +83581,7 @@ impl NativeWindowApp {
             .pane_runtimes
             .remove(&active_pane)
             .unwrap_or_else(|| self.new_inactive_pane_runtime());
-        runtime.ordinary_selection = None;
+        runtime.ui.ordinary_selection = None;
         let bell_count = self.pane_bell_counts.remove(&active_pane);
         let app_shell = AppShell::from_pending_window(pending_window);
         let mut detached_app = Self::new_with_command_and_osc52_policy(
@@ -84293,15 +84300,16 @@ impl NativeWindowApp {
         environment
     }
 
-    fn sync_pane_runtimes(&mut self, previous_active_pane: rssh_core::PaneId) {
+    fn sync_pane_runtimes(
+        &mut self,
+        previous_active_pane: rssh_core::PaneId,
+        previous_runtime: PaneRuntime,
+    ) {
         let valid_pane_ids = self.app_shell.pane_ids();
         let active_pane = self.app_shell.active_pane_id();
         let active_was_replaced = previous_active_pane != active_pane;
 
         if active_was_replaced {
-            self.end_transient_selection_modes_for_pane_change();
-            self.invalidate_active_ordinary_selection_for_presentation();
-            let previous_runtime = self.take_active_runtime();
             if valid_pane_ids.contains(&previous_active_pane) {
                 self.pane_runtimes
                     .insert(previous_active_pane, previous_runtime);
@@ -84309,9 +84317,11 @@ impl NativeWindowApp {
                 let mut previous_runtime = previous_runtime;
                 previous_runtime.close();
             }
+        } else {
+            self.install_active_runtime(previous_runtime);
         }
 
-        if valid_pane_ids.contains(&active_pane) {
+        if active_was_replaced && valid_pane_ids.contains(&active_pane) {
             if !self.pane_runtimes.contains_key(&active_pane) {
                 self.spawn_active_pane_runtime_if_needed();
             }
@@ -84335,23 +84345,23 @@ impl NativeWindowApp {
     }
 
     fn end_transient_selection_modes_for_pane_change(&mut self) {
-        if self.active_ui.overlay_active() {
-            self.active_ui.exit_overlay();
-            self.selection = None;
-        }
+        self.selection = None;
         self.selecting = false;
+        self.active_mouse_button = None;
+        self.scrollbar_dragging = false;
+        self.split_resize_dragging = None;
+        self.last_mouse_assignment_click = None;
         self.last_left_click = None;
     }
 
     fn take_active_runtime(&mut self) -> PaneRuntime {
         let size = self.runtime.terminal().grid().size();
-        let stable_viewport = self.active_ui.stable_viewport;
         let session = self.session.take();
         let session_process_id = self.session_process_id.take();
         let session_tty_name = self.session_tty_name.take();
         let writer = self.writer.take();
         let reader_thread = self.reader_thread.take();
-        let ordinary_selection = self.active_ui.ordinary_selection.take();
+        let ui = std::mem::take(&mut self.active_ui);
         self.selection = None;
         self.selecting = false;
 
@@ -84374,8 +84384,7 @@ impl NativeWindowApp {
         replacement_runtime.set_scrollback_limit(self.scrollback_lines);
         replacement_runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
         let old_runtime = std::mem::replace(&mut self.runtime, replacement_runtime);
-        let old_snapshot = terminal_runtime_snapshot(&old_runtime, stable_viewport);
-        self.active_ui.stable_viewport = PaneStableViewport::default();
+        let old_snapshot = terminal_runtime_snapshot(&old_runtime, ui.stable_viewport);
 
         PaneRuntime {
             runtime: old_runtime,
@@ -84385,8 +84394,7 @@ impl NativeWindowApp {
             writer,
             reader_thread,
             snapshot: old_snapshot,
-            stable_viewport,
-            ordinary_selection,
+            ui,
         }
     }
 
@@ -84417,8 +84425,7 @@ impl NativeWindowApp {
             writer: None,
             reader_thread: None,
             snapshot,
-            stable_viewport: PaneStableViewport::default(),
-            ordinary_selection: None,
+            ui: PaneUiState::default(),
         }
     }
 
@@ -84450,8 +84457,7 @@ impl NativeWindowApp {
         self.session_tty_name = runtime.session_tty_name.take();
         self.writer = runtime.writer.take();
         self.reader_thread = runtime.reader_thread.take();
-        self.active_ui.stable_viewport = runtime.stable_viewport;
-        self.active_ui.ordinary_selection = runtime.ordinary_selection.take();
+        self.active_ui = std::mem::take(&mut runtime.ui);
         self.update_selection_projection();
         self.selecting = false;
         self.rebuild_snapshot();
@@ -89277,7 +89283,7 @@ impl NativeWindowApp {
             || dimensions.domain != previous_dimensions.domain
             || dimensions.viewport_rows != previous_dimensions.viewport_rows
         {
-            runtime.ordinary_selection = None;
+            runtime.ui.ordinary_selection = None;
         }
         self.record_unknown_escape_sequence_warnings(
             pane_id,
@@ -90498,16 +90504,20 @@ impl NativeWindowApp {
                 let terminal = runtime.runtime.terminal();
                 let dimensions = terminal.stable_dimensions();
                 let viewport_top = runtime
+                    .ui
                     .stable_viewport
                     .active_top(terminal)
                     .unwrap_or(dimensions.physical_top);
-                let selection = runtime.ordinary_selection.and_then(|selection| {
-                    selection.viewport_selection(
-                        dimensions.domain,
-                        viewport_top,
-                        terminal.grid().size(),
-                    )
-                });
+                let selection = (!runtime.ui.overlay_active())
+                    .then_some(runtime.ui.ordinary_selection)
+                    .flatten()
+                    .and_then(|selection| {
+                        selection.viewport_selection(
+                            dimensions.domain,
+                            viewport_top,
+                            terminal.grid().size(),
+                        )
+                    });
                 pane_snapshot = ordinary_selection_snapshot(
                     pane_snapshot,
                     selection,
@@ -93970,6 +93980,7 @@ impl NativeWindowApp {
             pane_runtime.snapshot.update_cursor_from_terminal(
                 pane_runtime.runtime.terminal(),
                 pane_runtime
+                    .ui
                     .stable_viewport
                     .scrollback_offset(pane_runtime.runtime.terminal()),
             );
@@ -94255,6 +94266,7 @@ impl NativeWindowApp {
                 (
                     runtime.runtime.terminal().scrollback().len(),
                     runtime
+                        .ui
                         .stable_viewport
                         .scrollback_offset(runtime.runtime.terminal()),
                 )
@@ -95183,8 +95195,7 @@ impl NativeWindowApp {
             writer: Some(Box::new(writer)),
             reader_thread: Some(reader_thread),
             snapshot,
-            stable_viewport: PaneStableViewport::default(),
-            ordinary_selection: None,
+            ui: PaneUiState::default(),
         })
     }
 
@@ -98799,15 +98810,17 @@ impl NativeWindowApp {
                 runtime.runtime.terminal().grid().size().rows != terminal_size.rows;
             runtime.runtime.resize(terminal_size);
             if height_changed {
-                runtime.ordinary_selection = None;
+                runtime.ui.ordinary_selection = None;
             }
             if let Some(session) = runtime.session.as_mut() {
                 session.resize(PtySize::try_new(terminal_size.columns, terminal_size.rows)?)?;
             }
             runtime
+                .ui
                 .stable_viewport
                 .clamp_main(runtime.runtime.terminal());
-            runtime.snapshot = terminal_runtime_snapshot(&runtime.runtime, runtime.stable_viewport);
+            runtime.snapshot =
+                terminal_runtime_snapshot(&runtime.runtime, runtime.ui.stable_viewport);
         }
 
         if let Some(session) = self.session.as_mut() {
@@ -162780,6 +162793,7 @@ return config
             .pane_runtimes
             .get(&rssh_core::PaneId::new(1))
             .expect("pane one runtime should be inactive")
+            .ui
             .stable_viewport
             .scrollback_offset(
                 app.pane_runtimes
@@ -162807,6 +162821,7 @@ return config
             .expect("pane one runtime should remain inactive");
         assert_eq!(
             inactive_runtime
+                .ui
                 .stable_viewport
                 .scrollback_offset(inactive_runtime.runtime.terminal()),
             inactive_offset
@@ -184429,7 +184444,7 @@ return config
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
-                .is_some_and(|runtime| runtime.ordinary_selection.is_some())
+                .is_some_and(|runtime| runtime.ui.ordinary_selection.is_some())
         );
 
         app.handle_pty_output(b"right").unwrap();
@@ -184526,7 +184541,7 @@ return config
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(2))
-                .is_some_and(|runtime| runtime.ordinary_selection.is_some())
+                .is_some_and(|runtime| runtime.ui.ordinary_selection.is_some())
         );
     }
 
@@ -184567,7 +184582,7 @@ return config
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(2))
-                .is_some_and(|runtime| runtime.ordinary_selection.is_some())
+                .is_some_and(|runtime| runtime.ui.ordinary_selection.is_some())
         );
         let detached = app
             .take_next_pending_window_app()
@@ -184646,7 +184661,7 @@ return config
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
-                .is_some_and(|runtime| runtime.ordinary_selection.is_some())
+                .is_some_and(|runtime| runtime.ui.ordinary_selection.is_some())
         );
     }
 
@@ -184672,9 +184687,367 @@ return config
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
-                .and_then(|runtime| runtime.ordinary_selection)
+                .and_then(|runtime| runtime.ui.ordinary_selection)
                 .is_none()
         );
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum PaneOverlayLifecycleClass {
+        Search,
+        Copy,
+        Quick,
+    }
+
+    fn install_distinct_pane_overlay_for_lifecycle_test(
+        app: &mut NativeWindowApp,
+        class: PaneOverlayLifecycleClass,
+        tag: &str,
+        row: u16,
+        column: u16,
+    ) -> String {
+        let search_match = WindowSearchMatch {
+            domain: TerminalScreenDomain::Main,
+            source_row: isize::try_from(row).unwrap(),
+            start_column: column,
+            end_source_row: isize::try_from(row).unwrap(),
+            end_column: column.saturating_add(2),
+        };
+        match class {
+            PaneOverlayLifecycleClass::Search => {
+                app.active_ui.enter_search(
+                    pane_overlay_copy_mode(row, column, super::WindowCopySelectionMode::Word),
+                    pane_overlay_search(
+                        tag,
+                        WindowSearchMatchType::CaseInsensitive,
+                        Some(search_match),
+                        false,
+                    ),
+                );
+                assert!(app.active_ui.set_search_current(Some(search_match)));
+            }
+            PaneOverlayLifecycleClass::Copy => {
+                app.active_ui.enter_search(
+                    pane_overlay_copy_mode(row, column, super::WindowCopySelectionMode::Line),
+                    pane_overlay_search(
+                        tag,
+                        WindowSearchMatchType::Regex,
+                        Some(search_match),
+                        false,
+                    ),
+                );
+                assert!(app.active_ui.set_search_current(Some(search_match)));
+                app.active_ui.enter_copy_mode(app.initial_copy_mode());
+            }
+            PaneOverlayLifecycleClass::Quick => {
+                app.active_ui.enter_quick_select(WindowQuickSelect {
+                    current: 1,
+                    matches: vec![
+                        pane_overlay_match(column),
+                        WindowSearchMatch {
+                            start_column: column.saturating_add(3),
+                            end_column: column.saturating_add(5),
+                            ..pane_overlay_match(column)
+                        },
+                    ],
+                    labels: vec![format!("{tag}-a"), format!("{tag}-b")],
+                    input: tag.to_owned(),
+                    action_label: Some(format!("action-{tag}")),
+                    action: WindowQuickSelectAction::SendString(format!("send-{tag}")),
+                    skip_action_on_paste: row % 2 == 0,
+                });
+            }
+        }
+        app.apply_window_title();
+        app.window_title.clone()
+    }
+
+    fn assert_distinct_pane_overlay_for_lifecycle_test(
+        app: &NativeWindowApp,
+        class: PaneOverlayLifecycleClass,
+        tag: &str,
+        row: u16,
+        column: u16,
+        expected_title: &str,
+    ) {
+        assert_eq!(app.window_title, expected_title, "{class:?} title");
+        match class {
+            PaneOverlayLifecycleClass::Search => {
+                assert_eq!(
+                    copy_search_mode_for_test(app),
+                    Some(super::WindowCopySearchMode::Search)
+                );
+                let search = search_for_test(app).expect("search overlay");
+                assert_eq!(search.query, tag);
+                assert_eq!(search.match_type, WindowSearchMatchType::CaseInsensitive);
+                assert_eq!(
+                    search.current,
+                    Some(WindowSearchMatch {
+                        domain: TerminalScreenDomain::Main,
+                        source_row: isize::try_from(row).unwrap(),
+                        start_column: column,
+                        end_source_row: isize::try_from(row).unwrap(),
+                        end_column: column.saturating_add(2),
+                    })
+                );
+                assert!(search.editing);
+            }
+            PaneOverlayLifecycleClass::Copy => {
+                assert_eq!(
+                    copy_search_mode_for_test(app),
+                    Some(super::WindowCopySearchMode::Copy)
+                );
+                let search = search_for_test(app).expect("retained copy search");
+                assert_eq!(search.query, tag);
+                assert_eq!(search.match_type, WindowSearchMatchType::Regex);
+                assert_eq!(
+                    search.current,
+                    Some(WindowSearchMatch {
+                        domain: TerminalScreenDomain::Main,
+                        source_row: isize::try_from(row).unwrap(),
+                        start_column: column,
+                        end_source_row: isize::try_from(row).unwrap(),
+                        end_column: column.saturating_add(2),
+                    })
+                );
+                assert!(!search.editing);
+                assert_pane_overlay_copy_mode(
+                    copy_mode_for_test(app).expect("copy overlay"),
+                    row,
+                    column,
+                    super::WindowCopySelectionMode::Line,
+                );
+            }
+            PaneOverlayLifecycleClass::Quick => {
+                let quick = quick_select_for_test(app).expect("quick-select overlay");
+                assert_eq!(quick.current, 1);
+                assert_eq!(quick.input, tag);
+                assert_eq!(quick.labels, [format!("{tag}-a"), format!("{tag}-b")]);
+                assert_eq!(
+                    quick.action_label.as_deref(),
+                    Some(&*format!("action-{tag}"))
+                );
+                assert_eq!(
+                    quick.action,
+                    WindowQuickSelectAction::SendString(format!("send-{tag}"))
+                );
+                assert_eq!(quick.skip_action_on_paste, row % 2 == 0);
+                assert_eq!(quick.matches.len(), 2);
+                assert_eq!(
+                    quick.matches[1],
+                    WindowSearchMatch {
+                        domain: TerminalScreenDomain::Main,
+                        source_row: 0,
+                        start_column: column.saturating_add(3),
+                        end_source_row: 0,
+                        end_column: column.saturating_add(5),
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn window_app_pane_focus_saves_and_restores_each_overlay_class() {
+        for class in [
+            PaneOverlayLifecycleClass::Search,
+            PaneOverlayLifecycleClass::Copy,
+            PaneOverlayLifecycleClass::Quick,
+        ] {
+            let mut app = NativeWindowApp::new(None);
+            let a_title =
+                install_distinct_pane_overlay_for_lifecycle_test(&mut app, class, "pane-a", 1, 2);
+            app.dispatch_app_action(AppAction::SplitPane {
+                pane: rssh_core::PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+            let b_title =
+                install_distinct_pane_overlay_for_lifecycle_test(&mut app, class, "pane-b", 3, 4);
+
+            for _ in 0..2 {
+                app.dispatch_app_action(AppAction::ActivatePane {
+                    pane: rssh_core::PaneId::new(1),
+                })
+                .unwrap();
+                assert_distinct_pane_overlay_for_lifecycle_test(
+                    &app, class, "pane-a", 1, 2, &a_title,
+                );
+                app.dispatch_app_action(AppAction::ActivatePane {
+                    pane: rssh_core::PaneId::new(2),
+                })
+                .unwrap();
+                assert_distinct_pane_overlay_for_lifecycle_test(
+                    &app, class, "pane-b", 3, 4, &b_title,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn window_app_tab_switch_saves_and_restores_each_overlay_class() {
+        for class in [
+            PaneOverlayLifecycleClass::Search,
+            PaneOverlayLifecycleClass::Copy,
+            PaneOverlayLifecycleClass::Quick,
+        ] {
+            let mut app = NativeWindowApp::new(None);
+            let a_title =
+                install_distinct_pane_overlay_for_lifecycle_test(&mut app, class, "tab-a", 1, 2);
+            app.dispatch_app_action(AppAction::NewTab { launch: None })
+                .unwrap();
+            let b_title =
+                install_distinct_pane_overlay_for_lifecycle_test(&mut app, class, "tab-b", 3, 4);
+
+            for _ in 0..2 {
+                app.dispatch_app_action(AppAction::ActivateTab {
+                    tab: rssh_core::TabId::new(1),
+                })
+                .unwrap();
+                assert_distinct_pane_overlay_for_lifecycle_test(
+                    &app, class, "tab-a", 1, 2, &a_title,
+                );
+                app.dispatch_app_action(AppAction::ActivateTab {
+                    tab: rssh_core::TabId::new(2),
+                })
+                .unwrap();
+                assert_distinct_pane_overlay_for_lifecycle_test(
+                    &app, class, "tab-b", 3, 4, &b_title,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn window_app_workspace_switch_saves_and_restores_each_overlay_class() {
+        for class in [
+            PaneOverlayLifecycleClass::Search,
+            PaneOverlayLifecycleClass::Copy,
+            PaneOverlayLifecycleClass::Quick,
+        ] {
+            let mut app = NativeWindowApp::new(None);
+            let a_title = install_distinct_pane_overlay_for_lifecycle_test(
+                &mut app,
+                class,
+                "workspace-a",
+                1,
+                2,
+            );
+            app.dispatch_app_action(AppAction::NewWorkspace {
+                name: "overlay-workspace".to_owned(),
+                launch: None,
+            })
+            .unwrap();
+            let b_title = install_distinct_pane_overlay_for_lifecycle_test(
+                &mut app,
+                class,
+                "workspace-b",
+                3,
+                4,
+            );
+
+            for _ in 0..2 {
+                app.dispatch_app_action(AppAction::SwitchWorkspace {
+                    workspace: rssh_core::WorkspaceId::new(1),
+                })
+                .unwrap();
+                assert_distinct_pane_overlay_for_lifecycle_test(
+                    &app,
+                    class,
+                    "workspace-a",
+                    1,
+                    2,
+                    &a_title,
+                );
+                app.dispatch_app_action(AppAction::SwitchWorkspace {
+                    workspace: rssh_core::WorkspaceId::new(2),
+                })
+                .unwrap();
+                assert_distinct_pane_overlay_for_lifecycle_test(
+                    &app,
+                    class,
+                    "workspace-b",
+                    3,
+                    4,
+                    &b_title,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn window_app_pane_switch_never_promotes_overlay_projection_to_ordinary_selection() {
+        for class in [
+            PaneOverlayLifecycleClass::Search,
+            PaneOverlayLifecycleClass::Copy,
+            PaneOverlayLifecycleClass::Quick,
+        ] {
+            let mut app = NativeWindowApp::new(None);
+            install_distinct_pane_overlay_for_lifecycle_test(&mut app, class, "projection", 1, 2);
+            app.selection = Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 1 },
+                SelectionCell { row: 0, column: 4 },
+            ));
+            app.dispatch_app_action(AppAction::SplitPane {
+                pane: rssh_core::PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+
+            let saved = app
+                .pane_runtimes
+                .get(&rssh_core::PaneId::new(1))
+                .expect("saved overlay owner");
+            assert!(saved.ui.ordinary_selection.is_none(), "{class:?}");
+            app.dispatch_app_action(AppAction::ActivatePane {
+                pane: rssh_core::PaneId::new(1),
+            })
+            .unwrap();
+            assert!(overlay_active_for_test(&app), "{class:?}");
+        }
+    }
+
+    #[test]
+    fn window_app_dirty_ordinary_selection_remains_deferred_in_saved_inactive_overlay() {
+        for class in [
+            PaneOverlayLifecycleClass::Search,
+            PaneOverlayLifecycleClass::Copy,
+            PaneOverlayLifecycleClass::Quick,
+        ] {
+            let mut app = NativeWindowApp::new(None);
+            app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+            app.handle_pty_output(b"selected\r\nother").unwrap();
+            set_ordinary_viewport_range_for_test(
+                &mut app,
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 3 },
+            );
+            install_distinct_pane_overlay_for_lifecycle_test(&mut app, class, "dirty", 0, 2);
+            app.handle_pty_output(b"\x1b[1;1HX").unwrap();
+
+            app.dispatch_app_action(AppAction::SplitPane {
+                pane: rssh_core::PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+            let saved = app
+                .pane_runtimes
+                .get(&rssh_core::PaneId::new(1))
+                .expect("saved dirty overlay owner");
+            assert!(saved.ui.ordinary_selection.is_some(), "{class:?}");
+
+            app.dispatch_app_action(AppAction::ActivatePane {
+                pane: rssh_core::PaneId::new(1),
+            })
+            .unwrap();
+            assert!(overlay_active_for_test(&app), "{class:?}");
+            app.active_ui.exit_overlay();
+            app.refresh_snapshot();
+            assert!(ordinary_selection_for_test(&app).is_none(), "{class:?}");
+        }
     }
 
     #[test]
@@ -187836,7 +188209,7 @@ return config
             .get_mut(&rssh_core::PaneId::new(1))
             .expect("inactive pane runtime");
         let dimensions = inactive.runtime.terminal().stable_dimensions();
-        inactive.ordinary_selection = Some(StableOrdinarySelection {
+        inactive.ui.ordinary_selection = Some(StableOrdinarySelection {
             anchor: SelectionSourceCell {
                 domain: dimensions.domain,
                 row: dimensions.physical_top,
@@ -187859,7 +188232,7 @@ return config
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
-                .is_some_and(|runtime| runtime.ordinary_selection.is_none())
+                .is_some_and(|runtime| runtime.ui.ordinary_selection.is_none())
         );
     }
 
@@ -187879,7 +188252,7 @@ return config
             .get_mut(&rssh_core::PaneId::new(1))
             .expect("inactive pane runtime");
         let dimensions = inactive.runtime.terminal().stable_dimensions();
-        inactive.ordinary_selection = Some(StableOrdinarySelection {
+        inactive.ui.ordinary_selection = Some(StableOrdinarySelection {
             anchor: SelectionSourceCell {
                 domain: dimensions.domain,
                 row: dimensions.physical_top,
@@ -187901,7 +188274,7 @@ return config
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
-                .is_some_and(|runtime| runtime.ordinary_selection.is_some())
+                .is_some_and(|runtime| runtime.ui.ordinary_selection.is_some())
         );
     }
 
@@ -188014,7 +188387,7 @@ return config
         Quick,
     }
 
-    fn assert_dirty_ordinary_selection_is_retired_before_pane_switch(overlay: PaneSwitchOverlay) {
+    fn assert_dirty_ordinary_selection_is_deferred_across_pane_switch(overlay: PaneSwitchOverlay) {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
         app.handle_pty_output(b"https://selected.test\r\nother")
@@ -188056,9 +188429,10 @@ return config
             .get(&original_pane)
             .expect("original pane should become inactive");
         assert!(
-            inactive.ordinary_selection.is_none(),
-            "{overlay:?} left a dirty ordinary selection in inactive storage"
+            inactive.ui.ordinary_selection.is_some(),
+            "{overlay:?} must defer dirty ordinary selection while its overlay is saved"
         );
+        assert!(inactive.ui.overlay_active(), "{overlay:?}");
 
         let original_rect = app
             .pane_render_layout()
@@ -188077,18 +188451,18 @@ return config
         .expect("original pane unselected cell");
         assert_eq!(
             selected_cell.background, unselected_cell.background,
-            "{overlay:?} left an inactive selection highlight"
+            "{overlay:?} promoted deferred ordinary selection into inactive presentation"
         );
     }
 
     #[test]
-    fn window_app_pane_switch_retires_search_copy_and_quick_dirty_ordinary_selection() {
+    fn window_app_pane_switch_defers_search_copy_and_quick_dirty_ordinary_selection() {
         for overlay in [
             PaneSwitchOverlay::Search,
             PaneSwitchOverlay::Copy,
             PaneSwitchOverlay::Quick,
         ] {
-            assert_dirty_ordinary_selection_is_retired_before_pane_switch(overlay);
+            assert_dirty_ordinary_selection_is_deferred_across_pane_switch(overlay);
         }
     }
 
@@ -188731,7 +189105,7 @@ return config
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
-                .is_some_and(|runtime| runtime.ordinary_selection.is_some())
+                .is_some_and(|runtime| runtime.ui.ordinary_selection.is_some())
         );
     }
 
@@ -188876,7 +189250,7 @@ return config
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
-                .is_some_and(|runtime| runtime.ordinary_selection.is_none())
+                .is_some_and(|runtime| runtime.ui.ordinary_selection.is_none())
         );
     }
 
@@ -188929,7 +189303,7 @@ return config
             .get_mut(&rssh_core::PaneId::new(1))
             .expect("inactive pane runtime");
         let dimensions = inactive.runtime.terminal().stable_dimensions();
-        inactive.ordinary_selection = Some(StableOrdinarySelection::new(
+        inactive.ui.ordinary_selection = Some(StableOrdinarySelection::new(
             SelectionSourceCell {
                 domain: dimensions.domain,
                 row: dimensions.physical_top,
@@ -188948,7 +189322,7 @@ return config
         assert!(
             app.pane_runtimes
                 .get(&rssh_core::PaneId::new(1))
-                .is_some_and(|runtime| runtime.ordinary_selection.is_none())
+                .is_some_and(|runtime| runtime.ui.ordinary_selection.is_none())
         );
     }
 
@@ -189113,11 +189487,12 @@ return config
             .expect("inactive pane runtime");
         assert_eq!(
             inactive
+                .ui
                 .stable_viewport
                 .active_top(inactive.runtime.terminal()),
             inactive_top
         );
-        assert!(inactive.ordinary_selection.is_none());
+        assert!(inactive.ui.ordinary_selection.is_none());
 
         app.dispatch_app_action(AppAction::ActivatePaneByIndex { index: 0 })
             .unwrap();
@@ -189676,6 +190051,7 @@ return config
         assert_eq!(inactive.runtime.terminal().scrollback().len(), 1);
         assert_eq!(
             inactive
+                .ui
                 .stable_viewport
                 .active_top(inactive.runtime.terminal()),
             Some(
