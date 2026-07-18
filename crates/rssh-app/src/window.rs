@@ -81202,6 +81202,11 @@ impl NativeWindowManager {
         while let Some(detached_app) = app.take_next_pending_window_app() {
             let destination_window_id = detached_app.app_window_id;
             for pane_id in detached_app.app_shell.pane_ids() {
+                for ((_, routed_pane_id), target_window_id) in &mut self.pane_event_routes {
+                    if *routed_pane_id == pane_id && *target_window_id == source_window_id {
+                        *target_window_id = destination_window_id;
+                    }
+                }
                 self.pane_event_routes
                     .insert((source_window_id, pane_id), destination_window_id);
             }
@@ -81392,7 +81397,7 @@ impl NativeWindowManager {
 
     fn remove_pane_event_routes_for_window(&mut self, window_id: rssh_core::WindowId) {
         self.pane_event_routes
-            .retain(|(source, _), target| *source != window_id && *target != window_id);
+            .retain(|_, target| *target != window_id);
     }
 
     fn activate_window_relative_from(
@@ -88234,6 +88239,7 @@ impl NativeWindowApp {
     }
 
     fn accept_quick_select_match(&mut self, paste: bool) {
+        let source_pane_id = self.app_shell.active_pane_id();
         let Some((action, skip_action_on_paste)) =
             self.active_ui.quick_select().map(|quick_select| {
                 (
@@ -88412,9 +88418,11 @@ impl NativeWindowApp {
                 if paste && skip_action_on_paste {
                     return;
                 }
-                if let Err(error) =
-                    self.command_palette_apply_command(WindowCommand::Multiple(commands))
-                {
+                if let Err(error) = self.apply_quick_select_source_bound_commands(
+                    source_pane_id,
+                    selected_text.as_deref(),
+                    commands,
+                ) {
                     eprintln!("quick-select multiple failed: {error:?}");
                 }
             }
@@ -88458,6 +88466,190 @@ impl NativeWindowApp {
                 self.clear_key_table_stack();
             }
         }
+    }
+
+    fn apply_quick_select_source_bound_commands(
+        &mut self,
+        source_pane_id: rssh_core::PaneId,
+        selected_text: Option<&str>,
+        commands: Vec<WindowCommand>,
+    ) -> Result<(), AppShellError> {
+        for command in commands {
+            self.apply_quick_select_source_bound_command(source_pane_id, selected_text, command)?;
+        }
+        Ok(())
+    }
+
+    fn apply_quick_select_source_bound_command(
+        &mut self,
+        source_pane_id: rssh_core::PaneId,
+        selected_text: Option<&str>,
+        command: WindowCommand,
+    ) -> Result<(), AppShellError> {
+        match command {
+            WindowCommand::Multiple(commands) => self.apply_quick_select_source_bound_commands(
+                source_pane_id,
+                selected_text,
+                commands,
+            ),
+            WindowCommand::ClearSelection => {
+                self.clear_ordinary_selection_for_pane(source_pane_id);
+                Ok(())
+            }
+            WindowCommand::Copy | WindowCommand::CopyToClipboard => {
+                if let Some(text) = selected_text {
+                    self.write_text_to_copy_destination(text, WindowCopyDestination::Clipboard);
+                }
+                Ok(())
+            }
+            WindowCommand::CopyToPrimarySelection => {
+                if let Some(text) = selected_text {
+                    self.write_text_to_copy_destination(
+                        text,
+                        WindowCopyDestination::PrimarySelection,
+                    );
+                }
+                Ok(())
+            }
+            WindowCommand::CopyToClipboardAndPrimarySelection
+            | WindowCommand::CompleteSelection => {
+                if let Some(text) = selected_text {
+                    self.write_text_to_copy_destination(
+                        text,
+                        WindowCopyDestination::ClipboardAndPrimarySelection,
+                    );
+                }
+                Ok(())
+            }
+            WindowCommand::CopyTo(destination)
+            | WindowCommand::CompleteSelectionTo(destination) => {
+                if let Some(text) = selected_text {
+                    self.write_text_to_copy_destination(text, destination);
+                }
+                Ok(())
+            }
+            WindowCommand::PasteFromClipboard | WindowCommand::Paste => {
+                let text = self.read_clipboard_text();
+                self.paste_text_to_pane(source_pane_id, text.as_deref(), "clipboard");
+                Ok(())
+            }
+            WindowCommand::PasteFromPrimarySelection | WindowCommand::PastePrimarySelection => {
+                let text = self.read_primary_selection_text();
+                self.paste_text_to_pane(source_pane_id, text.as_deref(), "primary selection");
+                Ok(())
+            }
+            WindowCommand::PasteFrom(source) => {
+                let text = match source {
+                    WindowPasteSource::Clipboard => self.read_clipboard_text(),
+                    WindowPasteSource::PrimarySelection => self.read_primary_selection_text(),
+                };
+                self.paste_text_to_pane(source_pane_id, text.as_deref(), "configured source");
+                Ok(())
+            }
+            WindowCommand::SendString(value) => {
+                if let Err(error) = self.write_pty_bytes_to_pane(source_pane_id, value.as_bytes()) {
+                    eprintln!("quick-select source-bound send string failed: {error}");
+                }
+                Ok(())
+            }
+            WindowCommand::SendPaste(value) => {
+                let bytes = encode_window_paste(
+                    &value,
+                    self.pane_bracketed_paste(source_pane_id),
+                    self.canonicalize_pasted_newlines,
+                );
+                if let Err(error) = self.write_pty_bytes_to_pane(source_pane_id, &bytes) {
+                    eprintln!("quick-select source-bound send paste failed: {error}");
+                }
+                Ok(())
+            }
+            WindowCommand::SendKey(send_key) => {
+                if let Err(error) = self.send_key_to_pane(source_pane_id, &send_key) {
+                    eprintln!("quick-select source-bound send key failed: {error}");
+                }
+                Ok(())
+            }
+            command => self.command_palette_apply_command(command),
+        }
+    }
+
+    fn clear_ordinary_selection_for_pane(&mut self, pane_id: rssh_core::PaneId) {
+        if pane_id == self.app_shell.active_pane_id() {
+            self.clear_selection();
+            return;
+        }
+        if let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) {
+            runtime.ui.ordinary_selection = None;
+            self.frame_needs_full_repaint = true;
+        }
+    }
+
+    fn paste_text_to_pane(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        text: Option<&str>,
+        source_label: &str,
+    ) {
+        let Some(text) = text.filter(|text| !text.is_empty()) else {
+            return;
+        };
+        let bytes = encode_window_paste(
+            text,
+            self.pane_bracketed_paste(pane_id),
+            self.canonicalize_pasted_newlines,
+        );
+        if let Err(error) = self.write_pty_bytes_to_pane(pane_id, &bytes) {
+            eprintln!("quick-select source-bound paste from {source_label} failed: {error}");
+        }
+    }
+
+    fn pane_bracketed_paste(&self, pane_id: rssh_core::PaneId) -> bool {
+        if pane_id == self.app_shell.active_pane_id() {
+            return self.runtime.bracketed_paste();
+        }
+        self.pane_runtimes
+            .get(&pane_id)
+            .is_some_and(|runtime| runtime.runtime.bracketed_paste())
+    }
+
+    fn send_key_to_pane(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        send_key: &WindowSendKey,
+    ) -> io::Result<()> {
+        let (application_cursor_keys, application_keypad, kitty_keyboard_flags, modify_other_keys) =
+            if pane_id == self.app_shell.active_pane_id() {
+                (
+                    self.runtime.application_cursor_keys(),
+                    self.runtime.application_keypad(),
+                    self.runtime.kitty_keyboard_flags(),
+                    self.runtime.modify_other_keys(),
+                )
+            } else {
+                let Some(runtime) = self.pane_runtimes.get(&pane_id) else {
+                    return Ok(());
+                };
+                (
+                    runtime.runtime.application_cursor_keys(),
+                    runtime.runtime.application_keypad(),
+                    runtime.runtime.kitty_keyboard_flags(),
+                    runtime.runtime.modify_other_keys(),
+                )
+            };
+        let text = send_key.text();
+        let bytes = encode_window_key_with_kitty_event(
+            &send_key.key,
+            PhysicalKey::Unidentified(winit::keyboard::NativeKeyCode::Unidentified),
+            text.as_deref(),
+            send_key.modifiers,
+            application_cursor_keys,
+            application_keypad,
+            kitty_keyboard_flags
+                | u16::from(self.enable_csi_u_key_encoding) * KITTY_KEYBOARD_DISAMBIGUATE,
+            modify_other_keys,
+            KittyKeyEventKind::Press,
+        );
+        self.write_pty_bytes_to_pane(pane_id, &bytes)
     }
 
     fn send_key_to_active_pane(&mut self, send_key: &WindowSendKey) -> io::Result<()> {
@@ -90642,7 +90834,7 @@ impl NativeWindowApp {
                 rect,
                 &palette,
                 &self.selection_word_boundary,
-                suppress_pane_overlay,
+                suppress_pane_overlay && rect.pane_id == active_pane,
                 self.quick_select_remove_styling,
                 self.foreground_text_hsb,
                 self.text_background_opacity,
@@ -95268,6 +95460,32 @@ impl NativeWindowApp {
             self.set_scrollback_offset(0);
         }
 
+        Ok(())
+    }
+
+    fn write_pty_bytes_to_pane(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        bytes: &[u8],
+    ) -> io::Result<()> {
+        if pane_id == self.app_shell.active_pane_id() {
+            return self.write_pty_bytes(bytes);
+        }
+
+        let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) else {
+            return Ok(());
+        };
+        let Some(writer) = runtime.writer.as_mut() else {
+            return Ok(());
+        };
+        let started = Instant::now();
+        writer.write_all(bytes)?;
+        writer.flush()?;
+        self.metrics
+            .record_input_write(bytes.len(), started.elapsed());
+        if self.scroll_to_bottom_on_input && !bytes.is_empty() {
+            runtime.ui.stable_viewport.main_top = None;
+        }
         Ok(())
     }
 
@@ -121340,17 +121558,28 @@ fn pane_presentation_snapshot(
         );
     }
 
-    if !suppress_pane_overlay
-        && let Some(selection) = pane_overlay_viewport_selection(terminal, ui, word_boundary)
-    {
-        let copy_overlay_rendering = pane_copy_overlay_rendering(ui);
+    let selection = if suppress_pane_overlay {
+        ui.ordinary_selection
+            .map(StableOrdinarySelection::source_selection)
+            .and_then(|selection| {
+                selection.viewport_selection(
+                    terminal.stable_dimensions().domain,
+                    pane_viewport_top(terminal, ui),
+                    terminal.grid().size(),
+                )
+            })
+    } else {
+        pane_overlay_viewport_selection(terminal, ui, word_boundary)
+    };
+    if let Some(selection) = selection {
+        let copy_overlay_rendering = !suppress_pane_overlay && pane_copy_overlay_rendering(ui);
         let foreground = if copy_overlay_rendering {
             palette
                 .copy_mode_active_highlight_fg
                 .map(native_color_spec_to_render_color)
                 .map(Some)
                 .or(palette.selection_fg)
-        } else if ui.quick_select().is_some() {
+        } else if !suppress_pane_overlay && ui.quick_select().is_some() {
             palette
                 .quick_select_match_fg
                 .map(native_color_spec_to_render_color)
@@ -121364,7 +121593,7 @@ fn pane_presentation_snapshot(
                 .copy_mode_active_highlight_bg
                 .map(native_color_spec_to_render_color)
                 .or(palette.selection_bg)
-        } else if ui.quick_select().is_some() {
+        } else if !suppress_pane_overlay && ui.quick_select().is_some() {
             palette
                 .quick_select_match_bg
                 .map(native_color_spec_to_render_color)
@@ -185566,6 +185795,28 @@ return config
         }
     }
 
+    fn assert_pane_overlay_tag_for_lifecycle_test(
+        app: &NativeWindowApp,
+        class: PaneOverlayLifecycleClass,
+        tag: &str,
+    ) {
+        assert_pane_overlay_class_for_lifecycle_test(app, class);
+        match class {
+            PaneOverlayLifecycleClass::Search | PaneOverlayLifecycleClass::Copy => {
+                assert_eq!(
+                    search_for_test(app).map(|search| search.query.as_str()),
+                    Some(tag)
+                );
+            }
+            PaneOverlayLifecycleClass::Quick => {
+                assert_eq!(
+                    quick_select_for_test(app).map(|quick| quick.input.as_str()),
+                    Some(tag)
+                );
+            }
+        }
+    }
+
     fn install_line_copy_overlay_for_lifecycle_test(app: &mut NativeWindowApp) {
         app.enter_copy_mode();
         assert!(app.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Line));
@@ -185794,6 +186045,92 @@ return config
         );
     }
 
+    #[test]
+    fn window_app_quick_multiple_binds_pane_sensitive_actions_to_source_owner() {
+        let source_written = Arc::new(Mutex::new(Vec::new()));
+        let target_written = Arc::new(Mutex::new(Vec::new()));
+        let clipboard = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clipboard = Arc::clone(&clipboard);
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"target").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 2 },
+        );
+        let target_ordinary = ordinary_selection_for_test(&app).expect("target ordinary");
+        install_distinct_pane_overlay_for_lifecycle_test(
+            &mut app,
+            PaneOverlayLifecycleClass::Search,
+            "target-search",
+            0,
+            0,
+        );
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&target_written))));
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"source").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 1 },
+            SelectionCell { row: 0, column: 3 },
+        );
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&source_written))));
+        app.clipboard_writer = Box::new(move |text| {
+            recorded_clipboard.lock().unwrap().push(text.to_owned());
+            true
+        });
+        set_app_quick_select_for_test(
+            &mut app,
+            WindowQuickSelect {
+                matches: vec![WindowSearchMatch {
+                    end_column: 6,
+                    ..pane_overlay_match(0)
+                }],
+                labels: vec!["a".to_owned()],
+                action: WindowQuickSelectAction::Multiple(vec![
+                    WindowCommand::ActivatePane1,
+                    WindowCommand::Multiple(vec![
+                        WindowCommand::SendString("source-bound".to_owned()),
+                        WindowCommand::Copy,
+                    ]),
+                    WindowCommand::ClearSelection,
+                ]),
+                ..WindowQuickSelect::default()
+            },
+        );
+        app.update_selection_projection();
+
+        app.accept_quick_select_match(false);
+
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
+        assert_eq!(source_written.lock().unwrap().as_slice(), b"source-bound");
+        assert!(target_written.lock().unwrap().is_empty());
+        assert_eq!(clipboard.lock().unwrap().as_slice(), ["source"]);
+        assert_eq!(ordinary_selection_for_test(&app), Some(target_ordinary));
+        assert_eq!(
+            search_for_test(&app).map(|search| search.query.as_str()),
+            Some("target-search")
+        );
+        assert!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(2))
+                .is_some_and(|runtime| runtime.ui.ordinary_selection.is_none())
+        );
+        assert!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(2))
+                .is_some_and(|runtime| !runtime.ui.overlay_active())
+        );
+    }
+
     fn active_pane_presentation_for_higher_level_ui_test(
         app: &NativeWindowApp,
     ) -> TerminalRenderSnapshot {
@@ -185909,6 +186246,138 @@ return config
                 "pane overlay styling restores after case {ui_case}"
             );
         }
+    }
+
+    #[test]
+    fn window_app_higher_level_ui_suppresses_only_active_transient_pane_overlay() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(90, 2));
+        app.selection_bg_color = Some(Color::Rgb(240, 20, 220));
+        app.copy_mode_active_highlight_bg = Some(NativeColorSpec::Color(Color::Rgb(20, 220, 40)));
+        app.quick_select_match_bg = Some(NativeColorSpec::Color(Color::Rgb(30, 60, 240)));
+        app.handle_pty_output(b"abcdefghijklmnopqrst").unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"abcdefghijklmnopqrst").unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(2),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"abcdefghijklmnopqrst").unwrap();
+
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+        install_distinct_pane_overlay_for_lifecycle_test(
+            &mut app,
+            PaneOverlayLifecycleClass::Search,
+            "inactive-search",
+            0,
+            1,
+        );
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(2),
+        })
+        .unwrap();
+        install_distinct_pane_overlay_for_lifecycle_test(
+            &mut app,
+            PaneOverlayLifecycleClass::Quick,
+            "inactive-quick",
+            0,
+            4,
+        );
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(3),
+        })
+        .unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        );
+        let ordinary = ordinary_selection_for_test(&app).expect("deferred ordinary selection");
+        install_distinct_pane_overlay_for_lifecycle_test(
+            &mut app,
+            PaneOverlayLifecycleClass::Quick,
+            "active-quick",
+            0,
+            10,
+        );
+
+        let layout = app.pane_render_layout();
+        let pane_cell_background =
+            |snapshot: &TerminalRenderSnapshot, pane_id: rssh_core::PaneId, column: u16| {
+                let rect = layout
+                    .panes
+                    .iter()
+                    .find(|rect| rect.pane_id == pane_id)
+                    .expect("pane render rect");
+                snapshot_cell(snapshot, rect.row, rect.column.saturating_add(column))
+                    .expect("pane render cell")
+                    .background
+            };
+        let before = app.render_snapshot();
+        let inactive_search_before = pane_cell_background(&before, rssh_core::PaneId::new(1), 1);
+        let inactive_quick_before = pane_cell_background(&before, rssh_core::PaneId::new(2), 7);
+        let active_transient_before = pane_cell_background(&before, rssh_core::PaneId::new(3), 13);
+        let active_ordinary_before = pane_cell_background(&before, rssh_core::PaneId::new(3), 0);
+        assert_ne!(inactive_search_before, active_ordinary_before);
+        assert_ne!(inactive_quick_before, active_ordinary_before);
+        assert_ne!(active_transient_before, active_ordinary_before);
+
+        app.enter_confirmation_mode(WindowConfirmationOptions {
+            message: "modal".to_owned(),
+            action: Box::new(WindowCommand::Nop),
+            cancel: None,
+        });
+        let suppressed = app.render_snapshot();
+        assert_eq!(ordinary_selection_for_test(&app), Some(ordinary));
+        assert!(quick_select_for_test(&app).is_some());
+        assert!(!app.effective_window_title().contains("Quick Select"));
+        assert_eq!(
+            pane_cell_background(&suppressed, rssh_core::PaneId::new(1), 1),
+            inactive_search_before,
+            "inactive Search owner remains visible"
+        );
+        assert_eq!(
+            pane_cell_background(&suppressed, rssh_core::PaneId::new(2), 7),
+            inactive_quick_before,
+            "inactive Quick owner remains visible"
+        );
+        assert_eq!(
+            pane_cell_background(&suppressed, rssh_core::PaneId::new(3), 0),
+            Color::Rgb(240, 20, 220),
+            "active deferred ordinary selection keeps its legacy presentation"
+        );
+        assert_eq!(
+            pane_cell_background(&suppressed, rssh_core::PaneId::new(3), 13),
+            active_ordinary_before,
+            "active transient Quick styling is suppressed"
+        );
+
+        app.handle_keyboard_input_event(
+            &Key::Named(NamedKey::Escape),
+            PhysicalKey::Unidentified(winit::keyboard::NativeKeyCode::Unidentified),
+            None,
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        let restored = app.render_snapshot();
+        assert_eq!(ordinary_selection_for_test(&app), Some(ordinary));
+        assert!(app.effective_window_title().contains("Quick Select"));
+        assert_eq!(
+            pane_cell_background(&restored, rssh_core::PaneId::new(3), 13),
+            active_transient_before,
+            "active transient presentation restores exactly"
+        );
     }
 
     #[test]
@@ -186245,6 +186714,96 @@ return config
     }
 
     #[test]
+    fn window_manager_keeps_captured_routes_after_repeated_move_and_source_close() {
+        let mut primary = NativeWindowApp::new(None);
+        primary.handle_pty_output(b"relocated").unwrap();
+        primary
+            .dispatch_app_action(AppAction::SplitPane {
+                pane: rssh_core::PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+        primary
+            .dispatch_app_action(AppAction::MovePaneToNewWindow {
+                pane: rssh_core::PaneId::new(1),
+            })
+            .unwrap();
+        let mut manager = NativeWindowManager::new_for_test(primary);
+        manager.collect_pending_window_apps_from_primary_for_test();
+
+        let mut intermediate = manager.pending_apps.remove(0);
+        intermediate
+            .dispatch_app_action(AppAction::SplitPane {
+                pane: rssh_core::PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+        intermediate
+            .dispatch_app_action(AppAction::MovePaneToNewWindow {
+                pane: rssh_core::PaneId::new(1),
+            })
+            .unwrap();
+        manager.collect_pending_window_apps_from_app(&mut intermediate);
+        manager.pending_apps.push(intermediate);
+
+        let mut collision = NativeWindowApp::new(None);
+        collision.app_window_id = rssh_core::WindowId::new(4);
+        collision.handle_pty_output(b"collision").unwrap();
+        manager.pending_apps.push(collision);
+
+        let source = manager.startup_app.take().expect("source window");
+        drop(source);
+        manager.remove_pane_event_routes_for_window(rssh_core::WindowId::new(1));
+        let intermediate_index = manager
+            .pending_apps
+            .iter()
+            .position(|app| app.app_window_id == rssh_core::WindowId::new(2))
+            .expect("intermediate window");
+        drop(manager.pending_apps.remove(intermediate_index));
+        manager.remove_pane_event_routes_for_window(rssh_core::WindowId::new(2));
+
+        assert_eq!(
+            manager.dispatch_user_event_to_owner(WindowUserEvent::Output {
+                window_id: rssh_core::WindowId::new(1),
+                pane_id: rssh_core::PaneId::new(1),
+                bytes: b"-from-a".to_vec(),
+            }),
+            Some(false)
+        );
+        assert_eq!(
+            manager
+                .pending_apps
+                .iter()
+                .find(|app| app.app_window_id == rssh_core::WindowId::new(3))
+                .map(|app| snapshot_row_text(&app.snapshot, 0, 16)),
+            Some("relocated-from-a".to_owned())
+        );
+        assert_eq!(
+            manager.dispatch_user_event_to_owner(WindowUserEvent::Exited {
+                window_id: rssh_core::WindowId::new(2),
+                pane_id: rssh_core::PaneId::new(1),
+            }),
+            Some(true)
+        );
+        assert!(
+            manager
+                .pending_apps
+                .iter()
+                .all(|app| app.app_window_id != rssh_core::WindowId::new(3))
+        );
+        assert_eq!(
+            manager
+                .pending_apps
+                .iter()
+                .find(|app| app.app_window_id == rssh_core::WindowId::new(4))
+                .map(|app| snapshot_row_text(&app.snapshot, 0, 9)),
+            Some("collision".to_owned())
+        );
+    }
+
+    #[test]
     fn window_manager_stale_relocation_route_without_owner_never_uses_unique_fallback() {
         let mut declared = NativeWindowApp::new(None);
         declared.handle_pty_output(b"untouched").unwrap();
@@ -186276,6 +186835,17 @@ return config
         source_active: bool,
     ) -> NativeWindowApp {
         let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        app.handle_pty_output(b"one\r\ntwo\r\nthree\r\nfour")
+            .unwrap();
+        app.scroll_viewport_lines(1);
+        let first = ordinary_source_cell_for_viewport(&app, 0, 0);
+        set_ordinary_stable_selection_for_test(
+            &mut app,
+            first,
+            SelectionSourceCell { column: 2, ..first },
+            false,
+        );
         install_distinct_pane_overlay_for_lifecycle_test(&mut app, class, "move-source", 0, 0);
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -186302,12 +186872,38 @@ return config
         ] {
             for source_active in [true, false] {
                 let mut app = lifecycle_move_fixture(class, source_active);
+                let (expected_ordinary_selection, expected_stable_viewport) =
+                    if app.active_pane_id() == rssh_core::PaneId::new(1) {
+                        (
+                            app.active_ui.ordinary_selection,
+                            app.active_ui.stable_viewport,
+                        )
+                    } else {
+                        let source = app
+                            .pane_runtimes
+                            .get(&rssh_core::PaneId::new(1))
+                            .expect("same-window move source runtime");
+                        (source.ui.ordinary_selection, source.ui.stable_viewport)
+                    };
+                assert!(expected_ordinary_selection.is_some());
+                assert_ne!(
+                    expected_stable_viewport,
+                    super::PaneStableViewport::default()
+                );
                 app.dispatch_app_action(AppAction::MovePaneToNewTab {
                     pane: rssh_core::PaneId::new(1),
                 })
                 .unwrap();
                 assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
                 assert_pane_overlay_class_for_lifecycle_test(&app, class);
+                assert_eq!(
+                    app.active_ui.ordinary_selection, expected_ordinary_selection,
+                    "{class:?} ordinary selection"
+                );
+                assert_eq!(
+                    app.active_ui.stable_viewport, expected_stable_viewport,
+                    "{class:?} stable viewport"
+                );
                 match class {
                     PaneOverlayLifecycleClass::Search => assert_eq!(
                         search_for_test(&app).map(|search| search.query.as_str()),
@@ -186449,100 +187045,100 @@ return config
 
     #[test]
     fn window_app_close_inactive_pane_or_tab_drops_only_target_overlays() {
-        let mut pane_app = lifecycle_move_fixture(PaneOverlayLifecycleClass::Quick, false);
-        pane_app
-            .dispatch_app_action(AppAction::ClosePane {
-                pane: rssh_core::PaneId::new(1),
-            })
-            .unwrap();
-        assert_eq!(pane_app.active_pane_id(), rssh_core::PaneId::new(2));
-        assert_eq!(
-            quick_select_for_test(&pane_app).map(|quick| quick.input.as_str()),
-            Some("move-survivor")
-        );
-        assert!(
-            !pane_app
-                .pane_runtimes
-                .contains_key(&rssh_core::PaneId::new(1))
-        );
-
-        let mut tab_app = NativeWindowApp::new(None);
-        install_distinct_pane_overlay_for_lifecycle_test(
-            &mut tab_app,
+        for class in [
             PaneOverlayLifecycleClass::Search,
-            "closed-tab",
-            0,
-            0,
-        );
-        tab_app
-            .dispatch_app_action(AppAction::NewTab { launch: None })
-            .unwrap();
-        install_distinct_pane_overlay_for_lifecycle_test(
-            &mut tab_app,
+            PaneOverlayLifecycleClass::Copy,
             PaneOverlayLifecycleClass::Quick,
-            "surviving-tab",
-            0,
-            0,
-        );
-        tab_app
-            .dispatch_app_action(AppAction::CloseTab {
-                tab: rssh_core::TabId::new(1),
-                switch_to_last_active: false,
-            })
-            .unwrap();
-        assert_eq!(
-            quick_select_for_test(&tab_app).map(|quick| quick.input.as_str()),
-            Some("surviving-tab")
-        );
-        assert!(
-            !tab_app
-                .pane_runtimes
-                .contains_key(&rssh_core::PaneId::new(1))
-        );
+        ] {
+            let mut pane_app = lifecycle_move_fixture(class, false);
+            pane_app
+                .dispatch_app_action(AppAction::ClosePane {
+                    pane: rssh_core::PaneId::new(1),
+                })
+                .unwrap();
+            assert_eq!(pane_app.active_pane_id(), rssh_core::PaneId::new(2));
+            assert_pane_overlay_tag_for_lifecycle_test(&pane_app, class, "move-survivor");
+            assert!(
+                !pane_app
+                    .pane_runtimes
+                    .contains_key(&rssh_core::PaneId::new(1))
+            );
+
+            let mut tab_app = NativeWindowApp::new(None);
+            install_distinct_pane_overlay_for_lifecycle_test(
+                &mut tab_app,
+                class,
+                "closed-tab",
+                0,
+                0,
+            );
+            tab_app
+                .dispatch_app_action(AppAction::NewTab { launch: None })
+                .unwrap();
+            install_distinct_pane_overlay_for_lifecycle_test(
+                &mut tab_app,
+                class,
+                "surviving-tab",
+                0,
+                0,
+            );
+            tab_app
+                .dispatch_app_action(AppAction::CloseTab {
+                    tab: rssh_core::TabId::new(1),
+                    switch_to_last_active: false,
+                })
+                .unwrap();
+            assert_pane_overlay_tag_for_lifecycle_test(&tab_app, class, "surviving-tab");
+            assert!(
+                !tab_app
+                    .pane_runtimes
+                    .contains_key(&rssh_core::PaneId::new(1))
+            );
+        }
     }
 
     #[test]
     fn window_app_close_active_pane_or_tab_restores_survivor_overlay() {
-        let mut pane_app = lifecycle_move_fixture(PaneOverlayLifecycleClass::Quick, false);
-        pane_app
-            .dispatch_app_action(AppAction::ClosePane {
-                pane: rssh_core::PaneId::new(2),
-            })
-            .unwrap();
-        assert_eq!(pane_app.active_pane_id(), rssh_core::PaneId::new(1));
-        assert_eq!(
-            quick_select_for_test(&pane_app).map(|quick| quick.input.as_str()),
-            Some("move-source")
-        );
-
-        let mut tab_app = NativeWindowApp::new(None);
-        install_distinct_pane_overlay_for_lifecycle_test(
-            &mut tab_app,
+        for class in [
             PaneOverlayLifecycleClass::Search,
-            "surviving-tab",
-            0,
-            0,
-        );
-        tab_app
-            .dispatch_app_action(AppAction::NewTab { launch: None })
-            .unwrap();
-        install_distinct_pane_overlay_for_lifecycle_test(
-            &mut tab_app,
+            PaneOverlayLifecycleClass::Copy,
             PaneOverlayLifecycleClass::Quick,
-            "closed-tab",
-            0,
-            0,
-        );
-        tab_app
-            .dispatch_app_action(AppAction::CloseTab {
-                tab: rssh_core::TabId::new(2),
-                switch_to_last_active: false,
-            })
-            .unwrap();
-        assert_eq!(
-            search_for_test(&tab_app).map(|search| search.query.as_str()),
-            Some("surviving-tab")
-        );
+        ] {
+            let mut pane_app = lifecycle_move_fixture(class, false);
+            pane_app
+                .dispatch_app_action(AppAction::ClosePane {
+                    pane: rssh_core::PaneId::new(2),
+                })
+                .unwrap();
+            assert_eq!(pane_app.active_pane_id(), rssh_core::PaneId::new(1));
+            assert_pane_overlay_tag_for_lifecycle_test(&pane_app, class, "move-source");
+
+            let mut tab_app = NativeWindowApp::new(None);
+            install_distinct_pane_overlay_for_lifecycle_test(
+                &mut tab_app,
+                class,
+                "surviving-tab",
+                0,
+                0,
+            );
+            tab_app
+                .dispatch_app_action(AppAction::NewTab { launch: None })
+                .unwrap();
+            install_distinct_pane_overlay_for_lifecycle_test(
+                &mut tab_app,
+                class,
+                "closed-tab",
+                0,
+                0,
+            );
+            tab_app
+                .dispatch_app_action(AppAction::CloseTab {
+                    tab: rssh_core::TabId::new(2),
+                    switch_to_last_active: false,
+                })
+                .unwrap();
+            assert_pane_overlay_tag_for_lifecycle_test(&tab_app, class, "surviving-tab");
+        }
     }
 
     #[test]
