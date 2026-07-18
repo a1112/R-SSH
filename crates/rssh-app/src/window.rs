@@ -81428,6 +81428,36 @@ impl PaneStableViewport {
         }
     }
 
+    fn ensure_main_row_visible(&mut self, terminal: &Terminal, row: StableRowIndex) {
+        let dimensions = terminal.stable_dimensions();
+        if dimensions.domain != TerminalScreenDomain::Main
+            || dimensions.viewport_rows == 0
+            || !terminal.retained_stable_range().contains(&row)
+        {
+            return;
+        }
+
+        self.clamp_main(terminal);
+        let top = self.active_top(terminal).unwrap_or(dimensions.physical_top);
+        let bottom = top.saturating_add(
+            StableRowIndex::try_from(dimensions.viewport_rows).unwrap_or(StableRowIndex::MAX),
+        );
+        let requested = if row < top {
+            Some(row.max(dimensions.scrollback_top))
+        } else if row >= bottom {
+            let last_viewport_offset =
+                StableRowIndex::try_from(dimensions.viewport_rows.saturating_sub(1))
+                    .unwrap_or(StableRowIndex::MAX);
+            Some(
+                row.saturating_sub(last_viewport_offset)
+                    .max(dimensions.scrollback_top),
+            )
+        } else {
+            return;
+        };
+        self.main_top = Self::normalized_main_top(terminal, requested);
+    }
+
     fn scrollback_offset(self, terminal: &Terminal) -> usize {
         let dimensions = terminal.stable_dimensions();
         if dimensions.domain != TerminalScreenDomain::Main {
@@ -101379,6 +101409,23 @@ mod pane_transient_overlay {
             self.stable_viewport.clamp_main(terminal);
             let dimensions = terminal.stable_dimensions();
             let retained = terminal.retained_stable_range();
+            let retained_copy_cursor = match self.overlay.as_ref() {
+                Some(PaneTransientOverlay::CopySearch(controller))
+                    if controller.copy_mode_retained
+                        && source_cell_is_retained(
+                            controller.copy_mode.source_cursor,
+                            dimensions.domain,
+                            &retained,
+                        ) =>
+                {
+                    Some(controller.copy_mode.source_cursor)
+                }
+                _ => None,
+            };
+            if let Some(cursor) = retained_copy_cursor {
+                self.stable_viewport
+                    .ensure_main_row_visible(terminal, cursor.row);
+            }
             let viewport_top = self
                 .stable_viewport
                 .active_top(terminal)
@@ -101407,6 +101454,13 @@ mod pane_transient_overlay {
                             }
                         }
                         if controller.copy_mode_retained {
+                            if size.columns > 0 {
+                                controller.copy_mode.source_cursor.column = controller
+                                    .copy_mode
+                                    .source_cursor
+                                    .column
+                                    .min(usize::from(size.columns.saturating_sub(1)));
+                            }
                             let cursor = viewport_cell_for_source(
                                 controller.copy_mode.source_cursor,
                                 dimensions.domain,
@@ -101421,19 +101475,14 @@ mod pane_transient_overlay {
                                     size,
                                 )
                             });
-                            match (cursor, anchor, controller.copy_mode.source_anchor.is_some()) {
-                                (Some(cursor), Some(anchor), true) => {
-                                    controller.copy_mode.cursor = cursor;
-                                    controller.copy_mode.anchor = Some(anchor);
-                                    false
-                                }
-                                (Some(cursor), _, false) => {
-                                    controller.copy_mode.cursor = cursor;
-                                    controller.copy_mode.anchor = None;
-                                    false
-                                }
-                                _ => true,
+                            if let Some(cursor) = cursor {
+                                controller.copy_mode.cursor = cursor;
+                                controller.copy_mode.anchor = anchor;
+                            } else {
+                                controller.copy_mode.cursor = SelectionCell { row: 0, column: 0 };
+                                controller.copy_mode.anchor = None;
                             }
+                            false
                         } else {
                             false
                         }
@@ -188598,9 +188647,70 @@ return config
                 .contains(&retained_but_offscreen.row),
             "source row remains in history, but no longer has a viewport projection"
         );
+        let copy = inactive
+            .ui
+            .retained_copy_mode()
+            .expect("retained offscreen Copy owner");
+        assert_eq!(copy.source_cursor, retained_but_offscreen);
         assert!(
-            !inactive.ui.overlay_active(),
-            "stable-to-viewport conversion failure must retire instead of retaining a stale cell"
+            inactive.ui.overlay_active(),
+            "retained stable cursor must keep the CopySearch controller alive"
+        );
+        assert_eq!(
+            inactive
+                .ui
+                .stable_viewport
+                .active_top(inactive.runtime.terminal()),
+            Some(retained_but_offscreen.row),
+            "owner viewport must move back to the retained Copy cursor"
+        );
+        assert_eq!(copy.cursor, SelectionCell { row: 0, column: 0 });
+
+        let mut offscreen_anchor = NativeWindowApp::new(None);
+        offscreen_anchor
+            .runtime
+            .resize(rssh_core::TerminalSize::new(8, 2));
+        offscreen_anchor
+            .handle_pty_output(b"anchor-0\r\nline-1\r\nline-2\r\nline-3\r\ncursor-4\r\nlive")
+            .unwrap();
+        offscreen_anchor.enter_copy_mode();
+        assert!(offscreen_anchor.move_copy_mode_to_scrollback_top());
+        assert!(
+            offscreen_anchor.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell)
+        );
+        assert!(offscreen_anchor.move_copy_mode_cursor_by_lines(4));
+        let owner = offscreen_anchor.active_pane_id();
+        let before = active_copy_mode_for_test(&offscreen_anchor);
+        let source_cursor = before.source_cursor;
+        let source_anchor = before.source_anchor.expect("offscreen source anchor");
+        assert!(before.anchor.is_none(), "anchor begins offscreen");
+        offscreen_anchor
+            .dispatch_app_action(AppAction::SplitPane {
+                pane: owner,
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+        offscreen_anchor
+            .handle_pane_pty_output(owner, b"\r\nmutation")
+            .unwrap();
+        let inactive = offscreen_anchor
+            .pane_runtimes
+            .get(&owner)
+            .expect("inactive offscreen-anchor owner");
+        let copy = inactive
+            .ui
+            .retained_copy_mode()
+            .expect("offscreen anchor must not retire Copy");
+        assert_eq!(copy.source_cursor, source_cursor);
+        assert_eq!(copy.source_anchor, Some(source_anchor));
+        assert!(copy.anchor.is_none(), "local anchor remains offscreen");
+        assert!(
+            inactive
+                .runtime
+                .terminal()
+                .retained_stable_range()
+                .contains(&source_anchor.row)
         );
     }
 
@@ -190073,6 +190183,126 @@ return config
                 .and_then(|runtime| runtime.ui.retained_search())
                 .map(|search| search.query.as_str()),
             Some("inactive-width-owner")
+        );
+    }
+
+    #[test]
+    fn window_app_width_only_shrink_preserves_active_and_inactive_copy_owners() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 4));
+        app.handle_pty_output(b"left").unwrap();
+        app.enter_copy_mode();
+        assert!(app.set_copy_mode_cursor(0, 10));
+        assert!(app.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
+        let inactive_owner = app.active_pane_id();
+        let inactive_before = active_copy_mode_for_test(&app);
+        let inactive_cursor_before = inactive_before.source_cursor;
+        let inactive_anchor_before = inactive_before.source_anchor.expect("inactive anchor");
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: inactive_owner,
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.handle_pty_output(b"right").unwrap();
+        app.enter_copy_mode();
+        assert!(app.set_copy_mode_cursor(0, 11));
+        assert!(app.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
+        let active_cursor_before = active_copy_mode_for_test(&app).source_cursor;
+        let active_anchor_before = active_copy_mode_for_test(&app)
+            .source_anchor
+            .expect("active anchor");
+
+        app.handle_window_resize(PhysicalSize::new(48, 80)).unwrap();
+
+        assert_eq!(
+            app.runtime.terminal().grid().size(),
+            rssh_core::TerminalSize::new(6, 4)
+        );
+        let active = active_copy_mode_for_test(&app);
+        assert_eq!(
+            (active.source_cursor.domain, active.source_cursor.row),
+            (active_cursor_before.domain, active_cursor_before.row)
+        );
+        assert_eq!(active.source_cursor.column, 5);
+        assert_eq!(active.cursor, SelectionCell { row: 0, column: 5 });
+        assert_eq!(active.source_anchor, Some(active_anchor_before));
+        assert!(
+            active.anchor.is_none(),
+            "off-width active anchor has no local viewport cell"
+        );
+
+        let inactive = app
+            .pane_runtimes
+            .get(&inactive_owner)
+            .expect("inactive Copy owner");
+        let copy = inactive
+            .ui
+            .retained_copy_mode()
+            .expect("inactive Copy survives width-only shrink");
+        assert_eq!(
+            (copy.source_cursor.domain, copy.source_cursor.row),
+            (inactive_cursor_before.domain, inactive_cursor_before.row)
+        );
+        assert_eq!(copy.source_cursor.column, 5);
+        assert_eq!(copy.cursor, SelectionCell { row: 0, column: 5 });
+        assert_eq!(copy.source_anchor, Some(inactive_anchor_before));
+        assert!(
+            copy.anchor.is_none(),
+            "off-width inactive anchor has no local viewport cell"
+        );
+    }
+
+    #[test]
+    fn window_app_copy_projection_handles_zero_width_without_panicking() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"copy").unwrap();
+        app.enter_copy_mode();
+        assert!(app.set_copy_mode_cursor(1, 3));
+        let source_cursor = active_copy_mode_for_test(&app).source_cursor;
+
+        app.runtime.resize(rssh_core::TerminalSize::new(0, 2));
+        app.reconcile_active_terminal_mutation();
+
+        let copy = active_copy_mode_for_test(&app);
+        assert_eq!(
+            (copy.source_cursor.domain, copy.source_cursor.row),
+            (source_cursor.domain, source_cursor.row)
+        );
+        assert_eq!(copy.source_cursor.column, source_cursor.column);
+        assert_eq!(copy.cursor, SelectionCell { row: 0, column: 0 });
+        assert!(copy.anchor.is_none());
+
+        app.runtime.resize(rssh_core::TerminalSize::new(0, 0));
+        app.reconcile_active_terminal_mutation();
+        assert!(
+            !overlay_active_for_test(&app),
+            "zero rows retain no stable Copy cursor identity"
+        );
+    }
+
+    #[test]
+    fn window_app_alternate_copy_projection_keeps_retained_cursor_identity() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"\x1b[?1049halt-0\r\nalt-1").unwrap();
+        app.enter_copy_mode();
+        assert!(app.set_copy_mode_cursor(1, 2));
+        let source_cursor = active_copy_mode_for_test(&app).source_cursor;
+
+        app.handle_pty_output(b"\x1b[1;1HX").unwrap();
+
+        let copy = active_copy_mode_for_test(&app);
+        assert_eq!(copy.source_cursor, source_cursor);
+        assert_eq!(copy.cursor, SelectionCell { row: 1, column: 2 });
+        assert_eq!(
+            app.active_ui
+                .stable_viewport
+                .active_top(app.runtime.terminal()),
+            None,
+            "alternate screen must not synthesize a main viewport"
         );
     }
 
