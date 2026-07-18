@@ -101760,7 +101760,7 @@ mod pane_transient_overlay {
                     self.overlay = Some(PaneTransientOverlay::CopySearch(
                         WindowCopySearchController {
                             mode: WindowCopySearchMode::Search,
-                            copy_mode_retained: false,
+                            copy_mode_retained: true,
                             copy_mode: initial_copy_mode,
                             search: Some(requested),
                         },
@@ -102119,7 +102119,6 @@ mod pane_transient_overlay {
             controller.mode = if editing {
                 WindowCopySearchMode::Search
             } else {
-                controller.copy_mode_retained = true;
                 WindowCopySearchMode::Copy
             };
             search.editing = editing;
@@ -126569,7 +126568,14 @@ mod tests {
             Some(super::WindowCopySearchMode::Search)
         );
         assert!(state.copy_mode().is_none());
-        assert!(state.retained_copy_mode().is_none());
+        assert_pane_overlay_copy_mode(
+            state
+                .retained_copy_mode()
+                .expect("Search controller must own its hidden Copy state"),
+            3,
+            7,
+            super::WindowCopySelectionMode::Word,
+        );
         assert!(state.search().is_some_and(|search| search.editing));
 
         state.enter_copy_mode(pane_overlay_copy_mode(
@@ -197653,6 +197659,42 @@ return config
         assert!(
             !app.perform_copy_mode_assignment(super::WindowCopyModeAssignment::AcceptPattern),
             "AcceptPattern must not revive stale Copy coordinates"
+        );
+    }
+
+    #[test]
+    fn window_app_standalone_search_prune_retires_copy_search_before_accept() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        app.runtime.set_scrollback_limit(2);
+        app.handle_pty_output(b"old-0\r\nneedle\r\nlive").unwrap();
+        let initial_copy_cursor = app.initial_copy_mode().source_cursor;
+
+        app.enter_search_mode_with_query(&WindowSearchCommandQuery::Pattern {
+            pattern: "needle".to_owned(),
+            match_type: WindowSearchMatchType::CaseSensitive,
+        });
+        assert!(active_search_for_test(&app).current.is_some());
+
+        app.handle_pty_output(b"\r\nnew-1\r\nnew-2\r\nnew-3\r\nnew-4")
+            .unwrap();
+
+        assert!(
+            !app.runtime
+                .terminal()
+                .retained_stable_range()
+                .contains(&initial_copy_cursor.row),
+            "test setup must prune the standalone Search controller's Copy cursor"
+        );
+        assert!(
+            !overlay_active_for_test(&app),
+            "pruning the hidden Copy cursor must retire the whole CopySearch controller"
+        );
+        assert!(search_for_test(&app).is_none());
+        assert!(copy_mode_for_test(&app).is_none());
+        assert!(
+            !app.perform_copy_mode_assignment(super::WindowCopyModeAssignment::AcceptPattern),
+            "AcceptPattern must not revive pruned standalone Search Copy coordinates"
         );
     }
 
