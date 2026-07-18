@@ -102113,15 +102113,13 @@ mod pane_transient_overlay {
             let Some(controller) = self.copy_search_mut() else {
                 return false;
             };
-            if !editing && !controller.copy_mode_retained {
-                return false;
-            }
             let Some(search) = controller.search.as_mut() else {
                 return false;
             };
             controller.mode = if editing {
                 WindowCopySearchMode::Search
             } else {
+                controller.copy_mode_retained = true;
                 WindowCopySearchMode::Copy
             };
             search.editing = editing;
@@ -126823,7 +126821,7 @@ mod tests {
     }
 
     #[test]
-    fn pane_transient_overlay_standalone_search_cannot_accept_as_copy() {
+    fn pane_transient_overlay_standalone_search_accepts_as_copy() {
         let mut state = super::PaneUiState::default();
         state.enter_search(
             pane_overlay_copy_mode(2, 4, super::WindowCopySelectionMode::Word),
@@ -126834,16 +126832,64 @@ mod tests {
                 true,
             ),
         );
+        assert!(state.set_search_current(Some(pane_overlay_match(2))));
 
-        assert!(!state.set_search_editing(false));
+        assert!(state.set_search_editing(false));
 
         assert_eq!(
             state.copy_search_mode(),
-            Some(super::WindowCopySearchMode::Search)
+            Some(super::WindowCopySearchMode::Copy)
         );
-        assert!(state.search().is_some_and(|search| search.editing));
-        assert!(state.retained_copy_mode().is_none());
-        assert!(state.copy_mode().is_none());
+        assert!(
+            state
+                .retained_search()
+                .is_some_and(|search| search.query == "standalone"
+                    && search.current == Some(pane_overlay_match(2))
+                    && !search.editing)
+        );
+        assert_pane_overlay_copy_mode(
+            state
+                .retained_copy_mode()
+                .expect("accepted Search must retain its controller's Copy state"),
+            2,
+            4,
+            super::WindowCopySelectionMode::Word,
+        );
+        assert_pane_overlay_copy_mode(
+            state
+                .copy_mode()
+                .expect("accepted Search must promote the same controller to active Copy"),
+            2,
+            4,
+            super::WindowCopySelectionMode::Word,
+        );
+    }
+
+    #[test]
+    fn pane_transient_overlay_copy_accept_requires_search_state() {
+        let mut empty = super::PaneUiState::default();
+        assert!(!empty.set_search_editing(false));
+        assert!(!empty.overlay_active());
+
+        let mut copy = super::PaneUiState::default();
+        copy.enter_copy_mode(pane_overlay_copy_mode(
+            3,
+            5,
+            super::WindowCopySelectionMode::Line,
+        ));
+        assert!(!copy.set_search_editing(false));
+        assert_eq!(
+            copy.copy_search_mode(),
+            Some(super::WindowCopySearchMode::Copy)
+        );
+        assert!(copy.retained_search().is_none());
+        assert_pane_overlay_copy_mode(
+            copy.copy_mode()
+                .expect("rejected accept must preserve the existing Copy controller"),
+            3,
+            5,
+            super::WindowCopySelectionMode::Line,
+        );
     }
 
     #[test]
@@ -197866,17 +197912,27 @@ return config
     }
 
     #[test]
-    fn window_app_standalone_search_rejects_copy_accept_pattern_without_split_brain() {
+    fn window_app_standalone_search_accept_pattern_promotes_same_controller() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
         app.handle_pty_output(b"foo bar").unwrap();
+        let initial_copy_mode = app.initial_copy_mode();
+        let initial_copy_state = (
+            initial_copy_mode.cursor,
+            initial_copy_mode.source_cursor,
+            initial_copy_mode.anchor,
+            initial_copy_mode.source_anchor,
+            initial_copy_mode.selection_mode,
+            initial_copy_mode.pending_jump,
+            initial_copy_mode.last_jump,
+            initial_copy_mode.search_direction,
+        );
         app.enter_search_mode_with_query(&WindowSearchCommandQuery::Pattern {
             pattern: "foo".to_owned(),
             match_type: WindowSearchMatchType::CaseSensitive,
         });
         let current = active_search_for_test(&app).current;
         let selection = app.selection;
-        let title = app.effective_window_title();
         assert!(current.is_some());
 
         let command = super::command_palette_structured_query_command(
@@ -197888,29 +197944,38 @@ return config
 
         assert_eq!(
             copy_search_mode_for_test(&app),
-            Some(super::WindowCopySearchMode::Search)
+            Some(super::WindowCopySearchMode::Copy)
         );
-        assert!(active_search_for_test(&app).editing);
+        assert!(!active_search_for_test(&app).editing);
         assert_eq!(active_search_for_test(&app).query, "foo");
         assert_eq!(active_search_for_test(&app).current, current);
         assert_eq!(app.selection, selection);
-        assert_eq!(app.effective_window_title(), title);
-        assert_eq!(app.selected_text().as_deref(), Some("foo"));
-        assert!(app.active_ui.retained_copy_mode().is_none());
-        assert!(app.active_ui.copy_mode().is_none());
-
-        app.handle_keyboard_input_event(
-            &Key::Character("x".into()),
-            PhysicalKey::Code(WinitKeyCode::KeyX),
-            Some("x"),
-            ElementState::Pressed,
-            KittyKeyEventKind::Press,
-        )
-        .unwrap();
-        assert_eq!(active_search_for_test(&app).query, "foox");
         assert_eq!(
-            copy_search_mode_for_test(&app),
-            Some(super::WindowCopySearchMode::Search)
+            app.effective_window_title(),
+            "R-SSH [workspace:1 tab:1 pane:1] - Copy Mode"
+        );
+        assert_eq!(app.selected_text().as_deref(), Some("foo"));
+        let retained_copy_mode = app
+            .active_ui
+            .retained_copy_mode()
+            .expect("accepted Search must establish retained Copy ownership");
+        assert_eq!(
+            (
+                retained_copy_mode.cursor,
+                retained_copy_mode.source_cursor,
+                retained_copy_mode.anchor,
+                retained_copy_mode.source_anchor,
+                retained_copy_mode.selection_mode,
+                retained_copy_mode.pending_jump,
+                retained_copy_mode.last_jump,
+                retained_copy_mode.search_direction,
+            ),
+            initial_copy_state,
+            "AcceptPattern must preserve the same controller's complete Copy state"
+        );
+        assert!(
+            app.active_ui.copy_mode().is_some(),
+            "the retained controller must also become the active Copy owner"
         );
     }
 

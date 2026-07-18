@@ -1147,7 +1147,7 @@ First verify the pinned upstream checkout and the exact ownership symbols:
 
 ```text
 git -C refs/wezterm rev-parse HEAD
-rg -n "pub struct PaneState|pane_state: HashMap|Search\\(pattern\\)|ActivateCopyMode|assign_overlay_for_pane" refs/wezterm/wezterm-gui/src/termwindow/mod.rs
+rg -n "pub struct PaneState|pane_state: RefCell<HashMap|Search\\(pattern\\)|ActivateCopyMode|assign_overlay_for_pane" refs/wezterm/wezterm-gui/src/termwindow/mod.rs
 rg -n "struct CopyOverlay|editing_search|impl Pane for CopyOverlay" refs/wezterm/wezterm-gui/src/overlay/copy.rs
 rg -n "struct QuickSelectOverlay|impl Pane for QuickSelectOverlay" refs/wezterm/wezterm-gui/src/overlay/quickselect.rs
 ```
