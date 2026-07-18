@@ -81466,16 +81466,7 @@ impl PaneStableViewport {
 
 impl PaneRuntime {
     fn reconcile_terminal_mutation(&mut self) {
-        self.ui.stable_viewport.clamp_main(self.runtime.terminal());
-        if !self.ui.overlay_active()
-            && ordinary_selection_is_invalidated_by_visible_dirty_rows(
-                self.runtime.terminal(),
-                self.ui.stable_viewport.active_top(self.runtime.terminal()),
-                self.ui.ordinary_selection,
-            )
-        {
-            self.ui.ordinary_selection = None;
-        }
+        self.ui.reconcile_terminal_mutation(self.runtime.terminal());
         self.snapshot = terminal_runtime_snapshot(&self.runtime, self.ui.stable_viewport);
     }
 
@@ -89121,9 +89112,8 @@ impl NativeWindowApp {
     }
 
     fn retire_active_terminal_identity_state(&mut self) {
-        self.active_ui.ordinary_selection = None;
+        self.active_ui.retire_terminal_identity();
         self.selection = None;
-        self.active_ui.exit_overlay();
         self.selecting = false;
         self.active_mouse_button = None;
         self.last_left_click = None;
@@ -89132,76 +89122,7 @@ impl NativeWindowApp {
 
     fn reconcile_active_terminal_mutation(&mut self) {
         self.active_ui
-            .stable_viewport
-            .clamp_main(self.runtime.terminal());
-        self.reconcile_transient_stable_coordinates();
-    }
-
-    fn reconcile_transient_stable_coordinates(&mut self) {
-        let terminal = self.runtime.terminal();
-        let dimensions = terminal.stable_dimensions();
-        let retained = terminal.retained_stable_range();
-
-        let copy_mode_retained = self.active_ui.retained_copy_mode().is_none_or(|copy_mode| {
-            copy_mode.source_cursor.domain == dimensions.domain
-                && retained.contains(&copy_mode.source_cursor.row)
-                && copy_mode.source_anchor.is_none_or(|anchor| {
-                    anchor.domain == dimensions.domain && retained.contains(&anchor.row)
-                })
-        });
-        if !copy_mode_retained {
-            self.active_ui.exit_overlay();
-            self.selection = None;
-        }
-
-        if self.active_ui.retained_search().is_some_and(|search| {
-            search
-                .current
-                .is_some_and(|matched| !matched.is_retained(terminal))
-        }) {
-            self.active_ui.set_search_current(None);
-            self.selection = None;
-        }
-
-        let mut exit_empty_quick_select = false;
-        if let Some(quick_select) = self.active_ui.quick_select_mut() {
-            let current_match = quick_select.current_match();
-            let retained_indices = quick_select
-                .matches
-                .iter()
-                .enumerate()
-                .filter_map(|(index, matched)| matched.is_retained(terminal).then_some(index))
-                .collect::<Vec<_>>();
-            if retained_indices.len() != quick_select.matches.len() {
-                quick_select.matches = retained_indices
-                    .iter()
-                    .map(|index| quick_select.matches[*index])
-                    .collect();
-                quick_select.labels = retained_indices
-                    .iter()
-                    .filter_map(|index| quick_select.labels.get(*index).cloned())
-                    .collect();
-                if let Some(current_match) = current_match {
-                    if let Some(current) = quick_select
-                        .matches
-                        .iter()
-                        .position(|matched| *matched == current_match)
-                    {
-                        quick_select.current = current;
-                    } else if !quick_select.matches.is_empty() {
-                        exit_empty_quick_select = true;
-                        self.selection = None;
-                    }
-                }
-            }
-            if quick_select.matches.is_empty() {
-                self.selection = None;
-            }
-        }
-        if exit_empty_quick_select {
-            self.active_ui.exit_overlay();
-        }
-
+            .reconcile_terminal_mutation(self.runtime.terminal());
         self.update_selection_projection();
     }
 
@@ -89327,8 +89248,9 @@ impl NativeWindowApp {
             || dimensions.domain != previous_dimensions.domain
             || dimensions.viewport_rows != previous_dimensions.viewport_rows
         {
-            runtime.ui.ordinary_selection = None;
+            runtime.ui.retire_terminal_identity();
         }
+        runtime.reconcile_terminal_mutation();
         self.record_unknown_escape_sequence_warnings(
             pane_id,
             &runtime_output.unknown_escape_sequences,
@@ -89385,7 +89307,6 @@ impl NativeWindowApp {
             runtime.runtime.terminal().badge_format().map(str::to_owned),
         );
         self.sync_pane_progress_from_value(pane_id, runtime.runtime.progress());
-        runtime.reconcile_terminal_mutation();
         self.record_pane_bells(pane_id, runtime_output.bells);
         self.metrics.record_bells(runtime_output.bells);
         self.dispatch_bells(pane_id, runtime_output.bells);
@@ -95735,13 +95656,16 @@ impl NativeWindowApp {
 
     fn clear_scrollback_and_viewport(&mut self) {
         self.active_ui.stable_viewport = PaneStableViewport::default();
+        self.retire_active_terminal_identity_state();
         let damage = self.runtime.erase_scrollback_and_viewport();
+        self.reconcile_active_terminal_mutation();
         self.metrics.record_damage(&damage);
         self.refresh_snapshot();
         self.apply_window_title();
     }
 
     fn reset_terminal(&mut self) -> io::Result<()> {
+        self.retire_active_terminal_identity_state();
         self.handle_active_pane_output(b"\x1bc")
     }
 
@@ -98843,35 +98767,34 @@ impl NativeWindowApp {
             pixels.resize_buffer(self.frame_width, self.frame_height)?;
         }
 
+        let pty_size = PtySize::try_new(terminal_size.columns, terminal_size.rows)?;
         let active_height_changed =
             self.runtime.terminal().grid().size().rows != terminal_size.rows;
         self.runtime.resize(terminal_size);
         if active_height_changed {
             self.retire_active_terminal_identity_state();
         }
+        self.reconcile_active_terminal_mutation();
         for runtime in self.pane_runtimes.values_mut() {
             let height_changed =
                 runtime.runtime.terminal().grid().size().rows != terminal_size.rows;
             runtime.runtime.resize(terminal_size);
             if height_changed {
-                runtime.ui.ordinary_selection = None;
+                runtime.ui.retire_terminal_identity();
             }
+            runtime.reconcile_terminal_mutation();
+        }
+        self.refresh_snapshot();
+
+        for runtime in self.pane_runtimes.values_mut() {
             if let Some(session) = runtime.session.as_mut() {
-                session.resize(PtySize::try_new(terminal_size.columns, terminal_size.rows)?)?;
+                session.resize(pty_size)?;
             }
-            runtime
-                .ui
-                .stable_viewport
-                .clamp_main(runtime.runtime.terminal());
-            runtime.snapshot =
-                terminal_runtime_snapshot(&runtime.runtime, runtime.ui.stable_viewport);
         }
 
         if let Some(session) = self.session.as_mut() {
-            let pty_size = PtySize::try_new(terminal_size.columns, terminal_size.rows)?;
             session.resize(pty_size)?;
         }
-        self.refresh_snapshot();
         let resize = self.native_window_resize_event(size.width, size.height, terminal_size);
         self.dispatch_resize(&resize);
 
@@ -101348,8 +101271,9 @@ struct WindowCopyMode {
 
 mod pane_transient_overlay {
     use super::{
-        PaneStableViewport, StableOrdinarySelection, WindowCopyMode, WindowQuickSelect,
-        WindowSearch, WindowSearchMatch, WindowSearchMatchType,
+        PaneStableViewport, SelectionCell, SelectionSourceCell, StableOrdinarySelection, Terminal,
+        WindowCopyMode, WindowQuickSelect, WindowSearch, WindowSearchMatch, WindowSearchMatchType,
+        ordinary_selection_is_invalidated_by_visible_dirty_rows,
     };
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101444,6 +101368,128 @@ mod pane_transient_overlay {
 
         pub(super) fn exit_overlay(&mut self) {
             self.overlay = None;
+        }
+
+        pub(super) fn retire_terminal_identity(&mut self) {
+            self.ordinary_selection = None;
+            self.overlay = None;
+        }
+
+        pub(super) fn reconcile_stable_coordinates(&mut self, terminal: &Terminal) {
+            self.stable_viewport.clamp_main(terminal);
+            let dimensions = terminal.stable_dimensions();
+            let retained = terminal.retained_stable_range();
+            let viewport_top = self
+                .stable_viewport
+                .active_top(terminal)
+                .unwrap_or(dimensions.physical_top);
+            let size = terminal.grid().size();
+
+            let retire_overlay = match self.overlay.as_mut() {
+                Some(PaneTransientOverlay::CopySearch(controller)) => {
+                    let copy_retained = !controller.copy_mode_retained
+                        || (source_cell_is_retained(
+                            controller.copy_mode.source_cursor,
+                            dimensions.domain,
+                            &retained,
+                        ) && controller.copy_mode.source_anchor.is_none_or(|anchor| {
+                            source_cell_is_retained(anchor, dimensions.domain, &retained)
+                        }));
+                    if !copy_retained {
+                        true
+                    } else {
+                        if let Some(search) = controller.search.as_mut() {
+                            if search
+                                .current
+                                .is_some_and(|matched| !matched.is_retained(terminal))
+                            {
+                                search.current = None;
+                            }
+                        }
+                        if controller.copy_mode_retained {
+                            let cursor = viewport_cell_for_source(
+                                controller.copy_mode.source_cursor,
+                                dimensions.domain,
+                                viewport_top,
+                                size,
+                            );
+                            let anchor = controller.copy_mode.source_anchor.and_then(|anchor| {
+                                viewport_cell_for_source(
+                                    anchor,
+                                    dimensions.domain,
+                                    viewport_top,
+                                    size,
+                                )
+                            });
+                            match (cursor, anchor, controller.copy_mode.source_anchor.is_some()) {
+                                (Some(cursor), Some(anchor), true) => {
+                                    controller.copy_mode.cursor = cursor;
+                                    controller.copy_mode.anchor = Some(anchor);
+                                    false
+                                }
+                                (Some(cursor), _, false) => {
+                                    controller.copy_mode.cursor = cursor;
+                                    controller.copy_mode.anchor = None;
+                                    false
+                                }
+                                _ => true,
+                            }
+                        } else {
+                            false
+                        }
+                    }
+                }
+                Some(PaneTransientOverlay::QuickSelect(quick_select)) => {
+                    if quick_select.matches.len() != quick_select.labels.len() {
+                        true
+                    } else {
+                        let current_match = quick_select.current_match();
+                        let retained_pairs = quick_select
+                            .matches
+                            .iter()
+                            .copied()
+                            .zip(quick_select.labels.iter().cloned())
+                            .filter(|(matched, _)| matched.is_retained(terminal))
+                            .collect::<Vec<_>>();
+                        quick_select.matches =
+                            retained_pairs.iter().map(|(matched, _)| *matched).collect();
+                        quick_select.labels =
+                            retained_pairs.into_iter().map(|(_, label)| label).collect();
+                        match current_match {
+                            Some(current_match) => {
+                                if let Some(current) = quick_select
+                                    .matches
+                                    .iter()
+                                    .position(|matched| *matched == current_match)
+                                {
+                                    quick_select.current = current;
+                                    false
+                                } else {
+                                    true
+                                }
+                            }
+                            None => true,
+                        }
+                    }
+                }
+                None => false,
+            };
+            if retire_overlay {
+                self.overlay = None;
+            }
+        }
+
+        pub(super) fn reconcile_terminal_mutation(&mut self, terminal: &Terminal) {
+            self.reconcile_stable_coordinates(terminal);
+            if !self.overlay_active()
+                && ordinary_selection_is_invalidated_by_visible_dirty_rows(
+                    terminal,
+                    self.stable_viewport.active_top(terminal),
+                    self.ordinary_selection,
+                )
+            {
+                self.ordinary_selection = None;
+            }
         }
 
         pub(super) fn copy_search_mode(&self) -> Option<WindowCopySearchMode> {
@@ -101575,6 +101621,34 @@ mod pane_transient_overlay {
                 PaneTransientOverlay::QuickSelect(_) => None,
             }
         }
+    }
+
+    fn source_cell_is_retained(
+        cell: SelectionSourceCell,
+        domain: super::TerminalScreenDomain,
+        retained: &std::ops::Range<super::StableRowIndex>,
+    ) -> bool {
+        cell.domain == domain && retained.contains(&cell.row)
+    }
+
+    fn viewport_cell_for_source(
+        source: SelectionSourceCell,
+        domain: super::TerminalScreenDomain,
+        viewport_top: super::StableRowIndex,
+        size: super::TerminalSize,
+    ) -> Option<SelectionCell> {
+        if source.domain != domain || source.column >= usize::from(size.columns) {
+            return None;
+        }
+        let row = source.row.checked_sub(viewport_top)?;
+        let row = u16::try_from(row).ok()?;
+        if row >= size.rows {
+            return None;
+        }
+        Some(SelectionCell {
+            row,
+            column: u16::try_from(source.column).ok()?,
+        })
     }
 }
 
@@ -188447,6 +188521,341 @@ return config
     }
 
     #[test]
+    fn window_app_inactive_output_preserves_retained_copy_search_coordinates() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"row-zero\r\nrow-one").unwrap();
+        app.enter_copy_mode();
+        assert!(app.set_copy_mode_cursor(1, 0));
+        assert!(app.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        assert!(app.update_search_query("row"));
+        assert!(app.perform_copy_mode_assignment(super::WindowCopyModeAssignment::AcceptPattern));
+        let owner = app.active_pane_id();
+        let source_cursor = active_copy_mode_for_test(&app).source_cursor;
+        let source_anchor = active_copy_mode_for_test(&app).source_anchor;
+        assert_eq!(active_copy_mode_for_test(&app).cursor.row, 1);
+        assert_eq!(
+            active_copy_mode_for_test(&app).anchor.map(|cell| cell.row),
+            Some(1)
+        );
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: owner,
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pane_pty_output(owner, b"\r\nnext").unwrap();
+
+        let inactive = app.pane_runtimes.get(&owner).expect("inactive owner");
+        let copy = inactive
+            .ui
+            .retained_copy_mode()
+            .expect("retained Copy-search state");
+        assert_eq!(copy.source_cursor, source_cursor);
+        assert_eq!(copy.source_anchor, source_anchor);
+        assert_eq!(copy.cursor, SelectionCell { row: 0, column: 0 });
+        assert_eq!(copy.anchor, Some(SelectionCell { row: 0, column: 0 }));
+        assert_eq!(
+            inactive.ui.copy_search_mode(),
+            Some(super::WindowCopySearchMode::Copy)
+        );
+        assert_eq!(
+            inactive
+                .ui
+                .retained_search()
+                .map(|search| search.query.as_str()),
+            Some("row")
+        );
+
+        let mut offscreen = NativeWindowApp::new(None);
+        offscreen.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        offscreen.handle_pty_output(b"source\r\nvisible").unwrap();
+        offscreen.enter_copy_mode();
+        assert!(offscreen.set_copy_mode_cursor(0, 0));
+        let owner = offscreen.active_pane_id();
+        let retained_but_offscreen = active_copy_mode_for_test(&offscreen).source_cursor;
+        offscreen
+            .dispatch_app_action(AppAction::SplitPane {
+                pane: owner,
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+        offscreen
+            .handle_pane_pty_output(owner, b"\r\nnew-1\r\nnew-2")
+            .unwrap();
+        let inactive = offscreen
+            .pane_runtimes
+            .get(&owner)
+            .expect("inactive offscreen owner");
+        assert!(
+            inactive
+                .runtime
+                .terminal()
+                .retained_stable_range()
+                .contains(&retained_but_offscreen.row),
+            "source row remains in history, but no longer has a viewport projection"
+        );
+        assert!(
+            !inactive.ui.overlay_active(),
+            "stable-to-viewport conversion failure must retire instead of retaining a stale cell"
+        );
+    }
+
+    #[test]
+    fn window_app_inactive_prune_retires_only_unretained_copy_search_owner() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        app.runtime.set_scrollback_limit(2);
+        app.handle_pty_output(b"copy-old\r\nneedle\r\nlive")
+            .unwrap();
+        app.enter_copy_mode();
+        assert!(app.move_copy_mode_to_scrollback_top());
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        assert!(app.update_search_query("needle"));
+        assert!(app.perform_copy_mode_assignment(super::WindowCopyModeAssignment::AcceptPattern));
+        let owner = app.active_pane_id();
+        let stale_cursor = active_copy_mode_for_test(&app).source_cursor;
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: owner,
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.enter_search_mode();
+        assert!(!app.update_search_query("active-owner-query"));
+        app.handle_pane_pty_output(owner, b"\r\nnew-1\r\nnew-2")
+            .unwrap();
+
+        let inactive = app.pane_runtimes.get(&owner).expect("inactive owner");
+        assert!(
+            !inactive
+                .runtime
+                .terminal()
+                .retained_stable_range()
+                .contains(&stale_cursor.row),
+            "test setup must prune the inactive Copy cursor"
+        );
+        assert!(!inactive.ui.overlay_active());
+        assert!(inactive.ui.retained_copy_mode().is_none());
+        assert!(inactive.ui.retained_search().is_none());
+        assert_eq!(
+            search_for_test(&app).map(|search| search.query.as_str()),
+            Some("active-owner-query"),
+            "identity retirement must be owner-local"
+        );
+
+        let mut anchor = NativeWindowApp::new(None);
+        anchor.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        anchor.runtime.set_scrollback_limit(2);
+        anchor
+            .handle_pty_output(b"anchor-old\r\ncursor-keep\r\nlive")
+            .unwrap();
+        anchor.enter_copy_mode();
+        assert!(anchor.move_copy_mode_to_scrollback_top());
+        assert!(anchor.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
+        assert!(anchor.move_copy_mode_cursor_by_lines(1));
+        let owner = anchor.active_pane_id();
+        let copy = active_copy_mode_for_test(&anchor);
+        let source_cursor = copy.source_cursor;
+        let source_anchor = copy.source_anchor.expect("Copy anchor");
+        anchor
+            .dispatch_app_action(AppAction::SplitPane {
+                pane: owner,
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+        anchor
+            .handle_pane_pty_output(owner, b"\r\nnew-1\r\nnew-2")
+            .unwrap();
+        let inactive = anchor
+            .pane_runtimes
+            .get(&owner)
+            .expect("inactive anchor owner");
+        assert!(
+            inactive
+                .runtime
+                .terminal()
+                .retained_stable_range()
+                .contains(&source_cursor.row)
+        );
+        assert!(
+            !inactive
+                .runtime
+                .terminal()
+                .retained_stable_range()
+                .contains(&source_anchor.row)
+        );
+        assert!(
+            !inactive.ui.overlay_active(),
+            "anchor-only prune must retire the full CopySearch controller"
+        );
+    }
+
+    #[test]
+    fn window_app_inactive_prune_clears_search_current_without_dropping_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        app.runtime.set_scrollback_limit(2);
+        app.handle_pty_output(b"needle-old\r\nkeep\r\nlive")
+            .unwrap();
+        app.enter_search_mode();
+        assert!(app.update_search_query("needle-old"));
+        let owner = app.active_pane_id();
+        let stale_match = active_search_for_test(&app).current.expect("search match");
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: owner,
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pane_pty_output(owner, b"\r\nnew-1\r\nnew-2")
+            .unwrap();
+
+        let inactive = app.pane_runtimes.get(&owner).expect("inactive owner");
+        assert!(!stale_match.is_retained(inactive.runtime.terminal()));
+        let search = inactive
+            .ui
+            .retained_search()
+            .expect("Search remains active");
+        assert_eq!(search.query, "needle-old");
+        assert_eq!(search.current, None);
+        assert!(search.editing);
+        assert_eq!(
+            inactive.ui.copy_search_mode(),
+            Some(super::WindowCopySearchMode::Search)
+        );
+    }
+
+    #[test]
+    fn window_app_inactive_quick_prune_keeps_match_identity_or_retires_overlay() {
+        fn quick_fixture(
+            current: usize,
+        ) -> (
+            NativeWindowApp,
+            rssh_core::PaneId,
+            WindowSearchMatch,
+            String,
+            WindowSearchMatch,
+        ) {
+            let mut app = NativeWindowApp::new(None);
+            app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+            app.runtime.set_scrollback_limit(2);
+            app.handle_pty_output(b"https://old.test\r\nhttps://keep.test\r\nlive")
+                .unwrap();
+            app.enter_quick_select_mode();
+            let quick = active_quick_select_for_test(&app);
+            assert_eq!(quick.matches.len(), 2);
+            let old = quick.matches[0];
+            let keep = quick.matches[1];
+            let keep_label = quick.labels[1].clone();
+            app.active_ui
+                .quick_select_mut()
+                .expect("quick-select state")
+                .current = current;
+            app.update_transient_selection_projection();
+            let owner = app.active_pane_id();
+            app.dispatch_app_action(AppAction::SplitPane {
+                pane: owner,
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+            (app, owner, keep, keep_label, old)
+        }
+
+        let (mut survives, owner, keep, keep_label, old) = quick_fixture(1);
+        survives
+            .handle_pane_pty_output(owner, b"\r\nnew-1\r\nnew-2")
+            .unwrap();
+        let inactive = survives
+            .pane_runtimes
+            .get(&owner)
+            .expect("inactive Quick owner");
+        assert!(!old.is_retained(inactive.runtime.terminal()));
+        assert!(keep.is_retained(inactive.runtime.terminal()));
+        let quick = inactive.ui.quick_select().expect("surviving Quick overlay");
+        assert_eq!(quick.matches, [keep]);
+        assert_eq!(quick.labels, [keep_label]);
+        assert_eq!(quick.current, 0);
+        assert_eq!(quick.current_match(), Some(keep));
+
+        let (mut loses_current, owner, keep, _, old) = quick_fixture(0);
+        loses_current
+            .handle_pane_pty_output(owner, b"\r\nnew-1\r\nnew-2")
+            .unwrap();
+        let inactive = loses_current
+            .pane_runtimes
+            .get(&owner)
+            .expect("inactive Quick owner");
+        assert!(!old.is_retained(inactive.runtime.terminal()));
+        assert!(keep.is_retained(inactive.runtime.terminal()));
+        assert!(
+            inactive.ui.quick_select().is_none(),
+            "current loss must retire instead of retargeting to the survivor"
+        );
+
+        let (mut becomes_empty, owner, _, _, _) = quick_fixture(0);
+        becomes_empty
+            .handle_pane_pty_output(owner, b"\r\nnew-1\r\nnew-2\r\nnew-3")
+            .unwrap();
+        let inactive = becomes_empty
+            .pane_runtimes
+            .get(&owner)
+            .expect("inactive Quick owner");
+        assert!(
+            inactive.ui.quick_select().is_none(),
+            "empty retained result set must retire Quick Select"
+        );
+
+        let (mut malformed, owner, _, _, _) = quick_fixture(0);
+        malformed
+            .pane_runtimes
+            .get_mut(&owner)
+            .expect("inactive malformed Quick owner")
+            .ui
+            .quick_select_mut()
+            .expect("Quick overlay")
+            .labels
+            .pop();
+        malformed
+            .handle_pane_pty_output(owner, b"\x1b[2;1HX")
+            .unwrap();
+        assert!(
+            malformed
+                .pane_runtimes
+                .get(&owner)
+                .is_some_and(|runtime| runtime.ui.quick_select().is_none()),
+            "parallel-array invariant violation must retire rather than silently zip-truncate"
+        );
+
+        let (mut invalid_current, owner, _, _, _) = quick_fixture(0);
+        invalid_current
+            .pane_runtimes
+            .get_mut(&owner)
+            .expect("inactive invalid-current Quick owner")
+            .ui
+            .quick_select_mut()
+            .expect("Quick overlay")
+            .current = usize::MAX;
+        invalid_current
+            .handle_pane_pty_output(owner, b"\x1b[2;1HX")
+            .unwrap();
+        assert!(
+            invalid_current
+                .pane_runtimes
+                .get(&owner)
+                .is_some_and(|runtime| runtime.ui.quick_select().is_none()),
+            "invalid current index must retire rather than select a survivor"
+        );
+    }
+
+    #[test]
     fn window_app_ed3_preserves_unchanged_visible_selection() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
@@ -189495,6 +189904,247 @@ return config
     }
 
     #[test]
+    fn window_app_inactive_screen_or_height_change_retires_only_owner_ui_state() {
+        struct FailingWriter;
+
+        impl Write for FailingWriter {
+            fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+                Err(io::Error::other("intentional inactive writer failure"))
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut domain = NativeWindowApp::new(None);
+        domain.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        domain.enter_search_mode();
+        assert!(!domain.update_search_query("inactive-domain-owner"));
+        let owner = domain.active_pane_id();
+        domain
+            .dispatch_app_action(AppAction::SplitPane {
+                pane: owner,
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+        domain.enter_search_mode();
+        assert!(!domain.update_search_query("active-domain-owner"));
+        {
+            let inactive = domain
+                .pane_runtimes
+                .get_mut(&owner)
+                .expect("inactive domain owner");
+            inactive.runtime.set_enq_answerback("answer");
+            inactive.writer = Some(Box::new(FailingWriter));
+        }
+
+        assert!(
+            domain
+                .handle_pane_pty_output(owner, b"\x1b[?1049h\x05")
+                .is_err(),
+            "fixture must exit through a fallible inactive response write"
+        );
+
+        let inactive = domain
+            .pane_runtimes
+            .get(&owner)
+            .expect("inactive domain owner after error");
+        assert_eq!(
+            inactive.runtime.terminal().stable_dimensions().domain,
+            TerminalScreenDomain::Alternate
+        );
+        assert!(
+            !inactive.ui.overlay_active(),
+            "identity retirement must precede fallible writer/callback paths"
+        );
+        assert_eq!(
+            search_for_test(&domain).map(|search| search.query.as_str()),
+            Some("active-domain-owner"),
+            "inactive failure must not retire the active owner's UI"
+        );
+
+        let mut height = NativeWindowApp::new(None);
+        height.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        height.enter_search_mode();
+        assert!(!height.update_search_query("inactive-height-owner"));
+        let owner = height.active_pane_id();
+        height
+            .dispatch_app_action(AppAction::SplitPane {
+                pane: owner,
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+        height.runtime.resize(rssh_core::TerminalSize::new(12, 4));
+        height.enter_search_mode();
+        assert!(!height.update_search_query("active-height-owner"));
+
+        height
+            .handle_window_resize(PhysicalSize::new(96, 80))
+            .unwrap();
+
+        assert!(
+            height
+                .pane_runtimes
+                .get(&owner)
+                .is_some_and(|runtime| !runtime.ui.overlay_active()),
+            "only the inactive runtime changes height in this fixture"
+        );
+        assert_eq!(
+            search_for_test(&height).map(|search| search.query.as_str()),
+            Some("active-height-owner"),
+            "same-height active owner must survive another pane's identity change"
+        );
+    }
+
+    #[test]
+    fn window_app_active_screen_or_height_change_retires_owner_ui_state() {
+        let mut domain = NativeWindowApp::new(None);
+        domain.enter_search_mode();
+        assert!(!domain.update_search_query("active-domain"));
+        domain.handle_pty_output(b"\x1b[?1049h").unwrap();
+        assert!(!overlay_active_for_test(&domain));
+
+        let mut roundtrip = NativeWindowApp::new(None);
+        roundtrip.enter_search_mode();
+        assert!(!roundtrip.update_search_query("same-chunk-roundtrip"));
+        roundtrip
+            .handle_pty_output(b"\x1b[?1049halt\x1b[?1049l")
+            .unwrap();
+        assert_eq!(
+            roundtrip.runtime.terminal().stable_dimensions().domain,
+            TerminalScreenDomain::Main
+        );
+        assert!(
+            !overlay_active_for_test(&roundtrip),
+            "same-chunk main-to-alt-to-main must still retire the original identity"
+        );
+
+        let mut height = NativeWindowApp::new(None);
+        height.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        height.enter_search_mode();
+        assert!(!height.update_search_query("active-height"));
+        height
+            .handle_window_resize(PhysicalSize::new(96, 80))
+            .unwrap();
+        assert!(!overlay_active_for_test(&height));
+
+        let mut reset = NativeWindowApp::new(None);
+        reset.handle_pty_output(b"before-reset").unwrap();
+        reset.enter_search_mode();
+        assert!(!reset.update_search_query("active-reset"));
+        reset.reset_terminal().unwrap();
+        assert!(!overlay_active_for_test(&reset));
+        assert!(reset.selection.is_none());
+    }
+
+    #[test]
+    fn window_app_width_only_resize_preserves_active_and_inactive_overlays() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 4));
+        app.enter_search_mode();
+        assert!(!app.update_search_query("inactive-width-owner"));
+        let owner = app.active_pane_id();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: owner,
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 4));
+        app.enter_search_mode();
+        assert!(!app.update_search_query("active-width-owner"));
+
+        app.handle_window_resize(PhysicalSize::new(96, 80)).unwrap();
+
+        assert_eq!(
+            app.runtime.terminal().grid().size(),
+            rssh_core::TerminalSize::new(12, 4)
+        );
+        assert_eq!(
+            search_for_test(&app).map(|search| search.query.as_str()),
+            Some("active-width-owner")
+        );
+        assert_eq!(
+            app.pane_runtimes
+                .get(&owner)
+                .and_then(|runtime| runtime.ui.retained_search())
+                .map(|search| search.query.as_str()),
+            Some("inactive-width-owner")
+        );
+    }
+
+    #[test]
+    fn window_app_raw_pty_reset_and_destructive_erase_retire_owner_ui_state() {
+        for bytes in [b"\x1bc".as_slice(), b"\x1b[2J".as_slice()] {
+            let mut active = NativeWindowApp::new(None);
+            active.handle_pty_output(b"active-owner").unwrap();
+            active.enter_search_mode();
+            assert!(!active.update_search_query("raw-active"));
+            active.handle_pty_output(bytes).unwrap();
+            assert!(
+                !overlay_active_for_test(&active),
+                "raw active mutation {bytes:?}"
+            );
+
+            let mut inactive = NativeWindowApp::new(None);
+            inactive.handle_pty_output(b"inactive-owner").unwrap();
+            inactive.enter_search_mode();
+            assert!(!inactive.update_search_query("raw-inactive"));
+            let owner = inactive.active_pane_id();
+            inactive
+                .dispatch_app_action(AppAction::SplitPane {
+                    pane: owner,
+                    direction: SplitDirection::Right,
+                    launch: None,
+                })
+                .unwrap();
+            inactive.handle_pane_pty_output(owner, bytes).unwrap();
+            assert!(
+                inactive
+                    .pane_runtimes
+                    .get(&owner)
+                    .is_some_and(|runtime| !runtime.ui.overlay_active()),
+                "raw inactive mutation {bytes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_forced_overlay_retirement_rechecks_deferred_ordinary_dirty_rows() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+        app.runtime.set_scrollback_limit(2);
+        app.handle_pty_output(b"https://selected.test\r\nkeep\r\nlive")
+            .unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 4 },
+        );
+        app.scroll_viewport_lines(1);
+        assert_eq!(app.current_stable_viewport_top(), Some(0));
+        app.enter_quick_select_mode();
+        assert!(ordinary_selection_for_test(&app).is_some());
+        assert!(overlay_active_for_test(&app));
+
+        app.handle_pty_output(b"\x1b[1;1HX\r\nnew-1\r\nnew-2\r\nnew-3")
+            .unwrap();
+
+        assert!(
+            !overlay_active_for_test(&app),
+            "current Quick match must be retired by pruning"
+        );
+        assert!(
+            ordinary_selection_for_test(&app).is_none(),
+            "forced overlay exit must immediately re-evaluate accumulated ordinary dirty rows"
+        );
+        assert!(app.selection.is_none());
+    }
+
+    #[test]
     fn window_app_main_to_alt_retires_selection_before_projection() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
@@ -189910,9 +190560,7 @@ return config
         app.handle_pty_output(b"\r\nnew-1\r\nnew-2\r\nnew-3")
             .unwrap();
 
-        assert!(
-            quick_select_for_test(&app).is_some_and(|quick_select| quick_select.matches.is_empty())
-        );
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert_ne!(
             app.runtime
@@ -190180,9 +190828,7 @@ return config
         });
 
         assert!(!matched.is_retained(app.runtime.terminal()));
-        assert!(
-            quick_select_for_test(&app).is_some_and(|quick_select| quick_select.matches.is_empty())
-        );
+        assert!(quick_select_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert_eq!(
             snapshot_row_text(&app.snapshot, 0, 32),
@@ -190235,6 +190881,53 @@ return config
             "left-2          "
         );
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 16), "right-old       ");
+    }
+
+    #[test]
+    fn window_app_runtime_scrollback_limit_reconciles_active_and_inactive_overlays() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+        app.handle_pty_output(b"copy-old\r\nleft-1\r\nleft-2\r\nleft-live")
+            .unwrap();
+        app.enter_copy_mode();
+        assert!(app.move_copy_mode_to_scrollback_top());
+        let inactive_owner = app.active_pane_id();
+        let inactive_source = active_copy_mode_for_test(&app).source_cursor;
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: inactive_owner,
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"https://active-old.test\r\nright-1\r\nright-2\r\nright-live")
+            .unwrap();
+        app.enter_quick_select_mode();
+        let active_match = active_quick_select_for_test(&app)
+            .current_match()
+            .expect("active Quick match");
+
+        app.set_config_overrides(NativeConfigOverrides {
+            scrollback_lines: Some(1),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert!(!active_match.is_retained(app.runtime.terminal()));
+        assert!(quick_select_for_test(&app).is_none());
+        assert!(app.selection.is_none());
+        let inactive = app
+            .pane_runtimes
+            .get(&inactive_owner)
+            .expect("inactive Copy owner");
+        assert!(
+            !inactive
+                .runtime
+                .terminal()
+                .retained_stable_range()
+                .contains(&inactive_source.row)
+        );
+        assert!(!inactive.ui.overlay_active());
+        assert_eq!(inactive.runtime.terminal().scrollback().len(), 1);
+        assert_eq!(app.runtime.terminal().scrollback().len(), 1);
     }
 
     #[test]
@@ -194088,6 +194781,135 @@ return config
             !app.perform_copy_mode_assignment(super::WindowCopyModeAssignment::AcceptPattern),
             "AcceptPattern must not revive stale Copy coordinates"
         );
+    }
+
+    #[test]
+    fn window_app_clear_scrollback_and_viewport_reconciles_overlay_projection() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        app.handle_pty_output(b"copy-owner\r\nvisible").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+        app.enter_copy_mode();
+        assert!(app.set_copy_mode_cursor(0, 0));
+        assert!(app.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
+        let source_cursor = active_copy_mode_for_test(&app).source_cursor;
+        assert!(app.selection.is_some());
+
+        app.clear_scrollback_and_viewport();
+
+        assert!(
+            app.runtime
+                .terminal()
+                .retained_stable_range()
+                .contains(&source_cursor.row),
+            "test must prove destructive erase retirement does not rely on pruning"
+        );
+        assert!(!overlay_active_for_test(&app));
+        assert!(ordinary_selection_for_test(&app).is_none());
+        assert!(app.selection.is_none());
+    }
+
+    #[test]
+    fn window_app_clear_scrollback_only_reconciles_without_identity_retirement() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        app.handle_pty_output(b"needle-old\r\nkeep\r\nlive")
+            .unwrap();
+        app.enter_search_mode();
+        assert!(app.update_search_query("needle-old"));
+        let stale_match = active_search_for_test(&app).current.expect("search match");
+
+        app.clear_scrollback();
+
+        assert!(!stale_match.is_retained(app.runtime.terminal()));
+        let search = active_search_for_test(&app);
+        assert_eq!(search.query, "needle-old");
+        assert_eq!(search.current, None);
+        assert_eq!(
+            copy_search_mode_for_test(&app),
+            Some(super::WindowCopySearchMode::Search)
+        );
+        assert!(app.selection.is_none());
+    }
+
+    #[test]
+    fn window_app_active_prune_reconciles_copy_search_and_quick_overlay() {
+        let mut copy = NativeWindowApp::new(None);
+        copy.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        copy.runtime.set_scrollback_limit(2);
+        copy.handle_pty_output(b"copy-old\r\nneedle\r\nlive")
+            .unwrap();
+        copy.enter_copy_mode();
+        assert!(copy.move_copy_mode_to_scrollback_top());
+        assert!(copy.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        assert!(copy.update_search_query("needle"));
+        assert!(copy.perform_copy_mode_assignment(super::WindowCopyModeAssignment::AcceptPattern));
+        let stale_cursor = active_copy_mode_for_test(&copy).source_cursor;
+
+        copy.handle_pty_output(b"\r\nnew-1\r\nnew-2").unwrap();
+
+        assert!(
+            !copy
+                .runtime
+                .terminal()
+                .retained_stable_range()
+                .contains(&stale_cursor.row)
+        );
+        assert!(!overlay_active_for_test(&copy));
+        assert!(copy.selection.is_none());
+
+        let mut quick = NativeWindowApp::new(None);
+        quick.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+        quick.runtime.set_scrollback_limit(2);
+        quick
+            .handle_pty_output(b"https://old.test\r\nhttps://keep.test\r\nlive")
+            .unwrap();
+        quick.enter_quick_select_mode();
+        let old = active_quick_select_for_test(&quick).matches[0];
+        let keep = active_quick_select_for_test(&quick).matches[1];
+        let keep_label = active_quick_select_for_test(&quick).labels[1].clone();
+        quick
+            .active_ui
+            .quick_select_mut()
+            .expect("quick-select state")
+            .current = 1;
+        quick.update_transient_selection_projection();
+
+        quick.handle_pty_output(b"\r\nnew-1\r\nnew-2").unwrap();
+
+        assert!(!old.is_retained(quick.runtime.terminal()));
+        assert!(keep.is_retained(quick.runtime.terminal()));
+        let retained = active_quick_select_for_test(&quick);
+        assert_eq!(retained.matches, [keep]);
+        assert_eq!(retained.labels, [keep_label]);
+        assert_eq!(retained.current, 0);
+        assert_eq!(retained.current_match(), Some(keep));
+        assert_eq!(
+            quick.selection,
+            keep.viewport_selection_for_top(
+                quick.runtime.terminal().stable_dimensions().domain,
+                quick.current_viewport_stable_top(),
+                quick.runtime.terminal().grid().size(),
+            )
+        );
+
+        let mut loss = NativeWindowApp::new(None);
+        loss.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+        loss.runtime.set_scrollback_limit(2);
+        loss.handle_pty_output(b"https://old.test\r\nhttps://keep.test\r\nlive")
+            .unwrap();
+        loss.enter_quick_select_mode();
+        let old = active_quick_select_for_test(&loss).matches[0];
+        let keep = active_quick_select_for_test(&loss).matches[1];
+        loss.handle_pty_output(b"\r\nnew-1\r\nnew-2").unwrap();
+        assert!(!old.is_retained(loss.runtime.terminal()));
+        assert!(keep.is_retained(loss.runtime.terminal()));
+        assert!(quick_select_for_test(&loss).is_none());
+        assert!(loss.selection.is_none());
     }
 
     #[test]

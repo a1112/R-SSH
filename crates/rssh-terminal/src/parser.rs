@@ -3183,6 +3183,7 @@ impl Terminal {
     }
 
     fn reset_terminal(&mut self) {
+        self.bump_screen_identity_generation();
         let size = self.grid.size();
         self.prune_scrollback_rows(self.scrollback.len());
         self.grid = TerminalGrid::new_with_seqno(size, self.seqno);
@@ -4108,10 +4109,7 @@ impl Terminal {
                 return;
             }
 
-            self.screen_identity_generation = self
-                .screen_identity_generation
-                .checked_add(1)
-                .expect("terminal screen identity generation overflow");
+            self.bump_screen_identity_generation();
             let size = self.grid.size();
             self.main_screen = Some(self.screen_state());
             self.grid = TerminalGrid::new_with_seqno(size, self.seqno);
@@ -4133,15 +4131,19 @@ impl Terminal {
             self.right_margin = size.columns.saturating_sub(1);
             self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
         } else if let Some(screen) = self.main_screen.take() {
-            self.screen_identity_generation = self
-                .screen_identity_generation
-                .checked_add(1)
-                .expect("terminal screen identity generation overflow");
+            self.bump_screen_identity_generation();
             self.restore_screen_state(screen);
             self.delete_orphan_kitty_relative_children();
             let size = self.grid.size();
             self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
         }
+    }
+
+    fn bump_screen_identity_generation(&mut self) {
+        self.screen_identity_generation = self
+            .screen_identity_generation
+            .checked_add(1)
+            .expect("terminal screen identity generation overflow");
     }
 
     fn screen_state(&self) -> ScreenState {
@@ -4475,6 +4477,9 @@ impl Terminal {
                 );
             }
             2 => {
+                if !selective {
+                    self.bump_screen_identity_generation();
+                }
                 for row in 0..size.rows {
                     self.clear_cells(row, 0, size.columns, selective);
                 }
@@ -7239,6 +7244,36 @@ mod stable_row_tests {
             terminal.screen_identity_generation(),
             before.checked_add(2).unwrap()
         );
+    }
+
+    #[test]
+    fn terminal_screen_identity_generation_tracks_hard_reset_and_full_erase() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"data");
+        let before = terminal.screen_identity_generation();
+
+        terminal.feed(b"\x1bc");
+        assert_eq!(
+            terminal.screen_identity_generation(),
+            before.checked_add(1).unwrap()
+        );
+
+        terminal.feed(b"\x1b[2J");
+        assert_eq!(
+            terminal.screen_identity_generation(),
+            before.checked_add(2).unwrap()
+        );
+    }
+
+    #[test]
+    fn terminal_screen_identity_generation_ignores_partial_selective_and_scrollback_erases() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"data");
+        let before = terminal.screen_identity_generation();
+
+        terminal.feed(b"\x1b[J\x1b[1J\x1b[?2J\x1b[3J");
+
+        assert_eq!(terminal.screen_identity_generation(), before);
     }
 
     #[test]

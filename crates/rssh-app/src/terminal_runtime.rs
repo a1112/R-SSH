@@ -3685,6 +3685,19 @@ mod tests {
     }
 
     #[test]
+    fn terminal_runtime_reports_reset_and_full_erase_identity_mutations() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(10, 2));
+
+        let reset = runtime.feed_pty_output_with_display(b"\x1bc");
+        let erase = runtime.feed_pty_output_with_display(b"\x1b[2J");
+        let non_identity = runtime.feed_pty_output_with_display(b"\x1b[J\x1b[1J\x1b[?2J\x1b[3J");
+
+        assert!(reset.screen_identity_changed);
+        assert!(erase.screen_identity_changed);
+        assert!(!non_identity.screen_identity_changed);
+    }
+
+    #[test]
     fn feeds_emoji_prefixed_pty_output_into_terminal_grid() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(24, 2));
 
