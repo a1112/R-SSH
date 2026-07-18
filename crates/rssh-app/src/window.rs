@@ -89395,100 +89395,7 @@ impl NativeWindowApp {
             .clamp_main(self.runtime.terminal());
         self.invalidate_active_ordinary_selection_for_presentation();
         self.update_selection_projection();
-        let size = self.runtime.terminal().grid().size();
-        let inactive_search_selections = self.copy_mode_inactive_search_selections(size);
-        let mut snapshot = terminal_runtime_snapshot(&self.runtime, self.active_ui.stable_viewport);
-
-        if self.active_ui.quick_select().is_some() && self.quick_select_remove_styling {
-            snapshot = quick_select_remove_styling_snapshot(snapshot);
-        }
-
-        if !inactive_search_selections.is_empty() {
-            let inactive_fg_color = self
-                .copy_mode_inactive_highlight_fg
-                .map(native_color_spec_to_render_color)
-                .map(Some);
-            let inactive_bg_color = self
-                .copy_mode_inactive_highlight_bg
-                .map(native_color_spec_to_render_color);
-            snapshot = snapshot.with_selection_colors_overlay(
-                |row, column| {
-                    inactive_search_selections
-                        .iter()
-                        .any(|selection| selection.contains(row, column, size))
-                },
-                inactive_fg_color,
-                inactive_bg_color,
-            );
-        }
-
-        let copy_overlay_rendering = self.copy_overlay_rendering();
-        self.snapshot = if !copy_overlay_rendering && self.active_ui.quick_select().is_none() {
-            ordinary_selection_snapshot(
-                snapshot,
-                self.selection,
-                size,
-                self.selection_fg_color,
-                self.selection_bg_color,
-            )
-        } else if let Some(selection) = self.selection {
-            let selection_fg_color = if copy_overlay_rendering {
-                self.copy_mode_active_highlight_fg
-                    .map(native_color_spec_to_render_color)
-                    .map(Some)
-                    .or(self.selection_fg_color)
-            } else if self.active_ui.quick_select().is_some() {
-                self.quick_select_match_fg
-                    .map(native_color_spec_to_render_color)
-                    .map(Some)
-                    .or(self.selection_fg_color)
-            } else {
-                self.selection_fg_color
-            };
-            let selection_bg_color = if copy_overlay_rendering {
-                self.copy_mode_active_highlight_bg
-                    .map(native_color_spec_to_render_color)
-                    .or(self.selection_bg_color)
-            } else if self.active_ui.quick_select().is_some() {
-                self.quick_select_match_bg
-                    .map(native_color_spec_to_render_color)
-                    .or(self.selection_bg_color)
-            } else {
-                self.selection_bg_color
-            };
-            snapshot.with_selection_colors_overlay(
-                |row, column| selection.contains(row, column, size),
-                selection_fg_color,
-                selection_bg_color,
-            )
-        } else {
-            snapshot
-        };
-    }
-
-    fn copy_mode_inactive_search_selections(
-        &self,
-        size: rssh_core::TerminalSize,
-    ) -> Vec<WindowSelection> {
-        if !self.copy_overlay_rendering() || size.rows == 0 || size.columns == 0 {
-            return Vec::new();
-        }
-        let Some(search) = self.active_ui.retained_search() else {
-            return Vec::new();
-        };
-        if search.query.is_empty() {
-            return Vec::new();
-        }
-
-        let dimensions = self.runtime.terminal().stable_dimensions();
-        let viewport_top = self.current_viewport_stable_top();
-        window_search_matches_with_type(self.runtime.terminal(), &search.query, search.match_type)
-            .into_iter()
-            .filter(|matched| Some(*matched) != search.current)
-            .filter_map(|matched| {
-                matched.viewport_selection_for_top(dimensions.domain, viewport_top, size)
-            })
-            .collect()
+        self.snapshot = terminal_runtime_snapshot(&self.runtime, self.active_ui.stable_viewport);
     }
 
     fn refresh_snapshot_after_terminal_damage(&mut self, damage: &[DamageRegion]) {
@@ -90434,46 +90341,49 @@ impl NativeWindowApp {
 
     fn render_snapshot(&self) -> TerminalRenderSnapshot {
         let layout = self.pane_render_layout();
+        let palette = self.native_resolved_palette();
         if layout.panes.len() <= 1 {
-            let (rows, columns) = layout
-                .panes
-                .first()
-                .map(|rect| (rect.rows, rect.columns))
-                .unwrap_or_else(|| {
-                    let size = self.runtime.terminal().grid().size();
-                    (size.rows, size.columns)
-                });
-            let snapshot =
-                foreground_text_hsb_snapshot(self.snapshot.clone(), self.foreground_text_hsb);
-            let snapshot = text_background_opacity_snapshot(snapshot, self.text_background_opacity);
-            let snapshot =
-                window_background_opacity_snapshot(snapshot, self.window_background_opacity);
-            let snapshot = text_min_contrast_snapshot(
-                snapshot,
+            let rect = layout.panes.first().copied().unwrap_or_else(|| {
+                let size = self.runtime.terminal().grid().size();
+                PaneRenderRect {
+                    pane_id: self.app_shell.active_pane_id(),
+                    row: self.terminal_frame_row_offset(),
+                    column: 0,
+                    rows: size.rows,
+                    columns: size.columns,
+                }
+            });
+            let snapshot = pane_presentation_snapshot(
+                &self.snapshot,
+                self.runtime.terminal(),
+                &self.active_ui,
+                rect,
+                &palette,
+                &self.selection_word_boundary,
+                self.quick_select_remove_styling,
+                self.foreground_text_hsb,
+                self.text_background_opacity,
+                self.window_background_opacity,
+                None,
                 self.text_min_contrast_ratio,
-                color_to_rgba(self.foreground_color, DEFAULT_RENDER_FOREGROUND_RGBA),
-                color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
                 self.bold_brightens_ansi_colors,
-                self.ansi_palette,
-                self.indexed_palette,
             );
             let snapshot =
                 self.apply_compose_cursor_to_snapshot(self.app_shell.active_pane_id(), snapshot);
             let snapshot = self.apply_visual_bell_to_snapshot(
                 self.app_shell.active_pane_id(),
                 snapshot,
-                rows,
-                columns,
+                rect.rows,
+                rect.columns,
             );
             let snapshot = hyperlink_rules_snapshot(snapshot, &self.hyperlink_rules);
             return snapshot
-                .with_row_offset(self.terminal_frame_row_offset())
+                .with_viewport(rect.row, rect.column, rect.rows, rect.columns)
                 .with_overlay_cells(self.pane_badge_cells(&layout))
                 .with_overlay_cells(self.pane_select_cells(&layout))
                 .with_overlay_cells(self.ime_preedit_cells(&layout))
                 .with_overlay_cells(self.window_frame_border_cells())
                 .with_overlay_cells(self.tab_bar_cells())
-                .with_overlay_cells(self.quick_select_cells())
                 .with_overlay_cells(self.tab_navigator_cells())
                 .with_overlay_cells(self.command_palette_cells())
                 .with_overlay_cells(self.input_selector_cells())
@@ -90487,56 +90397,28 @@ impl NativeWindowApp {
 
         let mut snapshot: Option<TerminalRenderSnapshot> = None;
         for rect in pane_rects {
-            let Some(pane_snapshot) = self.pane_snapshot(rect.pane_id) else {
-                continue;
+            let (base, terminal, ui) = if rect.pane_id == active_pane {
+                (&self.snapshot, self.runtime.terminal(), &self.active_ui)
+            } else {
+                let Some(runtime) = self.pane_runtimes.get(&rect.pane_id) else {
+                    continue;
+                };
+                (&runtime.snapshot, runtime.runtime.terminal(), &runtime.ui)
             };
-            let mut pane_snapshot = pane_snapshot.clone();
-            if rect.pane_id != active_pane {
-                let runtime = self
-                    .pane_runtimes
-                    .get(&rect.pane_id)
-                    .expect("rendered inactive pane must have a runtime");
-                let terminal = runtime.runtime.terminal();
-                let dimensions = terminal.stable_dimensions();
-                let viewport_top = runtime
-                    .ui
-                    .stable_viewport
-                    .active_top(terminal)
-                    .unwrap_or(dimensions.physical_top);
-                let selection = (!runtime.ui.overlay_active())
-                    .then_some(runtime.ui.ordinary_selection)
-                    .flatten()
-                    .and_then(|selection| {
-                        selection.viewport_selection(
-                            dimensions.domain,
-                            viewport_top,
-                            terminal.grid().size(),
-                        )
-                    });
-                pane_snapshot = ordinary_selection_snapshot(
-                    pane_snapshot,
-                    selection,
-                    runtime.runtime.terminal().grid().size(),
-                    self.selection_fg_color,
-                    self.selection_bg_color,
-                );
-            }
-            pane_snapshot = foreground_text_hsb_snapshot(pane_snapshot, self.foreground_text_hsb);
-            pane_snapshot =
-                text_background_opacity_snapshot(pane_snapshot, self.text_background_opacity);
-            pane_snapshot =
-                window_background_opacity_snapshot(pane_snapshot, self.window_background_opacity);
-            if rect.pane_id != active_pane {
-                pane_snapshot = inactive_pane_snapshot(pane_snapshot, self.inactive_pane_hsb);
-            }
-            pane_snapshot = text_min_contrast_snapshot(
-                pane_snapshot,
+            let mut pane_snapshot = pane_presentation_snapshot(
+                base,
+                terminal,
+                ui,
+                rect,
+                &palette,
+                &self.selection_word_boundary,
+                self.quick_select_remove_styling,
+                self.foreground_text_hsb,
+                self.text_background_opacity,
+                self.window_background_opacity,
+                (rect.pane_id != active_pane).then_some(self.inactive_pane_hsb),
                 self.text_min_contrast_ratio,
-                color_to_rgba(self.foreground_color, DEFAULT_RENDER_FOREGROUND_RGBA),
-                color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
                 self.bold_brightens_ansi_colors,
-                self.ansi_palette,
-                self.indexed_palette,
             );
             pane_snapshot = self.apply_compose_cursor_to_snapshot(rect.pane_id, pane_snapshot);
             pane_snapshot = self.apply_visual_bell_to_snapshot(
@@ -90565,8 +90447,8 @@ impl NativeWindowApp {
                 let snapshot = text_min_contrast_snapshot(
                     snapshot,
                     self.text_min_contrast_ratio,
-                    color_to_rgba(self.foreground_color, DEFAULT_RENDER_FOREGROUND_RGBA),
-                    color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
+                    color_to_rgba(palette.foreground, DEFAULT_RENDER_FOREGROUND_RGBA),
+                    color_to_rgba(palette.background, DEFAULT_RENDER_BACKGROUND_RGBA),
                     self.bold_brightens_ansi_colors,
                     self.ansi_palette,
                     self.indexed_palette,
@@ -90582,7 +90464,6 @@ impl NativeWindowApp {
             .with_overlay_cells(self.ime_preedit_cells(&layout))
             .with_overlay_cells(self.window_frame_border_cells())
             .with_overlay_cells(self.tab_bar_cells())
-            .with_overlay_cells(self.quick_select_cells())
             .with_overlay_cells(self.tab_navigator_cells())
             .with_overlay_cells(self.command_palette_cells())
             .with_overlay_cells(self.input_selector_cells())
@@ -90982,67 +90863,6 @@ impl NativeWindowApp {
                 let offset = u16::try_from(offset).unwrap_or(u16::MAX);
                 let column = column.saturating_add(offset);
                 if column >= rect.column.saturating_add(rect.columns) {
-                    break;
-                }
-                cells.push(ui_render_cell(
-                    row, column, ch, foreground, background, true,
-                ));
-            }
-        }
-
-        cells
-    }
-
-    fn quick_select_cells(&self) -> Vec<RenderCell> {
-        let Some(quick_select) = self.active_ui.quick_select() else {
-            return Vec::new();
-        };
-        if quick_select.matches.is_empty() {
-            return Vec::new();
-        }
-
-        let size = self.runtime.terminal().grid().size();
-        if size.rows == 0 || size.columns == 0 {
-            return Vec::new();
-        }
-
-        let dimensions = self.runtime.terminal().stable_dimensions();
-        let viewport_top = self.current_viewport_stable_top();
-        let viewport_bottom = viewport_top
-            .saturating_add(StableRowIndex::try_from(size.rows).unwrap_or(StableRowIndex::MAX));
-        let foreground = self
-            .quick_select_label_fg
-            .map(native_color_spec_to_render_color)
-            .unwrap_or(Color::Rgb(12, 12, 14));
-        let background = self
-            .quick_select_label_bg
-            .map(native_color_spec_to_render_color)
-            .unwrap_or(Color::Rgb(255, 209, 102));
-        let row_offset = self.terminal_frame_row_offset();
-        let mut cells = Vec::new();
-
-        let input_prefix = quick_select.input.to_ascii_lowercase();
-        for (matched, label) in quick_select.matches.iter().zip(&quick_select.labels) {
-            if matched.domain != dimensions.domain
-                || label.is_empty()
-                || matched.source_row < viewport_top
-                || matched.source_row >= viewport_bottom
-                || (!input_prefix.is_empty() && !label.starts_with(&input_prefix))
-            {
-                continue;
-            }
-            let row = matched
-                .source_row
-                .saturating_sub(viewport_top)
-                .try_into()
-                .unwrap_or(u16::MAX);
-            let row = row_offset.saturating_add(row);
-            let start_column = matched.start_column;
-
-            for (offset, ch) in label.chars().enumerate() {
-                let offset = u16::try_from(offset).unwrap_or(u16::MAX);
-                let column = start_column.saturating_add(offset);
-                if column >= size.columns {
                     break;
                 }
                 cells.push(ui_render_cell(
@@ -95708,14 +95528,6 @@ impl NativeWindowApp {
             WindowCopySelectionMode::SemanticZone => "Copy Mode: SemanticZone".to_owned(),
             WindowCopySelectionMode::None => "Copy Mode".to_owned(),
         }
-    }
-
-    fn copy_overlay_rendering(&self) -> bool {
-        self.active_ui.copy_search_mode() == Some(WindowCopySearchMode::Copy)
-            || self
-                .active_ui
-                .retained_copy_mode()
-                .is_some_and(|copy_mode| copy_mode.search_direction.is_some())
     }
 
     fn initial_copy_mode(&self) -> WindowCopyMode {
@@ -120875,21 +120687,277 @@ fn pixel_axis_to_cell(value: f64, cell_size: u32) -> Option<u16> {
     Some(cell as u16)
 }
 
-fn ordinary_selection_snapshot(
-    snapshot: TerminalRenderSnapshot,
-    selection: Option<WindowSelection>,
-    size: rssh_core::TerminalSize,
-    selection_fg_color: Option<Option<Color>>,
-    selection_bg_color: Option<Color>,
-) -> TerminalRenderSnapshot {
-    let Some(selection) = selection else {
-        return snapshot;
-    };
+fn search_match_source_selection(matched: WindowSearchMatch) -> WindowSourceSelection {
+    WindowSourceSelection::new(
+        SelectionSourceCell {
+            domain: matched.domain,
+            row: matched.source_row,
+            column: usize::from(matched.start_column),
+        },
+        SelectionSourceCell {
+            domain: matched.domain,
+            row: matched.end_source_row,
+            column: usize::from(matched.end_column),
+        },
+    )
+}
 
-    snapshot.with_selection_colors_overlay(
-        |row, column| selection.contains(row, column, size),
-        selection_fg_color,
-        selection_bg_color,
+fn pane_copy_overlay_rendering(ui: &PaneUiState) -> bool {
+    ui.copy_search_mode() == Some(WindowCopySearchMode::Copy)
+        || ui
+            .retained_copy_mode()
+            .is_some_and(|copy_mode| copy_mode.search_direction.is_some())
+}
+
+fn pane_overlay_source_selection(
+    terminal: &Terminal,
+    ui: &PaneUiState,
+    word_boundary: &str,
+) -> Option<WindowSourceSelection> {
+    if let Some(quick_select) = ui.quick_select() {
+        return quick_select
+            .current_match()
+            .map(search_match_source_selection);
+    }
+
+    match ui.copy_search_mode() {
+        Some(WindowCopySearchMode::Search) => ui
+            .search()
+            .and_then(|search| search.current)
+            .map(search_match_source_selection),
+        Some(WindowCopySearchMode::Copy) => ui
+            .copy_mode()
+            .and_then(|copy_mode| copy_mode_source_selection(copy_mode, terminal, word_boundary))
+            .or_else(|| {
+                ui.retained_search()
+                    .and_then(|search| search.current)
+                    .map(search_match_source_selection)
+            }),
+        None => ui
+            .ordinary_selection
+            .map(StableOrdinarySelection::source_selection),
+    }
+}
+
+fn pane_viewport_top(terminal: &Terminal, ui: &PaneUiState) -> StableRowIndex {
+    ui.stable_viewport
+        .active_top(terminal)
+        .unwrap_or(terminal.stable_dimensions().physical_top)
+}
+
+fn pane_overlay_viewport_selection(
+    terminal: &Terminal,
+    ui: &PaneUiState,
+    word_boundary: &str,
+) -> Option<WindowSelection> {
+    pane_overlay_source_selection(terminal, ui, word_boundary).and_then(|selection| {
+        selection.viewport_selection(
+            terminal.stable_dimensions().domain,
+            pane_viewport_top(terminal, ui),
+            terminal.grid().size(),
+        )
+    })
+}
+
+fn pane_inactive_search_selections(terminal: &Terminal, ui: &PaneUiState) -> Vec<WindowSelection> {
+    let size = terminal.grid().size();
+    if !pane_copy_overlay_rendering(ui) || size.rows == 0 || size.columns == 0 {
+        return Vec::new();
+    }
+    let Some(search) = ui.retained_search() else {
+        return Vec::new();
+    };
+    if search.query.is_empty() {
+        return Vec::new();
+    }
+
+    let dimensions = terminal.stable_dimensions();
+    let viewport_top = pane_viewport_top(terminal, ui);
+    window_search_matches_with_type(terminal, &search.query, search.match_type)
+        .into_iter()
+        .filter(|matched| Some(*matched) != search.current)
+        .filter_map(|matched| {
+            matched.viewport_selection_for_top(dimensions.domain, viewport_top, size)
+        })
+        .collect()
+}
+
+fn quick_select_cells_for_pane(
+    terminal: &Terminal,
+    viewport: PaneStableViewport,
+    quick_select: &WindowQuickSelect,
+    rect: PaneRenderRect,
+    palette: &NativeResolvedPalette,
+) -> Vec<RenderCell> {
+    if quick_select.matches.is_empty() || rect.rows == 0 || rect.columns == 0 {
+        return Vec::new();
+    }
+
+    let size = terminal.grid().size();
+    if size.rows == 0 || size.columns == 0 {
+        return Vec::new();
+    }
+    let dimensions = terminal.stable_dimensions();
+    let viewport_top = viewport
+        .active_top(terminal)
+        .unwrap_or(dimensions.physical_top);
+    let viewport_bottom = viewport_top
+        .saturating_add(StableRowIndex::try_from(size.rows).unwrap_or(StableRowIndex::MAX));
+    let foreground = palette
+        .quick_select_label_fg
+        .map(native_color_spec_to_render_color)
+        .unwrap_or(Color::Rgb(12, 12, 14));
+    let background = palette
+        .quick_select_label_bg
+        .map(native_color_spec_to_render_color)
+        .unwrap_or(Color::Rgb(255, 209, 102));
+    let input_prefix = quick_select.input.to_ascii_lowercase();
+    let mut cells = Vec::new();
+
+    for (matched, label) in quick_select.matches.iter().zip(&quick_select.labels) {
+        if matched.domain != dimensions.domain
+            || label.is_empty()
+            || matched.source_row < viewport_top
+            || matched.source_row >= viewport_bottom
+            || (!input_prefix.is_empty() && !label.starts_with(&input_prefix))
+        {
+            continue;
+        }
+        let row = matched
+            .source_row
+            .saturating_sub(viewport_top)
+            .try_into()
+            .unwrap_or(u16::MAX);
+        if row >= size.rows || row >= rect.rows {
+            continue;
+        }
+
+        for (offset, ch) in label.chars().enumerate() {
+            let offset = u16::try_from(offset).unwrap_or(u16::MAX);
+            let column = matched.start_column.saturating_add(offset);
+            if column >= size.columns || column >= rect.columns {
+                break;
+            }
+            cells.push(ui_render_cell(
+                row, column, ch, foreground, background, true,
+            ));
+        }
+    }
+
+    cells
+}
+
+#[allow(clippy::too_many_arguments)]
+fn pane_presentation_snapshot(
+    base: &TerminalRenderSnapshot,
+    terminal: &Terminal,
+    ui: &PaneUiState,
+    rect: PaneRenderRect,
+    palette: &NativeResolvedPalette,
+    word_boundary: &str,
+    quick_select_remove_styling: bool,
+    foreground_text_hsb: NativeInactivePaneHsb,
+    text_background_opacity: NativeTextBackgroundOpacity,
+    window_background_opacity: NativeTextBackgroundOpacity,
+    inactive_pane_hsb: Option<NativeInactivePaneHsb>,
+    text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
+    bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
+) -> TerminalRenderSnapshot {
+    let size = terminal.grid().size();
+    let mut snapshot = base.clone();
+    if ui.quick_select().is_some() && quick_select_remove_styling {
+        snapshot = quick_select_remove_styling_snapshot(snapshot);
+    }
+
+    let inactive_search_selections = pane_inactive_search_selections(terminal, ui);
+    if !inactive_search_selections.is_empty() {
+        let foreground = palette
+            .copy_mode_inactive_highlight_fg
+            .map(native_color_spec_to_render_color)
+            .map(Some);
+        let background = palette
+            .copy_mode_inactive_highlight_bg
+            .map(native_color_spec_to_render_color);
+        snapshot = snapshot.with_selection_colors_overlay(
+            |row, column| {
+                inactive_search_selections
+                    .iter()
+                    .any(|selection| selection.contains(row, column, size))
+            },
+            foreground,
+            background,
+        );
+    }
+
+    if let Some(selection) = pane_overlay_viewport_selection(terminal, ui, word_boundary) {
+        let copy_overlay_rendering = pane_copy_overlay_rendering(ui);
+        let foreground = if copy_overlay_rendering {
+            palette
+                .copy_mode_active_highlight_fg
+                .map(native_color_spec_to_render_color)
+                .map(Some)
+                .or(palette.selection_fg)
+        } else if ui.quick_select().is_some() {
+            palette
+                .quick_select_match_fg
+                .map(native_color_spec_to_render_color)
+                .map(Some)
+                .or(palette.selection_fg)
+        } else {
+            palette.selection_fg
+        };
+        let background = if copy_overlay_rendering {
+            palette
+                .copy_mode_active_highlight_bg
+                .map(native_color_spec_to_render_color)
+                .or(palette.selection_bg)
+        } else if ui.quick_select().is_some() {
+            palette
+                .quick_select_match_bg
+                .map(native_color_spec_to_render_color)
+                .or(palette.selection_bg)
+        } else {
+            palette.selection_bg
+        };
+        snapshot = snapshot.with_selection_colors_overlay(
+            |row, column| selection.contains(row, column, size),
+            foreground,
+            background,
+        );
+    }
+
+    if let Some(quick_select) = ui.quick_select() {
+        snapshot = snapshot.with_overlay_cells(quick_select_cells_for_pane(
+            terminal,
+            ui.stable_viewport,
+            quick_select,
+            rect,
+            palette,
+        ));
+    }
+
+    snapshot = foreground_text_hsb_snapshot(snapshot, foreground_text_hsb);
+    snapshot = text_background_opacity_snapshot(snapshot, text_background_opacity);
+    snapshot = window_background_opacity_snapshot(snapshot, window_background_opacity);
+    if let Some(hsb) = inactive_pane_hsb {
+        snapshot = inactive_pane_snapshot(snapshot, hsb);
+    }
+
+    let ansi = std::array::from_fn(|index| {
+        if index < palette.ansi.len() {
+            palette.ansi[index]
+        } else {
+            palette.brights[index - palette.ansi.len()]
+        }
+    });
+    text_min_contrast_snapshot(
+        snapshot,
+        text_min_contrast_ratio,
+        color_to_rgba(palette.foreground, DEFAULT_RENDER_FOREGROUND_RGBA),
+        color_to_rgba(palette.background, DEFAULT_RENDER_BACKGROUND_RGBA),
+        bold_brightens_ansi_colors,
+        Some(ansi),
+        Some(palette.indexed),
     )
 }
 
@@ -189071,7 +189139,7 @@ return config
         assert_eq!(ordinary_selection_for_test(&app), ordinary);
         assert_eq!(app.selection_bg_color, Some(selection_background));
         assert_eq!(
-            snapshot_cell(&app.snapshot, 0, 0).map(|cell| cell.background),
+            rendered_active_pane_cell(&app, 0, 0).map(|cell| cell.background),
             Some(selection_background)
         );
         let palette = app.native_resolved_palette();
@@ -189099,7 +189167,7 @@ return config
             SelectionCell { row: 0, column: 3 },
         );
         assert_eq!(
-            snapshot_cell(&app.snapshot, 0, 0).map(|cell| cell.background),
+            rendered_active_pane_cell(&app, 0, 0).map(|cell| cell.background),
             Some(selection_background),
             "{overlay:?} test requires an ordinary highlight before overlay entry"
         );
@@ -189139,19 +189207,64 @@ return config
             .into_iter()
             .find(|rect| rect.pane_id == original_pane)
             .expect("original pane render rect");
-        let snapshot = app.render_snapshot();
-        let selected_cell = snapshot_cell(&snapshot, original_rect.row, original_rect.column)
-            .expect("original pane selected cell");
-        let unselected_cell = snapshot_cell(
-            &snapshot,
-            original_rect.row,
-            original_rect.column.saturating_add(4),
+        let terminal = inactive.runtime.terminal();
+        let overlay_selection = super::pane_overlay_source_selection(
+            terminal,
+            &inactive.ui,
+            &app.selection_word_boundary,
         )
-        .expect("original pane unselected cell");
-        assert_eq!(
-            selected_cell.background, unselected_cell.background,
-            "{overlay:?} promoted deferred ordinary selection into inactive presentation"
-        );
+        .and_then(|selection| {
+            selection.viewport_selection(
+                terminal.stable_dimensions().domain,
+                super::pane_viewport_top(terminal, &inactive.ui),
+                terminal.grid().size(),
+            )
+        });
+        let snapshot = app.render_snapshot();
+        if let Some(overlay_selection) = overlay_selection {
+            let inside = (0..original_rect.rows)
+                .flat_map(|row| (0..original_rect.columns).map(move |column| (row, column)))
+                .find(|(row, column)| {
+                    overlay_selection.contains(*row, *column, terminal.grid().size())
+                })
+                .expect("owner overlay must intersect its visible pane rect");
+            let outside = (0..original_rect.rows)
+                .flat_map(|row| (0..original_rect.columns).map(move |column| (row, column)))
+                .find(|(row, column)| {
+                    !overlay_selection.contains(*row, *column, terminal.grid().size())
+                })
+                .expect("fixture must include a visible cell outside the owner overlay");
+            let overlay_cell = snapshot_cell(
+                &snapshot,
+                original_rect.row.saturating_add(inside.0),
+                original_rect.column.saturating_add(inside.1),
+            )
+            .expect("inactive owner overlay cell");
+            let outside_cell = snapshot_cell(
+                &snapshot,
+                original_rect.row.saturating_add(outside.0),
+                original_rect.column.saturating_add(outside.1),
+            )
+            .expect("inactive owner non-overlay cell");
+            assert_ne!(
+                overlay_cell.background, outside_cell.background,
+                "{overlay:?} must render the saved owner overlay instead of promoting deferred ordinary state"
+            );
+        } else {
+            let former_ordinary_cell =
+                snapshot_cell(&snapshot, original_rect.row, original_rect.column)
+                    .expect("former ordinary selection cell");
+            let outside_cell = snapshot_cell(
+                &snapshot,
+                original_rect.row.saturating_add(1),
+                original_rect.column,
+            )
+            .expect("inactive owner non-overlay cell");
+            assert_eq!(
+                former_ordinary_cell.background, outside_cell.background,
+                "{overlay:?} without a projection must suppress deferred ordinary presentation"
+            );
+        }
     }
 
     #[test]
@@ -190526,6 +190639,7 @@ return config
         assert_eq!(copy.source_cursor, copy_source_cursor);
         assert_eq!(copy.source_anchor, copy_source_anchor);
         assert_eq!(copy.selection_mode, copy_selection_mode);
+        let copy_cursor = copy.cursor;
         let expected_copy_selection = super::copy_mode_source_selection(
             copy,
             app.runtime.terminal(),
@@ -190546,21 +190660,7 @@ return config
             "active selection projection must switch away from Search immediately"
         );
         assert_eq!(
-            snapshot_cell(&app.snapshot, copy.cursor.row, copy.cursor.column)
-                .expect("Copy highlight cell after AcceptPattern")
-                .background,
-            Color::Rgb(1, 2, 3),
-            "snapshot highlight must follow the resumed Copy selection"
-        );
-        assert_ne!(
-            snapshot_cell(&app.snapshot, expected_search_selection.anchor.row, 0)
-                .expect("former Search highlight cell")
-                .background,
-            Color::Rgb(1, 2, 3),
-            "snapshot must not retain the old Search highlight projection"
-        );
-        assert_eq!(
-            copy.cursor,
+            copy_cursor,
             SelectionCell {
                 row: u16::try_from(copy_source_cursor.row - copy_top).expect("visible Copy row"),
                 column: u16::try_from(copy_source_cursor.column).expect("visible Copy column"),
@@ -190581,6 +190681,30 @@ return config
                 .and_then(|search| search.current),
             Some(search_match),
             "AcceptPattern retains Search current for Copy/Search transitions"
+        );
+
+        app.dispatch_app_action(AppAction::SetPaneZoomState {
+            pane: owner,
+            zoomed: true,
+        })
+        .unwrap();
+        assert!(
+            pane_rect_for_test(&app, owner).columns > copy_cursor.column,
+            "zoom must make the retained Copy column visible before presentation assertions"
+        );
+        assert_eq!(
+            rendered_active_pane_cell(&app, copy_cursor.row, copy_cursor.column)
+                .expect("Copy highlight cell after zoom")
+                .background,
+            Color::Rgb(1, 2, 3),
+            "snapshot highlight must follow the resumed Copy selection"
+        );
+        assert_ne!(
+            rendered_active_pane_cell(&app, expected_search_selection.anchor.row, 0)
+                .expect("former Search highlight cell")
+                .background,
+            Color::Rgb(1, 2, 3),
+            "snapshot must not retain the old Search highlight projection"
         );
     }
 
@@ -193250,7 +193374,7 @@ return config
 
         app.enter_copy_mode();
         assert!(app.handle_copy_mode_key(&Key::Character("v".into()), ModifiersState::empty()));
-        let selected_cell = snapshot_cell(&app.snapshot, 0, 3).expect("copy-mode selected cell");
+        let selected_cell = rendered_active_pane_cell(&app, 0, 3).expect("copy-mode selected cell");
 
         assert_eq!(selected_cell.foreground, Color::Indexed(4));
         assert_eq!(selected_cell.background, Color::Rgb(1, 2, 3));
@@ -193284,8 +193408,9 @@ return config
             );
         }
 
-        let active_cell = snapshot_cell(&app.snapshot, 0, 0).expect("active copy-mode match");
-        let inactive_cell = snapshot_cell(&app.snapshot, 2, 0).expect("inactive copy-mode match");
+        let active_cell = rendered_active_pane_cell(&app, 0, 0).expect("active copy-mode match");
+        let inactive_cell =
+            rendered_active_pane_cell(&app, 2, 0).expect("inactive copy-mode match");
 
         assert_eq!(active_cell.foreground, Color::Indexed(4));
         assert_eq!(active_cell.background, Color::Rgb(1, 2, 3));
@@ -193639,8 +193764,8 @@ return config
 
         assert_eq!(app.current_scrollback_offset(), 1);
         assert_eq!(app.selected_text().as_deref(), Some("midout\n> two\nlive"));
-        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 1, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 1, 0).unwrap().inverse);
 
         app.handle_copy_mode_key(&Key::Character("y".into()), ModifiersState::empty());
 
@@ -193716,10 +193841,10 @@ return config
         assert!(app.handle_copy_mode_key(&Key::Character("h".into()), ModifiersState::empty()));
 
         assert_eq!(app.selected_text().as_deref(), Some("cde\nhij\nmno"));
-        assert!(snapshot_cell(&app.snapshot, 0, 2).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 1, 2).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 1, 4).unwrap().inverse);
-        assert!(!snapshot_cell(&app.snapshot, 1, 1).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 2).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 1, 2).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 1, 4).unwrap().inverse);
+        assert!(!rendered_active_pane_cell(&app, 1, 1).unwrap().inverse);
     }
 
     #[test]
@@ -195010,7 +195135,7 @@ return config
     }
 
     #[test]
-    fn window_app_search_exit_rebuilds_base_projection_immediately() {
+    fn window_app_search_exit_rebuilds_presentation_projection_immediately() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
         app.handle_pty_output(b"hit base").unwrap();
@@ -195019,15 +195144,15 @@ return config
             pattern: "hit".to_owned(),
             match_type: WindowSearchMatchType::CaseSensitive,
         });
-        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
 
         assert!(app.handle_search_key(&Key::Named(NamedKey::Escape), ModifiersState::empty()));
 
         assert!(search_for_test(&app).is_none());
         assert!(app.selection.is_none());
         assert!(
-            !snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse,
-            "Search exit must rebuild the base projection without a manual refresh"
+            !rendered_active_pane_cell(&app, 0, 0).unwrap().inverse,
+            "Search exit must rebuild the presentation projection without a manual refresh"
         );
     }
 
@@ -195460,11 +195585,11 @@ return config
         assert_eq!(
             (
                 search_app.selection,
-                snapshot_cell(&search_app.snapshot, 0, 0)
+                rendered_active_pane_cell(&search_app, 0, 0)
                     .expect("Search snapshot cell")
                     .inverse,
                 quick_app.selection,
-                snapshot_cell(&quick_app.snapshot, 0, 0)
+                rendered_active_pane_cell(&quick_app, 0, 0)
                     .expect("QuickSelect snapshot cell")
                     .inverse,
             ),
@@ -195482,8 +195607,12 @@ return config
         assert_eq!(quick_app.selected_text().as_deref(), Some("base"));
         assert!(search_app.selection.is_some());
         assert!(quick_app.selection.is_some());
-        assert!(snapshot_cell(&search_app.snapshot, 0, 0).unwrap().inverse);
-        assert!(snapshot_cell(&quick_app.snapshot, 0, 0).unwrap().inverse);
+        assert!(
+            rendered_active_pane_cell(&search_app, 0, 0)
+                .unwrap()
+                .inverse
+        );
+        assert!(rendered_active_pane_cell(&quick_app, 0, 0).unwrap().inverse);
     }
 
     #[test]
@@ -195529,7 +195658,7 @@ return config
             "accepted Search current must remain the active Copy projection when Copy has no selection"
         );
         let active_cell =
-            snapshot_cell(&app.snapshot, expected.anchor.row, expected.anchor.column).unwrap();
+            rendered_active_pane_cell(&app, expected.anchor.row, expected.anchor.column).unwrap();
         assert_eq!(active_cell.background, Color::Rgb(1, 2, 3));
         assert_eq!(app.selected_text().as_deref(), Some("foo"));
 
@@ -195630,10 +195759,10 @@ return config
 
         app.refresh_snapshot();
 
-        assert!(!snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 0, 1).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 0, 2).unwrap().inverse);
-        assert!(!snapshot_cell(&app.snapshot, 0, 3).unwrap().inverse);
+        assert!(!rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 1).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 2).unwrap().inverse);
+        assert!(!rendered_active_pane_cell(&app, 0, 3).unwrap().inverse);
     }
 
     #[test]
@@ -195665,8 +195794,8 @@ return config
                 SelectionCell { row: 0, column: 2 },
             ))
         );
-        assert!(snapshot_cell(&app.snapshot, 0, 1).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 0, 2).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 1).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 2).unwrap().inverse);
 
         assert!(
             app.handle_mouse_input(ElementState::Released, MouseButton::Left)
@@ -195946,8 +196075,8 @@ return config
                 SelectionCell { row: 0, column: 13 },
             ))
         );
-        assert!(snapshot_cell(&app.snapshot, 0, 4).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 0, 13).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 4).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 13).unwrap().inverse);
     }
 
     #[test]
@@ -196149,7 +196278,7 @@ return config
             ))
         );
         assert_eq!(app.selected_text().as_deref(), Some("run alpha-beta"));
-        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
         assert!(
             app.selection
                 .unwrap()
@@ -197618,7 +197747,7 @@ return config
 
         assert_eq!(app.selected_text().as_deref(), Some("alpha"));
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
-        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
         assert!(app.current_scrollback_offset() > 0);
     }
 
@@ -197649,7 +197778,7 @@ return config
                 SelectionCell { row: 2, column: 9 },
             ))
         );
-        assert!(snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 2, 0).unwrap().inverse);
     }
 
     #[test]
@@ -197690,8 +197819,8 @@ return config
         assert_eq!(app.selected_text().as_deref(), Some("ha\nbeta"));
         assert_eq!(snapshot_char(&app.snapshot, 0, 3), Some('h'));
         assert_eq!(snapshot_char(&app.snapshot, 1, 0), Some('b'));
-        assert!(snapshot_cell(&app.snapshot, 0, 3).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 1, 3).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 3).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 1, 3).unwrap().inverse);
         assert_eq!(app.current_scrollback_offset(), 1);
     }
 
@@ -197706,8 +197835,8 @@ return config
         assert_eq!(app.selected_text().as_deref(), Some("ha\nbeta"));
         assert_eq!(snapshot_char(&app.snapshot, 0, 3), Some('h'));
         assert_eq!(snapshot_char(&app.snapshot, 1, 3), Some('a'));
-        assert!(snapshot_cell(&app.snapshot, 0, 3).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 1, 3).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 3).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 1, 3).unwrap().inverse);
         assert_eq!(app.current_scrollback_offset(), 1);
     }
 
@@ -197722,8 +197851,8 @@ return config
         assert_eq!(app.selected_text().as_deref(), Some("ha\nbeta"));
         assert_eq!(snapshot_char(&app.snapshot, 0, 3), Some('h'));
         assert_eq!(snapshot_char(&app.snapshot, 1, 3), Some('a'));
-        assert!(snapshot_cell(&app.snapshot, 0, 3).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 1, 3).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 3).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 1, 3).unwrap().inverse);
         assert_eq!(app.current_scrollback_offset(), 1);
     }
 
@@ -197751,8 +197880,8 @@ return config
         assert!(app.update_search_query("literal:regex:h.*beta"));
 
         assert_eq!(app.selected_text().as_deref(), Some("regex:h.*beta"));
-        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 0, 12).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 12).unwrap().inverse);
     }
 
     #[test]
@@ -197768,7 +197897,7 @@ return config
         ));
 
         assert_eq!(app.selected_text().as_deref(), Some("f.o"));
-        assert!(snapshot_cell(&app.snapshot, 1, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 1, 0).unwrap().inverse);
     }
 
     #[test]
@@ -197801,24 +197930,24 @@ return config
             .unwrap();
 
         assert!(app.update_search_query("foo"));
-        assert!(!snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
+        assert!(!rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 2, 0).unwrap().inverse);
 
         assert!(app.handle_search_key(&Key::Named(NamedKey::ArrowDown), ModifiersState::empty()));
-        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(!snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
+        assert!(!rendered_active_pane_cell(&app, 2, 0).unwrap().inverse);
 
         assert!(app.handle_search_key(&Key::Named(NamedKey::ArrowUp), ModifiersState::empty()));
-        assert!(!snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
+        assert!(!rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 2, 0).unwrap().inverse);
 
         assert!(app.handle_search_key(&Key::Character("n".into()), ModifiersState::CONTROL));
-        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(!snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
+        assert!(!rendered_active_pane_cell(&app, 2, 0).unwrap().inverse);
 
         assert!(app.handle_search_key(&Key::Character("p".into()), ModifiersState::CONTROL));
-        assert!(!snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
+        assert!(!rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 2, 0).unwrap().inverse);
     }
 
     #[test]
@@ -197830,15 +197959,15 @@ return config
 
         assert!(app.update_search_query("foo"));
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 2   ");
-        assert!(snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 2, 0).unwrap().inverse);
 
         assert!(app.handle_search_key(&Key::Named(NamedKey::PageDown), ModifiersState::empty()));
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 0   ");
-        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
 
         assert!(app.handle_search_key(&Key::Named(NamedKey::PageUp), ModifiersState::empty()));
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 0   ");
-        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
     }
 
     #[test]
@@ -197855,13 +197984,13 @@ return config
             search_for_test(&app).map(|search| search.query.as_str()),
             Some("foo")
         );
-        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(!snapshot_cell(&app.snapshot, 1, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
+        assert!(!rendered_active_pane_cell(&app, 1, 0).unwrap().inverse);
 
         assert!(app.handle_search_key(&Key::Character("r".into()), ModifiersState::CONTROL));
         assert!(app.handle_search_key(&Key::Named(NamedKey::ArrowDown), ModifiersState::empty()));
-        assert!(!snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 1, 0).unwrap().inverse);
+        assert!(!rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 1, 0).unwrap().inverse);
 
         assert!(app.handle_search_key(&Key::Character("u".into()), ModifiersState::CONTROL));
         assert_eq!(
@@ -230229,6 +230358,682 @@ act.Confirmation {
         assert_eq!(rect.columns, 17);
     }
 
+    const PANE_OVERLAY_SEARCH_BG: Color = Color::Rgb(41, 42, 43);
+    const PANE_OVERLAY_COPY_ACTIVE_BG: Color = Color::Rgb(51, 52, 53);
+    const PANE_OVERLAY_COPY_INACTIVE_BG: Color = Color::Rgb(61, 62, 63);
+    const PANE_OVERLAY_QUICK_MATCH_BG: Color = Color::Rgb(71, 72, 73);
+    const PANE_OVERLAY_QUICK_LABEL_BG: Color = Color::Rgb(81, 82, 83);
+
+    fn pane_overlay_identity_hsb() -> NativeInactivePaneHsb {
+        NativeInactivePaneHsb {
+            hue: NativeHsbMultiplier::from_f32(1.0),
+            saturation: NativeHsbMultiplier::from_f32(1.0),
+            brightness: NativeHsbMultiplier::from_f32(1.0),
+        }
+    }
+
+    fn configure_pane_overlay_presentation_test(
+        app: &mut NativeWindowApp,
+        inactive_pane_hsb: NativeInactivePaneHsb,
+    ) {
+        app.set_config_overrides(NativeConfigOverrides {
+            inactive_pane_hsb: Some(inactive_pane_hsb),
+            quick_select_remove_styling: Some(true),
+            selection_bg_color: Some(PANE_OVERLAY_SEARCH_BG),
+            copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(
+                PANE_OVERLAY_COPY_ACTIVE_BG,
+            )),
+            copy_mode_inactive_highlight_bg: Some(NativeColorSpec::Color(
+                PANE_OVERLAY_COPY_INACTIVE_BG,
+            )),
+            quick_select_match_bg: Some(NativeColorSpec::Color(PANE_OVERLAY_QUICK_MATCH_BG)),
+            quick_select_label_bg: Some(NativeColorSpec::Color(PANE_OVERLAY_QUICK_LABEL_BG)),
+            ..NativeConfigOverrides::default()
+        });
+    }
+
+    fn pane_overlay_test_match(
+        app: &NativeWindowApp,
+        row: u16,
+        start_column: u16,
+        end_column: u16,
+    ) -> WindowSearchMatch {
+        WindowSearchMatch {
+            domain: app.runtime.terminal().stable_dimensions().domain,
+            source_row: app
+                .current_viewport_stable_top()
+                .saturating_add(StableRowIndex::try_from(row).unwrap()),
+            start_column,
+            end_source_row: app
+                .current_viewport_stable_top()
+                .saturating_add(StableRowIndex::try_from(row).unwrap()),
+            end_column,
+        }
+    }
+
+    fn install_pane_search_presentation_for_test(
+        app: &mut NativeWindowApp,
+        query: &str,
+        matched: WindowSearchMatch,
+    ) {
+        let initial_copy_mode = app.initial_copy_mode();
+        app.active_ui.enter_search(
+            initial_copy_mode,
+            WindowSearch {
+                query: query.to_owned(),
+                current: None,
+                match_type: WindowSearchMatchType::CaseSensitive,
+                editing: true,
+            },
+        );
+        assert!(app.active_ui.set_search_current(Some(matched)));
+        app.refresh_snapshot();
+    }
+
+    fn install_pane_copy_presentation_for_test(
+        app: &mut NativeWindowApp,
+        query: &str,
+        copy_column: u16,
+    ) -> (WindowSearchMatch, WindowSearchMatch) {
+        let matches = super::window_search_matches_with_type(
+            app.runtime.terminal(),
+            query,
+            WindowSearchMatchType::CaseSensitive,
+        );
+        assert_eq!(matches.len(), 2, "copy fixture needs two stable matches");
+        let inactive_match = matches[0];
+        let retained_current = matches[1];
+        let source_cursor = SelectionSourceCell {
+            domain: app.runtime.terminal().stable_dimensions().domain,
+            row: app.current_viewport_stable_top(),
+            column: usize::from(copy_column),
+        };
+        let mut copy_mode = app.initial_copy_mode();
+        copy_mode.cursor = SelectionCell {
+            row: 0,
+            column: copy_column,
+        };
+        copy_mode.source_cursor = source_cursor;
+        copy_mode.selection_mode = super::WindowCopySelectionMode::Cell;
+        copy_mode.anchor = Some(copy_mode.cursor);
+        copy_mode.source_anchor = Some(source_cursor);
+        copy_mode.search_direction = Some(SearchDirection::Next);
+        app.active_ui.enter_search(
+            copy_mode,
+            WindowSearch {
+                query: query.to_owned(),
+                current: None,
+                match_type: WindowSearchMatchType::CaseSensitive,
+                editing: true,
+            },
+        );
+        assert!(app.active_ui.set_search_current(Some(retained_current)));
+        let ignored_initial_copy_mode = app.initial_copy_mode();
+        app.active_ui.enter_copy_mode(ignored_initial_copy_mode);
+        app.refresh_snapshot();
+        (inactive_match, retained_current)
+    }
+
+    fn install_pane_quick_presentation_for_test(
+        app: &mut NativeWindowApp,
+        label: &str,
+        owner: &str,
+        matched: WindowSearchMatch,
+    ) {
+        app.active_ui.enter_quick_select(WindowQuickSelect {
+            current: 0,
+            matches: vec![matched],
+            labels: vec![label.to_owned()],
+            input: String::new(),
+            action_label: Some(format!("owner-{owner}")),
+            action: WindowQuickSelectAction::Nop,
+            skip_action_on_paste: false,
+        });
+        app.refresh_snapshot();
+        app.apply_window_title();
+    }
+
+    fn pane_rect_for_test(
+        app: &NativeWindowApp,
+        pane_id: rssh_core::PaneId,
+    ) -> super::PaneRenderRect {
+        app.pane_render_layout()
+            .panes
+            .into_iter()
+            .find(|rect| rect.pane_id == pane_id)
+            .expect("pane must be visible")
+    }
+
+    fn assert_snapshot_cell_background(
+        snapshot: &TerminalRenderSnapshot,
+        row: u16,
+        column: u16,
+        expected: Color,
+        context: &str,
+    ) {
+        assert_eq!(
+            snapshot_cell(snapshot, row, column)
+                .unwrap_or_else(|| panic!("{context}: missing cell at {row},{column}"))
+                .background,
+            expected,
+            "{context}"
+        );
+    }
+
+    #[test]
+    fn window_app_visible_split_panes_render_distinct_search_overlays() {
+        let mut app = NativeWindowApp::new(None);
+        configure_pane_overlay_presentation_test(&mut app, pane_overlay_identity_hsb());
+        app.runtime.resize(rssh_core::TerminalSize::new(24, 4));
+        app.handle_pty_output(
+            b"old\r\nLEFT-search-owner\r\nfiller-2\r\nfiller-3\r\nfiller-4\r\nfiller-5",
+        )
+        .unwrap();
+        app.scroll_viewport_lines(1);
+        assert_eq!(app.current_viewport_stable_top(), 1);
+        let left_match = pane_overlay_test_match(&app, 0, 1, 3);
+        install_pane_search_presentation_for_test(&mut app, "LEFT", left_match);
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        assert_eq!(app.current_viewport_stable_top(), 0);
+        assert_eq!(
+            app.pane_runtimes
+                .get(&rssh_core::PaneId::new(1))
+                .and_then(|runtime| {
+                    runtime
+                        .ui
+                        .stable_viewport
+                        .active_top(runtime.runtime.terminal())
+                }),
+            Some(1),
+            "inactive owner keeps a viewport top distinct from the active pane"
+        );
+        app.handle_pty_output(b"RIGHT-search-owner").unwrap();
+        let right_match = pane_overlay_test_match(&app, 0, 2, 5);
+        install_pane_search_presentation_for_test(&mut app, "RIGHT", right_match);
+
+        let left = pane_rect_for_test(&app, rssh_core::PaneId::new(1));
+        let right = pane_rect_for_test(&app, rssh_core::PaneId::new(2));
+        assert_ne!(
+            snapshot_cell(&app.snapshot, 0, 2)
+                .expect("active base snapshot before presentation")
+                .background,
+            PANE_OVERLAY_SEARCH_BG,
+            "active cached snapshot must remain selection-free"
+        );
+        let snapshot = app.render_snapshot();
+        assert_eq!(
+            snapshot_char(&snapshot, left.row, left.column.saturating_add(1)).unwrap_or(' '),
+            'E'
+        );
+        assert_eq!(
+            snapshot_char(&snapshot, right.row, right.column.saturating_add(2)).unwrap_or(' '),
+            'G'
+        );
+        assert_snapshot_cell_background(
+            &snapshot,
+            left.row,
+            left.column.saturating_add(1),
+            PANE_OVERLAY_SEARCH_BG,
+            "inactive left Search owner",
+        );
+        assert_snapshot_cell_background(
+            &snapshot,
+            right.row,
+            right.column.saturating_add(2),
+            PANE_OVERLAY_SEARCH_BG,
+            "active right Search owner",
+        );
+        assert_ne!(
+            snapshot_cell(&snapshot, left.row, left.column)
+                .expect("left non-match")
+                .background,
+            PANE_OVERLAY_SEARCH_BG
+        );
+        assert_ne!(
+            snapshot_cell(&snapshot, right.row, right.column)
+                .expect("right non-match")
+                .background,
+            PANE_OVERLAY_SEARCH_BG
+        );
+        assert_ne!(
+            snapshot_cell(&app.snapshot, 0, 2)
+                .expect("active base snapshot")
+                .background,
+            PANE_OVERLAY_SEARCH_BG,
+            "active cached snapshot must remain selection-free"
+        );
+        assert_ne!(
+            snapshot_cell(
+                &app.pane_runtimes
+                    .get(&rssh_core::PaneId::new(1))
+                    .expect("inactive left runtime")
+                    .snapshot,
+                0,
+                1,
+            )
+            .expect("inactive base snapshot")
+            .background,
+            PANE_OVERLAY_SEARCH_BG,
+            "inactive cached snapshot must remain selection-free"
+        );
+
+        let expected_left = snapshot_cell(
+            &snapshot,
+            left.row,
+            left.column.saturating_add(left_match.start_column),
+        )
+        .expect("left presentation before focus round-trip")
+        .background;
+        let expected_right = snapshot_cell(
+            &snapshot,
+            right.row,
+            right.column.saturating_add(right_match.start_column),
+        )
+        .expect("right presentation before focus round-trip")
+        .background;
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+        let focused_left = app.render_snapshot();
+        assert_eq!(
+            snapshot_cell(
+                &focused_left,
+                left.row,
+                left.column.saturating_add(left_match.start_column),
+            )
+            .expect("left presentation while focused")
+            .background,
+            expected_left,
+            "focus must not leave or double-apply cached owner presentation"
+        );
+        assert_eq!(
+            snapshot_cell(
+                &focused_left,
+                right.row,
+                right.column.saturating_add(right_match.start_column),
+            )
+            .expect("right presentation while inactive")
+            .background,
+            expected_right,
+            "focus must not leave or double-apply cached owner presentation"
+        );
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(2),
+        })
+        .unwrap();
+        let focused_right = app.render_snapshot();
+        assert_eq!(
+            snapshot_cell(
+                &focused_right,
+                left.row,
+                left.column.saturating_add(left_match.start_column),
+            )
+            .expect("left presentation after focus round-trip")
+            .background,
+            expected_left,
+        );
+        assert_eq!(
+            snapshot_cell(
+                &focused_right,
+                right.row,
+                right.column.saturating_add(right_match.start_column),
+            )
+            .expect("right presentation after focus round-trip")
+            .background,
+            expected_right,
+        );
+    }
+
+    #[test]
+    fn window_app_visible_split_panes_render_distinct_copy_overlays() {
+        let mut app = NativeWindowApp::new(None);
+        configure_pane_overlay_presentation_test(&mut app, pane_overlay_identity_hsb());
+        app.runtime.resize(rssh_core::TerminalSize::new(24, 4));
+        app.handle_pty_output(b"xLxLC-left").unwrap();
+        let (left_inactive_match, left_current) =
+            install_pane_copy_presentation_for_test(&mut app, "x", 4);
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"RxRxRC-right").unwrap();
+        let (right_inactive_match, right_current) =
+            install_pane_copy_presentation_for_test(&mut app, "x", 5);
+
+        let left = pane_rect_for_test(&app, rssh_core::PaneId::new(1));
+        let right = pane_rect_for_test(&app, rssh_core::PaneId::new(2));
+        let snapshot = app.render_snapshot();
+        assert_snapshot_cell_background(
+            &snapshot,
+            left.row,
+            left.column.saturating_add(4),
+            PANE_OVERLAY_COPY_ACTIVE_BG,
+            "inactive left Copy selection",
+        );
+        assert_snapshot_cell_background(
+            &snapshot,
+            right.row,
+            right.column.saturating_add(5),
+            PANE_OVERLAY_COPY_ACTIVE_BG,
+            "active right Copy selection",
+        );
+        assert_snapshot_cell_background(
+            &snapshot,
+            left.row,
+            left.column.saturating_add(left_inactive_match.start_column),
+            PANE_OVERLAY_COPY_INACTIVE_BG,
+            "inactive left non-current search match",
+        );
+        assert_snapshot_cell_background(
+            &snapshot,
+            right.row,
+            right
+                .column
+                .saturating_add(right_inactive_match.start_column),
+            PANE_OVERLAY_COPY_INACTIVE_BG,
+            "active right non-current search match",
+        );
+        assert_ne!(
+            snapshot_cell(
+                &snapshot,
+                left.row,
+                left.column.saturating_add(left_current.start_column),
+            )
+            .expect("left retained current")
+            .background,
+            PANE_OVERLAY_COPY_INACTIVE_BG,
+            "retained current is not an inactive match"
+        );
+        assert_ne!(
+            snapshot_cell(
+                &snapshot,
+                right.row,
+                right.column.saturating_add(right_current.start_column),
+            )
+            .expect("right retained current")
+            .background,
+            PANE_OVERLAY_COPY_INACTIVE_BG,
+            "retained current is not an inactive match"
+        );
+        assert_ne!(
+            snapshot_cell(&app.snapshot, 0, 5)
+                .expect("active Copy base snapshot")
+                .background,
+            PANE_OVERLAY_COPY_ACTIVE_BG,
+            "active cached snapshot must remain selection-free"
+        );
+    }
+
+    #[test]
+    fn window_app_visible_split_panes_render_distinct_quick_overlays() {
+        let mut app = NativeWindowApp::new(None);
+        let inactive_hsb = NativeInactivePaneHsb {
+            hue: NativeHsbMultiplier::from_f32(1.0),
+            saturation: NativeHsbMultiplier::from_f32(1.0),
+            brightness: NativeHsbMultiplier::from_f32(0.5),
+        };
+        configure_pane_overlay_presentation_test(&mut app, inactive_hsb);
+        app.runtime.resize(rssh_core::TerminalSize::new(24, 4));
+        app.handle_pty_output(b"\x1b[31;1mLEFT-quick-owner\x1b[0m\x1b[1;2H")
+            .unwrap();
+        let left_match = pane_overlay_test_match(&app, 0, 1, 5);
+        install_pane_quick_presentation_for_test(&mut app, "L", "left", left_match);
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"\x1b[32;1mRIGHT-quick-owner\x1b[0m\x1b[1;3H")
+            .unwrap();
+        let right_match = pane_overlay_test_match(&app, 0, 2, 6);
+        install_pane_quick_presentation_for_test(&mut app, "R", "right", right_match);
+
+        let left = pane_rect_for_test(&app, rssh_core::PaneId::new(1));
+        let right = pane_rect_for_test(&app, rssh_core::PaneId::new(2));
+        let snapshot = app.render_snapshot();
+        let cursor = snapshot.cursor().expect("active owner cursor");
+        assert_eq!(
+            (cursor.row, cursor.column),
+            (right.row, right.column.saturating_add(2)),
+            "active-first composition must retain and offset only the active pane cursor"
+        );
+        assert_ne!(
+            (cursor.row, cursor.column),
+            (left.row, left.column.saturating_add(1)),
+            "inactive pane cursor must not replace the active owner cursor"
+        );
+        assert_eq!(
+            snapshot_char(&snapshot, left.row, left.column.saturating_add(1)).unwrap_or(' '),
+            'L',
+            "left owner label"
+        );
+        assert_eq!(
+            snapshot_char(&snapshot, right.row, right.column.saturating_add(2)).unwrap_or(' '),
+            'R',
+            "right owner label"
+        );
+        assert_snapshot_cell_background(
+            &snapshot,
+            left.row,
+            left.column.saturating_add(1),
+            super::inactive_pane_color(
+                rssh_renderer::RenderCellColorRole::Background,
+                PANE_OVERLAY_QUICK_LABEL_BG,
+                inactive_hsb,
+            ),
+            "inactive left Quick label",
+        );
+        assert_snapshot_cell_background(
+            &snapshot,
+            right.row,
+            right.column.saturating_add(2),
+            PANE_OVERLAY_QUICK_LABEL_BG,
+            "active right Quick label",
+        );
+        assert_snapshot_cell_background(
+            &snapshot,
+            left.row,
+            left.column.saturating_add(3),
+            super::inactive_pane_color(
+                rssh_renderer::RenderCellColorRole::Background,
+                PANE_OVERLAY_QUICK_MATCH_BG,
+                inactive_hsb,
+            ),
+            "inactive left Quick match",
+        );
+        assert_snapshot_cell_background(
+            &snapshot,
+            right.row,
+            right.column.saturating_add(4),
+            PANE_OVERLAY_QUICK_MATCH_BG,
+            "active right Quick match",
+        );
+        assert_ne!(
+            snapshot_cell(&snapshot, left.row, left.column.saturating_add(1))
+                .expect("inactive left Quick label")
+                .background,
+            PANE_OVERLAY_QUICK_LABEL_BG,
+            "inactive HSB must transform owner labels exactly in pane presentation"
+        );
+        assert!(
+            !snapshot_cell(&snapshot, left.row, left.column.saturating_add(3))
+                .expect("left Quick styled cell")
+                .bold,
+            "Quick remove_styling applies to inactive owner presentation"
+        );
+        assert!(
+            !snapshot_cell(&snapshot, right.row, right.column.saturating_add(4))
+                .expect("right Quick styled cell")
+                .bold,
+            "Quick remove_styling applies to active owner presentation"
+        );
+        assert!(
+            snapshot_cell(&app.snapshot, 0, 4)
+                .expect("active Quick base snapshot")
+                .bold,
+            "active cached snapshot must retain terminal styling"
+        );
+        assert!(app.effective_window_title().contains("owner-right"));
+        assert!(!app.effective_window_title().contains("owner-left"));
+    }
+
+    #[test]
+    fn window_app_inactive_quick_labels_use_owner_pane_row_and_column_offsets() {
+        let mut app = NativeWindowApp::new(None);
+        configure_pane_overlay_presentation_test(&mut app, pane_overlay_identity_hsb());
+        app.runtime.resize(rssh_core::TerminalSize::new(30, 8));
+        app.refresh_snapshot();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"\r\nRIGHT-pane").unwrap();
+        let right_match = pane_overlay_test_match(&app, 1, 2, 4);
+        install_pane_quick_presentation_for_test(&mut app, "R", "right-offset", right_match);
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(2),
+            direction: SplitDirection::Down,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"\r\nBOT-pane").unwrap();
+        let bottom_match = pane_overlay_test_match(&app, 1, 3, 5);
+        install_pane_quick_presentation_for_test(&mut app, "B", "bottom-offset", bottom_match);
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+
+        let right = pane_rect_for_test(&app, rssh_core::PaneId::new(2));
+        let bottom = pane_rect_for_test(&app, rssh_core::PaneId::new(3));
+        assert!(right.column > 0, "right fixture must have a column offset");
+        assert!(
+            bottom.row > app.terminal_frame_row_offset() && bottom.column > 0,
+            "nested bottom-right fixture must have both row and column offsets"
+        );
+        let snapshot = app.render_snapshot();
+        assert_eq!(
+            snapshot_char(
+                &snapshot,
+                right.row.saturating_add(1),
+                right.column.saturating_add(2),
+            )
+            .unwrap_or(' '),
+            'R'
+        );
+        assert_eq!(
+            snapshot_char(
+                &snapshot,
+                bottom.row.saturating_add(1),
+                bottom.column.saturating_add(3),
+            )
+            .unwrap_or(' '),
+            'B'
+        );
+        assert_ne!(
+            snapshot_char(&snapshot, right.row.saturating_add(1), 2).unwrap_or(' '),
+            'R',
+            "right label must not use a window-origin column"
+        );
+        assert_ne!(
+            snapshot_char(
+                &snapshot,
+                app.terminal_frame_row_offset().saturating_add(1),
+                bottom.column.saturating_add(3),
+            )
+            .unwrap_or(' '),
+            'B',
+            "bottom label must not use a window-origin row"
+        );
+    }
+
+    #[test]
+    fn window_app_quick_labels_are_clipped_to_owner_pane_rect() {
+        let mut app = NativeWindowApp::new(None);
+        configure_pane_overlay_presentation_test(&mut app, pane_overlay_identity_hsb());
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 4));
+        app.handle_pty_output(b"LLLLLLLLLLLL").unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"NNNNNNNNNNNN").unwrap();
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+        let left = pane_rect_for_test(&app, rssh_core::PaneId::new(1));
+        let local_last_column = left.columns.saturating_sub(1);
+        let matched = pane_overlay_test_match(&app, 0, local_last_column, local_last_column);
+        install_pane_quick_presentation_for_test(&mut app, "WXYZ", "clip", matched);
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(2),
+        })
+        .unwrap();
+
+        let layout = app.pane_render_layout();
+        let left = pane_rect_for_test(&app, rssh_core::PaneId::new(1));
+        let right = pane_rect_for_test(&app, rssh_core::PaneId::new(2));
+        let separator = layout.separators.first().copied().expect("split separator");
+        let snapshot = app.render_snapshot();
+        assert_eq!(
+            snapshot_char(
+                &snapshot,
+                left.row,
+                left.column.saturating_add(left.columns.saturating_sub(1)),
+            )
+            .unwrap_or(' '),
+            'W',
+            "first label cell remains in owner rect"
+        );
+        assert_eq!(
+            snapshot_char(&snapshot, separator.row, separator.column).unwrap_or(' '),
+            '|',
+            "long Quick label must not overwrite separator"
+        );
+        assert_eq!(
+            snapshot_char(&snapshot, right.row, right.column).unwrap_or(' '),
+            'N',
+            "long Quick label must not overwrite neighboring pane"
+        );
+        assert_snapshot_cell_background(
+            &snapshot,
+            left.row,
+            left.column.saturating_add(left.columns.saturating_sub(1)),
+            PANE_OVERLAY_QUICK_LABEL_BG,
+            "clipped owner label cell",
+        );
+        assert_ne!(
+            snapshot_cell(&snapshot, separator.row, separator.column)
+                .expect("separator cell")
+                .background,
+            PANE_OVERLAY_QUICK_LABEL_BG
+        );
+        assert_ne!(
+            snapshot_cell(&snapshot, right.row, right.column)
+                .expect("neighbor cell")
+                .background,
+            PANE_OVERLAY_QUICK_LABEL_BG
+        );
+    }
+
     #[test]
     fn window_app_applies_inactive_pane_hsb_to_split_render_snapshot() {
         let mut app = NativeWindowApp::new(None);
@@ -244319,14 +245124,14 @@ act.Confirmation {
             SelectionCell { row: 0, column: 2 },
         );
         app.refresh_snapshot();
-        assert!(snapshot_cell(&app.snapshot, 0, 1).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 1).unwrap().inverse);
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ClearSelection);
 
         assert!(app.selection.is_none());
-        assert!(!snapshot_cell(&app.snapshot, 0, 1).unwrap().inverse);
-        assert!(!snapshot_cell(&app.snapshot, 0, 2).unwrap().inverse);
+        assert!(!rendered_active_pane_cell(&app, 0, 1).unwrap().inverse);
+        assert!(!rendered_active_pane_cell(&app, 0, 2).unwrap().inverse);
         assert!(app.command_palette.is_none());
     }
 
@@ -249396,6 +250201,26 @@ act.Confirmation {
             .cells()
             .iter()
             .find(|cell| cell.row == row && cell.column == column)
+    }
+
+    fn rendered_active_pane_cell(
+        app: &NativeWindowApp,
+        pane_row: u16,
+        pane_column: u16,
+    ) -> Option<rssh_renderer::RenderCell> {
+        let active_pane = app.active_pane_id();
+        let rect = app
+            .pane_render_layout()
+            .panes
+            .into_iter()
+            .find(|rect| rect.pane_id == active_pane)?;
+        let snapshot = app.render_snapshot();
+        snapshot_cell(
+            &snapshot,
+            rect.row.saturating_add(pane_row),
+            rect.column.saturating_add(pane_column),
+        )
+        .cloned()
     }
 
     fn test_contrast_ratio(foreground: [u8; 4], background: [u8; 4]) -> f64 {
