@@ -3930,11 +3930,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Builtin Solarized Light`, `Builtin Tango Dark`, `Builtin Tango Light`, and
   already mapped non-conflicting WezTerm aliases using WezTerm's built-in TOML
   palette data. A regression test compares names against the pinned
-  `refs/wezterm/docs/colorschemes/data.json` and covers all 1,001 upstream
-  canonical schemes with zero missing names plus all 82 upstream aliases, and
-  the seven R-SSH `Builtin *` schemes. Richer dynamic `load_scheme` composition
-  and
-  full dynamic Lua scheme construction remain later parity work.
+  `refs/wezterm/docs/colorschemes/data.json`. That fixed dataset contains 1,001
+  canonical schemes and 263 alias entries; 151 alias names collide with
+  canonical names and overwrite them in WezTerm order, leaving 112
+  non-conflicting effective alias names and 1,113 effective unique names.
+  R-SSH lookup has zero missing and zero extra names, and all 1,113 palette
+  values match the pinned upstream data. Richer dynamic `load_scheme`
+  composition and full dynamic Lua scheme construction remain later parity
+  work.
 - Native terminal rendering applies WezTerm-style `colors.background` as the
   default framebuffer background for full and damage renders. Static
   WezTerm-style Lua `config.colors.background` snippets now parse into the same
@@ -4165,13 +4168,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   modes. Lua pane dimensions and cursor coordinates expose stable rows.
 - This bounded slice does not claim complete selection parity, full App Shell
   v2, or general WezTerm parity. Full WezTerm-compatible width reflow and
-  resize-time selection persistence, pane-local Search/Copy/Quick controller
-  ownership, cell-level horizontal bounded-margin scrolling, inactive-pane
-  hover-wheel routing without focus transfer, richer pane focus visuals,
-  arbitrary Lua callbacks, external CLI title control, and a real mux/window
-  registry with domain, protocol, and renderer parity remain open. The
-  cell-level horizontal bounded-margin scroll behavior was explicitly not
-  implemented in this slice.
+  resize-time selection persistence, cell-level horizontal bounded-margin
+  scrolling, inactive-pane hover-wheel routing without focus transfer, richer
+  pane focus visuals, arbitrary Lua callbacks, external CLI title control, and
+  a real mux/window registry with domain, protocol, and renderer parity remain
+  open. The cell-level horizontal bounded-margin scroll behavior was explicitly
+  not implemented in this slice.
 - Native `enable_scroll_bar` defaults to false. When true, the scrollback
   scrollbar renders and accepts click/drag input; when false, scrollback remains
   wheel/command driven without the scrollbar affordance. The thumb minimum
@@ -4388,24 +4390,37 @@ evaluation at the next base-snapshot presentation after overlay exit,
 effective-palette whole-line dirtying, screen/height synchronous retirement,
 and stable Lua pane dimensions/cursor coordinates.
 
-The next bounded App Shell v2 slice is pane-local Search/Copy/Quick controller
-ownership. Each pane must own independent Search, Copy Mode, and Quick Select
-state; focus and tab changes must save and restore that state without
-cross-pane projection; input, rendering, and copy actions must resolve only the
-addressed pane's controller; inactive PTY output and stable-row pruning must
-reconcile only the owning controller; and closing a pane must retire only its
-controller state. Acceptance requires focused two-pane and two-tab tests for
-all three controllers covering save/restore, inactive output and pruning,
-addressed-pane-only dispatch, and close cleanup.
+The completed pane-local overlay slice gives each pane at most one current
+transient overlay slot, either `CopySearch` or `QuickSelect`. Search and Copy
+Mode share one `CopySearch` controller and switch modes in place; Quick Select
+replaces the current slot, and its exit does not restore the replaced
+controller. Pane, tab, and workspace focus changes save and restore owner state
+within one native window, and same-window `MovePaneToNewTab` preserves it.
+Input, title, copy, and selection routing is active-pane-only, while every
+visible pane renders its own selection-free base snapshot plus owner-local
+overlay.
 
-Subsequent parity backlog remains full WezTerm-compatible width reflow and
-resize-time selection persistence, inactive-pane hover-wheel routing without
-focus transfer, richer pane focus visuals, arbitrary Lua callbacks including
-full arbitrary-Lua/custom tab-formatting parity, external CLI title control,
-and a real mux/window registry with domain, protocol, and renderer parity. The
-bounded-static `format-tab-title` surface is already implemented. Cell-level
-horizontal bounded-margin scrolling was explicitly not implemented in this
-slice and remains open. Ordinary pane-local selection ownership and the pinned
-single window-right active-pane scrollbar contract are also complete. None of
-these completed bounded slices implies full selection parity, full App Shell
-v2, or general WezTerm parity.
+Active and inactive terminal mutations reconcile stable coordinates
+owner-locally, and Quick matches and labels prune deterministically without
+retargeting removed rows. Those mutation rules are explicit R-SSH safety
+contracts. Moving a pane to another native window preserves terminal runtime,
+scrollback, and viewport while clearing GUI selection and overlay state.
+Immediate pane/tab close cleanup removes only the closed owner state as an
+R-SSH robustness enhancement over pinned WezTerm retention.
+
+The next bounded parity slice is full WezTerm-compatible width reflow and
+resize-time selection persistence. Current width-only resize preserves
+authoritative stable overlay coordinates, but retained terminal content and
+selections do not yet reflow with full upstream behavior.
+
+Beyond that next slice, parity backlog remains inactive-pane hover-wheel
+routing without focus transfer, richer pane focus visuals, arbitrary Lua
+callbacks including full arbitrary-Lua/custom tab-formatting parity, external
+CLI title control, and a real mux/window registry with domain, protocol, and
+renderer parity. The bounded-static `format-tab-title` surface is already
+implemented. Cell-level horizontal bounded-margin scrolling was explicitly not
+implemented and remains open. Ordinary pane-local selection ownership, the
+pane-local transient-overlay slice, and the pinned single window-right
+active-pane scrollbar contract are complete. None of these completed bounded
+slices implies full selection parity, full App Shell v2, or general WezTerm
+parity.

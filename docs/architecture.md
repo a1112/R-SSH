@@ -255,13 +255,12 @@ keyboard, mouse, paste, resize
   rows.
 - This bounded slice does not claim full selection parity, full App Shell v2,
   or general WezTerm parity. Full WezTerm-compatible width reflow and
-  resize-time selection persistence, pane-local Search/Copy/Quick controller
-  ownership, cell-level horizontal bounded-margin scrolling, inactive-pane
-  hover-wheel routing without focus transfer, richer pane focus visuals,
-  arbitrary Lua callbacks, external CLI title control, and a real mux/window
-  registry with domain, protocol, and renderer parity remain open. The
-  cell-level horizontal bounded-margin scroll behavior was explicitly not
-  implemented in this slice.
+  resize-time selection persistence, cell-level horizontal bounded-margin
+  scrolling, inactive-pane hover-wheel routing without focus transfer, richer
+  pane focus visuals, arbitrary Lua callbacks, external CLI title control, and
+  a real mux/window registry with domain, protocol, and renderer parity remain
+  open. The cell-level horizontal bounded-margin scroll behavior was explicitly
+  not implemented in this slice.
 - Completed in v1: tab bar entries include a configurable clickable close
   marker honoring `show_close_tab_button_in_tabs` that closes non-final tabs or
   requests native-window shutdown when the final tab is closed.
@@ -1258,26 +1257,35 @@ keyboard, mouse, paste, resize
   a real native multi-window focus-event end-to-end run in this slice. The macOS
   call was checked against the locked winit API type and signature, while the
   cross-target build is blocked by a third-party C-toolchain dependency.
-- Next bounded slice after v1: pane-local Search/Copy/Quick controller
-  ownership. Each pane must own independent Search, Copy Mode, and Quick Select
-  state; focus and tab changes must save and restore that state without
-  cross-pane projection; input, rendering, and copy actions must resolve only
-  the addressed pane's controller; inactive PTY output and stable-row pruning
-  must reconcile only the owning controller; and closing a pane must retire
-  only its controller state. Acceptance requires focused two-pane and two-tab
-  tests for all three controllers covering save/restore, inactive output and
-  pruning, addressed-pane-only dispatch, and close cleanup.
-- Subsequent parity backlog: full WezTerm-compatible width reflow and
-  resize-time selection persistence, inactive-pane hover-wheel routing without
-  focus transfer, richer pane focus visuals and split-drag affordances,
-  arbitrary Lua callbacks including full arbitrary-Lua/custom tab-formatting
-  parity, external CLI title control, and a real mux/window registry with
-  domain, protocol, and renderer parity. The bounded-static `format-tab-title`
-  surface is already implemented. Cell-level horizontal bounded-margin
-  scrolling was explicitly excluded from the completed stable-selection
-  slice. The pinned WezTerm contract uses one window-right scrollbar bound to
-  the active pane, which is already the implemented layout; per-pane scrollbar
-  tracks are not a parity requirement. The completed stable-row,
+- Completed after v1: every pane owns at most one current transient overlay
+  slot, either `CopySearch` or `QuickSelect`. Search and Copy Mode are modes of
+  the shared `CopySearch` controller; Quick Select replaces that slot and exit
+  does not implicitly restore the replaced controller. Pane, tab, and workspace
+  focus changes save and restore the owner state within one native window, and
+  same-window `MovePaneToNewTab` preserves it. Input, titles, copy, and
+  selection actions route only through the active pane, while every visible
+  pane renders its own selection-free base snapshot plus owner-local overlay.
+  Active and inactive terminal mutation paths reconcile stable coordinates;
+  Quick matches and labels prune deterministically without retargeting.
+  Moving a pane across a native-window boundary preserves terminal runtime,
+  scrollback, and viewport but clears GUI selection and overlay state.
+  Immediate pane/tab close cleanup removes only the closed owner state as an
+  intentional R-SSH robustness enhancement over pinned WezTerm retention.
+- Next bounded slice after v1: full WezTerm-compatible width reflow and
+  resize-time selection persistence. The current stable-row contract preserves
+  authoritative overlay coordinates through width-only resize, but does not
+  reflow retained terminal content and selections with full upstream behavior.
+- Subsequent parity backlog beyond that next slice: inactive-pane hover-wheel
+  routing without focus transfer, richer pane focus visuals and split-drag
+  affordances, arbitrary Lua callbacks including full
+  arbitrary-Lua/custom tab-formatting parity, external CLI title control, and
+  a real mux/window registry with domain, protocol, and renderer parity. The
+  bounded-static `format-tab-title` surface is already implemented. Cell-level
+  horizontal bounded-margin scrolling was explicitly excluded from the
+  completed stable-selection slice. The pinned WezTerm contract uses one
+  window-right scrollbar bound to the active pane, which is already the
+  implemented layout; per-pane scrollbar tracks are not a parity requirement.
+  The completed stable-row,
   per-row-`seqno`, ordinary-selection selected/visible-changed-row intersection
   rule, overlay accumulated-row-change evaluation, and stable Lua coordinate
   work does not imply full selection parity, full App Shell v2, or general

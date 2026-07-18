@@ -982,13 +982,12 @@ runtime storage for tabs and split panes.
   modes. Lua pane dimensions and cursor coordinates expose stable rows.
 - This bounded slice does not claim full selection parity, full App Shell v2,
   or general WezTerm parity. Full WezTerm-compatible width reflow and
-  resize-time selection persistence, pane-local Search/Copy/Quick controller
-  ownership, cell-level horizontal bounded-margin scrolling, inactive-pane
-  hover-wheel routing without focus transfer, richer pane focus visuals,
-  arbitrary Lua callbacks, external CLI title control, and a real mux/window
-  registry with domain, protocol, and renderer parity remain open. The
-  cell-level horizontal bounded-margin scroll behavior was explicitly not
-  implemented in this slice.
+  resize-time selection persistence, cell-level horizontal bounded-margin
+  scrolling, inactive-pane hover-wheel routing without focus transfer, richer
+  pane focus visuals, arbitrary Lua callbacks, external CLI title control, and
+  a real mux/window registry with domain, protocol, and renderer parity remain
+  open. The cell-level horizontal bounded-margin scroll behavior was explicitly
+  not implemented in this slice.
 - `rssh-app` exposes WezTerm-style `ActivateCommandPalette` through the command
   palette and the default `Ctrl+Shift+P` shortcut; invoking it from the palette
   closes the current palette action and reopens a fresh command palette.
@@ -2437,12 +2436,11 @@ runtime storage for tabs and split panes.
   effective-palette whole-line dirtying, synchronous selection/transient
   retirement on screen or height changes, and stable Lua pane dimensions and
   cursor coordinates.
-- The remaining backlog includes pane-local Search/Copy/Quick controller
-  ownership, full WezTerm-compatible width reflow and resize-time selection
-  persistence, inactive-pane hover-wheel routing without focus transfer,
-  richer pane focus visuals, arbitrary Lua callbacks including full
-  arbitrary-Lua/custom tab-formatting parity, external CLI title control, a
-  real mux/window registry with domain, protocol, and renderer parity, and
+- The remaining backlog includes full WezTerm-compatible width reflow and
+  resize-time selection persistence, inactive-pane hover-wheel routing without
+  focus transfer, richer pane focus visuals, arbitrary Lua callbacks including
+  full arbitrary-Lua/custom tab-formatting parity, external CLI title control,
+  a real mux/window registry with domain, protocol, and renderer parity, and
   cell-level horizontal bounded-margin scrolling. The bounded-static
   `format-tab-title` surface is complete; the bounded-margin behavior was
   explicitly not implemented in this slice. This completed work does not imply
@@ -2612,27 +2610,41 @@ cargo test -p rssh-app window_title_reports_app_shell_state
 cargo test -p rssh-app copy_mode
 ```
 
+## Completed Pane-Local Overlay Slice
+
+- Each pane owns at most one current transient overlay slot:
+  `CopySearch | QuickSelect`. Search and Copy Mode share one `CopySearch`
+  controller and switch its mode in place; Quick Select replaces the current
+  slot, and exiting Quick Select does not restore the replaced controller.
+- Pane, tab, and workspace focus changes save and restore owner state within
+  one native window. Same-window `MovePaneToNewTab` preserves that state.
+  Input, titles, copy, and selection actions route through the active pane
+  only, while every visible pane renders its own owner-local overlay without
+  cross-pane projection.
+- Active and inactive PTY output, stable-row pruning, scrollback-limit changes,
+  screen-domain changes, and height changes use owner-local reconciliation.
+  Quick matches and labels prune deterministically and never retarget a removed
+  current match. These mutation rules are explicit R-SSH safety contracts.
+- `MovePaneToNewWindow` preserves terminal runtime, scrollback, and viewport
+  while clearing GUI selection and transient overlay state at the native-window
+  boundary. Immediate pane/tab close cleanup removes only the closed owner
+  state as an R-SSH robustness enhancement.
+
 ## Next Milestone
 
-- Implement one bounded App Shell v2 slice: pane-local Search/Copy/Quick
-  controller ownership.
-- Minimum completion contract: each pane owns independent Search, Copy Mode,
-  and Quick Select state; focus and tab changes save and restore that state
-  without cross-pane projection; input, rendering, and copy actions resolve
-  only the addressed pane's controller; inactive PTY output and stable-row
-  pruning reconcile only the owning controller; and closing a pane retires only
-  its controller state.
-- Acceptance boundary: focused two-pane and two-tab tests for all three
-  controllers must cover save/restore, inactive output and pruning,
-  addressed-pane-only dispatch, and close cleanup.
+- Implement full WezTerm-compatible width reflow and resize-time selection
+  persistence as the next bounded parity slice. The current implementation
+  preserves authoritative stable overlay coordinates through width-only
+  resize, but does not reflow retained terminal content and selections with
+  full upstream behavior.
 
 ### Subsequent Milestones and Backlog
 
-- Full WezTerm-compatible width reflow and resize-time selection persistence,
-  richer pane focus visuals, inactive-pane hover-wheel routing without focus
-  transfer, richer split-drag affordances, arbitrary Lua callbacks including
-  full arbitrary-Lua/custom tab-formatting parity, external CLI title control,
-  and a real mux/window registry with domain, protocol, and renderer parity.
+- Beyond the next width-reflow slice, richer pane focus visuals,
+  inactive-pane hover-wheel routing without focus transfer, richer split-drag
+  affordances, arbitrary Lua callbacks including full
+  arbitrary-Lua/custom tab-formatting parity, external CLI title control, and
+  a real mux/window registry with domain, protocol, and renderer parity remain.
   The bounded-static `format-tab-title` surface is already implemented.
 - Cell-level horizontal bounded-margin scrolling was explicitly not implemented
   by the stable-selection slice and remains open. None of these backlog items
