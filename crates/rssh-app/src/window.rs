@@ -101181,6 +101181,143 @@ struct WindowCopyMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowCopySearchMode {
+    Search,
+    Copy,
+}
+
+#[derive(Debug)]
+struct WindowCopySearchController {
+    mode: WindowCopySearchMode,
+    copy_mode: WindowCopyMode,
+    search: Option<WindowSearch>,
+}
+
+#[derive(Debug)]
+enum PaneTransientOverlay {
+    CopySearch(WindowCopySearchController),
+    QuickSelect(WindowQuickSelect),
+}
+
+#[derive(Debug, Default)]
+struct PaneUiState {
+    stable_viewport: PaneStableViewport,
+    ordinary_selection: Option<StableOrdinarySelection>,
+    overlay: Option<PaneTransientOverlay>,
+}
+
+impl PaneUiState {
+    fn enter_search(&mut self, initial_copy_mode: WindowCopyMode, mut requested: WindowSearch) {
+        requested.editing = true;
+        match self.overlay.as_mut() {
+            Some(PaneTransientOverlay::CopySearch(controller)) => {
+                match controller.search.as_mut() {
+                    Some(retained)
+                        if retained.query == requested.query
+                            && retained.match_type == requested.match_type =>
+                    {
+                        retained.editing = true;
+                    }
+                    Some(_) => {
+                        requested.current = None;
+                        controller.search = Some(requested);
+                    }
+                    None => {
+                        requested.current = None;
+                        controller.search = Some(requested);
+                    }
+                }
+                controller.mode = WindowCopySearchMode::Search;
+            }
+            _ => {
+                requested.current = None;
+                self.overlay = Some(PaneTransientOverlay::CopySearch(
+                    WindowCopySearchController {
+                        mode: WindowCopySearchMode::Search,
+                        copy_mode: initial_copy_mode,
+                        search: Some(requested),
+                    },
+                ));
+            }
+        }
+    }
+
+    fn enter_copy_mode(&mut self, initial_copy_mode: WindowCopyMode) {
+        match self.overlay.as_mut() {
+            Some(PaneTransientOverlay::CopySearch(controller)) => {
+                if let Some(search) = controller.search.as_mut() {
+                    search.editing = false;
+                }
+                controller.mode = WindowCopySearchMode::Copy;
+            }
+            _ => {
+                self.overlay = Some(PaneTransientOverlay::CopySearch(
+                    WindowCopySearchController {
+                        mode: WindowCopySearchMode::Copy,
+                        copy_mode: initial_copy_mode,
+                        search: None,
+                    },
+                ));
+            }
+        }
+    }
+
+    fn enter_quick_select(&mut self, quick_select: WindowQuickSelect) {
+        self.overlay = Some(PaneTransientOverlay::QuickSelect(quick_select));
+    }
+
+    fn exit_overlay(&mut self) {
+        self.overlay = None;
+    }
+
+    fn search(&self) -> Option<&WindowSearch> {
+        let controller = self.copy_search()?;
+        (controller.mode == WindowCopySearchMode::Search)
+            .then(|| controller.search.as_ref())
+            .flatten()
+    }
+
+    fn search_mut(&mut self) -> Option<&mut WindowSearch> {
+        let controller = self.copy_search_mut()?;
+        (controller.mode == WindowCopySearchMode::Search)
+            .then(|| controller.search.as_mut())
+            .flatten()
+    }
+
+    fn copy_search(&self) -> Option<&WindowCopySearchController> {
+        match self.overlay.as_ref()? {
+            PaneTransientOverlay::CopySearch(controller) => Some(controller),
+            PaneTransientOverlay::QuickSelect(_) => None,
+        }
+    }
+
+    fn copy_search_mut(&mut self) -> Option<&mut WindowCopySearchController> {
+        match self.overlay.as_mut()? {
+            PaneTransientOverlay::CopySearch(controller) => Some(controller),
+            PaneTransientOverlay::QuickSelect(_) => None,
+        }
+    }
+
+    fn quick_select(&self) -> Option<&WindowQuickSelect> {
+        match self.overlay.as_ref()? {
+            PaneTransientOverlay::QuickSelect(quick_select) => Some(quick_select),
+            PaneTransientOverlay::CopySearch(_) => None,
+        }
+    }
+
+    fn quick_select_mut(&mut self) -> Option<&mut WindowQuickSelect> {
+        match self.overlay.as_mut()? {
+            PaneTransientOverlay::QuickSelect(quick_select) => Some(quick_select),
+            PaneTransientOverlay::CopySearch(_) => None,
+        }
+    }
+
+    fn overlay_active(&self) -> bool {
+        self.overlay.is_some()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct WindowCopyPendingJump {
     forward: bool,
     prev_char: bool,
@@ -125106,6 +125243,339 @@ mod tests {
         window_show_debug_overlay_shortcut, window_toggle_full_screen_shortcut,
         winit_window_level_for_native,
     };
+
+    fn pane_overlay_copy_mode(
+        row: u16,
+        column: u16,
+        selection_mode: super::WindowCopySelectionMode,
+    ) -> super::WindowCopyMode {
+        super::WindowCopyMode {
+            cursor: SelectionCell { row, column },
+            source_cursor: SelectionSourceCell {
+                domain: TerminalScreenDomain::Main,
+                row: row as isize,
+                column: usize::from(column),
+            },
+            pending_jump: None,
+            last_jump: None,
+            search_direction: None,
+            selection_mode,
+            anchor: None,
+            source_anchor: None,
+        }
+    }
+
+    fn pane_overlay_search(
+        query: &str,
+        match_type: WindowSearchMatchType,
+        current: Option<WindowSearchMatch>,
+        editing: bool,
+    ) -> WindowSearch {
+        WindowSearch {
+            query: query.to_owned(),
+            current,
+            match_type,
+            editing,
+        }
+    }
+
+    fn pane_overlay_match(column: u16) -> WindowSearchMatch {
+        WindowSearchMatch {
+            domain: TerminalScreenDomain::Main,
+            source_row: 0,
+            start_column: column,
+            end_source_row: 0,
+            end_column: column + 2,
+        }
+    }
+
+    fn pane_overlay_quick_select(label: &str) -> WindowQuickSelect {
+        WindowQuickSelect {
+            matches: vec![pane_overlay_match(4)],
+            labels: vec![label.to_owned()],
+            ..WindowQuickSelect::default()
+        }
+    }
+
+    #[test]
+    fn pane_transient_overlay_search_and_copy_share_one_slot() {
+        let initial_copy_mode = pane_overlay_copy_mode(3, 7, super::WindowCopySelectionMode::Word);
+        let retained_match = pane_overlay_match(7);
+        let mut state = super::PaneUiState::default();
+
+        state.enter_search(
+            initial_copy_mode,
+            pane_overlay_search("needle", WindowSearchMatchType::CaseSensitive, None, false),
+        );
+        state.search_mut().expect("search should be active").current = Some(retained_match);
+        let controller_address = state
+            .copy_search()
+            .map(|controller| controller as *const _)
+            .expect("search should install a copy/search controller");
+        assert!(state.overlay_active());
+        assert_eq!(
+            state.copy_search().map(|controller| controller.mode),
+            Some(super::WindowCopySearchMode::Search)
+        );
+        assert_eq!(
+            state
+                .copy_search()
+                .map(|controller| controller.copy_mode.cursor),
+            Some(SelectionCell { row: 3, column: 7 })
+        );
+        assert_eq!(
+            state
+                .copy_search_mut()
+                .map(|controller| controller.copy_mode.selection_mode),
+            Some(super::WindowCopySelectionMode::Word)
+        );
+        assert!(state.search().is_some_and(|search| search.editing));
+
+        state.enter_copy_mode(pane_overlay_copy_mode(
+            9,
+            11,
+            super::WindowCopySelectionMode::Line,
+        ));
+        let controller = state
+            .copy_search()
+            .expect("copy mode should reuse the search controller");
+        assert_eq!(controller as *const _, controller_address);
+        assert_eq!(controller.mode, super::WindowCopySearchMode::Copy);
+        assert_eq!(
+            controller.copy_mode.cursor,
+            SelectionCell { row: 3, column: 7 }
+        );
+        assert_eq!(
+            controller.copy_mode.selection_mode,
+            super::WindowCopySelectionMode::Word
+        );
+        assert_eq!(
+            controller.search.as_ref().and_then(|search| search.current),
+            Some(retained_match)
+        );
+        assert!(
+            controller
+                .search
+                .as_ref()
+                .is_some_and(|search| !search.editing)
+        );
+
+        state.enter_search(
+            pane_overlay_copy_mode(1, 1, super::WindowCopySelectionMode::Cell),
+            pane_overlay_search("needle", WindowSearchMatchType::CaseSensitive, None, false),
+        );
+        let controller = state
+            .copy_search()
+            .expect("search should keep using the same controller");
+        assert_eq!(controller as *const _, controller_address);
+        assert_eq!(controller.mode, super::WindowCopySearchMode::Search);
+        assert_eq!(
+            state.search().and_then(|search| search.current),
+            Some(retained_match)
+        );
+        assert!(state.search().is_some_and(|search| search.editing));
+    }
+
+    #[test]
+    fn pane_transient_overlay_new_search_pattern_invalidates_results() {
+        let mut state = super::PaneUiState::default();
+        let copy_mode = pane_overlay_copy_mode(2, 5, super::WindowCopySelectionMode::Block);
+
+        state.enter_copy_mode(copy_mode);
+        state.enter_search(
+            pane_overlay_copy_mode(7, 7, super::WindowCopySelectionMode::Line),
+            pane_overlay_search(
+                "alpha",
+                WindowSearchMatchType::CaseSensitive,
+                Some(pane_overlay_match(1)),
+                true,
+            ),
+        );
+        assert_eq!(
+            state.search().and_then(|search| search.current),
+            None,
+            "a newly initialized pattern must wait for recalculation"
+        );
+        state.search_mut().expect("search should be active").current = Some(pane_overlay_match(1));
+        state.enter_copy_mode(pane_overlay_copy_mode(
+            8,
+            8,
+            super::WindowCopySelectionMode::Line,
+        ));
+        state.enter_search(
+            pane_overlay_copy_mode(9, 9, super::WindowCopySelectionMode::Cell),
+            pane_overlay_search(
+                "beta",
+                WindowSearchMatchType::CaseSensitive,
+                Some(pane_overlay_match(9)),
+                false,
+            ),
+        );
+        let search = state
+            .search()
+            .expect("different query should still enter search");
+        assert_eq!(search.query, "beta");
+        assert_eq!(search.match_type, WindowSearchMatchType::CaseSensitive);
+        assert_eq!(search.current, None);
+
+        state.search_mut().expect("search should be active").current = Some(pane_overlay_match(2));
+        state.enter_copy_mode(pane_overlay_copy_mode(
+            10,
+            10,
+            super::WindowCopySelectionMode::Line,
+        ));
+        state.enter_search(
+            pane_overlay_copy_mode(11, 11, super::WindowCopySelectionMode::Cell),
+            pane_overlay_search(
+                "beta",
+                WindowSearchMatchType::Regex,
+                Some(pane_overlay_match(11)),
+                false,
+            ),
+        );
+        let search = state
+            .search()
+            .expect("different match type should still enter search");
+        assert_eq!(search.query, "beta");
+        assert_eq!(search.match_type, WindowSearchMatchType::Regex);
+        assert_eq!(search.current, None);
+    }
+
+    #[test]
+    fn pane_transient_overlay_quick_select_replaces_copy_search_without_restore() {
+        let mut state = super::PaneUiState::default();
+        state.enter_search(
+            pane_overlay_copy_mode(0, 3, super::WindowCopySelectionMode::Cell),
+            pane_overlay_search(
+                "before-quick",
+                WindowSearchMatchType::CaseInsensitive,
+                Some(pane_overlay_match(3)),
+                true,
+            ),
+        );
+
+        state.enter_quick_select(pane_overlay_quick_select("a"));
+        assert!(state.copy_search().is_none());
+        assert!(state.search().is_none());
+        assert_eq!(
+            state
+                .quick_select_mut()
+                .map(|quick_select| quick_select.input.push('a')),
+            Some(())
+        );
+        assert_eq!(
+            state
+                .quick_select()
+                .map(|quick_select| quick_select.input.as_str()),
+            Some("a")
+        );
+
+        state.exit_overlay();
+        assert!(!state.overlay_active());
+        assert!(state.copy_search().is_none());
+        assert!(state.search().is_none());
+        assert!(state.quick_select().is_none());
+    }
+
+    #[test]
+    fn pane_transient_overlay_search_mode_always_has_search_state() {
+        let mut state = super::PaneUiState::default();
+        state.enter_search(
+            pane_overlay_copy_mode(1, 2, super::WindowCopySelectionMode::None),
+            pane_overlay_search("first", WindowSearchMatchType::CaseSensitive, None, false),
+        );
+        assert_eq!(
+            state.copy_search().map(|controller| controller.mode),
+            Some(super::WindowCopySearchMode::Search)
+        );
+        assert!(state.search().is_some_and(|search| search.editing));
+
+        state.enter_copy_mode(pane_overlay_copy_mode(
+            4,
+            5,
+            super::WindowCopySelectionMode::Word,
+        ));
+        assert_eq!(
+            state.copy_search().map(|controller| controller.mode),
+            Some(super::WindowCopySearchMode::Copy)
+        );
+        assert!(state.search().is_none());
+        assert!(
+            state
+                .copy_search()
+                .and_then(|controller| controller.search.as_ref())
+                .is_some_and(|search| !search.editing)
+        );
+
+        state.enter_search(
+            pane_overlay_copy_mode(8, 9, super::WindowCopySelectionMode::Line),
+            pane_overlay_search("first", WindowSearchMatchType::CaseSensitive, None, false),
+        );
+        assert_eq!(
+            state.copy_search().map(|controller| controller.mode),
+            Some(super::WindowCopySearchMode::Search)
+        );
+        assert!(state.search().is_some_and(|search| search.editing));
+    }
+
+    #[test]
+    fn pane_transient_overlay_empty_slot_enters_copy_mode() {
+        let mut state = super::PaneUiState::default();
+
+        state.enter_copy_mode(pane_overlay_copy_mode(
+            6,
+            4,
+            super::WindowCopySelectionMode::SemanticZone,
+        ));
+
+        let controller = state
+            .copy_search()
+            .expect("empty slot should create a copy/search controller");
+        assert_eq!(controller.mode, super::WindowCopySearchMode::Copy);
+        assert_eq!(
+            controller.copy_mode.cursor,
+            SelectionCell { row: 6, column: 4 }
+        );
+        assert_eq!(
+            controller.copy_mode.selection_mode,
+            super::WindowCopySelectionMode::SemanticZone
+        );
+        assert!(controller.search.is_none());
+        assert!(state.search().is_none());
+        assert!(state.quick_select().is_none());
+        assert!(state.overlay_active());
+    }
+
+    #[test]
+    fn pane_transient_overlay_search_or_copy_replaces_quick_select() {
+        let mut search_state = super::PaneUiState::default();
+        search_state.enter_quick_select(pane_overlay_quick_select("s"));
+        search_state.enter_search(
+            pane_overlay_copy_mode(3, 1, super::WindowCopySelectionMode::Cell),
+            pane_overlay_search("replacement", WindowSearchMatchType::Regex, None, false),
+        );
+        assert!(search_state.quick_select().is_none());
+        assert_eq!(
+            search_state
+                .search()
+                .map(|search| (search.query.as_str(), search.editing)),
+            Some(("replacement", true))
+        );
+
+        let mut copy_state = super::PaneUiState::default();
+        copy_state.enter_quick_select(pane_overlay_quick_select("c"));
+        copy_state.enter_copy_mode(pane_overlay_copy_mode(
+            5,
+            2,
+            super::WindowCopySelectionMode::Block,
+        ));
+        assert!(copy_state.quick_select().is_none());
+        assert_eq!(
+            copy_state.copy_search().map(|controller| controller.mode),
+            Some(super::WindowCopySearchMode::Copy)
+        );
+        assert!(copy_state.search().is_none());
+    }
 
     fn set_badge_format(app: &mut NativeWindowApp, format: &str) {
         let sequence = format!(
