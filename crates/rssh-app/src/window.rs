@@ -89394,6 +89394,8 @@ impl NativeWindowApp {
             .stable_viewport
             .clamp_main(self.runtime.terminal());
         self.invalidate_active_ordinary_selection_for_presentation();
+        self.active_ui
+            .refresh_search_match_cache(self.runtime.terminal());
         self.update_selection_projection();
         self.snapshot = terminal_runtime_snapshot(&self.runtime, self.active_ui.stable_viewport);
     }
@@ -96829,13 +96831,12 @@ impl NativeWindowApp {
             return false;
         }
 
-        let found = find_window_search_match_with_type(
-            self.runtime.terminal(),
-            query,
-            None,
-            direction,
-            match_type,
-        );
+        self.active_ui
+            .refresh_search_match_cache(self.runtime.terminal());
+        let found = self
+            .active_ui
+            .cached_search_matches(self.runtime.terminal())
+            .and_then(|matches| find_window_search_match(&matches, None, direction));
         self.active_ui.set_search_current(found);
 
         let Some(found) = found else {
@@ -96850,20 +96851,23 @@ impl NativeWindowApp {
     }
 
     fn step_search(&mut self, direction: SearchDirection) -> bool {
-        let Some(search) = self.active_ui.retained_search() else {
+        let Some((query, current)) = self
+            .active_ui
+            .retained_search()
+            .map(|search| (search.query.clone(), search.current))
+        else {
             return false;
         };
-        if search.query.is_empty() {
+        if query.is_empty() {
             return false;
         }
 
-        let found = find_window_search_match_with_type(
-            self.runtime.terminal(),
-            &search.query,
-            search.current,
-            direction,
-            search.match_type,
-        );
+        self.active_ui
+            .refresh_search_match_cache(self.runtime.terminal());
+        let found = self
+            .active_ui
+            .cached_search_matches(self.runtime.terminal())
+            .and_then(|matches| find_window_search_match(&matches, current, direction));
         let Some(found) = found else {
             return false;
         };
@@ -96874,10 +96878,14 @@ impl NativeWindowApp {
     }
 
     fn step_search_page(&mut self, direction: SearchDirection) -> bool {
-        let Some(search) = self.active_ui.retained_search() else {
+        let Some((query, current)) = self
+            .active_ui
+            .retained_search()
+            .map(|search| (search.query.clone(), search.current))
+        else {
             return false;
         };
-        if search.query.is_empty() {
+        if query.is_empty() {
             return false;
         }
 
@@ -96887,23 +96895,22 @@ impl NativeWindowApp {
         }
 
         let viewport_top = self.current_viewport_stable_top();
-        let found = find_window_search_page_match_with_type(
-            self.runtime.terminal(),
-            &search.query,
-            viewport_top,
-            usize::from(size.rows),
-            direction,
-            search.match_type,
-        )
-        .or_else(|| {
-            find_window_search_match_with_type(
-                self.runtime.terminal(),
-                &search.query,
-                search.current,
-                direction,
-                search.match_type,
-            )
-        });
+        self.active_ui
+            .refresh_search_match_cache(self.runtime.terminal());
+        let retained = self.runtime.terminal().retained_stable_range();
+        let found = self
+            .active_ui
+            .cached_search_matches(self.runtime.terminal())
+            .and_then(|matches| {
+                find_window_search_page_match(
+                    &matches,
+                    retained,
+                    viewport_top,
+                    usize::from(size.rows),
+                    direction,
+                )
+                .or_else(|| find_window_search_match(&matches, current, direction))
+            });
         let Some(found) = found else {
             return false;
         };
@@ -101113,10 +101120,13 @@ struct WindowCopyMode {
 }
 
 mod pane_transient_overlay {
+    use std::cell::{Ref, RefCell};
+
     use super::{
-        PaneStableViewport, SelectionCell, SelectionSourceCell, StableOrdinarySelection, Terminal,
-        WindowCopyMode, WindowQuickSelect, WindowSearch, WindowSearchMatch, WindowSearchMatchType,
-        ordinary_selection_is_invalidated_by_visible_dirty_rows,
+        PaneStableViewport, SelectionCell, SelectionSourceCell, StableOrdinarySelection,
+        StableRowIndex, Terminal, TerminalScreenDomain, WindowCopyMode, WindowQuickSelect,
+        WindowSearch, WindowSearchMatch, WindowSearchMatchType,
+        ordinary_selection_is_invalidated_by_visible_dirty_rows, window_search_matches_with_type,
     };
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101139,11 +101149,119 @@ mod pane_transient_overlay {
         QuickSelect(WindowQuickSelect),
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct WindowSearchMatchCacheKey {
+        query: String,
+        match_type: WindowSearchMatchType,
+        terminal_sequence: usize,
+        owner_terminal_epoch: u64,
+        screen_identity_generation: usize,
+        domain: TerminalScreenDomain,
+        retained_start: StableRowIndex,
+        retained_end: StableRowIndex,
+        rows: u16,
+        columns: u16,
+    }
+
+    impl WindowSearchMatchCacheKey {
+        fn new(
+            terminal: &Terminal,
+            owner_terminal_epoch: u64,
+            query: &str,
+            match_type: WindowSearchMatchType,
+        ) -> Self {
+            let dimensions = terminal.stable_dimensions();
+            let retained = terminal.retained_stable_range();
+            let size = terminal.grid().size();
+            Self {
+                query: query.to_owned(),
+                match_type,
+                terminal_sequence: terminal.current_seqno(),
+                owner_terminal_epoch,
+                screen_identity_generation: terminal.screen_identity_generation(),
+                domain: dimensions.domain,
+                retained_start: retained.start,
+                retained_end: retained.end,
+                rows: size.rows,
+                columns: size.columns,
+            }
+        }
+
+        fn matches(
+            &self,
+            terminal: &Terminal,
+            owner_terminal_epoch: u64,
+            search: &WindowSearch,
+        ) -> bool {
+            let dimensions = terminal.stable_dimensions();
+            let retained = terminal.retained_stable_range();
+            let size = terminal.grid().size();
+            self.query == search.query
+                && self.match_type == search.match_type
+                && self.terminal_sequence == terminal.current_seqno()
+                && self.owner_terminal_epoch == owner_terminal_epoch
+                && self.screen_identity_generation == terminal.screen_identity_generation()
+                && self.domain == dimensions.domain
+                && self.retained_start == retained.start
+                && self.retained_end == retained.end
+                && self.rows == size.rows
+                && self.columns == size.columns
+        }
+    }
+
+    #[cfg(test)]
+    #[derive(Debug, PartialEq)]
+    pub(super) struct SearchMatchCacheKeyForTest(WindowSearchMatchCacheKey);
+
+    #[cfg(test)]
+    pub(super) fn search_match_cache_key_for_test(
+        terminal: &Terminal,
+        owner_terminal_epoch: u64,
+        query: &str,
+        match_type: WindowSearchMatchType,
+    ) -> SearchMatchCacheKeyForTest {
+        SearchMatchCacheKeyForTest(WindowSearchMatchCacheKey::new(
+            terminal,
+            owner_terminal_epoch,
+            query,
+            match_type,
+        ))
+    }
+
     #[derive(Debug, Default)]
+    struct WindowSearchMatchCache {
+        key: Option<WindowSearchMatchCacheKey>,
+        matches: Vec<WindowSearchMatch>,
+        #[cfg(test)]
+        recompute_count: usize,
+    }
+
+    impl WindowSearchMatchCache {
+        fn clear(&mut self) {
+            self.key = None;
+            self.matches.clear();
+        }
+    }
+
+    #[derive(Debug)]
     pub(super) struct PaneUiState {
         pub(super) stable_viewport: PaneStableViewport,
         pub(super) ordinary_selection: Option<StableOrdinarySelection>,
         overlay: Option<PaneTransientOverlay>,
+        owner_terminal_epoch: u64,
+        search_match_cache: RefCell<WindowSearchMatchCache>,
+    }
+
+    impl Default for PaneUiState {
+        fn default() -> Self {
+            Self {
+                stable_viewport: PaneStableViewport::default(),
+                ordinary_selection: None,
+                overlay: None,
+                owner_terminal_epoch: 0,
+                search_match_cache: RefCell::new(WindowSearchMatchCache::default()),
+            }
+        }
     }
 
     impl PaneUiState {
@@ -101207,15 +101325,19 @@ mod pane_transient_overlay {
 
         pub(super) fn enter_quick_select(&mut self, quick_select: WindowQuickSelect) {
             self.overlay = Some(PaneTransientOverlay::QuickSelect(quick_select));
+            self.search_match_cache.get_mut().clear();
         }
 
         pub(super) fn exit_overlay(&mut self) {
             self.overlay = None;
+            self.search_match_cache.get_mut().clear();
         }
 
         pub(super) fn retire_terminal_identity(&mut self) {
             self.ordinary_selection = None;
             self.overlay = None;
+            self.owner_terminal_epoch = self.owner_terminal_epoch.saturating_add(1);
+            self.search_match_cache.get_mut().clear();
         }
 
         pub(super) fn reconcile_stable_coordinates(&mut self, terminal: &Terminal) {
@@ -101349,6 +101471,7 @@ mod pane_transient_overlay {
             };
             if retire_overlay {
                 self.overlay = None;
+                self.search_match_cache.get_mut().clear();
             }
         }
 
@@ -101363,6 +101486,7 @@ mod pane_transient_overlay {
             {
                 self.ordinary_selection = None;
             }
+            self.refresh_search_match_cache(terminal);
         }
 
         pub(super) fn copy_search_mode(&self) -> Option<WindowCopySearchMode> {
@@ -101409,6 +101533,72 @@ mod pane_transient_overlay {
             self.copy_search()?.search.as_ref()
         }
 
+        pub(super) fn refresh_search_match_cache(&self, terminal: &Terminal) -> bool {
+            let Some(search) = self
+                .retained_search()
+                .filter(|search| !search.query.is_empty())
+            else {
+                self.search_match_cache.borrow_mut().clear();
+                return false;
+            };
+            {
+                let cache = self.search_match_cache.borrow();
+                if cache
+                    .key
+                    .as_ref()
+                    .is_some_and(|key| key.matches(terminal, self.owner_terminal_epoch, search))
+                {
+                    return false;
+                }
+            }
+
+            let key = WindowSearchMatchCacheKey::new(
+                terminal,
+                self.owner_terminal_epoch,
+                &search.query,
+                search.match_type,
+            );
+            let matches =
+                window_search_matches_with_type(terminal, &search.query, search.match_type);
+            let mut cache = self.search_match_cache.borrow_mut();
+            cache.key = Some(key);
+            cache.matches = matches;
+            #[cfg(test)]
+            {
+                cache.recompute_count = cache.recompute_count.saturating_add(1);
+            }
+            true
+        }
+
+        pub(super) fn cached_search_matches<'a>(
+            &'a self,
+            terminal: &Terminal,
+        ) -> Option<Ref<'a, [WindowSearchMatch]>> {
+            self.refresh_search_match_cache(terminal);
+            let search = self
+                .retained_search()
+                .filter(|search| !search.query.is_empty())?;
+            let cache = self.search_match_cache.borrow();
+            if !cache
+                .key
+                .as_ref()
+                .is_some_and(|key| key.matches(terminal, self.owner_terminal_epoch, search))
+            {
+                return None;
+            }
+            Some(Ref::map(cache, |cache| cache.matches.as_slice()))
+        }
+
+        #[cfg(test)]
+        pub(super) fn search_match_cache_recompute_count(&self) -> usize {
+            self.search_match_cache.borrow().recompute_count
+        }
+
+        #[cfg(test)]
+        pub(super) fn reset_search_match_cache_recompute_count(&self) {
+            self.search_match_cache.borrow_mut().recompute_count = 0;
+        }
+
         pub(super) fn set_search_current(&mut self, current: Option<WindowSearchMatch>) -> bool {
             let Some(search) = self
                 .copy_search_mut()
@@ -101441,6 +101631,7 @@ mod pane_transient_overlay {
                 match_type,
                 editing: controller.mode == WindowCopySearchMode::Search,
             });
+            self.search_match_cache.get_mut().clear();
             Some(true)
         }
 
@@ -120086,18 +120277,11 @@ enum SearchDirection {
     Previous,
 }
 
-fn find_window_search_match_with_type(
-    terminal: &rssh_terminal::Terminal,
-    query: &str,
+fn find_window_search_match(
+    matches: &[WindowSearchMatch],
     current: Option<WindowSearchMatch>,
     direction: SearchDirection,
-    match_type: WindowSearchMatchType,
 ) -> Option<WindowSearchMatch> {
-    if query.is_empty() {
-        return None;
-    }
-
-    let matches = window_search_matches_with_type(terminal, query, match_type);
     if matches.is_empty() {
         return None;
     }
@@ -120124,24 +120308,17 @@ fn find_window_search_match_with_type(
     }
 }
 
-fn find_window_search_page_match_with_type(
-    terminal: &rssh_terminal::Terminal,
-    query: &str,
+fn find_window_search_page_match(
+    matches: &[WindowSearchMatch],
+    retained: std::ops::Range<StableRowIndex>,
     viewport_top: StableRowIndex,
     viewport_rows: usize,
     direction: SearchDirection,
-    match_type: WindowSearchMatchType,
 ) -> Option<WindowSearchMatch> {
-    if query.is_empty() || viewport_rows == 0 {
+    if matches.is_empty() || viewport_rows == 0 {
         return None;
     }
 
-    let matches = window_search_matches_with_type(terminal, query, match_type);
-    if matches.is_empty() {
-        return None;
-    }
-
-    let retained = terminal.retained_stable_range();
     let (page_start, page_end) = match direction {
         SearchDirection::Next => {
             let viewport_rows =
@@ -120168,7 +120345,8 @@ fn find_window_search_page_match_with_type(
     };
 
     matches
-        .into_iter()
+        .iter()
+        .copied()
         .find(|candidate| candidate.source_row >= page_start && candidate.source_row <= page_end)
 }
 
@@ -120773,8 +120951,12 @@ fn pane_inactive_search_selections(terminal: &Terminal, ui: &PaneUiState) -> Vec
 
     let dimensions = terminal.stable_dimensions();
     let viewport_top = pane_viewport_top(terminal, ui);
-    window_search_matches_with_type(terminal, &search.query, search.match_type)
-        .into_iter()
+    let Some(matches) = ui.cached_search_matches(terminal) else {
+        return Vec::new();
+    };
+    matches
+        .iter()
+        .copied()
         .filter(|matched| Some(*matched) != search.current)
         .filter_map(|matched| {
             matched.viewport_selection_for_top(dimensions.domain, viewport_top, size)
@@ -120832,15 +121014,36 @@ fn quick_select_cells_for_pane(
             continue;
         }
 
-        for (offset, ch) in label.chars().enumerate() {
-            let offset = u16::try_from(offset).unwrap_or(u16::MAX);
-            let column = matched.start_column.saturating_add(offset);
-            if column >= size.columns || column >= rect.columns {
+        let mut column = matched.start_column;
+        for ch in label.chars() {
+            let width = terminal.char_display_width(ch);
+            if width == 0 {
+                continue;
+            }
+            let Some(end_column) = column.checked_add(width) else {
+                break;
+            };
+            if column >= size.columns
+                || column >= rect.columns
+                || end_column > size.columns
+                || end_column > rect.columns
+            {
                 break;
             }
             cells.push(ui_render_cell(
                 row, column, ch, foreground, background, true,
             ));
+            for continuation_column in column.saturating_add(1)..end_column {
+                cells.push(ui_render_cell(
+                    row,
+                    continuation_column,
+                    ' ',
+                    foreground,
+                    background,
+                    true,
+                ));
+            }
+            column = end_column;
         }
     }
 
@@ -230517,6 +230720,266 @@ act.Confirmation {
                 .background,
             expected,
             "{context}"
+        );
+    }
+
+    fn quick_label_cells_for_test(
+        app: &NativeWindowApp,
+        label: &str,
+        start_column: u16,
+        rect_columns: u16,
+    ) -> Vec<(u16, char)> {
+        let matched = pane_overlay_test_match(app, 0, start_column, start_column);
+        let quick_select = WindowQuickSelect {
+            current: 0,
+            matches: vec![matched],
+            labels: vec![label.to_owned()],
+            input: String::new(),
+            action_label: None,
+            action: WindowQuickSelectAction::Nop,
+            skip_action_on_paste: false,
+        };
+        super::quick_select_cells_for_pane(
+            app.runtime.terminal(),
+            app.active_ui.stable_viewport,
+            &quick_select,
+            super::PaneRenderRect {
+                pane_id: app.app_shell.active_pane_id(),
+                row: 0,
+                column: 0,
+                rows: 1,
+                columns: rect_columns,
+            },
+            &app.native_resolved_palette(),
+        )
+        .into_iter()
+        .map(|cell| (cell.column, cell.ch))
+        .collect()
+    }
+
+    fn reset_search_match_cache_recompute_counts(app: &NativeWindowApp) {
+        app.active_ui.reset_search_match_cache_recompute_count();
+        for runtime in app.pane_runtimes.values() {
+            runtime.ui.reset_search_match_cache_recompute_count();
+        }
+    }
+
+    fn search_match_cache_recompute_count(app: &NativeWindowApp) -> usize {
+        app.active_ui
+            .search_match_cache_recompute_count()
+            .saturating_add(
+                app.pane_runtimes
+                    .values()
+                    .map(|runtime| runtime.ui.search_match_cache_recompute_count())
+                    .sum(),
+            )
+    }
+
+    #[test]
+    fn window_app_quick_labels_advance_by_terminal_display_width() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
+
+        let default_wide = quick_label_cells_for_test(&app, "界a", 1, 8);
+        app.runtime
+            .set_treat_east_asian_ambiguous_width_as_wide(true);
+        let ambiguous_wide = quick_label_cells_for_test(&app, "☆a", 1, 8);
+        app.runtime
+            .set_cell_width_overrides(vec![rssh_terminal::CellWidthOverride::new(
+                u32::from('☆'),
+                u32::from('☆'),
+                3,
+            )]);
+        let overridden_wide = quick_label_cells_for_test(&app, "☆a", 1, 8);
+
+        assert_eq!(
+            (default_wide, ambiguous_wide, overridden_wide),
+            (
+                vec![(1, '界'), (2, ' '), (3, 'a')],
+                vec![(1, '☆'), (2, ' '), (3, 'a')],
+                vec![(1, '☆'), (2, ' '), (3, ' '), (4, 'a')],
+            ),
+            "Quick labels must use the owner terminal's effective display-width rules"
+        );
+    }
+
+    #[test]
+    fn window_app_quick_labels_clip_whole_wide_glyph_spans() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
+
+        assert!(
+            quick_label_cells_for_test(&app, "界a", 3, 4).is_empty(),
+            "a glyph whose full [start,end) span crosses the owner rect must not be emitted"
+        );
+    }
+
+    #[test]
+    fn window_app_pane_overlay_redraws_reuse_owner_search_match_cache() {
+        let mut app = NativeWindowApp::new(None);
+        configure_pane_overlay_presentation_test(&mut app, pane_overlay_identity_hsb());
+        app.runtime.resize(rssh_core::TerminalSize::new(24, 4));
+        app.handle_pty_output(b"x-left-x").unwrap();
+        install_pane_copy_presentation_for_test(&mut app, "x", 3);
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"x-right-x").unwrap();
+        install_pane_copy_presentation_for_test(&mut app, "x", 4);
+
+        reset_search_match_cache_recompute_counts(&app);
+        let first = app.render_snapshot();
+        let second = app.render_snapshot();
+        assert_eq!(first.cells(), second.cells());
+        assert_eq!(
+            search_match_cache_recompute_count(&app),
+            0,
+            "pure redraws must consume each owner cache without rescanning terminal history"
+        );
+    }
+
+    #[test]
+    fn window_app_search_match_cache_reprojects_viewport_without_rescan() {
+        let mut app = NativeWindowApp::new(None);
+        configure_pane_overlay_presentation_test(&mut app, pane_overlay_identity_hsb());
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        app.handle_pty_output(b"x-old\r\nplain\r\nx-new\r\nplain")
+            .unwrap();
+        install_pane_copy_presentation_for_test(&mut app, "x", 3);
+
+        let bottom = app.render_snapshot();
+        assert_ne!(
+            rendered_active_pane_cell(&app, 0, 0)
+                .expect("bottom viewport cell")
+                .background,
+            PANE_OVERLAY_COPY_INACTIVE_BG,
+            "the old match begins outside the bottom viewport"
+        );
+        reset_search_match_cache_recompute_counts(&app);
+        app.scroll_viewport_lines(2);
+        let scrolled = app.render_snapshot();
+        assert_ne!(bottom.cells(), scrolled.cells());
+        assert_eq!(
+            rendered_active_pane_cell(&app, 0, 0)
+                .expect("scrolled match cell")
+                .background,
+            PANE_OVERLAY_COPY_INACTIVE_BG,
+            "stable cached matches must be reprojected into the moved viewport"
+        );
+        assert_eq!(
+            search_match_cache_recompute_count(&app),
+            0,
+            "viewport-only movement must not invalidate stable source matches"
+        );
+    }
+
+    #[test]
+    fn window_app_search_match_cache_invalidates_once_for_query_and_type() {
+        let mut app = NativeWindowApp::new(None);
+        configure_pane_overlay_presentation_test(&mut app, pane_overlay_identity_hsb());
+        app.runtime.resize(rssh_core::TerminalSize::new(24, 4));
+        app.handle_pty_output(b"x-left-x y-left-y").unwrap();
+        install_pane_copy_presentation_for_test(&mut app, "x", 3);
+
+        reset_search_match_cache_recompute_counts(&app);
+        assert!(app.update_search_query_with_type(
+            "y",
+            SearchDirection::Next,
+            WindowSearchMatchType::CaseSensitive,
+        ));
+        let _ = app.render_snapshot();
+        assert_eq!(
+            search_match_cache_recompute_count(&app),
+            1,
+            "a query change must populate once and redraw from that result"
+        );
+
+        reset_search_match_cache_recompute_counts(&app);
+        assert!(app.update_search_query_with_type(
+            "y",
+            SearchDirection::Next,
+            WindowSearchMatchType::CaseInsensitive,
+        ));
+        let _ = app.render_snapshot();
+        assert_eq!(
+            search_match_cache_recompute_count(&app),
+            1,
+            "a match-type change must populate once and redraw from that result"
+        );
+    }
+
+    #[test]
+    fn window_app_search_match_cache_invalidates_only_mutated_pane_owner() {
+        let mut app = NativeWindowApp::new(None);
+        configure_pane_overlay_presentation_test(&mut app, pane_overlay_identity_hsb());
+        app.runtime.resize(rssh_core::TerminalSize::new(24, 4));
+        app.handle_pty_output(b"x-left-x").unwrap();
+        install_pane_copy_presentation_for_test(&mut app, "x", 3);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"x-right-x").unwrap();
+        install_pane_copy_presentation_for_test(&mut app, "x", 4);
+
+        reset_search_match_cache_recompute_counts(&app);
+        app.handle_pty_output(b"x").unwrap();
+        let _ = app.render_snapshot();
+        assert_eq!(
+            search_match_cache_recompute_count(&app),
+            1,
+            "active output must repopulate only the active owner"
+        );
+
+        reset_search_match_cache_recompute_counts(&app);
+        app.handle_pane_pty_output(rssh_core::PaneId::new(1), b"x")
+            .unwrap();
+        let _ = app.render_snapshot();
+        assert_eq!(
+            search_match_cache_recompute_count(&app),
+            1,
+            "inactive output must repopulate only the inactive owner"
+        );
+    }
+
+    #[test]
+    fn pane_search_match_cache_key_tracks_terminal_identity_resize_and_prune() {
+        let key = |terminal: &rssh_terminal::Terminal, owner_epoch| {
+            super::pane_transient_overlay::search_match_cache_key_for_test(
+                terminal,
+                owner_epoch,
+                "x",
+                WindowSearchMatchType::CaseSensitive,
+            )
+        };
+
+        let mut resized = rssh_terminal::Terminal::new(rssh_core::TerminalSize::new(8, 2));
+        let before_resize = key(&resized, 0);
+        resized.resize(rssh_core::TerminalSize::new(10, 3));
+        assert_ne!(before_resize, key(&resized, 0));
+
+        let mut pruned = rssh_terminal::Terminal::new(rssh_core::TerminalSize::new(8, 2));
+        pruned.set_scrollback_limit(1);
+        let before_prune = key(&pruned, 0);
+        pruned.feed(b"one\r\ntwo\r\nthree\r\nfour");
+        assert_ne!(before_prune, key(&pruned, 0));
+
+        let mut alternate = rssh_terminal::Terminal::new(rssh_core::TerminalSize::new(8, 2));
+        let before_domain_change = key(&alternate, 0);
+        alternate.feed(b"\x1b[?1049h");
+        assert_ne!(before_domain_change, key(&alternate, 0));
+
+        let stable_terminal = rssh_terminal::Terminal::new(rssh_core::TerminalSize::new(8, 2));
+        assert_ne!(
+            key(&stable_terminal, 0),
+            key(&stable_terminal, 1),
+            "owner terminal replacement epoch must disambiguate otherwise equal terminals"
         );
     }
 

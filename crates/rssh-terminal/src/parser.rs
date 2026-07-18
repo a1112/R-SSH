@@ -639,6 +639,15 @@ impl Terminal {
         self.cell_width_overrides = overrides;
     }
 
+    pub fn char_display_width(&self, ch: char) -> u16 {
+        display_width(
+            ch,
+            self.unicode_version,
+            self.treat_east_asian_ambiguous_width_as_wide,
+            &self.cell_width_overrides,
+        )
+    }
+
     pub fn set_enable_kitty_graphics(&mut self, enabled: bool) {
         self.enable_kitty_graphics = enabled;
         if !enabled {
