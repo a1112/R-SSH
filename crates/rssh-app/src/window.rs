@@ -96947,6 +96947,7 @@ impl NativeWindowApp {
         if !self.active_ui.set_search_editing(editing) {
             return false;
         }
+        self.reconcile_active_terminal_mutation();
         self.refresh_snapshot();
         self.apply_window_title();
         true
@@ -101409,22 +101410,30 @@ mod pane_transient_overlay {
             self.stable_viewport.clamp_main(terminal);
             let dimensions = terminal.stable_dimensions();
             let retained = terminal.retained_stable_range();
-            let retained_copy_cursor = match self.overlay.as_ref() {
-                Some(PaneTransientOverlay::CopySearch(controller))
-                    if controller.copy_mode_retained
-                        && source_cell_is_retained(
-                            controller.copy_mode.source_cursor,
-                            dimensions.domain,
-                            &retained,
-                        ) =>
-                {
-                    Some(controller.copy_mode.source_cursor)
-                }
+            let viewport_driver_row = match self.overlay.as_ref() {
+                Some(PaneTransientOverlay::CopySearch(controller)) => match controller.mode {
+                    WindowCopySearchMode::Search => controller
+                        .search
+                        .as_ref()
+                        .and_then(|search| search.current)
+                        .filter(|matched| matched.is_retained(terminal))
+                        .map(|matched| matched.source_row),
+                    WindowCopySearchMode::Copy
+                        if controller.copy_mode_retained
+                            && source_cell_is_retained(
+                                controller.copy_mode.source_cursor,
+                                dimensions.domain,
+                                &retained,
+                            ) =>
+                    {
+                        Some(controller.copy_mode.source_cursor.row)
+                    }
+                    WindowCopySearchMode::Copy => None,
+                },
                 _ => None,
             };
-            if let Some(cursor) = retained_copy_cursor {
-                self.stable_viewport
-                    .ensure_main_row_visible(terminal, cursor.row);
+            if let Some(row) = viewport_driver_row {
+                self.stable_viewport.ensure_main_row_visible(terminal, row);
             }
             let viewport_top = self
                 .stable_viewport
@@ -101454,19 +101463,22 @@ mod pane_transient_overlay {
                             }
                         }
                         if controller.copy_mode_retained {
-                            if size.columns > 0 {
-                                controller.copy_mode.source_cursor.column = controller
+                            let cursor = (size.columns > 0).then(|| SelectionSourceCell {
+                                column: controller
                                     .copy_mode
                                     .source_cursor
                                     .column
-                                    .min(usize::from(size.columns.saturating_sub(1)));
-                            }
-                            let cursor = viewport_cell_for_source(
-                                controller.copy_mode.source_cursor,
-                                dimensions.domain,
-                                viewport_top,
-                                size,
-                            );
+                                    .min(usize::from(size.columns.saturating_sub(1))),
+                                ..controller.copy_mode.source_cursor
+                            });
+                            let cursor = cursor.and_then(|cursor| {
+                                viewport_cell_for_source(
+                                    cursor,
+                                    dimensions.domain,
+                                    viewport_top,
+                                    size,
+                                )
+                            });
                             let anchor = controller.copy_mode.source_anchor.and_then(|anchor| {
                                 viewport_cell_for_source(
                                     anchor,
@@ -190190,14 +190202,22 @@ return config
     fn window_app_width_only_shrink_preserves_active_and_inactive_copy_owners() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(12, 4));
-        app.handle_pty_output(b"left").unwrap();
+        app.handle_pty_output(b"0123456789AB").unwrap();
         app.enter_copy_mode();
         assert!(app.set_copy_mode_cursor(0, 10));
         assert!(app.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
+        assert!(app.move_copy_mode_cursor(0, 1));
         let inactive_owner = app.active_pane_id();
         let inactive_before = active_copy_mode_for_test(&app);
         let inactive_cursor_before = inactive_before.source_cursor;
         let inactive_anchor_before = inactive_before.source_anchor.expect("inactive anchor");
+        let inactive_selection_before = super::copy_mode_source_selection(
+            inactive_before,
+            app.runtime.terminal(),
+            &app.selection_word_boundary,
+        )
+        .expect("inactive source selection");
+        assert_eq!(app.selected_text().as_deref(), Some("AB"));
         app.dispatch_app_action(AppAction::SplitPane {
             pane: inactive_owner,
             direction: SplitDirection::Right,
@@ -190205,14 +190225,22 @@ return config
         })
         .unwrap();
 
-        app.handle_pty_output(b"right").unwrap();
+        app.handle_pty_output(b"0123456789AB").unwrap();
         app.enter_copy_mode();
-        assert!(app.set_copy_mode_cursor(0, 11));
+        assert!(app.set_copy_mode_cursor(0, 9));
         assert!(app.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
+        assert!(app.move_copy_mode_cursor(0, 2));
         let active_cursor_before = active_copy_mode_for_test(&app).source_cursor;
         let active_anchor_before = active_copy_mode_for_test(&app)
             .source_anchor
             .expect("active anchor");
+        let active_selection_before = super::copy_mode_source_selection(
+            active_copy_mode_for_test(&app),
+            app.runtime.terminal(),
+            &app.selection_word_boundary,
+        )
+        .expect("active source selection");
+        assert_eq!(app.selected_text().as_deref(), Some("9AB"));
 
         app.handle_window_resize(PhysicalSize::new(48, 80)).unwrap();
 
@@ -190221,16 +190249,30 @@ return config
             rssh_core::TerminalSize::new(6, 4)
         );
         let active = active_copy_mode_for_test(&app);
-        assert_eq!(
-            (active.source_cursor.domain, active.source_cursor.row),
-            (active_cursor_before.domain, active_cursor_before.row)
-        );
-        assert_eq!(active.source_cursor.column, 5);
-        assert_eq!(active.cursor, SelectionCell { row: 0, column: 5 });
+        assert_eq!(active.source_cursor, active_cursor_before);
         assert_eq!(active.source_anchor, Some(active_anchor_before));
+        assert_eq!(active.cursor, SelectionCell { row: 0, column: 5 });
         assert!(
             active.anchor.is_none(),
             "off-width active anchor has no local viewport cell"
+        );
+        assert_eq!(
+            super::copy_mode_source_selection(
+                active,
+                app.runtime.terminal(),
+                &app.selection_word_boundary,
+            ),
+            Some(active_selection_before),
+            "width shrink must not retarget the authoritative source selection"
+        );
+        assert!(
+            app.selection.is_none(),
+            "off-width source endpoints have no visible selection projection"
+        );
+        assert_ne!(
+            app.selected_text().as_deref(),
+            Some("5"),
+            "selection text must not be retargeted to the new right edge"
         );
 
         let inactive = app
@@ -190241,16 +190283,61 @@ return config
             .ui
             .retained_copy_mode()
             .expect("inactive Copy survives width-only shrink");
-        assert_eq!(
-            (copy.source_cursor.domain, copy.source_cursor.row),
-            (inactive_cursor_before.domain, inactive_cursor_before.row)
-        );
-        assert_eq!(copy.source_cursor.column, 5);
-        assert_eq!(copy.cursor, SelectionCell { row: 0, column: 5 });
+        assert_eq!(copy.source_cursor, inactive_cursor_before);
         assert_eq!(copy.source_anchor, Some(inactive_anchor_before));
+        assert_eq!(copy.cursor, SelectionCell { row: 0, column: 5 });
         assert!(
             copy.anchor.is_none(),
             "off-width inactive anchor has no local viewport cell"
+        );
+        assert_eq!(
+            super::copy_mode_source_selection(
+                copy,
+                inactive.runtime.terminal(),
+                &app.selection_word_boundary,
+            ),
+            Some(inactive_selection_before),
+            "inactive source selection must remain authoritative"
+        );
+
+        app.handle_window_resize(PhysicalSize::new(96, 80)).unwrap();
+
+        assert_eq!(
+            app.runtime.terminal().grid().size(),
+            rssh_core::TerminalSize::new(12, 4)
+        );
+        let active = active_copy_mode_for_test(&app);
+        assert_eq!(active.source_cursor, active_cursor_before);
+        assert_eq!(active.source_anchor, Some(active_anchor_before));
+        assert_eq!(active.cursor, SelectionCell { row: 0, column: 11 });
+        assert_eq!(
+            active.anchor,
+            Some(SelectionCell { row: 0, column: 9 }),
+            "expansion must reproject from the original source anchor"
+        );
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 9 },
+                SelectionCell { row: 0, column: 11 },
+            ))
+        );
+
+        let inactive = app
+            .pane_runtimes
+            .get(&inactive_owner)
+            .expect("inactive Copy owner after expansion");
+        let copy = inactive
+            .ui
+            .retained_copy_mode()
+            .expect("inactive Copy survives re-expansion");
+        assert_eq!(copy.source_cursor, inactive_cursor_before);
+        assert_eq!(copy.source_anchor, Some(inactive_anchor_before));
+        assert_eq!(copy.cursor, SelectionCell { row: 0, column: 11 });
+        assert_eq!(
+            copy.anchor,
+            Some(SelectionCell { row: 0, column: 10 }),
+            "inactive expansion must reproject the original source anchor"
         );
     }
 
@@ -190303,6 +190390,197 @@ return config
                 .active_top(app.runtime.terminal()),
             None,
             "alternate screen must not synthesize a main viewport"
+        );
+    }
+
+    #[test]
+    fn window_app_search_mode_drives_active_and_inactive_viewports_before_copy_resumes() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        app.set_config_overrides(NativeConfigOverrides {
+            copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"copy-row\r\nmid-1\r\nmid-2\r\nmid-3\r\nneedle-row\r\nlive")
+            .unwrap();
+        app.enter_copy_mode();
+        assert!(app.move_copy_mode_to_scrollback_top());
+        assert!(app.set_copy_mode_cursor(0, 7));
+        assert!(app.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
+        let copy_before = active_copy_mode_for_test(&app);
+        let copy_source_cursor = copy_before.source_cursor;
+        let copy_source_anchor = copy_before.source_anchor;
+        let copy_selection_mode = copy_before.selection_mode;
+        assert_eq!(copy_before.pending_jump, None);
+        assert_eq!(copy_before.last_jump, None);
+        assert_eq!(copy_before.search_direction, None);
+
+        app.enter_search_mode();
+        assert!(app.update_search_query("live"));
+        let search_match = active_search_for_test(&app)
+            .current
+            .expect("retained search match");
+        assert!(
+            search_match
+                .source_row
+                .saturating_sub(copy_source_cursor.row)
+                >= 3,
+            "fixture keeps hidden Copy cursor and Search current on separate pages"
+        );
+        let search_top = app.current_viewport_stable_top();
+        let expected_search_selection = search_match
+            .viewport_selection_for_top(
+                app.runtime.terminal().stable_dimensions().domain,
+                search_top,
+                app.runtime.terminal().grid().size(),
+            )
+            .expect("Search current projects in the search-driven viewport");
+        assert_eq!(app.selection, Some(expected_search_selection));
+        let copy = app
+            .active_ui
+            .retained_copy_mode()
+            .expect("Search retains Copy state");
+        assert_eq!(copy.source_cursor, copy_source_cursor);
+        assert_eq!(copy.source_anchor, copy_source_anchor);
+        assert_eq!(copy.selection_mode, copy_selection_mode);
+
+        app.handle_pty_output(b"\x1b[2;12H!").unwrap();
+
+        assert_eq!(
+            app.current_viewport_stable_top(),
+            search_top,
+            "active mutation must keep Search current as viewport driver"
+        );
+        assert_eq!(
+            active_search_for_test(&app).current,
+            Some(search_match),
+            "retained Search current survives active mutation"
+        );
+        assert_eq!(app.selection, Some(expected_search_selection));
+        let copy = app
+            .active_ui
+            .retained_copy_mode()
+            .expect("hidden Copy state survives active mutation");
+        assert_eq!(copy.source_cursor, copy_source_cursor);
+        assert_eq!(copy.source_anchor, copy_source_anchor);
+        assert_eq!(copy.selection_mode, copy_selection_mode);
+        assert_eq!(copy.pending_jump, None);
+        assert_eq!(copy.last_jump, None);
+        assert_eq!(copy.search_direction, None);
+
+        let owner = app.active_pane_id();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: owner,
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pane_pty_output(owner, b"\x1b[2;11H?").unwrap();
+
+        let inactive = app
+            .pane_runtimes
+            .get(&owner)
+            .expect("inactive Search owner");
+        let inactive_top = inactive
+            .ui
+            .stable_viewport
+            .active_top(inactive.runtime.terminal())
+            .unwrap_or(inactive.runtime.terminal().stable_dimensions().physical_top);
+        assert_eq!(
+            inactive_top, search_top,
+            "inactive mutation must keep Search current as viewport driver"
+        );
+        let search = inactive
+            .ui
+            .search()
+            .expect("inactive Search remains active");
+        assert_eq!(search.current, Some(search_match));
+        assert!(
+            search_match
+                .viewport_selection_for_top(
+                    inactive.runtime.terminal().stable_dimensions().domain,
+                    inactive_top,
+                    inactive.runtime.terminal().grid().size(),
+                )
+                .is_some(),
+            "inactive Search highlight remains projected"
+        );
+        let copy = inactive
+            .ui
+            .retained_copy_mode()
+            .expect("inactive Search retains hidden Copy state");
+        assert_eq!(copy.source_cursor, copy_source_cursor);
+        assert_eq!(copy.source_anchor, copy_source_anchor);
+        assert_eq!(copy.selection_mode, copy_selection_mode);
+
+        app.dispatch_app_action(AppAction::ActivatePane { pane: owner })
+            .unwrap();
+        assert!(app.set_search_pattern_editing(false));
+
+        assert_eq!(
+            copy_search_mode_for_test(&app),
+            Some(super::WindowCopySearchMode::Copy)
+        );
+        let copy_top = app.current_viewport_stable_top();
+        let copy = active_copy_mode_for_test(&app);
+        assert_eq!(copy.source_cursor, copy_source_cursor);
+        assert_eq!(copy.source_anchor, copy_source_anchor);
+        assert_eq!(copy.selection_mode, copy_selection_mode);
+        let expected_copy_selection = super::copy_mode_source_selection(
+            copy,
+            app.runtime.terminal(),
+            &app.selection_word_boundary,
+        )
+        .and_then(|selection| {
+            selection.viewport_selection(
+                app.runtime.terminal().stable_dimensions().domain,
+                copy_top,
+                app.runtime.terminal().grid().size(),
+            )
+        })
+        .expect("Copy source selection projects after AcceptPattern");
+        assert_eq!(app.selection, Some(expected_copy_selection));
+        assert_ne!(
+            app.selection,
+            Some(expected_search_selection),
+            "active selection projection must switch away from Search immediately"
+        );
+        assert_eq!(
+            snapshot_cell(&app.snapshot, copy.cursor.row, copy.cursor.column)
+                .expect("Copy highlight cell after AcceptPattern")
+                .background,
+            Color::Rgb(1, 2, 3),
+            "snapshot highlight must follow the resumed Copy selection"
+        );
+        assert_ne!(
+            snapshot_cell(&app.snapshot, expected_search_selection.anchor.row, 0)
+                .expect("former Search highlight cell")
+                .background,
+            Color::Rgb(1, 2, 3),
+            "snapshot must not retain the old Search highlight projection"
+        );
+        assert_eq!(
+            copy.cursor,
+            SelectionCell {
+                row: u16::try_from(copy_source_cursor.row - copy_top).expect("visible Copy row"),
+                column: u16::try_from(copy_source_cursor.column).expect("visible Copy column"),
+            },
+            "Copy cursor is reprojected immediately on AcceptPattern"
+        );
+        assert!(
+            copy_source_cursor.row >= copy_top
+                && copy_source_cursor.row
+                    < copy_top
+                        + StableRowIndex::try_from(app.runtime.terminal().grid().size().rows)
+                            .unwrap(),
+            "Copy cursor immediately resumes viewport ownership"
+        );
+        assert_eq!(
+            app.active_ui
+                .retained_search()
+                .and_then(|search| search.current),
+            Some(search_match),
+            "AcceptPattern retains Search current for Copy/Search transitions"
         );
     }
 
