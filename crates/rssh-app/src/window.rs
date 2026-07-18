@@ -89236,6 +89236,18 @@ impl NativeWindowApp {
                     })
                     .and_then(|selection| {
                         selection.viewport_selection(dimensions.domain, viewport_top, size)
+                    })
+                    .or_else(|| {
+                        self.active_ui
+                            .retained_search()
+                            .and_then(|search| search.current)
+                            .and_then(|matched| {
+                                matched.viewport_selection_for_top(
+                                    dimensions.domain,
+                                    viewport_top,
+                                    size,
+                                )
+                            })
                     }),
                 None => self.active_ui.ordinary_selection.and_then(|selection| {
                     selection.viewport_selection(dimensions.domain, viewport_top, size)
@@ -98634,7 +98646,7 @@ impl NativeWindowApp {
                     });
             }
             Some(WindowCopySearchMode::Copy) => {
-                return self.active_ui.copy_mode().and_then(|copy_mode| {
+                let copy_text = self.active_ui.copy_mode().and_then(|copy_mode| {
                     let selection = copy_mode_source_selection(
                         copy_mode,
                         self.runtime.terminal(),
@@ -98643,6 +98655,17 @@ impl NativeWindowApp {
                     let text = selection.text_from_terminal(self.runtime.terminal())?;
                     (!text.is_empty()).then_some(text)
                 });
+                if copy_text.is_some() {
+                    return copy_text;
+                }
+                return self
+                    .active_ui
+                    .retained_search()
+                    .and_then(|search| search.current)
+                    .and_then(|matched| {
+                        let text = matched.text_from_terminal(self.runtime.terminal())?;
+                        (!text.is_empty()).then_some(text)
+                    });
             }
             None => {}
         }
@@ -193558,6 +193581,62 @@ return config
         assert!(quick_app.selection.is_some());
         assert!(snapshot_cell(&search_app.snapshot, 0, 0).unwrap().inverse);
         assert!(snapshot_cell(&quick_app.snapshot, 0, 0).unwrap().inverse);
+    }
+
+    #[test]
+    fn window_app_copy_search_accept_pattern_keeps_current_projection() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.set_config_overrides(NativeConfigOverrides {
+            copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"foo one\r\nfoo two").unwrap();
+        app.enter_copy_mode();
+        assert!(app.move_copy_mode_to_viewport_top());
+        assert_eq!(
+            active_copy_mode_for_test(&app).selection_mode,
+            super::WindowCopySelectionMode::None
+        );
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        for character in ["f", "o", "o"] {
+            assert!(
+                app.handle_search_key(&Key::Character(character.into()), ModifiersState::empty())
+            );
+        }
+        let current = active_search_for_test(&app)
+            .current
+            .expect("Copy-search current match");
+        let expected = current
+            .viewport_selection(app.runtime.terminal())
+            .expect("current match viewport projection")
+            .1;
+
+        assert!(app.perform_copy_mode_assignment(super::WindowCopyModeAssignment::AcceptPattern));
+
+        assert_eq!(
+            copy_search_mode_for_test(&app),
+            Some(super::WindowCopySearchMode::Copy)
+        );
+        assert!(!active_search_for_test(&app).editing);
+        assert_eq!(active_search_for_test(&app).current, Some(current));
+        assert_eq!(
+            app.selection,
+            Some(expected),
+            "accepted Search current must remain the active Copy projection when Copy has no selection"
+        );
+        let active_cell =
+            snapshot_cell(&app.snapshot, expected.anchor.row, expected.anchor.column).unwrap();
+        assert_eq!(active_cell.background, Color::Rgb(1, 2, 3));
+        assert_eq!(app.selected_text().as_deref(), Some("foo"));
+
+        assert!(app.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
+        assert_ne!(app.selection, Some(expected));
+        assert_eq!(
+            app.selected_text().as_deref(),
+            Some("f"),
+            "a real Copy selection must take precedence over retained Search current"
+        );
     }
 
     #[test]
