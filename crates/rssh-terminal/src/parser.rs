@@ -2045,11 +2045,22 @@ impl Terminal {
         image_id: u32,
         placement_id: Option<u32>,
     ) {
+        let removed_placement_keys = self
+            .kitty_virtual_placements
+            .iter()
+            .filter_map(|(placement_key, placement)| {
+                (placement.image_id == image_id
+                    && placement_id
+                        .is_none_or(|placement_id| placement.placement_id == Some(placement_id)))
+                .then_some(*placement_key)
+            })
+            .collect::<HashSet<_>>();
         self.kitty_virtual_placements.retain(|_, placement| {
             placement.image_id != image_id
                 || placement_id
                     .is_some_and(|placement_id| placement.placement_id != Some(placement_id))
         });
+        self.discard_kitty_character_edited_placements(&removed_placement_keys);
         self.retain_kitty_character_edited_placements();
     }
 
@@ -2068,9 +2079,18 @@ impl Terminal {
             .copied()
             .filter(|image_id| *image_id >= first_image_id && *image_id <= last_image_id)
             .collect::<Vec<_>>();
+        let removed_placement_keys = self
+            .kitty_virtual_placements
+            .iter()
+            .filter_map(|(placement_key, placement)| {
+                (placement.image_id >= first_image_id && placement.image_id <= last_image_id)
+                    .then_some(*placement_key)
+            })
+            .collect::<HashSet<_>>();
         self.kitty_virtual_placements.retain(|_, placement| {
             placement.image_id < first_image_id || placement.image_id > last_image_id
         });
+        self.discard_kitty_character_edited_placements(&removed_placement_keys);
         self.retain_kitty_character_edited_placements();
         self.delete_kitty_placements(false, |image| {
             image
@@ -4614,6 +4634,19 @@ impl Terminal {
             &self.kitty_virtual_placements,
             &mut self.kitty_character_edited_placements,
         );
+    }
+
+    fn discard_kitty_character_edited_placements(
+        &mut self,
+        removed_placement_keys: &HashSet<KittyPlacementKey>,
+    ) {
+        self.kitty_character_edited_placements
+            .retain(|key| !removed_placement_keys.contains(key));
+        if let Some(screen) = self.main_screen.as_mut() {
+            screen
+                .kitty_character_edited_placements
+                .retain(|key| !removed_placement_keys.contains(key));
+        }
     }
 
     fn screen_state(&self) -> ScreenState {
@@ -9982,6 +10015,44 @@ mod stable_row_tests {
                 && image.kitty_placement_id == Some(2)
                 && image.row == 0
                 && image.column == 3
+        }));
+    }
+
+    #[test]
+    fn terminal_alt_virtual_delete_discards_dormant_character_edit_marker() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=30,p=4,f=24,s=1,v=1,c=2,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b[1;3H\x1b[38;5;30m\x1b[58;5;4m");
+        terminal.feed("\u{10eeee}\u{0305}\u{0305}".as_bytes());
+        let residual_right_cache = *terminal
+            .kitty_placeholder_cells
+            .get(&(0, 2))
+            .expect("virtual parent cache");
+        terminal
+            .kitty_placeholder_cells
+            .insert((0, 4), residual_right_cache);
+        terminal.feed(b"\x1b[?69h\x1b[3;4s\x1b[1;2r\x1b[1;3H\x1b[@");
+
+        terminal.feed(b"\x1b[?1049h");
+        terminal.feed(b"\x1b_Ga=d,d=i,i=30,p=4\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,U=1,i=30,p=4,c=2,r=1\x1b\\");
+        terminal.feed(b"\x1b[?1049l");
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=0,c=1,r=1\x1b\\");
+
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![
+                b"\x1b_Gi=30,p=4;OK\x1b\\".to_vec(),
+                b"\x1b_Gi=7,p=2;OK\x1b\\".to_vec(),
+            ]
+        );
+        assert!(terminal.inline_images.iter().any(|image| {
+            image.kitty_image_id == Some(7)
+                && image.kitty_placement_id == Some(2)
+                && image.row == 0
+                && image.column == 4
         }));
     }
 
