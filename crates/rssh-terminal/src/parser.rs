@@ -4787,12 +4787,16 @@ impl Terminal {
             return;
         };
 
-        self.retire_graphics_in_bounded_scroll_region(top, bottom, left, right);
+        let graphics_retired =
+            self.retire_graphics_in_bounded_scroll_region(top, bottom, left, right);
         self.scroll_down_bounded_cells(top, bottom, count, left, right);
         for row in top..=bottom {
             self.grid.set_row_last_change_seqno(row, self.seqno);
         }
         self.record_damage(DamageRegion::new(left, top, right - left + 1, height));
+        if graphics_retired {
+            self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+        }
     }
 
     fn scroll_up_with_horizontal_margins(&mut self, top: u16, bottom: u16, count: u16) {
@@ -4808,12 +4812,16 @@ impl Terminal {
             return;
         };
 
-        self.retire_graphics_in_bounded_scroll_region(top, bottom, left, right);
+        let graphics_retired =
+            self.retire_graphics_in_bounded_scroll_region(top, bottom, left, right);
         self.scroll_up_bounded_cells(top, bottom, count, left, right);
         for row in top..=bottom {
             self.grid.set_row_last_change_seqno(row, self.seqno);
         }
         self.record_damage(DamageRegion::new(left, top, right - left + 1, height));
+        if graphics_retired {
+            self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+        }
     }
 
     fn scroll_down_bounded_cells(
@@ -4848,7 +4856,7 @@ impl Terminal {
         bottom: u16,
         left: u16,
         right: u16,
-    ) {
+    ) -> bool {
         let first_row = self.scrollback.len().saturating_add(usize::from(top));
         let last_row = self
             .scrollback
@@ -4856,21 +4864,27 @@ impl Terminal {
             .saturating_add(usize::from(bottom))
             .saturating_add(1);
         let last_column = right.saturating_add(1);
+        let inline_image_count = self.inline_images.len();
+        let placeholder_count = self.kitty_placeholder_cells.len();
         self.inline_images.retain(|image| {
             !inline_image_intersects_region(image, first_row, last_row, left, last_column)
         });
         self.kitty_placeholder_cells.retain(|(row, column), _| {
             !(*row >= first_row && *row < last_row && *column >= left && *column <= right)
         });
-        if self.last_kitty_placeholder.is_some_and(|placeholder| {
+        let last_placeholder_retired = self.last_kitty_placeholder.is_some_and(|placeholder| {
             placeholder.row >= first_row
                 && placeholder.row < last_row
                 && placeholder.column >= left
                 && placeholder.column <= right
-        }) {
+        });
+        if last_placeholder_retired {
             self.last_kitty_placeholder = None;
         }
         self.delete_orphan_kitty_relative_children();
+        self.inline_images.len() != inline_image_count
+            || self.kitty_placeholder_cells.len() != placeholder_count
+            || last_placeholder_retired
     }
 
     fn scroll_inline_images_down_region(&mut self, top: u16, bottom: u16, count: u16) {
@@ -8422,6 +8436,35 @@ mod stable_row_tests {
         assert!(terminal.kitty_placeholder_cells.contains_key(&(1, 0)));
         assert!(!terminal.kitty_placeholder_cells.contains_key(&(1, 3)));
         assert!(terminal.last_kitty_placeholder.is_none());
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_su_invalidates_viewport_after_retiring_graphics() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+        terminal.feed(b"abcdefgh\r\nijklmnop\r\nqrstuvwx\r\nyz012345");
+        let mut parent = metadata_test_image(1, "parent");
+        parent.column = 1;
+        parent.width = Some("4".to_owned());
+        parent.kitty_image_id = Some(30);
+        parent.kitty_placement_id = Some(4);
+        let mut child = metadata_test_image(2, "child");
+        child.column = 0;
+        child.kitty_image_id = Some(7);
+        child.kitty_placement_id = Some(2);
+        terminal.inline_images.extend([parent, child]);
+        terminal.kitty_relative_parents.insert((7, 2), (30, 4));
+        terminal.take_damage();
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r");
+        terminal.take_damage();
+
+        terminal.feed(b"\x1b[S");
+
+        assert!(terminal.inline_images.is_empty());
+        assert!(terminal.kitty_relative_parents.is_empty());
+        assert_eq!(
+            terminal.take_damage(),
+            vec![DamageRegion::new(2, 1, 4, 3), DamageRegion::new(0, 0, 8, 4),]
+        );
     }
 
     #[test]
