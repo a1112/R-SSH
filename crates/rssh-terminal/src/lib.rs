@@ -2291,6 +2291,39 @@ mod tests {
     }
 
     #[test]
+    fn terminal_resize_reflow_preserves_cursor_inside_wide_character_span() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed("界".as_bytes());
+        assert_eq!(terminal.cursor(), (0, 1));
+
+        terminal.resize(TerminalSize::new(3, 1));
+
+        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '界');
+        assert_eq!(terminal.cursor(), (0, 1));
+        terminal.feed(b"x");
+        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'x');
+    }
+
+    #[test]
+    fn terminal_resize_reflow_preserves_cursor_inside_custom_wide_character_span() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.set_cell_width_overrides(vec![CellWidthOverride::new(
+            u32::from('x'),
+            u32::from('x'),
+            2,
+        )]);
+        terminal.feed(b"x");
+        assert_eq!(terminal.cursor(), (0, 1));
+
+        terminal.resize(TerminalSize::new(3, 1));
+
+        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'x');
+        assert_eq!(terminal.cursor(), (0, 1));
+        terminal.feed(b"y");
+        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'y');
+    }
+
+    #[test]
     fn terminal_reports_merged_damage_for_written_text() {
         let mut terminal = Terminal::new(TerminalSize::new(10, 1));
 

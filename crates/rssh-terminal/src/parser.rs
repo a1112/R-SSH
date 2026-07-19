@@ -5558,6 +5558,16 @@ fn reflow_logical_line(
             });
         }
 
+        if let Some(cursor_offset) = cursor_offset
+            .filter(|cursor_offset| index < *cursor_offset && *cursor_offset < index + source_width)
+        {
+            reflowed_cursor = Some((
+                rows.len(),
+                row.len()
+                    .saturating_add(cursor_offset.saturating_sub(index).min(output_width)),
+            ));
+        }
+
         let mut glyph_cells = cells[index..index + source_width].to_vec();
         while glyph_cells.len() < cell_width {
             let mut continuation = cell.clone();
