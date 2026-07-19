@@ -1304,7 +1304,7 @@ mod tests {
         assert_eq!(row_text(&terminal, 2), "        ");
         assert_eq!(row_text(&terminal, 3), "     Q  ");
         assert_eq!(row_text(&terminal, 4), "        ");
-        assert_eq!(terminal.cursor(), (3, 6));
+        assert_eq!(terminal.cursor(), (3, 5));
     }
 
     #[test]
@@ -1629,6 +1629,137 @@ mod tests {
         }
         assert_eq!(outside.cursor(), (1, 0));
         assert!(outside.scrollback().is_empty());
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_ich_and_dch_edit_only_margin_cells() {
+        let mut inserted = Terminal::new(TerminalSize::new(8, 2));
+        inserted.feed(b"AA1234ZZ\r\nBB5678YY");
+        inserted.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;2r\x1b[2;3H\x1b[2@");
+
+        assert_eq!(row_text(&inserted, 0), "AA1234ZZ");
+        assert_eq!(row_text(&inserted, 1), "BB  56YY");
+
+        let mut deleted = Terminal::new(TerminalSize::new(8, 2));
+        deleted.feed(b"AA1234ZZ\r\nBB5678YY");
+        deleted.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;2r\x1b[1;3H\x1b[2P");
+
+        assert_eq!(row_text(&deleted, 0), "AA34  ZZ");
+        assert_eq!(row_text(&deleted, 1), "BB5678YY");
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_ich_requires_tb_but_dch_does_not() {
+        let mut inserted = Terminal::new(TerminalSize::new(8, 3));
+        inserted.feed(b"AA1234ZZ\r\nBB5678YY\r\nCC9012XX");
+        inserted.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;3r\x1b[1;3H\x1b[2@");
+        assert_eq!(row_text(&inserted, 0), "AA1234ZZ");
+
+        let mut deleted = Terminal::new(TerminalSize::new(8, 3));
+        deleted.feed(b"AA1234ZZ\r\nBB5678YY\r\nCC9012XX");
+        deleted.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;3r\x1b[1;3H\x1b[2P");
+        assert_eq!(row_text(&deleted, 0), "AA34  ZZ");
+
+        let mut outside_lr = Terminal::new(TerminalSize::new(8, 3));
+        outside_lr.feed(b"AA1234ZZ\r\nBB5678YY\r\nCC9012XX");
+        outside_lr.feed(b"\x1b[?69h\x1b[3;6s\x1b[1;3r\x1b[1;1H\x1b[2@\x1b[2P");
+        assert_eq!(row_text(&outside_lr, 0), "AA1234ZZ");
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_print_and_irm_preserve_exterior_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+        terminal.feed(b"AA1234ZZ");
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[1;3HX\x1b[1;4H\x1b[4hY\x1b[4l");
+
+        assert_eq!(row_text(&terminal, 0), "AAXY23ZZ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_autowrap_uses_margin_only_when_cursor_is_inside() {
+        let mut inside = Terminal::new(TerminalSize::new(8, 2));
+        inside.feed(b"AA1234ZZ\r\nBB5678YY");
+        inside.feed(b"\x1b[?69h\x1b[3;6s\x1b[1;6HXY");
+
+        assert_eq!(row_text(&inside, 0), "AA123XZZ");
+        assert_eq!(row_text(&inside, 1), "BBY678YY");
+        assert_eq!(inside.cursor(), (1, 3));
+
+        let mut outside = Terminal::new(TerminalSize::new(8, 2));
+        outside.feed(b"AA1234ZZ\r\nBB5678YY");
+        outside.feed(b"\x1b[?69h\x1b[3;6s\x1b[1;8HPQ");
+
+        assert_eq!(row_text(&outside, 0), "AA1234ZP");
+        assert_eq!(row_text(&outside, 1), "QB5678YY");
+        assert_eq!(outside.cursor(), (1, 1));
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_physical_wrap_outside_lr_does_not_scroll_tb() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+        terminal.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[4;8HPQ");
+
+        assert_eq!(row_text(&terminal, 0), "AA1111ZZ");
+        assert_eq!(row_text(&terminal, 1), "BB2222YY");
+        assert_eq!(row_text(&terminal, 2), "CC3333XX");
+        assert_eq!(row_text(&terminal, 3), "QD4444WP");
+        assert_eq!(terminal.cursor(), (3, 1));
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_wide_glyph_crosses_right_margin_before_wrapping() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"AA1234ZZ\r\nBB5678YY");
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[1;6H");
+        terminal.feed("界".as_bytes());
+
+        assert_eq!(row_text(&terminal, 0), "AA123界 Z");
+        assert_eq!(row_text(&terminal, 1), "BB5678YY");
+        assert_eq!(terminal.cursor(), (0, 5));
+
+        terminal.feed(b"x");
+
+        assert_eq!(row_text(&terminal, 0), "AA123界 Z");
+        assert_eq!(row_text(&terminal, 1), "BBx678YY");
+        assert_eq!(terminal.cursor(), (1, 3));
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_variation_selector_stops_at_right_margin() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.set_unicode_version(14);
+        terminal.feed(b"AA1234ZZ\r\nBB5678YY");
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[1;5H");
+        terminal.feed("☁\u{fe0f}x".as_bytes());
+
+        assert_eq!(row_text(&terminal, 0), "AA12☁ ZZ");
+        assert_eq!(row_text(&terminal, 1), "BBx678YY");
+        assert_eq!(terminal.cursor(), (1, 3));
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_dch_retires_intersecting_kitty_placement() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b[1;3H\x1b_Ga=p,i=30,p=4,c=1,r=1\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        assert_eq!(terminal.inline_images().len(), 1);
+
+        terminal.feed(b"\x1b[?69h\x1b[2;23s\x1b[1;3H\x1b[P");
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"\x1b_Ga=p,i=30,p=5\x1b\\");
+
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=30,p=5;OK\x1b\\".to_vec()]
+        );
+        assert_eq!(terminal.inline_images().len(), 1);
     }
 
     #[test]

@@ -3408,8 +3408,14 @@ impl Terminal {
     }
 
     fn wrapped_newline(&mut self) {
-        self.carriage_return();
-        self.index_down(true);
+        if self.modes.left_right_margin_mode && !self.cursor_within_horizontal_margins() {
+            self.cursor_column = 0;
+            self.pending_wrap = false;
+            self.index_down_outside_horizontal_margins(true);
+        } else {
+            self.carriage_return();
+            self.index_down(true);
+        }
     }
 
     fn next_line(&mut self) {
@@ -3699,7 +3705,7 @@ impl Terminal {
         let available_width = self.grid.size().columns - self.cursor_column;
         let write_width = width.min(available_width);
         if self.modes.write_mode == CharacterWriteMode::Insert {
-            self.insert_blank_characters(write_width);
+            self.insert_blank_characters_for_write(write_width);
         }
 
         let column = self.cursor_column;
@@ -3790,7 +3796,10 @@ impl Terminal {
             return true;
         }
 
-        let available_width = self.grid.size().columns.saturating_sub(column);
+        let available_width = self
+            .character_right_boundary()
+            .saturating_add(1)
+            .saturating_sub(column);
         if sequence_width == 0 || sequence_width > available_width {
             return true;
         }
@@ -4087,8 +4096,9 @@ impl Terminal {
 
     fn advance_cursor(&mut self, width: u16) {
         let next_column = self.cursor_column.saturating_add(width);
-        if next_column >= self.grid.size().columns {
-            self.cursor_column = self.grid.size().columns.saturating_sub(1);
+        let right_boundary = self.character_right_boundary();
+        if next_column > right_boundary {
+            self.cursor_column = right_boundary;
             self.pending_wrap = self.modes.auto_wrap;
         } else {
             self.cursor_column = next_column;
@@ -4771,6 +4781,19 @@ impl Terminal {
             || (self.cursor_column >= self.left_margin && self.cursor_column <= self.right_margin)
     }
 
+    fn cursor_within_vertical_margins(&self) -> bool {
+        self.cursor_row >= self.scroll_top && self.cursor_row <= self.scroll_bottom
+    }
+
+    fn character_right_boundary(&self) -> u16 {
+        let physical_right = self.grid.size().columns.saturating_sub(1);
+        if self.modes.left_right_margin_mode && self.cursor_within_horizontal_margins() {
+            self.right_margin.min(physical_right)
+        } else {
+            physical_right
+        }
+    }
+
     fn active_scroll_range_from_cursor(&self) -> Option<(u16, u16)> {
         let size = self.grid.size();
         if size.rows == 0 || size.columns == 0 {
@@ -5266,13 +5289,32 @@ impl Terminal {
 
     fn insert_blank_characters(&mut self, count: u16) {
         self.pending_wrap = false;
-        let size = self.grid.size();
-        if self.cursor_row >= size.rows || self.cursor_column >= size.columns || count == 0 {
+        if !self.cursor_within_horizontal_margins() || !self.cursor_within_vertical_margins() {
             return;
         }
 
-        let count = count.min(size.columns - self.cursor_column);
-        let shift_end = size.columns - count;
+        let right = self.character_right_boundary();
+        self.insert_blank_characters_with_right_boundary(count, right);
+    }
+
+    fn insert_blank_characters_for_write(&mut self, count: u16) {
+        let right = self.character_right_boundary();
+        self.insert_blank_characters_with_right_boundary(count, right);
+    }
+
+    fn insert_blank_characters_with_right_boundary(&mut self, count: u16, right: u16) {
+        let size = self.grid.size();
+        if self.cursor_row >= size.rows
+            || self.cursor_column >= size.columns
+            || self.cursor_column > right
+            || count == 0
+        {
+            return;
+        }
+
+        let count = count.min(right - self.cursor_column + 1);
+        let graphics_retired = self.bounded_character_edit_retires_graphics(right);
+        let shift_end = right + 1 - count;
         for column in (self.cursor_column..shift_end).rev() {
             let cell = self
                 .grid
@@ -5289,20 +5331,37 @@ impl Terminal {
         self.record_damage(DamageRegion::new(
             self.cursor_column,
             self.cursor_row,
-            size.columns - self.cursor_column,
+            right - self.cursor_column + 1,
             1,
         ));
+        if graphics_retired {
+            self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+        }
     }
 
     fn delete_characters(&mut self, count: u16) {
         self.pending_wrap = false;
-        let size = self.grid.size();
-        if self.cursor_row >= size.rows || self.cursor_column >= size.columns || count == 0 {
+        if !self.cursor_within_horizontal_margins() {
             return;
         }
 
-        let count = count.min(size.columns - self.cursor_column);
-        let shift_end = size.columns - count;
+        let right = self.character_right_boundary();
+        self.delete_characters_with_right_boundary(count, right);
+    }
+
+    fn delete_characters_with_right_boundary(&mut self, count: u16, right: u16) {
+        let size = self.grid.size();
+        if self.cursor_row >= size.rows
+            || self.cursor_column >= size.columns
+            || self.cursor_column > right
+            || count == 0
+        {
+            return;
+        }
+
+        let count = count.min(right - self.cursor_column + 1);
+        let graphics_retired = self.bounded_character_edit_retires_graphics(right);
+        let shift_end = right + 1 - count;
         for column in self.cursor_column..shift_end {
             let cell = self
                 .grid
@@ -5312,16 +5371,30 @@ impl Terminal {
             self.set_grid_cell(self.cursor_row, column, cell);
         }
 
-        for column in shift_end..size.columns {
+        for column in shift_end..=right {
             self.set_grid_cell(self.cursor_row, column, self.blank_cell());
         }
 
         self.record_damage(DamageRegion::new(
             self.cursor_column,
             self.cursor_row,
-            size.columns - self.cursor_column,
+            right - self.cursor_column + 1,
             1,
         ));
+        if graphics_retired {
+            self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+        }
+    }
+
+    fn bounded_character_edit_retires_graphics(&mut self, right: u16) -> bool {
+        self.bounded_horizontal_scroll_columns().is_some_and(|_| {
+            self.retire_graphics_in_bounded_scroll_region(
+                self.cursor_row,
+                self.cursor_row,
+                self.cursor_column,
+                right,
+            )
+        })
     }
 
     fn erase_characters(&mut self, count: u16) {
