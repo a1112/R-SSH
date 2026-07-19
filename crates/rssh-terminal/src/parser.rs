@@ -3173,6 +3173,7 @@ impl Terminal {
         let size = TerminalSize::new(size.columns.max(1), size.rows);
         self.advance_seqno();
         let old_size = self.grid.size();
+        let old_main_scrollback_rows = self.scrollback.len();
         let cell_width_overrides = self.cell_width_overrides.clone();
         if old_size.columns != size.columns {
             if let Some(mut screen) = self.main_screen.take() {
@@ -3192,6 +3193,10 @@ impl Terminal {
                     &mut screen.cursor_column,
                 );
                 self.main_screen = Some(screen);
+                self.apply_main_reflow_outcome(MainReflowOutcome::new(
+                    old_size,
+                    old_main_scrollback_rows,
+                ));
             } else {
                 reflow_main_screen(
                     &mut self.scrollback,
@@ -3204,6 +3209,10 @@ impl Terminal {
                     &mut self.cursor_row,
                     &mut self.cursor_column,
                 );
+                self.apply_main_reflow_outcome(MainReflowOutcome::new(
+                    old_size,
+                    old_main_scrollback_rows,
+                ));
             }
             self.trim_scrollback_to_limit();
         } else {
@@ -3221,6 +3230,32 @@ impl Terminal {
         self.left_margin = 0;
         self.right_margin = size.columns.saturating_sub(1);
         self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+    }
+
+    fn apply_main_reflow_outcome(&mut self, outcome: MainReflowOutcome) {
+        self.main_stable_row_offset = self
+            .main_stable_row_offset
+            .checked_add(
+                StableRowIndex::try_from(outcome.previous_history_rows)
+                    .expect("terminal history rows must fit a stable row index"),
+            )
+            .expect("terminal stable row index overflow");
+        self.semantic_prompt_rows.clear();
+        self.semantic_command_exits.clear();
+
+        if let Some(screen) = self.main_screen.as_mut() {
+            retire_reflow_coordinate_state(screen);
+            return;
+        }
+
+        self.inline_images.clear();
+        self.kitty_placeholder_cells.clear();
+        self.last_kitty_placeholder = None;
+        self.pending_kitty_placeholder = None;
+        self.kitty_relative_parents.clear();
+        self.kitty_virtual_placements.clear();
+        self.nfc_last_printable_cell = None;
+        self.saved_cursor = None;
     }
 
     pub fn take_damage(&mut self) -> Vec<DamageRegion> {
@@ -5469,6 +5504,29 @@ struct ReflowLogicalLine {
     cursor_offset: Option<usize>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct MainReflowOutcome {
+    previous_history_rows: usize,
+}
+
+impl MainReflowOutcome {
+    fn new(size: TerminalSize, scrollback_rows: usize) -> Self {
+        Self {
+            previous_history_rows: scrollback_rows
+                .checked_add(usize::from(size.rows))
+                .expect("terminal history row count overflow"),
+        }
+    }
+}
+
+fn retire_reflow_coordinate_state(screen: &mut ScreenState) {
+    screen.inline_images.clear();
+    screen.kitty_placeholder_cells.clear();
+    screen.last_kitty_placeholder = None;
+    screen.nfc_last_printable_cell = None;
+    screen.saved_cursor = None;
+}
+
 fn trim_reflow_padding(
     cells: &mut Vec<Cell>,
     unicode_version: u32,
@@ -7708,7 +7766,7 @@ mod stable_row_tests {
 
         assert_eq!(
             terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
-            vec![0, 1, 2]
+            terminal.retained_stable_range().collect::<Vec<_>>()
         );
     }
 
@@ -8490,7 +8548,7 @@ mod stable_row_tests {
 
         assert_eq!(
             terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
-            vec![0, 1, 2]
+            terminal.retained_stable_range().collect::<Vec<_>>()
         );
     }
 
@@ -8620,6 +8678,75 @@ mod stable_row_tests {
             main_screen_rows(&terminal),
             vec![("abcde".to_owned(), false), ("fgh  ".to_owned(), true),]
         );
+    }
+
+    #[test]
+    fn terminal_width_resize_retires_unmapped_main_metadata_and_stable_rows() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"abcdefgh");
+        let old_selection = stable_selection(
+            stable_coordinate(&terminal, 0, 0),
+            stable_coordinate(&terminal, 0, 1),
+            false,
+        );
+        install_suffix_metadata(&mut terminal, 0);
+
+        terminal.resize(TerminalSize::new(3, 2));
+
+        assert!(terminal.semantic_prompt_rows.is_empty());
+        assert!(terminal.semantic_command_exits.is_empty());
+        assert!(terminal.inline_images.is_empty());
+        assert!(terminal.kitty_placeholder_cells.is_empty());
+        assert!(terminal.last_kitty_placeholder.is_none());
+        assert_eq!(terminal.text_from_stable_selection(old_selection), None);
+    }
+
+    #[test]
+    fn terminal_width_resize_retires_active_main_coordinate_state() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        terminal.set_unicode_version(14);
+        terminal.feed("ab☁".as_bytes());
+        terminal.feed(b"\x1b[s");
+
+        terminal.resize(TerminalSize::new(3, 1));
+
+        assert!(terminal.nfc_last_printable_cell.is_none());
+        assert!(terminal.saved_cursor.is_none());
+        terminal.feed(b"\x1b[u");
+        assert_eq!(terminal.cursor(), (0, 0));
+        terminal.feed("\u{fe0f}".as_bytes());
+        assert_eq!(terminal.cursor(), (0, 0));
+    }
+
+    #[test]
+    fn terminal_width_resize_retires_dormant_main_coordinate_state() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 2));
+        terminal.set_unicode_version(14);
+        terminal.feed("ab☁".as_bytes());
+        terminal.feed(b"\x1b[1;4H\x1b[s\x1b[?1049h");
+
+        terminal.resize(TerminalSize::new(4, 2));
+
+        let main = terminal.main_screen.as_ref().expect("dormant main screen");
+        assert!(main.nfc_last_printable_cell.is_none());
+        assert!(main.saved_cursor.is_none());
+
+        terminal.feed(b"\x1b[?1049l\x1b[u");
+        assert_eq!(terminal.cursor(), (0, 1));
+        terminal.feed("\u{fe0f}".as_bytes());
+        assert_eq!(terminal.cursor(), (0, 1));
+    }
+
+    #[test]
+    fn terminal_width_resize_preserves_dormant_main_pending_wrap_mapping() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed("界".as_bytes());
+        terminal.feed(b"\x1b[?1049h");
+
+        terminal.resize(TerminalSize::new(3, 1));
+        terminal.feed(b"\x1b[?1049lX");
+
+        assert_eq!(terminal.grid.get(0, 0).unwrap().ch, 'X');
     }
 
     #[test]
