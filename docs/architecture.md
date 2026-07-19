@@ -257,12 +257,14 @@ keyboard, mouse, paste, resize
   WezTerm `093bf6bf2b82b929ed80c04fd54ebc80464f715e`. A main screen, including
   a dormant main screen behind the alternate screen, reflows logical lines with
   its scrollback; the alternate screen receives only physical resize and never
-  reflows. Main reflow retires unsafe terminal coordinate metadata, invalidates
-  ordinary selection, and resets the main viewport. Copy/Search/Quick retain
-  their configuration but rebuild coordinate-derived presentation. This is not
-  a claim of general selection, rendering, or image parity beyond that tested
-  metadata retirement. Cell-level horizontal bounded-margin scrolling remains
-  the next concrete parity gap.
+  reflows. Main reflow retires unsafe terminal coordinate metadata. When main
+  is visible, its viewport resets/clamps, ordinary selection is cleared, and
+  Copy/Search/Quick retain configuration while rebuilding coordinate-derived
+  presentation. When alternate is visible, it is only physically resized; the
+  saved main reflows in the background and alternate ordinary/overlay UI state
+  is preserved. This is not a claim of general selection, rendering, or image
+  parity beyond that tested metadata retirement. Cell-level horizontal
+  bounded-margin scrolling remains the next concrete parity gap.
 - This bounded work does not claim full selection parity, full App Shell v2,
   or general WezTerm parity. Inactive-pane hover-wheel routing without focus
   transfer, richer
@@ -1284,10 +1286,13 @@ keyboard, mouse, paste, resize
   WezTerm `093bf6bf2b82b929ed80c04fd54ebc80464f715e`. Main scrollback and the
   main screen, including a dormant main screen, reflow by logical lines;
   alternate-screen resize remains physical and non-reflowing. Unsafe
-  main-coordinate metadata is retired, ordinary selection is invalidated, and
-  Copy/Search/Quick retain configuration while rebuilding coordinate-derived
-  presentation. This scope makes no general selection, rendering, or image
-  parity claim beyond the tested metadata retirement.
+  main-coordinate metadata is retired. With main visible, its viewport
+  resets/clamps, ordinary selection is cleared, and Copy/Search/Quick retain
+  configuration while rebuilding coordinate-derived presentation. With
+  alternate visible, its UI state is preserved while saved main reflows in the
+  background and the alternate is only physically resized. This scope makes no
+  general selection, rendering, or image parity claim beyond the tested
+  metadata retirement.
 - The next concrete parity gap is cell-level horizontal bounded-margin
   scrolling. Subsequent parity backlog beyond it includes inactive-pane hover-wheel
   routing without focus transfer, richer pane focus visuals and split-drag

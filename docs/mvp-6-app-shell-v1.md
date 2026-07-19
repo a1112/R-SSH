@@ -984,11 +984,14 @@ runtime storage for tabs and split panes.
   WezTerm `093bf6bf2b82b929ed80c04fd54ebc80464f715e`. Main scrollback and the
   main screen, including a dormant main screen, reflow logical lines; alternate
   resize is physical and non-reflowing. Unsafe main-coordinate metadata is
-  retired, ordinary selection is invalidated, and Copy/Search/Quick retain
-  configuration while rebuilding coordinate-derived presentation. This does not
-  claim general selection, rendering, or image parity beyond that tested
-  retirement. Cell-level horizontal bounded-margin scrolling is the next
-  concrete parity gap.
+  retired. When main is visible, its viewport resets/clamps, ordinary selection
+  is cleared, and Copy/Search/Quick retain configuration while rebuilding
+  coordinate-derived presentation. When alternate is visible, it is only
+  physically resized; saved main reflows in the background and alternate
+  ordinary/overlay UI state is preserved. This does not claim general
+  selection, rendering, or image parity beyond that tested retirement.
+  Cell-level horizontal bounded-margin scrolling is the next concrete parity
+  gap.
 - This bounded work does not claim full selection parity, full App Shell v2,
   or general WezTerm parity. Inactive-pane hover-wheel routing without focus
   transfer, richer
@@ -2447,10 +2450,13 @@ runtime storage for tabs and split panes.
 - Bounded width-resize parity is complete against pinned WezTerm
   `093bf6bf2b82b929ed80c04fd54ebc80464f715e`: main (including dormant main)
   reflows logical lines while alternate resize remains physical and
-  non-reflowing; unsafe terminal coordinate metadata is retired; ordinary
-  selection is invalidated; and Copy/Search/Quick preserve configuration while
-  rebuilding coordinate-derived presentation. The next concrete remaining gap
-  is cell-level horizontal bounded-margin scrolling. Inactive-pane hover-wheel routing without
+  non-reflowing; unsafe terminal coordinate metadata is retired. With main
+  visible, its viewport resets/clamps, ordinary selection is cleared, and
+  Copy/Search/Quick preserve configuration while rebuilding coordinate-derived
+  presentation. With alternate visible, its UI state is preserved while saved
+  main reflows in the background and alternate resize remains physical. The
+  next concrete remaining gap is cell-level horizontal bounded-margin
+  scrolling. Inactive-pane hover-wheel routing without
   focus transfer, richer pane focus visuals, arbitrary Lua callbacks including
   full arbitrary-Lua/custom tab-formatting parity, external CLI title control,
   a real mux/window registry with domain, protocol, and renderer parity, and
