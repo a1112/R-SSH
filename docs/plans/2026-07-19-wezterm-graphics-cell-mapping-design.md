@@ -22,18 +22,21 @@ full-width scroll behavior.
 
 ## Architecture
 
-1. Represent the portion of an inline image that covers each terminal cell as
-   an independently addressable render fragment. The fragment carries the
-   source image/Kitty placement identity and crop information needed to render
-   precisely that cell-sized part. Existing `ItermInlineImage` remains the
-   protocol-facing placement and source-data record.
-2. Derive fragments from a physical placement and use a shared `CellTransform`
-   for narrow `SU`/`SD`, bounded line movement, and single-row `ICH`/`DCH`.
-   The transform maps every source cell to a destination cell or deletion.
-3. Apply a transform to graphics fragments exactly as cells are copied:
-   fragments in moved cells relocate, fragments in blanked cells disappear,
-   and fragments outside the transformed rectangle remain untouched. Damage
-   includes both the old and new fragment extents.
+1. Persist a geometry-independent `CellAttachment` for every terminal cell
+   covered by a physical inline-image placement. An attachment records its
+   destination terminal cell, protocol parent identity, and logical source-cell
+   identity/crop. Existing `ItermInlineImage` remains the protocol-facing
+   placement and source-data record; it is never used to reconstruct which
+   attachment cells survived a transform.
+2. Use a shared `CellTransform` for narrow `SU`/`SD`, bounded line movement,
+   and single-row `ICH`/`DCH`. The transform maps an attachment's source
+   terminal cell to a destination cell or deletion. The resulting attachment
+   set is persisted in terminal/screen state.
+3. The renderer consumes that persisted attachment set as authoritative input.
+   It resolves only pixel rectangles and sampling at the active
+   `RenderGeometry`; it does not infer logical attachment identities from
+   pixel offsets, a default 8x16 cell, or a parent rectangle. Damage includes
+   both old and new attachment pixel extents.
 4. Keep Kitty stored payloads, image-number mappings, and virtual placement
    data out of coordinate transforms. Placeholder caches, pending placeholders,
    and `last_kitty_placeholder` are screen-coordinate state and must receive
@@ -63,11 +66,12 @@ full-width scroll behavior.
 
 ## Error handling and rollout
 
-Fragment derivation validates cell dimensions and source bounds. If an image
-cannot be represented as cell fragments (zero geometry or malformed crop), the
-operation uses the existing safe retirement path for that placement and emits
-full-viewport damage; it never leaves stale coordinates. This fallback is
-observable in focused tests and is not advertised as upstream-equivalent.
+Attachment construction validates declared cell geometry and source bounds at
+placement time, independently of renderer cell pixels. If a protocol placement
+cannot provide a valid logical cell footprint, the operation uses the existing
+safe retirement path for that placement and emits full-viewport damage; it
+never leaves stale coordinates. This fallback is observable in focused tests
+and is not advertised as upstream-equivalent.
 
 The rollout is intentionally staged: first fragment data and renderer support,
 then vertical bounded transforms, then single-row character transforms and
