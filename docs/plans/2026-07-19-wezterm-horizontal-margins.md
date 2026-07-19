@@ -1,103 +1,95 @@
-# WezTerm Horizontal Margin Semantics Implementation Plan
+# WezTerm Horizontal Margin Semantics Implementation Record
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+**Goal:** Match pinned WezTerm `DECLRMM`/`DECSLRM` cell-level bounded
+scrolling, editing, and right-edge writing semantics.
 
-**Goal:** Match pinned WezTerm `DECLRMM`/`DECSLRM` cell-level bounded scrolling,
-editing, and right-edge writing semantics.
+**Reference:** WezTerm `093bf6bf2b82b929ed80c04fd54ebc80464f715e`.
 
-**Architecture:** Preserve the existing full-width top-anchored main-screen
-scrollback path. Add private bounded-cell movement helpers for partial-width or
-non-top regions. Character shifts and printing select an LR right edge only
-when the cursor is inside a configured horizontal region.
+**Architecture:** Preserve the existing full-width, top-anchored main-screen
+scrollback path. For an active non-full left/right margin, use bounded-cell
+movement and bounded same-row shifts. The following records what the feature
+branch implements; it is not a claim of general terminal or renderer parity.
 
-**Tech Stack:** Rust 2024, `rssh-terminal`, pinned WezTerm
-`093bf6bf2b82b929ed80c04fd54ebc80464f715e`, Cargo test.
+## Ground rules retained by the implementation
 
-## Ground rules
+- Bounded operations preserve cells outside the active LR interval exactly.
+- Partial-width movement never writes main-screen scrollback or rebases stable
+  row IDs; full-width behavior keeps its existing scrollback-aware path.
+- `ICH` requires both TB and LR cursor membership. `DCH` requires LR membership
+  only. `ECH` remains physical-right-edge erase.
+- A printable character, insert mode, and auto-wrap use the LR right edge only
+  while the cursor is within the LR interval.
+- The original cursor column gates LF/IND/NEL/RI constrained scrolling; in
+  particular NEL decides before its carriage-return behavior.
 
-- Use upstream behavior, not the current whole-row result.
-- Bounded operations never write scrollback or rebase stable row IDs.
-- Preserve cells outside the LR interval exactly; do not copy whole-row wrap
-  or reflow-overflow state for a cell-only movement.
-- Retire graphics/Kitty placement metadata that intersects but is not wholly
-  contained by a bounded movement rectangle.
-- One implementation agent at a time; each task has fresh spec then quality
-  review and every Critical/Important finding is fixed and re-reviewed.
+## Task 1: bounded CSI `SU`/`SD` — complete
 
-## Task 1: Bounded vertical cell movement
+Implemented bounded vertical copy-and-blank helpers and routed `CSI S`/`CSI T`
+through them only for active, non-full LR margins. Regression coverage proves
+the outside columns remain unchanged, zero/default count behaves as one, and a
+narrow top-anchored main-region movement does not add history or churn stable
+row identity. Text-only movement records a rectangular damage region and
+updates affected row sequences.
 
-Files: modify and test `crates/rssh-terminal/src/parser.rs`.
+Implementation commits: `27f9983e`, `3eaae63e`, `1a5c23b6`, `ccdffc00`.
 
-1. Add RED tests on an 8x4 distinctive grid with LR `3;6`, TB `2;4`, for
-   `CSI S` and `CSI T`: only columns 2..6 move, outside columns remain exact,
-   count zero means one, and narrow top-anchored movement writes no scrollback.
-2. Run `cargo test -p rssh-terminal terminal_horizontal_margin_scroll_ -- --nocapture` and confirm current full-row failure.
-3. Add a private bounded vertical copy-and-blank helper taking top, bottom,
-   inclusive columns, direction, and count. It updates only affected cells,
-   dirty row sequences, rectangular damage, and safe metadata.
-4. Route `scroll_up_region_by` and `scroll_down_region` to it when normal
-   full-width scrollback conditions do not apply; retain existing fast path.
-5. Run focused plus `cargo test -p rssh-terminal`, format and diff checks;
-   commit `feat: bound terminal vertical scroll to horizontal margins`.
+## Task 2: line editing and control scrolling — complete
 
-## Task 2: LR gates for line/control scrolling
+`IL`/`DL` now require both TB and LR membership. LF, IND, NEL, and RI perform
+the constrained edge scroll only when the cursor was within LR; outside LR they
+retain ordinary row/cursor behavior without moving the bounded rectangle. NEL
+captures that membership before applying carriage-return behavior. Regression
+coverage also proves active alternate-screen changes do not alter dormant main
+screen state.
 
-Files: modify and test `crates/rssh-terminal/src/parser.rs`.
+Implementation commit: `7915080b`.
 
-1. Add RED cases for LR-inside and LR-outside `IL`/`DL`, LF, IND, NEL, and RI;
-   outside LR edge events move rows but do not scroll the constrained region.
-2. Run `cargo test -p rssh-terminal terminal_horizontal_margin_line_ -- --nocapture` and confirm RED.
-3. Add a private cursor-in-LR predicate. Use it for `IL`/`DL` in addition to
-   vertical bounds and for edge-triggered LF/IND/NEL/RI scrolling.
-4. Verify focused and full terminal tests, format/diff, then commit
-   `fix: constrain line editing to horizontal margins`.
+## Task 3: character edits and writes — complete
 
-## Task 3: Bounded character edits and writes
+`ICH`/`DCH` use the active LR right edge and leave exterior cells unchanged.
+Normal and insert-mode output use the LR right edge only for an in-LR cursor;
+outside LR writing and physical wraps retain their full-line behavior. The
+coverage includes right-edge normal/insert output, wide glyphs, variation
+selectors, gate differences, and physical-right `ECH`.
 
-Files: modify `crates/rssh-terminal/src/parser.rs`; test parser and `lib.rs`.
+Implementation commit: `82a699c2`.
 
-1. Add RED cases for `ABCDEFGH`, LR `3;6`, cursor at column 3: `CSI 2@` gives
-   `AB  CDGH`; `CSI 2P` gives `ABEF  GH`. Prove ICH needs both TB/LR gates,
-   DCH needs LR only, and ECH remains physical-right-edge erase.
-2. Add normal and insert-mode right-LR-edge tests plus a wide-glyph boundary
-   test; run `cargo test -p rssh-terminal terminal_horizontal_margin_character_ -- --nocapture` and confirm RED.
-3. Implement bounded row shifts and an effective write edge used only when the
-   cursor is inside LR. Do not alter full-screen behavior outside LR.
-4. Verify focused/full terminal, format/diff, then commit
-   `fix: bound terminal character edits to horizontal margins`.
+## Metadata and renderer safety — complete, conservative policy
 
-## Task 4: Metadata, stable state, and screen isolation
+Bounded vertical and character operations retire every inline-image or Kitty
+placement that intersects their affected cell rectangle. They also remove
+intersecting Kitty placeholder cache entries, orphaned relative children, and
+cache entries whose placement is no longer live. This intentionally includes
+wholly-contained placements: no placement is translated through a bounded move.
 
-Files: modify and test `crates/rssh-terminal/src/parser.rs`.
+When such metadata is retired, the terminal records both the normal cell damage
+rectangle and a full-viewport damage region. This is necessary because relative
+placements can render beyond the moved cells. Kitty image payload that was
+previously uploaded remains stored after this bounded retirement, so a later
+placement request can reuse it. Explicit Kitty delete behavior remains
+unchanged.
 
-1. Add RED tests: wholly-contained image/Kitty placement translates, a
-   cross-LR-boundary placement retires, and an outside placement is unchanged.
-   Also prove dirty sequences/damage update but stable IDs/history remain.
-2. Run `cargo test -p rssh-terminal terminal_horizontal_margin_metadata_ -- --nocapture` and confirm RED.
-3. Implement explicit translate-or-retire metadata behavior and preserve
-   alternate/dormant-main isolation.
-4. Verify focused/full terminal, format/diff, then commit
-   `fix: preserve graphics safety in bounded margin scrolls`.
+This policy prevents stale visual references, but does **not** implement exact
+graphics-coordinate mapping. A future, separately designed slice may add
+coordinate-aware translation only after it proves correct handling of inline,
+relative, and renderer extents.
 
-## Task 5: Documentation and acceptance
+Safety follow-up commits: `3eaae63e`, `1a5c23b6`, `ccdffc00`.
 
-Files: update `docs/architecture.md`, `docs/mvp-6-app-shell-v1.md`, and
-`docs/research/wezterm-parity-gap.md`.
+## Acceptance matrix
 
-1. Record exact bounded operation families, external-cell preservation,
-   graphics retirement policy, and the next concrete gap; do not claim general
-   terminal or renderer parity.
-2. Verify upstream with `git -C refs/wezterm rev-parse HEAD`, and search
+Before integration, run and record fresh evidence for:
+
+1. `git -C refs/wezterm rev-parse HEAD`, plus upstream searches for
    `scroll_up_within_margins`, `scroll_down_within_margins`,
    `set_left_and_right_margins`, `InsertBlank`, and `DeleteCharacter`.
-3. Run `cargo test -p rssh-terminal`, `cargo test -p rssh-app`,
-   `cargo test --workspace -q`, `cargo fmt --all -- --check`, and
+2. `cargo test -p rssh-terminal`.
+3. `cargo test -p rssh-app`.
+4. `cargo test --workspace --all-targets`.
+5. `cargo fmt --all -- --check` and
    `git diff --check codex/wezterm-parity-progress..HEAD`.
-4. Commit `docs: record horizontal margin scrolling parity`.
+6. The documented colors-alias and full-data verification scripts, if present.
 
-## Final review and integration
-
-Perform fresh full spec and quality review, repair/re-review all
-Critical/Important findings, rerun the matrix on the feature branch,
-fast-forward merge locally to `codex/wezterm-parity-progress`, repeat the
-matrix there, and safely remove the merged worktree and branch.
+Fresh spec and quality review must clear Critical/Important findings before
+local fast-forward merge to `codex/wezterm-parity-progress`; the same matrix is
+then repeated on that target branch.

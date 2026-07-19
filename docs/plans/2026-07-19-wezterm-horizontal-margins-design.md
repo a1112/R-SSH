@@ -1,9 +1,9 @@
 # WezTerm Horizontal Margin Semantics Design
 
-## Objective
+## Objective and delivered scope
 
-Close the documented next parity gap: make `DECLRMM`/`DECSLRM` constrain the
-same cell-level editing and scrolling operations as the pinned WezTerm commit
+Close the documented `DECLRMM`/`DECSLRM` cell-level scrolling, editing, and
+right-edge-writing gap against pinned WezTerm commit
 `093bf6bf2b82b929ed80c04fd54ebc80464f715e`.
 
 ## Evidence and boundary
@@ -15,7 +15,7 @@ whole rows.  This changes columns outside the configured margins.  WezTerm's
 clear only the `[left, right)` cells and never records a partial-width scroll
 in main-screen scrollback.
 
-This slice covers the complete core operation set sharing that state:
+This slice now covers the complete core operation set sharing that state:
 
 - `SU`/`SD`, line feed/index/next-line/reverse-index scrolling, and `IL`/`DL`
   move only the intersection of vertical and horizontal margins;
@@ -27,9 +27,15 @@ This slice covers the complete core operation set sharing that state:
   stable-row identity, wide cells, and image/Kitty placement metadata remain
   safe.
 
-It does not claim arbitrary graphics re-layout.  A placement wholly inside a
-moved cell rectangle is translated with that rectangle; a placement crossing
-a horizontal boundary is retired so it cannot point at unrelated cells.
+It deliberately does not claim arbitrary graphics re-layout or exact graphical
+coordinate mapping. A bounded cell operation retires every inline-image or
+Kitty placement intersecting its moved rectangle, including a wholly-contained
+placement. It also retires intersecting placeholder caches, orphaned relative
+children, and stale Kitty cache entries. This conservative policy prevents a
+placement from pointing at unrelated cells while a later slice can add
+coordinate-aware translation. It retains Kitty's uploaded image payload, so a
+newly requested placement can still use that image; explicit Kitty delete
+semantics are unchanged.
 
 ## Alternatives considered
 
@@ -45,7 +51,7 @@ a horizontal boundary is retired so it cannot point at unrelated cells.
 
 ## Architecture
 
-`Terminal` will select one of two paths for a vertical cell movement:
+`Terminal` selects one of two paths for a vertical cell movement:
 
 ```text
 full-width top-anchored main region -> existing scrollback-aware row path
@@ -61,16 +67,23 @@ region.  It never changes main scrollback or stable row identity.
 
 Character insert/delete use a separate same-row bounded shift primitive.
 `ICH` is active only inside both vertical and horizontal bounds; `DCH` needs
-only the horizontal bound, matching WezTerm.  Print and insert-mode paths
-select an effective right edge only when the cursor is inside the horizontal
-margin interval.  Existing full-screen behavior is retained outside it.
+only the horizontal bound, matching WezTerm; `ECH` deliberately retains its
+physical-right-edge behavior. Print and insert-mode paths select an effective
+right edge only when the cursor is inside the horizontal margin interval.
+Existing full-screen behavior is retained outside it.
+
+When a bounded operation retires graphics metadata, it records both the normal
+cell rectangle and full-viewport damage. The latter is intentional: relative
+Kitty children may have visual extents beyond the changed cells. Text-only
+bounded operations retain precise rectangular damage.
 
 ## Verification
 
 The regression matrix uses distinctive text in columns outside both margins
-and asserts it remains byte-for-byte unchanged after every operation.  It
-covers `SU`/`SD`, LF/IND/NEL/RI, `IL`/`DL`, `ICH`/`DCH`, right-edge normal and
-insert-mode output, zero/default counts, wide-cell cleanup, non-scrollback
-bounded main movement, alternate isolation, image/Kitty safety, damage, and
-stable-row sequence semantics.  The final matrix includes terminal, app,
-workspace, formatting, diff, and pinned WezTerm evidence checks.
+and asserts it remains byte-for-byte unchanged after every operation. It
+covers `SU`/`SD`, LF/IND/NEL/RI, `IL`/`DL`, `ICH`/`DCH`, physical-edge `ECH`,
+right-edge normal and insert-mode output, zero/default counts, wide-cell
+cleanup, non-scrollback bounded main movement, alternate isolation, retained
+Kitty payload with retired placements/caches, damage, and stable-row sequence
+semantics. The final matrix includes terminal, app, workspace, formatting,
+diff, and pinned WezTerm evidence checks.

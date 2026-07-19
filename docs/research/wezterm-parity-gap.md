@@ -4176,15 +4176,18 @@ what remains before WezTerm-style parity in key UX/composition areas.
   physically resized; saved main reflows in the background and alternate
   ordinary/overlay UI state is preserved. This does not claim general
   selection, rendering, or image parity beyond that tested retirement.
-  Cell-level horizontal bounded-margin scrolling is the next concrete parity
-  gap.
+- Completed after v1: cell-level `DECLRMM`/`DECSLRM` bounded-margin behavior
+  covers `SU`/`SD`, LF/IND/NEL/RI, `IL`/`DL`, `ICH`/`DCH`, in-margin right-edge
+  print/insert/auto-wrap, and physical-edge `ECH`. It preserves exterior cells
+  and avoids partial-width history/stable-row churn. Intersecting graphics
+  placements and Kitty caches are conservatively retired with viewport damage;
+  exact graphics-coordinate mapping remains a separate parity gap.
 - This bounded work does not claim complete selection parity, full App Shell
   v2, or general WezTerm parity. Inactive-pane hover-wheel routing without
   focus transfer, richer
   pane focus visuals, arbitrary Lua callbacks, external CLI title control, and
   a real mux/window registry with domain, protocol, and renderer parity remain
-  open. The cell-level horizontal bounded-margin scroll behavior was explicitly
-  not implemented in this slice.
+  open.
 - Native `enable_scroll_bar` defaults to false. When true, the scrollback
   scrollbar renders and accepts click/drag input; when false, scrollback remains
   wheel/command driven without the scrollbar affordance. The thumb minimum
@@ -4430,15 +4433,17 @@ main reflows in the background and alternate resize remains physical. This does
 not claim general selection, rendering, or image parity beyond that tested
 retirement.
 
-The next concrete remaining gap is cell-level horizontal bounded-margin
-scrolling. Beyond it, parity backlog remains inactive-pane hover-wheel
-routing without focus transfer, richer pane focus visuals, arbitrary Lua
-callbacks including full arbitrary-Lua/custom tab-formatting parity, external
-CLI title control, and a real mux/window registry with domain, protocol, and
-renderer parity. The bounded-static `format-tab-title` surface is already
-implemented. Cell-level horizontal bounded-margin scrolling was explicitly not
-implemented and remains open. Ordinary pane-local selection ownership, the
-pane-local transient-overlay slice, and the pinned single window-right
-active-pane scrollbar contract are complete. None of these completed bounded
-slices implies full selection parity, full App Shell v2, or general WezTerm
-parity.
+Cell-level horizontal bounded-margin scrolling is complete: `SU`/`SD`, line
+editing/control scrolling, bounded character edits, and in-margin right-edge
+writing preserve exterior cells. Intersecting graphics placements use
+conservative retirement with viewport damage rather than coordinate-aware
+translation, so exact graphics-coordinate mapping remains a separate terminal
+parity gap. Beyond it, parity backlog remains inactive-pane hover-wheel routing
+without focus transfer, richer pane focus visuals, arbitrary Lua callbacks
+including full arbitrary-Lua/custom tab-formatting parity, external CLI title
+control, and a real mux/window registry with domain, protocol, and renderer
+parity. The bounded-static `format-tab-title` surface is already implemented.
+Ordinary pane-local selection ownership, the pane-local transient-overlay slice,
+and the pinned single window-right active-pane scrollbar contract are complete.
+None of these completed bounded slices implies full selection parity, full App
+Shell v2, or general WezTerm parity.
