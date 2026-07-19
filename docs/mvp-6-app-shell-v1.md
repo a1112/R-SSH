@@ -2456,11 +2456,11 @@ runtime storage for tabs and split panes.
   presentation. With alternate visible, its UI state is preserved while saved
   main reflows in the background and alternate resize remains physical. The
   next concrete remaining gap is cell-level horizontal bounded-margin
-  scrolling. Inactive-pane hover-wheel routing without
+  scrolling. Beyond it, inactive-pane hover-wheel routing without
   focus transfer, richer pane focus visuals, arbitrary Lua callbacks including
   full arbitrary-Lua/custom tab-formatting parity, external CLI title control,
-  a real mux/window registry with domain, protocol, and renderer parity, and
-  cell-level horizontal bounded-margin scrolling. The bounded-static
+  and a real mux/window registry with domain, protocol, and renderer parity
+  remain open. The bounded-static
   `format-tab-title` surface is complete; the bounded-margin behavior was
   explicitly not implemented in this slice. This completed work does not imply
   full selection parity, full App Shell v2, or general WezTerm parity.
