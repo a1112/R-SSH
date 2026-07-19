@@ -724,7 +724,7 @@ impl Terminal {
                 self.skip_c1_st_control_string(chars, index),
             )),
             '\u{84}' => {
-                self.index_down(false);
+                self.index_down_control(false);
                 Some(FeedAdvance::Next(index + 1))
             }
             '\u{85}' => {
@@ -770,7 +770,7 @@ impl Terminal {
                 Some(FeedAdvance::Next(index + 2))
             }
             Some('D') => {
-                self.index_down(false);
+                self.index_down_control(false);
                 Some(FeedAdvance::Next(index + 2))
             }
             Some('E') => {
@@ -2093,6 +2093,14 @@ impl Terminal {
     }
 
     fn delete_orphan_kitty_relative_children(&mut self) {
+        self.remove_orphan_kitty_relative_children(true);
+    }
+
+    fn retire_orphan_kitty_relative_children(&mut self) {
+        self.remove_orphan_kitty_relative_children(false);
+    }
+
+    fn remove_orphan_kitty_relative_children(&mut self, remove_unreferenced_stored_images: bool) {
         loop {
             let live_placements = self
                 .inline_images
@@ -2128,7 +2136,9 @@ impl Terminal {
                 }
                 !remove
             });
-            self.remove_unreferenced_kitty_images(removed_image_ids);
+            if remove_unreferenced_stored_images {
+                self.remove_unreferenced_kitty_images(removed_image_ids);
+            }
         }
     }
 
@@ -3390,7 +3400,11 @@ impl Terminal {
     }
 
     fn line_feed(&mut self) {
-        self.index_down(false);
+        if self.cursor_within_horizontal_margins() {
+            self.index_down(false);
+        } else {
+            self.index_down_outside_horizontal_margins(false);
+        }
     }
 
     fn wrapped_newline(&mut self) {
@@ -3399,8 +3413,22 @@ impl Terminal {
     }
 
     fn next_line(&mut self) {
-        self.carriage_return();
-        self.index_down(false);
+        let cursor_within_horizontal_margins = self.cursor_within_horizontal_margins();
+        if self.modes.left_right_margin_mode && !cursor_within_horizontal_margins {
+            self.cursor_column = if self.cursor_column < self.left_margin {
+                self.cursor_column
+            } else {
+                self.left_margin
+            };
+            self.pending_wrap = false;
+        } else {
+            self.carriage_return();
+        }
+        if cursor_within_horizontal_margins {
+            self.index_down(false);
+        } else {
+            self.index_down_outside_horizontal_margins(false);
+        }
     }
 
     fn index_down(&mut self, wrapped: bool) {
@@ -3412,7 +3440,7 @@ impl Terminal {
 
         let scroll_bottom = self.scroll_bottom.min(rows - 1);
         if self.cursor_row == scroll_bottom {
-            self.scroll_up_region(self.scroll_top, scroll_bottom);
+            self.scroll_up_with_horizontal_margins(self.scroll_top, scroll_bottom, 1);
             self.cursor_row = scroll_bottom;
         } else if self.cursor_row + 1 < rows {
             self.cursor_row += 1;
@@ -3421,7 +3449,31 @@ impl Terminal {
         self.clear_semantic_type_due_to_movement();
     }
 
+    fn index_down_control(&mut self, wrapped: bool) {
+        if self.cursor_within_horizontal_margins() {
+            self.index_down(wrapped);
+        }
+    }
+
+    fn index_down_outside_horizontal_margins(&mut self, wrapped: bool) {
+        self.pending_wrap = false;
+        let rows = self.grid.size().rows;
+        if rows == 0 {
+            return;
+        }
+
+        let scroll_bottom = self.scroll_bottom.min(rows - 1);
+        if self.cursor_row != scroll_bottom && self.cursor_row + 1 < rows {
+            self.cursor_row += 1;
+        }
+        self.set_grid_row_wrapped(self.cursor_row, wrapped);
+        self.clear_semantic_type_due_to_movement();
+    }
+
     fn reverse_index(&mut self) {
+        if !self.cursor_within_horizontal_margins() {
+            return;
+        }
         self.pending_wrap = false;
         let rows = self.grid.size().rows;
         if rows == 0 {
@@ -3431,7 +3483,7 @@ impl Terminal {
         let scroll_top = self.scroll_top.min(rows - 1);
         let scroll_bottom = self.scroll_bottom.min(rows - 1);
         if self.cursor_row == scroll_top {
-            self.scroll_down_region(scroll_top, scroll_bottom, 1);
+            self.scroll_down_with_horizontal_margins(scroll_top, scroll_bottom, 1);
             self.cursor_row = scroll_top;
         } else {
             self.cursor_row = self.cursor_row.saturating_sub(1);
@@ -3529,10 +3581,6 @@ impl Terminal {
             }
             self.cursor_column = previous;
         }
-    }
-
-    fn scroll_up_region(&mut self, top: u16, bottom: u16) {
-        self.scroll_up_region_by(top, bottom, 1);
     }
 
     fn should_record_scrollback_for_scroll(&self, top: u16, bottom: u16) -> bool {
@@ -4663,20 +4711,26 @@ impl Terminal {
 
     fn insert_lines(&mut self, count: u16) {
         self.pending_wrap = false;
+        if !self.cursor_within_horizontal_margins() {
+            return;
+        }
         let Some((top, bottom)) = self.active_scroll_range_from_cursor() else {
             return;
         };
 
-        self.scroll_down_region(top, bottom, count);
+        self.scroll_down_with_horizontal_margins(top, bottom, count);
     }
 
     fn delete_lines(&mut self, count: u16) {
         self.pending_wrap = false;
+        if !self.cursor_within_horizontal_margins() {
+            return;
+        }
         let Some((top, bottom)) = self.active_scroll_range_from_cursor() else {
             return;
         };
 
-        self.scroll_up_region_by(top, bottom, count);
+        self.scroll_up_with_horizontal_margins(top, bottom, count);
     }
 
     fn scroll_up(&mut self, count: u16) {
@@ -4710,6 +4764,11 @@ impl Terminal {
         }
 
         Some((scroll_top, scroll_bottom))
+    }
+
+    fn cursor_within_horizontal_margins(&self) -> bool {
+        !self.modes.left_right_margin_mode
+            || (self.cursor_column >= self.left_margin && self.cursor_column <= self.right_margin)
     }
 
     fn active_scroll_range_from_cursor(&self) -> Option<(u16, u16)> {
@@ -4881,7 +4940,7 @@ impl Terminal {
         if last_placeholder_retired {
             self.last_kitty_placeholder = None;
         }
-        self.delete_orphan_kitty_relative_children();
+        self.retire_orphan_kitty_relative_children();
         let stale_placeholder_caches_retired = self.retire_stale_kitty_placeholder_caches();
         self.inline_images.len() != inline_image_count
             || self.kitty_placeholder_cells.len() != placeholder_count

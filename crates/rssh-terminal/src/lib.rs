@@ -1380,6 +1380,281 @@ mod tests {
     }
 
     #[test]
+    fn terminal_horizontal_margin_line_il_and_dl_move_only_margin_cells() {
+        let mut inserted = Terminal::new(TerminalSize::new(8, 4));
+        inserted.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+        let inserted_stable_rows = (0..4)
+            .map(|row| inserted.history_index_to_stable_row(row).unwrap())
+            .collect::<Vec<_>>();
+        let inserted_physical_top = inserted.stable_dimensions().physical_top;
+
+        inserted.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[2;3H\x1b[L");
+
+        assert_eq!(row_text(&inserted, 0), "AA1111ZZ");
+        assert_eq!(row_text(&inserted, 1), "BB    YY");
+        assert_eq!(row_text(&inserted, 2), "CC2222XX");
+        assert_eq!(row_text(&inserted, 3), "DD3333WW");
+        assert!(inserted.scrollback().is_empty());
+        assert_eq!(
+            inserted.stable_dimensions().physical_top,
+            inserted_physical_top
+        );
+        assert_eq!(
+            (0..4)
+                .map(|row| inserted.history_index_to_stable_row(row).unwrap())
+                .collect::<Vec<_>>(),
+            inserted_stable_rows
+        );
+
+        let mut deleted = Terminal::new(TerminalSize::new(8, 4));
+        deleted.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+
+        deleted.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[2;3H\x1b[M");
+
+        assert_eq!(row_text(&deleted, 0), "AA1111ZZ");
+        assert_eq!(row_text(&deleted, 1), "BB3333YY");
+        assert_eq!(row_text(&deleted, 2), "CC4444XX");
+        assert_eq!(row_text(&deleted, 3), "DD    WW");
+        assert!(deleted.scrollback().is_empty());
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_line_il_and_dl_ignore_cursor_outside_margin() {
+        let rows = ["AA1111ZZ", "BB2222YY", "CC3333XX", "DD4444WW"];
+
+        let mut inserted = Terminal::new(TerminalSize::new(8, 4));
+        inserted.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+        inserted.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[2;1H\x1b[L");
+        for (row, expected) in rows.into_iter().enumerate() {
+            assert_eq!(row_text(&inserted, row as u16), expected);
+        }
+
+        let mut deleted = Terminal::new(TerminalSize::new(8, 4));
+        deleted.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+        deleted.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[2;8H\x1b[M");
+        for (row, expected) in rows.into_iter().enumerate() {
+            assert_eq!(row_text(&deleted, row as u16), expected);
+        }
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_line_feed_and_index_scroll_only_inside_margin() {
+        let mut line_feed = Terminal::new(TerminalSize::new(8, 4));
+        line_feed.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+        line_feed.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[4;3H\n");
+
+        assert_eq!(row_text(&line_feed, 0), "AA1111ZZ");
+        assert_eq!(row_text(&line_feed, 1), "BB3333YY");
+        assert_eq!(row_text(&line_feed, 2), "CC4444XX");
+        assert_eq!(row_text(&line_feed, 3), "DD    WW");
+        assert_eq!(line_feed.cursor(), (3, 2));
+        assert!(line_feed.scrollback().is_empty());
+
+        let mut index = Terminal::new(TerminalSize::new(8, 4));
+        index.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+        index.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[4;3H\x1bD");
+
+        assert_eq!(row_text(&index, 0), "AA1111ZZ");
+        assert_eq!(row_text(&index, 1), "BB3333YY");
+        assert_eq!(row_text(&index, 2), "CC4444XX");
+        assert_eq!(row_text(&index, 3), "DD    WW");
+        assert_eq!(index.cursor(), (3, 2));
+
+        let mut outside = Terminal::new(TerminalSize::new(8, 4));
+        outside.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+        outside.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[4;1H\n");
+
+        for (row, expected) in ["AA1111ZZ", "BB2222YY", "CC3333XX", "DD4444WW"]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(row_text(&outside, row as u16), expected);
+        }
+        assert_eq!(outside.cursor(), (3, 0));
+        assert!(outside.scrollback().is_empty());
+
+        let mut outside_index = Terminal::new(TerminalSize::new(8, 4));
+        outside_index.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+        outside_index.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[4;1H\x1bD");
+
+        for (row, expected) in ["AA1111ZZ", "BB2222YY", "CC3333XX", "DD4444WW"]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(row_text(&outside_index, row as u16), expected);
+        }
+        assert_eq!(outside_index.cursor(), (3, 0));
+        assert!(outside_index.scrollback().is_empty());
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_line_nel_uses_original_column_to_gate_scroll() {
+        let mut inside = Terminal::new(TerminalSize::new(8, 4));
+        inside.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+        inside.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[4;4H\x1bE");
+
+        assert_eq!(row_text(&inside, 1), "BB3333YY");
+        assert_eq!(row_text(&inside, 2), "CC4444XX");
+        assert_eq!(row_text(&inside, 3), "DD    WW");
+        assert_eq!(inside.cursor(), (3, 2));
+
+        let mut outside_right = Terminal::new(TerminalSize::new(8, 4));
+        outside_right.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+        outside_right.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[4;8H\x1bE");
+
+        for (row, expected) in ["AA1111ZZ", "BB2222YY", "CC3333XX", "DD4444WW"]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(row_text(&outside_right, row as u16), expected);
+        }
+        assert_eq!(outside_right.cursor(), (3, 2));
+        assert!(outside_right.scrollback().is_empty());
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_ind_and_ri_outside_lr_are_noops_for_esc_and_c1() {
+        for index in [b"\x1bD".as_slice(), b"\x84"] {
+            let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+            terminal.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+            terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[3;1H");
+
+            terminal.feed(index);
+
+            for (row, expected) in ["AA1111ZZ", "BB2222YY", "CC3333XX", "DD4444WW"]
+                .into_iter()
+                .enumerate()
+            {
+                assert_eq!(row_text(&terminal, row as u16), expected);
+            }
+            assert_eq!(terminal.cursor(), (2, 0));
+        }
+
+        for reverse_index in [b"\x1bM".as_slice(), b"\x8d"] {
+            let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+            terminal.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+            terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[3;8H");
+
+            terminal.feed(reverse_index);
+
+            for (row, expected) in ["AA1111ZZ", "BB2222YY", "CC3333XX", "DD4444WW"]
+                .into_iter()
+                .enumerate()
+            {
+                assert_eq!(row_text(&terminal, row as u16), expected);
+            }
+            assert_eq!(terminal.cursor(), (2, 7));
+        }
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_lf_and_nel_outside_lr_stop_at_partial_tb_bottom() {
+        for line_feed in [b"\n".as_slice(), b"\x0b", b"\x0c"] {
+            let mut terminal = Terminal::new(TerminalSize::new(8, 5));
+            terminal.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW\r\nEE5555VV");
+            terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[4;1H");
+
+            terminal.feed(line_feed);
+
+            assert_eq!(terminal.cursor(), (3, 0));
+            assert_eq!(row_text(&terminal, 1), "BB2222YY");
+            assert_eq!(row_text(&terminal, 2), "CC3333XX");
+            assert_eq!(row_text(&terminal, 3), "DD4444WW");
+        }
+
+        for nel in [b"\x1bE".as_slice(), b"\x85"] {
+            let mut middle = Terminal::new(TerminalSize::new(8, 5));
+            middle.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW\r\nEE5555VV");
+            middle.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[3;8H");
+
+            middle.feed(nel);
+
+            assert_eq!(middle.cursor(), (3, 2));
+
+            let mut bottom = Terminal::new(TerminalSize::new(8, 5));
+            bottom.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW\r\nEE5555VV");
+            bottom.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[4;8H");
+
+            bottom.feed(nel);
+
+            assert_eq!(bottom.cursor(), (3, 2));
+            assert_eq!(row_text(&bottom, 1), "BB2222YY");
+            assert_eq!(row_text(&bottom, 2), "CC3333XX");
+            assert_eq!(row_text(&bottom, 3), "DD4444WW");
+        }
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_nel_preserves_left_outside_lr_column_for_esc_and_c1() {
+        for nel in [b"\x1bE".as_slice(), b"\x85"] {
+            let mut middle = Terminal::new(TerminalSize::new(8, 5));
+            middle.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW\r\nEE5555VV");
+            middle.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[3;2H");
+
+            middle.feed(nel);
+
+            assert_eq!(middle.cursor(), (3, 1));
+
+            let mut bottom = Terminal::new(TerminalSize::new(8, 5));
+            bottom.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW\r\nEE5555VV");
+            bottom.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[4;2H");
+
+            bottom.feed(nel);
+
+            assert_eq!(bottom.cursor(), (3, 1));
+        }
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_line_reverse_index_scrolls_only_inside_margin() {
+        let mut inside = Terminal::new(TerminalSize::new(8, 4));
+        inside.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+        inside.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[2;3H\x1bM");
+
+        assert_eq!(row_text(&inside, 0), "AA1111ZZ");
+        assert_eq!(row_text(&inside, 1), "BB    YY");
+        assert_eq!(row_text(&inside, 2), "CC2222XX");
+        assert_eq!(row_text(&inside, 3), "DD3333WW");
+        assert_eq!(inside.cursor(), (1, 2));
+
+        let mut outside = Terminal::new(TerminalSize::new(8, 4));
+        outside.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+        outside.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[2;1H\x1bM");
+
+        for (row, expected) in ["AA1111ZZ", "BB2222YY", "CC3333XX", "DD4444WW"]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(row_text(&outside, row as u16), expected);
+        }
+        assert_eq!(outside.cursor(), (1, 0));
+        assert!(outside.scrollback().is_empty());
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_line_feed_isolated_to_active_alternate_screen() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+        terminal.feed(b"MAmainZZ\r\nMBmainYY\r\nMCmainXX\r\nMDmainWW");
+
+        terminal.feed(b"\x1b[?1049h");
+        terminal.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[4;3H\n");
+
+        assert_eq!(row_text(&terminal, 1), "BB3333YY");
+        assert_eq!(row_text(&terminal, 2), "CC4444XX");
+        assert_eq!(row_text(&terminal, 3), "DD    WW");
+        assert!(terminal.scrollback().is_empty());
+
+        terminal.feed(b"\x1b[?1049l");
+
+        assert_eq!(row_text(&terminal, 0), "MAmainZZ");
+        assert_eq!(row_text(&terminal, 1), "MBmainYY");
+        assert_eq!(row_text(&terminal, 2), "MCmainXX");
+        assert_eq!(row_text(&terminal, 3), "MDmainWW");
+        assert!(terminal.scrollback().is_empty());
+    }
+
+    #[test]
     fn terminal_scrolls_up_with_su() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 4));
 
@@ -3835,30 +4110,30 @@ mod tests {
     }
 
     #[test]
-    fn terminal_deletes_kitty_relative_child_when_parent_scrolls_out() {
+    fn terminal_retires_kitty_relative_child_when_parent_intersects_bounded_line_feed() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 3));
 
         terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
         terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
         terminal.take_kitty_graphics_responses();
-        terminal.feed(b"\x1b[1;1H");
+        terminal.feed(b"\x1b[1;3H");
         terminal.feed(b"\x1b_Ga=p,i=30,p=4,c=1,r=1\x1b\\");
-        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=1,c=1,r=1\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=2,c=1,r=1\x1b\\");
         terminal.take_kitty_graphics_responses();
 
         assert_eq!(terminal.inline_images().len(), 2);
 
-        terminal.feed(b"\x1b[?69h\x1b[2;23s\x1b[1;2r\x1b[2;1H\n");
+        terminal.feed(b"\x1b[?69h\x1b[2;23s\x1b[1;2r\x1b[2;3H\n");
 
         assert!(terminal.inline_images().is_empty());
 
         terminal.feed(b"\x1b_Ga=p,i=7,p=3\x1b\\");
 
-        assert!(terminal.inline_images().is_empty());
         assert_eq!(
             terminal.take_kitty_graphics_responses(),
-            vec![b"\x1b_Gi=7,p=3;ENOENT:No image with id 7\x1b\\".to_vec()]
+            vec![b"\x1b_Gi=7,p=3;OK\x1b\\".to_vec()]
         );
+        assert_eq!(terminal.inline_images().len(), 1);
     }
 
     #[test]
