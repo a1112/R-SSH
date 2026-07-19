@@ -996,10 +996,12 @@ runtime storage for tabs and split panes.
   and avoids partial-width history/stable-row churn. Declared-cell graphics
   persist `CellAttachment` state: bounded transforms move/delete attachments
   with text cells, preserve exterior cells, and may split graphics at LR
-  boundaries. Runtime rendering resolves those attachments from active geometry;
-  Kitty placeholder/cache coordinates follow character edits without changing
-  stored payloads or explicit-delete behavior. Malformed or footprint-less
-  placements keep the conservative retirement fallback.
+  boundaries. Runtime rendering resolves those attachments from active geometry.
+  Character edits transform `kitty_placeholder_cells`,
+  `last_kitty_placeholder`, and `pending_kitty_placeholder` with their rendered
+  coordinates, high-byte identities, and relative-placement semantics, without
+  changing stored payloads or explicit-delete behavior. Malformed or
+  footprint-less placements keep the conservative retirement fallback.
 - This bounded work does not claim full selection parity, full App Shell v2,
   or general WezTerm parity. Inactive-pane hover-wheel routing without focus
   transfer, richer
@@ -2662,10 +2664,13 @@ cargo test -p rssh-app copy_mode
 
 ## Next Milestone
 
-- Design coordinate-aware graphics placement mapping for bounded cell moves.
-  The completed cell-level horizontal-margin core intentionally retires every
-  intersecting placement/cache and damages the viewport; it does not claim
-  exact graphical coordinate translation.
+- The CellAttachment graphics slice is complete for declared-cell bounded
+  vertical/line and `ICH`/`DCH` transformations. It transforms
+  `kitty_placeholder_cells`, `last_kitty_placeholder`, and
+  `pending_kitty_placeholder`, including rendered coordinates, high-byte IDs,
+  and relative-placement semantics, while leaving stored payloads and explicit
+  delete unchanged. Remaining milestones concern broader renderer and protocol
+  parity rather than re-designing this completed bounded mapping.
 
 ### Subsequent Milestones and Backlog
 

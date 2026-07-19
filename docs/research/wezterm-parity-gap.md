@@ -4183,8 +4183,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   persist `CellAttachment` state, so bounded transforms move/delete attachments
   with text cells, leave exterior cells unchanged, and can split a graphic at
   an LR boundary. Runtime rendering resolves the attachments at active geometry.
-  Character edits transform the live Kitty placeholder/cache coordinates
-  without changing stored payloads or explicit-delete behavior; malformed or
+  Character edits transform `kitty_placeholder_cells`,
+  `last_kitty_placeholder`, and `pending_kitty_placeholder` with their rendered
+  coordinates, high-byte identities, and relative-placement semantics, without
+  changing stored payloads or explicit-delete behavior; malformed or
   footprint-less placements retain conservative retirement. A per-placement
   origin marker is limited to live-attachment versus residual virtual-cache
   conflicts and is retired with the placement across resize/rebase,

@@ -54,25 +54,26 @@ selectors, gate differences, and physical-right `ECH`.
 
 Implementation commit: `82a699c2`.
 
-## Metadata and renderer safety — complete, conservative policy
+## Metadata and renderer safety — completed CellAttachment policy
 
-Bounded vertical and character operations retire every inline-image or Kitty
-placement that intersects their affected cell rectangle. They also remove
-intersecting Kitty placeholder cache entries, orphaned relative children, and
-cache entries whose placement is no longer live. This intentionally includes
-wholly-contained placements: no placement is translated through a bounded move.
+The later CellAttachment slice replaces this plan's former
+conservative-intersection policy for declared-cell inline-image and Kitty
+placements. Bounded vertical, line, and character transforms now move/delete
+one persistent attachment per covered terminal cell with the matching text
+cell. A placement crossing LR can therefore split, while attachment cells
+outside the transformed rectangle remain unchanged.
 
-When such metadata is retired, the terminal records both the normal cell damage
-rectangle and a full-viewport damage region. This is necessary because relative
-placements can render beyond the moved cells. Kitty image payload that was
-previously uploaded remains stored after this bounded retirement, so a later
-placement request can reuse it. Explicit Kitty delete behavior remains
-unchanged.
+`kitty_placeholder_cells`, `last_kitty_placeholder`, and
+`pending_kitty_placeholder` receive the same `ICH`/`DCH` coordinate transform,
+including their rendered coordinates, high-byte image identities, and relative
+placement behavior. Stored Kitty payloads and explicit-delete behavior remain
+unchanged. A narrow per-placement marker resolves only live-attachment versus
+residual virtual-cache origin conflicts and follows the placement lifecycle.
 
-This policy prevents stale visual references, but does **not** implement exact
-graphics-coordinate mapping. A future, separately designed slice may add
-coordinate-aware translation only after it proves correct handling of inline,
-relative, and renderer extents.
+Only malformed or footprint-less placements use the conservative retirement
+fallback; damage covers the old/new visual extents, including target-offset
+overflow. This bounded result is not a claim of arbitrary graphics re-layout,
+general renderer parity, or full protocol parity.
 
 Safety follow-up commits: `3eaae63e`, `1a5c23b6`, `ccdffc00`.
 

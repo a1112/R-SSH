@@ -272,10 +272,12 @@ keyboard, mouse, paste, resize
   `CellAttachment` per covered cell; bounded transforms move or delete those
   attachments with the corresponding cells, so images can split at an LR
   boundary while exterior cells remain unchanged. The renderer resolves the
-  attachments at runtime geometry. Character edits also transform live Kitty
-  placeholder/cache coordinates (including relative and high-byte identities)
-  without changing stored payloads or explicit-delete semantics. A malformed
-  or footprint-less placement retains the conservative retirement fallback. A
+  attachments at runtime geometry. Character edits transform
+  `kitty_placeholder_cells`, `last_kitty_placeholder`, and
+  `pending_kitty_placeholder` with their rendered coordinates, including
+  relative and high-byte identities, without changing stored payloads or
+  explicit-delete semantics. A malformed or footprint-less placement retains
+  the conservative retirement fallback. A
   narrow per-placement marker selects the live attachment origin only when it
   conflicts with residual virtual-cache state; resize, rebase, alternate-screen,
   and delete lifecycle paths retire that marker with its placement.

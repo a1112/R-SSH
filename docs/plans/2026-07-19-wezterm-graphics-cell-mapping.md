@@ -1,5 +1,12 @@
 # WezTerm Cell-Granular Graphics Mapping Implementation Plan
 
+> **Superseded (2026-07-20):** This transient-fragment plan is historical and
+> does not describe the current implementation. The completed architecture is
+> persistent, geometry-independent `CellAttachment` state; see
+> [the CellAttachment revision plan](2026-07-19-wezterm-cell-attachment-revision.md).
+> Do not use the remaining steps in this file as current implementation
+> instructions.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Make graphics follow WezTerm's per-cell bounded-movement semantics.
