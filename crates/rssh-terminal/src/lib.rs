@@ -1799,7 +1799,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_horizontal_margin_dch_retires_intersecting_kitty_placement() {
+    fn terminal_horizontal_margin_dch_blanks_kitty_attachment_but_keeps_stored_image() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 1));
 
         terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
@@ -1810,7 +1810,8 @@ mod tests {
 
         terminal.feed(b"\x1b[?69h\x1b[2;23s\x1b[1;3H\x1b[P");
 
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert!(terminal.inline_image_attachments().is_empty());
 
         terminal.feed(b"\x1b_Ga=p,i=30,p=5\x1b\\");
 
@@ -1818,7 +1819,7 @@ mod tests {
             terminal.take_kitty_graphics_responses(),
             vec![b"\x1b_Gi=30,p=5;OK\x1b\\".to_vec()]
         );
-        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images().len(), 2);
     }
 
     #[test]

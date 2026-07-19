@@ -6716,6 +6716,101 @@ mod tests {
     }
 
     #[test]
+    fn bounded_ich_damage_moves_offset_attachment_pixels_for_full_and_damage_rendering() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"\x1b[1;2H");
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=209,f=24,s=1,v=1,c=1,r=1,X=7,Y=7;/wAA\x1b\\");
+        terminal.feed(b"\x1b[?25l\x1b[?69h\x1b[2;3s\x1b[1;2r\x1b[1;2H");
+        terminal.take_damage();
+
+        let renderer = PixelRenderer::default();
+        let geometry = RenderGeometry::new(32, 16, 8, 8);
+        let mut target = vec![0; 32 * 16 * 4];
+        renderer.render(
+            &TerminalRenderSnapshot::from_terminal(&terminal),
+            &mut target,
+            32,
+            16,
+            8,
+            8,
+        );
+        assert_eq!(pixel_at(&target, 32, 15, 7), [255, 0, 0, 255]);
+
+        terminal.feed(b"\x1b[@");
+        let damage = terminal.take_damage();
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let mut full_target = vec![0; 32 * 16 * 4];
+        renderer.render(&snapshot, &mut full_target, 32, 16, 8, 8);
+        renderer.render_damage(&snapshot, &damage, &mut target, geometry);
+
+        assert_eq!(target, full_target);
+        assert_eq!(pixel_at(&target, 32, 15, 7), [12, 12, 12, 255]);
+        assert_eq!(pixel_at(&target, 32, 23, 7), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn bounded_dch_damage_moves_offset_attachment_pixels_for_full_and_damage_rendering() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"\x1b[1;3H");
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=210,f=24,s=1,v=1,c=1,r=1,X=7,Y=7;/wAA\x1b\\");
+        terminal.feed(b"\x1b[?25l\x1b[?69h\x1b[2;3s\x1b[1;2r\x1b[1;2H");
+        terminal.take_damage();
+
+        let renderer = PixelRenderer::default();
+        let geometry = RenderGeometry::new(32, 16, 8, 8);
+        let mut target = vec![0; 32 * 16 * 4];
+        renderer.render(
+            &TerminalRenderSnapshot::from_terminal(&terminal),
+            &mut target,
+            32,
+            16,
+            8,
+            8,
+        );
+        assert_eq!(pixel_at(&target, 32, 23, 7), [255, 0, 0, 255]);
+
+        terminal.feed(b"\x1b[P");
+        let damage = terminal.take_damage();
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let mut full_target = vec![0; 32 * 16 * 4];
+        renderer.render(&snapshot, &mut full_target, 32, 16, 8, 8);
+        renderer.render_damage(&snapshot, &damage, &mut target, geometry);
+
+        assert_eq!(target, full_target);
+        assert_eq!(pixel_at(&target, 32, 23, 7), [12, 12, 12, 255]);
+        assert_eq!(pixel_at(&target, 32, 15, 7), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn bounded_ich_moves_decoded_iterm_attachment_cells_for_png_jpeg_and_gif() {
+        for feed_image in [
+            feed_red_inline_png as fn(&mut Terminal, &str),
+            feed_red_inline_jpeg,
+            feed_red_inline_gif,
+        ] {
+            let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+            terminal.feed(b"\x1b[1;2H");
+            feed_image(&mut terminal, "width=1;height=1");
+            terminal.feed(b"\x1b[?25l\x1b[?69h\x1b[2;3s\x1b[1;2r\x1b[1;2H\x1b[@");
+
+            let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+            assert_eq!(
+                snapshot
+                    .inline_image_fragments()
+                    .iter()
+                    .map(|fragment| (fragment.row, fragment.column))
+                    .collect::<Vec<_>>(),
+                vec![(0, 2)]
+            );
+
+            let mut target = vec![0; 32 * 16 * 4];
+            PixelRenderer::default().render(&snapshot, &mut target, 32, 16, 8, 8);
+            assert_eq!(pixel_at(&target, 32, 8, 0), [12, 12, 12, 255]);
+            assert_ne!(pixel_at(&target, 32, 16, 0), [12, 12, 12, 255]);
+        }
+    }
+
+    #[test]
     fn bounded_scroll_moves_jpeg_attachment_cells_using_decoded_payload_dimensions() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 3));
         terminal.feed(b"\x1b[2;2H");
