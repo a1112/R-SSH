@@ -1394,7 +1394,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_scrolls_up_kitty_inline_images_with_text() {
+    fn terminal_scrolls_up_kitty_inline_images_within_horizontal_margins() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 3));
 
         terminal.feed(b"\x1b[1;1H11111111\x1b[2;1H22222222\x1b[3;1H33333333");
@@ -1403,12 +1403,10 @@ mod tests {
 
         terminal.feed(b"\x1b[?69h\x1b[2;7s\x1b[S");
 
-        assert_eq!(row_text(&terminal, 0), "22222222");
-        assert_eq!(row_text(&terminal, 1), "33333333");
-        assert_eq!(row_text(&terminal, 2), "        ");
-        assert_eq!(terminal.inline_images().len(), 1);
-        assert_eq!(terminal.inline_images()[0].row, 0);
-        assert_eq!(terminal.inline_images()[0].column, 2);
+        assert_eq!(row_text(&terminal, 0), "12222221");
+        assert_eq!(row_text(&terminal, 1), "23333332");
+        assert_eq!(row_text(&terminal, 2), "3      3");
+        assert!(terminal.inline_images().is_empty());
     }
 
     #[test]

@@ -4685,7 +4685,7 @@ impl Terminal {
             return;
         };
 
-        self.scroll_up_region_by(top, bottom, count);
+        self.scroll_up_with_horizontal_margins(top, bottom, count);
     }
 
     fn scroll_down(&mut self, count: u16) {
@@ -4694,7 +4694,7 @@ impl Terminal {
             return;
         };
 
-        self.scroll_down_region(top, bottom, count);
+        self.scroll_down_with_horizontal_margins(top, bottom, count);
     }
 
     fn active_scroll_range(&self) -> Option<(u16, u16)> {
@@ -4761,6 +4761,116 @@ impl Terminal {
         }
 
         self.record_damage(DamageRegion::new(0, top, size.columns, height));
+    }
+
+    fn bounded_horizontal_scroll_columns(&self) -> Option<(u16, u16)> {
+        let columns = self.grid.size().columns;
+        if !self.modes.left_right_margin_mode || columns == 0 {
+            return None;
+        }
+
+        let left = self.left_margin.min(columns - 1);
+        let right = self.right_margin.min(columns - 1);
+        (left < right && (left != 0 || right != columns - 1)).then_some((left, right))
+    }
+
+    fn scroll_down_with_horizontal_margins(&mut self, top: u16, bottom: u16, count: u16) {
+        let size = self.grid.size();
+        if size.rows == 0 || size.columns == 0 || top > bottom || count == 0 {
+            return;
+        }
+
+        let height = bottom - top + 1;
+        let count = count.min(height);
+        let Some((left, right)) = self.bounded_horizontal_scroll_columns() else {
+            self.scroll_down_region(top, bottom, count);
+            return;
+        };
+
+        self.retire_graphics_in_bounded_scroll_region(top, bottom, left, right);
+        self.scroll_down_bounded_cells(top, bottom, count, left, right);
+        for row in top..=bottom {
+            self.grid.set_row_last_change_seqno(row, self.seqno);
+        }
+        self.record_damage(DamageRegion::new(left, top, right - left + 1, height));
+    }
+
+    fn scroll_up_with_horizontal_margins(&mut self, top: u16, bottom: u16, count: u16) {
+        let size = self.grid.size();
+        if size.rows == 0 || size.columns == 0 || top > bottom || count == 0 {
+            return;
+        }
+
+        let height = bottom - top + 1;
+        let count = count.min(height);
+        let Some((left, right)) = self.bounded_horizontal_scroll_columns() else {
+            self.scroll_up_region_by(top, bottom, count);
+            return;
+        };
+
+        self.retire_graphics_in_bounded_scroll_region(top, bottom, left, right);
+        self.scroll_up_bounded_cells(top, bottom, count, left, right);
+        for row in top..=bottom {
+            self.grid.set_row_last_change_seqno(row, self.seqno);
+        }
+        self.record_damage(DamageRegion::new(left, top, right - left + 1, height));
+    }
+
+    fn scroll_down_bounded_cells(
+        &mut self,
+        top: u16,
+        bottom: u16,
+        count: u16,
+        left: u16,
+        right: u16,
+    ) {
+        let height = bottom - top + 1;
+        if count < height {
+            let shift_bottom = bottom - count;
+            for row in (top..=shift_bottom).rev() {
+                for column in left..=right {
+                    let cell = self.grid.get(row, column).cloned().unwrap_or_default();
+                    self.grid.set(row + count, column, cell);
+                }
+            }
+        }
+
+        for row in top..top + count {
+            for column in left..=right {
+                self.grid.set(row, column, self.blank_cell());
+            }
+        }
+    }
+
+    fn retire_graphics_in_bounded_scroll_region(
+        &mut self,
+        top: u16,
+        bottom: u16,
+        left: u16,
+        right: u16,
+    ) {
+        let first_row = self.scrollback.len().saturating_add(usize::from(top));
+        let last_row = self
+            .scrollback
+            .len()
+            .saturating_add(usize::from(bottom))
+            .saturating_add(1);
+        let last_column = right.saturating_add(1);
+        self.inline_images.retain(|image| {
+            !inline_image_intersects_region(image, first_row, last_row, left, last_column)
+        });
+        self.kitty_placeholder_cells.retain(|(row, column), _| {
+            !(*row >= first_row && *row < last_row && *column >= left && *column <= right)
+        });
+        if self.last_kitty_placeholder.is_some_and(|placeholder| {
+            placeholder.row >= first_row
+                && placeholder.row < last_row
+                && placeholder.column >= left
+                && placeholder.column <= right
+        }) {
+            self.last_kitty_placeholder = None;
+        }
+        self.delete_orphan_kitty_relative_children();
     }
 
     fn scroll_inline_images_down_region(&mut self, top: u16, bottom: u16, count: u16) {
@@ -4982,6 +5092,41 @@ impl Terminal {
         }
 
         self.record_damage(DamageRegion::new(0, top, size.columns, height));
+    }
+
+    fn scroll_up_bounded_cells(
+        &mut self,
+        top: u16,
+        bottom: u16,
+        count: u16,
+        left: u16,
+        right: u16,
+    ) {
+        let height = bottom - top + 1;
+        if count < height {
+            let shift_bottom = bottom - count;
+            for row in top..=shift_bottom {
+                for column in left..=right {
+                    let cell = self
+                        .grid
+                        .get(row + count, column)
+                        .cloned()
+                        .unwrap_or_default();
+                    self.grid.set(row, column, cell);
+                }
+            }
+        }
+
+        let blank_start = if count == height {
+            top
+        } else {
+            bottom - count + 1
+        };
+        for row in blank_start..=bottom {
+            for column in left..=right {
+                self.grid.set(row, column, self.blank_cell());
+            }
+        }
     }
 
     fn drop_inline_images_crossing_history_boundary(&mut self, boundary: usize) {
@@ -8221,6 +8366,133 @@ mod stable_row_tests {
 
         terminal.feed(b"\x1b[?69h\x1b[2;3s\x1b[1;3r\x1b[S");
 
+        assert!(terminal.scrollback.is_empty());
+        assert_eq!(terminal.stable_dimensions().physical_top, physical_top);
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_su_default_count_moves_only_bounded_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+        terminal.feed(b"abcdefgh\r\nijklmnop\r\nqrstuvwx\r\nyz012345");
+        let physical_top = terminal.stable_dimensions().physical_top;
+
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[S");
+
+        let rows = (0..4)
+            .map(|row| {
+                terminal
+                    .cells_for_history_row(row)
+                    .unwrap()
+                    .iter()
+                    .map(|cell| cell.ch)
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rows, ["abcdefgh", "ijstuvop", "qr0123wx", "yz    45"]);
+        assert!(terminal.scrollback.is_empty());
+        assert_eq!(terminal.stable_dimensions().physical_top, physical_top);
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_su_retires_only_intersecting_graphics_metadata() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+        terminal.feed(b"abcdefgh\r\nijklmnop\r\nqrstuvwx\r\nyz012345");
+        let mut outside = metadata_test_image(1, "outside");
+        outside.column = 0;
+        let mut intersecting = metadata_test_image(1, "intersecting");
+        intersecting.column = 3;
+        terminal.inline_images.extend([outside, intersecting]);
+        let outside_placeholder = metadata_test_placeholder(1);
+        let mut intersecting_placeholder = metadata_test_placeholder(1);
+        intersecting_placeholder.column = 3;
+        terminal
+            .kitty_placeholder_cells
+            .insert((1, 0), outside_placeholder);
+        terminal
+            .kitty_placeholder_cells
+            .insert((1, 3), intersecting_placeholder);
+        terminal.last_kitty_placeholder = Some(intersecting_placeholder);
+
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[S");
+
+        assert_eq!(terminal.inline_images.len(), 1);
+        assert_eq!(terminal.inline_images[0].name.as_deref(), Some("outside"));
+        assert_eq!(terminal.inline_images[0].row, 1);
+        assert_eq!(terminal.inline_images[0].column, 0);
+        assert!(terminal.kitty_placeholder_cells.contains_key(&(1, 0)));
+        assert!(!terminal.kitty_placeholder_cells.contains_key(&(1, 3)));
+        assert!(terminal.last_kitty_placeholder.is_none());
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_sd_zero_count_moves_only_bounded_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+        terminal.feed(b"abcdefgh\r\nijklmnop\r\nqrstuvwx\r\nyz012345");
+        let physical_top = terminal.stable_dimensions().physical_top;
+
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[0T");
+
+        let rows = (0..4)
+            .map(|row| {
+                terminal
+                    .cells_for_history_row(row)
+                    .unwrap()
+                    .iter()
+                    .map(|cell| cell.ch)
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rows, ["abcdefgh", "ij    op", "qrklmnwx", "yzstuv45"]);
+        assert!(terminal.scrollback.is_empty());
+        assert_eq!(terminal.stable_dimensions().physical_top, physical_top);
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_scroll_uses_rectangular_damage_without_stable_row_churn() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+        terminal.feed(b"abcdefgh\r\nijklmnop\r\nqrstuvwx\r\nyz012345");
+        let stable_rows = (0..4)
+            .map(|row| terminal.history_index_to_stable_row(row).unwrap())
+            .collect::<Vec<_>>();
+        terminal.take_damage();
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r");
+        terminal.take_damage();
+        let before = terminal.current_seqno();
+
+        terminal.feed(b"\x1b[S");
+
+        assert_eq!(
+            terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
+            stable_rows[1..]
+        );
+        assert_eq!(
+            (0..4)
+                .map(|row| terminal.history_index_to_stable_row(row).unwrap())
+                .collect::<Vec<_>>(),
+            stable_rows
+        );
+        assert_eq!(terminal.take_damage(), vec![DamageRegion::new(2, 1, 4, 3)]);
+    }
+
+    #[test]
+    fn terminal_top_horizontal_margin_su_never_records_scrollback() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 3));
+        terminal.feed(b"abcdefgh\r\nijklmnop\r\nqrstuvwx");
+        let physical_top = terminal.stable_dimensions().physical_top;
+
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[1;3r\x1b[0S");
+
+        let rows = (0..3)
+            .map(|row| {
+                terminal
+                    .cells_for_history_row(row)
+                    .unwrap()
+                    .iter()
+                    .map(|cell| cell.ch)
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rows, ["abklmngh", "ijstuvop", "qr    wx"]);
         assert!(terminal.scrollback.is_empty());
         assert_eq!(terminal.stable_dimensions().physical_top, physical_top);
     }
