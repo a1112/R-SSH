@@ -15,6 +15,20 @@ pub enum TerminalScreenDomain {
     Alternate,
 }
 
+/// The visible-screen consequence of a terminal resize.
+///
+/// A resize made while the alternate screen is active can still reflow the
+/// saved main screen, but that is not a visible main-screen reflow. Consumers
+/// use this outcome to avoid invalidating alternate-screen presentation state
+/// for that background maintenance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalResizeOutcome {
+    Unchanged,
+    MainScreenReflowed,
+    AlternateScreenResized,
+    PhysicalResize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalStableDimensions {
     pub domain: TerminalScreenDomain,

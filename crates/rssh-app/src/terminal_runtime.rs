@@ -1,8 +1,8 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rssh_core::{DamageRegion, TerminalSize};
 use rssh_terminal::{
-    Cell, CellWidthOverride, Color, CursorShape, CursorStyle, Terminal, UnderlineStyle,
-    VerticalAlign,
+    Cell, CellWidthOverride, Color, CursorShape, CursorStyle, Terminal, TerminalResizeOutcome,
+    UnderlineStyle, VerticalAlign,
 };
 
 use crate::{
@@ -193,9 +193,10 @@ impl TerminalRuntime {
         self.notification_tracker.progress
     }
 
-    pub fn resize(&mut self, size: TerminalSize) {
-        self.terminal.resize(size);
+    pub fn resize(&mut self, size: TerminalSize) -> TerminalResizeOutcome {
+        let outcome = self.terminal.resize(size);
         self.output_filter.resize(size);
+        outcome
     }
 
     pub fn set_scrollback_limit(&mut self, limit: usize) {
@@ -3649,6 +3650,25 @@ mod tests {
     use crate::terminal_modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode};
 
     use super::{TerminalNotification, TerminalProgress, TerminalRuntime};
+
+    #[test]
+    fn terminal_runtime_reports_active_main_reflow_separately_from_alternate_resize() {
+        let mut main = TerminalRuntime::new(TerminalSize::new(8, 2));
+        main.feed_pty_output(b"abcdefgh");
+
+        assert_eq!(
+            main.resize(TerminalSize::new(6, 2)),
+            rssh_terminal::TerminalResizeOutcome::MainScreenReflowed
+        );
+
+        let mut alternate = TerminalRuntime::new(TerminalSize::new(8, 2));
+        alternate.feed_pty_output(b"\x1b[?1049halt");
+
+        assert_eq!(
+            alternate.resize(TerminalSize::new(6, 2)),
+            rssh_terminal::TerminalResizeOutcome::AlternateScreenResized
+        );
+    }
 
     #[test]
     fn feeds_plain_pty_output_into_terminal_grid() {

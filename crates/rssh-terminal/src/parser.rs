@@ -15,7 +15,7 @@ use crate::{
     Cell, Color, CursorShape, CursorStyle, InlineImageFormat, ItermInlineImage, ScrollbackLine,
     SemanticCommandExit, SemanticType, SemanticZone, SequenceNo, StableRowIndex,
     StableSelectionRange, StableSemanticCommandExit, StableSemanticZone, TerminalGrid,
-    TerminalScreenDomain, TerminalStableDimensions, UnderlineStyle,
+    TerminalResizeOutcome, TerminalScreenDomain, TerminalStableDimensions, UnderlineStyle,
 };
 
 pub const DEFAULT_SCROLLBACK_LIMIT: usize = 3_500;
@@ -3169,10 +3169,11 @@ impl Terminal {
         self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
     }
 
-    pub fn resize(&mut self, size: TerminalSize) {
+    pub fn resize(&mut self, size: TerminalSize) -> TerminalResizeOutcome {
         let size = TerminalSize::new(size.columns.max(1), size.rows);
         self.advance_seqno();
         let old_size = self.grid.size();
+        let active_main_screen = self.main_screen.is_none();
         let old_main_scrollback_rows = self.scrollback.len();
         let cell_width_overrides = self.cell_width_overrides.clone();
         if old_size.columns != size.columns {
@@ -3230,6 +3231,17 @@ impl Terminal {
         self.left_margin = 0;
         self.right_margin = size.columns.saturating_sub(1);
         self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+        if old_size == size {
+            TerminalResizeOutcome::Unchanged
+        } else if old_size.columns != size.columns {
+            if active_main_screen {
+                TerminalResizeOutcome::MainScreenReflowed
+            } else {
+                TerminalResizeOutcome::AlternateScreenResized
+            }
+        } else {
+            TerminalResizeOutcome::PhysicalResize
+        }
     }
 
     fn apply_main_reflow_outcome(&mut self, outcome: MainReflowOutcome) {

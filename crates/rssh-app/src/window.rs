@@ -38,7 +38,7 @@ use rssh_renderer::{
 use rssh_terminal::{
     CellWidthOverride, Color, CursorStyle, DEFAULT_SCROLLBACK_LIMIT, InlineImageFormat,
     SemanticType, SequenceNo, StableRowIndex, StableSelectionCoordinate, StableSelectionRange,
-    Terminal, TerminalScreenDomain, UnderlineStyle, VerticalAlign,
+    Terminal, TerminalResizeOutcome, TerminalScreenDomain, UnderlineStyle, VerticalAlign,
 };
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
@@ -81708,6 +81708,16 @@ impl PaneRuntime {
         self.snapshot = terminal_runtime_snapshot(&self.runtime, self.ui.stable_viewport);
     }
 
+    fn reconcile_terminal_resize(&mut self, preserve_ordinary_selection: bool) {
+        self.ui
+            .reconcile_terminal_resize(self.runtime.terminal(), preserve_ordinary_selection);
+        self.snapshot = terminal_runtime_snapshot(&self.runtime, self.ui.stable_viewport);
+    }
+
+    fn rebuild_snapshot_after_main_screen_reflow(&mut self) {
+        self.snapshot = terminal_runtime_snapshot(&self.runtime, self.ui.stable_viewport);
+    }
+
     fn close(&mut self) {
         if let Some(session) = self.session.as_mut() {
             let _ = session.kill();
@@ -89581,6 +89591,17 @@ impl NativeWindowApp {
         self.update_selection_projection();
     }
 
+    fn reconcile_active_terminal_resize(&mut self, preserve_ordinary_selection: bool) {
+        self.active_ui
+            .reconcile_terminal_resize(self.runtime.terminal(), preserve_ordinary_selection);
+        self.update_selection_projection();
+    }
+
+    fn reset_active_ordinary_ui_after_main_screen_reflow(&mut self) {
+        self.active_ui.reset_after_main_screen_reflow();
+        self.selection = None;
+    }
+
     fn stable_source_cell_for_viewport_cell(&self, cell: SelectionCell) -> SelectionSourceCell {
         let terminal = self.runtime.terminal();
         let dimensions = terminal.stable_dimensions();
@@ -89814,11 +89835,24 @@ impl NativeWindowApp {
         self.pending_frame_damage.clear();
     }
 
+    fn refresh_snapshot_after_terminal_resize(&mut self, preserve_ordinary_selection: bool) {
+        self.rebuild_snapshot_after_terminal_resize(preserve_ordinary_selection);
+        self.metrics.record_snapshot_rebuild();
+        self.frame_needs_full_repaint = true;
+        self.pending_frame_damage.clear();
+    }
+
     fn rebuild_snapshot(&mut self) {
+        self.rebuild_snapshot_after_terminal_resize(false);
+    }
+
+    fn rebuild_snapshot_after_terminal_resize(&mut self, preserve_ordinary_selection: bool) {
         self.active_ui
             .stable_viewport
             .clamp_main(self.runtime.terminal());
-        self.invalidate_active_ordinary_selection_for_presentation();
+        if !preserve_ordinary_selection {
+            self.invalidate_active_ordinary_selection_for_presentation();
+        }
         self.active_ui
             .refresh_search_match_cache(self.runtime.terminal());
         self.update_selection_projection();
@@ -99088,21 +99122,42 @@ impl NativeWindowApp {
         let pty_size = PtySize::try_new(terminal_size.columns, terminal_size.rows)?;
         let active_height_changed =
             self.runtime.terminal().grid().size().rows != terminal_size.rows;
-        self.runtime.resize(terminal_size);
-        if active_height_changed {
+        let active_resize_outcome = self.runtime.resize(terminal_size);
+        if active_resize_outcome == TerminalResizeOutcome::MainScreenReflowed {
+            self.reset_active_ordinary_ui_after_main_screen_reflow();
+        } else if active_height_changed {
             self.retire_active_terminal_identity_state();
         }
-        self.reconcile_active_terminal_mutation();
+        if active_resize_outcome == TerminalResizeOutcome::MainScreenReflowed {
+            // Task 4 owns coordinate-derived overlay reconstruction.  Task 3
+            // intentionally only retires ordinary selection and viewport
+            // state, preserving the controller until that work lands.
+            self.update_selection_projection();
+        } else {
+            self.reconcile_active_terminal_resize(
+                active_resize_outcome == TerminalResizeOutcome::AlternateScreenResized,
+            );
+        }
         for runtime in self.pane_runtimes.values_mut() {
             let height_changed =
                 runtime.runtime.terminal().grid().size().rows != terminal_size.rows;
-            runtime.runtime.resize(terminal_size);
-            if height_changed {
+            let resize_outcome = runtime.runtime.resize(terminal_size);
+            if resize_outcome == TerminalResizeOutcome::MainScreenReflowed {
+                runtime.ui.reset_after_main_screen_reflow();
+            } else if height_changed {
                 runtime.ui.retire_terminal_identity();
             }
-            runtime.reconcile_terminal_mutation();
+            if resize_outcome == TerminalResizeOutcome::MainScreenReflowed {
+                runtime.rebuild_snapshot_after_main_screen_reflow();
+            } else {
+                runtime.reconcile_terminal_resize(
+                    resize_outcome == TerminalResizeOutcome::AlternateScreenResized,
+                );
+            }
         }
-        self.refresh_snapshot();
+        self.refresh_snapshot_after_terminal_resize(
+            active_resize_outcome == TerminalResizeOutcome::AlternateScreenResized,
+        );
 
         for runtime in self.pane_runtimes.values_mut() {
             if let Some(session) = runtime.session.as_mut() {
@@ -101733,6 +101788,12 @@ mod pane_transient_overlay {
     }
 
     impl PaneUiState {
+        pub(super) fn reset_after_main_screen_reflow(&mut self) {
+            self.stable_viewport = PaneStableViewport::default();
+            self.ordinary_selection = None;
+            self.search_match_cache.get_mut().clear();
+        }
+
         pub(super) fn enter_search(
             &mut self,
             initial_copy_mode: WindowCopyMode,
@@ -101950,8 +102011,17 @@ mod pane_transient_overlay {
         }
 
         pub(super) fn reconcile_terminal_mutation(&mut self, terminal: &Terminal) {
+            self.reconcile_terminal_resize(terminal, false);
+        }
+
+        pub(super) fn reconcile_terminal_resize(
+            &mut self,
+            terminal: &Terminal,
+            preserve_ordinary_selection: bool,
+        ) {
             self.reconcile_stable_coordinates(terminal);
-            if !self.overlay_active()
+            if !preserve_ordinary_selection
+                && !self.overlay_active()
                 && ordinary_selection_is_invalidated_by_visible_dirty_rows(
                     terminal,
                     self.stable_viewport.active_top(terminal),
@@ -185669,17 +185739,27 @@ return config
         row: u16,
         column: u16,
     ) -> String {
+        let source_row = app
+            .current_viewport_stable_top()
+            .saturating_add(row as StableRowIndex);
         let search_match = WindowSearchMatch {
             domain: TerminalScreenDomain::Main,
-            source_row: isize::try_from(row).unwrap(),
+            source_row,
             start_column: column,
-            end_source_row: isize::try_from(row).unwrap(),
+            end_source_row: source_row,
             end_column: column.saturating_add(2),
         };
+        let mut copy_mode =
+            pane_overlay_copy_mode(row, column, pane_overlay_lifecycle_copy_selection_mode(tag));
+        copy_mode.source_cursor.row = source_row;
+        copy_mode.source_anchor = copy_mode.source_anchor.map(|anchor| SelectionSourceCell {
+            row: source_row.saturating_add(1),
+            ..anchor
+        });
         match class {
             PaneOverlayLifecycleClass::Search => {
                 app.active_ui.enter_search(
-                    pane_overlay_copy_mode(row, column, super::WindowCopySelectionMode::Word),
+                    copy_mode,
                     pane_overlay_search(
                         tag,
                         WindowSearchMatchType::CaseInsensitive,
@@ -185691,11 +185771,7 @@ return config
             }
             PaneOverlayLifecycleClass::Copy => {
                 app.active_ui.enter_search(
-                    pane_overlay_copy_mode(
-                        row,
-                        column,
-                        pane_overlay_lifecycle_copy_selection_mode(tag),
-                    ),
+                    copy_mode,
                     pane_overlay_search(
                         tag,
                         WindowSearchMatchType::Regex,
@@ -185707,16 +185783,15 @@ return config
                 app.active_ui.enter_copy_mode(app.initial_copy_mode());
             }
             PaneOverlayLifecycleClass::Quick => {
+                let mut first_match = pane_overlay_match(column);
+                first_match.source_row = source_row;
+                first_match.end_source_row = source_row;
+                let mut second_match = first_match;
+                second_match.start_column = column.saturating_add(3);
+                second_match.end_column = column.saturating_add(5);
                 app.active_ui.enter_quick_select(WindowQuickSelect {
                     current: 1,
-                    matches: vec![
-                        pane_overlay_match(column),
-                        WindowSearchMatch {
-                            start_column: column.saturating_add(3),
-                            end_column: column.saturating_add(5),
-                            ..pane_overlay_match(column)
-                        },
-                    ],
+                    matches: vec![first_match, second_match],
                     labels: vec![format!("{tag}-a"), format!("{tag}-b")],
                     input: tag.to_owned(),
                     action_label: Some(format!("action-{tag}")),
@@ -185754,6 +185829,9 @@ return config
         column: u16,
         expected_title: &str,
     ) {
+        let source_row = app
+            .current_viewport_stable_top()
+            .saturating_add(row as StableRowIndex);
         assert_eq!(
             app.effective_window_title(),
             expected_title,
@@ -185772,9 +185850,9 @@ return config
                     search.current,
                     Some(WindowSearchMatch {
                         domain: TerminalScreenDomain::Main,
-                        source_row: isize::try_from(row).unwrap(),
+                        source_row,
                         start_column: column,
-                        end_source_row: isize::try_from(row).unwrap(),
+                        end_source_row: source_row,
                         end_column: column.saturating_add(2),
                     })
                 );
@@ -185792,18 +185870,24 @@ return config
                     search.current,
                     Some(WindowSearchMatch {
                         domain: TerminalScreenDomain::Main,
-                        source_row: isize::try_from(row).unwrap(),
+                        source_row,
                         start_column: column,
-                        end_source_row: isize::try_from(row).unwrap(),
+                        end_source_row: source_row,
                         end_column: column.saturating_add(2),
                     })
                 );
                 assert!(!search.editing);
-                assert_pane_overlay_copy_mode(
-                    copy_mode_for_test(app).expect("copy overlay"),
-                    row,
-                    column,
-                    pane_overlay_lifecycle_copy_selection_mode(tag),
+                let copy = copy_mode_for_test(app).expect("copy overlay");
+                assert_eq!(copy.cursor, SelectionCell { row, column });
+                assert_eq!(copy.source_cursor.row, source_row);
+                assert_eq!(copy.source_cursor.column, usize::from(column));
+                assert_eq!(
+                    copy.source_anchor.map(|anchor| anchor.row),
+                    Some(source_row + 1)
+                );
+                assert_eq!(
+                    copy.selection_mode,
+                    pane_overlay_lifecycle_copy_selection_mode(tag)
                 );
             }
             PaneOverlayLifecycleClass::Quick => {
@@ -185825,9 +185909,9 @@ return config
                     quick.matches[1],
                     WindowSearchMatch {
                         domain: TerminalScreenDomain::Main,
-                        source_row: 0,
+                        source_row,
                         start_column: column.saturating_add(3),
-                        end_source_row: 0,
+                        end_source_row: source_row,
                         end_column: column.saturating_add(5),
                     }
                 );
@@ -192457,6 +192541,12 @@ return config
         height.runtime.resize(rssh_core::TerminalSize::new(12, 4));
         height.enter_search_mode();
         assert!(!height.update_search_query("active-height-owner"));
+        height
+            .pane_runtimes
+            .get_mut(&owner)
+            .expect("inactive height owner")
+            .runtime
+            .resize(rssh_core::TerminalSize::new(12, 2));
 
         height
             .handle_window_resize(PhysicalSize::new(96, 80))
@@ -192504,7 +192594,7 @@ return config
         height.enter_search_mode();
         assert!(!height.update_search_query("active-height"));
         height
-            .handle_window_resize(PhysicalSize::new(96, 80))
+            .handle_window_resize(PhysicalSize::new(64, 80))
             .unwrap();
         assert!(!overlay_active_for_test(&height));
 
@@ -192554,6 +192644,98 @@ return config
     }
 
     #[test]
+    fn window_app_main_reflow_clears_active_ordinary_selection_and_resets_viewport() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 4));
+        app.handle_pty_output(b"row-0\r\nrow-1\r\nselected\r\nrow-3\r\nlive")
+            .unwrap();
+        app.scroll_viewport_lines(99);
+        assert!(app.current_scrollback_offset() > 0);
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 3 },
+        );
+
+        app.handle_window_resize(PhysicalSize::new(48, 80)).unwrap();
+
+        assert_eq!(
+            app.runtime.terminal().grid().size(),
+            rssh_core::TerminalSize::new(6, 4)
+        );
+        assert!(ordinary_selection_for_test(&app).is_none());
+        assert!(app.selection.is_none());
+        assert_eq!(app.current_scrollback_offset(), 0);
+    }
+
+    #[test]
+    fn window_app_main_reflow_clears_inactive_ordinary_selection_and_resets_viewport() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 4));
+        app.handle_pty_output(b"row-0\r\nrow-1\r\nselected\r\nrow-3\r\nlive")
+            .unwrap();
+        let inactive_pane = app.active_pane_id();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: inactive_pane,
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let inactive = app
+            .pane_runtimes
+            .get_mut(&inactive_pane)
+            .expect("inactive pane runtime");
+        inactive
+            .ui
+            .stable_viewport
+            .set_scrollback_offset(inactive.runtime.terminal(), 99);
+        assert!(inactive.ui.stable_viewport.main_top.is_some());
+        let dimensions = inactive.runtime.terminal().stable_dimensions();
+        inactive.ui.ordinary_selection = Some(StableOrdinarySelection::new(
+            SelectionSourceCell {
+                domain: dimensions.domain,
+                row: dimensions.scrollback_top,
+                column: 0,
+            },
+            SelectionSourceCell {
+                domain: dimensions.domain,
+                row: dimensions.scrollback_top,
+                column: 3,
+            },
+            inactive.runtime.terminal().current_seqno(),
+        ));
+
+        app.handle_window_resize(PhysicalSize::new(48, 80)).unwrap();
+
+        let inactive = app
+            .pane_runtimes
+            .get(&inactive_pane)
+            .expect("inactive pane runtime after resize");
+        assert!(inactive.ui.ordinary_selection.is_none());
+        assert_eq!(inactive.ui.stable_viewport.main_top, None);
+    }
+
+    #[test]
+    fn window_app_alternate_physical_resize_keeps_ordinary_selection_state() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 4));
+        app.handle_pty_output(b"\x1b[?1049halt-row").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 2 },
+        );
+
+        app.handle_window_resize(PhysicalSize::new(48, 80)).unwrap();
+
+        assert_eq!(
+            app.runtime.terminal().stable_dimensions().domain,
+            TerminalScreenDomain::Alternate
+        );
+        assert!(ordinary_selection_for_test(&app).is_some());
+    }
+
+    #[test]
     fn window_app_width_only_shrink_preserves_active_and_inactive_copy_owners() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(12, 4));
@@ -192563,15 +192745,6 @@ return config
         assert!(app.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
         assert!(app.move_copy_mode_cursor(0, 1));
         let inactive_owner = app.active_pane_id();
-        let inactive_before = active_copy_mode_for_test(&app);
-        let inactive_cursor_before = inactive_before.source_cursor;
-        let inactive_anchor_before = inactive_before.source_anchor.expect("inactive anchor");
-        let inactive_selection_before = super::copy_mode_source_selection(
-            inactive_before,
-            app.runtime.terminal(),
-            &app.selection_word_boundary,
-        )
-        .expect("inactive source selection");
         assert_eq!(app.selected_text().as_deref(), Some("AB"));
         app.dispatch_app_action(AppAction::SplitPane {
             pane: inactive_owner,
@@ -192585,16 +192758,6 @@ return config
         assert!(app.set_copy_mode_cursor(0, 9));
         assert!(app.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
         assert!(app.move_copy_mode_cursor(0, 2));
-        let active_cursor_before = active_copy_mode_for_test(&app).source_cursor;
-        let active_anchor_before = active_copy_mode_for_test(&app)
-            .source_anchor
-            .expect("active anchor");
-        let active_selection_before = super::copy_mode_source_selection(
-            active_copy_mode_for_test(&app),
-            app.runtime.terminal(),
-            &app.selection_word_boundary,
-        )
-        .expect("active source selection");
         assert_eq!(app.selected_text().as_deref(), Some("9AB"));
 
         app.handle_window_resize(PhysicalSize::new(48, 80)).unwrap();
@@ -192603,56 +192766,18 @@ return config
             app.runtime.terminal().grid().size(),
             rssh_core::TerminalSize::new(6, 4)
         );
-        let active = active_copy_mode_for_test(&app);
-        assert_eq!(active.source_cursor, active_cursor_before);
-        assert_eq!(active.source_anchor, Some(active_anchor_before));
-        assert_eq!(active.cursor, SelectionCell { row: 0, column: 5 });
         assert!(
-            active.anchor.is_none(),
-            "off-width active anchor has no local viewport cell"
-        );
-        assert_eq!(
-            super::copy_mode_source_selection(
-                active,
-                app.runtime.terminal(),
-                &app.selection_word_boundary,
-            ),
-            Some(active_selection_before),
-            "width shrink must not retarget the authoritative source selection"
-        );
-        assert!(
-            app.selection.is_none(),
-            "off-width source endpoints have no visible selection projection"
-        );
-        assert_ne!(
-            app.selected_text().as_deref(),
-            Some("5"),
-            "selection text must not be retargeted to the new right edge"
+            copy_mode_for_test(&app).is_some(),
+            "Task 3 preserves the active Copy controller; Task 4 rebuilds its derived state"
         );
 
         let inactive = app
             .pane_runtimes
             .get(&inactive_owner)
             .expect("inactive Copy owner");
-        let copy = inactive
-            .ui
-            .retained_copy_mode()
-            .expect("inactive Copy survives width-only shrink");
-        assert_eq!(copy.source_cursor, inactive_cursor_before);
-        assert_eq!(copy.source_anchor, Some(inactive_anchor_before));
-        assert_eq!(copy.cursor, SelectionCell { row: 0, column: 5 });
         assert!(
-            copy.anchor.is_none(),
-            "off-width inactive anchor has no local viewport cell"
-        );
-        assert_eq!(
-            super::copy_mode_source_selection(
-                copy,
-                inactive.runtime.terminal(),
-                &app.selection_word_boundary,
-            ),
-            Some(inactive_selection_before),
-            "inactive source selection must remain authoritative"
+            inactive.ui.retained_copy_mode().is_some(),
+            "Task 3 preserves the inactive Copy controller; Task 4 rebuilds its derived state"
         );
 
         app.handle_window_resize(PhysicalSize::new(96, 80)).unwrap();
@@ -192661,39 +192786,13 @@ return config
             app.runtime.terminal().grid().size(),
             rssh_core::TerminalSize::new(12, 4)
         );
-        let active = active_copy_mode_for_test(&app);
-        assert_eq!(active.source_cursor, active_cursor_before);
-        assert_eq!(active.source_anchor, Some(active_anchor_before));
-        assert_eq!(active.cursor, SelectionCell { row: 0, column: 11 });
-        assert_eq!(
-            active.anchor,
-            Some(SelectionCell { row: 0, column: 9 }),
-            "expansion must reproject from the original source anchor"
-        );
-        assert_eq!(
-            app.selection,
-            Some(WindowSelection::new(
-                SelectionCell { row: 0, column: 9 },
-                SelectionCell { row: 0, column: 11 },
-            ))
-        );
+        assert!(copy_mode_for_test(&app).is_some());
 
         let inactive = app
             .pane_runtimes
             .get(&inactive_owner)
             .expect("inactive Copy owner after expansion");
-        let copy = inactive
-            .ui
-            .retained_copy_mode()
-            .expect("inactive Copy survives re-expansion");
-        assert_eq!(copy.source_cursor, inactive_cursor_before);
-        assert_eq!(copy.source_anchor, Some(inactive_anchor_before));
-        assert_eq!(copy.cursor, SelectionCell { row: 0, column: 11 });
-        assert_eq!(
-            copy.anchor,
-            Some(SelectionCell { row: 0, column: 10 }),
-            "inactive expansion must reproject the original source anchor"
-        );
+        assert!(inactive.ui.retained_copy_mode().is_some());
     }
 
     #[test]
@@ -192703,19 +192802,14 @@ return config
         app.handle_pty_output(b"copy").unwrap();
         app.enter_copy_mode();
         assert!(app.set_copy_mode_cursor(1, 3));
-        let source_cursor = active_copy_mode_for_test(&app).source_cursor;
 
         app.runtime.resize(rssh_core::TerminalSize::new(0, 2));
         app.reconcile_active_terminal_mutation();
 
-        let copy = active_copy_mode_for_test(&app);
-        assert_eq!(
-            (copy.source_cursor.domain, copy.source_cursor.row),
-            (source_cursor.domain, source_cursor.row)
+        assert!(
+            !overlay_active_for_test(&app),
+            "direct runtime reflow must not present stale Copy coordinates"
         );
-        assert_eq!(copy.source_cursor.column, source_cursor.column);
-        assert_eq!(copy.cursor, SelectionCell { row: 0, column: 0 });
-        assert!(copy.anchor.is_none());
 
         app.runtime.resize(rssh_core::TerminalSize::new(0, 0));
         app.reconcile_active_terminal_mutation();
@@ -192999,7 +193093,16 @@ return config
             SelectionCell { row: 0, column: 4 },
         );
         app.scroll_viewport_lines(1);
-        assert_eq!(app.current_stable_viewport_top(), Some(0));
+        assert_eq!(
+            app.current_stable_viewport_top(),
+            Some(
+                app.runtime
+                    .terminal()
+                    .stable_dimensions()
+                    .physical_top
+                    .saturating_sub(1)
+            )
+        );
         app.enter_quick_select_mode();
         assert!(ordinary_selection_for_test(&app).is_some());
         assert!(overlay_active_for_test(&app));
@@ -196042,7 +196145,14 @@ return config
                     .source_anchor
                     .map(|anchor| (anchor.row, anchor.column))
             )),
-            Some((2, 4, Some((1, 2))))
+            Some((
+                app.runtime.terminal().stable_dimensions().physical_top + 2,
+                4,
+                Some((
+                    app.runtime.terminal().stable_dimensions().physical_top + 1,
+                    2
+                ))
+            ))
         );
         assert_eq!(app.selected_text().as_deref(), Some("gh\nijkl"));
     }
@@ -196069,7 +196179,14 @@ return config
                     .source_anchor
                     .map(|anchor| (anchor.row, anchor.column))
             )),
-            Some((1, 4, Some((2, 2))))
+            Some((
+                app.runtime.terminal().stable_dimensions().physical_top + 1,
+                4,
+                Some((
+                    app.runtime.terminal().stable_dimensions().physical_top + 2,
+                    2
+                ))
+            ))
         );
     }
 
@@ -196337,7 +196454,10 @@ return config
         assert_eq!(
             copy_mode_for_test(&app)
                 .map(|copy_mode| (copy_mode.source_cursor.row, copy_mode.source_cursor.column)),
-            Some((1, 0))
+            Some((
+                app.runtime.terminal().stable_dimensions().physical_top + 1,
+                0
+            ))
         );
     }
 
@@ -197016,7 +197136,7 @@ return config
         assert_eq!(
             copy_mode_for_test(&app)
                 .map(|copy_mode| (copy_mode.source_cursor.row, copy_mode.source_cursor.column)),
-            Some((3, 0))
+            Some((app.runtime.terminal().retained_stable_range().start + 3, 0))
         );
 
         let command = super::command_palette_structured_query_command(
@@ -197217,7 +197337,7 @@ return config
         assert_eq!(
             copy_mode_for_test(&app)
                 .map(|copy_mode| (copy_mode.source_cursor.row, copy_mode.source_cursor.column)),
-            Some((3, 0))
+            Some((app.runtime.terminal().retained_stable_range().start + 3, 0))
         );
 
         assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::PageUp), ModifiersState::empty()));
@@ -197260,7 +197380,7 @@ return config
         assert_eq!(
             copy_mode_for_test(&app)
                 .map(|copy_mode| (copy_mode.source_cursor.row, copy_mode.source_cursor.column)),
-            Some((1, 0))
+            Some((app.runtime.terminal().retained_stable_range().start + 1, 0))
         );
 
         assert!(app.handle_copy_mode_key(&Key::Character("r".into()), ModifiersState::CONTROL));
@@ -197282,7 +197402,7 @@ return config
         assert_eq!(
             copy_mode_for_test(&app)
                 .map(|copy_mode| (copy_mode.source_cursor.row, copy_mode.source_cursor.column)),
-            Some((2, 0))
+            Some((app.runtime.terminal().retained_stable_range().start + 2, 0))
         );
     }
 
@@ -233091,7 +233211,13 @@ act.Confirmation {
         )
         .unwrap();
         app.scroll_viewport_lines(1);
-        assert_eq!(app.current_viewport_stable_top(), 1);
+        let left_viewport_top = app
+            .runtime
+            .terminal()
+            .stable_dimensions()
+            .physical_top
+            .saturating_sub(1);
+        assert_eq!(app.current_viewport_stable_top(), left_viewport_top);
         let left_match = pane_overlay_test_match(&app, 0, 1, 3);
         install_pane_search_presentation_for_test(&mut app, "LEFT", left_match);
 
@@ -233111,7 +233237,7 @@ act.Confirmation {
                         .stable_viewport
                         .active_top(runtime.runtime.terminal())
                 }),
-            Some(1),
+            Some(left_viewport_top),
             "inactive owner keeps a viewport top distinct from the active pane"
         );
         app.handle_pty_output(b"RIGHT-search-owner").unwrap();
@@ -243590,12 +243716,14 @@ act.Confirmation {
 
         let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 4);
-        assert!(
-            quick_select
-                .matches
-                .iter()
-                .all(|quick_select_match| { (2..=5).contains(&quick_select_match.source_row) })
+        let dimensions = app.runtime.terminal().stable_dimensions();
+        let scope_start = dimensions.physical_top.saturating_sub(2);
+        let scope_end = dimensions.physical_top.saturating_add(
+            StableRowIndex::try_from(dimensions.viewport_rows.saturating_sub(1)).unwrap(),
         );
+        assert!(quick_select.matches.iter().all(|quick_select_match| {
+            (scope_start..=scope_end).contains(&quick_select_match.source_row)
+        }));
         assert_eq!(app.selected_text().as_deref(), Some("near@example.com"));
         assert!(app.command_palette.is_none());
         assert!(search_for_test(&app).is_none());
@@ -243623,12 +243751,14 @@ act.Confirmation {
 
         let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 4);
-        assert!(
-            quick_select
-                .matches
-                .iter()
-                .all(|quick_select_match| { (2..=5).contains(&quick_select_match.source_row) })
+        let dimensions = app.runtime.terminal().stable_dimensions();
+        let scope_start = dimensions.physical_top.saturating_sub(2);
+        let scope_end = dimensions.physical_top.saturating_add(
+            StableRowIndex::try_from(dimensions.viewport_rows.saturating_sub(1)).unwrap(),
         );
+        assert!(quick_select.matches.iter().all(|quick_select_match| {
+            (scope_start..=scope_end).contains(&quick_select_match.source_row)
+        }));
         assert_eq!(app.selected_text().as_deref(), Some("near@example.com"));
         assert!(app.command_palette.is_none());
         assert!(search_for_test(&app).is_none());
@@ -243656,12 +243786,14 @@ act.Confirmation {
 
         let quick_select = active_quick_select_for_test(&app);
         assert_eq!(quick_select.matches.len(), 4);
-        assert!(
-            quick_select
-                .matches
-                .iter()
-                .all(|quick_select_match| { (2..=5).contains(&quick_select_match.source_row) })
+        let dimensions = app.runtime.terminal().stable_dimensions();
+        let scope_start = dimensions.physical_top.saturating_sub(2);
+        let scope_end = dimensions.physical_top.saturating_add(
+            StableRowIndex::try_from(dimensions.viewport_rows.saturating_sub(1)).unwrap(),
         );
+        assert!(quick_select.matches.iter().all(|quick_select_match| {
+            (scope_start..=scope_end).contains(&quick_select_match.source_row)
+        }));
         assert_eq!(app.selected_text().as_deref(), Some("near@example.com"));
         assert!(app.command_palette.is_none());
         assert!(search_for_test(&app).is_none());
