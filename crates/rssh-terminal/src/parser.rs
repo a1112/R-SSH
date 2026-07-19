@@ -1805,9 +1805,9 @@ impl Terminal {
             .contains_key(&(parent_image_id, parent_placement_id))
         {
             return self
-                .kitty_virtual_parent_origin(parent_image_id, parent_placement_id)
+                .kitty_attachment_parent_origin(parent_image_id, parent_placement_id)
                 .or_else(|| {
-                    self.kitty_attachment_parent_origin(parent_image_id, parent_placement_id)
+                    self.kitty_virtual_parent_origin(parent_image_id, parent_placement_id)
                 });
         }
 
@@ -9815,6 +9815,40 @@ mod stable_row_tests {
         terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;2r\x1b[1;3H\x1b[@");
 
         assert_eq!(terminal.kitty_relative_parent_origin(30, 4), Some((row, 3)));
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_ich_prefers_live_virtual_parent_attachments_over_right_cache() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=30,p=4,f=24,s=1,v=1,c=2,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b[1;3H\x1b[38;5;30m\x1b[58;5;4m");
+        terminal.feed("\u{10eeee}\u{0305}\u{0305}".as_bytes());
+        let residual_right_cache = *terminal
+            .kitty_placeholder_cells
+            .get(&(0, 2))
+            .expect("virtual parent cache");
+        // This models a source-cell cache that lies outside the LR edit but
+        // still names the same virtual placement. The physical parent spans
+        // cells 2..=3 and is transformed by ICH.
+        terminal
+            .kitty_placeholder_cells
+            .insert((0, 4), residual_right_cache);
+
+        terminal.feed(b"\x1b[?69h\x1b[3;4s\x1b[1;2r\x1b[1;3H\x1b[@");
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=0,c=1,r=1\x1b\\");
+
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=2;OK\x1b\\".to_vec()]
+        );
+        assert!(terminal.inline_images.iter().any(|image| {
+            image.kitty_image_id == Some(7)
+                && image.kitty_placement_id == Some(2)
+                && image.row == 0
+                && image.column == 3
+        }));
     }
 
     #[test]
