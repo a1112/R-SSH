@@ -1,11 +1,14 @@
-use std::{collections::HashSet, io::Cursor};
+use std::{
+    collections::{HashMap, HashSet},
+    io::Cursor,
+};
 
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 use image::AnimationDecoder;
 pub use rssh_core::DamageRegion;
 use rssh_terminal::{
-    Cell, Color, CursorShape, InlineImageFormat, ItermInlineImage, Terminal, TerminalGrid,
-    UnderlineStyle, VerticalAlign,
+    Cell, Color, CursorShape, InlineImageFormat, InlineImageFragment, ItermInlineImage, Terminal,
+    TerminalGrid, UnderlineStyle, VerticalAlign,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +75,32 @@ pub struct RenderInlineImage {
     pub data: Vec<u8>,
 }
 
+/// Pixel rectangle for one cell-granular inline-image fragment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderInlineImageFragment {
+    pub parent_image_index: usize,
+    pub row: u16,
+    pub column: u16,
+    pub source_row: i64,
+    pub source_column: i64,
+    pub destination_x: u32,
+    pub destination_y: u32,
+    pub destination_width: u32,
+    pub destination_height: u32,
+    pub source_x: u32,
+    pub source_y: u32,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub sampling_source_x: u32,
+    pub sampling_source_y: u32,
+    pub sampling_source_width: u32,
+    pub sampling_source_height: u32,
+    pub source_destination_x: u32,
+    pub source_destination_y: u32,
+    pub source_destination_width: u32,
+    pub source_destination_height: u32,
+}
+
 const KITTY_NON_DEFAULT_BACKGROUND_Z_CUTOFF: i32 = i32::MIN / 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +109,8 @@ pub struct TerminalRenderSnapshot {
     cursor: Option<RenderCursor>,
     cursor_color: Option<Color>,
     inline_images: Vec<RenderInlineImage>,
+    inline_image_fragments: Vec<RenderInlineImageFragment>,
+    inline_image_parent_origins: Vec<(i64, i64)>,
     scrollback_offset: usize,
 }
 
@@ -1027,12 +1058,10 @@ impl PixelRenderer {
             );
         }
 
-        render_inline_images_in_z_order(
+        render_snapshot_inline_images_in_z_order(
             &mut surface,
-            snapshot
-                .inline_images()
-                .iter()
-                .filter(|image| image_below_non_default_background(image)),
+            snapshot,
+            image_below_non_default_background,
             cell_width,
             cell_height,
             self.animation_frame,
@@ -1053,11 +1082,10 @@ impl PixelRenderer {
             );
         }
 
-        render_inline_images_in_z_order(
+        render_snapshot_inline_images_in_z_order(
             &mut surface,
-            snapshot.inline_images().iter().filter(|image| {
-                image_below_text(image) && !image_below_non_default_background(image)
-            }),
+            snapshot,
+            |image| image_below_text(image) && !image_below_non_default_background(image),
             cell_width,
             cell_height,
             self.animation_frame,
@@ -1084,12 +1112,10 @@ impl PixelRenderer {
             );
         }
 
-        render_inline_images_in_z_order(
+        render_snapshot_inline_images_in_z_order(
             &mut surface,
-            snapshot
-                .inline_images()
-                .iter()
-                .filter(|image| !image_below_text(image)),
+            snapshot,
+            |image| !image_below_text(image),
             cell_width,
             cell_height,
             self.animation_frame,
@@ -1232,12 +1258,10 @@ impl PixelRenderer {
             .filter(|cell| damage_contains_cell(damage, cell.row, cell.column))
             .collect::<Vec<_>>();
 
-        render_damaged_inline_images_in_z_order(
+        render_damaged_snapshot_inline_images_in_z_order(
             &mut surface,
-            snapshot
-                .inline_images()
-                .iter()
-                .filter(|image| image_below_non_default_background(image)),
+            snapshot,
+            image_below_non_default_background,
             damage,
             geometry,
             self.animation_frame,
@@ -1258,11 +1282,10 @@ impl PixelRenderer {
             );
         }
 
-        render_damaged_inline_images_in_z_order(
+        render_damaged_snapshot_inline_images_in_z_order(
             &mut surface,
-            snapshot.inline_images().iter().filter(|image| {
-                image_below_text(image) && !image_below_non_default_background(image)
-            }),
+            snapshot,
+            |image| image_below_text(image) && !image_below_non_default_background(image),
             damage,
             geometry,
             self.animation_frame,
@@ -1289,12 +1312,10 @@ impl PixelRenderer {
             );
         }
 
-        render_damaged_inline_images_in_z_order(
+        render_damaged_snapshot_inline_images_in_z_order(
             &mut surface,
-            snapshot
-                .inline_images()
-                .iter()
-                .filter(|image| !image_below_text(image)),
+            snapshot,
+            |image| !image_below_text(image),
             damage,
             geometry,
             self.animation_frame,
@@ -2032,6 +2053,59 @@ fn render_inline_image(
     }
 }
 
+fn render_inline_image_fragment(
+    surface: &mut Surface<'_>,
+    image: &RenderInlineImage,
+    fragment: &RenderInlineImageFragment,
+    cell_width: u32,
+    cell_height: u32,
+    animation_frame: usize,
+    animation_elapsed_ms: Option<u64>,
+) {
+    let Some(decoded) = decode_inline_image(image, animation_frame, animation_elapsed_ms) else {
+        return;
+    };
+    if fragment.destination_width == 0
+        || fragment.destination_height == 0
+        || fragment.source_width == 0
+        || fragment.source_height == 0
+        || fragment.source_destination_width == 0
+        || fragment.source_destination_height == 0
+    {
+        return;
+    }
+
+    let origin_x = u32::from(fragment.column)
+        .saturating_mul(cell_width)
+        .saturating_add(fragment.destination_x);
+    let origin_y = u32::from(fragment.row)
+        .saturating_mul(cell_height)
+        .saturating_add(fragment.destination_y);
+    for target_y in 0..fragment.destination_height {
+        let source_y = fragment.sampling_source_y.saturating_add(
+            fragment
+                .source_destination_y
+                .saturating_add(target_y)
+                .saturating_mul(fragment.sampling_source_height)
+                / fragment.source_destination_height,
+        );
+        for target_x in 0..fragment.destination_width {
+            let source_x = fragment.sampling_source_x.saturating_add(
+                fragment
+                    .source_destination_x
+                    .saturating_add(target_x)
+                    .saturating_mul(fragment.sampling_source_width)
+                    / fragment.source_destination_width,
+            );
+            if let Some(pixel) = rgba_pixel(&decoded, source_x, source_y) {
+                if pixel[3] != 0 {
+                    surface.put_pixel(origin_x + target_x, origin_y + target_y, pixel);
+                }
+            }
+        }
+    }
+}
+
 fn render_background_images(
     surface: &mut Surface<'_>,
     images: &[RenderBackgroundImage],
@@ -2484,6 +2558,122 @@ fn render_inline_images_in_z_order<'a>(
     }
 }
 
+fn runtime_inline_image_fragments(
+    snapshot: &TerminalRenderSnapshot,
+    cell_width: u32,
+    cell_height: u32,
+) -> Vec<RenderInlineImageFragment> {
+    let mut fragments = Vec::new();
+    for (parent_image_index, image) in snapshot.inline_images.iter().enumerate() {
+        let authored_fragments = snapshot
+            .inline_image_fragments
+            .iter()
+            .filter(|fragment| fragment.parent_image_index == parent_image_index)
+            .collect::<Vec<_>>();
+        let (origin_column, origin_row) = snapshot
+            .inline_image_parent_origins
+            .get(parent_image_index)
+            .copied()
+            .unwrap_or((i64::from(image.column), i64::from(image.row)));
+        let Some(runtime_fragments) = render_inline_image_fragments_for_geometry(
+            parent_image_index,
+            image,
+            origin_column,
+            origin_row,
+            cell_width,
+            cell_height,
+        ) else {
+            continue;
+        };
+        let has_transform = authored_fragments.iter().any(|fragment| {
+            i64::from(fragment.row) != fragment.source_row
+                || i64::from(fragment.column) != fragment.source_column
+        });
+        if !has_transform {
+            fragments.extend(runtime_fragments);
+            continue;
+        }
+        for fragment in authored_fragments {
+            let Some(mut resolved) = runtime_fragments
+                .iter()
+                .find(|candidate| {
+                    candidate.source_row == fragment.source_row
+                        && candidate.source_column == fragment.source_column
+                })
+                .cloned()
+            else {
+                continue;
+            };
+            resolved.row = fragment.row;
+            resolved.column = fragment.column;
+            resolved.source_row = fragment.source_row;
+            resolved.source_column = fragment.source_column;
+            fragments.push(resolved);
+        }
+    }
+    fragments
+}
+
+fn render_snapshot_inline_images_in_z_order(
+    surface: &mut Surface<'_>,
+    snapshot: &TerminalRenderSnapshot,
+    predicate: impl Fn(&RenderInlineImage) -> bool,
+    cell_width: u32,
+    cell_height: u32,
+    animation_frame: usize,
+    animation_elapsed_ms: Option<u64>,
+) {
+    let fragments = runtime_inline_image_fragments(snapshot, cell_width, cell_height);
+    let fragmented_parents = fragments
+        .iter()
+        .map(|fragment| fragment.parent_image_index)
+        .collect::<HashSet<_>>();
+    render_inline_images_in_z_order(
+        surface,
+        snapshot
+            .inline_images
+            .iter()
+            .enumerate()
+            .filter(|(index, image)| !fragmented_parents.contains(index) && predicate(image))
+            .map(|(_, image)| image),
+        cell_width,
+        cell_height,
+        animation_frame,
+        animation_elapsed_ms,
+    );
+
+    let mut fragments = fragments
+        .iter()
+        .filter_map(|fragment| {
+            let image = snapshot.inline_images.get(fragment.parent_image_index)?;
+            predicate(image).then_some((fragment, image))
+        })
+        .collect::<Vec<_>>();
+    fragments.sort_by(
+        |(left_fragment, left_image), (right_fragment, right_image)| {
+            image_z_index(left_image)
+                .cmp(&image_z_index(right_image))
+                .then_with(|| left_image.kitty_image_id.cmp(&right_image.kitty_image_id))
+                .then_with(|| {
+                    left_fragment
+                        .parent_image_index
+                        .cmp(&right_fragment.parent_image_index)
+                })
+        },
+    );
+    for (fragment, image) in fragments {
+        render_inline_image_fragment(
+            surface,
+            image,
+            fragment,
+            cell_width,
+            cell_height,
+            animation_frame,
+            animation_elapsed_ms,
+        );
+    }
+}
+
 fn render_damaged_inline_images_in_z_order<'a>(
     surface: &mut Surface<'_>,
     images: impl Iterator<Item = &'a RenderInlineImage>,
@@ -2502,6 +2692,73 @@ fn render_damaged_inline_images_in_z_order<'a>(
         animation_frame,
         animation_elapsed_ms,
     );
+}
+
+fn render_damaged_snapshot_inline_images_in_z_order(
+    surface: &mut Surface<'_>,
+    snapshot: &TerminalRenderSnapshot,
+    predicate: impl Fn(&RenderInlineImage) -> bool,
+    damage: &[DamageRegion],
+    geometry: RenderGeometry,
+    animation_frame: usize,
+    animation_elapsed_ms: Option<u64>,
+) {
+    let fragments =
+        runtime_inline_image_fragments(snapshot, geometry.cell_width, geometry.cell_height);
+    let fragmented_parents = fragments
+        .iter()
+        .map(|fragment| fragment.parent_image_index)
+        .collect::<HashSet<_>>();
+    render_damaged_inline_images_in_z_order(
+        surface,
+        snapshot
+            .inline_images
+            .iter()
+            .enumerate()
+            .filter(|(index, image)| !fragmented_parents.contains(index) && predicate(image))
+            .map(|(_, image)| image),
+        damage,
+        geometry,
+        animation_frame,
+        animation_elapsed_ms,
+    );
+    let mut fragments = fragments
+        .iter()
+        .filter_map(|fragment| {
+            let image = snapshot.inline_images.get(fragment.parent_image_index)?;
+            (predicate(image)
+                && damage_intersects_inline_image_fragment(
+                    damage,
+                    fragment,
+                    geometry.cell_width,
+                    geometry.cell_height,
+                ))
+            .then_some((fragment, image))
+        })
+        .collect::<Vec<_>>();
+    fragments.sort_by(
+        |(left_fragment, left_image), (right_fragment, right_image)| {
+            image_z_index(left_image)
+                .cmp(&image_z_index(right_image))
+                .then_with(|| left_image.kitty_image_id.cmp(&right_image.kitty_image_id))
+                .then_with(|| {
+                    left_fragment
+                        .parent_image_index
+                        .cmp(&right_fragment.parent_image_index)
+                })
+        },
+    );
+    for (fragment, image) in fragments {
+        render_inline_image_fragment(
+            surface,
+            image,
+            fragment,
+            geometry.cell_width,
+            geometry.cell_height,
+            animation_frame,
+            animation_elapsed_ms,
+        );
+    }
 }
 
 fn image_below_text(image: &RenderInlineImage) -> bool {
@@ -2726,6 +2983,125 @@ fn inline_image_axis_pixels(value: Option<&str>, cell_pixels: u32) -> u32 {
         .ok()
         .filter(|value| *value > 0)
         .map_or(cell_pixels, |cells| cells.saturating_mul(cell_pixels))
+}
+
+fn render_inline_image_fragments_for_geometry(
+    parent_image_index: usize,
+    image: &RenderInlineImage,
+    origin_column: i64,
+    origin_row: i64,
+    cell_width: u32,
+    cell_height: u32,
+) -> Option<Vec<RenderInlineImageFragment>> {
+    let pixel_width = image.pixel_width?;
+    let pixel_height = image.pixel_height?;
+    let source_x = image.source_x.unwrap_or(0);
+    let source_y = image.source_y.unwrap_or(0);
+    let available_width = pixel_width.checked_sub(source_x)?;
+    let available_height = pixel_height.checked_sub(source_y)?;
+    let source_width = image
+        .source_width
+        .unwrap_or(available_width)
+        .min(available_width);
+    let source_height = image
+        .source_height
+        .unwrap_or(available_height)
+        .min(available_height);
+    if source_width == 0 || source_height == 0 || cell_width == 0 || cell_height == 0 {
+        return None;
+    }
+
+    let destination_width = inline_image_axis_pixels(image.width.as_deref(), cell_width);
+    let destination_height = inline_image_axis_pixels(image.height.as_deref(), cell_height);
+    let destination_left = origin_column
+        .checked_mul(i64::from(cell_width))?
+        .checked_add(i64::from(image.target_x.unwrap_or(0)))?;
+    let destination_top = origin_row
+        .checked_mul(i64::from(cell_height))?
+        .checked_add(i64::from(image.target_y.unwrap_or(0)))?;
+    let destination_right = destination_left.checked_add(i64::from(destination_width))?;
+    let destination_bottom = destination_top.checked_add(i64::from(destination_height))?;
+    let first_column = destination_left.div_euclid(i64::from(cell_width));
+    let first_row = destination_top.div_euclid(i64::from(cell_height));
+    let last_column = destination_right
+        .checked_sub(1)?
+        .div_euclid(i64::from(cell_width));
+    let last_row = destination_bottom
+        .checked_sub(1)?
+        .div_euclid(i64::from(cell_height));
+    let fragment_count = (last_column.checked_sub(first_column)? + 1)
+        .checked_mul(last_row.checked_sub(first_row)? + 1)?;
+    if !(1..=1_000_000).contains(&fragment_count) {
+        return None;
+    }
+
+    let mut fragments = Vec::with_capacity(usize::try_from(fragment_count).ok()?);
+    for row in first_row..=last_row {
+        if !(0..=i64::from(u16::MAX)).contains(&row) {
+            continue;
+        }
+        let cell_top = row.checked_mul(i64::from(cell_height))?;
+        let fragment_top = destination_top.max(cell_top);
+        let fragment_bottom = destination_bottom.min(cell_top + i64::from(cell_height));
+        for column in first_column..=last_column {
+            if !(0..=i64::from(u16::MAX)).contains(&column) {
+                continue;
+            }
+            let cell_left = column.checked_mul(i64::from(cell_width))?;
+            let fragment_left = destination_left.max(cell_left);
+            let fragment_right = destination_right.min(cell_left + i64::from(cell_width));
+            let source_destination_x = u32::try_from(fragment_left - destination_left).ok()?;
+            let source_destination_y = u32::try_from(fragment_top - destination_top).ok()?;
+            let source_destination_width = destination_width;
+            let source_destination_height = destination_height;
+            let source_destination_right = source_destination_x
+                .checked_add(u32::try_from(fragment_right - fragment_left).ok()?)?;
+            let source_destination_bottom = source_destination_y
+                .checked_add(u32::try_from(fragment_bottom - fragment_top).ok()?)?;
+            let fragment_source_x = source_x.checked_add(
+                source_destination_x.saturating_mul(source_width) / destination_width,
+            )?;
+            let fragment_source_y = source_y.checked_add(
+                source_destination_y.saturating_mul(source_height) / destination_height,
+            )?;
+            let fragment_source_right = source_x.checked_add(
+                source_destination_right
+                    .saturating_mul(source_width)
+                    .saturating_add(destination_width - 1)
+                    / destination_width,
+            )?;
+            let fragment_source_bottom = source_y.checked_add(
+                source_destination_bottom
+                    .saturating_mul(source_height)
+                    .saturating_add(destination_height - 1)
+                    / destination_height,
+            )?;
+            fragments.push(RenderInlineImageFragment {
+                parent_image_index,
+                row: u16::try_from(row).ok()?,
+                column: u16::try_from(column).ok()?,
+                source_row: row,
+                source_column: column,
+                destination_x: u32::try_from(fragment_left - cell_left).ok()?,
+                destination_y: u32::try_from(fragment_top - cell_top).ok()?,
+                destination_width: u32::try_from(fragment_right - fragment_left).ok()?,
+                destination_height: u32::try_from(fragment_bottom - fragment_top).ok()?,
+                source_x: fragment_source_x,
+                source_y: fragment_source_y,
+                source_width: fragment_source_right.checked_sub(fragment_source_x)?,
+                source_height: fragment_source_bottom.checked_sub(fragment_source_y)?,
+                sampling_source_x: source_x,
+                sampling_source_y: source_y,
+                sampling_source_width: source_width,
+                sampling_source_height: source_height,
+                source_destination_x,
+                source_destination_y,
+                source_destination_width,
+                source_destination_height,
+            });
+        }
+    }
+    Some(fragments)
 }
 
 fn parse_positive_u32(value: &str) -> Option<u32> {
@@ -3444,6 +3820,28 @@ fn damage_intersects_inline_image(
     })
 }
 
+fn damage_intersects_inline_image_fragment(
+    damage: &[DamageRegion],
+    fragment: &RenderInlineImageFragment,
+    cell_width: u32,
+    cell_height: u32,
+) -> bool {
+    let fragment_rect = Rect {
+        x: u32::from(fragment.column)
+            .saturating_mul(cell_width)
+            .saturating_add(fragment.destination_x),
+        y: u32::from(fragment.row)
+            .saturating_mul(cell_height)
+            .saturating_add(fragment.destination_y),
+        width: fragment.destination_width,
+        height: fragment.destination_height,
+    };
+    damage.iter().copied().any(|region| {
+        !region.is_empty()
+            && rects_intersect(fragment_rect, damage_rect(region, cell_width, cell_height))
+    })
+}
+
 fn rects_intersect(a: Rect, b: Rect) -> bool {
     let a_right = a.x.saturating_add(a.width);
     let a_bottom = a.y.saturating_add(a.height);
@@ -3630,7 +4028,7 @@ impl TerminalRenderSnapshot {
             }
         }
 
-        let inline_images =
+        let (inline_images, inline_image_fragments, inline_image_parent_origins) =
             render_inline_images_from_terminal(terminal, first_source_row, size.rows, size.columns);
 
         Self {
@@ -3638,6 +4036,8 @@ impl TerminalRenderSnapshot {
             cursor,
             cursor_color: None,
             inline_images,
+            inline_image_fragments,
+            inline_image_parent_origins,
             scrollback_offset: offset,
         }
     }
@@ -3686,6 +4086,8 @@ impl TerminalRenderSnapshot {
             cursor,
             cursor_color: None,
             inline_images: Vec::new(),
+            inline_image_fragments: Vec::new(),
+            inline_image_parent_origins: Vec::new(),
             scrollback_offset: 0,
         }
     }
@@ -3709,6 +4111,11 @@ impl TerminalRenderSnapshot {
     #[must_use]
     pub fn inline_images(&self) -> &[RenderInlineImage] {
         &self.inline_images
+    }
+
+    #[must_use]
+    pub fn inline_image_fragments(&self) -> &[RenderInlineImageFragment] {
+        &self.inline_image_fragments
     }
 
     #[must_use]
@@ -3748,6 +4155,13 @@ impl TerminalRenderSnapshot {
         for image in &mut self.inline_images {
             image.row = image.row.saturating_add(offset);
         }
+        for fragment in &mut self.inline_image_fragments {
+            fragment.row = fragment.row.saturating_add(offset);
+            fragment.source_row = fragment.source_row.saturating_add(i64::from(offset));
+        }
+        for (_, row) in &mut self.inline_image_parent_origins {
+            *row = row.saturating_add(i64::from(offset));
+        }
         if let Some(cursor) = self.cursor.as_mut() {
             cursor.row = cursor.row.saturating_add(offset);
         }
@@ -3765,8 +4179,32 @@ impl TerminalRenderSnapshot {
     ) -> Self {
         self.cells
             .retain(|cell| cell.row < rows && cell.column < columns);
-        self.inline_images
-            .retain(|image| image.row < rows && image.column < columns);
+        let old_inline_images = std::mem::take(&mut self.inline_images);
+        let old_inline_image_parent_origins = std::mem::take(&mut self.inline_image_parent_origins);
+        let mut parent_indices = vec![None; old_inline_images.len()];
+        for (old_index, image) in old_inline_images.into_iter().enumerate() {
+            if image.row < rows && image.column < columns {
+                parent_indices[old_index] = Some(self.inline_images.len());
+                self.inline_images.push(image);
+                self.inline_image_parent_origins.push(
+                    old_inline_image_parent_origins
+                        .get(old_index)
+                        .copied()
+                        .unwrap_or((0, 0)),
+                );
+            }
+        }
+        self.inline_image_fragments.retain_mut(|fragment| {
+            let Some(Some(parent_image_index)) = parent_indices.get(fragment.parent_image_index)
+            else {
+                return false;
+            };
+            if fragment.row >= rows || fragment.column >= columns {
+                return false;
+            }
+            fragment.parent_image_index = *parent_image_index;
+            true
+        });
         for cell in &mut self.cells {
             cell.row = cell.row.saturating_add(origin_row);
             cell.column = cell.column.saturating_add(origin_column);
@@ -3774,6 +4212,18 @@ impl TerminalRenderSnapshot {
         for image in &mut self.inline_images {
             image.row = image.row.saturating_add(origin_row);
             image.column = image.column.saturating_add(origin_column);
+        }
+        for fragment in &mut self.inline_image_fragments {
+            fragment.row = fragment.row.saturating_add(origin_row);
+            fragment.column = fragment.column.saturating_add(origin_column);
+            fragment.source_row = fragment.source_row.saturating_add(i64::from(origin_row));
+            fragment.source_column = fragment
+                .source_column
+                .saturating_add(i64::from(origin_column));
+        }
+        for (column, row) in &mut self.inline_image_parent_origins {
+            *column = column.saturating_add(i64::from(origin_column));
+            *row = row.saturating_add(i64::from(origin_row));
         }
 
         self.cursor = self.cursor.and_then(|mut cursor| {
@@ -3809,9 +4259,23 @@ impl TerminalRenderSnapshot {
     pub fn with_overlay_snapshot(mut self, snapshot: Self) -> Self {
         self.cells.extend(snapshot.cells);
         self.cells.sort_by_key(|cell| (cell.row, cell.column));
+        let parent_index_offset = self.inline_images.len();
         self.inline_images.extend(snapshot.inline_images);
-        self.inline_images
-            .sort_by_key(|image| (image.row, image.column));
+        self.inline_image_parent_origins
+            .extend(snapshot.inline_image_parent_origins);
+        self.inline_image_fragments
+            .extend(
+                snapshot
+                    .inline_image_fragments
+                    .into_iter()
+                    .map(|mut fragment| {
+                        fragment.parent_image_index = fragment
+                            .parent_image_index
+                            .saturating_add(parent_index_offset);
+                        fragment
+                    }),
+            );
+        self.sort_inline_images_and_remap_fragments();
         self
     }
 
@@ -3870,8 +4334,11 @@ impl TerminalRenderSnapshot {
         }
 
         self.cells.sort_by_key(|cell| (cell.row, cell.column));
-        self.inline_images =
-            render_inline_images_from_terminal(terminal, 0, size.rows, size.columns);
+        (
+            self.inline_images,
+            self.inline_image_fragments,
+            self.inline_image_parent_origins,
+        ) = render_inline_images_from_terminal(terminal, 0, size.rows, size.columns);
         self.cursor = render_cursor_from_terminal(terminal, 0);
     }
 
@@ -3919,6 +4386,42 @@ impl TerminalRenderSnapshot {
 
         self
     }
+
+    fn sort_inline_images_and_remap_fragments(&mut self) {
+        let old_inline_image_parent_origins = std::mem::take(&mut self.inline_image_parent_origins);
+        let mut indexed_images = std::mem::take(&mut self.inline_images)
+            .into_iter()
+            .enumerate()
+            .map(|(index, image)| {
+                (
+                    index,
+                    image,
+                    old_inline_image_parent_origins
+                        .get(index)
+                        .copied()
+                        .unwrap_or((0, 0)),
+                )
+            })
+            .collect::<Vec<_>>();
+        indexed_images.sort_by_key(|(_, image, _)| (image.row, image.column));
+        let mut parent_indices = vec![0; indexed_images.len()];
+        let mut inline_images = Vec::with_capacity(indexed_images.len());
+        let mut inline_image_parent_origins = Vec::with_capacity(indexed_images.len());
+        for (new_index, (old_index, image, origin)) in indexed_images.into_iter().enumerate() {
+            parent_indices[old_index] = new_index;
+            inline_images.push(image);
+            inline_image_parent_origins.push(origin);
+        }
+        self.inline_images = inline_images;
+        self.inline_image_parent_origins = inline_image_parent_origins;
+        self.inline_image_fragments.retain_mut(|fragment| {
+            let Some(parent_image_index) = parent_indices.get(fragment.parent_image_index) else {
+                return false;
+            };
+            fragment.parent_image_index = *parent_image_index;
+            true
+        });
+    }
 }
 
 fn blend_selection_background(selection_background: Color, cell_background: Color) -> Color {
@@ -3945,17 +4448,112 @@ fn render_inline_images_from_terminal(
     first_source_row: usize,
     rows: u16,
     columns: u16,
-) -> Vec<RenderInlineImage> {
+) -> (
+    Vec<RenderInlineImage>,
+    Vec<RenderInlineImageFragment>,
+    Vec<(i64, i64)>,
+) {
     let last_source_row = first_source_row.saturating_add(usize::from(rows));
+    let terminal_fragments = terminal.inline_image_fragments();
+    let fragment_parent_indices = terminal_fragments
+        .iter()
+        .filter(|fragment| {
+            fragment.row >= first_source_row
+                && fragment.row < last_source_row
+                && fragment.column < columns
+        })
+        .map(|fragment| fragment.image_index)
+        .collect::<HashSet<_>>();
     let mut images = terminal
         .inline_images()
         .iter()
-        .filter_map(|image| {
+        .enumerate()
+        .filter_map(|(image_index, image)| {
             render_inline_image_item(image, first_source_row, last_source_row, columns)
+                .or_else(|| {
+                    fragment_parent_indices
+                        .contains(&image_index)
+                        .then(|| {
+                            render_inline_image_item(image, image.row, image.row + 1, u16::MAX)
+                        })
+                        .flatten()
+                })
+                .and_then(|render_image| {
+                    Some((
+                        image_index,
+                        render_image,
+                        (
+                            i64::from(image.column),
+                            i64::try_from(image.row).ok()?
+                                - i64::try_from(first_source_row).ok()?,
+                        ),
+                    ))
+                })
         })
         .collect::<Vec<_>>();
-    images.sort_by_key(|image| (image.row, image.column));
-    images
+    images.sort_by_key(|(_, image, _)| (image.row, image.column));
+    let parent_indices = images
+        .iter()
+        .enumerate()
+        .map(|(render_index, (terminal_index, _, _))| (*terminal_index, render_index))
+        .collect::<HashMap<_, _>>();
+    let fragments = terminal_fragments
+        .into_iter()
+        .filter_map(|fragment| {
+            render_inline_image_fragment_item(
+                fragment,
+                &parent_indices,
+                first_source_row,
+                last_source_row,
+                columns,
+            )
+        })
+        .collect::<Vec<_>>();
+    (
+        images.iter().map(|(_, image, _)| image.clone()).collect(),
+        fragments,
+        images.into_iter().map(|(_, _, origin)| origin).collect(),
+    )
+}
+
+fn render_inline_image_fragment_item(
+    fragment: InlineImageFragment,
+    parent_indices: &HashMap<usize, usize>,
+    first_source_row: usize,
+    last_source_row: usize,
+    columns: u16,
+) -> Option<RenderInlineImageFragment> {
+    if fragment.row < first_source_row
+        || fragment.row >= last_source_row
+        || fragment.column >= columns
+    {
+        return None;
+    }
+
+    Some(RenderInlineImageFragment {
+        parent_image_index: *parent_indices.get(&fragment.image_index)?,
+        row: u16::try_from(fragment.row - first_source_row).ok()?,
+        column: fragment.column,
+        source_row: i64::try_from(fragment.source_row).ok()?
+            - i64::try_from(first_source_row).ok()?,
+        source_column: i64::from(fragment.source_column),
+        destination_x: fragment.destination_x,
+        destination_y: fragment.destination_y,
+        destination_width: fragment.destination_width,
+        destination_height: fragment.destination_height,
+        source_x: fragment.source_x,
+        source_y: fragment.source_y,
+        source_width: fragment.source_width,
+        source_height: fragment.source_height,
+        sampling_source_x: fragment.sampling_source_x,
+        sampling_source_y: fragment.sampling_source_y,
+        sampling_source_width: fragment.sampling_source_width,
+        sampling_source_height: fragment.sampling_source_height,
+        source_destination_x: fragment.source_destination_x,
+        source_destination_y: fragment.source_destination_y,
+        source_destination_width: fragment.source_destination_width,
+        source_destination_height: fragment.source_destination_height,
+    })
 }
 
 fn render_inline_image_item(
@@ -4280,8 +4878,9 @@ mod tests {
         RenderBackgroundImageHorizontalAlign, RenderBackgroundImageLength,
         RenderBackgroundImageRepeat, RenderBackgroundImageVerticalAlign,
         RenderBoldBrightensAnsiColors, RenderCell, RenderGeometry, RenderInlineImage,
-        SCROLLBAR_THUMB_COLOR, SCROLLBAR_TRACK_COLOR, ScrollbackScrollbar, TerminalRenderSnapshot,
-        background_image_axis_coordinate, background_image_layout,
+        RenderInlineImageFragment, SCROLLBAR_THUMB_COLOR, SCROLLBAR_TRACK_COLOR,
+        ScrollbackScrollbar, TerminalRenderSnapshot, background_image_axis_coordinate,
+        background_image_layout, render_inline_images_from_terminal,
     };
 
     #[test]
@@ -4414,7 +5013,10 @@ mod tests {
     fn pixel_renderer_scrolls_background_image_attachment_with_viewport() {
         let mut terminal = Terminal::new(TerminalSize::new(1, 2));
         terminal.feed(b"\x1b[?25l \r\n \r\n \r\n");
-        let snapshot = TerminalRenderSnapshot::from_terminal_viewport(&terminal, 1);
+        let snapshot = TerminalRenderSnapshot::from_terminal_viewport(
+            &terminal,
+            terminal.scrollback().len().saturating_sub(1),
+        );
         assert_eq!(snapshot.scrollback_offset(), 1);
         let mut renderer = PixelRenderer::default();
         renderer.set_default_background_image(Some(RenderBackgroundImage {
@@ -4744,6 +5346,251 @@ mod tests {
                 data: b"ABCD".to_vec(),
             }]
         );
+    }
+
+    #[test]
+    fn graphics_fragment_snapshot_draws_cell_crops_without_parent_rectangle() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 2));
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=77,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[?25l");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert_eq!(snapshot.inline_images().len(), 1);
+        assert_eq!(snapshot.inline_image_fragments().len(), 4);
+        assert_eq!(
+            snapshot
+                .inline_image_fragments()
+                .iter()
+                .map(|fragment| {
+                    (
+                        fragment.row,
+                        fragment.column,
+                        fragment.destination_x,
+                        fragment.destination_y,
+                        fragment.destination_width,
+                        fragment.destination_height,
+                        fragment.source_x,
+                        fragment.source_y,
+                        fragment.source_width,
+                        fragment.source_height,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                (0, 0, 0, 0, 8, 16, 0, 0, 1, 1),
+                (0, 1, 0, 0, 8, 16, 1, 0, 1, 1),
+                (1, 0, 0, 0, 8, 16, 0, 1, 1, 1),
+                (1, 1, 0, 0, 8, 16, 1, 1, 1, 1),
+            ]
+        );
+
+        let mut target = vec![0; 2 * 2 * 4];
+        PixelRenderer::default().render(&snapshot, &mut target, 2, 2, 1, 1);
+        assert_eq!(pixel_at(&target, 2, 0, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 2, 1, 0), [0, 255, 0, 255]);
+        assert_eq!(pixel_at(&target, 2, 0, 1), [0, 0, 255, 255]);
+        assert_eq!(pixel_at(&target, 2, 1, 1), [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn graphics_fragment_renderer_preserves_nonzero_target_offsets() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 3));
+        terminal
+            .feed(b"\x1b_Ga=T,C=1,q=1,i=78,f=24,s=2,v=2,c=2,r=2,X=7,Y=15;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[?25l");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert_eq!(snapshot.inline_image_fragments().len(), 9);
+        assert_eq!(
+            snapshot.inline_image_fragments()[0].clone(),
+            RenderInlineImageFragment {
+                parent_image_index: 0,
+                row: 0,
+                column: 0,
+                source_row: 0,
+                source_column: 0,
+                destination_x: 7,
+                destination_y: 15,
+                destination_width: 1,
+                destination_height: 1,
+                source_x: 0,
+                source_y: 0,
+                source_width: 1,
+                source_height: 1,
+                sampling_source_x: 0,
+                sampling_source_y: 0,
+                sampling_source_width: 2,
+                sampling_source_height: 2,
+                source_destination_x: 0,
+                source_destination_y: 0,
+                source_destination_width: 16,
+                source_destination_height: 32,
+            }
+        );
+
+        let mut target = vec![0; 24 * 48 * 4];
+        PixelRenderer::default().render(&snapshot, &mut target, 24, 48, 8, 16);
+        assert_eq!(pixel_at(&target, 24, 7, 15), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 24, 14, 15), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 24, 15, 15), [0, 255, 0, 255]);
+        assert_eq!(pixel_at(&target, 24, 7, 30), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 24, 7, 31), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn graphics_fragment_renderer_derives_target_boundaries_from_runtime_geometry() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 3));
+        terminal
+            .feed(b"\x1b_Ga=T,C=1,q=1,i=79,f=24,s=2,v=2,c=2,r=2,X=9,Y=19;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[?25l");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let mut target = vec![0; 30 * 60 * 4];
+        PixelRenderer::default().render(&snapshot, &mut target, 30, 60, 10, 20);
+
+        assert_eq!(pixel_at(&target, 30, 9, 19), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 30, 18, 19), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 30, 19, 19), [0, 255, 0, 255]);
+        assert_eq!(pixel_at(&target, 30, 9, 38), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 30, 9, 39), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn graphics_fragment_snapshot_keeps_parent_data_when_only_offset_fragment_is_in_viewport() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 2));
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=80,f=24,s=1,v=1,c=1,r=1,Y=16;/wAA\x1b\\");
+        terminal.feed(b"\x1b[?25l");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_image_fragments().len(), 1);
+        let (inline_images, inline_image_fragments, inline_image_parent_origins) =
+            render_inline_images_from_terminal(&terminal, 1, 1, 3);
+        assert_eq!(inline_images.len(), 1);
+        assert_eq!(inline_image_fragments.len(), 1);
+        assert_eq!(inline_image_fragments[0].row, 0);
+        assert_eq!(inline_image_parent_origins, vec![(0, -1)]);
+
+        let snapshot = TerminalRenderSnapshot {
+            cells: Vec::new(),
+            cursor: None,
+            cursor_color: None,
+            inline_images,
+            inline_image_fragments,
+            inline_image_parent_origins,
+            scrollback_offset: 0,
+        };
+        let mut target = vec![0; 24 * 16 * 4];
+        PixelRenderer::default().render(&snapshot, &mut target, 24, 16, 8, 16);
+        assert_eq!(pixel_at(&target, 24, 0, 0), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn graphics_fragment_destinations_are_authoritative_for_full_and_damage_rendering() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 1));
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=81,f=24,s=2,v=1,c=2,r=1;/wAAAP8A\x1b\\");
+        terminal.feed(b"\x1b[?25l");
+
+        let mut snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert_eq!(snapshot.inline_image_fragments.len(), 2);
+        snapshot.inline_image_fragments[1].column = 2;
+
+        let renderer = PixelRenderer::default();
+        let mut target = vec![0; 24 * 8 * 4];
+        renderer.render(&snapshot, &mut target, 24, 8, 8, 8);
+        assert_eq!(pixel_at(&target, 24, 0, 0), [255, 0, 0, 255]);
+        assert_ne!(pixel_at(&target, 24, 8, 0), [0, 255, 0, 255]);
+        assert_eq!(pixel_at(&target, 24, 16, 0), [0, 255, 0, 255]);
+
+        let mut damage_target = vec![0; 24 * 8 * 4];
+        renderer.render_damage(
+            &snapshot,
+            &[DamageRegion::new(2, 0, 1, 1)],
+            &mut damage_target,
+            RenderGeometry::new(24, 8, 8, 8),
+        );
+        assert_eq!(pixel_at(&damage_target, 24, 16, 0), [0, 255, 0, 255]);
+        assert_ne!(pixel_at(&damage_target, 24, 8, 0), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn graphics_fragment_viewport_retains_runtime_boundary_candidate_without_default_fragment() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 2));
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=82,f=24,s=1,v=1,c=1,r=1,Y=10;/wAA\x1b\\");
+        terminal.feed(b"\x1b[?25l");
+
+        let (inline_images, inline_image_fragments, inline_image_parent_origins) =
+            render_inline_images_from_terminal(&terminal, 1, 1, 3);
+        assert_eq!(inline_images.len(), 1);
+        assert_eq!(inline_image_fragments.len(), 1);
+        assert_eq!(inline_image_parent_origins, vec![(0, -1)]);
+
+        let snapshot = TerminalRenderSnapshot {
+            cells: Vec::new(),
+            cursor: None,
+            cursor_color: None,
+            inline_images,
+            inline_image_fragments,
+            inline_image_parent_origins,
+            scrollback_offset: 0,
+        };
+        let mut target = vec![0; 24 * 20 * 4];
+        PixelRenderer::default().render(&snapshot, &mut target, 24, 20, 8, 20);
+        assert_eq!(pixel_at(&target, 24, 0, 0), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn graphics_fragment_overlay_sort_keeps_each_parent_origin_paired() {
+        fn snapshot_at(column: u16, image_id: u32) -> TerminalRenderSnapshot {
+            let mut terminal = Terminal::new(TerminalSize::new(3, 1));
+            terminal.feed(format!("\x1b[1;{}H", column + 1).as_bytes());
+            terminal.feed(
+                format!("\x1b_Ga=T,C=1,q=1,i={image_id},f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\")
+                    .as_bytes(),
+            );
+            TerminalRenderSnapshot::from_terminal(&terminal)
+        }
+
+        let snapshot = snapshot_at(2, 83)
+            .with_overlay_snapshot(snapshot_at(0, 84))
+            .with_overlay_snapshot(snapshot_at(1, 85));
+
+        assert_eq!(
+            snapshot
+                .inline_images
+                .iter()
+                .map(|image| image.column)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        assert_eq!(
+            snapshot.inline_image_parent_origins,
+            vec![(0, 0), (1, 0), (2, 0)]
+        );
+    }
+
+    #[test]
+    fn graphics_fragment_viewport_does_not_draw_default_boundary_false_positive() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 2));
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=86,f=24,s=1,v=1,c=1,r=1,Y=16;/wAA\x1b\\");
+        terminal.feed(b"\x1b[?25l");
+
+        let (inline_images, inline_image_fragments, inline_image_parent_origins) =
+            render_inline_images_from_terminal(&terminal, 1, 1, 3);
+        assert_eq!(inline_images.len(), 1);
+        assert_eq!(inline_image_fragments.len(), 1);
+
+        let snapshot = TerminalRenderSnapshot {
+            cells: Vec::new(),
+            cursor: None,
+            cursor_color: None,
+            inline_images,
+            inline_image_fragments,
+            inline_image_parent_origins,
+            scrollback_offset: 0,
+        };
+        let mut target = vec![0; 24 * 8 * 4];
+        PixelRenderer::default().render(&snapshot, &mut target, 24, 8, 8, 8);
+        assert_ne!(pixel_at(&target, 24, 0, 0), [255, 0, 0, 255]);
     }
 
     #[test]

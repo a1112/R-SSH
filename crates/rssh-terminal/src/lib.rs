@@ -219,6 +219,45 @@ pub struct ItermInlineImage {
     pub data: Vec<u8>,
 }
 
+/// A cell-addressable piece of a physical inline-image placement.
+///
+/// The source fields describe this fragment's source crop.
+/// `sampling_source_*` and `source_destination_*` retain the complete
+/// placement mapping so a renderer can preserve the original sampling ratio
+/// when a cell boundary splits a pixel image. The destination fields describe
+/// the fragment rectangle inside its destination cell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineImageFragment {
+    /// Index into [`Terminal::inline_images`].
+    pub image_index: usize,
+    pub row: usize,
+    pub column: u16,
+    /// Immutable source cell for this fragment; `row`/`column` are its
+    /// current destination and may change through a cell transform.
+    pub source_row: usize,
+    pub source_column: u16,
+    pub destination_x: u32,
+    pub destination_y: u32,
+    pub destination_width: u32,
+    pub destination_height: u32,
+    pub source_x: u32,
+    pub source_y: u32,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub sampling_source_x: u32,
+    pub sampling_source_y: u32,
+    pub sampling_source_width: u32,
+    pub sampling_source_height: u32,
+    pub source_destination_x: u32,
+    pub source_destination_y: u32,
+    pub source_destination_width: u32,
+    pub source_destination_height: u32,
+    pub kitty_image_id: Option<u32>,
+    pub kitty_placement_id: Option<u32>,
+    pub kitty_z_index: Option<i32>,
+    pub image_format: InlineImageFormat,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Cell {
@@ -3464,6 +3503,43 @@ mod tests {
         assert_eq!(terminal.inline_images().len(), 1);
         assert_eq!(terminal.inline_images()[0].width, Some("6".to_owned()));
         assert_eq!(terminal.inline_images()[0].height, Some("3".to_owned()));
+    }
+
+    #[test]
+    fn terminal_graphics_fragment_exposes_each_cell_of_a_physical_kitty_image() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=77,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+
+        let fragments = terminal.inline_image_fragments();
+        assert_eq!(fragments.len(), 4);
+        assert_eq!(
+            fragments
+                .iter()
+                .map(|fragment| {
+                    (
+                        fragment.row,
+                        fragment.column,
+                        fragment.source_x,
+                        fragment.source_y,
+                        fragment.source_width,
+                        fragment.source_height,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                (0, 0, 0, 0, 1, 1),
+                (0, 1, 1, 0, 1, 1),
+                (1, 0, 0, 1, 1, 1),
+                (1, 1, 1, 1, 1, 1)
+            ]
+        );
+        assert!(fragments.iter().all(|fragment| {
+            fragment.image_index == 0
+                && fragment.kitty_image_id == Some(77)
+                && fragment.kitty_placement_id.is_none()
+                && fragment.image_format == InlineImageFormat::Rgb
+        }));
     }
 
     #[test]

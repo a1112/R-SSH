@@ -12,10 +12,11 @@ use unicode_normalization::char::canonical_combining_class;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    Cell, Color, CursorShape, CursorStyle, InlineImageFormat, ItermInlineImage, ScrollbackLine,
-    SemanticCommandExit, SemanticType, SemanticZone, SequenceNo, StableRowIndex,
-    StableSelectionRange, StableSemanticCommandExit, StableSemanticZone, TerminalGrid,
-    TerminalResizeOutcome, TerminalScreenDomain, TerminalStableDimensions, UnderlineStyle,
+    Cell, Color, CursorShape, CursorStyle, InlineImageFormat, InlineImageFragment,
+    ItermInlineImage, ScrollbackLine, SemanticCommandExit, SemanticType, SemanticZone, SequenceNo,
+    StableRowIndex, StableSelectionRange, StableSemanticCommandExit, StableSemanticZone,
+    TerminalGrid, TerminalResizeOutcome, TerminalScreenDomain, TerminalStableDimensions,
+    UnderlineStyle,
 };
 
 pub const DEFAULT_SCROLLBACK_LIMIT: usize = 3_500;
@@ -3018,6 +3019,20 @@ impl Terminal {
     #[must_use]
     pub fn inline_images(&self) -> &[ItermInlineImage] {
         &self.inline_images
+    }
+
+    /// Returns the physical inline-image placements split at terminal cell
+    /// boundaries. Placements whose source or destination geometry cannot be
+    /// represented safely are omitted so renderers can retain their existing
+    /// whole-placement path.
+    #[must_use]
+    pub fn inline_image_fragments(&self) -> Vec<InlineImageFragment> {
+        self.inline_images
+            .iter()
+            .enumerate()
+            .filter_map(|(image_index, image)| inline_image_fragments(image_index, image))
+            .flatten()
+            .collect()
     }
 
     pub fn take_kitty_graphics_responses(&mut self) -> Vec<Vec<u8>> {
@@ -7158,6 +7173,147 @@ fn inline_image_axis_cells(value: Option<&str>, cell_pixels: u16) -> u16 {
         .ok()
         .filter(|value| *value > 0)
         .unwrap_or(1)
+}
+
+fn inline_image_axis_pixels(value: Option<&str>, cell_pixels: u16) -> u32 {
+    let cell_pixels = u32::from(cell_pixels.max(1));
+    let Some(value) = value else {
+        return cell_pixels;
+    };
+    if let Some(pixels) = value.strip_suffix("px").and_then(parse_positive_u32) {
+        return pixels;
+    }
+    value
+        .parse::<u32>()
+        .ok()
+        .filter(|value| *value > 0)
+        .map_or(cell_pixels, |cells| cells.saturating_mul(cell_pixels))
+}
+
+fn inline_image_fragments(
+    image_index: usize,
+    image: &ItermInlineImage,
+) -> Option<Vec<InlineImageFragment>> {
+    let pixel_width = image.pixel_width?;
+    let pixel_height = image.pixel_height?;
+    let source_x = image.source_x.unwrap_or(0);
+    let source_y = image.source_y.unwrap_or(0);
+    let available_width = pixel_width.checked_sub(source_x)?;
+    let available_height = pixel_height.checked_sub(source_y)?;
+    let source_width = image
+        .source_width
+        .unwrap_or(available_width)
+        .min(available_width);
+    let source_height = image
+        .source_height
+        .unwrap_or(available_height)
+        .min(available_height);
+    if source_width == 0 || source_height == 0 {
+        return None;
+    }
+
+    let cell_width = u32::from(DEFAULT_INLINE_IMAGE_CELL_WIDTH_PIXELS);
+    let cell_height = u32::from(DEFAULT_INLINE_IMAGE_CELL_HEIGHT_PIXELS);
+    let destination_width = inline_image_axis_pixels(
+        image.width.as_deref(),
+        DEFAULT_INLINE_IMAGE_CELL_WIDTH_PIXELS,
+    );
+    let destination_height = inline_image_axis_pixels(
+        image.height.as_deref(),
+        DEFAULT_INLINE_IMAGE_CELL_HEIGHT_PIXELS,
+    );
+    if destination_width == 0 || destination_height == 0 {
+        return None;
+    }
+
+    let destination_left = u32::from(image.column)
+        .checked_mul(cell_width)?
+        .checked_add(image.target_x.unwrap_or(0))?;
+    let destination_top = u32::try_from(image.row)
+        .ok()?
+        .checked_mul(cell_height)?
+        .checked_add(image.target_y.unwrap_or(0))?;
+    let destination_right = destination_left.checked_add(destination_width)?;
+    let destination_bottom = destination_top.checked_add(destination_height)?;
+    let first_column = destination_left / cell_width;
+    let first_row = destination_top / cell_height;
+    let last_column = destination_right.checked_sub(1)? / cell_width;
+    let last_row = destination_bottom.checked_sub(1)? / cell_height;
+    let fragment_count = u64::from(last_column.checked_sub(first_column)?.saturating_add(1))
+        .saturating_mul(u64::from(
+            last_row.checked_sub(first_row)?.saturating_add(1),
+        ));
+    // A pathological protocol payload must not turn a renderer snapshot into
+    // an unbounded allocation. The original placement remains renderable.
+    if fragment_count == 0 || fragment_count > 1_000_000 {
+        return None;
+    }
+
+    let mut fragments = Vec::with_capacity(usize::try_from(fragment_count).ok()?);
+    for row in first_row..=last_row {
+        let cell_top = row.checked_mul(cell_height)?;
+        let fragment_top = destination_top.max(cell_top);
+        let fragment_bottom = destination_bottom.min(cell_top.checked_add(cell_height)?);
+        for column in first_column..=last_column {
+            let cell_left = column.checked_mul(cell_width)?;
+            let fragment_left = destination_left.max(cell_left);
+            let fragment_right = destination_right.min(cell_left.checked_add(cell_width)?);
+            let column = u16::try_from(column).ok()?;
+            let row = usize::try_from(row).ok()?;
+            let source_destination_x = fragment_left.checked_sub(destination_left)?;
+            let source_destination_y = fragment_top.checked_sub(destination_top)?;
+            let source_destination_right =
+                source_destination_x.checked_add(fragment_right.checked_sub(fragment_left)?)?;
+            let source_destination_bottom =
+                source_destination_y.checked_add(fragment_bottom.checked_sub(fragment_top)?)?;
+            let fragment_source_x = source_x.checked_add(
+                source_destination_x.saturating_mul(source_width) / destination_width,
+            )?;
+            let fragment_source_y = source_y.checked_add(
+                source_destination_y.saturating_mul(source_height) / destination_height,
+            )?;
+            let fragment_source_right = source_x.checked_add(
+                source_destination_right
+                    .saturating_mul(source_width)
+                    .saturating_add(destination_width - 1)
+                    / destination_width,
+            )?;
+            let fragment_source_bottom = source_y.checked_add(
+                source_destination_bottom
+                    .saturating_mul(source_height)
+                    .saturating_add(destination_height - 1)
+                    / destination_height,
+            )?;
+            fragments.push(InlineImageFragment {
+                image_index,
+                row,
+                column,
+                source_row: row,
+                source_column: column,
+                destination_x: fragment_left.checked_sub(cell_left)?,
+                destination_y: fragment_top.checked_sub(cell_top)?,
+                destination_width: fragment_right.checked_sub(fragment_left)?,
+                destination_height: fragment_bottom.checked_sub(fragment_top)?,
+                source_x: fragment_source_x,
+                source_y: fragment_source_y,
+                source_width: fragment_source_right.checked_sub(fragment_source_x)?,
+                source_height: fragment_source_bottom.checked_sub(fragment_source_y)?,
+                sampling_source_x: source_x,
+                sampling_source_y: source_y,
+                sampling_source_width: source_width,
+                sampling_source_height: source_height,
+                source_destination_x,
+                source_destination_y,
+                source_destination_width: destination_width,
+                source_destination_height: destination_height,
+                kitty_image_id: image.kitty_image_id,
+                kitty_placement_id: image.kitty_placement_id,
+                kitty_z_index: image.kitty_z_index,
+                image_format: image.image_format,
+            });
+        }
+    }
+    Some(fragments)
 }
 
 fn next_or_pending(next_index: Option<usize>) -> FeedAdvance {
