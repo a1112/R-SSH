@@ -6721,9 +6721,10 @@ fn kitty_placeholder_references_live_placement(
     placeholder: LastKittyPlaceholder,
     live_placements: &HashSet<(u32, Option<u32>)>,
 ) -> bool {
-    let Some(image_id) = kitty_placeholder_image_id(placeholder.foreground) else {
+    let Some(low_bytes) = kitty_placeholder_image_id(placeholder.foreground) else {
         return true;
     };
+    let image_id = (low_bytes & 0x00ff_ffff) | ((placeholder.image_id_high_byte & 0xff) << 24);
     let placement_id = kitty_placeholder_placement_id(placeholder.underline_color);
     live_placements
         .iter()
@@ -8592,6 +8593,47 @@ mod stable_row_tests {
             terminal.take_damage(),
             vec![DamageRegion::new(2, 1, 4, 3), DamageRegion::new(0, 0, 8, 4)]
         );
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_su_keeps_live_msb_kitty_placeholder_cache() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+        let image_id = (2_u32 << 24) | 0x2c;
+        let mut image = metadata_test_image(0, "msb-image");
+        image.kitty_image_id = Some(image_id);
+        terminal.inline_images.push(image);
+        let placeholder = LastKittyPlaceholder {
+            row: 0,
+            column: 0,
+            foreground: Color::Indexed(0x2c),
+            underline_color: Color::Default,
+            image_id_high_byte: 2,
+            placeholder_row: 0,
+            placeholder_column: 0,
+        };
+        terminal.kitty_placeholder_cells.insert((0, 0), placeholder);
+        terminal.last_kitty_placeholder = Some(placeholder);
+        terminal.take_damage();
+        terminal.feed(b"\x1b[?69h\x1b[10;20s");
+        terminal.take_damage();
+
+        terminal.feed(b"\x1b[S");
+
+        assert_eq!(
+            terminal
+                .kitty_placeholder_cells
+                .get(&(0, 0))
+                .copied()
+                .map(|cached| cached.image_id_high_byte),
+            Some(2)
+        );
+        assert_eq!(
+            terminal
+                .last_kitty_placeholder
+                .map(|cached| cached.image_id_high_byte),
+            Some(2)
+        );
+        assert_eq!(terminal.take_damage(), vec![DamageRegion::new(9, 0, 11, 4)]);
     }
 
     #[test]
