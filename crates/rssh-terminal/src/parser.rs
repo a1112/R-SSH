@@ -3182,6 +3182,9 @@ impl Terminal {
                 // dormant main screen and its history are the only buffers that
                 // participate in width reflow.
                 self.grid.resize_with_seqno(size, self.seqno);
+                let mut reflow_cursor_column = screen
+                    .cursor_column
+                    .saturating_add(u16::from(screen.pending_wrap));
                 reflow_main_screen(
                     &mut self.scrollback,
                     &mut screen.grid,
@@ -3191,14 +3194,19 @@ impl Terminal {
                     self.treat_east_asian_ambiguous_width_as_wide,
                     &cell_width_overrides,
                     &mut screen.cursor_row,
-                    &mut screen.cursor_column,
+                    &mut reflow_cursor_column,
                 );
+                screen.cursor_column = reflow_cursor_column;
+                screen.pending_wrap = false;
                 self.main_screen = Some(screen);
                 self.apply_main_reflow_outcome(MainReflowOutcome::new(
                     old_size,
                     old_main_scrollback_rows,
                 ));
             } else {
+                let mut reflow_cursor_column = self
+                    .cursor_column
+                    .saturating_add(u16::from(self.pending_wrap));
                 reflow_main_screen(
                     &mut self.scrollback,
                     &mut self.grid,
@@ -3208,8 +3216,10 @@ impl Terminal {
                     self.treat_east_asian_ambiguous_width_as_wide,
                     &cell_width_overrides,
                     &mut self.cursor_row,
-                    &mut self.cursor_column,
+                    &mut reflow_cursor_column,
                 );
+                self.cursor_column = reflow_cursor_column;
+                self.pending_wrap = false;
                 self.apply_main_reflow_outcome(MainReflowOutcome::new(
                     old_size,
                     old_main_scrollback_rows,
@@ -8750,7 +8760,7 @@ mod stable_row_tests {
     }
 
     #[test]
-    fn terminal_width_resize_preserves_dormant_main_pending_wrap_mapping() {
+    fn terminal_width_resize_clears_dormant_main_pending_wrap() {
         let mut terminal = Terminal::new(TerminalSize::new(2, 1));
         terminal.feed("界".as_bytes());
         terminal.feed(b"\x1b[?1049h");
@@ -8758,7 +8768,42 @@ mod stable_row_tests {
         terminal.resize(TerminalSize::new(3, 1));
         terminal.feed(b"\x1b[?1049lX");
 
-        assert_eq!(terminal.grid.get(0, 0).unwrap().ch, 'X');
+        assert_eq!(terminal.grid.get(0, 0).unwrap().ch, '界');
+        assert_eq!(terminal.grid.get(0, 1).unwrap().ch, ' ');
+        assert_eq!(terminal.grid.get(0, 2).unwrap().ch, 'X');
+    }
+
+    #[test]
+    fn terminal_width_resize_clears_active_main_pending_wrap() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        terminal.feed(b"abcd");
+
+        terminal.resize(TerminalSize::new(5, 1));
+        terminal.feed(b"X");
+
+        assert_eq!(
+            (0..5)
+                .map(|column| terminal.grid.get(0, column).unwrap().ch)
+                .collect::<String>(),
+            "abcdX"
+        );
+    }
+
+    #[test]
+    fn terminal_width_resize_keeps_active_alternate_pending_wrap_physical() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"\x1b[?1049habcd");
+
+        terminal.resize(TerminalSize::new(5, 2));
+        terminal.feed(b"X");
+
+        assert_eq!(
+            (0..5)
+                .map(|column| terminal.grid.get(0, column).unwrap().ch)
+                .collect::<String>(),
+            "abcd "
+        );
+        assert_eq!(terminal.grid.get(1, 0).unwrap().ch, 'X');
     }
 
     #[test]
