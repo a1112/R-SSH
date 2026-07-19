@@ -9910,6 +9910,180 @@ mod stable_row_tests {
     }
 
     #[test]
+    fn terminal_character_edit_transform_drops_blanked_high_byte_kitty_placeholder_state() {
+        for (transform, source_column, exterior_column) in [
+            (
+                CellTransform::DeleteCharacters {
+                    row: 1,
+                    column: 2,
+                    count: 1,
+                    right: 4,
+                },
+                2,
+                5,
+            ),
+            (
+                CellTransform::InsertCharacters {
+                    row: 1,
+                    column: 2,
+                    count: 1,
+                    right: 4,
+                },
+                4,
+                5,
+            ),
+        ] {
+            let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+            let source = LastKittyPlaceholder {
+                row: 1,
+                column: source_column,
+                foreground: Color::Rgb(0, 0, 30),
+                underline_color: Color::Rgb(0, 0, 4),
+                image_id_high_byte: 2,
+                placeholder_row: 0,
+                placeholder_column: 0,
+            };
+            let exterior = LastKittyPlaceholder {
+                column: exterior_column,
+                ..source
+            };
+            terminal
+                .kitty_placeholder_cells
+                .insert((1, source_column), source);
+            terminal
+                .kitty_placeholder_cells
+                .insert((1, exterior_column), exterior);
+            terminal.last_kitty_placeholder = Some(source);
+            terminal.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
+                row: 1,
+                column: source_column,
+                foreground: source.foreground,
+                underline_color: source.underline_color,
+                image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
+                placement_id: Some(4),
+                diacritics: Vec::new(),
+                rendered_row: Some(1),
+                rendered_column: Some(source_column),
+                rendered_image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
+                rendered_placement_id: Some(4),
+            });
+
+            terminal.transform_kitty_placeholder_state_for_character_edit(transform);
+
+            assert!(
+                !terminal
+                    .kitty_placeholder_cells
+                    .contains_key(&(1, source_column)),
+                "transform={transform:?}"
+            );
+            assert_eq!(
+                terminal
+                    .kitty_placeholder_cells
+                    .get(&(1, exterior_column))
+                    .map(|placeholder| (
+                        placeholder.row,
+                        placeholder.column,
+                        placeholder.image_id_high_byte,
+                    )),
+                Some((1, exterior_column, 2)),
+                "transform={transform:?}"
+            );
+            assert!(
+                terminal.last_kitty_placeholder.is_none(),
+                "transform={transform:?}"
+            );
+            assert!(
+                terminal.pending_kitty_placeholder.is_none(),
+                "transform={transform:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_dch_commits_then_drops_pending_high_byte_placeholder_at_cursor() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+        terminal.kitty_images.insert(
+            HIGH_BYTE_KITTY_IMAGE_ID,
+            StoredKittyImage {
+                image_format: InlineImageFormat::Rgb,
+                pixel_width: Some(1),
+                pixel_height: Some(1),
+                display_columns: Some(2),
+                display_rows: Some(1),
+                data: vec![0xff, 0, 0],
+            },
+        );
+        terminal.kitty_virtual_placements.insert(
+            (HIGH_BYTE_KITTY_IMAGE_ID, 4),
+            KittyVirtualPlacement {
+                image_id: HIGH_BYTE_KITTY_IMAGE_ID,
+                placement_id: Some(4),
+                z_index: None,
+                display_columns: Some(2),
+                display_rows: Some(1),
+                source_rect: KittySourceRect::default(),
+                target_x: None,
+                target_y: None,
+            },
+        );
+        let left = LastKittyPlaceholder {
+            row: 0,
+            column: 1,
+            foreground: Color::Rgb(0, 0, 30),
+            underline_color: Color::Rgb(0, 0, 4),
+            image_id_high_byte: 2,
+            placeholder_row: 0,
+            placeholder_column: 0,
+        };
+        terminal.kitty_placeholder_cells.insert((0, 1), left);
+        terminal.last_kitty_placeholder = Some(left);
+        terminal.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
+            row: 0,
+            column: 2,
+            foreground: left.foreground,
+            underline_color: left.underline_color,
+            image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
+            placement_id: Some(4),
+            diacritics: Vec::new(),
+            rendered_row: None,
+            rendered_column: None,
+            rendered_image_id: None,
+            rendered_placement_id: None,
+        });
+        terminal.modes.left_right_margin_mode = true;
+        terminal.left_margin = 2;
+        terminal.right_margin = 4;
+        terminal.cursor_row = 0;
+        terminal.cursor_column = 2;
+
+        terminal.feed(b"\x1b[P");
+
+        assert!(terminal.pending_kitty_placeholder.is_none());
+        assert!(terminal.last_kitty_placeholder.is_none());
+        assert!(
+            !terminal.kitty_placeholder_cells.contains_key(&(0, 2)),
+            "the placeholder committed at the DCH cursor is blanked"
+        );
+        assert_eq!(
+            terminal
+                .kitty_placeholder_cells
+                .get(&(0, 1))
+                .map(|placeholder| (
+                    placeholder.row,
+                    placeholder.column,
+                    placeholder.image_id_high_byte,
+                )),
+            Some((0, 1, 2)),
+            "the exterior left cell is outside the LR edit"
+        );
+        assert!(
+            terminal
+                .kitty_images
+                .contains_key(&HIGH_BYTE_KITTY_IMAGE_ID)
+        );
+    }
+
+    #[test]
     fn terminal_horizontal_margin_ich_moves_kitty_cache_without_retiring_relative_attachments() {
         let mut terminal = Terminal::new(TerminalSize::new(6, 3));
         let mut parent = attachment_test_image(0, 2, 2, 1, "parent");
