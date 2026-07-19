@@ -27,15 +27,16 @@ This slice now covers the complete core operation set sharing that state:
   stable-row identity, wide cells, and image/Kitty placement metadata remain
   safe.
 
-It deliberately does not claim arbitrary graphics re-layout or exact graphical
-coordinate mapping. A bounded cell operation retires every inline-image or
-Kitty placement intersecting its moved rectangle, including a wholly-contained
-placement. It also retires intersecting placeholder caches, orphaned relative
-children, and stale Kitty cache entries. This conservative policy prevents a
-placement from pointing at unrelated cells while a later slice can add
-coordinate-aware translation. It retains Kitty's uploaded image payload, so a
-newly requested placement can still use that image; explicit Kitty delete
-semantics are unchanged.
+It deliberately does not claim arbitrary graphics re-layout or general
+graphics-coordinate mapping. The later CellAttachment slice supersedes this
+design's former conservative-intersection policy for declared-cell placements:
+each covered terminal cell now has persistent attachment state, and bounded
+operations move/delete it with the matching text cell. The renderer resolves
+the attachment at active geometry, so a graphic may split at an LR boundary
+while exterior cells remain unchanged. Kitty character-edit placeholder/cache
+state follows the same transform without changing stored payloads or
+explicit-delete semantics. Malformed or footprint-less placements retain the
+conservative retirement fallback.
 
 ## Alternatives considered
 

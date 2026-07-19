@@ -6,12 +6,22 @@
 geometry-independent CellAttachment state that can exactly survive bounded cell
 transforms.
 
+**Status (2026-07-20):** Completed for the bounded vertical/line and
+single-row `ICH`/`DCH` operations in this plan. The remaining scope of the
+repository is not implied by this status.
+
 **Architecture:** A physical placement creates one attachment per declared
 terminal cell, carrying parent identity and logical source-cell coordinates.
 `CellTransform` moves or deletes attachments alongside text cells. Renderer
 snapshots preserve attachment mappings and resolve their pixel rectangles only
 at render time from the actual geometry; they never recreate attachment
 identity from parent origins or target offsets.
+
+For virtual Kitty placements, a narrow per-placement marker selects the live
+attachment origin only after a bounded character edit creates a conflict with a
+residual cache origin. Its resize/rebase, alternate-screen, and delete
+lifecycle is coupled to the placement; it does not change stored payload or
+explicit-delete behavior.
 
 **Tech Stack:** Rust, `rssh-terminal`, `rssh-renderer`, terminal/renderer unit
 tests.
@@ -159,6 +169,9 @@ git commit -m "fix: transform kitty attachment state with bounded edits"
 ```
 
 ### Task 4: Documentation, complete verification, and review
+
+**Status (2026-07-20):** Completed after the independent verification recorded
+with the documentation commit.
 
 **Files:**
 - Modify: `docs/architecture.md`

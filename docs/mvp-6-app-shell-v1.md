@@ -993,9 +993,13 @@ runtime storage for tabs and split panes.
 - Completed after v1: cell-level `DECLRMM`/`DECSLRM` bounded-margin behavior
   covers `SU`/`SD`, LF/IND/NEL/RI, `IL`/`DL`, `ICH`/`DCH`, in-margin right-edge
   print/insert/auto-wrap, and physical-edge `ECH`. It preserves exterior cells
-  and avoids partial-width history/stable-row churn. Intersecting graphics
-  placements and Kitty caches are conservatively retired with viewport damage;
-  exact graphics-coordinate mapping remains a separate parity gap.
+  and avoids partial-width history/stable-row churn. Declared-cell graphics
+  persist `CellAttachment` state: bounded transforms move/delete attachments
+  with text cells, preserve exterior cells, and may split graphics at LR
+  boundaries. Runtime rendering resolves those attachments from active geometry;
+  Kitty placeholder/cache coordinates follow character edits without changing
+  stored payloads or explicit-delete behavior. Malformed or footprint-less
+  placements keep the conservative retirement fallback.
 - This bounded work does not claim full selection parity, full App Shell v2,
   or general WezTerm parity. Inactive-pane hover-wheel routing without focus
   transfer, richer
@@ -2460,9 +2464,11 @@ runtime storage for tabs and split panes.
   main reflows in the background and alternate resize remains physical.
 - Cell-level horizontal bounded-margin behavior is also complete: its core
   scroll, line/control, character-edit, and right-edge writing families
-  preserve exterior cells. Its graphics policy is conservative retirement with
-  viewport damage, not exact coordinate-aware translation; that mapping remains
-  a separately scoped terminal parity gap. Beyond it, inactive-pane hover-wheel
+  preserve exterior cells. For declared-cell graphics, persistent
+  `CellAttachment` state follows the same bounded transforms and can split at
+  an LR boundary; malformed or footprint-less placements retain conservative
+  retirement. This limited graphics behavior does not claim general renderer
+  or protocol parity. Beyond it, inactive-pane hover-wheel
   routing without focus transfer, richer pane focus visuals, arbitrary Lua
   callbacks including full arbitrary-Lua/custom tab-formatting parity, external
   CLI title control, and a real mux/window registry with domain, protocol, and
@@ -2669,7 +2675,8 @@ cargo test -p rssh-app copy_mode
   arbitrary-Lua/custom tab-formatting parity, external CLI title control, and
   a real mux/window registry with domain, protocol, and renderer parity remain.
   The bounded-static `format-tab-title` surface is already implemented.
-- The completed cell-level horizontal bounded-margin core is not a claim of
-   exact graphical coordinate mapping. None of these backlog items or completed
-   bounded slices claims full selection parity, full App Shell v2, or general
-   WezTerm parity.
+- The completed cell-level horizontal bounded-margin core includes persistent
+   attachments for declared-cell graphics only; it is not a claim of general
+   graphics-coordinate, renderer, or protocol parity. None of these backlog
+   items or completed bounded slices claims full selection parity, full App
+   Shell v2, or general WezTerm parity.
