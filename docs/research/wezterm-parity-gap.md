@@ -4166,10 +4166,18 @@ what remains before WezTerm-style parity in key UX/composition areas.
   switches and height changes
   synchronously retire GUI selection, drag/multi-click state, and transient
   modes. Lua pane dimensions and cursor coordinates expose stable rows.
-- This bounded slice does not claim complete selection parity, full App Shell
-  v2, or general WezTerm parity. Full WezTerm-compatible width reflow and
-  resize-time selection persistence, cell-level horizontal bounded-margin
-  scrolling, inactive-pane hover-wheel routing without focus transfer, richer
+- Completed after v1: bounded width-resize parity is verified against pinned
+  WezTerm `093bf6bf2b82b929ed80c04fd54ebc80464f715e`. Main scrollback and the
+  main screen, including a dormant main screen, reflow logical lines; alternate
+  resize is physical and non-reflowing. Unsafe main-coordinate metadata is
+  retired, ordinary selection is invalidated, and Copy/Search/Quick retain
+  configuration while rebuilding coordinate-derived presentation. This does not
+  claim general selection, rendering, or image parity beyond that tested
+  retirement. Cell-level horizontal bounded-margin scrolling is the next
+  concrete parity gap.
+- This bounded work does not claim complete selection parity, full App Shell
+  v2, or general WezTerm parity. Inactive-pane hover-wheel routing without
+  focus transfer, richer
   pane focus visuals, arbitrary Lua callbacks, external CLI title control, and
   a real mux/window registry with domain, protocol, and renderer parity remain
   open. The cell-level horizontal bounded-margin scroll behavior was explicitly
@@ -4408,12 +4416,16 @@ scrollback, and viewport while clearing GUI selection and overlay state.
 Immediate pane/tab close cleanup removes only the closed owner state as an
 R-SSH robustness enhancement over pinned WezTerm retention.
 
-The next bounded parity slice is full WezTerm-compatible width reflow and
-resize-time selection persistence. Current width-only resize preserves
-authoritative stable overlay coordinates, but retained terminal content and
-selections do not yet reflow with full upstream behavior.
+Bounded width-resize parity is complete against pinned WezTerm
+`093bf6bf2b82b929ed80c04fd54ebc80464f715e`: main scrollback and main content,
+including dormant main content, reflow by logical lines; alternate resize is
+physical and non-reflowing; unsafe main-coordinate metadata is retired;
+ordinary selection is invalidated; and Copy/Search/Quick preserve configuration
+while rebuilding coordinate-derived presentation. This does not claim general
+selection, rendering, or image parity beyond that tested retirement.
 
-Beyond that next slice, parity backlog remains inactive-pane hover-wheel
+The next concrete remaining gap is cell-level horizontal bounded-margin
+scrolling. Beyond it, parity backlog remains inactive-pane hover-wheel
 routing without focus transfer, richer pane focus visuals, arbitrary Lua
 callbacks including full arbitrary-Lua/custom tab-formatting parity, external
 CLI title control, and a real mux/window registry with domain, protocol, and
