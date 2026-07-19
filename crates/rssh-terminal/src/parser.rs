@@ -3404,10 +3404,6 @@ impl Terminal {
     pub fn resize(&mut self, size: TerminalSize) -> TerminalResizeOutcome {
         let size = TerminalSize::new(size.columns.max(1), size.rows);
         self.advance_seqno();
-        self.kitty_character_edited_placements.clear();
-        if let Some(screen) = self.main_screen.as_mut() {
-            screen.kitty_character_edited_placements.clear();
-        }
         let old_size = self.grid.size();
         let active_main_screen = self.main_screen.is_none();
         let old_main_scrollback_rows = self.scrollback.len();
@@ -3465,6 +3461,17 @@ impl Terminal {
                 clamp_screen_state(screen, size);
             }
         }
+        let virtual_placements = &self.kitty_virtual_placements;
+        if let Some(screen) = self.main_screen.as_mut() {
+            retain_kitty_character_edited_placements(
+                &screen.inline_images,
+                &screen.inline_image_parent_ids,
+                &screen.inline_image_attachments,
+                virtual_placements,
+                &mut screen.kitty_character_edited_placements,
+            );
+        }
+        self.retain_kitty_character_edited_placements();
         self.tab_stops.resize(size);
 
         self.clamp_to_size();
@@ -4600,26 +4607,13 @@ impl Terminal {
     }
 
     fn retain_kitty_character_edited_placements(&mut self) {
-        let virtual_parent_ids = self
-            .inline_images
-            .iter()
-            .zip(self.inline_image_parent_ids.iter())
-            .filter_map(|(image, parent_identity)| {
-                kitty_image_placement_key(image)
-                    .filter(|key| self.kitty_virtual_placements.contains_key(key))
-                    .map(|key| (key, *parent_identity))
-            })
-            .collect::<HashMap<_, _>>();
-        let live_attachment_parent_ids = self
-            .inline_image_attachments
-            .iter()
-            .map(|attachment| attachment.parent_identity)
-            .collect::<HashSet<_>>();
-        self.kitty_character_edited_placements.retain(|key| {
-            virtual_parent_ids
-                .get(key)
-                .is_some_and(|parent_identity| live_attachment_parent_ids.contains(parent_identity))
-        });
+        retain_kitty_character_edited_placements(
+            &self.inline_images,
+            &self.inline_image_parent_ids,
+            &self.inline_image_attachments,
+            &self.kitty_virtual_placements,
+            &mut self.kitty_character_edited_placements,
+        );
     }
 
     fn screen_state(&self) -> ScreenState {
@@ -4987,7 +4981,13 @@ impl Terminal {
                 &mut main_screen.last_kitty_placeholder,
                 removed_rows,
             );
-            main_screen.kitty_character_edited_placements.clear();
+            retain_kitty_character_edited_placements(
+                &main_screen.inline_images,
+                &main_screen.inline_image_parent_ids,
+                &main_screen.inline_image_attachments,
+                &self.kitty_virtual_placements,
+                &mut main_screen.kitty_character_edited_placements,
+            );
         }
         rebase_image_and_placeholder_metadata(
             &mut self.inline_images,
@@ -4997,7 +4997,7 @@ impl Terminal {
             &mut self.last_kitty_placeholder,
             removed_rows,
         );
-        self.kitty_character_edited_placements.clear();
+        self.retain_kitty_character_edited_placements();
         if !has_dormant_main {
             self.delete_orphan_kitty_relative_children();
         }
@@ -6439,6 +6439,33 @@ fn retire_reflow_coordinate_state(screen: &mut ScreenState) {
     screen.last_kitty_placeholder = None;
     screen.nfc_last_printable_cell = None;
     screen.saved_cursor = None;
+}
+
+fn retain_kitty_character_edited_placements(
+    inline_images: &[ItermInlineImage],
+    inline_image_parent_ids: &[u64],
+    inline_image_attachments: &[CellAttachment],
+    kitty_virtual_placements: &HashMap<KittyPlacementKey, KittyVirtualPlacement>,
+    character_edited_placements: &mut HashSet<KittyPlacementKey>,
+) {
+    let virtual_parent_ids = inline_images
+        .iter()
+        .zip(inline_image_parent_ids.iter())
+        .filter_map(|(image, parent_identity)| {
+            kitty_image_placement_key(image)
+                .filter(|key| kitty_virtual_placements.contains_key(key))
+                .map(|key| (key, *parent_identity))
+        })
+        .collect::<HashMap<_, _>>();
+    let live_attachment_parent_ids = inline_image_attachments
+        .iter()
+        .map(|attachment| attachment.parent_identity)
+        .collect::<HashSet<_>>();
+    character_edited_placements.retain(|key| {
+        virtual_parent_ids
+            .get(key)
+            .is_some_and(|parent_identity| live_attachment_parent_ids.contains(parent_identity))
+    });
 }
 
 fn trim_reflow_padding(
@@ -9912,6 +9939,38 @@ mod stable_row_tests {
             .insert((0, 4), residual_right_cache);
 
         terminal.feed(b"\x1b[?69h\x1b[3;4s\x1b[1;2r\x1b[1;3H\x1b[@");
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=0,c=1,r=1\x1b\\");
+
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=2;OK\x1b\\".to_vec()]
+        );
+        assert!(terminal.inline_images.iter().any(|image| {
+            image.kitty_image_id == Some(7)
+                && image.kitty_placement_id == Some(2)
+                && image.row == 0
+                && image.column == 3
+        }));
+    }
+
+    #[test]
+    fn terminal_same_size_resize_retains_character_edit_origin_for_virtual_parent() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=30,p=4,f=24,s=1,v=1,c=2,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b[1;3H\x1b[38;5;30m\x1b[58;5;4m");
+        terminal.feed("\u{10eeee}\u{0305}\u{0305}".as_bytes());
+        let residual_right_cache = *terminal
+            .kitty_placeholder_cells
+            .get(&(0, 2))
+            .expect("virtual parent cache");
+        terminal
+            .kitty_placeholder_cells
+            .insert((0, 4), residual_right_cache);
+
+        terminal.feed(b"\x1b[?69h\x1b[3;4s\x1b[1;2r\x1b[1;3H\x1b[@");
+        terminal.resize(TerminalSize::new(8, 2));
         terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=0,c=1,r=1\x1b\\");
 
         assert_eq!(
