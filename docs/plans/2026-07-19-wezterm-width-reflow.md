@@ -101,8 +101,10 @@ git commit -m "feat: reflow main terminal lines on width resize"
 
 Add focused tests proving:
 
-- a cursor inside a soft-wrapped main logical line maps to the matching logical
-  offset after shrink and expand;
+- a cursor inside a soft-wrapped main logical line, including trailing default
+  padding, retains its logical x offset after shrink and expand; and a cursor
+  reflowed above the resized viewport clamps to visible row zero, matching
+  WezTerm's post-resize `set_cursor_pos` behavior;
 - saved main state reflows while the alternate screen is active, and restoring
   main shows reflowed content;
 - alternate rows narrow by physical truncation and widen without joining rows;
@@ -120,11 +122,14 @@ implemented.
 **Step 3: Implement terminal-state mapping**
 
 Extend the internal reflow operation with the logical cursor mapping required
-by active and saved main state. Update cursor, saved cursor, pending-wrap/NFC
-position, scrollback offset, and semantic row metadata through the map, or
-retire an item when it has no valid retained mapping. Apply the operation to
-saved main state even when alternate is active. Keep alternate-grid behavior as
-the existing per-physical-row resize path.
+by active and saved main state. Retain cursor x through trailing padding, then
+convert the mapped physical row back to a visible row and clamp it to the
+resized viewport exactly as upstream does when reflow pushes it into
+scrollback. Update saved cursor, pending-wrap/NFC position, scrollback offset,
+and semantic row metadata through the map, or retire an item when it has no
+valid retained mapping. Apply the operation to saved main state even when
+alternate is active. Keep alternate-grid behavior as the existing
+per-physical-row resize path.
 
 **Step 4: Make image/kitty coordinate handling safe**
 

@@ -52,10 +52,13 @@ active or saved behind the alternate screen.
 3. Rebuild scrollback and the visible main grid from the repacked stream while
    honoring the current scrollback limit and padding a short viewport with
    blank rows. Mark rebuilt rows with the resize seqno and issue full damage.
-4. Map the active or saved main cursor by its logical-cell offset. Carry that
-   mapping through cursor, saved cursor, pending-wrap state, and the terminal
-   fields whose row/column values are tied to physical main lines. Clamp only
-   after a logical map is unavailable due to retention pruning.
+4. Map the active or saved main cursor by its logical-cell offset, including an
+   offset in trailing default padding. Carry that mapping through cursor, saved
+   cursor, pending-wrap state, and the terminal fields whose row/column values
+   are tied to physical main lines. Once the mapped physical row lies above the
+   resized viewport, clamp its *visible* row to the viewport top, matching
+   WezTerm's `TerminalState::resize` call to `set_cursor_pos`; this deliberately
+   does not preserve an offscreen cursor's text identity.
 5. Keep alternate-screen width handling distinct: narrow resize truncates each
    physical row; wider resize preserves rows and marks them dirty. It never
    joins or splits alternate rows. Both screens still receive dimensions and
@@ -119,7 +122,8 @@ not reflowed.
 ## Test strategy
 
 Terminal tests cover narrow/wide round trips, main scrollback, hard vs soft
-breaks, cursor and pending wrap, Unicode/custom width, zero dimensions,
+breaks, trailing-padding cursor x, viewport-top clamping for a cursor reflowed
+into scrollback, pending wrap, Unicode/custom width, zero dimensions,
 retention pruning, and main reflow while alternate is active. Alternate tests
 prove truncation/dirtying without logical rewrap.
 
