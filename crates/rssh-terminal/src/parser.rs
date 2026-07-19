@@ -450,6 +450,7 @@ pub struct Terminal {
     kitty_image_numbers: HashMap<u32, u32>,
     kitty_relative_parents: HashMap<KittyPlacementKey, KittyPlacementKey>,
     kitty_virtual_placements: HashMap<KittyPlacementKey, KittyVirtualPlacement>,
+    kitty_character_edited_placements: HashSet<KittyPlacementKey>,
     pending_kitty_placeholder: Option<PendingKittyPlaceholder>,
     last_kitty_placeholder: Option<LastKittyPlaceholder>,
     kitty_placeholder_cells: HashMap<(usize, u16), LastKittyPlaceholder>,
@@ -517,6 +518,7 @@ struct ScreenState {
     inline_images: Vec<ItermInlineImage>,
     inline_image_parent_ids: Vec<u64>,
     inline_image_attachments: Vec<CellAttachment>,
+    kitty_character_edited_placements: HashSet<KittyPlacementKey>,
     last_kitty_placeholder: Option<LastKittyPlaceholder>,
     kitty_placeholder_cells: HashMap<(usize, u16), LastKittyPlaceholder>,
     cursor_row: u16,
@@ -572,6 +574,13 @@ enum CellTransform {
 }
 
 impl CellTransform {
+    const fn is_character_edit(self) -> bool {
+        matches!(
+            self,
+            Self::InsertCharacters { .. } | Self::DeleteCharacters { .. }
+        )
+    }
+
     fn apply(self, mut attachment: CellAttachment) -> Option<CellAttachment> {
         let (top, bottom, left, right) = match self {
             Self::ScrollUp {
@@ -695,6 +704,7 @@ impl Terminal {
             kitty_image_numbers: HashMap::new(),
             kitty_relative_parents: HashMap::new(),
             kitty_virtual_placements: HashMap::new(),
+            kitty_character_edited_placements: HashSet::new(),
             pending_kitty_placeholder: None,
             last_kitty_placeholder: None,
             kitty_placeholder_cells: HashMap::new(),
@@ -1800,15 +1810,20 @@ impl Terminal {
         parent_image_id: u32,
         parent_placement_id: u32,
     ) -> Option<(usize, u16)> {
-        if self
-            .kitty_virtual_placements
-            .contains_key(&(parent_image_id, parent_placement_id))
-        {
-            return self
-                .kitty_attachment_parent_origin(parent_image_id, parent_placement_id)
-                .or_else(|| {
-                    self.kitty_virtual_parent_origin(parent_image_id, parent_placement_id)
-                });
+        let placement_key = (parent_image_id, parent_placement_id);
+        if self.kitty_virtual_placements.contains_key(&placement_key) {
+            let attachment_origin =
+                || self.kitty_attachment_parent_origin(parent_image_id, parent_placement_id);
+            let cache_origin =
+                || self.kitty_virtual_parent_origin(parent_image_id, parent_placement_id);
+            return if self
+                .kitty_character_edited_placements
+                .contains(&placement_key)
+            {
+                attachment_origin().or_else(cache_origin)
+            } else {
+                cache_origin().or_else(attachment_origin)
+            };
         }
 
         self.kitty_attachment_parent_origin(parent_image_id, parent_placement_id)
@@ -2035,6 +2050,7 @@ impl Terminal {
                 || placement_id
                     .is_some_and(|placement_id| placement.placement_id != Some(placement_id))
         });
+        self.retain_kitty_character_edited_placements();
     }
 
     fn delete_kitty_placements_by_image_id_range(
@@ -2055,6 +2071,7 @@ impl Terminal {
         self.kitty_virtual_placements.retain(|_, placement| {
             placement.image_id < first_image_id || placement.image_id > last_image_id
         });
+        self.retain_kitty_character_edited_placements();
         self.delete_kitty_placements(false, |image| {
             image
                 .kitty_image_id
@@ -3339,6 +3356,7 @@ impl Terminal {
         self.kitty_image_numbers.clear();
         self.kitty_relative_parents.clear();
         self.kitty_virtual_placements.clear();
+        self.kitty_character_edited_placements.clear();
         self.pending_kitty_placeholder = None;
         self.last_kitty_placeholder = None;
         self.kitty_placeholder_cells.clear();
@@ -3386,6 +3404,10 @@ impl Terminal {
     pub fn resize(&mut self, size: TerminalSize) -> TerminalResizeOutcome {
         let size = TerminalSize::new(size.columns.max(1), size.rows);
         self.advance_seqno();
+        self.kitty_character_edited_placements.clear();
+        if let Some(screen) = self.main_screen.as_mut() {
+            screen.kitty_character_edited_placements.clear();
+        }
         let old_size = self.grid.size();
         let active_main_screen = self.main_screen.is_none();
         let old_main_scrollback_rows = self.scrollback.len();
@@ -3562,6 +3584,7 @@ impl Terminal {
         self.kitty_image_numbers.clear();
         self.kitty_relative_parents.clear();
         self.kitty_virtual_placements.clear();
+        self.kitty_character_edited_placements.clear();
         self.pending_kitty_placeholder = None;
         self.last_kitty_placeholder = None;
         self.kitty_placeholder_cells.clear();
@@ -4540,6 +4563,7 @@ impl Terminal {
         self.inline_images.clear();
         self.inline_image_parent_ids.clear();
         self.inline_image_attachments.clear();
+        self.kitty_character_edited_placements.clear();
     }
 
     fn ensure_inline_image_parent_ids(&mut self) {
@@ -4572,6 +4596,30 @@ impl Terminal {
             .retain(|attachment| retained_parent_ids_set.contains(&attachment.parent_identity));
         self.inline_images = retained_images;
         self.inline_image_parent_ids = retained_parent_ids;
+        self.retain_kitty_character_edited_placements();
+    }
+
+    fn retain_kitty_character_edited_placements(&mut self) {
+        let virtual_parent_ids = self
+            .inline_images
+            .iter()
+            .zip(self.inline_image_parent_ids.iter())
+            .filter_map(|(image, parent_identity)| {
+                kitty_image_placement_key(image)
+                    .filter(|key| self.kitty_virtual_placements.contains_key(key))
+                    .map(|key| (key, *parent_identity))
+            })
+            .collect::<HashMap<_, _>>();
+        let live_attachment_parent_ids = self
+            .inline_image_attachments
+            .iter()
+            .map(|attachment| attachment.parent_identity)
+            .collect::<HashSet<_>>();
+        self.kitty_character_edited_placements.retain(|key| {
+            virtual_parent_ids
+                .get(key)
+                .is_some_and(|parent_identity| live_attachment_parent_ids.contains(parent_identity))
+        });
     }
 
     fn screen_state(&self) -> ScreenState {
@@ -4580,6 +4628,7 @@ impl Terminal {
             inline_images: self.inline_images.clone(),
             inline_image_parent_ids: self.inline_image_parent_ids.clone(),
             inline_image_attachments: self.inline_image_attachments.clone(),
+            kitty_character_edited_placements: self.kitty_character_edited_placements.clone(),
             last_kitty_placeholder: self.last_kitty_placeholder,
             kitty_placeholder_cells: self.kitty_placeholder_cells.clone(),
             cursor_row: self.cursor_row,
@@ -4604,6 +4653,7 @@ impl Terminal {
         self.inline_images = screen.inline_images;
         self.inline_image_parent_ids = screen.inline_image_parent_ids;
         self.inline_image_attachments = screen.inline_image_attachments;
+        self.kitty_character_edited_placements = screen.kitty_character_edited_placements;
         self.last_kitty_placeholder = screen.last_kitty_placeholder;
         self.kitty_placeholder_cells = screen.kitty_placeholder_cells;
         self.cursor_row = screen.cursor_row;
@@ -4937,6 +4987,7 @@ impl Terminal {
                 &mut main_screen.last_kitty_placeholder,
                 removed_rows,
             );
+            main_screen.kitty_character_edited_placements.clear();
         }
         rebase_image_and_placeholder_metadata(
             &mut self.inline_images,
@@ -4946,6 +4997,7 @@ impl Terminal {
             &mut self.last_kitty_placeholder,
             removed_rows,
         );
+        self.kitty_character_edited_placements.clear();
         if !has_dormant_main {
             self.delete_orphan_kitty_relative_children();
         }
@@ -5303,20 +5355,42 @@ impl Terminal {
                     .then_some(*parent_identity)
             })
             .collect::<HashSet<_>>();
+        let virtual_placement_keys_by_parent_id = if transform.is_character_edit() {
+            self.inline_images
+                .iter()
+                .zip(self.inline_image_parent_ids.iter())
+                .filter_map(|(image, parent_identity)| {
+                    kitty_image_placement_key(image)
+                        .filter(|key| self.kitty_virtual_placements.contains_key(key))
+                        .map(|key| (*parent_identity, key))
+                })
+                .collect::<HashMap<_, _>>()
+        } else {
+            HashMap::new()
+        };
         let mut attachment_overflow_changed = false;
+        let mut character_edited_placements = HashSet::new();
         self.inline_image_attachments = self
             .inline_image_attachments
             .drain(..)
             .filter_map(|attachment| {
                 let transformed = transform.apply(attachment);
-                if transformed != Some(attachment)
-                    && offset_parent_ids.contains(&attachment.parent_identity)
-                {
-                    attachment_overflow_changed = true;
+                if transformed != Some(attachment) {
+                    if offset_parent_ids.contains(&attachment.parent_identity) {
+                        attachment_overflow_changed = true;
+                    }
+                    if let Some(placement_key) =
+                        virtual_placement_keys_by_parent_id.get(&attachment.parent_identity)
+                    {
+                        character_edited_placements.insert(*placement_key);
+                    }
                 }
                 transformed
             })
             .collect();
+        self.kitty_character_edited_placements
+            .extend(character_edited_placements);
+        self.retain_kitty_character_edited_placements();
         attachment_overflow_changed
     }
 
@@ -6360,6 +6434,7 @@ fn retire_reflow_coordinate_state(screen: &mut ScreenState) {
     screen.inline_images.clear();
     screen.inline_image_parent_ids.clear();
     screen.inline_image_attachments.clear();
+    screen.kitty_character_edited_placements.clear();
     screen.kitty_placeholder_cells.clear();
     screen.last_kitty_placeholder = None;
     screen.nfc_last_printable_cell = None;
@@ -9849,6 +9924,76 @@ mod stable_row_tests {
                 && image.row == 0
                 && image.column == 3
         }));
+    }
+
+    #[test]
+    fn terminal_discards_character_edit_marker_when_virtual_parent_attachments_are_invalidated() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        let mut parent = attachment_test_image(0, 2, 1, 1, "parent");
+        parent.kitty_image_id = Some(30);
+        parent.kitty_placement_id = Some(4);
+        terminal.push_inline_image(parent);
+        terminal.kitty_virtual_placements.insert(
+            (30, 4),
+            KittyVirtualPlacement {
+                image_id: 30,
+                placement_id: Some(4),
+                z_index: None,
+                display_columns: Some(1),
+                display_rows: Some(1),
+                source_rect: KittySourceRect::default(),
+                target_x: None,
+                target_y: None,
+            },
+        );
+        terminal.kitty_character_edited_placements.insert((30, 4));
+
+        terminal.inline_image_attachments.clear();
+        terminal.retain_kitty_character_edited_placements();
+
+        assert!(terminal.kitty_character_edited_placements.is_empty());
+    }
+
+    #[test]
+    fn terminal_discards_character_edit_marker_when_virtual_parent_is_deleted() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        let mut parent = attachment_test_image(0, 2, 1, 1, "parent");
+        parent.kitty_image_id = Some(30);
+        parent.kitty_placement_id = Some(4);
+        terminal.push_inline_image(parent);
+        terminal.kitty_virtual_placements.insert(
+            (30, 4),
+            KittyVirtualPlacement {
+                image_id: 30,
+                placement_id: Some(4),
+                z_index: None,
+                display_columns: Some(1),
+                display_rows: Some(1),
+                source_rect: KittySourceRect::default(),
+                target_x: None,
+                target_y: None,
+            },
+        );
+        terminal.kitty_character_edited_placements.insert((30, 4));
+
+        terminal.delete_kitty_placements_by_image_id(30, Some(4), false);
+
+        assert!(terminal.kitty_character_edited_placements.is_empty());
+    }
+
+    #[test]
+    fn terminal_discards_character_edit_markers_when_resized() {
+        for size in [TerminalSize::new(8, 2), TerminalSize::new(6, 3)] {
+            let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+            terminal.kitty_character_edited_placements.insert((30, 4));
+
+            terminal.resize(size);
+
+            assert!(
+                terminal.kitty_character_edited_placements.is_empty(),
+                "size={size:?}"
+            );
+        }
     }
 
     #[test]
