@@ -581,7 +581,7 @@ impl CellTransform {
         )
     }
 
-    fn apply(self, mut attachment: CellAttachment) -> Option<CellAttachment> {
+    fn apply_coordinate(self, row: usize, column: u16) -> Option<(usize, u16)> {
         let (top, bottom, left, right) = match self {
             Self::ScrollUp {
                 top,
@@ -604,43 +604,46 @@ impl CellTransform {
                 row, column, right, ..
             } => (row, row, column, right),
         };
-        if attachment.row < top
-            || attachment.row > bottom
-            || attachment.column < left
-            || attachment.column > right
-        {
-            return Some(attachment);
+        if row < top || row > bottom || column < left || column > right {
+            return Some((row, column));
         }
 
         match self {
             Self::ScrollUp { top, count, .. } => {
-                attachment.row = attachment
-                    .row
-                    .checked_sub(count)
-                    .filter(|row| *row >= top)?;
+                let row = row.checked_sub(count).filter(|row| *row >= top)?;
+                Some((row, column))
             }
             Self::ScrollDown { bottom, count, .. } => {
                 let blank_start = bottom.checked_add(1)?.checked_sub(count)?;
-                if attachment.row >= blank_start {
+                if row >= blank_start {
                     return None;
                 }
-                attachment.row = attachment.row.checked_add(count)?;
+                Some((row.checked_add(count)?, column))
             }
             Self::InsertCharacters { count, right, .. } => {
                 let shift_end = right.checked_add(1)?.checked_sub(count)?;
-                if attachment.column >= shift_end {
+                if column >= shift_end {
                     return None;
                 }
-                attachment.column = attachment.column.checked_add(count)?;
+                Some((row, column.checked_add(count)?))
             }
-            Self::DeleteCharacters { column, count, .. } => {
-                let first_source = column.checked_add(count)?;
-                if attachment.column < first_source {
+            Self::DeleteCharacters {
+                column: start_column,
+                count,
+                ..
+            } => {
+                let first_source = start_column.checked_add(count)?;
+                if column < first_source {
                     return None;
                 }
-                attachment.column = attachment.column.checked_sub(count)?;
+                Some((row, column.checked_sub(count)?))
             }
         }
+    }
+
+    fn apply(self, mut attachment: CellAttachment) -> Option<CellAttachment> {
+        (attachment.row, attachment.column) =
+            self.apply_coordinate(attachment.row, attachment.column)?;
         Some(attachment)
     }
 }
@@ -5421,10 +5424,39 @@ impl Terminal {
                 transformed
             })
             .collect();
+        if transform.is_character_edit() {
+            self.synchronize_kitty_image_origins_with_attachments();
+        }
         self.kitty_character_edited_placements
             .extend(character_edited_placements);
         self.retain_kitty_character_edited_placements();
         attachment_overflow_changed
+    }
+
+    /// `ItermInlineImage` stores a single placement origin, while a bounded
+    /// character edit can split its cell footprint. For Kitty placements with
+    /// surviving attachments, the top-left live attachment is the only exact
+    /// screen-coordinate origin representable by that legacy metadata.
+    fn synchronize_kitty_image_origins_with_attachments(&mut self) {
+        let mut origins = HashMap::<u64, (usize, u16)>::new();
+        for attachment in &self.inline_image_attachments {
+            origins
+                .entry(attachment.parent_identity)
+                .and_modify(|origin| *origin = (*origin).min((attachment.row, attachment.column)))
+                .or_insert((attachment.row, attachment.column));
+        }
+        for (image, parent_identity) in self
+            .inline_images
+            .iter_mut()
+            .zip(self.inline_image_parent_ids.iter())
+        {
+            if image.kitty_image_id.is_some()
+                && let Some((row, column)) = origins.get(parent_identity).copied()
+            {
+                image.row = row;
+                image.column = column;
+            }
+        }
     }
 
     fn retire_stale_kitty_placeholder_caches(&mut self) -> bool {
@@ -5935,7 +5967,7 @@ impl Terminal {
         if let Some(transform) =
             transform.filter(|_| self.bounded_horizontal_scroll_columns().is_some())
         {
-            self.invalidate_kitty_placeholder_state_for_character_edit(right);
+            self.transform_kitty_placeholder_state_for_character_edit(transform);
             let graphics_retired = self.retire_malformed_graphics_in_bounded_scroll_region(
                 self.cursor_row,
                 self.cursor_row,
@@ -5949,50 +5981,61 @@ impl Terminal {
         }
     }
 
-    /// Kitty's placeholder state carries placement coordinates that cannot yet
-    /// be represented by a [`CellTransform`].  If ICH/DCH touches one of
-    /// those cells, invalidate that cache and pending state rather than
-    /// retaining a stale coordinate. The attachment-backed placement itself
-    /// remains and is transformed with its terminal cells.
-    fn invalidate_kitty_placeholder_state_for_character_edit(&mut self, right: u16) {
-        let row = self.current_history_row();
-        let column = self.cursor_column;
-        let contains = |candidate_row: usize, candidate_column: u16| {
-            candidate_row == row && candidate_column >= column && candidate_column <= right
-        };
-        let cached = self
+    /// Applies an ICH/DCH cell mapping to every Kitty placeholder coordinate.
+    ///
+    /// The map key and the embedded `row`/`column` are both terminal-cell
+    /// coordinates. `rendered_*` names the placement origin produced for a
+    /// pending diacritic sequence, so it must follow the same mapping too.
+    /// Coordinates whose source cell is blanked are retired, just like their
+    /// grid cells and persistent image attachments.
+    fn transform_kitty_placeholder_state_for_character_edit(&mut self, transform: CellTransform) {
+        debug_assert!(transform.is_character_edit());
+        self.kitty_placeholder_cells = self
             .kitty_placeholder_cells
-            .keys()
-            .any(|&(candidate_row, candidate_column)| contains(candidate_row, candidate_column));
-        let last = self
-            .last_kitty_placeholder
-            .is_some_and(|placeholder| contains(placeholder.row, placeholder.column));
-        let pending = self
-            .pending_kitty_placeholder
-            .as_ref()
-            .is_some_and(|placeholder| {
-                contains(placeholder.row, placeholder.column)
-                    || placeholder
-                        .rendered_row
-                        .zip(placeholder.rendered_column)
-                        .is_some_and(|(rendered_row, rendered_column)| {
-                            contains(rendered_row, rendered_column)
-                        })
-            });
-        if !cached && !last && !pending {
-            return;
-        }
+            .drain()
+            .filter_map(|((row, column), mut placeholder)| {
+                let (row, column) = transform.apply_coordinate(row, column)?;
+                placeholder.row = row;
+                placeholder.column = column;
+                Some(((row, column), placeholder))
+            })
+            .collect();
 
-        self.kitty_placeholder_cells
-            .retain(|&(candidate_row, candidate_column), _| {
-                !contains(candidate_row, candidate_column)
-            });
-        if last {
-            self.last_kitty_placeholder = None;
-        }
-        if pending {
-            self.pending_kitty_placeholder = None;
-        }
+        self.last_kitty_placeholder = self.last_kitty_placeholder.and_then(|mut placeholder| {
+            let (row, column) = transform.apply_coordinate(placeholder.row, placeholder.column)?;
+            placeholder.row = row;
+            placeholder.column = column;
+            Some(placeholder)
+        });
+
+        self.pending_kitty_placeholder =
+            self.pending_kitty_placeholder
+                .take()
+                .and_then(|mut placeholder| {
+                    let (row, column) =
+                        transform.apply_coordinate(placeholder.row, placeholder.column)?;
+                    placeholder.row = row;
+                    placeholder.column = column;
+                    if let Some((row, column)) =
+                        placeholder.rendered_row.zip(placeholder.rendered_column)
+                    {
+                        if let Some((row, column)) = transform.apply_coordinate(row, column) {
+                            placeholder.rendered_row = Some(row);
+                            placeholder.rendered_column = Some(column);
+                        } else {
+                            placeholder.rendered_row = None;
+                            placeholder.rendered_column = None;
+                            placeholder.rendered_image_id = None;
+                            placeholder.rendered_placement_id = None;
+                        }
+                    } else {
+                        placeholder.rendered_row = None;
+                        placeholder.rendered_column = None;
+                        placeholder.rendered_image_id = None;
+                        placeholder.rendered_placement_id = None;
+                    }
+                    Some(placeholder)
+                });
     }
 
     fn bounded_character_edit_retires_graphics(&mut self, right: u16) -> bool {
@@ -9738,8 +9781,7 @@ mod stable_row_tests {
     }
 
     #[test]
-    fn terminal_horizontal_margin_dch_invalidates_high_byte_kitty_cache_without_retiring_attachments()
-     {
+    fn terminal_horizontal_margin_dch_moves_high_byte_kitty_placeholder_state_with_cells() {
         let mut terminal = Terminal::new(TerminalSize::new(6, 3));
         terminal.feed(b"\x1b_Ga=t,i=33554462,f=24,s=1,v=1;/wAA\x1b\\");
         terminal.take_kitty_graphics_responses();
@@ -9763,25 +9805,25 @@ mod stable_row_tests {
         );
         let placeholder = LastKittyPlaceholder {
             row: 0,
-            column: 2,
+            column: 3,
             foreground: Color::Rgb(0, 0, 30),
             underline_color: Color::Rgb(0, 0, 4),
             image_id_high_byte: 2,
             placeholder_row: 0,
             placeholder_column: 0,
         };
-        terminal.kitty_placeholder_cells.insert((0, 2), placeholder);
+        terminal.kitty_placeholder_cells.insert((0, 3), placeholder);
         terminal.last_kitty_placeholder = Some(placeholder);
         terminal.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
             row: 0,
-            column: 2,
+            column: 3,
             foreground: placeholder.foreground,
             underline_color: placeholder.underline_color,
             image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
             placement_id: Some(4),
             diacritics: Vec::new(),
             rendered_row: Some(0),
-            rendered_column: Some(2),
+            rendered_column: Some(3),
             rendered_image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
             rendered_placement_id: Some(4),
         });
@@ -9790,8 +9832,26 @@ mod stable_row_tests {
 
         assert_eq!(terminal.inline_images.len(), 1);
         assert_eq!(attachment_locations(&terminal), vec![(1, 0, 1, 0, 2)]);
-        assert!(terminal.kitty_placeholder_cells.is_empty());
-        assert!(terminal.last_kitty_placeholder.is_none());
+        assert_eq!(
+            terminal
+                .kitty_placeholder_cells
+                .get(&(0, 2))
+                .map(|placeholder| (
+                    placeholder.row,
+                    placeholder.column,
+                    placeholder.image_id_high_byte,
+                )),
+            Some((0, 2, 2))
+        );
+        assert_eq!(
+            terminal
+                .last_kitty_placeholder
+                .map(|placeholder| (placeholder.row, placeholder.column)),
+            Some((0, 2))
+        );
+        // CSI starts a new escape sequence, so the parser commits a pending
+        // placeholder before applying DCH. Its committed cache above is what
+        // must move with the text cells.
         assert!(terminal.pending_kitty_placeholder.is_none());
         assert!(
             terminal
@@ -9801,8 +9861,56 @@ mod stable_row_tests {
     }
 
     #[test]
-    fn terminal_horizontal_margin_ich_invalidates_kitty_cache_without_retiring_relative_attachments()
-     {
+    fn terminal_character_edit_transform_moves_pending_kitty_placeholder_and_render_origin() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+        terminal.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
+            row: 1,
+            column: 3,
+            foreground: Color::Rgb(0, 0, 30),
+            underline_color: Color::Rgb(0, 0, 4),
+            image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
+            placement_id: Some(4),
+            diacritics: Vec::new(),
+            rendered_row: Some(1),
+            rendered_column: Some(3),
+            rendered_image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
+            rendered_placement_id: Some(4),
+        });
+
+        terminal.transform_kitty_placeholder_state_for_character_edit(
+            CellTransform::DeleteCharacters {
+                row: 1,
+                column: 2,
+                count: 1,
+                right: 4,
+            },
+        );
+
+        assert_eq!(
+            terminal
+                .pending_kitty_placeholder
+                .as_ref()
+                .map(|placeholder| (
+                    placeholder.row,
+                    placeholder.column,
+                    placeholder.rendered_row,
+                    placeholder.rendered_column,
+                    placeholder.rendered_image_id,
+                    placeholder.rendered_placement_id,
+                )),
+            Some((
+                1,
+                2,
+                Some(1),
+                Some(2),
+                Some(HIGH_BYTE_KITTY_IMAGE_ID),
+                Some(4),
+            ))
+        );
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_ich_moves_kitty_cache_without_retiring_relative_attachments() {
         let mut terminal = Terminal::new(TerminalSize::new(6, 3));
         let mut parent = attachment_test_image(0, 2, 2, 1, "parent");
         parent.kitty_image_id = Some(30);
@@ -9846,8 +9954,19 @@ mod stable_row_tests {
             vec![(1, 0, 0, 0, 3), (1, 0, 1, 0, 4), (2, 0, 0, 0, 3)]
         );
         assert_eq!(terminal.kitty_relative_parents.get(&(7, 2)), Some(&(30, 4)));
-        assert!(terminal.kitty_placeholder_cells.is_empty());
-        assert!(terminal.last_kitty_placeholder.is_none());
+        assert_eq!(
+            terminal
+                .kitty_placeholder_cells
+                .get(&(0, 3))
+                .map(|placeholder| (placeholder.row, placeholder.column)),
+            Some((0, 3))
+        );
+        assert_eq!(
+            terminal
+                .last_kitty_placeholder
+                .map(|placeholder| (placeholder.row, placeholder.column)),
+            Some((0, 3))
+        );
     }
 
     #[test]
@@ -9972,6 +10091,11 @@ mod stable_row_tests {
             .insert((0, 4), residual_right_cache);
 
         terminal.feed(b"\x1b[?69h\x1b[3;4s\x1b[1;2r\x1b[1;3H\x1b[@");
+        assert!(terminal.kitty_placeholder_cells.contains_key(&(0, 3)));
+        assert!(
+            terminal.kitty_placeholder_cells.contains_key(&(0, 4)),
+            "the cache exterior to the LR edit remains in its terminal cell"
+        );
         terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=0,c=1,r=1\x1b\\");
 
         assert_eq!(
@@ -10052,7 +10176,7 @@ mod stable_row_tests {
             image.kitty_image_id == Some(7)
                 && image.kitty_placement_id == Some(2)
                 && image.row == 0
-                && image.column == 4
+                && image.column == 3
         }));
     }
 
