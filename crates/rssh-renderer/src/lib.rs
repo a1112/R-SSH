@@ -112,6 +112,9 @@ pub struct TerminalRenderSnapshot {
     inline_images: Vec<RenderInlineImage>,
     inline_image_fragments: Vec<RenderInlineImageFragment>,
     inline_image_parent_origins: Vec<(i64, i64)>,
+    /// Render-parent indices for logical placements that have no surviving
+    /// cells. Kept private so protocol/image metadata remains stable.
+    empty_inline_image_attachment_parents: HashSet<usize>,
     inline_image_attachment_viewport_offsets: HashMap<(usize, i64, i64), (i64, i64)>,
     inline_image_attachment_viewport_clips: HashMap<(usize, i64, i64), AttachmentViewportClip>,
     scrollback_offset: usize,
@@ -2101,8 +2104,15 @@ fn render_runtime_inline_image_fragment(
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
 ) {
-    let fragment = &runtime.fragment;
     let Some(decoded) = decode_inline_image(image, animation_frame, animation_elapsed_ms) else {
+        return;
+    };
+    let Some(fragment) = resolve_runtime_inline_image_attachment_source(
+        &runtime.fragment,
+        image,
+        decoded.width,
+        decoded.height,
+    ) else {
         return;
     };
     if fragment.destination_width == 0
@@ -2162,6 +2172,69 @@ fn render_runtime_inline_image_fragment(
             }
         }
     }
+}
+
+fn resolve_runtime_inline_image_attachment_source(
+    fragment: &RenderInlineImageFragment,
+    image: &RenderInlineImage,
+    decoded_width: u32,
+    decoded_height: u32,
+) -> Option<RenderInlineImageFragment> {
+    if !fragment.cell_attachment || fragment.sampling_source_width != 0 {
+        return Some(fragment.clone());
+    }
+    let source_x = image.source_x.unwrap_or(0);
+    let source_y = image.source_y.unwrap_or(0);
+    let source_width = image
+        .source_width
+        .unwrap_or(decoded_width.checked_sub(source_x)?)
+        .min(decoded_width.checked_sub(source_x)?);
+    let source_height = image
+        .source_height
+        .unwrap_or(decoded_height.checked_sub(source_y)?)
+        .min(decoded_height.checked_sub(source_y)?);
+    if source_width == 0
+        || source_height == 0
+        || fragment.source_destination_width == 0
+        || fragment.source_destination_height == 0
+    {
+        return None;
+    }
+
+    let source_destination_right = fragment
+        .source_destination_x
+        .checked_add(fragment.destination_width)?;
+    let source_destination_bottom = fragment
+        .source_destination_y
+        .checked_add(fragment.destination_height)?;
+    let mut resolved = fragment.clone();
+    resolved.source_x = source_x.checked_add(
+        fragment.source_destination_x.saturating_mul(source_width)
+            / fragment.source_destination_width,
+    )?;
+    resolved.source_y = source_y.checked_add(
+        fragment.source_destination_y.saturating_mul(source_height)
+            / fragment.source_destination_height,
+    )?;
+    let source_right = source_x.checked_add(
+        source_destination_right
+            .saturating_mul(source_width)
+            .saturating_add(fragment.source_destination_width - 1)
+            / fragment.source_destination_width,
+    )?;
+    let source_bottom = source_y.checked_add(
+        source_destination_bottom
+            .saturating_mul(source_height)
+            .saturating_add(fragment.source_destination_height - 1)
+            / fragment.source_destination_height,
+    )?;
+    resolved.source_width = source_right.checked_sub(resolved.source_x)?;
+    resolved.source_height = source_bottom.checked_sub(resolved.source_y)?;
+    resolved.sampling_source_x = source_x;
+    resolved.sampling_source_y = source_y;
+    resolved.sampling_source_width = source_width;
+    resolved.sampling_source_height = source_height;
+    Some(resolved)
 }
 
 fn render_background_images(
@@ -2623,6 +2696,12 @@ fn runtime_inline_image_fragments(
 ) -> Vec<RuntimeInlineImageFragment> {
     let mut fragments = Vec::new();
     for (parent_image_index, image) in snapshot.inline_images.iter().enumerate() {
+        if snapshot
+            .empty_inline_image_attachment_parents
+            .contains(&parent_image_index)
+        {
+            continue;
+        }
         let authored_fragments = snapshot
             .inline_image_fragments
             .iter()
@@ -2633,16 +2712,6 @@ fn runtime_inline_image_fragments(
             .get(parent_image_index)
             .copied()
             .unwrap_or((i64::from(image.column), i64::from(image.row)));
-        let Some(runtime_fragments) = render_inline_image_fragments_for_geometry(
-            parent_image_index,
-            image,
-            origin_column,
-            origin_row,
-            cell_width,
-            cell_height,
-        ) else {
-            continue;
-        };
         let has_cell_attachments = authored_fragments
             .iter()
             .any(|fragment| fragment.cell_attachment);
@@ -2683,6 +2752,16 @@ fn runtime_inline_image_fragments(
             }));
             continue;
         }
+        let Some(runtime_fragments) = render_inline_image_fragments_for_geometry(
+            parent_image_index,
+            image,
+            origin_column,
+            origin_row,
+            cell_width,
+            cell_height,
+        ) else {
+            continue;
+        };
         let has_transform = authored_fragments.iter().any(|fragment| {
             i64::from(fragment.row) != fragment.source_row
                 || i64::from(fragment.column) != fragment.source_column
@@ -2731,6 +2810,44 @@ fn render_inline_image_attachment_for_geometry(
     cell_width: u32,
     cell_height: u32,
 ) -> Option<RenderInlineImageFragment> {
+    let columns = image.width.as_deref()?.parse::<u32>().ok()?.max(1);
+    let rows = image.height.as_deref()?.parse::<u32>().ok()?.max(1);
+    let source_column = u32::try_from(attachment.source_column).ok()?;
+    let source_row = u32::try_from(attachment.source_row).ok()?;
+    if source_column >= columns || source_row >= rows || cell_width == 0 || cell_height == 0 {
+        return None;
+    }
+
+    let destination_width = columns.checked_mul(cell_width)?;
+    let destination_height = rows.checked_mul(cell_height)?;
+    let source_destination_x = source_column.checked_mul(cell_width)?;
+    let source_destination_y = source_row.checked_mul(cell_height)?;
+    if image.pixel_width.is_none() || image.pixel_height.is_none() {
+        return Some(RenderInlineImageFragment {
+            parent_image_index,
+            cell_attachment: true,
+            row: attachment.row,
+            column: attachment.column,
+            source_row: attachment.source_row,
+            source_column: attachment.source_column,
+            destination_x: image.target_x.unwrap_or(0),
+            destination_y: image.target_y.unwrap_or(0),
+            destination_width: cell_width,
+            destination_height: cell_height,
+            source_x: 0,
+            source_y: 0,
+            source_width: 0,
+            source_height: 0,
+            sampling_source_x: 0,
+            sampling_source_y: 0,
+            sampling_source_width: 0,
+            sampling_source_height: 0,
+            source_destination_x,
+            source_destination_y,
+            source_destination_width: destination_width,
+            source_destination_height: destination_height,
+        });
+    }
     let pixel_width = image.pixel_width?;
     let pixel_height = image.pixel_height?;
     let source_x = image.source_x.unwrap_or(0);
@@ -2743,24 +2860,9 @@ fn render_inline_image_attachment_for_geometry(
         .source_height
         .unwrap_or(pixel_height.checked_sub(source_y)?)
         .min(pixel_height.checked_sub(source_y)?);
-    let columns = image.width.as_deref()?.parse::<u32>().ok()?.max(1);
-    let rows = image.height.as_deref()?.parse::<u32>().ok()?.max(1);
-    let source_column = u32::try_from(attachment.source_column).ok()?;
-    let source_row = u32::try_from(attachment.source_row).ok()?;
-    if source_column >= columns
-        || source_row >= rows
-        || source_width == 0
-        || source_height == 0
-        || cell_width == 0
-        || cell_height == 0
-    {
+    if source_column >= columns || source_row >= rows || source_width == 0 || source_height == 0 {
         return None;
     }
-
-    let destination_width = columns.checked_mul(cell_width)?;
-    let destination_height = rows.checked_mul(cell_height)?;
-    let source_destination_x = source_column.checked_mul(cell_width)?;
-    let source_destination_y = source_row.checked_mul(cell_height)?;
     let source_destination_right = source_destination_x.checked_add(cell_width)?;
     let source_destination_bottom = source_destination_y.checked_add(cell_height)?;
     let fragment_source_x = source_x
@@ -2826,7 +2928,13 @@ fn render_snapshot_inline_images_in_z_order(
             .inline_images
             .iter()
             .enumerate()
-            .filter(|(index, image)| !fragmented_parents.contains(index) && predicate(image))
+            .filter(|(index, image)| {
+                !fragmented_parents.contains(index)
+                    && !snapshot
+                        .empty_inline_image_attachment_parents
+                        .contains(index)
+                    && predicate(image)
+            })
             .map(|(_, image)| image),
         cell_width,
         cell_height,
@@ -2910,7 +3018,13 @@ fn render_damaged_snapshot_inline_images_in_z_order(
             .inline_images
             .iter()
             .enumerate()
-            .filter(|(index, image)| !fragmented_parents.contains(index) && predicate(image))
+            .filter(|(index, image)| {
+                !fragmented_parents.contains(index)
+                    && !snapshot
+                        .empty_inline_image_attachment_parents
+                        .contains(index)
+                    && predicate(image)
+            })
             .map(|(_, image)| image),
         damage,
         geometry,
@@ -4259,6 +4373,7 @@ impl TerminalRenderSnapshot {
             inline_images,
             inline_image_fragments,
             inline_image_parent_origins,
+            empty_inline_image_attachment_parents,
             inline_image_attachment_viewport_offsets,
         ) = render_inline_images_from_terminal(terminal, first_source_row, size.rows, size.columns);
 
@@ -4269,6 +4384,7 @@ impl TerminalRenderSnapshot {
             inline_images,
             inline_image_fragments,
             inline_image_parent_origins,
+            empty_inline_image_attachment_parents,
             inline_image_attachment_viewport_offsets,
             inline_image_attachment_viewport_clips: std::collections::HashMap::new(),
             scrollback_offset: offset,
@@ -4321,6 +4437,7 @@ impl TerminalRenderSnapshot {
             inline_images: Vec::new(),
             inline_image_fragments: Vec::new(),
             inline_image_parent_origins: Vec::new(),
+            empty_inline_image_attachment_parents: HashSet::new(),
             inline_image_attachment_viewport_offsets: HashMap::new(),
             inline_image_attachment_viewport_clips: std::collections::HashMap::new(),
             scrollback_offset: 0,
@@ -4423,6 +4540,8 @@ impl TerminalRenderSnapshot {
         let old_inline_images = std::mem::take(&mut self.inline_images);
         let old_inline_image_parent_origins = std::mem::take(&mut self.inline_image_parent_origins);
         let old_inline_image_fragments = std::mem::take(&mut self.inline_image_fragments);
+        let old_empty_attachment_parents =
+            std::mem::take(&mut self.empty_inline_image_attachment_parents);
         let old_attachment_offsets =
             std::mem::take(&mut self.inline_image_attachment_viewport_offsets);
         let old_attachment_clips = std::mem::take(&mut self.inline_image_attachment_viewport_clips);
@@ -4464,7 +4583,11 @@ impl TerminalRenderSnapshot {
                 image.row < rows && image.column < columns
             };
             if keep {
-                parent_indices[old_index] = Some(self.inline_images.len());
+                let new_index = self.inline_images.len();
+                parent_indices[old_index] = Some(new_index);
+                if old_empty_attachment_parents.contains(&old_index) {
+                    self.empty_inline_image_attachment_parents.insert(new_index);
+                }
                 self.inline_images.push(image);
                 self.inline_image_parent_origins.push(
                     old_inline_image_parent_origins
@@ -4573,6 +4696,12 @@ impl TerminalRenderSnapshot {
         self.cells.sort_by_key(|cell| (cell.row, cell.column));
         let parent_index_offset = self.inline_images.len();
         self.inline_images.extend(snapshot.inline_images);
+        self.empty_inline_image_attachment_parents.extend(
+            snapshot
+                .empty_inline_image_attachment_parents
+                .into_iter()
+                .map(|parent| parent.saturating_add(parent_index_offset)),
+        );
         self.inline_image_parent_origins
             .extend(snapshot.inline_image_parent_origins);
         self.inline_image_fragments
@@ -4680,6 +4809,7 @@ impl TerminalRenderSnapshot {
             self.inline_images,
             self.inline_image_fragments,
             self.inline_image_parent_origins,
+            self.empty_inline_image_attachment_parents,
             self.inline_image_attachment_viewport_offsets,
         ) = render_inline_images_from_terminal(terminal, 0, size.rows, size.columns);
         self.inline_image_attachment_viewport_clips.clear();
@@ -4733,6 +4863,8 @@ impl TerminalRenderSnapshot {
 
     fn sort_inline_images_and_remap_fragments(&mut self) {
         let old_inline_image_parent_origins = std::mem::take(&mut self.inline_image_parent_origins);
+        let old_empty_attachment_parents =
+            std::mem::take(&mut self.empty_inline_image_attachment_parents);
         let mut indexed_images = std::mem::take(&mut self.inline_images)
             .into_iter()
             .enumerate()
@@ -4758,6 +4890,10 @@ impl TerminalRenderSnapshot {
         }
         self.inline_images = inline_images;
         self.inline_image_parent_origins = inline_image_parent_origins;
+        self.empty_inline_image_attachment_parents = old_empty_attachment_parents
+            .into_iter()
+            .filter_map(|old_parent| parent_indices.get(old_parent).copied())
+            .collect();
         self.inline_image_fragments.retain_mut(|fragment| {
             let Some(parent_image_index) = parent_indices.get(fragment.parent_image_index) else {
                 return false;
@@ -4813,6 +4949,7 @@ fn render_inline_images_from_terminal(
     Vec<RenderInlineImage>,
     Vec<RenderInlineImageFragment>,
     Vec<(i64, i64)>,
+    HashSet<usize>,
     HashMap<(usize, i64, i64), (i64, i64)>,
 ) {
     let last_source_row = first_source_row.saturating_add(usize::from(rows));
@@ -4820,7 +4957,12 @@ fn render_inline_images_from_terminal(
     let fragment_parent_indices = terminal_fragments
         .iter()
         .filter(|fragment| {
-            fragment.cell_attachment
+            (fragment.cell_attachment
+                && ((fragment.row >= first_source_row && fragment.row < last_source_row)
+                    || terminal
+                        .inline_images()
+                        .get(fragment.image_index)
+                        .is_some_and(|image| image.target_y.is_some())))
                 || (fragment.row >= first_source_row
                     && fragment.row < last_source_row
                     && fragment.column < columns)
@@ -4860,6 +5002,15 @@ fn render_inline_images_from_terminal(
         .enumerate()
         .map(|(render_index, (terminal_index, _, _))| (*terminal_index, render_index))
         .collect::<HashMap<_, _>>();
+    let empty_inline_image_attachment_parents = images
+        .iter()
+        .enumerate()
+        .filter_map(|(render_index, (terminal_index, _, _))| {
+            terminal
+                .inline_image_attachment_parent_is_empty(*terminal_index)
+                .then_some(render_index)
+        })
+        .collect::<HashSet<_>>();
     let (fragments, attachment_viewport_offsets) = terminal_fragments
         .into_iter()
         .filter_map(|fragment| {
@@ -4876,6 +5027,7 @@ fn render_inline_images_from_terminal(
         images.iter().map(|(_, image, _)| image.clone()).collect(),
         fragments,
         images.into_iter().map(|(_, _, origin)| origin).collect(),
+        empty_inline_image_attachment_parents,
         attachment_viewport_offsets,
     )
 }
@@ -5967,6 +6119,7 @@ mod tests {
             inline_images,
             inline_image_fragments,
             inline_image_parent_origins,
+            empty_inline_image_attachment_parents,
             inline_image_attachment_viewport_offsets,
         ) = render_inline_images_from_terminal(&terminal, 1, 1, 3);
         assert_eq!(inline_images.len(), 1);
@@ -5981,6 +6134,7 @@ mod tests {
             inline_images,
             inline_image_fragments,
             inline_image_parent_origins,
+            empty_inline_image_attachment_parents,
             inline_image_attachment_viewport_offsets,
             inline_image_attachment_viewport_clips: std::collections::HashMap::new(),
             scrollback_offset: 0,
@@ -6206,6 +6360,7 @@ mod tests {
             inline_images,
             inline_image_fragments,
             inline_image_parent_origins,
+            empty_inline_image_attachment_parents,
             inline_image_attachment_viewport_offsets,
         ) = render_inline_images_from_terminal(&terminal, 1, 1, 3);
         assert_eq!(inline_images.len(), 1);
@@ -6219,6 +6374,7 @@ mod tests {
             inline_images,
             inline_image_fragments,
             inline_image_parent_origins,
+            empty_inline_image_attachment_parents,
             inline_image_attachment_viewport_offsets,
             inline_image_attachment_viewport_clips: std::collections::HashMap::new(),
             scrollback_offset: 0,
@@ -6268,6 +6424,7 @@ mod tests {
             inline_images,
             inline_image_fragments,
             inline_image_parent_origins,
+            empty_inline_image_attachment_parents,
             inline_image_attachment_viewport_offsets,
         ) = render_inline_images_from_terminal(&terminal, 1, 1, 3);
         assert_eq!(inline_images.len(), 1);
@@ -6280,6 +6437,7 @@ mod tests {
             inline_images,
             inline_image_fragments,
             inline_image_parent_origins,
+            empty_inline_image_attachment_parents,
             inline_image_attachment_viewport_offsets,
             inline_image_attachment_viewport_clips: std::collections::HashMap::new(),
             scrollback_offset: 0,
@@ -6428,6 +6586,187 @@ mod tests {
         assert_eq!(snapshot_char(&snapshot, 3, 6), Some('b'));
         assert_eq!(snapshot_char(&snapshot, 4, 5), None);
         assert_eq!(snapshot_char(&snapshot, 3, 7), None);
+    }
+
+    #[test]
+    fn bounded_scroll_blanks_final_cell_attachment_for_full_and_damage_rendering() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"\x1b[1;2H");
+        feed_red_inline_png(&mut terminal, "width=1;height=1");
+        terminal.feed(b"\x1b[?25l\x1b[?69h\x1b[2;3s\x1b[1;2r\x1b[2;2H");
+        terminal.take_damage();
+
+        terminal.feed(b"\n");
+        let damage = terminal.take_damage();
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert_eq!(snapshot.inline_images().len(), 1);
+        assert!(snapshot.inline_image_fragments().is_empty());
+
+        let renderer = PixelRenderer::default();
+        let geometry = RenderGeometry::new(32, 16, 8, 8);
+        let mut full_target = vec![0; 32 * 16 * 4];
+        renderer.render(&snapshot, &mut full_target, 32, 16, 8, 8);
+        assert_eq!(pixel_at(&full_target, 32, 8, 0), [12, 12, 12, 255]);
+
+        let mut damage_target = vec![0; 32 * 16 * 4];
+        renderer.render_damage(&snapshot, &damage, &mut damage_target, geometry);
+        assert_eq!(pixel_at(&damage_target, 32, 8, 0), [12, 12, 12, 255]);
+    }
+
+    #[test]
+    fn bounded_scroll_moves_iterm_attachment_cells_using_decoded_payload_dimensions() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        terminal.feed(b"\x1b[2;2H");
+        feed_red_inline_png(&mut terminal, "width=2;height=2");
+        terminal.feed(b"\x1b[?25l\x1b[?69h\x1b[2;3s\x1b[1;3r\x1b[3;2H");
+        terminal.take_damage();
+
+        terminal.feed(b"\n");
+        let damage = terminal.take_damage();
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert_eq!(snapshot.inline_image_fragments().len(), 4);
+        assert_eq!(
+            snapshot
+                .inline_image_fragments()
+                .iter()
+                .map(|fragment| (fragment.row, fragment.column))
+                .collect::<Vec<_>>(),
+            vec![(0, 1), (0, 2), (1, 1), (1, 2)]
+        );
+
+        let renderer = PixelRenderer::default();
+        let geometry = RenderGeometry::new(32, 24, 8, 8);
+        let mut full_target = vec![0; 32 * 24 * 4];
+        renderer.render(&snapshot, &mut full_target, 32, 24, 8, 8);
+        assert_eq!(pixel_at(&full_target, 32, 8, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&full_target, 32, 16, 8), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&full_target, 32, 8, 16), [12, 12, 12, 255]);
+
+        let mut damage_target = vec![0; 32 * 24 * 4];
+        renderer.render_damage(&snapshot, &damage, &mut damage_target, geometry);
+        assert_eq!(pixel_at(&damage_target, 32, 8, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&damage_target, 32, 16, 8), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn bounded_scroll_damage_clears_offset_attachment_pixels_outside_lr() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        terminal.feed(b"\x1b[2;3H");
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=207,f=24,s=1,v=1,c=1,r=1,X=7,Y=7;/wAA\x1b\\");
+        terminal.feed(b"\x1b[?25l\x1b[?69h\x1b[2;3s\x1b[1;3r\x1b[3;3H");
+        terminal.take_damage();
+
+        let renderer = PixelRenderer::default();
+        let geometry = RenderGeometry::new(32, 24, 8, 8);
+        let mut target = vec![0; 32 * 24 * 4];
+        renderer.render(
+            &TerminalRenderSnapshot::from_terminal(&terminal),
+            &mut target,
+            32,
+            24,
+            8,
+            8,
+        );
+        assert_eq!(pixel_at(&target, 32, 24, 15), [255, 0, 0, 255]);
+
+        terminal.feed(b"\n");
+        let damage = terminal.take_damage();
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let mut full_target = vec![0; 32 * 24 * 4];
+        renderer.render(&snapshot, &mut full_target, 32, 24, 8, 8);
+        renderer.render_damage(&snapshot, &damage, &mut target, geometry);
+
+        assert_eq!(target, full_target);
+        assert_eq!(pixel_at(&target, 32, 24, 7), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 32, 24, 15), [12, 12, 12, 255]);
+    }
+
+    #[test]
+    fn bounded_scroll_damage_clears_offset_attachment_pixels_after_blank() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"\x1b[1;2H");
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=208,f=24,s=1,v=1,c=1,r=1,X=7,Y=7;/wAA\x1b\\");
+        terminal.feed(b"\x1b[?25l\x1b[?69h\x1b[2;3s\x1b[1;2r\x1b[2;2H");
+        terminal.take_damage();
+
+        let renderer = PixelRenderer::default();
+        let geometry = RenderGeometry::new(32, 16, 8, 8);
+        let mut target = vec![0; 32 * 16 * 4];
+        renderer.render(
+            &TerminalRenderSnapshot::from_terminal(&terminal),
+            &mut target,
+            32,
+            16,
+            8,
+            8,
+        );
+        assert_eq!(pixel_at(&target, 32, 15, 7), [255, 0, 0, 255]);
+
+        terminal.feed(b"\n");
+        let damage = terminal.take_damage();
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.inline_image_fragments().is_empty());
+        assert!(snapshot.empty_inline_image_attachment_parents.contains(&0));
+        let mut full_target = vec![0; 32 * 16 * 4];
+        renderer.render(&snapshot, &mut full_target, 32, 16, 8, 8);
+        renderer.render_damage(&snapshot, &damage, &mut target, geometry);
+
+        assert_eq!(target, full_target);
+        assert_eq!(pixel_at(&target, 32, 15, 7), [12, 12, 12, 255]);
+    }
+
+    #[test]
+    fn bounded_scroll_moves_jpeg_attachment_cells_using_decoded_payload_dimensions() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        terminal.feed(b"\x1b[2;2H");
+        feed_red_inline_jpeg(&mut terminal, "width=2;height=2");
+        terminal.feed(b"\x1b[?25l\x1b[?69h\x1b[2;3s\x1b[1;3r\x1b[3;2H");
+        terminal.take_damage();
+        let initial_snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        terminal.feed(b"\n");
+        let damage = terminal.take_damage();
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert_eq!(snapshot.inline_image_fragments().len(), 4);
+
+        let renderer = PixelRenderer::default();
+        let geometry = RenderGeometry::new(32, 24, 8, 8);
+        let mut full_target = vec![0; 32 * 24 * 4];
+        renderer.render(&snapshot, &mut full_target, 32, 24, 8, 8);
+        assert_eq!(pixel_at(&full_target, 32, 8, 0), [254, 0, 0, 255]);
+        assert_eq!(pixel_at(&full_target, 32, 16, 8), [254, 0, 0, 255]);
+        assert_eq!(pixel_at(&full_target, 32, 8, 16), [12, 12, 12, 255]);
+
+        let mut damage_target = vec![0; 32 * 24 * 4];
+        renderer.render(&initial_snapshot, &mut damage_target, 32, 24, 8, 8);
+        renderer.render_damage(&snapshot, &damage, &mut damage_target, geometry);
+        assert_eq!(damage_target, full_target);
+    }
+
+    #[test]
+    fn bounded_scroll_blanks_gif_attachment_cells_using_decoded_payload_dimensions() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"\x1b[1;2H");
+        feed_red_inline_gif(&mut terminal, "width=1;height=1");
+        terminal.feed(b"\x1b[?25l\x1b[?69h\x1b[2;3s\x1b[1;2r\x1b[2;2H");
+        terminal.take_damage();
+        let initial_snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        terminal.feed(b"\n");
+        let damage = terminal.take_damage();
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.inline_image_fragments().is_empty());
+
+        let renderer = PixelRenderer::default();
+        let geometry = RenderGeometry::new(32, 16, 8, 8);
+        let mut full_target = vec![0; 32 * 16 * 4];
+        renderer.render(&snapshot, &mut full_target, 32, 16, 8, 8);
+        assert_eq!(pixel_at(&full_target, 32, 8, 0), [12, 12, 12, 255]);
+
+        let mut damage_target = vec![0; 32 * 16 * 4];
+        renderer.render(&initial_snapshot, &mut damage_target, 32, 16, 8, 8);
+        renderer.render_damage(&snapshot, &damage, &mut damage_target, geometry);
+        assert_eq!(damage_target, full_target);
     }
 
     #[test]

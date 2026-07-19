@@ -1859,7 +1859,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_scrolls_up_kitty_inline_images_within_horizontal_margins() {
+    fn terminal_scrolls_up_kitty_attachments_within_horizontal_margins() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 3));
 
         terminal.feed(b"\x1b[1;1H11111111\x1b[2;1H22222222\x1b[3;1H33333333");
@@ -1871,11 +1871,14 @@ mod tests {
         assert_eq!(row_text(&terminal, 0), "12222221");
         assert_eq!(row_text(&terminal, 1), "23333332");
         assert_eq!(row_text(&terminal, 2), "3      3");
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_image_attachments().len(), 1);
+        assert_eq!(terminal.inline_image_attachments()[0].row, 0);
+        assert_eq!(terminal.inline_image_attachments()[0].column, 2);
     }
 
     #[test]
-    fn terminal_scrolls_up_drops_kitty_inline_images_scrolled_out() {
+    fn terminal_scrolls_up_blanks_kitty_attachment_scrolled_out() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 3));
 
         terminal.feed(b"\x1b[1;1H11111111\x1b[2;1H22222222\x1b[3;1H33333333");
@@ -1884,7 +1887,8 @@ mod tests {
 
         terminal.feed(b"\x1b[?69h\x1b[2;7s\x1b[S");
 
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert!(terminal.inline_image_attachments().is_empty());
     }
 
     #[test]
@@ -4375,7 +4379,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_retires_kitty_relative_child_when_parent_intersects_bounded_line_feed() {
+    fn terminal_keeps_kitty_relative_placements_when_bounded_line_feed_moves_cells() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 3));
 
         terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
@@ -4390,7 +4394,7 @@ mod tests {
 
         terminal.feed(b"\x1b[?69h\x1b[2;23s\x1b[1;2r\x1b[2;3H\n");
 
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 2);
 
         terminal.feed(b"\x1b_Ga=p,i=7,p=3\x1b\\");
 
@@ -4398,7 +4402,7 @@ mod tests {
             terminal.take_kitty_graphics_responses(),
             vec![b"\x1b_Gi=7,p=3;OK\x1b\\".to_vec()]
         );
-        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images().len(), 3);
     }
 
     #[test]
