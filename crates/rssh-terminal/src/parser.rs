@@ -3182,9 +3182,7 @@ impl Terminal {
                 // dormant main screen and its history are the only buffers that
                 // participate in width reflow.
                 self.grid.resize_with_seqno(size, self.seqno);
-                let mut reflow_cursor_column = screen
-                    .cursor_column
-                    .saturating_add(u16::from(screen.pending_wrap));
+                let mut reflow_cursor_column = screen.cursor_column;
                 reflow_main_screen(
                     &mut self.scrollback,
                     &mut screen.grid,
@@ -3204,9 +3202,7 @@ impl Terminal {
                     old_main_scrollback_rows,
                 ));
             } else {
-                let mut reflow_cursor_column = self
-                    .cursor_column
-                    .saturating_add(u16::from(self.pending_wrap));
+                let mut reflow_cursor_column = self.cursor_column;
                 reflow_main_screen(
                     &mut self.scrollback,
                     &mut self.grid,
@@ -8769,8 +8765,8 @@ mod stable_row_tests {
         terminal.feed(b"\x1b[?1049lX");
 
         assert_eq!(terminal.grid.get(0, 0).unwrap().ch, '界');
-        assert_eq!(terminal.grid.get(0, 1).unwrap().ch, ' ');
-        assert_eq!(terminal.grid.get(0, 2).unwrap().ch, 'X');
+        assert_eq!(terminal.grid.get(0, 1).unwrap().ch, 'X');
+        assert_eq!(terminal.grid.get(0, 2).unwrap().ch, ' ');
     }
 
     #[test]
@@ -8785,7 +8781,7 @@ mod stable_row_tests {
             (0..5)
                 .map(|column| terminal.grid.get(0, column).unwrap().ch)
                 .collect::<String>(),
-            "abcdX"
+            "abcX "
         );
     }
 

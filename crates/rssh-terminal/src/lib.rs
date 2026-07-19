@@ -2276,7 +2276,7 @@ mod tests {
         );
         assert_eq!(row_text(&terminal, 0), "   ");
         assert_eq!(row_text(&terminal, 1), " Z ");
-        assert_eq!(terminal.cursor(), (1, 2));
+        assert_eq!(terminal.cursor(), (1, 1));
         assert_eq!(terminal.take_damage(), vec![DamageRegion::new(0, 0, 3, 2)]);
     }
 
@@ -2313,9 +2313,9 @@ mod tests {
         terminal.resize(TerminalSize::new(3, 1));
 
         assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '界');
-        assert_eq!(terminal.cursor(), (0, 2));
+        assert_eq!(terminal.cursor(), (0, 1));
         terminal.feed(b"x");
-        assert_eq!(terminal.grid().get(0, 2).unwrap().ch, 'x');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'x');
     }
 
     #[test]
@@ -2332,9 +2332,9 @@ mod tests {
         terminal.resize(TerminalSize::new(3, 1));
 
         assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'x');
-        assert_eq!(terminal.cursor(), (0, 2));
+        assert_eq!(terminal.cursor(), (0, 1));
         terminal.feed(b"y");
-        assert_eq!(terminal.grid().get(0, 2).unwrap().ch, 'y');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'y');
     }
 
     #[test]
