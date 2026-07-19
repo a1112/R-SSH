@@ -5324,26 +5324,34 @@ fn reflow_main_screen(
     }
     let mut grid_rows = (0..old_size.rows)
         .map(|row| {
-            let mut cells = grid.cells_with_reflow_overflow(row);
+            let physical_cells = grid.cells_with_reflow_overflow(row);
+            let cursor_cells = (row == *cursor_row).then(|| {
+                physical_cells
+                    .iter()
+                    .take(usize::from(*cursor_column).saturating_add(1))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            });
+            let mut cells = physical_cells;
             trim_reflow_padding(
                 &mut cells,
                 unicode_version,
                 treat_east_asian_ambiguous_width_as_wide,
                 cell_width_overrides,
             );
-            (row, cells)
+            (row, cells, cursor_cells)
         })
         .collect::<Vec<_>>();
     let last_content_row = grid_rows
         .iter()
-        .filter_map(|(row, cells)| (!cells.is_empty()).then_some(*row))
+        .filter_map(|(row, cells, _)| (!cells.is_empty()).then_some(*row))
         .max();
     let relevant_grid_rows = last_content_row
         .map_or(0, |row| usize::from(row).saturating_add(1))
         .max(usize::from(*cursor_row).saturating_add(1))
         .min(usize::from(old_size.rows));
     grid_rows.truncate(relevant_grid_rows);
-    for (row, cells) in grid_rows {
+    for (row, mut cells, cursor_cells) in grid_rows {
         if !grid.row_wrapped(row) || !has_logical_line {
             if has_logical_line {
                 logical_lines.push(ReflowLogicalLine {
@@ -5354,10 +5362,20 @@ fn reflow_main_screen(
             has_logical_line = true;
         }
         if row == *cursor_row {
+            // Rewrap needs the original physical cursor offset, even when
+            // the cells between content and the cursor are default padding.
+            // Preserve that padding through the cursor before recording the
+            // logical offset, just as the upstream rewrap uses the untrimmed
+            // line length for cursor mapping.
+            if let Some(cursor_cells) = cursor_cells {
+                if cells.len() < cursor_cells.len() {
+                    cells.extend(cursor_cells.into_iter().skip(cells.len()));
+                }
+            }
             logical_cursor_offset = Some(
                 logical_line
                     .len()
-                    .saturating_add(usize::from(*cursor_column).min(cells.len())),
+                    .saturating_add(usize::from(*cursor_column)),
             );
         }
         logical_line.extend(cells);

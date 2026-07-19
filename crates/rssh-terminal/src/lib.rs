@@ -2267,6 +2267,30 @@ mod tests {
     }
 
     #[test]
+    fn terminal_resize_reflow_preserves_cursor_in_default_trailing_padding() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        terminal.feed(b"A\x1b[4G");
+
+        terminal.resize(TerminalSize::new(5, 1));
+
+        assert_eq!(row_text(&terminal, 0), "A    ");
+        assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
+    fn terminal_resize_reflow_clamps_scrollback_cursor_to_visible_top_row() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"abcdef\x1b[1;2H");
+
+        terminal.resize(TerminalSize::new(2, 2));
+
+        // Reflow yields `ab`/`cd`/`ef`; upstream exposes the cursor at the
+        // visible top after its logical row moves into scrollback.
+        assert_eq!(terminal.cursor(), (0, 1));
+        assert_eq!(row_text(&terminal, 0), "cd");
+    }
+
+    #[test]
     fn terminal_reports_merged_damage_for_written_text() {
         let mut terminal = Terminal::new(TerminalSize::new(10, 1));
 
