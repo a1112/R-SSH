@@ -263,6 +263,7 @@ pub struct TerminalGrid {
     cells: Vec<Cell>,
     row_wrapped: Vec<bool>,
     last_change_seqno: Vec<SequenceNo>,
+    reflow_overflow: Vec<Vec<Cell>>,
 }
 
 impl TerminalGrid {
@@ -278,6 +279,7 @@ impl TerminalGrid {
             cells: vec![Cell::default(); size.cells()],
             row_wrapped: vec![false; usize::from(size.rows)],
             last_change_seqno: vec![seqno; usize::from(size.rows)],
+            reflow_overflow: vec![Vec::new(); usize::from(size.rows)],
         }
     }
 
@@ -308,6 +310,7 @@ impl TerminalGrid {
         };
 
         self.cells[index] = cell;
+        self.clear_reflow_overflow(row);
         true
     }
 
@@ -349,6 +352,36 @@ impl TerminalGrid {
         }
     }
 
+    #[must_use]
+    pub(crate) fn cells_with_reflow_overflow(&self, row: u16) -> Vec<Cell> {
+        let mut cells = (0..self.size.columns)
+            .filter_map(|column| self.get(row, column).cloned())
+            .collect::<Vec<_>>();
+        if let Some(overflow) = self.reflow_overflow.get(usize::from(row)) {
+            cells.extend(overflow.iter().cloned());
+        }
+        cells
+    }
+
+    pub(crate) fn set_reflow_overflow(&mut self, row: u16, overflow: Vec<Cell>) {
+        if let Some(slot) = self.reflow_overflow.get_mut(usize::from(row)) {
+            *slot = overflow;
+        }
+    }
+
+    pub(crate) fn copy_row_reflow_overflow(&mut self, from: u16, to: u16) {
+        let overflow = self
+            .reflow_overflow
+            .get(usize::from(from))
+            .cloned()
+            .unwrap_or_default();
+        self.set_reflow_overflow(to, overflow);
+    }
+
+    pub(crate) fn clear_reflow_overflow(&mut self, row: u16) {
+        self.set_reflow_overflow(row, Vec::new());
+    }
+
     pub fn resize(&mut self, size: TerminalSize) {
         let new_row_seqno = self.last_change_seqno.iter().copied().max().unwrap_or(1);
         self.resize_with_seqno(size, new_row_seqno);
@@ -362,6 +395,10 @@ impl TerminalGrid {
         let old_last_change_seqno = std::mem::replace(
             &mut self.last_change_seqno,
             vec![new_row_seqno; usize::from(size.rows)],
+        );
+        let old_reflow_overflow = std::mem::replace(
+            &mut self.reflow_overflow,
+            vec![Vec::new(); usize::from(size.rows)],
         );
         self.size = size;
 
@@ -388,6 +425,15 @@ impl TerminalGrid {
             } else {
                 new_row_seqno
             };
+            if old_size.columns == size.columns {
+                self.copy_row_reflow_overflow_from(&old_reflow_overflow, row);
+            }
+        }
+    }
+
+    fn copy_row_reflow_overflow_from(&mut self, source: &[Vec<Cell>], row: u16) {
+        if let Some(overflow) = source.get(usize::from(row)) {
+            self.set_reflow_overflow(row, overflow.clone());
         }
     }
 
@@ -404,19 +450,22 @@ impl TerminalGrid {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScrollbackLine {
     cells: Vec<Cell>,
+    reflow_overflow: Vec<Cell>,
     wrapped: bool,
     sequence: SequenceNo,
 }
 
 impl ScrollbackLine {
     #[must_use]
-    pub(crate) const fn from_cells_wrapped(
+    pub(crate) const fn from_reflow_cells_wrapped(
         cells: Vec<Cell>,
+        reflow_overflow: Vec<Cell>,
         wrapped: bool,
         sequence: SequenceNo,
     ) -> Self {
         Self {
             cells,
+            reflow_overflow,
             wrapped,
             sequence,
         }
@@ -425,6 +474,13 @@ impl ScrollbackLine {
     #[must_use]
     pub fn cells(&self) -> &[Cell] {
         &self.cells
+    }
+
+    #[must_use]
+    pub(crate) fn cells_with_reflow_overflow(&self) -> Vec<Cell> {
+        let mut cells = self.cells.clone();
+        cells.extend(self.reflow_overflow.iter().cloned());
+        cells
     }
 
     #[must_use]
@@ -2206,7 +2262,7 @@ mod tests {
         );
         assert_eq!(row_text(&terminal, 0), "   ");
         assert_eq!(row_text(&terminal, 1), " Z ");
-        assert_eq!(terminal.cursor(), (1, 2));
+        assert_eq!(terminal.cursor(), (1, 1));
         assert_eq!(terminal.take_damage(), vec![DamageRegion::new(0, 0, 3, 2)]);
     }
 

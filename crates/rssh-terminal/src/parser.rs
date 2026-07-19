@@ -3170,6 +3170,7 @@ impl Terminal {
     }
 
     pub fn resize(&mut self, size: TerminalSize) {
+        let size = TerminalSize::new(size.columns.max(1), size.rows);
         self.advance_seqno();
         let old_size = self.grid.size();
         let cell_width_overrides = self.cell_width_overrides.clone();
@@ -3187,6 +3188,8 @@ impl Terminal {
                     self.unicode_version,
                     self.treat_east_asian_ambiguous_width_as_wide,
                     &cell_width_overrides,
+                    &mut screen.cursor_row,
+                    &mut screen.cursor_column,
                 );
                 self.main_screen = Some(screen);
             } else {
@@ -3198,6 +3201,8 @@ impl Terminal {
                     self.unicode_version,
                     self.treat_east_asian_ambiguous_width_as_wide,
                     &cell_width_overrides,
+                    &mut self.cursor_row,
+                    &mut self.cursor_column,
                 );
             }
             self.trim_scrollback_to_limit();
@@ -3492,10 +3497,21 @@ impl Terminal {
         let cells = (0..size.columns)
             .map(|column| self.grid.get(row, column).cloned().unwrap_or_default())
             .collect();
+        let reflow_overflow = self
+            .grid
+            .cells_with_reflow_overflow(row)
+            .into_iter()
+            .skip(usize::from(size.columns))
+            .collect();
         let wrapped = self.grid.row_wrapped(row);
         let sequence = self.grid.row_last_change_seqno(row).unwrap_or(self.seqno);
         self.scrollback
-            .push(ScrollbackLine::from_cells_wrapped(cells, wrapped, sequence));
+            .push(ScrollbackLine::from_reflow_cells_wrapped(
+                cells,
+                reflow_overflow,
+                wrapped,
+                sequence,
+            ));
         self.trim_scrollback_to_limit();
     }
 
@@ -3599,6 +3615,14 @@ impl Terminal {
                 for offset in 1..write_width {
                     self.set_grid_cell(row, column + offset, continuation.clone());
                 }
+            }
+            if write_width < width {
+                let mut continuation = self.style.clone();
+                continuation.ch = ' ';
+                self.grid.set_reflow_overflow(
+                    row,
+                    (write_width..width).map(|_| continuation.clone()).collect(),
+                );
             }
 
             self.record_damage(DamageRegion::new(column, row, write_width, 1));
@@ -4669,6 +4693,7 @@ impl Terminal {
                     self.grid.set(row + count, column, cell);
                 }
                 self.grid.copy_row_wrapped(row, row + count);
+                self.grid.copy_row_reflow_overflow(row, row + count);
             }
         }
 
@@ -4873,6 +4898,7 @@ impl Terminal {
                     self.grid.set(row, column, cell);
                 }
                 self.grid.copy_row_wrapped(row + count, row);
+                self.grid.copy_row_reflow_overflow(row + count, row);
                 if records_scrollback {
                     self.grid.copy_row_last_change_seqno(row + count, row);
                 }
@@ -5268,16 +5294,26 @@ fn reflow_main_screen(
     unicode_version: u32,
     treat_east_asian_ambiguous_width_as_wide: bool,
     cell_width_overrides: &[CellWidthOverride],
+    cursor_row: &mut u16,
+    cursor_column: &mut u16,
 ) {
     let old_size = grid.size();
     let mut logical_lines = Vec::new();
     let mut logical_line = Vec::new();
+    let mut logical_cursor_offset = None;
+    let mut has_logical_line = false;
 
     for line in scrollback.iter() {
-        if !line.is_wrapped() && !logical_line.is_empty() {
-            logical_lines.push(std::mem::take(&mut logical_line));
+        if !line.is_wrapped() || !has_logical_line {
+            if has_logical_line {
+                logical_lines.push(ReflowLogicalLine {
+                    cells: std::mem::take(&mut logical_line),
+                    cursor_offset: logical_cursor_offset.take(),
+                });
+            }
+            has_logical_line = true;
         }
-        let mut cells = line.cells().to_vec();
+        let mut cells = line.cells_with_reflow_overflow();
         trim_reflow_padding(
             &mut cells,
             unicode_version,
@@ -5286,50 +5322,73 @@ fn reflow_main_screen(
         );
         logical_line.extend(cells);
     }
-    for row in 0..old_size.rows {
-        if !grid.row_wrapped(row) && !logical_line.is_empty() {
-            logical_lines.push(std::mem::take(&mut logical_line));
-        }
-        let mut cells = (0..old_size.columns)
-            .map(|column| grid.get(row, column).cloned().unwrap_or_default())
-            .collect::<Vec<_>>();
-        trim_reflow_padding(
-            &mut cells,
-            unicode_version,
-            treat_east_asian_ambiguous_width_as_wide,
-            cell_width_overrides,
-        );
-        logical_line.extend(cells);
-    }
-    if !logical_line.is_empty() || logical_lines.is_empty() {
-        logical_lines.push(logical_line);
-    }
-
-    for logical_line in &mut logical_lines {
-        trim_reflow_padding(
-            logical_line,
-            unicode_version,
-            treat_east_asian_ambiguous_width_as_wide,
-            cell_width_overrides,
-        );
-    }
-    while logical_lines.last().is_some_and(Vec::is_empty) {
-        logical_lines.pop();
-    }
-
-    let mut rows = Vec::new();
-    for logical_line in logical_lines {
-        rows.extend(
-            reflow_logical_line(
-                &logical_line,
-                size.columns,
+    let mut grid_rows = (0..old_size.rows)
+        .map(|row| {
+            let mut cells = grid.cells_with_reflow_overflow(row);
+            trim_reflow_padding(
+                &mut cells,
                 unicode_version,
                 treat_east_asian_ambiguous_width_as_wide,
                 cell_width_overrides,
-            )
-            .into_iter()
-            .enumerate()
-            .map(|(index, cells)| (cells, index != 0)),
+            );
+            (row, cells)
+        })
+        .collect::<Vec<_>>();
+    let last_content_row = grid_rows
+        .iter()
+        .filter_map(|(row, cells)| (!cells.is_empty()).then_some(*row))
+        .max();
+    let relevant_grid_rows = last_content_row
+        .map_or(0, |row| usize::from(row).saturating_add(1))
+        .max(usize::from(*cursor_row).saturating_add(1))
+        .min(usize::from(old_size.rows));
+    grid_rows.truncate(relevant_grid_rows);
+    for (row, cells) in grid_rows {
+        if !grid.row_wrapped(row) || !has_logical_line {
+            if has_logical_line {
+                logical_lines.push(ReflowLogicalLine {
+                    cells: std::mem::take(&mut logical_line),
+                    cursor_offset: logical_cursor_offset.take(),
+                });
+            }
+            has_logical_line = true;
+        }
+        if row == *cursor_row {
+            logical_cursor_offset = Some(
+                logical_line
+                    .len()
+                    .saturating_add(usize::from(*cursor_column).min(cells.len())),
+            );
+        }
+        logical_line.extend(cells);
+    }
+    if has_logical_line {
+        logical_lines.push(ReflowLogicalLine {
+            cells: logical_line,
+            cursor_offset: logical_cursor_offset,
+        });
+    }
+
+    let mut rows = Vec::new();
+    let mut reflowed_cursor = None;
+    for logical_line in logical_lines {
+        let row_offset = rows.len();
+        let (reflowed_rows, cursor) = reflow_logical_line(
+            &logical_line.cells,
+            size.columns,
+            unicode_version,
+            treat_east_asian_ambiguous_width_as_wide,
+            cell_width_overrides,
+            logical_line.cursor_offset,
+        );
+        if let Some((row, column)) = cursor {
+            reflowed_cursor = Some((row_offset.saturating_add(row), column));
+        }
+        rows.extend(
+            reflowed_rows
+                .into_iter()
+                .enumerate()
+                .map(|(index, row)| (row, index != 0)),
         );
     }
 
@@ -5337,30 +5396,59 @@ fn reflow_main_screen(
     let scrollback_rows = rows.len().saturating_sub(grid_rows);
     let mut reflowed_scrollback = rows
         .drain(..scrollback_rows)
-        .map(|(mut cells, wrapped)| {
-            cells.resize(usize::from(size.columns), Cell::default());
-            ScrollbackLine::from_cells_wrapped(cells, wrapped, seqno)
+        .map(|(mut row, wrapped)| {
+            row.cells.resize(usize::from(size.columns), Cell::default());
+            ScrollbackLine::from_reflow_cells_wrapped(
+                row.cells,
+                row.reflow_overflow,
+                wrapped,
+                seqno,
+            )
         })
         .collect::<Vec<_>>();
 
     let mut reflowed_grid = TerminalGrid::new_with_seqno(size, seqno);
-    for (row, (mut cells, wrapped)) in rows.into_iter().enumerate() {
+    for (row, (mut reflowed_row, wrapped)) in rows.into_iter().enumerate() {
         let Ok(row) = u16::try_from(row) else {
             break;
         };
-        cells.resize(usize::from(size.columns), Cell::default());
-        for (column, cell) in cells.into_iter().enumerate() {
+        reflowed_row
+            .cells
+            .resize(usize::from(size.columns), Cell::default());
+        for (column, cell) in reflowed_row.cells.into_iter().enumerate() {
             let Ok(column) = u16::try_from(column) else {
                 break;
             };
             reflowed_grid.set(row, column, cell);
         }
+        reflowed_grid.set_reflow_overflow(row, reflowed_row.reflow_overflow);
         reflowed_grid.set_row_wrapped(row, wrapped);
         reflowed_grid.set_row_last_change_seqno(row, seqno);
     }
 
     *scrollback = std::mem::take(&mut reflowed_scrollback);
     *grid = reflowed_grid;
+    if let Some((row, column)) = reflowed_cursor {
+        let grid_row = row.saturating_sub(scrollback_rows);
+        *cursor_row = u16::try_from(grid_row)
+            .unwrap_or(u16::MAX)
+            .min(size.rows.saturating_sub(1));
+        *cursor_column = u16::try_from(column)
+            .unwrap_or(u16::MAX)
+            .min(size.columns.saturating_sub(1));
+    }
+}
+
+#[derive(Debug)]
+struct ReflowRow {
+    cells: Vec<Cell>,
+    reflow_overflow: Vec<Cell>,
+}
+
+#[derive(Debug)]
+struct ReflowLogicalLine {
+    cells: Vec<Cell>,
+    cursor_offset: Option<usize>,
 }
 
 fn trim_reflow_padding(
@@ -5402,42 +5490,85 @@ fn reflow_logical_line(
     unicode_version: u32,
     treat_east_asian_ambiguous_width_as_wide: bool,
     cell_width_overrides: &[CellWidthOverride],
-) -> Vec<Vec<Cell>> {
+    cursor_offset: Option<usize>,
+) -> (Vec<ReflowRow>, Option<(usize, usize)>) {
     if columns == 0 {
-        return vec![Vec::new()];
+        return (
+            vec![ReflowRow {
+                cells: Vec::new(),
+                reflow_overflow: Vec::new(),
+            }],
+            cursor_offset.map(|_| (0, 0)),
+        );
     }
 
     if cells.is_empty() {
-        return vec![Vec::new()];
+        return (
+            vec![ReflowRow {
+                cells: Vec::new(),
+                reflow_overflow: Vec::new(),
+            }],
+            cursor_offset.map(|_| (0, 0)),
+        );
     }
 
     let mut rows = Vec::new();
     let mut row = Vec::new();
+    let mut row_overflow = Vec::new();
+    let mut reflowed_cursor = None;
     let mut index = 0;
     while index < cells.len() {
+        if cursor_offset == Some(index) {
+            reflowed_cursor = Some((rows.len(), row.len()));
+        }
         let cell = &cells[index];
-        let source_width = display_width(
+        let cell_width = display_width(
             cell.ch,
             unicode_version,
             treat_east_asian_ambiguous_width_as_wide,
             cell_width_overrides,
         )
         .max(1);
-        let source_width = usize::from(source_width).min(cells.len() - index);
-        let output_width = source_width.min(usize::from(columns));
+        let cell_width = usize::from(cell_width);
+        let source_width = cell_width.min(cells.len() - index);
+        let output_width = cell_width.min(usize::from(columns));
 
         if !row.is_empty() && row.len().saturating_add(output_width) > usize::from(columns) {
-            rows.push(std::mem::take(&mut row));
+            rows.push(ReflowRow {
+                cells: std::mem::take(&mut row),
+                reflow_overflow: std::mem::take(&mut row_overflow),
+            });
         }
 
-        row.extend(cells[index..index + output_width].iter().cloned());
+        let mut glyph_cells = cells[index..index + source_width].to_vec();
+        while glyph_cells.len() < cell_width {
+            let mut continuation = cell.clone();
+            continuation.ch = ' ';
+            glyph_cells.push(continuation);
+        }
+        row.extend(glyph_cells[..output_width].iter().cloned());
+        if cell_width > output_width {
+            row_overflow.extend(glyph_cells[output_width..].iter().cloned());
+        }
         index = index.saturating_add(source_width);
+        if cursor_offset == Some(index) {
+            reflowed_cursor = Some((rows.len(), row.len()));
+        }
         if row.len() == usize::from(columns) && index < cells.len() {
-            rows.push(std::mem::take(&mut row));
+            rows.push(ReflowRow {
+                cells: std::mem::take(&mut row),
+                reflow_overflow: std::mem::take(&mut row_overflow),
+            });
         }
     }
-    rows.push(row);
-    rows
+    rows.push(ReflowRow {
+        cells: row,
+        reflow_overflow: row_overflow,
+    });
+    (
+        rows,
+        reflowed_cursor.or_else(|| cursor_offset.map(|_| (0, 0))),
+    )
 }
 
 fn parse_csi(chars: &[char], mut index: usize) -> SequenceParse<(char, usize)> {
@@ -8461,6 +8592,124 @@ mod stable_row_tests {
             main_screen_rows(&terminal),
             vec![("abcde".to_owned(), false), ("fgh  ".to_owned(), true),]
         );
+    }
+
+    #[test]
+    fn terminal_width_resize_through_zero_preserves_main_screen_content() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"abcd\r\nef");
+
+        terminal.resize(TerminalSize::new(0, 2));
+        terminal.resize(TerminalSize::new(4, 2));
+        terminal.resize(TerminalSize::new(0, 2));
+        terminal.resize(TerminalSize::new(4, 2));
+
+        assert_eq!(
+            main_screen_rows(&terminal),
+            vec![("abcd".to_owned(), false), ("ef  ".to_owned(), false),]
+        );
+    }
+
+    #[test]
+    fn terminal_width_resize_preserves_empty_hard_line_between_text_lines() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+        terminal.feed(b"A\r\n\r\nB");
+
+        terminal.resize(TerminalSize::new(5, 2));
+
+        assert_eq!(
+            main_screen_rows(&terminal),
+            vec![
+                ("A    ".to_owned(), false),
+                ("     ".to_owned(), false),
+                ("B    ".to_owned(), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn terminal_width_resize_preserves_trailing_empty_hard_lines_without_viewport_padding() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+        terminal.feed(b"A\r\n\r\n");
+
+        terminal.resize(TerminalSize::new(5, 2));
+
+        assert_eq!(
+            main_screen_rows(&terminal),
+            vec![
+                ("A    ".to_owned(), false),
+                ("     ".to_owned(), false),
+                ("     ".to_owned(), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn terminal_width_resize_through_one_column_restores_wide_continuation_style() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[31m\xE7\x95\x8C");
+
+        terminal.resize(TerminalSize::new(1, 1));
+        terminal.resize(TerminalSize::new(2, 1));
+        terminal.resize(TerminalSize::new(1, 1));
+        terminal.resize(TerminalSize::new(2, 1));
+
+        assert_eq!(terminal.grid.get(0, 0).unwrap().ch, '界');
+        assert_eq!(
+            terminal.grid.get(0, 0).unwrap().foreground,
+            Color::Indexed(1)
+        );
+        assert_eq!(terminal.grid.get(0, 1).unwrap().ch, ' ');
+        assert_eq!(
+            terminal.grid.get(0, 1).unwrap().foreground,
+            Color::Indexed(1)
+        );
+    }
+
+    #[test]
+    fn terminal_width_resize_through_one_column_restores_custom_wide_continuation_style() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.set_cell_width_overrides(vec![CellWidthOverride::new(
+            u32::from('x'),
+            u32::from('x'),
+            2,
+        )]);
+        terminal.feed(b"\x1b[32mx");
+
+        terminal.resize(TerminalSize::new(1, 1));
+        terminal.resize(TerminalSize::new(2, 1));
+        terminal.resize(TerminalSize::new(1, 1));
+        terminal.resize(TerminalSize::new(2, 1));
+
+        assert_eq!(terminal.grid.get(0, 0).unwrap().ch, 'x');
+        assert_eq!(
+            terminal.grid.get(0, 0).unwrap().foreground,
+            Color::Indexed(2)
+        );
+        assert_eq!(terminal.grid.get(0, 1).unwrap().ch, ' ');
+        assert_eq!(
+            terminal.grid.get(0, 1).unwrap().foreground,
+            Color::Indexed(2)
+        );
+    }
+
+    #[test]
+    fn terminal_width_one_column_keeps_reflow_continuation_out_of_public_scrollback_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[31m\xE7\x95\x8C");
+        terminal.feed(b"x");
+
+        assert_eq!(terminal.scrollback.len(), 2);
+        let narrow_wide = terminal.scrollback.last().unwrap();
+        assert_eq!(narrow_wide.cells().len(), 1);
+        assert_eq!(narrow_wide.cells()[0].ch, '界');
+
+        terminal.resize(TerminalSize::new(2, 1));
+
+        let wide = terminal.scrollback.last().unwrap();
+        assert_eq!(wide.cells().len(), 2);
+        assert_eq!(wide.cells()[1].ch, ' ');
+        assert_eq!(wide.cells()[1].foreground, Color::Indexed(1));
     }
 
     #[test]
