@@ -4334,6 +4334,36 @@ mod tests {
     }
 
     #[test]
+    fn terminal_places_relative_kitty_child_after_bounded_ich_invalidates_virtual_parent_cache() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=30,p=4,f=24,s=1,v=1,c=2,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b[1;3H\x1b[38;5;30m\x1b[58;5;4m");
+        terminal.feed("\u{10eeee}\u{0305}\u{0305}".as_bytes());
+        assert_eq!(terminal.inline_image_attachments().len(), 2);
+
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[1;2r\x1b[1;3H\x1b[@");
+        assert_eq!(terminal.inline_image_attachments().len(), 2);
+
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=0,c=1,r=1\x1b\\");
+
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=2;OK\x1b\\".to_vec()]
+        );
+        assert_eq!(terminal.inline_images().len(), 2);
+        assert_eq!(terminal.inline_image_attachments().len(), 3);
+        assert!(terminal.inline_images().iter().any(|image| {
+            image.kitty_image_id == Some(7)
+                && image.kitty_placement_id == Some(2)
+                && image.row == 0
+                && image.column == 3
+        }));
+    }
+
+    #[test]
     fn terminal_rejects_virtual_kitty_relative_placement() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 4));
 
