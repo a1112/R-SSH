@@ -81718,6 +81718,12 @@ impl PaneRuntime {
         self.snapshot = terminal_runtime_snapshot(&self.runtime, self.ui.stable_viewport);
     }
 
+    fn reconcile_after_main_screen_reflow(&mut self) {
+        self.ui
+            .reconcile_after_main_screen_reflow(self.runtime.terminal());
+        self.rebuild_snapshot_after_main_screen_reflow();
+    }
+
     fn close(&mut self) {
         if let Some(session) = self.session.as_mut() {
             let _ = session.kill();
@@ -88795,6 +88801,14 @@ impl NativeWindowApp {
             matches,
             labels,
             input: String::new(),
+            reflow_config: Some(WindowQuickSelectReflowConfig {
+                alphabet: alphabet.to_owned(),
+                patterns: patterns
+                    .iter()
+                    .map(|pattern| (pattern.regex.to_owned(), pattern.capture))
+                    .collect(),
+                scope_lines,
+            }),
             action_label,
             action,
             skip_action_on_paste,
@@ -89597,9 +89611,10 @@ impl NativeWindowApp {
         self.update_selection_projection();
     }
 
-    fn reset_active_ordinary_ui_after_main_screen_reflow(&mut self) {
-        self.active_ui.reset_after_main_screen_reflow();
-        self.selection = None;
+    fn reconcile_active_ui_after_main_screen_reflow(&mut self) {
+        self.active_ui
+            .reconcile_after_main_screen_reflow(self.runtime.terminal());
+        self.update_selection_projection();
     }
 
     fn stable_source_cell_for_viewport_cell(&self, cell: SelectionCell) -> SelectionSourceCell {
@@ -99124,15 +99139,12 @@ impl NativeWindowApp {
             self.runtime.terminal().grid().size().rows != terminal_size.rows;
         let active_resize_outcome = self.runtime.resize(terminal_size);
         if active_resize_outcome == TerminalResizeOutcome::MainScreenReflowed {
-            self.reset_active_ordinary_ui_after_main_screen_reflow();
+            self.reconcile_active_ui_after_main_screen_reflow();
         } else if active_height_changed {
             self.retire_active_terminal_identity_state();
         }
         if active_resize_outcome == TerminalResizeOutcome::MainScreenReflowed {
-            // Task 4 owns coordinate-derived overlay reconstruction.  Task 3
-            // intentionally only retires ordinary selection and viewport
-            // state, preserving the controller until that work lands.
-            self.update_selection_projection();
+            // Reflow reconciliation already rebuilt owner-local overlay state.
         } else {
             self.reconcile_active_terminal_resize(
                 active_resize_outcome == TerminalResizeOutcome::AlternateScreenResized,
@@ -99143,12 +99155,12 @@ impl NativeWindowApp {
                 runtime.runtime.terminal().grid().size().rows != terminal_size.rows;
             let resize_outcome = runtime.runtime.resize(terminal_size);
             if resize_outcome == TerminalResizeOutcome::MainScreenReflowed {
-                runtime.ui.reset_after_main_screen_reflow();
+                runtime.reconcile_after_main_screen_reflow();
             } else if height_changed {
                 runtime.ui.retire_terminal_identity();
             }
             if resize_outcome == TerminalResizeOutcome::MainScreenReflowed {
-                runtime.rebuild_snapshot_after_main_screen_reflow();
+                // Reflow reconciliation rebuilt this inactive pane snapshot.
             } else {
                 runtime.reconcile_terminal_resize(
                     resize_outcome == TerminalResizeOutcome::AlternateScreenResized,
@@ -101794,6 +101806,36 @@ mod pane_transient_overlay {
             self.search_match_cache.get_mut().clear();
         }
 
+        pub(super) fn reconcile_after_main_screen_reflow(&mut self, terminal: &Terminal) {
+            self.reset_after_main_screen_reflow();
+
+            match self.overlay.as_mut() {
+                Some(PaneTransientOverlay::CopySearch(controller)) => {
+                    let dimensions = terminal.stable_dimensions();
+                    controller.copy_mode.cursor = SelectionCell { row: 0, column: 0 };
+                    controller.copy_mode.source_cursor = SelectionSourceCell {
+                        domain: dimensions.domain,
+                        row: dimensions.physical_top,
+                        column: 0,
+                    };
+                    controller.copy_mode.anchor = None;
+                    controller.copy_mode.source_anchor = None;
+                    controller.copy_mode.pending_jump = None;
+                    controller.copy_mode.last_jump = None;
+                    controller.copy_mode.search_direction = None;
+                    if let Some(search) = controller.search.as_mut() {
+                        search.current = None;
+                    }
+                }
+                Some(PaneTransientOverlay::QuickSelect(quick_select)) => {
+                    quick_select.rebuild_after_main_screen_reflow(terminal);
+                }
+                None => {}
+            }
+
+            self.refresh_search_match_cache(terminal);
+        }
+
         pub(super) fn enter_search(
             &mut self,
             initial_copy_mode: WindowCopyMode,
@@ -102340,9 +102382,17 @@ struct WindowQuickSelect {
     matches: Vec<WindowSearchMatch>,
     labels: Vec<String>,
     input: String,
+    reflow_config: Option<WindowQuickSelectReflowConfig>,
     action_label: Option<String>,
     action: WindowQuickSelectAction,
     skip_action_on_paste: bool,
+}
+
+#[derive(Debug, Clone)]
+struct WindowQuickSelectReflowConfig {
+    alphabet: String,
+    patterns: Vec<(String, Option<usize>)>,
+    scope_lines: usize,
 }
 
 impl WindowQuickSelect {
@@ -102362,6 +102412,29 @@ impl WindowQuickSelect {
     fn has_label_prefix(&self, input: &str) -> bool {
         let input = input.to_ascii_lowercase();
         self.labels.iter().any(|label| label.starts_with(&input))
+    }
+
+    fn rebuild_after_main_screen_reflow(&mut self, terminal: &Terminal) {
+        let Some(config) = self.reflow_config.as_ref() else {
+            self.current = 0;
+            self.matches.clear();
+            self.labels.clear();
+            return;
+        };
+        let patterns = config
+            .patterns
+            .iter()
+            .map(|(regex, capture)| WindowQuickSelectPatternRef {
+                regex,
+                capture: *capture,
+            })
+            .collect::<Vec<_>>();
+        let (row_start, row_end) = quick_select_source_row_scope(terminal, 0, config.scope_lines);
+        self.current = 0;
+        self.matches =
+            find_window_quick_select_matches_with_patterns(terminal, &patterns, row_start, row_end);
+        self.labels =
+            quick_select_labels_for_alphabet_by_match(&config.alphabet, self.matches.len());
     }
 }
 
@@ -185794,6 +185867,7 @@ return config
                     matches: vec![first_match, second_match],
                     labels: vec![format!("{tag}-a"), format!("{tag}-b")],
                     input: tag.to_owned(),
+                    reflow_config: None,
                     action_label: Some(format!("action-{tag}")),
                     action: WindowQuickSelectAction::SendString(format!("send-{tag}")),
                     skip_action_on_paste: row % 2 == 0,
@@ -192733,6 +192807,260 @@ return config
             TerminalScreenDomain::Alternate
         );
         assert!(ordinary_selection_for_test(&app).is_some());
+    }
+
+    #[test]
+    fn window_app_main_reflow_rebuilds_active_copy_search_and_quick_overlays() {
+        let mut copy = NativeWindowApp::new(None);
+        let copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&copied);
+        copy.clipboard_writer = Box::new(move |text: &str| {
+            recorded.lock().unwrap().push(text.to_owned());
+            true
+        });
+        copy.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        copy.handle_pty_output(b"0123456789AB").unwrap();
+        copy.enter_copy_mode();
+        assert!(copy.set_copy_mode_cursor(0, 10));
+        assert!(copy.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
+        assert!(copy.move_copy_mode_cursor(0, 1));
+        assert_eq!(copy.selected_text().as_deref(), Some("AB"));
+
+        copy.handle_window_resize(PhysicalSize::new(48, 48))
+            .unwrap();
+
+        let copy_mode = active_copy_mode_for_test(&copy);
+        let dimensions = copy.runtime.terminal().stable_dimensions();
+        assert_eq!(copy_mode.cursor, SelectionCell { row: 0, column: 0 });
+        assert_eq!(
+            copy_mode.source_cursor,
+            SelectionSourceCell {
+                domain: TerminalScreenDomain::Main,
+                row: dimensions.physical_top,
+                column: 0,
+            }
+        );
+        assert!(copy_mode.anchor.is_none());
+        assert!(copy_mode.source_anchor.is_none());
+        assert_ne!(copy.selected_text().as_deref(), Some("AB"));
+        copy.command_palette_apply_command(WindowCommand::Copy)
+            .unwrap();
+        assert!(
+            !copied.lock().unwrap().iter().any(|text| text == "AB"),
+            "Copy action must not return text selected from the pre-reflow physical cells"
+        );
+
+        let mut search = NativeWindowApp::new(None);
+        search.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        search.handle_pty_output(b"needle-012345").unwrap();
+        search.enter_search_mode();
+        assert!(search.update_search_query("needle"));
+        let prior_match = active_search_for_test(&search)
+            .current
+            .expect("search initializes a current match");
+
+        search
+            .handle_window_resize(PhysicalSize::new(48, 48))
+            .unwrap();
+
+        let rebuilt_search = active_search_for_test(&search);
+        assert_eq!(rebuilt_search.query, "needle");
+        assert!(rebuilt_search.editing);
+        assert_eq!(rebuilt_search.current, None);
+        let rebuilt_matches = search
+            .active_ui
+            .cached_search_matches(search.runtime.terminal())
+            .expect("reflow must rebuild the retained search results");
+        assert!(!rebuilt_matches.is_empty());
+        assert!(
+            rebuilt_matches
+                .iter()
+                .all(|matched| matched.is_retained(search.runtime.terminal()))
+        );
+        assert!(!rebuilt_matches.contains(&prior_match));
+
+        let mut quick = NativeWindowApp::new(None);
+        quick.runtime.resize(rssh_core::TerminalSize::new(24, 2));
+        quick
+            .handle_pty_output(b"https://example.test/needle")
+            .unwrap();
+        quick.enter_quick_select_mode();
+        let prior_matches = active_quick_select_for_test(&quick).matches.clone();
+        assert!(!prior_matches.is_empty());
+
+        quick
+            .handle_window_resize(PhysicalSize::new(96, 48))
+            .unwrap();
+
+        let rebuilt_quick = active_quick_select_for_test(&quick);
+        assert!(!rebuilt_quick.matches.is_empty());
+        assert_eq!(rebuilt_quick.matches.len(), rebuilt_quick.labels.len());
+        assert!(
+            rebuilt_quick
+                .matches
+                .iter()
+                .all(|matched| matched.is_retained(quick.runtime.terminal()))
+        );
+        assert!(
+            rebuilt_quick
+                .matches
+                .iter()
+                .all(|matched| !prior_matches.contains(matched))
+        );
+    }
+
+    #[test]
+    fn window_app_main_reflow_rebuilds_inactive_overlay_owner_and_skips_alternate() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
+        app.handle_pty_output(b"needle-012345").unwrap();
+        app.enter_search_mode();
+        assert!(app.update_search_query("needle"));
+        let inactive_pane = app.active_pane_id();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: inactive_pane,
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.handle_window_resize(PhysicalSize::new(48, 48)).unwrap();
+
+        let inactive = app
+            .pane_runtimes
+            .get(&inactive_pane)
+            .expect("inactive search owner");
+        let inactive_search = inactive.ui.retained_search().expect("search remains open");
+        assert_eq!(inactive_search.query, "needle");
+        assert!(inactive_search.editing);
+        assert_eq!(inactive_search.current, None);
+        let inactive_matches = inactive
+            .ui
+            .cached_search_matches(inactive.runtime.terminal())
+            .expect("inactive search must be rebuilt");
+        assert!(!inactive_matches.is_empty());
+        assert!(
+            inactive_matches
+                .iter()
+                .all(|matched| matched.is_retained(inactive.runtime.terminal()))
+        );
+
+        let mut inactive_copy = NativeWindowApp::new(None);
+        inactive_copy
+            .runtime
+            .resize(rssh_core::TerminalSize::new(12, 2));
+        inactive_copy.handle_pty_output(b"0123456789AB").unwrap();
+        inactive_copy.enter_copy_mode();
+        assert!(inactive_copy.set_copy_mode_cursor(0, 10));
+        assert!(inactive_copy.set_copy_mode_selection_mode(super::WindowCopySelectionMode::Cell));
+        assert!(inactive_copy.move_copy_mode_cursor(0, 1));
+        let inactive_copy_pane = inactive_copy.active_pane_id();
+        inactive_copy
+            .dispatch_app_action(AppAction::SplitPane {
+                pane: inactive_copy_pane,
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+
+        inactive_copy
+            .handle_window_resize(PhysicalSize::new(48, 48))
+            .unwrap();
+
+        let inactive_copy_runtime = inactive_copy
+            .pane_runtimes
+            .get(&inactive_copy_pane)
+            .expect("inactive Copy owner");
+        let inactive_copy_mode = inactive_copy_runtime
+            .ui
+            .retained_copy_mode()
+            .expect("Copy mode remains open");
+        let inactive_copy_dimensions = inactive_copy_runtime.runtime.terminal().stable_dimensions();
+        assert_eq!(
+            inactive_copy_mode.cursor,
+            SelectionCell { row: 0, column: 0 }
+        );
+        assert_eq!(
+            inactive_copy_mode.source_cursor,
+            SelectionSourceCell {
+                domain: TerminalScreenDomain::Main,
+                row: inactive_copy_dimensions.physical_top,
+                column: 0,
+            }
+        );
+        assert!(inactive_copy_mode.anchor.is_none());
+        assert!(inactive_copy_mode.source_anchor.is_none());
+
+        let mut inactive_quick = NativeWindowApp::new(None);
+        inactive_quick
+            .runtime
+            .resize(rssh_core::TerminalSize::new(24, 2));
+        inactive_quick
+            .handle_pty_output(b"https://example.test/needle")
+            .unwrap();
+        inactive_quick.enter_quick_select_mode();
+        let prior_inactive_quick_matches = active_quick_select_for_test(&inactive_quick)
+            .matches
+            .clone();
+        let inactive_quick_pane = inactive_quick.active_pane_id();
+        inactive_quick
+            .dispatch_app_action(AppAction::SplitPane {
+                pane: inactive_quick_pane,
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+
+        inactive_quick
+            .handle_window_resize(PhysicalSize::new(96, 48))
+            .unwrap();
+
+        let inactive_quick_runtime = inactive_quick
+            .pane_runtimes
+            .get(&inactive_quick_pane)
+            .expect("inactive Quick owner");
+        let rebuilt_inactive_quick = inactive_quick_runtime
+            .ui
+            .quick_select()
+            .expect("Quick mode remains open");
+        assert!(!rebuilt_inactive_quick.matches.is_empty());
+        assert_eq!(
+            rebuilt_inactive_quick.matches.len(),
+            rebuilt_inactive_quick.labels.len()
+        );
+        assert!(
+            rebuilt_inactive_quick
+                .matches
+                .iter()
+                .all(|matched| matched.is_retained(inactive_quick_runtime.runtime.terminal()))
+        );
+        assert!(
+            rebuilt_inactive_quick
+                .matches
+                .iter()
+                .all(|matched| !prior_inactive_quick_matches.contains(matched))
+        );
+
+        let mut alternate = NativeWindowApp::new(None);
+        alternate
+            .runtime
+            .resize(rssh_core::TerminalSize::new(12, 2));
+        alternate
+            .handle_pty_output(b"\x1b[?1049hneedle-alt")
+            .unwrap();
+        alternate.enter_search_mode();
+        assert!(alternate.update_search_query("needle"));
+        let prior_current = active_search_for_test(&alternate).current;
+
+        alternate
+            .handle_window_resize(PhysicalSize::new(48, 48))
+            .unwrap();
+
+        assert_eq!(
+            alternate.runtime.terminal().stable_dimensions().domain,
+            TerminalScreenDomain::Alternate
+        );
+        assert_eq!(active_search_for_test(&alternate).current, prior_current);
     }
 
     #[test]
@@ -232906,6 +233234,7 @@ act.Confirmation {
             matches: vec![matched],
             labels: vec![label.to_owned()],
             input: String::new(),
+            reflow_config: None,
             action_label: Some(format!("owner-{owner}")),
             action: WindowQuickSelectAction::Nop,
             skip_action_on_paste: false,
@@ -232953,6 +233282,7 @@ act.Confirmation {
             matches: vec![matched],
             labels: vec![label.to_owned()],
             input: String::new(),
+            reflow_config: None,
             action_label: None,
             action: WindowQuickSelectAction::Nop,
             skip_action_on_paste: false,
