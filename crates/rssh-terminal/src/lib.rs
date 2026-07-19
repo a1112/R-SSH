@@ -2188,7 +2188,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_resize_shrinks_grid_and_clamps_cursor() {
+    fn terminal_resize_shrinks_grid_reflows_main_lines_and_clamps_cursor() {
         let mut terminal = Terminal::new(TerminalSize::new(5, 3));
         terminal.feed(b"abcde\x1b[2;1Hfghij\x1b[3;5HZ");
         terminal.take_damage();
@@ -2196,8 +2196,16 @@ mod tests {
         terminal.resize(TerminalSize::new(3, 2));
 
         assert_eq!(terminal.grid().size(), TerminalSize::new(3, 2));
-        assert_eq!(row_text(&terminal, 0), "abc");
-        assert_eq!(row_text(&terminal, 1), "fgh");
+        assert_eq!(
+            terminal
+                .scrollback()
+                .iter()
+                .map(|line| line.cells().iter().map(|cell| cell.ch).collect::<String>())
+                .collect::<Vec<_>>(),
+            vec!["abc", "de ", "fgh", "ij "]
+        );
+        assert_eq!(row_text(&terminal, 0), "   ");
+        assert_eq!(row_text(&terminal, 1), " Z ");
         assert_eq!(terminal.cursor(), (1, 2));
         assert_eq!(terminal.take_damage(), vec![DamageRegion::new(0, 0, 3, 2)]);
     }

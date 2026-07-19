@@ -3171,13 +3171,44 @@ impl Terminal {
 
     pub fn resize(&mut self, size: TerminalSize) {
         self.advance_seqno();
-        self.grid.resize_with_seqno(size, self.seqno);
-        self.tab_stops.resize(size);
-
-        if let Some(screen) = self.main_screen.as_mut() {
-            screen.grid.resize_with_seqno(size, self.seqno);
-            clamp_screen_state(screen, size);
+        let old_size = self.grid.size();
+        let cell_width_overrides = self.cell_width_overrides.clone();
+        if old_size.columns != size.columns {
+            if let Some(mut screen) = self.main_screen.take() {
+                // The active alternate screen retains its physical layout.  The
+                // dormant main screen and its history are the only buffers that
+                // participate in width reflow.
+                self.grid.resize_with_seqno(size, self.seqno);
+                reflow_main_screen(
+                    &mut self.scrollback,
+                    &mut screen.grid,
+                    size,
+                    self.seqno,
+                    self.unicode_version,
+                    self.treat_east_asian_ambiguous_width_as_wide,
+                    &cell_width_overrides,
+                );
+                self.main_screen = Some(screen);
+            } else {
+                reflow_main_screen(
+                    &mut self.scrollback,
+                    &mut self.grid,
+                    size,
+                    self.seqno,
+                    self.unicode_version,
+                    self.treat_east_asian_ambiguous_width_as_wide,
+                    &cell_width_overrides,
+                );
+            }
+            self.trim_scrollback_to_limit();
+        } else {
+            self.grid.resize_with_seqno(size, self.seqno);
+            if let Some(screen) = self.main_screen.as_mut() {
+                screen.grid.resize_with_seqno(size, self.seqno);
+                clamp_screen_state(screen, size);
+            }
         }
+        self.tab_stops.resize(size);
 
         self.clamp_to_size();
         self.scroll_top = 0;
@@ -5227,6 +5258,186 @@ fn default_tab_stops(size: TerminalSize) -> Vec<u16> {
         column = column.saturating_add(8);
     }
     stops
+}
+
+fn reflow_main_screen(
+    scrollback: &mut Vec<ScrollbackLine>,
+    grid: &mut TerminalGrid,
+    size: TerminalSize,
+    seqno: SequenceNo,
+    unicode_version: u32,
+    treat_east_asian_ambiguous_width_as_wide: bool,
+    cell_width_overrides: &[CellWidthOverride],
+) {
+    let old_size = grid.size();
+    let mut logical_lines = Vec::new();
+    let mut logical_line = Vec::new();
+
+    for line in scrollback.iter() {
+        if !line.is_wrapped() && !logical_line.is_empty() {
+            logical_lines.push(std::mem::take(&mut logical_line));
+        }
+        let mut cells = line.cells().to_vec();
+        trim_reflow_padding(
+            &mut cells,
+            unicode_version,
+            treat_east_asian_ambiguous_width_as_wide,
+            cell_width_overrides,
+        );
+        logical_line.extend(cells);
+    }
+    for row in 0..old_size.rows {
+        if !grid.row_wrapped(row) && !logical_line.is_empty() {
+            logical_lines.push(std::mem::take(&mut logical_line));
+        }
+        let mut cells = (0..old_size.columns)
+            .map(|column| grid.get(row, column).cloned().unwrap_or_default())
+            .collect::<Vec<_>>();
+        trim_reflow_padding(
+            &mut cells,
+            unicode_version,
+            treat_east_asian_ambiguous_width_as_wide,
+            cell_width_overrides,
+        );
+        logical_line.extend(cells);
+    }
+    if !logical_line.is_empty() || logical_lines.is_empty() {
+        logical_lines.push(logical_line);
+    }
+
+    for logical_line in &mut logical_lines {
+        trim_reflow_padding(
+            logical_line,
+            unicode_version,
+            treat_east_asian_ambiguous_width_as_wide,
+            cell_width_overrides,
+        );
+    }
+    while logical_lines.last().is_some_and(Vec::is_empty) {
+        logical_lines.pop();
+    }
+
+    let mut rows = Vec::new();
+    for logical_line in logical_lines {
+        rows.extend(
+            reflow_logical_line(
+                &logical_line,
+                size.columns,
+                unicode_version,
+                treat_east_asian_ambiguous_width_as_wide,
+                cell_width_overrides,
+            )
+            .into_iter()
+            .enumerate()
+            .map(|(index, cells)| (cells, index != 0)),
+        );
+    }
+
+    let grid_rows = usize::from(size.rows);
+    let scrollback_rows = rows.len().saturating_sub(grid_rows);
+    let mut reflowed_scrollback = rows
+        .drain(..scrollback_rows)
+        .map(|(mut cells, wrapped)| {
+            cells.resize(usize::from(size.columns), Cell::default());
+            ScrollbackLine::from_cells_wrapped(cells, wrapped, seqno)
+        })
+        .collect::<Vec<_>>();
+
+    let mut reflowed_grid = TerminalGrid::new_with_seqno(size, seqno);
+    for (row, (mut cells, wrapped)) in rows.into_iter().enumerate() {
+        let Ok(row) = u16::try_from(row) else {
+            break;
+        };
+        cells.resize(usize::from(size.columns), Cell::default());
+        for (column, cell) in cells.into_iter().enumerate() {
+            let Ok(column) = u16::try_from(column) else {
+                break;
+            };
+            reflowed_grid.set(row, column, cell);
+        }
+        reflowed_grid.set_row_wrapped(row, wrapped);
+        reflowed_grid.set_row_last_change_seqno(row, seqno);
+    }
+
+    *scrollback = std::mem::take(&mut reflowed_scrollback);
+    *grid = reflowed_grid;
+}
+
+fn trim_reflow_padding(
+    cells: &mut Vec<Cell>,
+    unicode_version: u32,
+    treat_east_asian_ambiguous_width_as_wide: bool,
+    cell_width_overrides: &[CellWidthOverride],
+) {
+    let padding = cells
+        .iter()
+        .rev()
+        .take_while(|cell| **cell == Cell::default())
+        .count();
+    if padding == 0 {
+        return;
+    }
+
+    let content_end = cells.len().saturating_sub(padding);
+    let continuation_cells = cells
+        .get(content_end.saturating_sub(1))
+        .map(|cell| {
+            display_width(
+                cell.ch,
+                unicode_version,
+                treat_east_asian_ambiguous_width_as_wide,
+                cell_width_overrides,
+            )
+            .saturating_sub(1)
+        })
+        .map(usize::from)
+        .unwrap_or(0)
+        .min(padding);
+    cells.truncate(content_end.saturating_add(continuation_cells));
+}
+
+fn reflow_logical_line(
+    cells: &[Cell],
+    columns: u16,
+    unicode_version: u32,
+    treat_east_asian_ambiguous_width_as_wide: bool,
+    cell_width_overrides: &[CellWidthOverride],
+) -> Vec<Vec<Cell>> {
+    if columns == 0 {
+        return vec![Vec::new()];
+    }
+
+    if cells.is_empty() {
+        return vec![Vec::new()];
+    }
+
+    let mut rows = Vec::new();
+    let mut row = Vec::new();
+    let mut index = 0;
+    while index < cells.len() {
+        let cell = &cells[index];
+        let source_width = display_width(
+            cell.ch,
+            unicode_version,
+            treat_east_asian_ambiguous_width_as_wide,
+            cell_width_overrides,
+        )
+        .max(1);
+        let source_width = usize::from(source_width).min(cells.len() - index);
+        let output_width = source_width.min(usize::from(columns));
+
+        if !row.is_empty() && row.len().saturating_add(output_width) > usize::from(columns) {
+            rows.push(std::mem::take(&mut row));
+        }
+
+        row.extend(cells[index..index + output_width].iter().cloned());
+        index = index.saturating_add(source_width);
+        if row.len() == usize::from(columns) && index < cells.len() {
+            rows.push(std::mem::take(&mut row));
+        }
+    }
+    rows.push(row);
+    rows
 }
 
 fn parse_csi(chars: &[char], mut index: usize) -> SequenceParse<(char, usize)> {
@@ -8121,6 +8332,134 @@ mod stable_row_tests {
         assert_eq!(
             terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
             vec![0, 1, 2]
+        );
+    }
+
+    fn main_screen_rows(terminal: &Terminal) -> Vec<(String, bool)> {
+        let mut rows = terminal
+            .scrollback
+            .iter()
+            .map(|line| {
+                (
+                    line.cells().iter().map(|cell| cell.ch).collect(),
+                    line.is_wrapped(),
+                )
+            })
+            .collect::<Vec<_>>();
+        rows.extend((0..terminal.grid.size().rows).map(|row| {
+            (
+                (0..terminal.grid.size().columns)
+                    .map(|column| terminal.grid.get(row, column).unwrap().ch)
+                    .collect(),
+                terminal.grid.row_wrapped(row),
+            )
+        }));
+        rows
+    }
+
+    #[test]
+    fn terminal_width_resize_reflows_soft_wraps_without_joining_hard_lines() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        terminal.feed(b"abcdef\r\nxyz");
+
+        terminal.resize(TerminalSize::new(5, 3));
+        assert_eq!(
+            main_screen_rows(&terminal),
+            vec![
+                ("abcde".to_owned(), false),
+                ("f    ".to_owned(), true),
+                ("xyz  ".to_owned(), false),
+            ]
+        );
+
+        terminal.resize(TerminalSize::new(6, 3));
+        assert_eq!(
+            main_screen_rows(&terminal),
+            vec![
+                ("abcdef".to_owned(), false),
+                ("xyz   ".to_owned(), false),
+                ("      ".to_owned(), false),
+            ]
+        );
+
+        terminal.resize(TerminalSize::new(4, 3));
+        assert_eq!(
+            main_screen_rows(&terminal),
+            vec![
+                ("abcd".to_owned(), false),
+                ("ef  ".to_owned(), true),
+                ("xyz ".to_owned(), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn terminal_width_resize_reflows_scrollback_and_refills_exact_grid_height() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"abcdefghijkl");
+
+        terminal.resize(TerminalSize::new(3, 2));
+
+        assert_eq!(terminal.scrollback.len(), 2);
+        assert_eq!(
+            main_screen_rows(&terminal),
+            vec![
+                ("abc".to_owned(), false),
+                ("def".to_owned(), true),
+                ("ghi".to_owned(), true),
+                ("jkl".to_owned(), true),
+            ]
+        );
+        assert_eq!(terminal.grid.size(), TerminalSize::new(3, 2));
+    }
+
+    #[test]
+    fn terminal_width_resize_keeps_wide_and_custom_width_cells_together() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+        terminal.set_cell_width_overrides(vec![
+            CellWidthOverride::new(u32::from('x'), u32::from('x'), 2),
+            CellWidthOverride::new(u32::from('z'), u32::from('z'), 0),
+        ]);
+        terminal.feed("a界xzbc".as_bytes());
+
+        terminal.resize(TerminalSize::new(3, 2));
+
+        assert_eq!(
+            main_screen_rows(&terminal),
+            vec![
+                ("a界 ".to_owned(), false),
+                ("x b".to_owned(), true),
+                ("c  ".to_owned(), true),
+            ]
+        );
+        assert_eq!(terminal.scrollback.len(), 1);
+        assert_eq!(terminal.scrollback[0].cells()[1].ch, '界');
+        assert_eq!(terminal.scrollback[0].cells()[2].ch, ' ');
+        assert_eq!(terminal.grid.get(0, 0).unwrap().ch, 'x');
+        assert_eq!(terminal.grid.get(0, 1).unwrap().ch, ' ');
+    }
+
+    #[test]
+    fn terminal_width_resize_leaves_active_alternate_physical_and_reflows_dormant_main() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"abcdefgh");
+        terminal.feed(b"\x1b[?1049h");
+        terminal.feed(b"abcdef");
+
+        terminal.resize(TerminalSize::new(5, 2));
+
+        assert!(terminal.alternate_screen_active());
+        assert_eq!(
+            main_screen_rows(&terminal),
+            vec![("abcd ".to_owned(), false), ("ef   ".to_owned(), true),]
+        );
+
+        terminal.feed(b"\x1b[?1049l");
+
+        assert!(!terminal.alternate_screen_active());
+        assert_eq!(
+            main_screen_rows(&terminal),
+            vec![("abcde".to_owned(), false), ("fgh  ".to_owned(), true),]
         );
     }
 
