@@ -12,10 +12,11 @@ use unicode_normalization::char::canonical_combining_class;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    Cell, Color, CursorShape, CursorStyle, InlineImageFormat, ItermInlineImage, ScrollbackLine,
-    SemanticCommandExit, SemanticType, SemanticZone, SequenceNo, StableRowIndex,
-    StableSelectionRange, StableSemanticCommandExit, StableSemanticZone, TerminalGrid,
-    TerminalResizeOutcome, TerminalScreenDomain, TerminalStableDimensions, UnderlineStyle,
+    Cell, CellAttachment, Color, CursorShape, CursorStyle, InlineImageFormat, InlineImageFragment,
+    ItermInlineImage, ScrollbackLine, SemanticCommandExit, SemanticType, SemanticZone, SequenceNo,
+    StableRowIndex, StableSelectionRange, StableSemanticCommandExit, StableSemanticZone,
+    TerminalGrid, TerminalResizeOutcome, TerminalScreenDomain, TerminalStableDimensions,
+    UnderlineStyle,
 };
 
 pub const DEFAULT_SCROLLBACK_LIMIT: usize = 3_500;
@@ -440,12 +441,16 @@ pub struct Terminal {
     badge_format: Option<String>,
     user_vars: HashMap<String, String>,
     inline_images: Vec<ItermInlineImage>,
+    inline_image_parent_ids: Vec<u64>,
+    inline_image_attachments: Vec<CellAttachment>,
+    next_inline_image_parent_identity: u64,
     kitty_graphics_responses: Vec<Vec<u8>>,
     pending_kitty_graphics: Option<PendingKittyGraphics>,
     kitty_images: HashMap<u32, StoredKittyImage>,
     kitty_image_numbers: HashMap<u32, u32>,
     kitty_relative_parents: HashMap<KittyPlacementKey, KittyPlacementKey>,
     kitty_virtual_placements: HashMap<KittyPlacementKey, KittyVirtualPlacement>,
+    kitty_character_edited_placements: HashSet<KittyPlacementKey>,
     pending_kitty_placeholder: Option<PendingKittyPlaceholder>,
     last_kitty_placeholder: Option<LastKittyPlaceholder>,
     kitty_placeholder_cells: HashMap<(usize, u16), LastKittyPlaceholder>,
@@ -511,6 +516,9 @@ struct UnicodeVersionStackEntry {
 struct ScreenState {
     grid: TerminalGrid,
     inline_images: Vec<ItermInlineImage>,
+    inline_image_parent_ids: Vec<u64>,
+    inline_image_attachments: Vec<CellAttachment>,
+    kitty_character_edited_placements: HashSet<KittyPlacementKey>,
     last_kitty_placeholder: Option<LastKittyPlaceholder>,
     kitty_placeholder_cells: HashMap<(usize, u16), LastKittyPlaceholder>,
     cursor_row: u16,
@@ -527,6 +535,117 @@ struct ScreenState {
     right_margin: u16,
     character_set: CharacterSet,
     style: Cell,
+}
+
+/// A terminal-cell copy operation expressed in history coordinates.
+///
+/// Narrow DECSLRM scrolling mutates only a rectangle of the grid.  Inline
+/// image attachments are terminal cells too, so they must use the same source
+/// to destination mapping as the grid copy, rather than moving or removing a
+/// whole physical placement.
+#[derive(Debug, Clone, Copy)]
+enum CellTransform {
+    ScrollUp {
+        top: usize,
+        bottom: usize,
+        count: usize,
+        left: u16,
+        right: u16,
+    },
+    ScrollDown {
+        top: usize,
+        bottom: usize,
+        count: usize,
+        left: u16,
+        right: u16,
+    },
+    InsertCharacters {
+        row: usize,
+        column: u16,
+        count: u16,
+        right: u16,
+    },
+    DeleteCharacters {
+        row: usize,
+        column: u16,
+        count: u16,
+        right: u16,
+    },
+}
+
+impl CellTransform {
+    const fn is_character_edit(self) -> bool {
+        matches!(
+            self,
+            Self::InsertCharacters { .. } | Self::DeleteCharacters { .. }
+        )
+    }
+
+    fn apply_coordinate(self, row: usize, column: u16) -> Option<(usize, u16)> {
+        let (top, bottom, left, right) = match self {
+            Self::ScrollUp {
+                top,
+                bottom,
+                left,
+                right,
+                ..
+            }
+            | Self::ScrollDown {
+                top,
+                bottom,
+                left,
+                right,
+                ..
+            } => (top, bottom, left, right),
+            Self::InsertCharacters {
+                row, column, right, ..
+            }
+            | Self::DeleteCharacters {
+                row, column, right, ..
+            } => (row, row, column, right),
+        };
+        if row < top || row > bottom || column < left || column > right {
+            return Some((row, column));
+        }
+
+        match self {
+            Self::ScrollUp { top, count, .. } => {
+                let row = row.checked_sub(count).filter(|row| *row >= top)?;
+                Some((row, column))
+            }
+            Self::ScrollDown { bottom, count, .. } => {
+                let blank_start = bottom.checked_add(1)?.checked_sub(count)?;
+                if row >= blank_start {
+                    return None;
+                }
+                Some((row.checked_add(count)?, column))
+            }
+            Self::InsertCharacters { count, right, .. } => {
+                let shift_end = right.checked_add(1)?.checked_sub(count)?;
+                if column >= shift_end {
+                    return None;
+                }
+                Some((row, column.checked_add(count)?))
+            }
+            Self::DeleteCharacters {
+                column: start_column,
+                count,
+                ..
+            } => {
+                let first_source = start_column.checked_add(count)?;
+                if column < first_source {
+                    return None;
+                }
+                Some((row, column.checked_sub(count)?))
+            }
+        }
+    }
+
+    fn apply(self, mut attachment: CellAttachment) -> Option<CellAttachment> {
+        (attachment.row, attachment.column) =
+            self.apply_coordinate(attachment.row, attachment.column)?;
+        Some(attachment)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -579,12 +698,16 @@ impl Terminal {
             badge_format: None,
             user_vars: HashMap::new(),
             inline_images: Vec::new(),
+            inline_image_parent_ids: Vec::new(),
+            inline_image_attachments: Vec::new(),
+            next_inline_image_parent_identity: 1,
             kitty_graphics_responses: Vec::new(),
             pending_kitty_graphics: None,
             kitty_images: HashMap::new(),
             kitty_image_numbers: HashMap::new(),
             kitty_relative_parents: HashMap::new(),
             kitty_virtual_placements: HashMap::new(),
+            kitty_character_edited_placements: HashSet::new(),
             pending_kitty_placeholder: None,
             last_kitty_placeholder: None,
             kitty_placeholder_cells: HashMap::new(),
@@ -1236,7 +1359,7 @@ impl Terminal {
         let row = self.current_history_row();
         let column = self.cursor_column;
         self.record_inline_image_damage(width.as_deref(), height.as_deref());
-        self.inline_images.push(ItermInlineImage {
+        self.push_inline_image(ItermInlineImage {
             row,
             column,
             name,
@@ -1690,20 +1813,53 @@ impl Terminal {
         parent_image_id: u32,
         parent_placement_id: u32,
     ) -> Option<(usize, u16)> {
-        if self
-            .kitty_virtual_placements
-            .contains_key(&(parent_image_id, parent_placement_id))
-        {
-            return self.kitty_virtual_parent_origin(parent_image_id, parent_placement_id);
+        let placement_key = (parent_image_id, parent_placement_id);
+        if self.kitty_virtual_placements.contains_key(&placement_key) {
+            let attachment_origin =
+                || self.kitty_attachment_parent_origin(parent_image_id, parent_placement_id);
+            let cache_origin =
+                || self.kitty_virtual_parent_origin(parent_image_id, parent_placement_id);
+            return if self
+                .kitty_character_edited_placements
+                .contains(&placement_key)
+            {
+                attachment_origin().or_else(cache_origin)
+            } else {
+                cache_origin().or_else(attachment_origin)
+            };
         }
 
-        self.inline_images
-            .iter()
-            .find(|image| {
-                image.kitty_image_id == Some(parent_image_id)
-                    && image.kitty_placement_id == Some(parent_placement_id)
+        self.kitty_attachment_parent_origin(parent_image_id, parent_placement_id)
+            .or_else(|| {
+                self.inline_images
+                    .iter()
+                    .find(|image| {
+                        image.kitty_image_id == Some(parent_image_id)
+                            && image.kitty_placement_id == Some(parent_placement_id)
+                    })
+                    .map(|image| (image.row, image.column))
             })
-            .map(|image| (image.row, image.column))
+    }
+
+    fn kitty_attachment_parent_origin(
+        &self,
+        parent_image_id: u32,
+        parent_placement_id: u32,
+    ) -> Option<(usize, u16)> {
+        let parent_identity = self
+            .inline_images
+            .iter()
+            .zip(self.inline_image_parent_ids.iter())
+            .find_map(|(image, parent_identity)| {
+                (image.kitty_image_id == Some(parent_image_id)
+                    && image.kitty_placement_id == Some(parent_placement_id))
+                .then_some(*parent_identity)
+            })?;
+        self.inline_image_attachments
+            .iter()
+            .filter(|attachment| attachment.parent_identity == parent_identity)
+            .map(|attachment| (attachment.row, attachment.column))
+            .min()
     }
 
     fn kitty_virtual_parent_origin(
@@ -1892,11 +2048,23 @@ impl Terminal {
         image_id: u32,
         placement_id: Option<u32>,
     ) {
+        let removed_placement_keys = self
+            .kitty_virtual_placements
+            .iter()
+            .filter_map(|(placement_key, placement)| {
+                (placement.image_id == image_id
+                    && placement_id
+                        .is_none_or(|placement_id| placement.placement_id == Some(placement_id)))
+                .then_some(*placement_key)
+            })
+            .collect::<HashSet<_>>();
         self.kitty_virtual_placements.retain(|_, placement| {
             placement.image_id != image_id
                 || placement_id
                     .is_some_and(|placement_id| placement.placement_id != Some(placement_id))
         });
+        self.discard_kitty_character_edited_placements(&removed_placement_keys);
+        self.retain_kitty_character_edited_placements();
     }
 
     fn delete_kitty_placements_by_image_id_range(
@@ -1914,9 +2082,19 @@ impl Terminal {
             .copied()
             .filter(|image_id| *image_id >= first_image_id && *image_id <= last_image_id)
             .collect::<Vec<_>>();
+        let removed_placement_keys = self
+            .kitty_virtual_placements
+            .iter()
+            .filter_map(|(placement_key, placement)| {
+                (placement.image_id >= first_image_id && placement.image_id <= last_image_id)
+                    .then_some(*placement_key)
+            })
+            .collect::<HashSet<_>>();
         self.kitty_virtual_placements.retain(|_, placement| {
             placement.image_id < first_image_id || placement.image_id > last_image_id
         });
+        self.discard_kitty_character_edited_placements(&removed_placement_keys);
+        self.retain_kitty_character_edited_placements();
         self.delete_kitty_placements(false, |image| {
             image
                 .kitty_image_id
@@ -1953,7 +2131,7 @@ impl Terminal {
             (self.current_history_row(), self.cursor_column)
         };
         self.record_inline_image_damage_at(row, column, Some(&width), Some(&height));
-        self.inline_images.push(ItermInlineImage {
+        self.push_inline_image(ItermInlineImage {
             row,
             column,
             name: None,
@@ -2031,7 +2209,7 @@ impl Terminal {
         let mut removed_image_ids = Vec::new();
         let mut relative_removed_image_ids = Vec::new();
         let mut removed_placement_keys = HashSet::new();
-        self.inline_images.retain(|image| {
+        self.retain_inline_images(|image| {
             let remove = matches(image);
             if remove {
                 if let Some(image_id) = image.kitty_image_id {
@@ -2066,10 +2244,10 @@ impl Terminal {
         removed_placement_keys: &mut HashSet<KittyPlacementKey>,
     ) {
         loop {
-            let relative_parents = &self.kitty_relative_parents;
+            let relative_parents = self.kitty_relative_parents.clone();
             let parent_keys = removed_placement_keys.clone();
             let mut removed_this_pass = Vec::new();
-            self.inline_images.retain(|image| {
+            self.retain_inline_images(|image| {
                 let Some(placement_key) = kitty_image_placement_key(image) else {
                     return true;
                 };
@@ -2126,7 +2304,7 @@ impl Terminal {
             for orphan_key in &orphan_keys {
                 self.kitty_relative_parents.remove(orphan_key);
             }
-            self.inline_images.retain(|image| {
+            self.retain_inline_images(|image| {
                 let remove = kitty_image_placement_key(image)
                     .is_some_and(|placement_key| orphan_keys.contains(&placement_key));
                 if remove {
@@ -2290,7 +2468,7 @@ impl Terminal {
         });
         if let Some((image_id, placement_id)) = placement_key {
             let before = self.inline_images.len();
-            self.inline_images.retain(|image| {
+            self.retain_inline_images(|image| {
                 image.kitty_image_id != Some(image_id)
                     || image.kitty_placement_id != Some(placement_id)
             });
@@ -2303,7 +2481,7 @@ impl Terminal {
         }
 
         self.record_inline_image_damage_at(row, column, width.as_deref(), height.as_deref());
-        self.inline_images.push(ItermInlineImage {
+        self.push_inline_image(ItermInlineImage {
             row,
             column,
             name: None,
@@ -2358,6 +2536,7 @@ impl Terminal {
             return;
         }
 
+        self.ensure_inline_image_parent_ids();
         let mut stack = vec![parent_key];
         let mut seen = HashSet::new();
         while let Some(parent_key) = stack.pop() {
@@ -2372,12 +2551,23 @@ impl Terminal {
                 })
                 .collect::<Vec<_>>();
             for child_key in child_keys {
-                if let Some(image) = self.inline_images.iter_mut().find(|image| {
+                if let Some(image_index) = self.inline_images.iter().position(|image| {
                     image.kitty_image_id == Some(child_key.0)
                         && image.kitty_placement_id == Some(child_key.1)
                 }) {
+                    let parent_identity = self.inline_image_parent_ids[image_index];
+                    let image = &mut self.inline_images[image_index];
                     image.row = move_kitty_history_row(image.row, old_row, new_row);
                     image.column = move_kitty_column(image.column, old_column, new_column);
+                    for attachment in self
+                        .inline_image_attachments
+                        .iter_mut()
+                        .filter(|attachment| attachment.parent_identity == parent_identity)
+                    {
+                        attachment.row = move_kitty_history_row(attachment.row, old_row, new_row);
+                        attachment.column =
+                            move_kitty_column(attachment.column, old_column, new_column);
+                    }
                 }
                 stack.push(child_key);
             }
@@ -3020,6 +3210,60 @@ impl Terminal {
         &self.inline_images
     }
 
+    /// Returns the persistent logical image-cell mapping for the active
+    /// screen. Pixel geometry is intentionally absent from this state.
+    #[must_use]
+    pub fn inline_image_attachments(&self) -> &[CellAttachment] {
+        &self.inline_image_attachments
+    }
+
+    /// Returns whether a logical-cell placement has had every attachment
+    /// deleted by a cell transform.  Renderers use this explicit state to
+    /// distinguish an intentionally empty placement from legacy pixel-only
+    /// imagery that has no attachments by design.
+    #[must_use]
+    pub fn inline_image_attachment_parent_is_empty(&self, image_index: usize) -> bool {
+        let Some(image) = self.inline_images.get(image_index) else {
+            return false;
+        };
+        let Some(parent_identity) = self.inline_image_parent_ids.get(image_index) else {
+            return false;
+        };
+        cell_attachment_dimensions(image).is_some()
+            && !self
+                .inline_image_attachments
+                .iter()
+                .any(|attachment| attachment.parent_identity == *parent_identity)
+    }
+
+    /// Returns the physical inline-image placements split at terminal cell
+    /// boundaries. Placements whose source or destination geometry cannot be
+    /// represented safely are omitted so renderers can retain their existing
+    /// whole-placement path.
+    #[must_use]
+    pub fn inline_image_fragments(&self) -> Vec<InlineImageFragment> {
+        let attachments = self
+            .inline_image_attachments
+            .iter()
+            .filter_map(|attachment| {
+                let image_index = self
+                    .inline_image_parent_ids
+                    .iter()
+                    .position(|parent_identity| *parent_identity == attachment.parent_identity)?;
+                let image = self.inline_images.get(image_index)?;
+                inline_image_attachment_fragment(image_index, image, *attachment)
+            })
+            .collect::<Vec<_>>();
+        let legacy_fragments = self
+            .inline_images
+            .iter()
+            .enumerate()
+            .filter(|(_, image)| cell_attachment_dimensions(image).is_none())
+            .filter_map(|(image_index, image)| inline_image_fragments(image_index, image))
+            .flatten();
+        attachments.into_iter().chain(legacy_fragments).collect()
+    }
+
     pub fn take_kitty_graphics_responses(&mut self) -> Vec<Vec<u8>> {
         std::mem::take(&mut self.kitty_graphics_responses)
     }
@@ -3129,12 +3373,13 @@ impl Terminal {
         let size = self.grid.size();
         self.prune_scrollback_rows(self.scrollback.len());
         self.title_stack.clear();
-        self.inline_images.clear();
+        self.clear_inline_images();
         self.pending_kitty_graphics = None;
         self.kitty_images.clear();
         self.kitty_image_numbers.clear();
         self.kitty_relative_parents.clear();
         self.kitty_virtual_placements.clear();
+        self.kitty_character_edited_placements.clear();
         self.pending_kitty_placeholder = None;
         self.last_kitty_placeholder = None;
         self.kitty_placeholder_cells.clear();
@@ -3239,6 +3484,17 @@ impl Terminal {
                 clamp_screen_state(screen, size);
             }
         }
+        let virtual_placements = &self.kitty_virtual_placements;
+        if let Some(screen) = self.main_screen.as_mut() {
+            retain_kitty_character_edited_placements(
+                &screen.inline_images,
+                &screen.inline_image_parent_ids,
+                &screen.inline_image_attachments,
+                virtual_placements,
+                &mut screen.kitty_character_edited_placements,
+            );
+        }
+        self.retain_kitty_character_edited_placements();
         self.tab_stops.resize(size);
 
         self.clamp_to_size();
@@ -3276,7 +3532,7 @@ impl Terminal {
             return;
         }
 
-        self.inline_images.clear();
+        self.clear_inline_images();
         self.kitty_placeholder_cells.clear();
         self.last_kitty_placeholder = None;
         self.pending_kitty_placeholder = None;
@@ -3295,7 +3551,7 @@ impl Terminal {
         let size = self.grid.size();
         self.prune_scrollback_rows(self.scrollback.len());
         self.grid = TerminalGrid::new_with_seqno(size, self.seqno);
-        self.inline_images.clear();
+        self.clear_inline_images();
         self.pending_kitty_graphics = None;
         self.kitty_images.clear();
         self.kitty_image_numbers.clear();
@@ -3352,13 +3608,13 @@ impl Terminal {
     }
 
     fn clear_kitty_graphics(&mut self) {
-        self.inline_images
-            .retain(|image| image.kitty_image_id.is_none());
+        self.retain_inline_images(|image| image.kitty_image_id.is_none());
         self.pending_kitty_graphics = None;
         self.kitty_images.clear();
         self.kitty_image_numbers.clear();
         self.kitty_relative_parents.clear();
         self.kitty_virtual_placements.clear();
+        self.kitty_character_edited_placements.clear();
         self.pending_kitty_placeholder = None;
         self.last_kitty_placeholder = None;
         self.kitty_placeholder_cells.clear();
@@ -4068,7 +4324,7 @@ impl Terminal {
         image_id: u32,
         placement_id: Option<u32>,
     ) {
-        self.inline_images.retain(|image| {
+        self.retain_inline_images(|image| {
             image.row != row
                 || image.column != column
                 || image.kitty_image_id != Some(image_id)
@@ -4288,7 +4544,7 @@ impl Terminal {
             let size = self.grid.size();
             self.main_screen = Some(self.screen_state());
             self.grid = TerminalGrid::new_with_seqno(size, self.seqno);
-            self.inline_images.clear();
+            self.clear_inline_images();
             self.last_kitty_placeholder = None;
             self.kitty_placeholder_cells.clear();
             self.cursor_row = 0;
@@ -4321,10 +4577,88 @@ impl Terminal {
             .expect("terminal screen identity generation overflow");
     }
 
+    fn push_inline_image(&mut self, image: ItermInlineImage) {
+        let parent_identity = self.next_inline_image_parent_identity;
+        self.next_inline_image_parent_identity = self
+            .next_inline_image_parent_identity
+            .checked_add(1)
+            .expect("inline image parent identity overflow");
+        self.inline_image_attachments
+            .extend(cell_attachments_for_image(parent_identity, &image));
+        self.inline_images.push(image);
+        self.inline_image_parent_ids.push(parent_identity);
+    }
+
+    fn clear_inline_images(&mut self) {
+        self.inline_images.clear();
+        self.inline_image_parent_ids.clear();
+        self.inline_image_attachments.clear();
+        self.kitty_character_edited_placements.clear();
+    }
+
+    fn ensure_inline_image_parent_ids(&mut self) {
+        while self.inline_image_parent_ids.len() < self.inline_images.len() {
+            let parent_identity = self.next_inline_image_parent_identity;
+            self.next_inline_image_parent_identity = self
+                .next_inline_image_parent_identity
+                .checked_add(1)
+                .expect("inline image parent identity overflow");
+            self.inline_image_parent_ids.push(parent_identity);
+        }
+        self.inline_image_parent_ids
+            .truncate(self.inline_images.len());
+    }
+
+    fn retain_inline_images(&mut self, mut retain: impl FnMut(&ItermInlineImage) -> bool) {
+        self.ensure_inline_image_parent_ids();
+        let images = std::mem::take(&mut self.inline_images);
+        let parent_ids = std::mem::take(&mut self.inline_image_parent_ids);
+        let mut retained_images = Vec::with_capacity(images.len());
+        let mut retained_parent_ids = Vec::with_capacity(parent_ids.len());
+        for (image, parent_identity) in images.into_iter().zip(parent_ids) {
+            if retain(&image) {
+                retained_images.push(image);
+                retained_parent_ids.push(parent_identity);
+            }
+        }
+        let retained_parent_ids_set = retained_parent_ids.iter().copied().collect::<HashSet<_>>();
+        self.inline_image_attachments
+            .retain(|attachment| retained_parent_ids_set.contains(&attachment.parent_identity));
+        self.inline_images = retained_images;
+        self.inline_image_parent_ids = retained_parent_ids;
+        self.retain_kitty_character_edited_placements();
+    }
+
+    fn retain_kitty_character_edited_placements(&mut self) {
+        retain_kitty_character_edited_placements(
+            &self.inline_images,
+            &self.inline_image_parent_ids,
+            &self.inline_image_attachments,
+            &self.kitty_virtual_placements,
+            &mut self.kitty_character_edited_placements,
+        );
+    }
+
+    fn discard_kitty_character_edited_placements(
+        &mut self,
+        removed_placement_keys: &HashSet<KittyPlacementKey>,
+    ) {
+        self.kitty_character_edited_placements
+            .retain(|key| !removed_placement_keys.contains(key));
+        if let Some(screen) = self.main_screen.as_mut() {
+            screen
+                .kitty_character_edited_placements
+                .retain(|key| !removed_placement_keys.contains(key));
+        }
+    }
+
     fn screen_state(&self) -> ScreenState {
         ScreenState {
             grid: self.grid.clone(),
             inline_images: self.inline_images.clone(),
+            inline_image_parent_ids: self.inline_image_parent_ids.clone(),
+            inline_image_attachments: self.inline_image_attachments.clone(),
+            kitty_character_edited_placements: self.kitty_character_edited_placements.clone(),
             last_kitty_placeholder: self.last_kitty_placeholder,
             kitty_placeholder_cells: self.kitty_placeholder_cells.clone(),
             cursor_row: self.cursor_row,
@@ -4347,6 +4681,9 @@ impl Terminal {
     fn restore_screen_state(&mut self, screen: ScreenState) {
         self.grid = screen.grid;
         self.inline_images = screen.inline_images;
+        self.inline_image_parent_ids = screen.inline_image_parent_ids;
+        self.inline_image_attachments = screen.inline_image_attachments;
+        self.kitty_character_edited_placements = screen.kitty_character_edited_placements;
         self.last_kitty_placeholder = screen.last_kitty_placeholder;
         self.kitty_placeholder_cells = screen.kitty_placeholder_cells;
         self.cursor_row = screen.cursor_row;
@@ -4674,17 +5011,29 @@ impl Terminal {
         if let Some(main_screen) = self.main_screen.as_mut() {
             rebase_image_and_placeholder_metadata(
                 &mut main_screen.inline_images,
+                &mut main_screen.inline_image_parent_ids,
+                &mut main_screen.inline_image_attachments,
                 &mut main_screen.kitty_placeholder_cells,
                 &mut main_screen.last_kitty_placeholder,
                 removed_rows,
             );
+            retain_kitty_character_edited_placements(
+                &main_screen.inline_images,
+                &main_screen.inline_image_parent_ids,
+                &main_screen.inline_image_attachments,
+                &self.kitty_virtual_placements,
+                &mut main_screen.kitty_character_edited_placements,
+            );
         }
         rebase_image_and_placeholder_metadata(
             &mut self.inline_images,
+            &mut self.inline_image_parent_ids,
+            &mut self.inline_image_attachments,
             &mut self.kitty_placeholder_cells,
             &mut self.last_kitty_placeholder,
             removed_rows,
         );
+        self.retain_kitty_character_edited_placements();
         if !has_dormant_main {
             self.delete_orphan_kitty_relative_children();
         }
@@ -4694,7 +5043,7 @@ impl Terminal {
         let first_row = self.scrollback.len();
         let last_row = first_row.saturating_add(usize::from(self.grid.size().rows));
         let columns = self.grid.size().columns;
-        self.inline_images.retain(|image| {
+        self.retain_inline_images(|image| {
             !inline_image_intersects_region(image, first_row, last_row, 0, columns)
         });
         self.delete_orphan_kitty_relative_children();
@@ -4870,13 +5219,20 @@ impl Terminal {
         };
 
         let graphics_retired =
-            self.retire_graphics_in_bounded_scroll_region(top, bottom, left, right);
+            self.retire_malformed_graphics_in_bounded_scroll_region(top, bottom, left, right);
+        let attachment_overflow_changed = self.apply_cell_transform(CellTransform::ScrollDown {
+            top: self.scrollback.len().saturating_add(usize::from(top)),
+            bottom: self.scrollback.len().saturating_add(usize::from(bottom)),
+            count: usize::from(count),
+            left,
+            right,
+        });
         self.scroll_down_bounded_cells(top, bottom, count, left, right);
         for row in top..=bottom {
             self.grid.set_row_last_change_seqno(row, self.seqno);
         }
         self.record_damage(DamageRegion::new(left, top, right - left + 1, height));
-        if graphics_retired {
+        if graphics_retired || attachment_overflow_changed {
             self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
         }
     }
@@ -4895,13 +5251,20 @@ impl Terminal {
         };
 
         let graphics_retired =
-            self.retire_graphics_in_bounded_scroll_region(top, bottom, left, right);
+            self.retire_malformed_graphics_in_bounded_scroll_region(top, bottom, left, right);
+        let attachment_overflow_changed = self.apply_cell_transform(CellTransform::ScrollUp {
+            top: self.scrollback.len().saturating_add(usize::from(top)),
+            bottom: self.scrollback.len().saturating_add(usize::from(bottom)),
+            count: usize::from(count),
+            left,
+            right,
+        });
         self.scroll_up_bounded_cells(top, bottom, count, left, right);
         for row in top..=bottom {
             self.grid.set_row_last_change_seqno(row, self.seqno);
         }
         self.record_damage(DamageRegion::new(left, top, right - left + 1, height));
-        if graphics_retired {
+        if graphics_retired || attachment_overflow_changed {
             self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
         }
     }
@@ -4948,7 +5311,7 @@ impl Terminal {
         let last_column = right.saturating_add(1);
         let inline_image_count = self.inline_images.len();
         let placeholder_count = self.kitty_placeholder_cells.len();
-        self.inline_images.retain(|image| {
+        self.retain_inline_images(|image| {
             !inline_image_intersects_region(image, first_row, last_row, left, last_column)
         });
         self.kitty_placeholder_cells.retain(|(row, column), _| {
@@ -4969,6 +5332,131 @@ impl Terminal {
             || self.kitty_placeholder_cells.len() != placeholder_count
             || last_placeholder_retired
             || stale_placeholder_caches_retired
+    }
+
+    /// Retire only placements that cannot be represented by persistent logical
+    /// attachments.  Valid attachment-backed placements remain in storage even
+    /// when a transform blanks their final cell; attachment absence means an
+    /// empty render, not a legacy whole-placement fallback.
+    fn retire_malformed_graphics_in_bounded_scroll_region(
+        &mut self,
+        top: u16,
+        bottom: u16,
+        left: u16,
+        right: u16,
+    ) -> bool {
+        let first_row = self.scrollback.len().saturating_add(usize::from(top));
+        let last_row = self
+            .scrollback
+            .len()
+            .saturating_add(usize::from(bottom))
+            .saturating_add(1);
+        let last_column = right.saturating_add(1);
+        let inline_image_count = self.inline_images.len();
+        self.retain_inline_images(|image| {
+            cell_attachment_dimensions(image).is_some()
+                || !inline_image_intersects_region(image, first_row, last_row, left, last_column)
+        });
+        if self.inline_images.len() == inline_image_count {
+            return false;
+        }
+
+        self.kitty_placeholder_cells.retain(|(row, column), _| {
+            !(*row >= first_row && *row < last_row && *column >= left && *column <= right)
+        });
+        if self.last_kitty_placeholder.is_some_and(|placeholder| {
+            placeholder.row >= first_row
+                && placeholder.row < last_row
+                && placeholder.column >= left
+                && placeholder.column <= right
+        }) {
+            self.last_kitty_placeholder = None;
+        }
+        self.retire_orphan_kitty_relative_children();
+        self.retire_stale_kitty_placeholder_caches();
+        true
+    }
+
+    /// Returns whether a moved or deleted attachment has a nonzero target
+    /// offset. Such an attachment can paint outside its source LR cell, so a
+    /// rectangular cell damage region cannot erase every old pixel safely.
+    fn apply_cell_transform(&mut self, transform: CellTransform) -> bool {
+        self.ensure_inline_image_parent_ids();
+        let offset_parent_ids = self
+            .inline_images
+            .iter()
+            .zip(self.inline_image_parent_ids.iter())
+            .filter_map(|(image, parent_identity)| {
+                (image.target_x.unwrap_or(0) != 0 || image.target_y.unwrap_or(0) != 0)
+                    .then_some(*parent_identity)
+            })
+            .collect::<HashSet<_>>();
+        let virtual_placement_keys_by_parent_id = if transform.is_character_edit() {
+            self.inline_images
+                .iter()
+                .zip(self.inline_image_parent_ids.iter())
+                .filter_map(|(image, parent_identity)| {
+                    kitty_image_placement_key(image)
+                        .filter(|key| self.kitty_virtual_placements.contains_key(key))
+                        .map(|key| (*parent_identity, key))
+                })
+                .collect::<HashMap<_, _>>()
+        } else {
+            HashMap::new()
+        };
+        let mut attachment_overflow_changed = false;
+        let mut character_edited_placements = HashSet::new();
+        self.inline_image_attachments = self
+            .inline_image_attachments
+            .drain(..)
+            .filter_map(|attachment| {
+                let transformed = transform.apply(attachment);
+                if transformed != Some(attachment) {
+                    if offset_parent_ids.contains(&attachment.parent_identity) {
+                        attachment_overflow_changed = true;
+                    }
+                    if let Some(placement_key) =
+                        virtual_placement_keys_by_parent_id.get(&attachment.parent_identity)
+                    {
+                        character_edited_placements.insert(*placement_key);
+                    }
+                }
+                transformed
+            })
+            .collect();
+        if transform.is_character_edit() {
+            self.synchronize_kitty_image_origins_with_attachments();
+        }
+        self.kitty_character_edited_placements
+            .extend(character_edited_placements);
+        self.retain_kitty_character_edited_placements();
+        attachment_overflow_changed
+    }
+
+    /// `ItermInlineImage` stores a single placement origin, while a bounded
+    /// character edit can split its cell footprint. For Kitty placements with
+    /// surviving attachments, the top-left live attachment is the only exact
+    /// screen-coordinate origin representable by that legacy metadata.
+    fn synchronize_kitty_image_origins_with_attachments(&mut self) {
+        let mut origins = HashMap::<u64, (usize, u16)>::new();
+        for attachment in &self.inline_image_attachments {
+            origins
+                .entry(attachment.parent_identity)
+                .and_modify(|origin| *origin = (*origin).min((attachment.row, attachment.column)))
+                .or_insert((attachment.row, attachment.column));
+        }
+        for (image, parent_identity) in self
+            .inline_images
+            .iter_mut()
+            .zip(self.inline_image_parent_ids.iter())
+        {
+            if image.kitty_image_id.is_some()
+                && let Some((row, column)) = origins.get(parent_identity).copied()
+            {
+                image.row = row;
+                image.column = column;
+            }
+        }
     }
 
     fn retire_stale_kitty_placeholder_caches(&mut self) -> bool {
@@ -5007,12 +5495,18 @@ impl Terminal {
             .saturating_add(usize::from(bottom))
             .saturating_add(1);
         let count = usize::from(count);
+        self.ensure_inline_image_parent_ids();
+        let images = std::mem::take(&mut self.inline_images);
+        let parent_ids = std::mem::take(&mut self.inline_image_parent_ids);
         let mut shifted_images = Vec::with_capacity(self.inline_images.len());
+        let mut shifted_parent_ids = Vec::with_capacity(parent_ids.len());
+        let mut moved_parent_ids = HashSet::new();
 
-        for mut image in self.inline_images.drain(..) {
+        for (mut image, parent_identity) in images.into_iter().zip(parent_ids) {
             let (image_top, image_bottom) = kitty_image_row_range(&image);
             if image_bottom <= first_row || image_top >= last_row {
                 shifted_images.push(image);
+                shifted_parent_ids.push(parent_identity);
                 continue;
             }
 
@@ -5030,9 +5524,29 @@ impl Terminal {
 
             image.row = new_row;
             shifted_images.push(image);
+            shifted_parent_ids.push(parent_identity);
+            moved_parent_ids.insert(parent_identity);
         }
 
         self.inline_images = shifted_images;
+        self.inline_image_parent_ids = shifted_parent_ids;
+        let live_parent_ids = self
+            .inline_image_parent_ids
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>();
+        self.inline_image_attachments.retain_mut(|attachment| {
+            if !live_parent_ids.contains(&attachment.parent_identity) {
+                return false;
+            }
+            if moved_parent_ids.contains(&attachment.parent_identity) {
+                let Some(row) = attachment.row.checked_add(count) else {
+                    return false;
+                };
+                attachment.row = row;
+            }
+            true
+        });
         self.delete_orphan_kitty_relative_children();
     }
 
@@ -5081,12 +5595,18 @@ impl Terminal {
             .saturating_add(usize::from(bottom))
             .saturating_add(1);
         let count = usize::from(count);
+        self.ensure_inline_image_parent_ids();
+        let images = std::mem::take(&mut self.inline_images);
+        let parent_ids = std::mem::take(&mut self.inline_image_parent_ids);
         let mut shifted_images = Vec::with_capacity(self.inline_images.len());
+        let mut shifted_parent_ids = Vec::with_capacity(parent_ids.len());
+        let mut moved_parent_ids = HashSet::new();
 
-        for mut image in self.inline_images.drain(..) {
+        for (mut image, parent_identity) in images.into_iter().zip(parent_ids) {
             let (image_top, image_bottom) = kitty_image_row_range(&image);
             if image_bottom <= first_row || image_top >= last_row {
                 shifted_images.push(image);
+                shifted_parent_ids.push(parent_identity);
                 continue;
             }
 
@@ -5104,9 +5624,29 @@ impl Terminal {
 
             image.row = new_row;
             shifted_images.push(image);
+            shifted_parent_ids.push(parent_identity);
+            moved_parent_ids.insert(parent_identity);
         }
 
         self.inline_images = shifted_images;
+        self.inline_image_parent_ids = shifted_parent_ids;
+        let live_parent_ids = self
+            .inline_image_parent_ids
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>();
+        self.inline_image_attachments.retain_mut(|attachment| {
+            if !live_parent_ids.contains(&attachment.parent_identity) {
+                return false;
+            }
+            if moved_parent_ids.contains(&attachment.parent_identity) {
+                let Some(row) = attachment.row.checked_sub(count) else {
+                    return false;
+                };
+                attachment.row = row;
+            }
+            true
+        });
         self.delete_orphan_kitty_relative_children();
     }
 
@@ -5252,7 +5792,7 @@ impl Terminal {
     }
 
     fn drop_inline_images_crossing_history_boundary(&mut self, boundary: usize) {
-        self.inline_images.retain(|image| {
+        self.retain_inline_images(|image| {
             let (top, bottom) = kitty_image_row_range(image);
             !(top < boundary && bottom > boundary)
         });
@@ -5280,6 +5820,7 @@ impl Terminal {
         }
         shift_image_and_placeholder_suffix_metadata(
             &mut self.inline_images,
+            &mut self.inline_image_attachments,
             &mut self.kitty_placeholder_cells,
             &mut self.last_kitty_placeholder,
             suffix_start,
@@ -5294,15 +5835,20 @@ impl Terminal {
         }
 
         let right = self.character_right_boundary();
-        self.insert_blank_characters_with_right_boundary(count, right);
+        self.insert_blank_characters_with_right_boundary(count, right, true);
     }
 
     fn insert_blank_characters_for_write(&mut self, count: u16) {
         let right = self.character_right_boundary();
-        self.insert_blank_characters_with_right_boundary(count, right);
+        self.insert_blank_characters_with_right_boundary(count, right, false);
     }
 
-    fn insert_blank_characters_with_right_boundary(&mut self, count: u16, right: u16) {
+    fn insert_blank_characters_with_right_boundary(
+        &mut self,
+        count: u16,
+        right: u16,
+        transform_attachments: bool,
+    ) {
         let size = self.grid.size();
         if self.cursor_row >= size.rows
             || self.cursor_column >= size.columns
@@ -5313,7 +5859,19 @@ impl Terminal {
         }
 
         let count = count.min(right - self.cursor_column + 1);
-        let graphics_retired = self.bounded_character_edit_retires_graphics(right);
+        let (graphics_retired, attachment_overflow_changed) = self
+            .prepare_bounded_character_edit_attachments(
+                right,
+                transform_attachments.then_some(CellTransform::InsertCharacters {
+                    row: self
+                        .scrollback
+                        .len()
+                        .saturating_add(usize::from(self.cursor_row)),
+                    column: self.cursor_column,
+                    count,
+                    right,
+                }),
+            );
         let shift_end = right + 1 - count;
         for column in (self.cursor_column..shift_end).rev() {
             let cell = self
@@ -5334,7 +5892,7 @@ impl Terminal {
             right - self.cursor_column + 1,
             1,
         ));
-        if graphics_retired {
+        if graphics_retired || attachment_overflow_changed {
             self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
         }
     }
@@ -5360,7 +5918,19 @@ impl Terminal {
         }
 
         let count = count.min(right - self.cursor_column + 1);
-        let graphics_retired = self.bounded_character_edit_retires_graphics(right);
+        let (graphics_retired, attachment_overflow_changed) = self
+            .prepare_bounded_character_edit_attachments(
+                right,
+                Some(CellTransform::DeleteCharacters {
+                    row: self
+                        .scrollback
+                        .len()
+                        .saturating_add(usize::from(self.cursor_row)),
+                    column: self.cursor_column,
+                    count,
+                    right,
+                }),
+            );
         let shift_end = right + 1 - count;
         for column in self.cursor_column..shift_end {
             let cell = self
@@ -5381,9 +5951,91 @@ impl Terminal {
             right - self.cursor_column + 1,
             1,
         ));
-        if graphics_retired {
+        if graphics_retired || attachment_overflow_changed {
             self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
         }
+    }
+
+    /// Applies the persistent-cell mapping only to CSI ICH/DCH under a narrow
+    /// DECSLRM region.  Other character paths retain their established
+    /// conservative graphics policy until they receive their own transform.
+    fn prepare_bounded_character_edit_attachments(
+        &mut self,
+        right: u16,
+        transform: Option<CellTransform>,
+    ) -> (bool, bool) {
+        if let Some(transform) =
+            transform.filter(|_| self.bounded_horizontal_scroll_columns().is_some())
+        {
+            self.transform_kitty_placeholder_state_for_character_edit(transform);
+            let graphics_retired = self.retire_malformed_graphics_in_bounded_scroll_region(
+                self.cursor_row,
+                self.cursor_row,
+                self.cursor_column,
+                right,
+            );
+            let attachment_overflow_changed = self.apply_cell_transform(transform);
+            (graphics_retired, attachment_overflow_changed)
+        } else {
+            (self.bounded_character_edit_retires_graphics(right), false)
+        }
+    }
+
+    /// Applies an ICH/DCH cell mapping to every Kitty placeholder coordinate.
+    ///
+    /// The map key and the embedded `row`/`column` are both terminal-cell
+    /// coordinates. `rendered_*` names the placement origin produced for a
+    /// pending diacritic sequence, so it must follow the same mapping too.
+    /// Coordinates whose source cell is blanked are retired, just like their
+    /// grid cells and persistent image attachments.
+    fn transform_kitty_placeholder_state_for_character_edit(&mut self, transform: CellTransform) {
+        debug_assert!(transform.is_character_edit());
+        self.kitty_placeholder_cells = self
+            .kitty_placeholder_cells
+            .drain()
+            .filter_map(|((row, column), mut placeholder)| {
+                let (row, column) = transform.apply_coordinate(row, column)?;
+                placeholder.row = row;
+                placeholder.column = column;
+                Some(((row, column), placeholder))
+            })
+            .collect();
+
+        self.last_kitty_placeholder = self.last_kitty_placeholder.and_then(|mut placeholder| {
+            let (row, column) = transform.apply_coordinate(placeholder.row, placeholder.column)?;
+            placeholder.row = row;
+            placeholder.column = column;
+            Some(placeholder)
+        });
+
+        self.pending_kitty_placeholder =
+            self.pending_kitty_placeholder
+                .take()
+                .and_then(|mut placeholder| {
+                    let (row, column) =
+                        transform.apply_coordinate(placeholder.row, placeholder.column)?;
+                    placeholder.row = row;
+                    placeholder.column = column;
+                    if let Some((row, column)) =
+                        placeholder.rendered_row.zip(placeholder.rendered_column)
+                    {
+                        if let Some((row, column)) = transform.apply_coordinate(row, column) {
+                            placeholder.rendered_row = Some(row);
+                            placeholder.rendered_column = Some(column);
+                        } else {
+                            placeholder.rendered_row = None;
+                            placeholder.rendered_column = None;
+                            placeholder.rendered_image_id = None;
+                            placeholder.rendered_placement_id = None;
+                        }
+                    } else {
+                        placeholder.rendered_row = None;
+                        placeholder.rendered_column = None;
+                        placeholder.rendered_image_id = None;
+                        placeholder.rendered_placement_id = None;
+                    }
+                    Some(placeholder)
+                });
     }
 
     fn bounded_character_edit_retires_graphics(&mut self, right: u16) -> bool {
@@ -5856,10 +6508,40 @@ impl MainReflowOutcome {
 
 fn retire_reflow_coordinate_state(screen: &mut ScreenState) {
     screen.inline_images.clear();
+    screen.inline_image_parent_ids.clear();
+    screen.inline_image_attachments.clear();
+    screen.kitty_character_edited_placements.clear();
     screen.kitty_placeholder_cells.clear();
     screen.last_kitty_placeholder = None;
     screen.nfc_last_printable_cell = None;
     screen.saved_cursor = None;
+}
+
+fn retain_kitty_character_edited_placements(
+    inline_images: &[ItermInlineImage],
+    inline_image_parent_ids: &[u64],
+    inline_image_attachments: &[CellAttachment],
+    kitty_virtual_placements: &HashMap<KittyPlacementKey, KittyVirtualPlacement>,
+    character_edited_placements: &mut HashSet<KittyPlacementKey>,
+) {
+    let virtual_parent_ids = inline_images
+        .iter()
+        .zip(inline_image_parent_ids.iter())
+        .filter_map(|(image, parent_identity)| {
+            kitty_image_placement_key(image)
+                .filter(|key| kitty_virtual_placements.contains_key(key))
+                .map(|key| (key, *parent_identity))
+        })
+        .collect::<HashMap<_, _>>();
+    let live_attachment_parent_ids = inline_image_attachments
+        .iter()
+        .map(|attachment| attachment.parent_identity)
+        .collect::<HashSet<_>>();
+    character_edited_placements.retain(|key| {
+        virtual_parent_ids
+            .get(key)
+            .is_some_and(|parent_identity| live_attachment_parent_ids.contains(parent_identity))
+    });
 }
 
 fn trim_reflow_padding(
@@ -7160,6 +7842,321 @@ fn inline_image_axis_cells(value: Option<&str>, cell_pixels: u16) -> u16 {
         .unwrap_or(1)
 }
 
+fn inline_image_axis_pixels(value: Option<&str>, cell_pixels: u16) -> u32 {
+    let cell_pixels = u32::from(cell_pixels.max(1));
+    let Some(value) = value else {
+        return cell_pixels;
+    };
+    if let Some(pixels) = value.strip_suffix("px").and_then(parse_positive_u32) {
+        return pixels;
+    }
+    value
+        .parse::<u32>()
+        .ok()
+        .filter(|value| *value > 0)
+        .map_or(cell_pixels, |cells| cells.saturating_mul(cell_pixels))
+}
+
+fn inline_image_fragments(
+    image_index: usize,
+    image: &ItermInlineImage,
+) -> Option<Vec<InlineImageFragment>> {
+    let pixel_width = image.pixel_width?;
+    let pixel_height = image.pixel_height?;
+    let source_x = image.source_x.unwrap_or(0);
+    let source_y = image.source_y.unwrap_or(0);
+    let available_width = pixel_width.checked_sub(source_x)?;
+    let available_height = pixel_height.checked_sub(source_y)?;
+    let source_width = image
+        .source_width
+        .unwrap_or(available_width)
+        .min(available_width);
+    let source_height = image
+        .source_height
+        .unwrap_or(available_height)
+        .min(available_height);
+    if source_width == 0 || source_height == 0 {
+        return None;
+    }
+
+    let cell_width = u32::from(DEFAULT_INLINE_IMAGE_CELL_WIDTH_PIXELS);
+    let cell_height = u32::from(DEFAULT_INLINE_IMAGE_CELL_HEIGHT_PIXELS);
+    let destination_width = inline_image_axis_pixels(
+        image.width.as_deref(),
+        DEFAULT_INLINE_IMAGE_CELL_WIDTH_PIXELS,
+    );
+    let destination_height = inline_image_axis_pixels(
+        image.height.as_deref(),
+        DEFAULT_INLINE_IMAGE_CELL_HEIGHT_PIXELS,
+    );
+    if destination_width == 0 || destination_height == 0 {
+        return None;
+    }
+
+    let destination_left = u32::from(image.column)
+        .checked_mul(cell_width)?
+        .checked_add(image.target_x.unwrap_or(0))?;
+    let destination_top = u32::try_from(image.row)
+        .ok()?
+        .checked_mul(cell_height)?
+        .checked_add(image.target_y.unwrap_or(0))?;
+    let destination_right = destination_left.checked_add(destination_width)?;
+    let destination_bottom = destination_top.checked_add(destination_height)?;
+    let first_column = destination_left / cell_width;
+    let first_row = destination_top / cell_height;
+    let last_column = destination_right.checked_sub(1)? / cell_width;
+    let last_row = destination_bottom.checked_sub(1)? / cell_height;
+    let fragment_count = u64::from(last_column.checked_sub(first_column)?.saturating_add(1))
+        .saturating_mul(u64::from(
+            last_row.checked_sub(first_row)?.saturating_add(1),
+        ));
+    // A pathological protocol payload must not turn a renderer snapshot into
+    // an unbounded allocation. The original placement remains renderable.
+    if fragment_count == 0 || fragment_count > 1_000_000 {
+        return None;
+    }
+
+    let mut fragments = Vec::with_capacity(usize::try_from(fragment_count).ok()?);
+    for row in first_row..=last_row {
+        let cell_top = row.checked_mul(cell_height)?;
+        let fragment_top = destination_top.max(cell_top);
+        let fragment_bottom = destination_bottom.min(cell_top.checked_add(cell_height)?);
+        for column in first_column..=last_column {
+            let cell_left = column.checked_mul(cell_width)?;
+            let fragment_left = destination_left.max(cell_left);
+            let fragment_right = destination_right.min(cell_left.checked_add(cell_width)?);
+            let column = u16::try_from(column).ok()?;
+            let row = usize::try_from(row).ok()?;
+            let source_destination_x = fragment_left.checked_sub(destination_left)?;
+            let source_destination_y = fragment_top.checked_sub(destination_top)?;
+            let source_destination_right =
+                source_destination_x.checked_add(fragment_right.checked_sub(fragment_left)?)?;
+            let source_destination_bottom =
+                source_destination_y.checked_add(fragment_bottom.checked_sub(fragment_top)?)?;
+            let fragment_source_x = source_x.checked_add(
+                source_destination_x.saturating_mul(source_width) / destination_width,
+            )?;
+            let fragment_source_y = source_y.checked_add(
+                source_destination_y.saturating_mul(source_height) / destination_height,
+            )?;
+            let fragment_source_right = source_x.checked_add(
+                source_destination_right
+                    .saturating_mul(source_width)
+                    .saturating_add(destination_width - 1)
+                    / destination_width,
+            )?;
+            let fragment_source_bottom = source_y.checked_add(
+                source_destination_bottom
+                    .saturating_mul(source_height)
+                    .saturating_add(destination_height - 1)
+                    / destination_height,
+            )?;
+            fragments.push(InlineImageFragment {
+                image_index,
+                cell_attachment: false,
+                row,
+                column,
+                source_row: row,
+                source_column: column,
+                destination_x: fragment_left.checked_sub(cell_left)?,
+                destination_y: fragment_top.checked_sub(cell_top)?,
+                destination_width: fragment_right.checked_sub(fragment_left)?,
+                destination_height: fragment_bottom.checked_sub(fragment_top)?,
+                source_x: fragment_source_x,
+                source_y: fragment_source_y,
+                source_width: fragment_source_right.checked_sub(fragment_source_x)?,
+                source_height: fragment_source_bottom.checked_sub(fragment_source_y)?,
+                sampling_source_x: source_x,
+                sampling_source_y: source_y,
+                sampling_source_width: source_width,
+                sampling_source_height: source_height,
+                source_destination_x,
+                source_destination_y,
+                source_destination_width: destination_width,
+                source_destination_height: destination_height,
+                kitty_image_id: image.kitty_image_id,
+                kitty_placement_id: image.kitty_placement_id,
+                kitty_z_index: image.kitty_z_index,
+                image_format: image.image_format,
+            });
+        }
+    }
+    Some(fragments)
+}
+
+fn cell_attachments_for_image(
+    parent_identity: u64,
+    image: &ItermInlineImage,
+) -> Vec<CellAttachment> {
+    // A placement expressed only in pixels has no declared terminal-cell
+    // footprint. Keep that legacy case on the whole-image path; explicit cell
+    // dimensions are geometry-independent even when a target pixel offset is
+    // also present.
+    let Some((columns, rows)) = cell_attachment_dimensions(image) else {
+        return Vec::new();
+    };
+    let attachment_count = u64::from(columns).saturating_mul(u64::from(rows));
+
+    let mut attachments = Vec::with_capacity(usize::try_from(attachment_count).unwrap_or(0));
+    for source_row in 0..rows {
+        let Some(row) = image.row.checked_add(usize::from(source_row)) else {
+            return Vec::new();
+        };
+        for source_column in 0..columns {
+            let Some(column) = image.column.checked_add(source_column) else {
+                return Vec::new();
+            };
+            attachments.push(CellAttachment {
+                parent_identity,
+                source_row,
+                source_column,
+                row,
+                column,
+            });
+        }
+    }
+    attachments
+}
+
+fn cell_attachment_dimensions(image: &ItermInlineImage) -> Option<(u16, u16)> {
+    if image
+        .width
+        .as_deref()
+        .is_some_and(|value| value.ends_with("px"))
+        || image
+            .height
+            .as_deref()
+            .is_some_and(|value| value.ends_with("px"))
+    {
+        return None;
+    }
+    let columns = image
+        .width
+        .as_deref()
+        .and_then(parse_positive_u16)
+        .unwrap_or(1);
+    let rows = image
+        .height
+        .as_deref()
+        .and_then(parse_positive_u16)
+        .unwrap_or(1);
+    let attachment_count = u64::from(columns).saturating_mul(u64::from(rows));
+    (attachment_count > 0 && attachment_count <= 1_000_000).then_some((columns, rows))
+}
+
+fn inline_image_attachment_fragment(
+    image_index: usize,
+    image: &ItermInlineImage,
+    attachment: CellAttachment,
+) -> Option<InlineImageFragment> {
+    let (columns, rows) = cell_attachment_dimensions(image)?;
+    if attachment.source_column >= columns || attachment.source_row >= rows {
+        return None;
+    }
+    let cell_width = u32::from(DEFAULT_INLINE_IMAGE_CELL_WIDTH_PIXELS);
+    let cell_height = u32::from(DEFAULT_INLINE_IMAGE_CELL_HEIGHT_PIXELS);
+    let destination_width = u32::from(columns).checked_mul(cell_width)?;
+    let destination_height = u32::from(rows).checked_mul(cell_height)?;
+    let source_destination_x = u32::from(attachment.source_column).checked_mul(cell_width)?;
+    let source_destination_y = u32::from(attachment.source_row).checked_mul(cell_height)?;
+
+    // iTerm payload metadata often omits pixel dimensions.  Preserve the
+    // logical attachment so the renderer can resolve its source slab from the
+    // decoded PNG/JPEG/GIF dimensions at draw time.
+    if image.pixel_width.is_none() || image.pixel_height.is_none() {
+        return Some(InlineImageFragment {
+            image_index,
+            cell_attachment: true,
+            row: attachment.row,
+            column: attachment.column,
+            source_row: usize::from(attachment.source_row),
+            source_column: attachment.source_column,
+            destination_x: image.target_x.unwrap_or(0),
+            destination_y: image.target_y.unwrap_or(0),
+            destination_width: cell_width,
+            destination_height: cell_height,
+            source_x: 0,
+            source_y: 0,
+            source_width: 0,
+            source_height: 0,
+            sampling_source_x: 0,
+            sampling_source_y: 0,
+            sampling_source_width: 0,
+            sampling_source_height: 0,
+            source_destination_x,
+            source_destination_y,
+            source_destination_width: destination_width,
+            source_destination_height: destination_height,
+            kitty_image_id: image.kitty_image_id,
+            kitty_placement_id: image.kitty_placement_id,
+            kitty_z_index: image.kitty_z_index,
+            image_format: image.image_format,
+        });
+    }
+    let pixel_width = image.pixel_width?;
+    let pixel_height = image.pixel_height?;
+    let source_x = image.source_x.unwrap_or(0);
+    let source_y = image.source_y.unwrap_or(0);
+    let source_width = image
+        .source_width
+        .unwrap_or(pixel_width.checked_sub(source_x)?)
+        .min(pixel_width.checked_sub(source_x)?);
+    let source_height = image
+        .source_height
+        .unwrap_or(pixel_height.checked_sub(source_y)?)
+        .min(pixel_height.checked_sub(source_y)?);
+    if source_width == 0 || source_height == 0 {
+        return None;
+    }
+    let source_destination_right = source_destination_x.checked_add(cell_width)?;
+    let source_destination_bottom = source_destination_y.checked_add(cell_height)?;
+    let fragment_source_x = source_x
+        .checked_add(source_destination_x.saturating_mul(source_width) / destination_width)?;
+    let fragment_source_y = source_y
+        .checked_add(source_destination_y.saturating_mul(source_height) / destination_height)?;
+    let fragment_source_right = source_x.checked_add(
+        source_destination_right
+            .saturating_mul(source_width)
+            .saturating_add(destination_width - 1)
+            / destination_width,
+    )?;
+    let fragment_source_bottom = source_y.checked_add(
+        source_destination_bottom
+            .saturating_mul(source_height)
+            .saturating_add(destination_height - 1)
+            / destination_height,
+    )?;
+
+    Some(InlineImageFragment {
+        image_index,
+        cell_attachment: true,
+        row: attachment.row,
+        column: attachment.column,
+        source_row: usize::from(attachment.source_row),
+        source_column: attachment.source_column,
+        destination_x: image.target_x.unwrap_or(0),
+        destination_y: image.target_y.unwrap_or(0),
+        destination_width: cell_width,
+        destination_height: cell_height,
+        source_x: fragment_source_x,
+        source_y: fragment_source_y,
+        source_width: fragment_source_right.checked_sub(fragment_source_x)?,
+        source_height: fragment_source_bottom.checked_sub(fragment_source_y)?,
+        sampling_source_x: source_x,
+        sampling_source_y: source_y,
+        sampling_source_width: source_width,
+        sampling_source_height: source_height,
+        source_destination_x,
+        source_destination_y,
+        source_destination_width: destination_width,
+        source_destination_height: destination_height,
+        kitty_image_id: image.kitty_image_id,
+        kitty_placement_id: image.kitty_placement_id,
+        kitty_z_index: image.kitty_z_index,
+        image_format: image.image_format,
+    })
+}
+
 fn next_or_pending(next_index: Option<usize>) -> FeedAdvance {
     match next_index {
         Some(next_index) => FeedAdvance::Next(next_index),
@@ -7554,16 +8551,39 @@ fn non_empty_unicode_version_label(label: &str) -> Option<String> {
 
 fn rebase_image_and_placeholder_metadata(
     inline_images: &mut Vec<ItermInlineImage>,
+    inline_image_parent_ids: &mut Vec<u64>,
+    inline_image_attachments: &mut Vec<CellAttachment>,
     kitty_placeholder_cells: &mut HashMap<(usize, u16), LastKittyPlaceholder>,
     last_kitty_placeholder: &mut Option<LastKittyPlaceholder>,
     removed_rows: usize,
 ) {
-    *inline_images = inline_images
-        .iter()
-        .filter_map(|image| {
-            let mut image = image.clone();
-            image.row = image.row.checked_sub(removed_rows)?;
-            Some(image)
+    let images = std::mem::take(inline_images);
+    let mut parent_ids = std::mem::take(inline_image_parent_ids);
+    let missing_parent_id_start = parent_ids.len();
+    parent_ids.extend(
+        (missing_parent_id_start..images.len())
+            .map(|index| u64::MAX.saturating_sub(u64::try_from(index).unwrap_or(u64::MAX))),
+    );
+    let mut rebased_images = Vec::with_capacity(images.len());
+    let mut rebased_parent_ids = Vec::with_capacity(parent_ids.len());
+    for (mut image, parent_identity) in images.into_iter().zip(parent_ids) {
+        let Some(row) = image.row.checked_sub(removed_rows) else {
+            continue;
+        };
+        image.row = row;
+        rebased_images.push(image);
+        rebased_parent_ids.push(parent_identity);
+    }
+    let live_parent_ids = rebased_parent_ids.iter().copied().collect::<HashSet<_>>();
+    *inline_images = rebased_images;
+    *inline_image_parent_ids = rebased_parent_ids;
+    *inline_image_attachments = inline_image_attachments
+        .drain(..)
+        .filter_map(|mut attachment| {
+            attachment.row = attachment.row.checked_sub(removed_rows)?;
+            live_parent_ids
+                .contains(&attachment.parent_identity)
+                .then_some(attachment)
         })
         .collect();
     *kitty_placeholder_cells = kitty_placeholder_cells
@@ -7582,6 +8602,7 @@ fn rebase_image_and_placeholder_metadata(
 
 fn shift_image_and_placeholder_suffix_metadata(
     inline_images: &mut [ItermInlineImage],
+    inline_image_attachments: &mut [CellAttachment],
     kitty_placeholder_cells: &mut HashMap<(usize, u16), LastKittyPlaceholder>,
     last_kitty_placeholder: &mut Option<LastKittyPlaceholder>,
     suffix_start: usize,
@@ -7593,6 +8614,14 @@ fn shift_image_and_placeholder_suffix_metadata(
                 .row
                 .checked_add(rows)
                 .expect("inline image row overflow");
+        }
+    }
+    for attachment in inline_image_attachments {
+        if attachment.row >= suffix_start {
+            attachment.row = attachment
+                .row
+                .checked_add(rows)
+                .expect("inline image attachment row overflow");
         }
     }
     *kitty_placeholder_cells = kitty_placeholder_cells
@@ -7621,6 +8650,8 @@ fn shift_image_and_placeholder_suffix_metadata(
 #[cfg(test)]
 mod stable_row_tests {
     use super::*;
+
+    const HIGH_BYTE_KITTY_IMAGE_ID: u32 = 0x0200_001e;
 
     fn stable_coordinate(
         terminal: &Terminal,
@@ -7703,6 +8734,38 @@ mod stable_row_tests {
             placeholder_row: 0,
             placeholder_column: 0,
         }
+    }
+
+    fn attachment_test_image(
+        row: usize,
+        column: u16,
+        width: u16,
+        height: u16,
+        name: &str,
+    ) -> ItermInlineImage {
+        let mut image = metadata_test_image(row, name);
+        image.column = column;
+        image.width = Some(width.to_string());
+        image.height = Some(height.to_string());
+        image
+    }
+
+    fn attachment_locations(terminal: &Terminal) -> Vec<(u64, u16, u16, usize, u16)> {
+        let mut locations = terminal
+            .inline_image_attachments
+            .iter()
+            .map(|attachment| {
+                (
+                    attachment.parent_identity,
+                    attachment.source_row,
+                    attachment.source_column,
+                    attachment.row,
+                    attachment.column,
+                )
+            })
+            .collect::<Vec<_>>();
+        locations.sort_unstable();
+        locations
     }
 
     fn install_suffix_metadata(terminal: &mut Terminal, row: usize) {
@@ -8583,13 +9646,838 @@ mod stable_row_tests {
     }
 
     #[test]
+    fn terminal_horizontal_margin_cell_attachment_vertical_su_moves_only_bounded_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 4));
+        terminal.push_inline_image(attachment_test_image(2, 2, 2, 2, "inside"));
+        terminal.push_inline_image(attachment_test_image(2, 1, 2, 2, "crossing"));
+        terminal.push_inline_image(attachment_test_image(2, 0, 1, 2, "outside"));
+        terminal.push_inline_image(attachment_test_image(1, 2, 1, 1, "blanked"));
+
+        terminal.feed(b"\x1b[?69h\x1b[3;4s\x1b[2;4r\x1b[S");
+
+        assert_eq!(
+            attachment_locations(&terminal),
+            vec![
+                (1, 0, 0, 1, 2),
+                (1, 0, 1, 1, 3),
+                (1, 1, 0, 2, 2),
+                (1, 1, 1, 2, 3),
+                (2, 0, 0, 2, 1),
+                (2, 0, 1, 1, 2),
+                (2, 1, 0, 3, 1),
+                (2, 1, 1, 2, 2),
+                (3, 0, 0, 2, 0),
+                (3, 1, 0, 3, 0),
+            ]
+        );
+        assert_eq!(terminal.inline_images().len(), 4);
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_cell_attachment_vertical_sd_deletes_blanked_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 4));
+        terminal.push_inline_image(attachment_test_image(1, 2, 2, 2, "inside"));
+        terminal.push_inline_image(attachment_test_image(1, 1, 2, 2, "crossing"));
+        terminal.push_inline_image(attachment_test_image(1, 0, 1, 2, "outside"));
+        terminal.push_inline_image(attachment_test_image(3, 2, 1, 1, "blanked"));
+
+        terminal.feed(b"\x1b[?69h\x1b[3;4s\x1b[2;4r\x1b[T");
+
+        assert_eq!(
+            attachment_locations(&terminal),
+            vec![
+                (1, 0, 0, 2, 2),
+                (1, 0, 1, 2, 3),
+                (1, 1, 0, 3, 2),
+                (1, 1, 1, 3, 3),
+                (2, 0, 0, 1, 1),
+                (2, 0, 1, 2, 2),
+                (2, 1, 0, 2, 1),
+                (2, 1, 1, 3, 2),
+                (3, 0, 0, 1, 0),
+                (3, 1, 0, 2, 0),
+            ]
+        );
+        assert_eq!(terminal.inline_images().len(), 4);
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_cell_attachment_vertical_line_editing_uses_row_transform() {
+        let mut insert = Terminal::new(TerminalSize::new(6, 4));
+        insert.push_inline_image(attachment_test_image(1, 2, 1, 2, "insert"));
+        insert.push_inline_image(attachment_test_image(3, 2, 1, 1, "blanked"));
+        insert.feed(b"\x1b[?69h\x1b[3;4s\x1b[2;4r\x1b[2;3H\x1b[L");
+        assert_eq!(
+            attachment_locations(&insert),
+            vec![(1, 0, 0, 2, 2), (1, 1, 0, 3, 2)]
+        );
+
+        let mut delete = Terminal::new(TerminalSize::new(6, 4));
+        delete.push_inline_image(attachment_test_image(2, 2, 1, 2, "delete"));
+        delete.push_inline_image(attachment_test_image(1, 2, 1, 1, "blanked"));
+        delete.feed(b"\x1b[?69h\x1b[3;4s\x1b[2;4r\x1b[2;3H\x1b[M");
+        assert_eq!(
+            attachment_locations(&delete),
+            vec![(1, 0, 0, 1, 2), (1, 1, 0, 2, 2)]
+        );
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_ich_moves_attachment_cells_and_blanks_the_clipped_suffix() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        // The first image crosses the left LR edge. ICH must leave that
+        // exterior cell in place while moving its first in-margin source cell
+        // and discarding the source cell that falls into the clipped suffix.
+        terminal.push_inline_image(attachment_test_image(0, 1, 3, 1, "crossing"));
+        terminal.push_inline_image(attachment_test_image(0, 4, 1, 1, "blanked"));
+
+        terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;2r\x1b[1;3H\x1b[2@");
+
+        assert_eq!(
+            attachment_locations(&terminal),
+            vec![(1, 0, 0, 0, 1), (1, 0, 1, 0, 4)]
+        );
+        assert_eq!(terminal.inline_images().len(), 2);
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_dch_moves_attachment_cells_outside_tb_and_blanks_sources() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        // DCH is LR-gated, not TB-gated. Its source cells at and after the
+        // cursor map left, while the LR-exterior cell remains unchanged.
+        terminal.push_inline_image(attachment_test_image(0, 1, 3, 1, "crossing"));
+        terminal.push_inline_image(attachment_test_image(0, 4, 1, 1, "moved"));
+
+        terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[2;2r\x1b[1;3H\x1b[2P");
+
+        assert_eq!(
+            attachment_locations(&terminal),
+            vec![(1, 0, 0, 0, 1), (2, 0, 0, 0, 2)]
+        );
+        assert_eq!(terminal.inline_images().len(), 2);
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_character_attachment_edits_clip_counts_and_obey_their_gates() {
+        let mut ich_clipped = Terminal::new(TerminalSize::new(6, 3));
+        ich_clipped.push_inline_image(attachment_test_image(0, 1, 4, 1, "crossing"));
+        ich_clipped.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;3r\x1b[1;3H\x1b[99@");
+        assert_eq!(attachment_locations(&ich_clipped), vec![(1, 0, 0, 0, 1)]);
+
+        let mut dch_clipped = Terminal::new(TerminalSize::new(6, 3));
+        dch_clipped.push_inline_image(attachment_test_image(0, 1, 4, 1, "crossing"));
+        dch_clipped.feed(b"\x1b[?69h\x1b[3;5s\x1b[2;3r\x1b[1;3H\x1b[99P");
+        assert_eq!(attachment_locations(&dch_clipped), vec![(1, 0, 0, 0, 1)]);
+
+        let mut ich_outside_tb = Terminal::new(TerminalSize::new(6, 3));
+        ich_outside_tb.push_inline_image(attachment_test_image(0, 2, 1, 1, "inside"));
+        ich_outside_tb.feed(b"\x1b[?69h\x1b[3;5s\x1b[2;3r\x1b[1;3H\x1b[@");
+        assert_eq!(attachment_locations(&ich_outside_tb), vec![(1, 0, 0, 0, 2)]);
+
+        let mut dch_outside_lr = Terminal::new(TerminalSize::new(6, 3));
+        dch_outside_lr.push_inline_image(attachment_test_image(0, 2, 1, 1, "inside"));
+        dch_outside_lr.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;3r\x1b[1;1H\x1b[P");
+        assert_eq!(attachment_locations(&dch_outside_lr), vec![(1, 0, 0, 0, 2)]);
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_dch_moves_high_byte_kitty_placeholder_state_with_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+        terminal.feed(b"\x1b_Ga=t,i=33554462,f=24,s=1,v=1;/wAA\x1b\\");
+        terminal.take_kitty_graphics_responses();
+
+        let mut image = attachment_test_image(0, 2, 2, 1, "kitty");
+        image.kitty_image_id = Some(HIGH_BYTE_KITTY_IMAGE_ID);
+        image.kitty_placement_id = Some(4);
+        terminal.push_inline_image(image);
+        terminal.kitty_virtual_placements.insert(
+            (HIGH_BYTE_KITTY_IMAGE_ID, 4),
+            KittyVirtualPlacement {
+                image_id: HIGH_BYTE_KITTY_IMAGE_ID,
+                placement_id: Some(4),
+                z_index: None,
+                display_columns: Some(2),
+                display_rows: Some(1),
+                source_rect: KittySourceRect::default(),
+                target_x: None,
+                target_y: None,
+            },
+        );
+        let placeholder = LastKittyPlaceholder {
+            row: 0,
+            column: 3,
+            foreground: Color::Rgb(0, 0, 30),
+            underline_color: Color::Rgb(0, 0, 4),
+            image_id_high_byte: 2,
+            placeholder_row: 0,
+            placeholder_column: 0,
+        };
+        terminal.kitty_placeholder_cells.insert((0, 3), placeholder);
+        terminal.last_kitty_placeholder = Some(placeholder);
+        terminal.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
+            row: 0,
+            column: 3,
+            foreground: placeholder.foreground,
+            underline_color: placeholder.underline_color,
+            image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
+            placement_id: Some(4),
+            diacritics: Vec::new(),
+            rendered_row: Some(0),
+            rendered_column: Some(3),
+            rendered_image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
+            rendered_placement_id: Some(4),
+        });
+
+        terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;3r\x1b[1;3H\x1b[P");
+
+        assert_eq!(terminal.inline_images.len(), 1);
+        assert_eq!(attachment_locations(&terminal), vec![(1, 0, 1, 0, 2)]);
+        assert_eq!(
+            terminal
+                .kitty_placeholder_cells
+                .get(&(0, 2))
+                .map(|placeholder| (
+                    placeholder.row,
+                    placeholder.column,
+                    placeholder.image_id_high_byte,
+                )),
+            Some((0, 2, 2))
+        );
+        assert_eq!(
+            terminal
+                .last_kitty_placeholder
+                .map(|placeholder| (placeholder.row, placeholder.column)),
+            Some((0, 2))
+        );
+        // CSI starts a new escape sequence, so the parser commits a pending
+        // placeholder before applying DCH. Its committed cache above is what
+        // must move with the text cells.
+        assert!(terminal.pending_kitty_placeholder.is_none());
+        assert!(
+            terminal
+                .kitty_images
+                .contains_key(&HIGH_BYTE_KITTY_IMAGE_ID)
+        );
+    }
+
+    #[test]
+    fn terminal_character_edit_transform_moves_pending_kitty_placeholder_and_render_origin() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+        terminal.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
+            row: 1,
+            column: 3,
+            foreground: Color::Rgb(0, 0, 30),
+            underline_color: Color::Rgb(0, 0, 4),
+            image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
+            placement_id: Some(4),
+            diacritics: Vec::new(),
+            rendered_row: Some(1),
+            rendered_column: Some(3),
+            rendered_image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
+            rendered_placement_id: Some(4),
+        });
+
+        terminal.transform_kitty_placeholder_state_for_character_edit(
+            CellTransform::DeleteCharacters {
+                row: 1,
+                column: 2,
+                count: 1,
+                right: 4,
+            },
+        );
+
+        assert_eq!(
+            terminal
+                .pending_kitty_placeholder
+                .as_ref()
+                .map(|placeholder| (
+                    placeholder.row,
+                    placeholder.column,
+                    placeholder.rendered_row,
+                    placeholder.rendered_column,
+                    placeholder.rendered_image_id,
+                    placeholder.rendered_placement_id,
+                )),
+            Some((
+                1,
+                2,
+                Some(1),
+                Some(2),
+                Some(HIGH_BYTE_KITTY_IMAGE_ID),
+                Some(4),
+            ))
+        );
+    }
+
+    #[test]
+    fn terminal_character_edit_transform_drops_blanked_high_byte_kitty_placeholder_state() {
+        for (transform, source_column, exterior_column) in [
+            (
+                CellTransform::DeleteCharacters {
+                    row: 1,
+                    column: 2,
+                    count: 1,
+                    right: 4,
+                },
+                2,
+                5,
+            ),
+            (
+                CellTransform::InsertCharacters {
+                    row: 1,
+                    column: 2,
+                    count: 1,
+                    right: 4,
+                },
+                4,
+                5,
+            ),
+        ] {
+            let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+            let source = LastKittyPlaceholder {
+                row: 1,
+                column: source_column,
+                foreground: Color::Rgb(0, 0, 30),
+                underline_color: Color::Rgb(0, 0, 4),
+                image_id_high_byte: 2,
+                placeholder_row: 0,
+                placeholder_column: 0,
+            };
+            let exterior = LastKittyPlaceholder {
+                column: exterior_column,
+                ..source
+            };
+            terminal
+                .kitty_placeholder_cells
+                .insert((1, source_column), source);
+            terminal
+                .kitty_placeholder_cells
+                .insert((1, exterior_column), exterior);
+            terminal.last_kitty_placeholder = Some(source);
+            terminal.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
+                row: 1,
+                column: source_column,
+                foreground: source.foreground,
+                underline_color: source.underline_color,
+                image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
+                placement_id: Some(4),
+                diacritics: Vec::new(),
+                rendered_row: Some(1),
+                rendered_column: Some(source_column),
+                rendered_image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
+                rendered_placement_id: Some(4),
+            });
+
+            terminal.transform_kitty_placeholder_state_for_character_edit(transform);
+
+            assert!(
+                !terminal
+                    .kitty_placeholder_cells
+                    .contains_key(&(1, source_column)),
+                "transform={transform:?}"
+            );
+            assert_eq!(
+                terminal
+                    .kitty_placeholder_cells
+                    .get(&(1, exterior_column))
+                    .map(|placeholder| (
+                        placeholder.row,
+                        placeholder.column,
+                        placeholder.image_id_high_byte,
+                    )),
+                Some((1, exterior_column, 2)),
+                "transform={transform:?}"
+            );
+            assert!(
+                terminal.last_kitty_placeholder.is_none(),
+                "transform={transform:?}"
+            );
+            assert!(
+                terminal.pending_kitty_placeholder.is_none(),
+                "transform={transform:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_dch_commits_then_drops_pending_high_byte_placeholder_at_cursor() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+        terminal.kitty_images.insert(
+            HIGH_BYTE_KITTY_IMAGE_ID,
+            StoredKittyImage {
+                image_format: InlineImageFormat::Rgb,
+                pixel_width: Some(1),
+                pixel_height: Some(1),
+                display_columns: Some(2),
+                display_rows: Some(1),
+                data: vec![0xff, 0, 0],
+            },
+        );
+        terminal.kitty_virtual_placements.insert(
+            (HIGH_BYTE_KITTY_IMAGE_ID, 4),
+            KittyVirtualPlacement {
+                image_id: HIGH_BYTE_KITTY_IMAGE_ID,
+                placement_id: Some(4),
+                z_index: None,
+                display_columns: Some(2),
+                display_rows: Some(1),
+                source_rect: KittySourceRect::default(),
+                target_x: None,
+                target_y: None,
+            },
+        );
+        let left = LastKittyPlaceholder {
+            row: 0,
+            column: 1,
+            foreground: Color::Rgb(0, 0, 30),
+            underline_color: Color::Rgb(0, 0, 4),
+            image_id_high_byte: 2,
+            placeholder_row: 0,
+            placeholder_column: 0,
+        };
+        terminal.kitty_placeholder_cells.insert((0, 1), left);
+        terminal.last_kitty_placeholder = Some(left);
+        terminal.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
+            row: 0,
+            column: 2,
+            foreground: left.foreground,
+            underline_color: left.underline_color,
+            image_id: Some(HIGH_BYTE_KITTY_IMAGE_ID),
+            placement_id: Some(4),
+            diacritics: Vec::new(),
+            rendered_row: None,
+            rendered_column: None,
+            rendered_image_id: None,
+            rendered_placement_id: None,
+        });
+        terminal.modes.left_right_margin_mode = true;
+        terminal.left_margin = 2;
+        terminal.right_margin = 4;
+        terminal.cursor_row = 0;
+        terminal.cursor_column = 2;
+
+        terminal.feed(b"\x1b[P");
+
+        assert!(terminal.pending_kitty_placeholder.is_none());
+        assert!(terminal.last_kitty_placeholder.is_none());
+        assert!(
+            !terminal.kitty_placeholder_cells.contains_key(&(0, 2)),
+            "the placeholder committed at the DCH cursor is blanked"
+        );
+        assert_eq!(
+            terminal
+                .kitty_placeholder_cells
+                .get(&(0, 1))
+                .map(|placeholder| (
+                    placeholder.row,
+                    placeholder.column,
+                    placeholder.image_id_high_byte,
+                )),
+            Some((0, 1, 2)),
+            "the exterior left cell is outside the LR edit"
+        );
+        assert!(
+            terminal
+                .kitty_images
+                .contains_key(&HIGH_BYTE_KITTY_IMAGE_ID)
+        );
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_ich_moves_kitty_cache_without_retiring_relative_attachments() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+        let mut parent = attachment_test_image(0, 2, 2, 1, "parent");
+        parent.kitty_image_id = Some(30);
+        parent.kitty_placement_id = Some(4);
+        terminal.push_inline_image(parent);
+        let mut child = attachment_test_image(0, 2, 1, 1, "child");
+        child.kitty_image_id = Some(7);
+        child.kitty_placement_id = Some(2);
+        terminal.push_inline_image(child);
+        terminal.kitty_relative_parents.insert((7, 2), (30, 4));
+        terminal.kitty_virtual_placements.insert(
+            (30, 4),
+            KittyVirtualPlacement {
+                image_id: 30,
+                placement_id: Some(4),
+                z_index: None,
+                display_columns: Some(2),
+                display_rows: Some(1),
+                source_rect: KittySourceRect::default(),
+                target_x: None,
+                target_y: None,
+            },
+        );
+        let placeholder = LastKittyPlaceholder {
+            row: 0,
+            column: 2,
+            foreground: Color::Rgb(0, 0, 30),
+            underline_color: Color::Rgb(0, 0, 4),
+            image_id_high_byte: 0,
+            placeholder_row: 0,
+            placeholder_column: 0,
+        };
+        terminal.kitty_placeholder_cells.insert((0, 2), placeholder);
+        terminal.last_kitty_placeholder = Some(placeholder);
+
+        terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;3r\x1b[1;3H\x1b[@");
+
+        assert_eq!(terminal.inline_images.len(), 2);
+        assert_eq!(
+            attachment_locations(&terminal),
+            vec![(1, 0, 0, 0, 3), (1, 0, 1, 0, 4), (2, 0, 0, 0, 3)]
+        );
+        assert_eq!(terminal.kitty_relative_parents.get(&(7, 2)), Some(&(30, 4)));
+        assert_eq!(
+            terminal
+                .kitty_placeholder_cells
+                .get(&(0, 3))
+                .map(|placeholder| (placeholder.row, placeholder.column)),
+            Some((0, 3))
+        );
+        assert_eq!(
+            terminal
+                .last_kitty_placeholder
+                .map(|placeholder| (placeholder.row, placeholder.column)),
+            Some((0, 3))
+        );
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_irm_keeps_legacy_graphics_retirement_path() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+        terminal.push_inline_image(attachment_test_image(0, 2, 1, 1, "insert-mode"));
+
+        terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;3r\x1b[1;3H\x1b[4hX\x1b[4l");
+
+        assert!(terminal.inline_images.is_empty());
+        assert!(terminal.inline_image_attachments.is_empty());
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_character_edit_cache_invalidation_without_offset_keeps_damage_local()
+     {
+        for command in [b"\x1b[@".as_slice(), b"\x1b[P"] {
+            let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+            let placeholder = LastKittyPlaceholder {
+                row: 0,
+                column: 2,
+                foreground: Color::Default,
+                underline_color: Color::Default,
+                image_id_high_byte: 0,
+                placeholder_row: 0,
+                placeholder_column: 0,
+            };
+            terminal.kitty_placeholder_cells.insert((0, 2), placeholder);
+            terminal.last_kitty_placeholder = Some(placeholder);
+            terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;3r\x1b[1;3H");
+            terminal.take_damage();
+
+            terminal.feed(command);
+
+            assert_eq!(
+                terminal.take_damage(),
+                vec![DamageRegion::new(2, 0, 3, 1)],
+                "command={command:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_character_edit_with_offset_attachment_invalidates_viewport() {
+        for command in [b"\x1b[@".as_slice(), b"\x1b[P"] {
+            let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+            let mut image = attachment_test_image(0, 2, 1, 1, "offset");
+            image.target_x = Some(1);
+            terminal.push_inline_image(image);
+            terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;3r\x1b[1;3H");
+            terminal.take_damage();
+
+            terminal.feed(command);
+
+            assert_eq!(
+                terminal.take_damage(),
+                vec![DamageRegion::new(2, 0, 3, 1), DamageRegion::new(0, 0, 6, 3),],
+                "command={command:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_ich_uses_attachment_origin_for_virtual_parent_with_offset_and_history()
+     {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        terminal.feed(b"one\r\ntwo\r\nthree");
+        let row = terminal.scrollback.len();
+        let mut parent = attachment_test_image(row, 2, 2, 1, "parent");
+        parent.kitty_image_id = Some(30);
+        parent.kitty_placement_id = Some(4);
+        parent.target_x = Some(7);
+        terminal.push_inline_image(parent);
+        terminal.kitty_virtual_placements.insert(
+            (30, 4),
+            KittyVirtualPlacement {
+                image_id: 30,
+                placement_id: Some(4),
+                z_index: None,
+                display_columns: Some(2),
+                display_rows: Some(1),
+                source_rect: KittySourceRect::default(),
+                target_x: Some(7),
+                target_y: None,
+            },
+        );
+        let placeholder = LastKittyPlaceholder {
+            row,
+            column: 2,
+            foreground: Color::Rgb(0, 0, 30),
+            underline_color: Color::Rgb(0, 0, 4),
+            image_id_high_byte: 0,
+            placeholder_row: 0,
+            placeholder_column: 0,
+        };
+        terminal
+            .kitty_placeholder_cells
+            .insert((row, 2), placeholder);
+
+        terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;2r\x1b[1;3H\x1b[@");
+
+        assert_eq!(terminal.kitty_relative_parent_origin(30, 4), Some((row, 3)));
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_ich_prefers_live_virtual_parent_attachments_over_right_cache() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=30,p=4,f=24,s=1,v=1,c=2,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b[1;3H\x1b[38;5;30m\x1b[58;5;4m");
+        terminal.feed("\u{10eeee}\u{0305}\u{0305}".as_bytes());
+        let residual_right_cache = *terminal
+            .kitty_placeholder_cells
+            .get(&(0, 2))
+            .expect("virtual parent cache");
+        // This models a source-cell cache that lies outside the LR edit but
+        // still names the same virtual placement. The physical parent spans
+        // cells 2..=3 and is transformed by ICH.
+        terminal
+            .kitty_placeholder_cells
+            .insert((0, 4), residual_right_cache);
+
+        terminal.feed(b"\x1b[?69h\x1b[3;4s\x1b[1;2r\x1b[1;3H\x1b[@");
+        assert!(terminal.kitty_placeholder_cells.contains_key(&(0, 3)));
+        assert!(
+            terminal.kitty_placeholder_cells.contains_key(&(0, 4)),
+            "the cache exterior to the LR edit remains in its terminal cell"
+        );
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=0,c=1,r=1\x1b\\");
+
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=2;OK\x1b\\".to_vec()]
+        );
+        assert!(terminal.inline_images.iter().any(|image| {
+            image.kitty_image_id == Some(7)
+                && image.kitty_placement_id == Some(2)
+                && image.row == 0
+                && image.column == 3
+        }));
+    }
+
+    #[test]
+    fn terminal_same_size_resize_retains_character_edit_origin_for_virtual_parent() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=30,p=4,f=24,s=1,v=1,c=2,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b[1;3H\x1b[38;5;30m\x1b[58;5;4m");
+        terminal.feed("\u{10eeee}\u{0305}\u{0305}".as_bytes());
+        let residual_right_cache = *terminal
+            .kitty_placeholder_cells
+            .get(&(0, 2))
+            .expect("virtual parent cache");
+        terminal
+            .kitty_placeholder_cells
+            .insert((0, 4), residual_right_cache);
+
+        terminal.feed(b"\x1b[?69h\x1b[3;4s\x1b[1;2r\x1b[1;3H\x1b[@");
+        terminal.resize(TerminalSize::new(8, 2));
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=0,c=1,r=1\x1b\\");
+
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=2;OK\x1b\\".to_vec()]
+        );
+        assert!(terminal.inline_images.iter().any(|image| {
+            image.kitty_image_id == Some(7)
+                && image.kitty_placement_id == Some(2)
+                && image.row == 0
+                && image.column == 3
+        }));
+    }
+
+    #[test]
+    fn terminal_alt_virtual_delete_discards_dormant_character_edit_marker() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=30,p=4,f=24,s=1,v=1,c=2,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b[1;3H\x1b[38;5;30m\x1b[58;5;4m");
+        terminal.feed("\u{10eeee}\u{0305}\u{0305}".as_bytes());
+        let residual_right_cache = *terminal
+            .kitty_placeholder_cells
+            .get(&(0, 2))
+            .expect("virtual parent cache");
+        terminal
+            .kitty_placeholder_cells
+            .insert((0, 4), residual_right_cache);
+        terminal.feed(b"\x1b[?69h\x1b[3;4s\x1b[1;2r\x1b[1;3H\x1b[@");
+
+        terminal.feed(b"\x1b[?1049h");
+        terminal.feed(b"\x1b_Ga=d,d=i,i=30,p=4\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,U=1,i=30,p=4,c=2,r=1\x1b\\");
+        terminal.feed(b"\x1b[?1049l");
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=0,c=1,r=1\x1b\\");
+
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![
+                b"\x1b_Gi=30,p=4;OK\x1b\\".to_vec(),
+                b"\x1b_Gi=7,p=2;OK\x1b\\".to_vec(),
+            ]
+        );
+        assert!(terminal.inline_images.iter().any(|image| {
+            image.kitty_image_id == Some(7)
+                && image.kitty_placement_id == Some(2)
+                && image.row == 0
+                && image.column == 3
+        }));
+    }
+
+    #[test]
+    fn terminal_discards_character_edit_marker_when_virtual_parent_attachments_are_invalidated() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        let mut parent = attachment_test_image(0, 2, 1, 1, "parent");
+        parent.kitty_image_id = Some(30);
+        parent.kitty_placement_id = Some(4);
+        terminal.push_inline_image(parent);
+        terminal.kitty_virtual_placements.insert(
+            (30, 4),
+            KittyVirtualPlacement {
+                image_id: 30,
+                placement_id: Some(4),
+                z_index: None,
+                display_columns: Some(1),
+                display_rows: Some(1),
+                source_rect: KittySourceRect::default(),
+                target_x: None,
+                target_y: None,
+            },
+        );
+        terminal.kitty_character_edited_placements.insert((30, 4));
+
+        terminal.inline_image_attachments.clear();
+        terminal.retain_kitty_character_edited_placements();
+
+        assert!(terminal.kitty_character_edited_placements.is_empty());
+    }
+
+    #[test]
+    fn terminal_discards_character_edit_marker_when_virtual_parent_is_deleted() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+        let mut parent = attachment_test_image(0, 2, 1, 1, "parent");
+        parent.kitty_image_id = Some(30);
+        parent.kitty_placement_id = Some(4);
+        terminal.push_inline_image(parent);
+        terminal.kitty_virtual_placements.insert(
+            (30, 4),
+            KittyVirtualPlacement {
+                image_id: 30,
+                placement_id: Some(4),
+                z_index: None,
+                display_columns: Some(1),
+                display_rows: Some(1),
+                source_rect: KittySourceRect::default(),
+                target_x: None,
+                target_y: None,
+            },
+        );
+        terminal.kitty_character_edited_placements.insert((30, 4));
+
+        terminal.delete_kitty_placements_by_image_id(30, Some(4), false);
+
+        assert!(terminal.kitty_character_edited_placements.is_empty());
+    }
+
+    #[test]
+    fn terminal_discards_character_edit_markers_when_resized() {
+        for size in [TerminalSize::new(8, 2), TerminalSize::new(6, 3)] {
+            let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+            terminal.kitty_character_edited_placements.insert((30, 4));
+
+            terminal.resize(size);
+
+            assert!(
+                terminal.kitty_character_edited_placements.is_empty(),
+                "size={size:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_cell_attachment_vertical_line_controls_follow_bounded_scrolls() {
+        for control in [b"\n".as_slice(), b"\x1bD", b"\x1bE"] {
+            let mut terminal = Terminal::new(TerminalSize::new(6, 4));
+            terminal.push_inline_image(attachment_test_image(2, 2, 1, 2, "up"));
+            terminal.push_inline_image(attachment_test_image(1, 2, 1, 1, "blanked"));
+            terminal.feed(b"\x1b[?69h\x1b[3;4s\x1b[2;4r\x1b[4;3H");
+            terminal.feed(control);
+            assert_eq!(
+                attachment_locations(&terminal),
+                vec![(1, 0, 0, 1, 2), (1, 1, 0, 2, 2)],
+                "control={control:?}"
+            );
+        }
+
+        let mut terminal = Terminal::new(TerminalSize::new(6, 4));
+        terminal.push_inline_image(attachment_test_image(1, 2, 1, 2, "down"));
+        terminal.push_inline_image(attachment_test_image(3, 2, 1, 1, "blanked"));
+        terminal.feed(b"\x1b[?69h\x1b[3;4s\x1b[2;4r\x1b[2;3H\x1bM");
+        assert_eq!(
+            attachment_locations(&terminal),
+            vec![(1, 0, 0, 2, 2), (1, 1, 0, 3, 2)]
+        );
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_cell_attachment_vertical_keeps_kitty_storage() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 4));
+        terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b[3;3H\x1b_Ga=p,i=30,p=4,c=2,r=2\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        assert_eq!(terminal.inline_image_attachments().len(), 4);
+
+        terminal.feed(b"\x1b[?69h\x1b[3;4s\x1b[2;4r\x1b[2S");
+
+        assert_eq!(terminal.inline_image_attachments().len(), 2);
+        terminal.feed(b"\x1b_Ga=p,i=30,p=5,c=1,r=1\x1b\\");
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=30,p=5;OK\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
     fn terminal_horizontal_margin_su_retires_only_intersecting_graphics_metadata() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 4));
         terminal.feed(b"abcdefgh\r\nijklmnop\r\nqrstuvwx\r\nyz012345");
         let mut outside = metadata_test_image(1, "outside");
         outside.column = 0;
+        outside.width = Some("1px".to_owned());
         let mut intersecting = metadata_test_image(1, "intersecting");
         intersecting.column = 3;
+        intersecting.width = Some("1px".to_owned());
         terminal.inline_images.extend([outside, intersecting]);
         let outside_placeholder = metadata_test_placeholder(1);
         let mut intersecting_placeholder = metadata_test_placeholder(1);
@@ -8618,12 +10506,13 @@ mod stable_row_tests {
         let mut terminal = Terminal::new(TerminalSize::new(8, 4));
         terminal.feed(b"abcdefgh\r\nijklmnop\r\nqrstuvwx\r\nyz012345");
         let mut parent = metadata_test_image(1, "parent");
-        parent.column = 1;
-        parent.width = Some("4".to_owned());
+        parent.column = 3;
+        parent.width = Some("1px".to_owned());
         parent.kitty_image_id = Some(30);
         parent.kitty_placement_id = Some(4);
         let mut child = metadata_test_image(2, "child");
         child.column = 0;
+        child.width = Some("1px".to_owned());
         child.kitty_image_id = Some(7);
         child.kitty_placement_id = Some(2);
         terminal.inline_images.extend([parent, child]);
@@ -8647,16 +10536,18 @@ mod stable_row_tests {
         let mut terminal = Terminal::new(TerminalSize::new(8, 4));
         terminal.feed(b"abcdefgh\r\nijklmnop\r\nqrstuvwx\r\nyz012345");
         let mut parent = metadata_test_image(1, "parent");
-        parent.column = 1;
-        parent.width = Some("4".to_owned());
+        parent.column = 3;
+        parent.width = Some("1px".to_owned());
         parent.kitty_image_id = Some(30);
         parent.kitty_placement_id = Some(4);
         let mut orphaned_child = metadata_test_image(2, "orphaned-child");
         orphaned_child.column = 0;
+        orphaned_child.width = Some("1px".to_owned());
         orphaned_child.kitty_image_id = Some(7);
         orphaned_child.kitty_placement_id = Some(2);
         let mut unrelated = metadata_test_image(0, "unrelated");
         unrelated.column = 0;
+        unrelated.width = Some("1px".to_owned());
         unrelated.kitty_image_id = Some(99);
         unrelated.kitty_placement_id = Some(1);
         terminal

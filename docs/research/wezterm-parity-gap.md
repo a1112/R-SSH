@@ -4179,9 +4179,18 @@ what remains before WezTerm-style parity in key UX/composition areas.
 - Completed after v1: cell-level `DECLRMM`/`DECSLRM` bounded-margin behavior
   covers `SU`/`SD`, LF/IND/NEL/RI, `IL`/`DL`, `ICH`/`DCH`, in-margin right-edge
   print/insert/auto-wrap, and physical-edge `ECH`. It preserves exterior cells
-  and avoids partial-width history/stable-row churn. Intersecting graphics
-  placements and Kitty caches are conservatively retired with viewport damage;
-  exact graphics-coordinate mapping remains a separate parity gap.
+  and avoids partial-width history/stable-row churn. Declared-cell graphics
+  persist `CellAttachment` state, so bounded transforms move/delete attachments
+  with text cells, leave exterior cells unchanged, and can split a graphic at
+  an LR boundary. Runtime rendering resolves the attachments at active geometry.
+  Character edits transform `kitty_placeholder_cells`,
+  `last_kitty_placeholder`, and `pending_kitty_placeholder` with their rendered
+  coordinates, high-byte identities, and relative-placement semantics, without
+  changing stored payloads or explicit-delete behavior; malformed or
+  footprint-less placements retain conservative retirement. A per-placement
+  origin marker is limited to live-attachment versus residual virtual-cache
+  conflicts and is retired with the placement across resize/rebase,
+  alternate-screen, and delete lifecycles.
 - This bounded work does not claim complete selection parity, full App Shell
   v2, or general WezTerm parity. Inactive-pane hover-wheel routing without
   focus transfer, richer
@@ -4435,10 +4444,12 @@ retirement.
 
 Cell-level horizontal bounded-margin scrolling is complete: `SU`/`SD`, line
 editing/control scrolling, bounded character edits, and in-margin right-edge
-writing preserve exterior cells. Intersecting graphics placements use
-conservative retirement with viewport damage rather than coordinate-aware
-translation, so exact graphics-coordinate mapping remains a separate terminal
-parity gap. Beyond it, parity backlog remains inactive-pane hover-wheel routing
+writing preserve exterior cells. Declared-cell graphics have persistent
+`CellAttachment` state, so these bounded transforms move/delete their covered
+cells while leaving exterior cells unchanged and allowing an LR-boundary split.
+Malformed or footprint-less placements retain conservative retirement. This
+does not claim general graphics-coordinate, renderer, or protocol parity.
+Beyond it, parity backlog remains inactive-pane hover-wheel routing
 without focus transfer, richer pane focus visuals, arbitrary Lua callbacks
 including full arbitrary-Lua/custom tab-formatting parity, external CLI title
 control, and a real mux/window registry with domain, protocol, and renderer

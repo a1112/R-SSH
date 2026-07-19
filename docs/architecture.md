@@ -268,9 +268,19 @@ keyboard, mouse, paste, resize
   cover `SU`/`SD`, LF/IND/NEL/RI, `IL`/`DL`, `ICH`/`DCH`, right-edge printing,
   insert mode, and auto-wrap while preserving exterior cells and avoiding
   partial-width history/stable-row churn. `ECH` remains physical-right-edge
-  erase. Bounded graphics edits conservatively retire every intersecting
-  placement/cache and damage the viewport; this is not exact graphics-coordinate
-  mapping, which remains a separate parity gap.
+  erase. Declared-cell inline-image placements now persist one
+  `CellAttachment` per covered cell; bounded transforms move or delete those
+  attachments with the corresponding cells, so images can split at an LR
+  boundary while exterior cells remain unchanged. The renderer resolves the
+  attachments at runtime geometry. Character edits transform
+  `kitty_placeholder_cells`, `last_kitty_placeholder`, and
+  `pending_kitty_placeholder` with their rendered coordinates, including
+  relative and high-byte identities, without changing stored payloads or
+  explicit-delete semantics. A malformed or footprint-less placement retains
+  the conservative retirement fallback. A
+  narrow per-placement marker selects the live attachment origin only when it
+  conflicts with residual virtual-cache state; resize, rebase, alternate-screen,
+  and delete lifecycle paths retire that marker with its placement.
 - This bounded work does not claim full selection parity, full App Shell v2,
   or general WezTerm parity. Inactive-pane hover-wheel routing without focus
   transfer, richer
@@ -1300,9 +1310,12 @@ keyboard, mouse, paste, resize
   metadata retirement.
 - Cell-level horizontal bounded-margin scrolling is complete: `SU`/`SD`, line
    editing/control scrolling, bounded character edits, and in-margin
-   right-edge writing preserve exterior cells. Intersecting graphics placements
-   use conservative retirement rather than coordinate-aware translation, so
-   exact graphics-coordinate mapping remains a separate terminal parity gap.
+   right-edge writing preserve exterior cells. Declared-cell graphics use
+   persistent `CellAttachment` state, so the same bounded transforms move or
+   delete only their covered cells and may split a graphic at an LR boundary;
+   malformed or footprint-less placements retain conservative retirement.
+   This bounded behavior is not a claim of general graphics, renderer, or
+   protocol parity.
    Subsequent backlog includes inactive-pane hover-wheel routing without focus
    transfer, richer pane focus visuals and split-drag affordances, arbitrary Lua
    callbacks including full arbitrary-Lua/custom tab-formatting parity, external

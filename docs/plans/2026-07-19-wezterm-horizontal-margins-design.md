@@ -27,15 +27,16 @@ This slice now covers the complete core operation set sharing that state:
   stable-row identity, wide cells, and image/Kitty placement metadata remain
   safe.
 
-It deliberately does not claim arbitrary graphics re-layout or exact graphical
-coordinate mapping. A bounded cell operation retires every inline-image or
-Kitty placement intersecting its moved rectangle, including a wholly-contained
-placement. It also retires intersecting placeholder caches, orphaned relative
-children, and stale Kitty cache entries. This conservative policy prevents a
-placement from pointing at unrelated cells while a later slice can add
-coordinate-aware translation. It retains Kitty's uploaded image payload, so a
-newly requested placement can still use that image; explicit Kitty delete
-semantics are unchanged.
+It deliberately does not claim arbitrary graphics re-layout or general
+graphics-coordinate mapping. The later CellAttachment slice supersedes this
+design's former conservative-intersection policy for declared-cell placements:
+each covered terminal cell now has persistent attachment state, and bounded
+operations move/delete it with the matching text cell. The renderer resolves
+the attachment at active geometry, so a graphic may split at an LR boundary
+while exterior cells remain unchanged. Kitty character-edit placeholder/cache
+state follows the same transform without changing stored payloads or
+explicit-delete semantics. Malformed or footprint-less placements retain the
+conservative retirement fallback.
 
 ## Alternatives considered
 
@@ -61,9 +62,11 @@ all other regions / horizontal margins -> bounded-cell copy-and-blank path
 The bounded path receives inclusive terminal coordinates, derives a half-open
 column interval, copies cells without copying whole-row `wrapped` or reflow
 overflow state, clears only the destination/source cells using the current
-blank style, retires cross-boundary graphics metadata, marks every affected
-physical row at the current sequence, and records one rectangular damage
-region.  It never changes main scrollback or stable row identity.
+blank style, applies the same `CellTransform` to declared-cell image
+attachments and Kitty character-edit state, marks every affected physical row
+at the current sequence, and records damage for the changed visual extents. It
+never changes main scrollback or stable row identity. Malformed or
+footprint-less graphics alone retain conservative retirement.
 
 Character insert/delete use a separate same-row bounded shift primitive.
 `ICH` is active only inside both vertical and horizontal bounds; `DCH` needs
@@ -72,10 +75,14 @@ physical-right-edge behavior. Print and insert-mode paths select an effective
 right edge only when the cursor is inside the horizontal margin interval.
 Existing full-screen behavior is retained outside it.
 
-When a bounded operation retires graphics metadata, it records both the normal
-cell rectangle and full-viewport damage. The latter is intentional: relative
-Kitty children may have visual extents beyond the changed cells. Text-only
-bounded operations retain precise rectangular damage.
+For declared-cell graphics, the renderer consumes the transformed attachment
+set at active geometry, including target-offset cropping, instead of retiring
+an intersecting parent placement. Character edits transform
+`kitty_placeholder_cells`, `last_kitty_placeholder`, and
+`pending_kitty_placeholder` (and their rendered coordinates), preserving
+high-byte and relative-placement semantics. Stored payloads and explicit delete
+remain unchanged. Damage covers old/new extents; target-offset overflow uses
+viewport damage where required.
 
 ## Verification
 
@@ -83,7 +90,7 @@ The regression matrix uses distinctive text in columns outside both margins
 and asserts it remains byte-for-byte unchanged after every operation. It
 covers `SU`/`SD`, LF/IND/NEL/RI, `IL`/`DL`, `ICH`/`DCH`, physical-edge `ECH`,
 right-edge normal and insert-mode output, zero/default counts, wide-cell
-cleanup, non-scrollback bounded main movement, alternate isolation, retained
-Kitty payload with retired placements/caches, damage, and stable-row sequence
-semantics. The final matrix includes terminal, app, workspace, formatting,
+cleanup, non-scrollback bounded main movement, alternate isolation, transformed
+attachments and Kitty placeholder state, retained Kitty payload, damage, and
+stable-row sequence semantics. The final matrix includes terminal, app, workspace, formatting,
 diff, and pinned WezTerm evidence checks.

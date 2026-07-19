@@ -219,6 +219,65 @@ pub struct ItermInlineImage {
     pub data: Vec<u8>,
 }
 
+/// A persistent logical image cell attached to a terminal cell.
+///
+/// Unlike a pixel fragment, an attachment deliberately contains no pixel
+/// geometry. `parent_identity` identifies the physical placement that owns
+/// the image data, `source_*` identifies its immutable logical image cell,
+/// and `row`/`column` identify the terminal cell currently displaying it.
+/// Renderers resolve pixels from these logical coordinates and their active
+/// geometry, rather than from the terminal's historical default cell size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CellAttachment {
+    pub parent_identity: u64,
+    pub source_row: u16,
+    pub source_column: u16,
+    pub row: usize,
+    pub column: u16,
+}
+
+/// A cell-addressable piece of a physical inline-image placement.
+///
+/// The source fields describe this fragment's source crop.
+/// `sampling_source_*` and `source_destination_*` retain the complete
+/// placement mapping so a renderer can preserve the original sampling ratio
+/// when a cell boundary splits a pixel image. The destination fields describe
+/// the fragment rectangle inside its destination cell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineImageFragment {
+    /// Index into [`Terminal::inline_images`].
+    pub image_index: usize,
+    /// Whether this fragment was selected by a persistent [`CellAttachment`]
+    /// rather than reconstructed through the legacy placement fallback.
+    pub cell_attachment: bool,
+    pub row: usize,
+    pub column: u16,
+    /// Immutable source cell for this fragment; `row`/`column` are its
+    /// current destination and may change through a cell transform.
+    pub source_row: usize,
+    pub source_column: u16,
+    pub destination_x: u32,
+    pub destination_y: u32,
+    pub destination_width: u32,
+    pub destination_height: u32,
+    pub source_x: u32,
+    pub source_y: u32,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub sampling_source_x: u32,
+    pub sampling_source_y: u32,
+    pub sampling_source_width: u32,
+    pub sampling_source_height: u32,
+    pub source_destination_x: u32,
+    pub source_destination_y: u32,
+    pub source_destination_width: u32,
+    pub source_destination_height: u32,
+    pub kitty_image_id: Option<u32>,
+    pub kitty_placement_id: Option<u32>,
+    pub kitty_z_index: Option<i32>,
+    pub image_format: InlineImageFormat,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Cell {
@@ -536,9 +595,9 @@ mod tests {
     use rssh_core::{DamageRegion, TerminalSize};
 
     use super::{
-        Cell, CellWidthOverride, Color, CursorShape, CursorStyle, InlineImageFormat,
-        ItermInlineImage, SemanticCommandExit, SemanticType, SemanticZone, Terminal, TerminalGrid,
-        UnderlineStyle, VerticalAlign,
+        Cell, CellAttachment, CellWidthOverride, Color, CursorShape, CursorStyle,
+        InlineImageFormat, ItermInlineImage, SemanticCommandExit, SemanticType, SemanticZone,
+        Terminal, TerminalGrid, UnderlineStyle, VerticalAlign,
     };
 
     #[test]
@@ -1740,7 +1799,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_horizontal_margin_dch_retires_intersecting_kitty_placement() {
+    fn terminal_horizontal_margin_dch_blanks_kitty_attachment_but_keeps_stored_image() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 1));
 
         terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
@@ -1751,7 +1810,8 @@ mod tests {
 
         terminal.feed(b"\x1b[?69h\x1b[2;23s\x1b[1;3H\x1b[P");
 
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert!(terminal.inline_image_attachments().is_empty());
 
         terminal.feed(b"\x1b_Ga=p,i=30,p=5\x1b\\");
 
@@ -1759,7 +1819,7 @@ mod tests {
             terminal.take_kitty_graphics_responses(),
             vec![b"\x1b_Gi=30,p=5;OK\x1b\\".to_vec()]
         );
-        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images().len(), 2);
     }
 
     #[test]
@@ -1800,7 +1860,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_scrolls_up_kitty_inline_images_within_horizontal_margins() {
+    fn terminal_scrolls_up_kitty_attachments_within_horizontal_margins() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 3));
 
         terminal.feed(b"\x1b[1;1H11111111\x1b[2;1H22222222\x1b[3;1H33333333");
@@ -1812,11 +1872,14 @@ mod tests {
         assert_eq!(row_text(&terminal, 0), "12222221");
         assert_eq!(row_text(&terminal, 1), "23333332");
         assert_eq!(row_text(&terminal, 2), "3      3");
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_image_attachments().len(), 1);
+        assert_eq!(terminal.inline_image_attachments()[0].row, 0);
+        assert_eq!(terminal.inline_image_attachments()[0].column, 2);
     }
 
     #[test]
-    fn terminal_scrolls_up_drops_kitty_inline_images_scrolled_out() {
+    fn terminal_scrolls_up_blanks_kitty_attachment_scrolled_out() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 3));
 
         terminal.feed(b"\x1b[1;1H11111111\x1b[2;1H22222222\x1b[3;1H33333333");
@@ -1825,7 +1888,8 @@ mod tests {
 
         terminal.feed(b"\x1b[?69h\x1b[2;7s\x1b[S");
 
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert!(terminal.inline_image_attachments().is_empty());
     }
 
     #[test]
@@ -2093,6 +2157,31 @@ mod tests {
         assert_eq!(
             terminal.take_kitty_graphics_responses(),
             vec![b"\x1b_Gi=7,p=2;ENOENT:No image with id 7\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
+    fn terminal_soft_reset_keeps_only_the_iterm_cell_attachment_after_kitty_placement() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=179,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b[1;5H");
+        terminal.feed(b"\x1b]1337;File=inline=1;width=1;height=1:QQ==\x07");
+        assert_eq!(terminal.inline_image_attachments().len(), 2);
+
+        terminal.feed(b"\x1b[!p");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, None);
+        assert_eq!(
+            terminal.inline_image_attachments(),
+            &[CellAttachment {
+                parent_identity: 2,
+                source_row: 0,
+                source_column: 0,
+                row: 0,
+                column: 4,
+            }]
         );
     }
 
@@ -3467,6 +3556,56 @@ mod tests {
     }
 
     #[test]
+    fn terminal_graphics_fragment_exposes_each_cell_of_a_physical_kitty_image() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=77,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+
+        let fragments = terminal.inline_image_fragments();
+        assert_eq!(fragments.len(), 4);
+        assert_eq!(
+            fragments
+                .iter()
+                .map(|fragment| {
+                    (
+                        fragment.row,
+                        fragment.column,
+                        fragment.source_x,
+                        fragment.source_y,
+                        fragment.source_width,
+                        fragment.source_height,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                (0, 0, 0, 0, 1, 1),
+                (0, 1, 1, 0, 1, 1),
+                (1, 0, 0, 1, 1, 1),
+                (1, 1, 1, 1, 1, 1)
+            ]
+        );
+        assert!(fragments.iter().all(|fragment| {
+            fragment.image_index == 0
+                && fragment.kitty_image_id == Some(77)
+                && fragment.kitty_placement_id.is_none()
+                && fragment.image_format == InlineImageFormat::Rgb
+        }));
+    }
+
+    #[test]
+    fn terminal_cell_attachments_follow_visible_placement_deletion() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 3));
+        terminal.feed(b"\x1b[2;3H");
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=178,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        assert_eq!(terminal.inline_image_attachments().len(), 4);
+
+        terminal.feed(b"\x1b[2J");
+
+        assert!(terminal.inline_images().is_empty());
+        assert!(terminal.inline_image_attachments().is_empty());
+    }
+
+    #[test]
     fn terminal_displays_kitty_virtual_placement_from_unicode_placeholder() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 4));
 
@@ -4195,6 +4334,36 @@ mod tests {
     }
 
     #[test]
+    fn terminal_places_relative_kitty_child_after_bounded_ich_invalidates_virtual_parent_cache() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=30,p=4,f=24,s=1,v=1,c=2,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b[1;3H\x1b[38;5;30m\x1b[58;5;4m");
+        terminal.feed("\u{10eeee}\u{0305}\u{0305}".as_bytes());
+        assert_eq!(terminal.inline_image_attachments().len(), 2);
+
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[1;2r\x1b[1;3H\x1b[@");
+        assert_eq!(terminal.inline_image_attachments().len(), 2);
+
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=0,c=1,r=1\x1b\\");
+
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=2;OK\x1b\\".to_vec()]
+        );
+        assert_eq!(terminal.inline_images().len(), 2);
+        assert_eq!(terminal.inline_image_attachments().len(), 3);
+        assert!(terminal.inline_images().iter().any(|image| {
+            image.kitty_image_id == Some(7)
+                && image.kitty_placement_id == Some(2)
+                && image.row == 0
+                && image.column == 3
+        }));
+    }
+
+    #[test]
     fn terminal_rejects_virtual_kitty_relative_placement() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 4));
 
@@ -4241,7 +4410,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_retires_kitty_relative_child_when_parent_intersects_bounded_line_feed() {
+    fn terminal_keeps_kitty_relative_placements_when_bounded_line_feed_moves_cells() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 3));
 
         terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
@@ -4256,7 +4425,7 @@ mod tests {
 
         terminal.feed(b"\x1b[?69h\x1b[2;23s\x1b[1;2r\x1b[2;3H\n");
 
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 2);
 
         terminal.feed(b"\x1b_Ga=p,i=7,p=3\x1b\\");
 
@@ -4264,7 +4433,7 @@ mod tests {
             terminal.take_kitty_graphics_responses(),
             vec![b"\x1b_Gi=7,p=3;OK\x1b\\".to_vec()]
         );
-        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images().len(), 3);
     }
 
     #[test]
@@ -4324,6 +4493,29 @@ mod tests {
         assert_eq!(child.kitty_placement_id, Some(2));
         assert_eq!(child.row, 2);
         assert_eq!(child.column, 6);
+        assert!(
+            terminal
+                .inline_image_attachments()
+                .iter()
+                .any(|attachment| {
+                    attachment.row == 2
+                        && attachment.column == 6
+                        && attachment.source_row == 0
+                        && attachment.source_column == 0
+                })
+        );
+        assert!(
+            !terminal
+                .inline_image_attachments()
+                .iter()
+                .any(|attachment| { attachment.row == 1 && attachment.column == 2 })
+        );
+        let child_fragment = terminal
+            .inline_image_fragments()
+            .into_iter()
+            .find(|fragment| fragment.kitty_image_id == Some(7))
+            .unwrap();
+        assert_eq!((child_fragment.row, child_fragment.column), (2, 6));
         assert_eq!(
             terminal.take_kitty_graphics_responses(),
             vec![b"\x1b_Gi=30,p=4;OK\x1b\\".to_vec()]
