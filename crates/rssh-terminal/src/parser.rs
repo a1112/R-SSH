@@ -4882,9 +4882,35 @@ impl Terminal {
             self.last_kitty_placeholder = None;
         }
         self.delete_orphan_kitty_relative_children();
+        let stale_placeholder_caches_retired = self.retire_stale_kitty_placeholder_caches();
         self.inline_images.len() != inline_image_count
             || self.kitty_placeholder_cells.len() != placeholder_count
             || last_placeholder_retired
+            || stale_placeholder_caches_retired
+    }
+
+    fn retire_stale_kitty_placeholder_caches(&mut self) -> bool {
+        let live_placements = self
+            .inline_images
+            .iter()
+            .filter_map(|image| {
+                image
+                    .kitty_image_id
+                    .map(|image_id| (image_id, image.kitty_placement_id))
+            })
+            .collect::<HashSet<_>>();
+        let placeholder_count = self.kitty_placeholder_cells.len();
+        self.kitty_placeholder_cells.retain(|_, placeholder| {
+            kitty_placeholder_references_live_placement(*placeholder, &live_placements)
+        });
+        let last_placeholder_retired = self.last_kitty_placeholder.is_some_and(|placeholder| {
+            !kitty_placeholder_references_live_placement(placeholder, &live_placements)
+        });
+        if last_placeholder_retired {
+            self.last_kitty_placeholder = None;
+        }
+
+        self.kitty_placeholder_cells.len() != placeholder_count || last_placeholder_retired
     }
 
     fn scroll_inline_images_down_region(&mut self, top: u16, bottom: u16, count: u16) {
@@ -6691,6 +6717,22 @@ fn kitty_image_matches_placeholder_render(
     })
 }
 
+fn kitty_placeholder_references_live_placement(
+    placeholder: LastKittyPlaceholder,
+    live_placements: &HashSet<(u32, Option<u32>)>,
+) -> bool {
+    let Some(image_id) = kitty_placeholder_image_id(placeholder.foreground) else {
+        return true;
+    };
+    let placement_id = kitty_placeholder_placement_id(placeholder.underline_color);
+    live_placements
+        .iter()
+        .any(|(live_image_id, live_placement_id)| {
+            *live_image_id == image_id
+                && (placement_id.is_none() || *live_placement_id == placement_id)
+        })
+}
+
 fn kitty_placeholder_image_id(color: Color) -> Option<u32> {
     kitty_placeholder_color_value(color).filter(|image_id| *image_id != ANONYMOUS_KITTY_IMAGE_ID)
 }
@@ -8464,6 +8506,91 @@ mod stable_row_tests {
         assert_eq!(
             terminal.take_damage(),
             vec![DamageRegion::new(2, 1, 4, 3), DamageRegion::new(0, 0, 8, 4),]
+        );
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_su_retires_stale_external_kitty_placeholder_caches() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+        terminal.feed(b"abcdefgh\r\nijklmnop\r\nqrstuvwx\r\nyz012345");
+        let mut parent = metadata_test_image(1, "parent");
+        parent.column = 1;
+        parent.width = Some("4".to_owned());
+        parent.kitty_image_id = Some(30);
+        parent.kitty_placement_id = Some(4);
+        let mut orphaned_child = metadata_test_image(2, "orphaned-child");
+        orphaned_child.column = 0;
+        orphaned_child.kitty_image_id = Some(7);
+        orphaned_child.kitty_placement_id = Some(2);
+        let mut unrelated = metadata_test_image(0, "unrelated");
+        unrelated.column = 0;
+        unrelated.kitty_image_id = Some(99);
+        unrelated.kitty_placement_id = Some(1);
+        terminal
+            .inline_images
+            .extend([parent, orphaned_child, unrelated]);
+        terminal.kitty_relative_parents.insert((7, 2), (30, 4));
+        let stale_placeholder = LastKittyPlaceholder {
+            row: 2,
+            column: 0,
+            foreground: Color::Rgb(0, 0, 7),
+            underline_color: Color::Rgb(0, 0, 2),
+            image_id_high_byte: 0,
+            placeholder_row: 0,
+            placeholder_column: 0,
+        };
+        let unrelated_placeholder = LastKittyPlaceholder {
+            row: 0,
+            column: 0,
+            foreground: Color::Rgb(0, 0, 99),
+            underline_color: Color::Rgb(0, 0, 1),
+            image_id_high_byte: 0,
+            placeholder_row: 0,
+            placeholder_column: 0,
+        };
+        terminal
+            .kitty_placeholder_cells
+            .insert((2, 0), stale_placeholder);
+        terminal
+            .kitty_placeholder_cells
+            .insert((0, 0), unrelated_placeholder);
+        terminal.last_kitty_placeholder = Some(stale_placeholder);
+        terminal.take_damage();
+        terminal.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r");
+        terminal.take_damage();
+
+        terminal.feed(b"\x1b[S");
+
+        assert!(terminal.kitty_placeholder_cells.get(&(2, 0)).is_none());
+        assert_eq!(
+            terminal
+                .kitty_placeholder_cells
+                .get(&(0, 0))
+                .copied()
+                .map(|placeholder| (
+                    kitty_placeholder_image_id(placeholder.foreground),
+                    kitty_placeholder_placement_id(placeholder.underline_color),
+                )),
+            Some((Some(99), Some(1)))
+        );
+        assert!(terminal.last_kitty_placeholder.is_none());
+        let pending = PendingKittyPlaceholder {
+            row: 2,
+            column: 1,
+            foreground: stale_placeholder.foreground,
+            underline_color: stale_placeholder.underline_color,
+            image_id: Some(7),
+            placement_id: Some(2),
+            diacritics: Vec::new(),
+            rendered_row: None,
+            rendered_column: None,
+            rendered_image_id: None,
+            rendered_placement_id: None,
+        };
+        assert!(terminal.left_kitty_placeholder_for(&pending).is_none());
+        assert_eq!(
+            terminal.take_damage(),
+            vec![DamageRegion::new(2, 1, 4, 3), DamageRegion::new(0, 0, 8, 4)]
         );
     }
 
