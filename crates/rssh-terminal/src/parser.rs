@@ -5818,13 +5818,12 @@ impl Terminal {
 
     /// Kitty's placeholder state carries placement coordinates that cannot yet
     /// be represented by a [`CellTransform`].  If ICH/DCH touches one of
-    /// those cells, retire its rendered placement and pending state rather
-    /// than retaining a stale coordinate.  The stored Kitty payload is kept
-    /// and can be placed again later.
+    /// those cells, invalidate that cache and pending state rather than
+    /// retaining a stale coordinate. The attachment-backed placement itself
+    /// remains and is transformed with its terminal cells.
     fn retire_kitty_placeholder_state_for_character_edit(&mut self, right: u16) -> bool {
         let row = self.current_history_row();
         let column = self.cursor_column;
-        let width = right.saturating_sub(column).saturating_add(1);
         let contains = |candidate_row: usize, candidate_column: u16| {
             candidate_row == row && candidate_column >= column && candidate_column <= right
         };
@@ -5851,34 +5850,16 @@ impl Terminal {
             return false;
         }
 
-        let pending_render = pending.then(|| {
-            self.pending_kitty_placeholder
-                .as_ref()
-                .and_then(|placeholder| {
-                    Some((
-                        placeholder.rendered_row?,
-                        placeholder.rendered_column?,
-                        placeholder.rendered_image_id?,
-                        placeholder.rendered_placement_id,
-                    ))
-                })
-        });
-        self.clear_kitty_placeholder_cells(row, column, width);
+        self.kitty_placeholder_cells
+            .retain(|&(candidate_row, candidate_column), _| {
+                !contains(candidate_row, candidate_column)
+            });
+        if last {
+            self.last_kitty_placeholder = None;
+        }
         if pending {
             self.pending_kitty_placeholder = None;
-            if let Some(Some((rendered_row, rendered_column, image_id, placement_id))) =
-                pending_render
-            {
-                self.remove_kitty_placeholder_render(
-                    rendered_row,
-                    rendered_column,
-                    image_id,
-                    placement_id,
-                );
-            }
         }
-        self.retire_orphan_kitty_relative_children();
-        self.retire_stale_kitty_placeholder_caches();
         true
     }
 
@@ -9595,22 +9576,85 @@ mod stable_row_tests {
     }
 
     #[test]
-    fn terminal_horizontal_margin_character_edit_retires_intersecting_kitty_placeholder_state() {
+    fn terminal_horizontal_margin_dch_invalidates_high_byte_kitty_cache_without_retiring_attachments()
+     {
         let mut terminal = Terminal::new(TerminalSize::new(6, 3));
-        terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=1,v=1;/wAA\x1b\\");
+        const IMAGE_ID: u32 = (2 << 24) | 30;
+        terminal.feed(b"\x1b_Ga=t,i=33554462,f=24,s=1,v=1;/wAA\x1b\\");
         terminal.take_kitty_graphics_responses();
 
-        let mut image = attachment_test_image(0, 2, 1, 1, "kitty");
-        image.kitty_image_id = Some(30);
+        let mut image = attachment_test_image(0, 2, 2, 1, "kitty");
+        image.kitty_image_id = Some(IMAGE_ID);
         image.kitty_placement_id = Some(4);
         terminal.push_inline_image(image);
+        terminal.kitty_virtual_placements.insert(
+            (IMAGE_ID, 4),
+            KittyVirtualPlacement {
+                image_id: IMAGE_ID,
+                placement_id: Some(4),
+                z_index: None,
+                display_columns: Some(2),
+                display_rows: Some(1),
+                source_rect: KittySourceRect::default(),
+                target_x: None,
+                target_y: None,
+            },
+        );
+        let placeholder = LastKittyPlaceholder {
+            row: 0,
+            column: 2,
+            foreground: Color::Rgb(0, 0, 30),
+            underline_color: Color::Rgb(0, 0, 4),
+            image_id_high_byte: 2,
+            placeholder_row: 0,
+            placeholder_column: 0,
+        };
+        terminal.kitty_placeholder_cells.insert((0, 2), placeholder);
+        terminal.last_kitty_placeholder = Some(placeholder);
+        terminal.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
+            row: 0,
+            column: 2,
+            foreground: placeholder.foreground,
+            underline_color: placeholder.underline_color,
+            image_id: Some(IMAGE_ID),
+            placement_id: Some(4),
+            diacritics: Vec::new(),
+            rendered_row: Some(0),
+            rendered_column: Some(2),
+            rendered_image_id: Some(IMAGE_ID),
+            rendered_placement_id: Some(4),
+        });
+
+        terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;3r\x1b[1;3H\x1b[P");
+
+        assert_eq!(terminal.inline_images.len(), 1);
+        assert_eq!(attachment_locations(&terminal), vec![(1, 0, 1, 0, 2)]);
+        assert!(terminal.kitty_placeholder_cells.is_empty());
+        assert!(terminal.last_kitty_placeholder.is_none());
+        assert!(terminal.pending_kitty_placeholder.is_none());
+        assert!(terminal.kitty_images.contains_key(&IMAGE_ID));
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_ich_invalidates_kitty_cache_without_retiring_relative_attachments()
+     {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+        let mut parent = attachment_test_image(0, 2, 2, 1, "parent");
+        parent.kitty_image_id = Some(30);
+        parent.kitty_placement_id = Some(4);
+        terminal.push_inline_image(parent);
+        let mut child = attachment_test_image(0, 2, 1, 1, "child");
+        child.kitty_image_id = Some(7);
+        child.kitty_placement_id = Some(2);
+        terminal.push_inline_image(child);
+        terminal.kitty_relative_parents.insert((7, 2), (30, 4));
         terminal.kitty_virtual_placements.insert(
             (30, 4),
             KittyVirtualPlacement {
                 image_id: 30,
                 placement_id: Some(4),
                 z_index: None,
-                display_columns: Some(1),
+                display_columns: Some(2),
                 display_rows: Some(1),
                 source_rect: KittySourceRect::default(),
                 target_x: None,
@@ -9628,28 +9672,28 @@ mod stable_row_tests {
         };
         terminal.kitty_placeholder_cells.insert((0, 2), placeholder);
         terminal.last_kitty_placeholder = Some(placeholder);
-        terminal.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
-            row: 0,
-            column: 2,
-            foreground: placeholder.foreground,
-            underline_color: placeholder.underline_color,
-            image_id: Some(30),
-            placement_id: Some(4),
-            diacritics: Vec::new(),
-            rendered_row: Some(0),
-            rendered_column: Some(2),
-            rendered_image_id: Some(30),
-            rendered_placement_id: Some(4),
-        });
 
-        terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;3r\x1b[1;3H\x1b[P");
+        terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;3r\x1b[1;3H\x1b[@");
+
+        assert_eq!(terminal.inline_images.len(), 2);
+        assert_eq!(
+            attachment_locations(&terminal),
+            vec![(1, 0, 0, 0, 3), (1, 0, 1, 0, 4), (2, 0, 0, 0, 3)]
+        );
+        assert_eq!(terminal.kitty_relative_parents.get(&(7, 2)), Some(&(30, 4)));
+        assert!(terminal.kitty_placeholder_cells.is_empty());
+        assert!(terminal.last_kitty_placeholder.is_none());
+    }
+
+    #[test]
+    fn terminal_horizontal_margin_irm_keeps_legacy_graphics_retirement_path() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+        terminal.push_inline_image(attachment_test_image(0, 2, 1, 1, "insert-mode"));
+
+        terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;3r\x1b[1;3H\x1b[4hX\x1b[4l");
 
         assert!(terminal.inline_images.is_empty());
         assert!(terminal.inline_image_attachments.is_empty());
-        assert!(terminal.kitty_placeholder_cells.is_empty());
-        assert!(terminal.last_kitty_placeholder.is_none());
-        assert!(terminal.pending_kitty_placeholder.is_none());
-        assert!(terminal.kitty_images.contains_key(&30));
     }
 
     #[test]
