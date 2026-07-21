@@ -4,7 +4,7 @@
 
 **Goal:** Route vertical wheel events to the pane under the pointer, with WezTerm-compatible pane-local coordinates, state, commands, and PTY output, without changing focus unless an explicitly bound action says to do so.
 
-**Architecture:** Separate wheel hit-testing from focus changes and carry a copied `WheelTarget` (pane id, render rectangle, local cell, and local pixel coordinates) through the entire wheel event. Add owner-local helpers for active and inactive `PaneRuntime`/`PaneUiState` access, refresh, viewport mutation, terminal encoding, and PTY writes; dispatch wheel bindings through an exhaustive target-aware `WindowCommand` classifier rather than swapping active state or temporarily focusing a pane. Preserve tab-bar priority and give the active window-right scrollbar explicit precedence over the pane geometrically beneath it.
+**Architecture:** Separate wheel hit-testing from focus changes and return a copied `WheelHitTarget`: either `PaneSurface(WheelTarget)` with pane id, render rectangle, local cell, and local pixel coordinates, or `ActiveScrollbar` with no pane-surface coordinates. Add owner-local helpers for active and inactive `PaneRuntime`/`PaneUiState` access, refresh, viewport mutation, terminal encoding, and PTY writes; dispatch pane-surface wheel bindings through an exhaustive target-aware `WindowCommand` classifier rather than swapping active state or temporarily focusing a pane. Preserve tab-bar priority and route the active window-right scrollbar directly through its existing active stable-viewport behavior before assignment/reporting/alternate-arrow logic.
 
 **Tech Stack:** Rust 2024, `winit` mouse geometry/events, `rssh-app` native window shell, `rssh-core` App Shell pane actions, `rssh-terminal` stable-row/runtime APIs, built-in unit and integration-style tests in `crates/rssh-app/src/window.rs`.
 
@@ -23,6 +23,7 @@
 - Never call `focus_pane_for_mouse_position`, dispatch `ActivatePane`, swap active runtime/UI fields, or install an inactive runtime merely to route a wheel event. Explicit user-bound focus or creation commands retain their normal effects.
 - Do not generalize Press, Move, drag, click, or split-resize routing. `pane_focus_follows_mouse` remains a cursor-move feature and click-to-focus/swallow behavior remains a press feature.
 - Treat `WindowCommand::DisableDefaultAssignment` as mouse-binding control flow, not an ordinary command. It returns `Ok(false)` after suppressing reporting/arrows/default scrolling and restoring event state.
+- `WheelHitTarget::ActiveScrollbar` never acquires or clamps a pane-local cell/pixel coordinate and never enters user assignment, terminal reporting, or alternate-screen arrow translation. It invokes only the existing active scrollbar/stable-viewport wheel behavior.
 - A missing inactive runtime never falls back to the active pane. A resolved pane without a writer preserves the existing consumed no-op for writer paths.
 - Keep `WindowCommand` wheel classification exhaustive. Do not add a wildcard arm or an active-pane fallback for unclassified commands.
 - Every task commit must pass `cargo fmt --all -- --check` and `git diff --check`. Commit only that task's intended files.
@@ -76,7 +77,7 @@ Run:
 cargo test -p rssh-app window_app_wheel_target_ -- --nocapture
 ```
 
-Expected: compile failure because `wheel_target_at_mouse_position`/`WheelTarget` do not exist. The fixture must otherwise compile; do not accept an unrelated split-layout failure as RED.
+Expected: compile failure because `wheel_hit_target_at_mouse_position`/`WheelHitTarget`/`WheelTarget` do not exist. The fixture must otherwise compile; do not accept an unrelated split-layout failure as RED.
 
 **Step 3: Add the copied target value and non-focusing lookup**
 
@@ -90,12 +91,20 @@ struct WheelTarget {
     cell: PaneMouseCell,
     pixel_position: PhysicalPosition<f64>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum WheelHitTarget {
+    PaneSurface(WheelTarget),
+    ActiveScrollbar {
+        pane_id: rssh_core::PaneId,
+    },
+}
 ```
 
 Implement these private helpers on `NativeWindowApp`:
 
 ```rust
-fn wheel_target_at_mouse_position(&self) -> Option<WheelTarget>;
+fn wheel_hit_target_at_mouse_position(&self) -> Option<WheelHitTarget>;
 fn wheel_target_for_rect(
     &self,
     rect: PaneRenderRect,
@@ -104,7 +113,7 @@ fn wheel_target_for_rect(
 fn pane_render_rect(&self, pane_id: rssh_core::PaneId) -> Option<PaneRenderRect>;
 ```
 
-`wheel_target_at_mouse_position` must use the visible `pane_render_layout` and never call the focusing helper. `cell.column`/`cell.row` are local to `rect`. Compute local pixels as:
+`wheel_hit_target_at_mouse_position` must test the active window-right scrollbar first, then use the visible `pane_render_layout`, and never call the focusing helper. A scrollbar hit returns `ActiveScrollbar { pane_id: active_pane_id }` without calling `wheel_target_for_rect`; there is no synthetic cell/pixel coordinate and no edge clamping. A pane hit returns `PaneSurface(WheelTarget { .. })`. For a pane surface, `cell.column`/`cell.row` are local to `rect`. Compute local pixels as:
 
 - `x = mouse_x - frame_content_pixel_left - rect.column * cell_width`;
 - `y = mouse_y - terminal_pixel_top - (rect.row - terminal_frame_row_offset) * cell_height`.
@@ -123,7 +132,7 @@ fn window_app_wheel_target_scrollbar_over_inactive_right_split_targets_active_le
 fn window_app_wheel_target_scrollbar_over_active_right_split_targets_active_right() { /* ... */ }
 ```
 
-Build both active-left/inactive-right and inactive-left/active-right layouts. Position the pointer over the real window-right scrollbar overlay and assert the active pane is chosen even when another pane lies beneath it.
+Build both active-left/inactive-right and inactive-left/active-right layouts. Position the pointer over the real window-right scrollbar overlay and assert the result is `WheelHitTarget::ActiveScrollbar { pane_id: active }`, never `PaneSurface`, even when another pane lies beneath it. Also assert no fabricated local cell or pixel value is available from that variant.
 
 **Step 5: Run the scrollbar tests and witness RED**
 
@@ -133,11 +142,11 @@ Run:
 cargo test -p rssh-app window_app_wheel_target_scrollbar_ -- --nocapture
 ```
 
-Expected: assertions fail because raw pane hit-testing selects the geometric pane or no target.
+Expected: compile failure because `WheelHitTarget::ActiveScrollbar` does not exist, or assertions fail because raw pane hit-testing selects the geometric pane/no target.
 
 **Step 6: Add explicit scrollbar precedence**
 
-Before pane hit-testing, call `scrollbar_hit_test(self.mouse_pixel_position?)`. On a hit, resolve the active pane's visible rect and return its `WheelTarget`; do not subtract the scrollbar from a pane rect and do not focus. Keep tab-bar precedence in the event handler, not in the primitive.
+Before pane hit-testing, call `scrollbar_hit_test(self.mouse_pixel_position?)`. On a hit, return `WheelHitTarget::ActiveScrollbar { pane_id: self.app_shell.active_pane_id() }` directly. Do not resolve a pane rect, derive/clamp a local coordinate, subtract the scrollbar from a pane rect, or focus. Keep tab-bar precedence in the event handler, not in the primitive.
 
 **Step 7: Run GREEN and geometry regressions**
 
@@ -186,9 +195,15 @@ fn window_app_wheel_refreshes_only_target_selection_overlay_and_composite() { /*
 
 #[test]
 fn window_app_wheel_inactive_pane_without_history_matches_active_noop() { /* ... */ }
+
+#[test]
+fn window_app_wheel_active_scrollbar_over_inactive_right_uses_active_scrollback_only() { /* ... */ }
+
+#[test]
+fn window_app_wheel_active_scrollbar_over_active_right_uses_active_scrollback_only() { /* ... */ }
 ```
 
-The first replaces the old focus-changing expectation in `window_app_mouse_wheel_scrolls_split_pane_under_cursor`: assert pane 2 remains active, pane 1's stable viewport and owner snapshot change, and pane 2's viewport/snapshot/title state does not. The second starts from two independent selections/overlays and proves only the target projection/reconciliation changes while `render_snapshot()` contains the updated inactive presentation. The third compares handled/result semantics for equivalent active and inactive panes with no history.
+The first replaces the old focus-changing expectation in `window_app_mouse_wheel_scrolls_split_pane_under_cursor`: assert pane 2 remains active, pane 1's stable viewport and owner snapshot change, and pane 2's viewport/snapshot/title state does not. The second starts from two independent selections/overlays and proves only the target projection/reconciliation changes while `render_snapshot()` contains the updated inactive presentation. The third compares handled/result semantics for equivalent active and inactive panes with no history. The final two cover both split orientations. In the active-left case enable reporting plus a matching writer-producing wheel assignment on the active main-screen pane with history: scrollbar wheel changes only its stable viewport and emits no bytes. In the active-right case put the active pane in alternate screen with the same binding: the result/state must match a direct `handle_mouse_wheel(delta)` call, with no assignment, report, or arrow bytes. Neither case changes focus or touches the underlying/inactive pane.
 
 **Step 2: Run the scrollback tests and witness RED**
 
@@ -198,9 +213,10 @@ Run:
 cargo test -p rssh-app window_app_wheel_scrolls_inactive_pane_without_focus_transfer -- --nocapture
 cargo test -p rssh-app window_app_wheel_refreshes_only_target_selection_overlay_and_composite -- --nocapture
 cargo test -p rssh-app window_app_wheel_inactive_pane_without_history_matches_active_noop -- --nocapture
+cargo test -p rssh-app window_app_wheel_active_scrollbar_ -- --nocapture
 ```
 
-Expected: first test reports active pane changed or inactive viewport unchanged; the refresh test observes active-owner state mutation or a stale inactive composite.
+Expected: first test reports active pane changed or inactive viewport unchanged; the refresh test observes active-owner state mutation or a stale inactive composite; scrollbar tests enter assignment/reporting/alternate handling or target the underlying pane.
 
 **Step 3: Add owner-local state access and refresh helpers**
 
@@ -259,7 +275,19 @@ Expected: the old path focuses the target and/or emits through active coordinate
 
 **Step 6: Implement target-aware event runtime and writer paths**
 
-Refactor `handle_window_mouse_wheel_with_current_delta` to resolve one `WheelTarget` after tab-bar handling. Read reporting and alternate-screen modes from that target. Add target-specific equivalents for:
+Refactor `handle_window_mouse_wheel_with_current_delta` to resolve one `WheelHitTarget` after tab-bar handling and branch immediately:
+
+```rust
+match hit {
+    WheelHitTarget::ActiveScrollbar { pane_id } => {
+        debug_assert_eq!(pane_id, self.app_shell.active_pane_id());
+        return Ok(self.handle_mouse_wheel(delta));
+    }
+    WheelHitTarget::PaneSurface(target) => { /* target-aware path below */ }
+}
+```
+
+The scrollbar arm is the existing active stable-viewport behavior. It must execute before acquiring reporting/alternate modes or matching an assignment. It must not synthesize/clamp coordinates and must not write to any PTY. For `PaneSurface`, read reporting and alternate-screen modes from that target. Add target-specific equivalents for:
 
 ```rust
 fn write_pty_bytes_to_pane_for_wheel(
@@ -334,49 +362,7 @@ fn window_app_wheel_binding_multiple_recursively_retains_target() { /* ... */ }
 
 Cover `ScrollByLine`, `ScrollByPage`, `ScrollToTop`, `ScrollToBottom`, `ScrollToPrompt`, and `ScrollByCurrentEventWheelDelta`. Use `Multiple` with at least two target-dependent actions and assert both act on the same inactive owner while focus stays unchanged.
 
-**Step 2: Run the viewport binding tests and witness RED**
-
-Run:
-
-```text
-cargo test -p rssh-app window_app_wheel_binding_viewport_ -- --nocapture
-cargo test -p rssh-app window_app_wheel_binding_current_delta_ -- --nocapture
-cargo test -p rssh-app window_app_wheel_binding_multiple_ -- --nocapture
-```
-
-Expected: existing `command_palette_apply_command` mutates the active viewport or recursively loses the hovered context.
-
-**Step 3: Add the closed command classifier and targeted entry point**
-
-Define a private classification with no wildcard match, for example:
-
-```rust
-enum WheelCommandClass {
-    Viewport,
-    Writer,
-    PaneUi,
-    PaneAction,
-    ExplicitFocusOrCreation,
-    Global,
-    Composite,
-    DisableDefault,
-    Nop,
-}
-```
-
-Add `WindowCommand::wheel_command_class(&self) -> WheelCommandClass` with an explicit arm for every current enum variant. Add:
-
-```rust
-fn apply_wheel_command_for_target(
-    &mut self,
-    target: WheelTarget,
-    command: WindowCommand,
-) -> io::Result<()>;
-```
-
-The target-aware entry point must implement every pane-dependent command against `target.pane_id`; it may call `command_palette_apply_command` only for variants classified as truly window/tab/application/configuration global. `Multiple` recursively calls the target-aware entry point. A future `WindowCommand` variant must fail compilation until classified.
-
-**Step 4: Write RED writer, pane-UI, and pane-action binding tests**
+**Step 2: Write RED writer, pane-UI, mouse-cell, and pane-action binding tests**
 
 Add:
 
@@ -392,39 +378,32 @@ fn window_app_wheel_binding_pane_actions_use_hovered_pane_id() { /* ... */ }
 
 #[test]
 fn window_app_wheel_binding_global_action_keeps_window_scope() { /* ... */ }
+
+#[test]
+fn window_app_wheel_binding_select_text_at_mouse_uses_hovered_local_cell() { /* ... */ }
+
+#[test]
+fn window_app_wheel_binding_extend_selection_uses_hovered_local_cell() { /* ... */ }
+
+#[test]
+fn window_app_wheel_binding_open_link_uses_hovered_snapshot_and_local_cell() { /* ... */ }
+
+#[test]
+fn wheel_action_io_error_includes_stable_command_and_app_error_context() { /* ... */ }
 ```
 
 The writer matrix covers `SendString`, `SendPaste`, `SendKey`, clipboard paste, and primary-selection paste with distinct bracketed-paste/application-key/Kitty modes and writers. The pane-UI matrix covers selection source, `CopyTo*`, `ClearSelection`, Search/Copy Mode/Quick Select ownership, and a representative overlay mutation. The pane-action matrix covers a non-focus pane-scoped command such as close/reset/clear scrollback against the hovered id. The global test uses a harmless implemented global action such as font adjustment or reload-state observation and proves it does not silently retarget pane state.
 
-**Step 5: Run the category tests and witness RED**
+Explicitly classify and exercise every mouse-position pane-local command family:
 
-Run:
+- `SelectTextAtMouseCursorCell`, `SelectTextAtMouseCursorWord`, `SelectTextAtMouseCursorLine`, `SelectTextAtMouseCursorBlock`, `SelectTextAtMouseCursorSemanticZone`, and `SelectTextAtMouseCursor(_)`;
+- `ExtendSelectionToMouseCursorCell`, `ExtendSelectionToMouseCursorWord`, `ExtendSelectionToMouseCursorLine`, `ExtendSelectionToMouseCursorBlock`, `ExtendSelectionToMouseCursorSemanticZone`, and `ExtendSelectionToMouseCursor(_)`;
+- `CompleteSelectionOrOpenLinkAtMouseCursor` and `CompleteSelectionOrOpenLinkAtMouseCursorTo(_)`;
+- `OpenLinkAtMouseCursor`.
 
-```text
-cargo test -p rssh-app window_app_wheel_binding_writer_ -- --nocapture
-cargo test -p rssh-app window_app_wheel_binding_copy_overlay_ -- --nocapture
-cargo test -p rssh-app window_app_wheel_binding_pane_actions_ -- --nocapture
-cargo test -p rssh-app window_app_wheel_binding_global_action_ -- --nocapture
-```
+The three named RED tests are the minimum representative proof: selection starts in the inactive split at `WheelTarget.cell`, extension uses that owner's retained selection/overlay, and link lookup uses the hovered owner's snapshot/hyperlink context rather than `self.snapshot`/active mouse cell. Assert the window/global copy destination remains global and any resulting PTY or OS side effect follows the command's existing semantics; only its pane source/context changes.
 
-Expected: one or more commands read active writer/runtime/UI or active pane id.
-
-**Step 6: Implement all target-dependent command categories**
-
-Factor owner-local command helpers rather than duplicating the entire command palette. Required behavior:
-
-- viewport/prompt commands use target stable viewport and terminal history;
-- writer/paste/key commands encode with target runtime state and write only to target writer;
-- copy/selection/search/copy-mode/quick-select commands use target `PaneUiState` and target snapshot/terminal, while clipboard destinations remain global;
-- pane-scoped `AppAction`s receive `target.pane_id` explicitly;
-- direction-relative, current-pane-domain, and split-source calculations use `target.pane_id` as their reference;
-- by-index commands retain tab/window index scope;
-- `ActivatePaneDirection`, `ActivatePaneByIndex`, numbered pane activation, `NextPane`, `PreviousPane`, tab activation, `NewTab`, `SplitPane`, spawn/creation, and equivalent explicit commands retain their normal focus/creation effects;
-- ordinary matched commands are consumed exactly once: success is `Ok(true)` at the event layer; errors propagate and never trigger reporting/default fallback.
-
-If an existing helper is hard-coded to active state, add a `*_for_pane` core and leave the old active wrapper for keyboard/palette callers. Do not alter non-wheel command behavior.
-
-**Step 7: Write RED direction/reference and creation tests**
+**Step 3: Write RED direction/reference and creation tests**
 
 Add:
 
@@ -444,20 +423,110 @@ fn window_app_wheel_binding_split_uses_hovered_pane_as_source() { /* ... */ }
 
 Use a three-pane layout where direction from inactive hovered pane differs from direction from the active pane. Assert routing alone does not focus, but the explicit focus command does. Assert `SplitPane` attaches to the hovered pane's topology/source and the created pane follows existing activation semantics.
 
-**Step 8: Run the reference tests and witness RED, then implement the reference plumbing**
+**Step 4: Run the complete Task 2 RED matrix before any production edit**
 
 Run:
 
 ```text
+cargo test -p rssh-app window_app_wheel_binding_viewport_ -- --nocapture
+cargo test -p rssh-app window_app_wheel_binding_current_delta_ -- --nocapture
+cargo test -p rssh-app window_app_wheel_binding_multiple_ -- --nocapture
+cargo test -p rssh-app window_app_wheel_binding_writer_ -- --nocapture
+cargo test -p rssh-app window_app_wheel_binding_copy_overlay_ -- --nocapture
+cargo test -p rssh-app window_app_wheel_binding_pane_actions_ -- --nocapture
+cargo test -p rssh-app window_app_wheel_binding_global_action_ -- --nocapture
+cargo test -p rssh-app window_app_wheel_binding_select_text_at_mouse_ -- --nocapture
+cargo test -p rssh-app window_app_wheel_binding_extend_selection_ -- --nocapture
+cargo test -p rssh-app window_app_wheel_binding_open_link_ -- --nocapture
 cargo test -p rssh-app window_app_wheel_binding_direction_ -- --nocapture
 cargo test -p rssh-app window_app_wheel_binding_by_index_ -- --nocapture
 cargo test -p rssh-app window_app_wheel_binding_new_tab_ -- --nocapture
 cargo test -p rssh-app window_app_wheel_binding_split_ -- --nocapture
+cargo test -p rssh-app wheel_action_io_error_ -- --nocapture
 ```
 
-Expected before the reference plumbing: direction/split source resolves from the previously active pane. Add explicit reference-pane parameters to the narrow action builders/dispatch path and rerun until all pass.
+Expected: the old path focuses/uses active viewport, writer, runtime, UI, snapshot, mouse cell, pane id, or direction/split reference. Record the failure from every category. Do not edit a production function, introduce the classifier, or add dispatcher plumbing until this complete RED matrix has run.
 
-**Step 9: Run GREEN and command regressions**
+**Step 5: Add the stable result/error contract and closed command classifier**
+
+Define these private contracts in the first dispatcher implementation; Task 3 extends their handling but must not replace them with an incompatible boolean API:
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WheelAssignmentMatch {
+    None,
+    DisableDefault,
+    Command(WindowCommand),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WheelCommandOutcome {
+    Consumed,
+}
+
+fn wheel_action_io_error(
+    command: &WindowCommand,
+    error: AppShellError,
+) -> io::Error {
+    io::Error::other(format!(
+        "wheel action '{}' failed: {error:?}",
+        command.label()
+    ))
+}
+```
+
+If the actual error types require a mechanically different signature, keep the same contract: an ordinary matched command returns `io::Result<WheelCommandOutcome>`, never a lossy boolean; `AppShellError` becomes `io::Error` in one helper with stable command label plus source-variant context. The focused conversion test asserts `io::ErrorKind::Other` and the exact text `wheel action 'Close Workspace' failed: CannotCloseLastWorkspace`, so both the API category and diagnostic context cannot silently regress.
+
+Define a private classification with no wildcard match:
+
+```rust
+enum WheelCommandClass {
+    Viewport,
+    Writer,
+    PaneUi,
+    PaneAction,
+    ExplicitFocusOrCreation,
+    Global,
+    Composite,
+    DisableDefault,
+    Nop,
+}
+```
+
+Add `WindowCommand::wheel_command_class(&self) -> WheelCommandClass` with an explicit arm for every current enum variant, plus:
+
+```rust
+fn apply_wheel_command_for_target(
+    &mut self,
+    target: WheelTarget,
+    command: WindowCommand,
+) -> io::Result<WheelCommandOutcome>;
+```
+
+The target-aware entry point must implement every pane-dependent command against `target.pane_id`; it may call `command_palette_apply_command` only for variants classified as truly window/tab/application/configuration global. `Multiple` recursively calls the target-aware entry point and stops at the first error. A future `WindowCommand` variant must fail compilation until classified. `Nop` is an ordinary matched command and returns `Consumed`; `DisableDefault` is represented by `WheelAssignmentMatch` and never reaches this dispatcher.
+
+**Step 6: Implement all target-dependent command categories**
+
+Factor owner-local command helpers rather than duplicating the entire command palette. Required behavior:
+
+- viewport/prompt commands use target stable viewport and terminal history;
+- writer/paste/key commands encode with target runtime state and write only to target writer;
+- copy/selection/search/copy-mode/quick-select commands use target `PaneUiState` and target snapshot/terminal, while clipboard destinations remain global;
+- pane-scoped `AppAction`s receive `target.pane_id` explicitly;
+- direction-relative, current-pane-domain, and split-source calculations use `target.pane_id` as their reference;
+- by-index commands retain tab/window index scope;
+- `ActivatePaneDirection`, `ActivatePaneByIndex`, numbered pane activation, `NextPane`, `PreviousPane`, tab activation, `NewTab`, `SplitPane`, spawn/creation, and equivalent explicit commands retain their normal focus/creation effects;
+- ordinary matched commands are consumed exactly once: success is `Ok(true)` at the event layer; errors propagate and never trigger reporting/default fallback.
+- all `SelectTextAtMouseCursor*`, `ExtendSelectionToMouseCursor*`, `CompleteSelectionOrOpenLinkAtMouseCursor*`, and `OpenLinkAtMouseCursor` variants use `WheelTarget.cell` plus the hovered owner's snapshot, terminal, selection, overlay, and hyperlink context; none may call `mouse_cell_for_active_pane` or read `self.snapshot` as its source;
+- every `AppShellError` from a matched action is converted only by `wheel_action_io_error`, retaining stable command/error context; no `eprintln!`-and-`false` path is allowed.
+
+If an existing helper is hard-coded to active state, add a `*_for_pane` core and leave the old active wrapper for keyboard/palette callers. Do not alter non-wheel command behavior.
+
+**Step 7: Implement reference-pane plumbing**
+
+Add explicit reference-pane parameters to the narrow direction, split-source, current-pane-domain, and creation action builders/dispatch paths. Pass `target.pane_id` from the wheel dispatcher and the active pane id from existing keyboard/palette wrappers. Do not infer the reference by reading whichever pane is active at execution time.
+
+**Step 8: Run GREEN and command regressions**
 
 Run:
 
@@ -466,13 +535,14 @@ cargo test -p rssh-app window_app_wheel_binding_ -- --nocapture
 cargo test -p rssh-app window_app_palette_multiple_ -- --nocapture
 cargo test -p rssh-app window_app_dispatches_palette_ -- --nocapture
 cargo test -p rssh-app window_app_scroll_by_current_event_ -- --nocapture
+cargo test -p rssh-app wheel_action_io_error_ -- --nocapture
 cargo fmt --all -- --check
 git diff --check
 ```
 
-Expected: target-binding matrix and existing keyboard/palette dispatch pass.
+Expected: the entire pre-recorded RED matrix, stable error-context assertion, and existing keyboard/palette dispatch pass. Inspect the test log to confirm the selection, extension, open-link, writer, direction, split, nested action, and error cases all executed rather than being filtered to zero tests.
 
-**Step 10: Commit Task 2**
+**Step 9: Commit Task 2**
 
 ```text
 git add crates/rssh-app/src/window.rs
@@ -519,19 +589,9 @@ cargo test -p rssh-app window_app_wheel_disable_default_ -- --nocapture
 
 Expected: current lookup excludes `DisableDefaultAssignment` and falls into report/default handling, or returns the wrong consumed status.
 
-**Step 3: Add a typed assignment outcome and exact precedence**
+**Step 3: Complete DisableDefault handling on the existing typed contract**
 
-Replace the wheel caller's boolean assignment contract with a private typed result:
-
-```rust
-enum WheelAssignmentMatch {
-    None,
-    DisableDefault,
-    Command(WindowCommand),
-}
-```
-
-Match the full event, effective modifiers, target reporting state, and target alternate-screen state. The wheel handler evaluates it after target reporting pre-scroll and before terminal reporting/defaults. `DisableDefault` skips dispatch and all later behavior and returns `Ok(false)`. Ordinary command errors propagate after refresh and do not fall through. Preserve the old button/drag helper semantics for non-wheel events.
+Use the `WheelAssignmentMatch` and `WheelCommandOutcome` API introduced in Task 2; do not replace it with a boolean or a second incompatible result type. Match the full event, effective modifiers, target reporting state, and target alternate-screen state. The wheel handler evaluates `WheelAssignmentMatch` after target reporting pre-scroll and before terminal reporting/defaults. `DisableDefault` skips dispatch and all later behavior and returns `Ok(false)`. `Command(command)` calls `apply_wheel_command_for_target` and maps `WheelCommandOutcome::Consumed` to `Ok(true)`. Ordinary `AppShellError`s must already be converted through `wheel_action_io_error`; propagate them after refresh and do not fall through. Preserve the old button/drag helper semantics for non-wheel events.
 
 **Step 4: Write RED interaction-boundary tests**
 
@@ -576,7 +636,7 @@ Expected: any remaining implicit activation, active-state reuse, or misplaced pr
 
 **Step 6: Close only the observed boundary gaps**
 
-Adjust event ordering and owner-local refresh, not click/move behavior. The final order is: install delta guard; tab bar; scrollbar/visible-pane target; local geometry/runtime; reporting pre-scroll; assignment; reporting; disabled defaults; target alternate arrows or target stable scrollback. A no-hit or missing-runtime result is `Ok(false)` with no fallback.
+Adjust event ordering and owner-local refresh, not click/move behavior. The final order is: install delta guard; tab bar; resolve `WheelHitTarget`; return directly through active stable-viewport handling for `ActiveScrollbar`; for `PaneSurface` only, obtain local geometry/runtime, perform reporting pre-scroll, assignment, reporting, disabled-default handling, then target alternate arrows or target stable scrollback. A no-hit or missing-runtime result is `Ok(false)` with no fallback.
 
 **Step 7: Run GREEN and complete interaction regressions**
 
@@ -635,7 +695,7 @@ fn window_app_wheel_missing_runtime_returns_false_without_active_fallback() { /*
 fn window_app_wheel_reporting_unencodable_returns_false_without_default_scroll() { /* ... */ }
 ```
 
-Seed `current_mouse_wheel_delta` with a distinct prior value and assert exact restoration. Use an existing failing App Shell action (for example an action whose invariant returns `AppShellError`) as an ordinary matched command and a `FailingWriter` for PTY I/O. Before each error, arrange a reporting target above bottom so the test proves owner refresh/rebuild occurs before `Err`. Remove only the addressed inactive `pane_runtimes` entry for the missing-runtime test; assert active writer/UI remains untouched. For unencodable reporting use a valid reporting mode plus a coordinate/protocol condition that existing encoding rejects, then assert no scrollback fallback.
+Seed `current_mouse_wheel_delta` with a distinct prior value and assert exact restoration. Use an existing failing App Shell action (for example an action whose invariant returns `AppShellError`) as an ordinary matched command and a `FailingWriter` for PTY I/O. The assignment-error assertion must observe the same `io::ErrorKind::Other` and exact command/source context produced by `wheel_action_io_error`; top-level wheel routing may not replace it with a generic message. Before each error, arrange a reporting target above bottom so the test proves owner refresh/rebuild occurs before `Err`. Remove only the addressed inactive `pane_runtimes` entry for the missing-runtime test; assert active writer/UI remains untouched. For unencodable reporting use a valid reporting mode plus a coordinate/protocol condition that existing encoding rejects, then assert no scrollback fallback.
 
 **Step 2: Run the finalizer tests and witness RED**
 
@@ -707,7 +767,27 @@ cargo test -p rssh-app -- --skip builtin_color_scheme_lookup_covers_pinned_wezte
 
 Expected: all remaining `rssh-app` tests pass with zero failures.
 
-**Step 9: Run affected and adjacent crate suites**
+**Step 9: Run the complete workspace/all-targets suite without skips and record evidence**
+
+Run:
+
+```text
+cargo test --workspace --all-targets
+```
+
+Expected in a checkout without `refs/wezterm/docs/colorschemes/data.json`: all targets build and run, and exactly the same two `rssh-app` palette-fixture tests named in Step 7 fail; no core, terminal, renderer, SSH, PTY, bin, example, or other target fails. If the fixture exists, expect the whole command to pass. Preserve this output separately from the app-only evidence; any additional failure blocks completion.
+
+**Step 10: Run the complete workspace/all-targets suite with only the two known fixture tests skipped**
+
+Run:
+
+```text
+cargo test --workspace --all-targets -- --skip builtin_color_scheme_lookup_covers_pinned_wezterm_names_and_aliases --skip builtin_color_scheme_lookup_matches_all_pinned_wezterm_palette_data
+```
+
+Expected: every workspace target passes with zero failures. Do not replace this gate with package-only tests.
+
+**Step 11: Run affected and adjacent crate suites explicitly**
 
 Run:
 
@@ -721,7 +801,7 @@ git diff --check
 
 Expected: every command exits zero. Although the implementation is app-local, these suites guard App Shell pane actions, terminal mode/coordinate assumptions, and composite rendering contracts.
 
-**Step 10: Commit Task 4**
+**Step 12: Commit Task 4**
 
 ```text
 git add crates/rssh-app/src/window.rs docs/architecture.md
@@ -730,7 +810,7 @@ git commit -m "test: verify inactive pane wheel parity"
 
 Expected: one commit with finalizer/error tests, minimal fixes, and bounded parity documentation.
 
-**Step 11: Prepare the final review evidence**
+**Step 13: Prepare the final review evidence**
 
 Run:
 
@@ -743,7 +823,7 @@ git diff --stat 1e75b034..HEAD
 
 Expected: clean feature worktree, Task 0-4 commits visible after the plan commit, zero diff-check errors, and only the intended app-shell/tests/docs files changed from baseline `1e75b034`.
 
-Dispatch a fresh final spec reviewer against the approved design and this plan, then a fresh final quality reviewer only after spec Ready. Require both to inspect the complete `1e75b034..HEAD` diff and the recorded full-suite outputs. Fix and re-review every critical/important finding before integration; rerun the narrow affected tests plus Steps 7-9 after any code change.
+Dispatch a fresh final spec reviewer against the approved design and this plan, then a fresh final quality reviewer only after spec Ready. Require both to inspect the complete `1e75b034..HEAD` diff and the recorded full-suite outputs. Fix and re-review every critical/important finding before integration; rerun the narrow affected tests plus Steps 7-11 after any code change.
 
 ## Completion Checklist
 
@@ -755,4 +835,4 @@ Dispatch a fresh final spec reviewer against the approved design and this plan, 
 - `DisableDefaultAssignment`, missing runtime/writer, unencodable reporting, ordinary command errors, PTY errors, and nested `Multiple` follow the specified return/fallback semantics.
 - `current_mouse_wheel_delta` restores on every exit; inactive updates become visible without changing active title/status/scrollbar/UI.
 - Cursor-move focus-following, click-to-focus/swallow, tab wheel, zoom, separator, active-pane wheel, and disabled-default behavior do not regress.
-- Focused tests, unskipped app-suite evidence, two-skip app suite, core/terminal/renderer suites, formatting, diff checks, per-task spec/quality reviews, and final reviews are all recorded.
+- Focused tests, unskipped app and workspace/all-targets evidence, two-skip app and workspace/all-targets suites, explicit core/terminal/renderer suites, formatting, diff checks, per-task spec/quality reviews, and final reviews are all recorded.
