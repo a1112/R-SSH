@@ -35,8 +35,10 @@ the pane's true pixel origin, derived from `frame_content_pixel_left`,
 `terminal_frame_row_offset`; they must not use the window terminal origin for
 an inactive split.
 
-The wheel context is temporary and must not change the window's active pane.
-Ordinary wheel handling never dispatches `ActivatePane`:
+Constructing and using the wheel target context must never change focus. The
+routing layer itself does not dispatch pane/tab activation or create a new
+target; a user-selected binding may still do so through that command's
+existing semantics:
 
 - `pane_focus_follows_mouse` remains owned by cursor-move handling.
 - Press/click keeps the existing click-to-focus and click-swallow behavior.
@@ -71,9 +73,11 @@ Each window wheel event follows this order:
    owner-local UI/snapshot state. If reporting is bypassed, do not scroll to
    the bottom; remove the configured bypass modifier bits for assignment
    matching and continue as a non-reporting event.
-6. Resolve and execute the custom wheel assignment using the target pane's
-   context, effective modifiers, mouse-reporting state, alternate-screen
-   state, and the current event's wheel delta.
+6. Resolve the custom wheel assignment using the target pane's context,
+   effective modifiers, mouse-reporting state, alternate-screen state, and the
+   current event's wheel delta. Handle `DisableDefaultAssignment` as the
+   suppression control described below; execute any ordinary matched command
+   through the target-aware dispatcher.
 7. If no assignment matched and reporting remains enabled, encode both cell
    and, for SGR pixel/1016, pixel coordinates relative to the target pane and
    write the report to the target pane's PTY.
@@ -83,9 +87,9 @@ Each window wheel event follows this order:
 
 Custom mouse actions execute with the hovered pane as their pane context, so
 pane-dependent actions and the current wheel delta refer to the target that
-received the event. This context alone must not focus the pane. An action may
-change focus only when its existing, explicit semantics dispatch
-`ActivatePane`.
+received the event. This context alone must not focus the pane. A user
+explicitly bound command retains its existing semantics even when those
+semantics activate a pane or tab, or create and activate a new pane/tab.
 
 Mouse reports and alternate-screen arrows always use the target pane's PTY
 writer, application cursor/keypad modes, and Kitty keyboard state; they must
@@ -112,7 +116,17 @@ exhaustively classified by that interface:
 - pane-scoped app actions receive the target pane id explicitly, while truly
   window, tab, application, or configuration actions retain their existing
   global semantics; and
-- only an explicit `ActivatePane` action may change pane focus.
+- focus and creation commands retain their existing `WindowCommand`/
+  `AppAction` effects. This includes `ActivatePaneDirection`,
+  `ActivatePaneByIndex`, `ActivatePane1` through `ActivatePane8`, `NextPane`,
+  `PreviousPane`, tab activation, `NewTab`, `SplitPane`, and equivalent spawn
+  or creation actions.
+
+Direction-relative and target-relative commands use the hovered pane as their
+reference pane, matching WezTerm's `perform_key_assignment(&hovered_pane, ...)`
+semantics. They must not resolve direction, split source, current-pane domain,
+or other pane-relative input from the previously active pane. By-index and
+truly global commands keep their established tab/window scope.
 
 Composite actions such as `Multiple` recursively retain the same target. The
 classification is a closed/exhaustive match (or an equivalent typed target
@@ -122,6 +136,16 @@ pane-dependent commands that a wheel binding can invoke; it must not use a
 small allowlist with active-pane fallback. Temporary activate/restore and
 runtime/UI swapping are forbidden because they expose focus, title, event, and
 error-path side effects.
+
+`DisableDefaultAssignment` is a separate mouse-binding control result, not an
+ordinary target command. If its full event/modifier/reporting/alternate-screen
+predicate matches, do not call the target dispatcher and do not run terminal
+reporting, alternate-screen arrow translation, or default scrollback. Restore
+the event delta, leave focus unchanged, and return `Ok(false)`, matching the
+existing button-binding convention that disabling a default is not reported
+as a consumed action. The non-bypassed reporting scroll-to-bottom from event
+step 5 still precedes assignment lookup and therefore still applies; no
+subsequent default scroll is allowed.
 
 ## State refresh
 
@@ -155,10 +179,12 @@ pane path continues to use the same state and refresh semantics as before.
   never falls back to the active pane. A resolved runtime with no PTY writer
   preserves the existing disconnected-pane no-op: a selected report,
   alternate-arrow path, or writer action is consumed as `Ok(true)`.
-- No matching custom assignment continues to reporting/default handling. A
-  matched assignment is consumed: success returns `Ok(true)`, while action or
-  PTY I/O failure is returned as `Err` after target refresh and delta
-  restoration. It must not trigger the default action as a second behavior.
+- No matching custom assignment continues to reporting/default handling.
+  `DisableDefaultAssignment` follows its special `Ok(false)` suppression path.
+  Any ordinary matched assignment is consumed: success returns `Ok(true)`,
+  while action or PTY I/O failure is returned as `Err` after target refresh
+  and delta restoration. It must not trigger the default action as a second
+  behavior.
 - Reporting selected but not encodable returns `Ok(false)` without falling
   through to scrollback. Default fallback occurs only when no assignment
   matched, reporting is inactive or bypassed, and default bindings are enabled.
@@ -187,6 +213,14 @@ Focused tests cover:
 - custom wheel bindings across viewport, writer/paste/key, pane-local
   copy/overlay, pane-scoped, window/global, explicit-focus, and nested action
   categories, all retaining the hovered-pane context;
+- direction-relative focus from an inactive hovered pane, by-index focus, and
+  representative global and creation actions including `NewTab` and
+  `SplitPane`, proving that routing itself does not focus while explicit
+  bindings retain their established effects;
+- `DisableDefaultAssignment` over an inactive pane in non-reporting,
+  reporting, and alternate-screen states: it returns `Ok(false)`, preserves
+  focus, emits no report or arrow, performs no default scrollback, and restores
+  the current delta;
 - successful, unhandled, missing-runtime, missing-writer, assignment-failure,
   and PTY-I/O-error results, including `current_mouse_wheel_delta` restoration
   and target refresh on every error path;
