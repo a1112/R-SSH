@@ -92240,13 +92240,15 @@ impl NativeWindowApp {
             row: target.cell.row,
             modifiers,
         };
-        let pixels = mouse_report_pixel_coordinate(target.pixel_position.x)
-            .zip(mouse_report_pixel_coordinate(target.pixel_position.y));
-        pixels
-            .and_then(|(x_pixels, y_pixels)| {
+        match mode.protocol() {
+            MouseProtocolMode::SgrPixels => {
+                let (x_pixels, y_pixels) =
+                    mouse_report_pixel_coordinate(target.pixel_position.x)
+                        .zip(mouse_report_pixel_coordinate(target.pixel_position.y))?;
                 encode_window_mouse_event_with_pixels(event, x_pixels, y_pixels, mode)
-            })
-            .or_else(|| encode_window_mouse_event(event, mode))
+            }
+            _ => encode_window_mouse_event(event, mode),
+        }
     }
 
     fn handle_alternate_buffer_mouse_wheel_for_target(
@@ -191419,6 +191421,59 @@ return config
         assert!(inactive_written.lock().unwrap().is_empty());
         assert!(active_written.lock().unwrap().is_empty());
         assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+    }
+
+    #[test]
+    fn window_app_wheel_sgr_pixels_rejects_unencodable_inactive_target_pixels() {
+        let active_written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = wheel_split_with_inactive_history_for_test();
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
+        let inactive = rssh_core::PaneId::new(1);
+        let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
+        app.handle_pane_pty_output(inactive, b"\x1b[?1000;1016h")
+            .unwrap();
+        app.set_config_overrides(NativeConfigOverrides {
+            font_size: Some(NativeFontSize::from_millipoints(120_000_000)),
+            ..NativeConfigOverrides::default()
+        });
+        assert!(
+            app.cell_width() > u32::from(u16::MAX),
+            "fixture needs a pane-local pixel offset that exceeds the protocol range"
+        );
+        assert!(app.set_pane_scrollback_offset(inactive, 1));
+        let history_len_before = app
+            .pane_runtime_ref(inactive)
+            .unwrap()
+            .terminal()
+            .scrollback()
+            .len();
+        let active = app.active_pane_id();
+        let sentinel_delta = MouseScrollDelta::PixelDelta(PhysicalPosition::new(29.0, -31.0));
+        app.current_mouse_wheel_delta = Some(sentinel_delta);
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, f64::from(u16::MAX), 1.0);
+
+        assert!(
+            !app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+
+        assert!(inactive_written.lock().unwrap().is_empty());
+        assert!(active_written.lock().unwrap().is_empty());
+        assert_eq!(
+            app.pane_ui_ref(inactive).unwrap().stable_viewport.main_top,
+            None,
+            "an unencodable pixel report must not fall through to default scrollback"
+        );
+        assert_eq!(
+            app.pane_runtime_ref(inactive)
+                .unwrap()
+                .terminal()
+                .scrollback()
+                .len(),
+            history_len_before
+        );
+        assert_eq!(app.active_pane_id(), active);
+        assert_eq!(app.current_mouse_wheel_delta, Some(sentinel_delta));
     }
 
     #[test]
