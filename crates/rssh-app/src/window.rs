@@ -90032,6 +90032,95 @@ impl NativeWindowApp {
         true
     }
 
+    fn pane_runtime_ref(&self, pane_id: rssh_core::PaneId) -> Option<&TerminalRuntime> {
+        if pane_id == self.app_shell.active_pane_id() {
+            return Some(&self.runtime);
+        }
+        self.pane_runtimes
+            .get(&pane_id)
+            .map(|runtime| &runtime.runtime)
+    }
+
+    fn pane_ui_ref(&self, pane_id: rssh_core::PaneId) -> Option<&PaneUiState> {
+        if pane_id == self.app_shell.active_pane_id() {
+            return Some(&self.active_ui);
+        }
+        self.pane_runtimes.get(&pane_id).map(|runtime| &runtime.ui)
+    }
+
+    fn set_pane_scrollback_offset(&mut self, pane_id: rssh_core::PaneId, offset: usize) -> bool {
+        if pane_id == self.app_shell.active_pane_id() {
+            let before = self.current_scrollback_offset();
+            self.set_scrollback_offset(offset);
+            return self.current_scrollback_offset() != before;
+        }
+
+        let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) else {
+            return false;
+        };
+        let before = runtime
+            .ui
+            .stable_viewport
+            .scrollback_offset(runtime.runtime.terminal());
+        runtime
+            .ui
+            .stable_viewport
+            .set_scrollback_offset(runtime.runtime.terminal(), offset);
+        let changed = runtime
+            .ui
+            .stable_viewport
+            .scrollback_offset(runtime.runtime.terminal())
+            != before;
+        if changed {
+            self.refresh_wheel_target_owner(pane_id);
+        }
+        changed
+    }
+
+    fn scroll_pane_viewport_lines(&mut self, pane_id: rssh_core::PaneId, lines: isize) -> bool {
+        let Some(runtime) = self.pane_runtime_ref(pane_id) else {
+            return false;
+        };
+        let Some(ui) = self.pane_ui_ref(pane_id) else {
+            return false;
+        };
+        let history_len = runtime.terminal().scrollback().len();
+        let current_offset = ui.stable_viewport.scrollback_offset(runtime.terminal());
+        let next_offset = if lines.is_positive() {
+            current_offset
+                .saturating_add(lines.unsigned_abs())
+                .min(history_len)
+        } else {
+            current_offset.saturating_sub(lines.unsigned_abs())
+        };
+        self.set_pane_scrollback_offset(pane_id, next_offset)
+    }
+
+    fn refresh_wheel_target_owner(&mut self, pane_id: rssh_core::PaneId) {
+        if pane_id == self.app_shell.active_pane_id() {
+            self.update_selection_projection();
+            self.pane_select = None;
+            self.refresh_snapshot();
+            self.apply_window_title();
+            return;
+        }
+
+        let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) else {
+            return;
+        };
+        runtime
+            .ui
+            .stable_viewport
+            .clamp_main(runtime.runtime.terminal());
+        runtime
+            .ui
+            .refresh_search_match_cache(runtime.runtime.terminal());
+        runtime.snapshot = terminal_runtime_snapshot(&runtime.runtime, runtime.ui.stable_viewport);
+        self.metrics.record_snapshot_rebuild();
+        self.frame_needs_full_repaint = true;
+        self.pending_frame_damage.clear();
+    }
+
     fn handle_window_mouse_wheel(&mut self, delta: MouseScrollDelta) -> io::Result<bool> {
         let previous_delta = self.current_mouse_wheel_delta.replace(delta);
         let result = self.handle_window_mouse_wheel_with_current_delta(delta);
@@ -90047,47 +90136,51 @@ impl NativeWindowApp {
             return Ok(self.handle_tab_bar_mouse_wheel(delta));
         }
 
-        let mouse_cell = self.focus_pane_for_mouse_position();
-        let mode = self.runtime.mouse_input_mode();
+        let Some(hit) = self.wheel_hit_target_at_mouse_position() else {
+            return Ok(false);
+        };
+        let target = match hit {
+            WheelHitTarget::ActiveScrollbar { pane_id } => {
+                debug_assert_eq!(pane_id, self.app_shell.active_pane_id());
+                return Ok(self.handle_mouse_wheel(delta));
+            }
+            WheelHitTarget::PaneSurface(target) => target,
+        };
+        let Some(target_runtime) = self.pane_runtime_ref(target.pane_id) else {
+            return Ok(false);
+        };
+        let mode = target_runtime.mouse_input_mode();
+        let alternate_screen_active = target_runtime.terminal().alternate_screen_active();
         let bypass_mouse_reporting = mode.reporting_enabled()
             && !self.bypass_mouse_reporting_modifiers.is_empty()
             && self
                 .modifiers
                 .contains(self.bypass_mouse_reporting_modifiers);
         let mouse_reporting_for_assignment = mode.reporting_enabled() && !bypass_mouse_reporting;
+        if mouse_reporting_for_assignment {
+            self.set_pane_scrollback_offset(target.pane_id, 0);
+        }
         if let Some(button) = native_mouse_assignment_wheel_button_from_delta(delta)
             && self.handle_user_mouse_assignment(
                 NativeMouseAssignmentEventKind::Down,
                 button,
                 1,
                 mouse_reporting_for_assignment,
-                self.runtime.terminal().alternate_screen_active(),
+                alternate_screen_active,
             )
         {
             return Ok(true);
         }
 
         if mode.reporting_enabled() && !bypass_mouse_reporting {
-            if let Some(PaneMouseCell { column, row, .. }) =
-                mouse_cell.or_else(|| self.mouse_cell_for_active_pane())
+            let Some(kind) = window_mouse_wheel_kind(delta) else {
+                return Ok(false);
+            };
+            if let Some(bytes) =
+                self.encode_wheel_mouse_event_for_target(target, kind, mode, self.modifiers)
             {
-                let Some(kind) = window_mouse_wheel_kind(delta) else {
-                    return Ok(false);
-                };
-                let event = WindowMouseEvent {
-                    kind,
-                    column,
-                    row,
-                    modifiers: self.modifiers,
-                };
-                if let Some(bytes) = self.encode_window_mouse_event_for_position(
-                    event,
-                    mode,
-                    self.mouse_pixel_position,
-                ) {
-                    self.write_pty_bytes(&bytes)?;
-                    return Ok(true);
-                }
+                self.write_pty_bytes_to_pane_for_wheel(target.pane_id, &bytes)?;
+                return Ok(true);
             }
             return Ok(false);
         }
@@ -90096,49 +90189,81 @@ impl NativeWindowApp {
             return Ok(false);
         }
 
-        if self.runtime.terminal().alternate_screen_active() {
-            return self.handle_alternate_buffer_mouse_wheel(delta);
+        if alternate_screen_active {
+            return self.handle_alternate_buffer_mouse_wheel_for_target(target, delta);
         }
 
-        Ok(self.handle_mouse_wheel(delta))
+        let lines = scrollback_lines_from_mouse_delta(delta);
+        if lines == 0 {
+            return Ok(false);
+        }
+        self.scroll_pane_viewport_lines(target.pane_id, lines);
+        Ok(true)
     }
 
-    fn handle_alternate_buffer_mouse_wheel(&mut self, delta: MouseScrollDelta) -> io::Result<bool> {
+    fn encode_wheel_mouse_event_for_target(
+        &self,
+        target: WheelTarget,
+        kind: WindowMouseEventKind,
+        mode: MouseInputMode,
+        modifiers: ModifiersState,
+    ) -> Option<Vec<u8>> {
+        let event = WindowMouseEvent {
+            kind,
+            column: target.cell.column,
+            row: target.cell.row,
+            modifiers,
+        };
+        let pixels = mouse_report_pixel_coordinate(target.pixel_position.x)
+            .zip(mouse_report_pixel_coordinate(target.pixel_position.y));
+        pixels
+            .and_then(|(x_pixels, y_pixels)| {
+                encode_window_mouse_event_with_pixels(event, x_pixels, y_pixels, mode)
+            })
+            .or_else(|| encode_window_mouse_event(event, mode))
+    }
+
+    fn handle_alternate_buffer_mouse_wheel_for_target(
+        &mut self,
+        target: WheelTarget,
+        delta: MouseScrollDelta,
+    ) -> io::Result<bool> {
         let lines = scrollback_lines_from_mouse_delta(delta);
         let key = match lines.cmp(&0) {
             std::cmp::Ordering::Greater => NamedKey::ArrowUp,
             std::cmp::Ordering::Less => NamedKey::ArrowDown,
             std::cmp::Ordering::Equal => return Ok(false),
         };
-
         let repeats = lines
             .unsigned_abs()
             .saturating_mul(self.alternate_buffer_wheel_scroll_speed);
         if repeats == 0 {
             return Ok(false);
         }
-
-        let encoded_key = Key::Named(key);
+        let Some(runtime) = self.pane_runtime_ref(target.pane_id) else {
+            return Ok(false);
+        };
         let physical_key = match key {
             NamedKey::ArrowUp => PhysicalKey::Code(WinitKeyCode::ArrowUp),
             NamedKey::ArrowDown => PhysicalKey::Code(WinitKeyCode::ArrowDown),
             _ => PhysicalKey::Unidentified(winit::keyboard::NativeKeyCode::Unidentified),
         };
+        let kitty_flags = runtime.kitty_keyboard_flags()
+            | u16::from(self.enable_csi_u_key_encoding) * KITTY_KEYBOARD_DISAMBIGUATE;
         let bytes = encode_window_key_with_kitty_event(
-            &encoded_key,
+            &Key::Named(key),
             physical_key,
             None,
             ModifiersState::empty(),
-            self.runtime.application_cursor_keys(),
-            self.runtime.application_keypad(),
-            self.effective_kitty_keyboard_flags(),
-            self.runtime.modify_other_keys(),
+            runtime.application_cursor_keys(),
+            runtime.application_keypad(),
+            kitty_flags,
+            runtime.modify_other_keys(),
             KittyKeyEventKind::Press,
         );
         for _ in 0..repeats {
-            self.write_pty_bytes(&bytes)?;
+            self.write_pty_bytes_to_pane_for_wheel(target.pane_id, &bytes)?;
         }
-
         Ok(true)
     }
 
@@ -95620,6 +95745,14 @@ impl NativeWindowApp {
             self.frame_needs_full_repaint = true;
         }
         Ok(())
+    }
+
+    fn write_pty_bytes_to_pane_for_wheel(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        bytes: &[u8],
+    ) -> io::Result<()> {
+        self.write_pty_bytes_to_pane(pane_id, bytes)
     }
 
     fn metrics_snapshot(&self) -> WindowMetricsSnapshot {
@@ -188410,32 +188543,384 @@ return config
         assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
     }
 
-    #[test]
-    fn window_app_mouse_wheel_scrolls_split_pane_under_cursor() {
+    fn move_wheel_to_pane_cell_for_test(
+        app: &mut NativeWindowApp,
+        pane_id: rssh_core::PaneId,
+        row: u16,
+        column: u16,
+        pixel_x: f64,
+        pixel_y: f64,
+    ) {
+        let rect = app.pane_render_rect(pane_id).expect("visible pane rect");
+        let cell_width = app.cell_width();
+        let cell_height = app.cell_height();
+        app.mouse_pixel_position = Some(PhysicalPosition::new(
+            f64::from(app.frame_content_pixel_left())
+                + f64::from(rect.column.saturating_add(column)) * f64::from(cell_width)
+                + pixel_x,
+            f64::from(app.terminal_pixel_top())
+                + f64::from(
+                    rect.row
+                        .saturating_sub(app.terminal_frame_row_offset())
+                        .saturating_add(row),
+                ) * f64::from(cell_height)
+                + pixel_y,
+        ));
+    }
+
+    fn wheel_split_with_inactive_history_for_test() -> NativeWindowApp {
         let mut app = NativeWindowApp::new(None);
-        app.runtime.resize(rssh_core::TerminalSize::new(80, 2));
-        app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
+        app.runtime.resize(rssh_core::TerminalSize::new(20, 2));
+        app.handle_pty_output(b"left-0\r\nleft-1\r\nleft-2\r\nleft-live")
+            .unwrap();
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
-            direction: rssh_core::app_shell::SplitDirection::Right,
+            direction: SplitDirection::Right,
             launch: None,
         })
         .unwrap();
-        app.handle_pty_output(b"right").unwrap();
-        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        app.handle_pty_output(b"right-live").unwrap();
+        app
+    }
 
-        app.handle_cursor_moved(PhysicalPosition::new(
-            f64::from(CELL_WIDTH),
-            f64::from(tab_bar_pixel_height()),
-        ))
-        .unwrap();
+    #[test]
+    fn window_app_wheel_scrolls_inactive_pane_without_focus_transfer() {
+        let mut app = wheel_split_with_inactive_history_for_test();
+        let inactive = rssh_core::PaneId::new(1);
+        let active = rssh_core::PaneId::new(2);
+        let active_snapshot = app.snapshot.clone();
+        let inactive_snapshot = app.pane_snapshot(inactive).unwrap().clone();
+        let active_title = app.effective_window_title();
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+
         assert!(
             app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
                 .unwrap()
         );
 
+        assert_eq!(app.active_pane_id(), active);
+        assert_eq!(app.current_scrollback_offset(), 0);
+        assert_eq!(app.snapshot, active_snapshot);
+        assert_eq!(app.effective_window_title(), active_title);
+        assert_ne!(app.pane_snapshot(inactive).unwrap(), &inactive_snapshot);
+        assert!(
+            app.pane_runtimes
+                .get(&inactive)
+                .unwrap()
+                .ui
+                .stable_viewport
+                .main_top
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn window_app_wheel_refreshes_only_target_selection_overlay_and_composite() {
+        let mut app = wheel_split_with_inactive_history_for_test();
+        let inactive = rssh_core::PaneId::new(1);
+        let inactive_runtime = app.pane_runtimes.get_mut(&inactive).unwrap();
+        let dimensions = inactive_runtime.runtime.terminal().stable_dimensions();
+        inactive_runtime.ui.ordinary_selection = Some(StableOrdinarySelection::new(
+            SelectionSourceCell {
+                domain: dimensions.domain,
+                row: dimensions.physical_top,
+                column: 0,
+            },
+            SelectionSourceCell {
+                domain: dimensions.domain,
+                row: dimensions.physical_top,
+                column: 1,
+            },
+            inactive_runtime.runtime.terminal().current_seqno(),
+        ));
+        let inactive_projection_before = super::pane_overlay_viewport_selection(
+            inactive_runtime.runtime.terminal(),
+            &inactive_runtime.ui,
+            &app.selection_word_boundary,
+        );
+        assert!(inactive_projection_before.is_some());
+        let active_match = pane_overlay_test_match(&app, 0, 0, 1);
+        install_pane_search_presentation_for_test(&mut app, "right", active_match);
+        let active_snapshot = app.snapshot.clone();
+        let before = app.render_snapshot();
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+
+        assert_eq!(app.snapshot, active_snapshot);
+        assert_ne!(app.render_snapshot(), before);
+        let inactive_runtime = app.pane_runtimes.get(&inactive).unwrap();
+        assert!(inactive_runtime.ui.ordinary_selection.is_some());
+        assert_ne!(
+            super::pane_overlay_viewport_selection(
+                inactive_runtime.runtime.terminal(),
+                &inactive_runtime.ui,
+                &app.selection_word_boundary,
+            ),
+            inactive_projection_before
+        );
+    }
+
+    #[test]
+    fn window_app_wheel_inactive_pane_without_history_matches_active_noop() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(20, 2));
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let inactive = rssh_core::PaneId::new(1);
+        let before = app.pane_snapshot(inactive).unwrap().clone();
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        assert_eq!(app.pane_snapshot(inactive).unwrap(), &before);
+    }
+
+    #[test]
+    fn window_app_wheel_active_scrollbar_over_inactive_right_uses_active_scrollback_only() {
+        let active_written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = wheel_split_with_inactive_history_for_test();
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
+        app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
+        app.mouse_assignments = vec![NativeUserMouseAssignment {
+            event: NativeMouseAssignmentEvent {
+                kind: NativeMouseAssignmentEventKind::Down,
+                button: NativeMouseAssignmentButton::WheelUp,
+                streak: 1,
+            },
+            modifiers: ModifiersState::empty(),
+            mouse_reporting: true,
+            alt_screen: NativeMouseAssignmentAltScreen::Any,
+            command: WindowCommand::SendString("bound".to_owned()),
+        }];
+        app.set_config_overrides(NativeConfigOverrides {
+            enable_scroll_bar: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+        let inactive_before = app
+            .pane_snapshot(rssh_core::PaneId::new(2))
+            .unwrap()
+            .clone();
+        app.mouse_pixel_position = Some(PhysicalPosition::new(
+            f64::from(FRAME_WIDTH - 1),
+            f64::from(app.terminal_pixel_top()),
+        ));
+
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+        assert!(app.current_scrollback_offset() > 0);
+        assert_eq!(
+            app.pane_snapshot(rssh_core::PaneId::new(2)).unwrap(),
+            &inactive_before
+        );
+        assert!(active_written.lock().unwrap().is_empty());
         assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
-        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
+    }
+
+    #[test]
+    fn window_app_wheel_active_scrollbar_over_active_right_uses_active_scrollback_only() {
+        let active_written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = wheel_split_with_inactive_history_for_test();
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
+        app.handle_pty_output(b"right-0\r\nright-1\r\nright-2\r\nright-live")
+            .unwrap();
+        app.handle_pty_output(b"\x1b[?1049h").unwrap();
+        app.set_config_overrides(NativeConfigOverrides {
+            enable_scroll_bar: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+        app.mouse_pixel_position = Some(PhysicalPosition::new(
+            f64::from(FRAME_WIDTH - 1),
+            f64::from(app.terminal_pixel_top()),
+        ));
+
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+        assert!(active_written.lock().unwrap().is_empty());
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+    }
+
+    fn install_inactive_wheel_writer_for_test(
+        app: &mut NativeWindowApp,
+        pane_id: rssh_core::PaneId,
+    ) -> Arc<Mutex<Vec<u8>>> {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        app.pane_runtimes.get_mut(&pane_id).unwrap().writer =
+            Some(Box::new(SharedWriter(Arc::clone(&written))));
+        written
+    }
+
+    #[test]
+    fn window_app_wheel_reports_local_cell_to_inactive_target_writer() {
+        let active_written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = wheel_split_with_inactive_history_for_test();
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
+        let inactive = rssh_core::PaneId::new(1);
+        let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
+        app.handle_pane_pty_output(inactive, b"\x1b[?1000;1006h")
+            .unwrap();
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 1, 3, 2.5, 4.25);
+
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+
+        assert_eq!(
+            inactive_written.lock().unwrap().as_slice(),
+            b"\x1b[<64;4;2M"
+        );
+        assert!(active_written.lock().unwrap().is_empty());
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+    }
+
+    #[test]
+    fn window_app_wheel_reports_local_sgr_pixel_to_inactive_target_writer() {
+        let mut app = wheel_split_with_inactive_history_for_test();
+        let inactive = rssh_core::PaneId::new(1);
+        let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
+        app.handle_pane_pty_output(inactive, b"\x1b[?1000;1016h")
+            .unwrap();
+        let cell_width = app.cell_width();
+        let cell_height = app.cell_height();
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 1, 3, 2.5, 4.25);
+
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+
+        let expected = format!("\x1b[<64;{};{}M", 3 * cell_width + 3, cell_height + 5);
+        assert_eq!(
+            inactive_written.lock().unwrap().as_slice(),
+            expected.as_bytes()
+        );
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+    }
+
+    #[test]
+    fn window_app_wheel_reporting_scrolls_target_to_bottom_before_report() {
+        let mut app = wheel_split_with_inactive_history_for_test();
+        let inactive = rssh_core::PaneId::new(1);
+        let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
+        app.handle_pane_pty_output(inactive, b"\x1b[?1000;1006h")
+            .unwrap();
+        app.pane_runtimes
+            .get_mut(&inactive)
+            .unwrap()
+            .ui
+            .stable_viewport
+            .main_top = Some(0);
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+
+        assert_eq!(
+            app.pane_runtimes
+                .get(&inactive)
+                .unwrap()
+                .ui
+                .stable_viewport
+                .main_top,
+            None
+        );
+        assert_eq!(
+            inactive_written.lock().unwrap().as_slice(),
+            b"\x1b[<64;1;1M"
+        );
+    }
+
+    #[test]
+    fn window_app_wheel_reporting_bypass_keeps_target_viewport_and_scrolls_normally() {
+        let mut app = wheel_split_with_inactive_history_for_test();
+        let inactive = rssh_core::PaneId::new(1);
+        let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
+        app.handle_pane_pty_output(inactive, b"\x1b[?1000;1006h")
+            .unwrap();
+        app.modifiers = ModifiersState::SHIFT;
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+
+        assert!(inactive_written.lock().unwrap().is_empty());
+        assert_eq!(app.modifiers, ModifiersState::SHIFT);
+        assert!(
+            app.pane_runtimes
+                .get(&inactive)
+                .unwrap()
+                .ui
+                .stable_viewport
+                .main_top
+                .is_some()
+        );
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+    }
+
+    #[test]
+    fn window_app_wheel_alternate_arrows_use_inactive_target_modes_and_writer() {
+        let active_written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = wheel_split_with_inactive_history_for_test();
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
+        let inactive = rssh_core::PaneId::new(1);
+        let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
+        app.handle_pane_pty_output(inactive, b"\x1b[?1049h\x1b[?1h")
+            .unwrap();
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+
+        assert_eq!(
+            inactive_written.lock().unwrap().as_slice(),
+            b"\x1bOA\x1bOA\x1bOA"
+        );
+        assert!(active_written.lock().unwrap().is_empty());
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+    }
+
+    #[test]
+    fn window_app_wheel_missing_target_writer_is_consumed_without_active_fallback() {
+        let active_written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = wheel_split_with_inactive_history_for_test();
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
+        let inactive = rssh_core::PaneId::new(1);
+        app.pane_runtimes.get_mut(&inactive).unwrap().writer = None;
+        app.handle_pane_pty_output(inactive, b"\x1b[?1000;1006h")
+            .unwrap();
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+        assert!(active_written.lock().unwrap().is_empty());
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
     }
 
     #[test]
@@ -194605,6 +195090,8 @@ return config
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
         app.handle_pty_output(b"\x1b[?1049h").unwrap();
+        let active = app.active_pane_id();
+        move_wheel_to_pane_cell_for_test(&mut app, active, 0, 0, 1.0, 1.0);
 
         assert!(
             app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
@@ -194672,6 +195159,8 @@ return config
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"\x1b[?1049h").unwrap();
+        let active = app.active_pane_id();
+        move_wheel_to_pane_cell_for_test(&mut app, active, 0, 0, 1.0, 1.0);
 
         assert!(
             app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, -1.0))
