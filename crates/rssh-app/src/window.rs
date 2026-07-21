@@ -83547,7 +83547,7 @@ impl NativeWindowApp {
     }
 
     fn enter_char_select_mode_with_options(&mut self, mut options: WindowCharSelectOptions) {
-        self.deferred_wheel_context = self.wheel_context_for_pane(self.app_shell.active_pane_id());
+        self.deferred_wheel_context = None;
         self.command_palette = None;
         self.pane_select = None;
         self.tab_navigator = None;
@@ -83720,9 +83720,7 @@ impl NativeWindowApp {
                         })
                     })
                 {
-                    let target = self
-                        .deferred_wheel_context
-                        .or_else(|| self.wheel_context_for_pane(self.app_shell.active_pane_id()));
+                    let target = self.deferred_wheel_context;
                     let pane_id = target
                         .map_or_else(|| self.app_shell.active_pane_id(), |target| target.pane_id);
                     if let Some(destination) = copy_destination {
@@ -85118,6 +85116,7 @@ impl NativeWindowApp {
 
     fn enter_command_palette_mode(&mut self) {
         let pane_id = self.app_shell.active_pane_id();
+        self.deferred_wheel_context = None;
         self.enter_command_palette_mode_for_pane(pane_id);
     }
 
@@ -85142,6 +85141,7 @@ impl NativeWindowApp {
     }
 
     fn enter_launcher_mode_with_args(&mut self, args: WindowShowLauncherArgs) {
+        self.deferred_wheel_context = None;
         self.pane_select = None;
         self.tab_navigator = None;
         self.prompt_input_line = None;
@@ -86601,7 +86601,7 @@ impl NativeWindowApp {
     }
 
     fn command_palette_execute(&mut self, command: WindowCommand) -> bool {
-        let target = self.deferred_wheel_context;
+        let target = self.deferred_wheel_context.take();
         let command = if target.is_some() {
             self.resolve_wheel_palette_command(command)
         } else {
@@ -86642,6 +86642,9 @@ impl NativeWindowApp {
                     true
                 }
                 Err(error) => {
+                    if self.command_palette.is_some() {
+                        self.deferred_wheel_context = target;
+                    }
                     eprintln!("command palette action failed: {error}");
                     false
                 }
@@ -87025,6 +87028,7 @@ impl NativeWindowApp {
     }
 
     fn enter_close_confirmation_mode(&mut self, target: WindowCloseTarget) {
+        self.deferred_wheel_context = None;
         self.command_palette = None;
         self.pane_select = None;
         self.tab_navigator = None;
@@ -87097,7 +87101,7 @@ impl NativeWindowApp {
     }
 
     fn enter_confirmation_mode(&mut self, options: WindowConfirmationOptions) {
-        self.deferred_wheel_context = self.wheel_context_for_pane(self.app_shell.active_pane_id());
+        self.deferred_wheel_context = None;
         self.command_palette = None;
         self.pane_select = None;
         self.tab_navigator = None;
@@ -87118,9 +87122,7 @@ impl NativeWindowApp {
     }
 
     fn submit_confirmation(&mut self, accepted: bool) {
-        let target = self
-            .deferred_wheel_context
-            .or_else(|| self.wheel_context_for_pane(self.app_shell.active_pane_id()));
+        let target = self.deferred_wheel_context;
         let pane_id =
             target.map_or_else(|| self.app_shell.active_pane_id(), |target| target.pane_id);
         let action = self.confirmation.as_ref().and_then(|confirmation| {
@@ -87138,9 +87140,14 @@ impl NativeWindowApp {
         self.dispatch_confirmation(&event);
         self.exit_confirmation_mode();
         if let Some(action) = action {
-            if let Some(target) = target
-                && let Err(error) = self.apply_command_for_target_context(target, action)
-            {
+            let result = if let Some(target) = target {
+                self.apply_command_for_target_context(target, action)
+                    .map_err(|error| error.to_string())
+            } else {
+                self.command_palette_apply_command(action)
+                    .map_err(|error| format!("{error:?}"))
+            };
+            if let Err(error) = result {
                 eprintln!("confirmation action failed: {error}");
             }
         }
@@ -87152,11 +87159,7 @@ impl NativeWindowApp {
 
     fn emit_event(&mut self, event: WindowEmitEvent) -> bool {
         let pane_id = self.app_shell.active_pane_id();
-        if let Some(target) = self.wheel_context_for_pane(pane_id) {
-            self.emit_event_for_target(target, event)
-        } else {
-            self.emit_event_for_pane(pane_id, event)
-        }
+        self.emit_event_for_pane(pane_id, event)
     }
 
     fn emit_event_for_target(&mut self, target: WheelTarget, event: WindowEmitEvent) -> bool {
@@ -87184,13 +87187,9 @@ impl NativeWindowApp {
                 if let Some(command) = handler.command {
                     let result = if let Some(target) = target {
                         self.apply_command_for_target_context(target, command)
-                    } else if let Some(target) = self.wheel_context_for_pane(pane_id) {
-                        self.apply_command_for_target_context(target, command)
                     } else {
-                        Err(io::Error::other(format!(
-                            "emit-event target missing: {:?}",
-                            AppShellError::InvalidPane(pane_id)
-                        )))
+                        self.command_palette_apply_command(command)
+                            .map_err(|error| io::Error::other(format!("{error:?}")))
                     };
                     if let Err(error) = result {
                         eprintln!("emit event action failed: {error}");
@@ -87460,7 +87459,7 @@ impl NativeWindowApp {
     }
 
     fn enter_input_selector_mode(&mut self, options: WindowInputSelectorOptions) {
-        self.deferred_wheel_context = self.wheel_context_for_pane(self.app_shell.active_pane_id());
+        self.deferred_wheel_context = None;
         self.command_palette = None;
         self.pane_select = None;
         self.tab_navigator = None;
@@ -87484,9 +87483,7 @@ impl NativeWindowApp {
     }
 
     fn submit_input_selector(&mut self, choice: Option<WindowInputSelectorChoice>) {
-        let target = self
-            .deferred_wheel_context
-            .or_else(|| self.wheel_context_for_pane(self.app_shell.active_pane_id()));
+        let target = self.deferred_wheel_context;
         let pane_id =
             target.map_or_else(|| self.app_shell.active_pane_id(), |target| target.pane_id);
         let action = self
@@ -87502,15 +87499,13 @@ impl NativeWindowApp {
         self.dispatch_input_selector(&event);
         self.exit_input_selector_mode();
         if let Some(action) = action {
-            if let Some(target) = target {
-                self.perform_input_selector_action(target, action, &event);
-            }
+            self.perform_input_selector_action(target, action, &event);
         }
     }
 
     fn perform_input_selector_action(
         &mut self,
-        target: WheelTarget,
+        target: Option<WheelTarget>,
         action: WindowInputSelectorAction,
         event: &NativeInputSelector,
     ) {
@@ -87565,7 +87560,14 @@ impl NativeWindowApp {
             }
             WindowInputSelectorAction::Command(command) => *command,
         };
-        if let Err(error) = self.apply_command_for_target_context(target, command) {
+        let result = if let Some(target) = target {
+            self.apply_command_for_target_context(target, command)
+                .map_err(|error| error.to_string())
+        } else {
+            self.command_palette_apply_command(command)
+                .map_err(|error| format!("{error:?}"))
+        };
+        if let Err(error) = result {
             eprintln!("input selector action failed: {error}");
         }
     }
@@ -87966,7 +87968,7 @@ impl NativeWindowApp {
     }
 
     fn enter_prompt_input_line_mode(&mut self, options: WindowPromptInputLineOptions) {
-        self.deferred_wheel_context = self.wheel_context_for_pane(self.app_shell.active_pane_id());
+        self.deferred_wheel_context = None;
         self.command_palette = None;
         self.pane_select = None;
         self.tab_navigator = None;
@@ -87986,9 +87988,7 @@ impl NativeWindowApp {
     }
 
     fn submit_prompt_input_line(&mut self, line: Option<String>) {
-        let target = self
-            .deferred_wheel_context
-            .or_else(|| self.wheel_context_for_pane(self.app_shell.active_pane_id()));
+        let target = self.deferred_wheel_context;
         let pane_id =
             target.map_or_else(|| self.app_shell.active_pane_id(), |target| target.pane_id);
         let action = self
@@ -88003,9 +88003,7 @@ impl NativeWindowApp {
         self.dispatch_prompt_input_line(&event);
         self.exit_prompt_input_line_mode();
         if let (Some(action), Some(line)) = (action, event.line.clone()) {
-            if let Some(target) = target {
-                self.perform_prompt_input_line_action(target, action, line);
-            }
+            self.perform_prompt_input_line_action(target, action, line);
         }
     }
 
@@ -88015,7 +88013,7 @@ impl NativeWindowApp {
 
     fn perform_prompt_input_line_action(
         &mut self,
-        target: WheelTarget,
+        target: Option<WheelTarget>,
         action: WindowPromptInputLineAction,
         line: String,
     ) {
@@ -88028,7 +88026,14 @@ impl NativeWindowApp {
             WindowPromptInputLineAction::SendLinePaste => WindowCommand::SendPaste(line),
             WindowPromptInputLineAction::Command(command) => *command,
         };
-        if let Err(error) = self.apply_command_for_target_context(target, command) {
+        let result = if let Some(target) = target {
+            self.apply_command_for_target_context(target, command)
+                .map_err(|error| error.to_string())
+        } else {
+            self.command_palette_apply_command(command)
+                .map_err(|error| format!("{error:?}"))
+        };
+        if let Err(error) = result {
             eprintln!("prompt input line action failed: {error}");
         }
     }
@@ -88124,6 +88129,7 @@ impl NativeWindowApp {
         show_pane_ids: bool,
         alphabet: &str,
     ) {
+        self.deferred_wheel_context = None;
         self.command_palette = None;
         self.tab_navigator = None;
         self.prompt_input_line = None;
@@ -88152,6 +88158,7 @@ impl NativeWindowApp {
     }
 
     fn enter_tab_navigator_mode(&mut self) {
+        self.deferred_wheel_context = None;
         self.command_palette = None;
         self.pane_select = None;
         self.prompt_input_line = None;
@@ -90575,34 +90582,6 @@ impl NativeWindowApp {
         }
         self.apply_wheel_command_for_target(target, command)?;
         Ok(())
-    }
-
-    fn wheel_context_for_pane(&self, pane_id: rssh_core::PaneId) -> Option<WheelTarget> {
-        self.pane_runtime_ref(pane_id)?;
-        let rect = self.pane_render_rect(pane_id)?;
-        let cell = if pane_id == self.app_shell.active_pane_id() {
-            self.mouse_cell_for_active_pane()
-                .filter(|cell| cell.pane_id == pane_id)
-                .unwrap_or(PaneMouseCell {
-                    pane_id,
-                    row: 0,
-                    column: 0,
-                })
-        } else {
-            PaneMouseCell {
-                pane_id,
-                row: 0,
-                column: 0,
-            }
-        };
-        Some(WheelTarget {
-            pane_id,
-            rect,
-            cell,
-            pixel_position: self
-                .mouse_pixel_position
-                .unwrap_or_else(|| PhysicalPosition::new(0.0, 0.0)),
-        })
     }
 
     fn apply_wheel_viewport_command(&mut self, target: WheelTarget, command: WindowCommand) {
@@ -97080,11 +97059,7 @@ impl NativeWindowApp {
 
     fn open_uri(&mut self, uri: &str) -> bool {
         let pane_id = self.app_shell.active_pane_id();
-        if let Some(target) = self.wheel_context_for_pane(pane_id) {
-            self.open_uri_for_target(target, uri)
-        } else {
-            self.open_uri_for_pane(pane_id, uri)
-        }
+        self.open_uri_for_pane(pane_id, uri)
     }
 
     fn open_uri_for_target(&mut self, target: WheelTarget, uri: &str) -> bool {
@@ -99758,15 +99733,14 @@ impl NativeWindowApp {
             return true;
         };
         if let Some(command) = handler.command_for_event(event) {
-            let result = target.map_or_else(
-                || {
-                    Err(io::Error::other(format!(
-                        "open-uri target missing: {:?}",
-                        AppShellError::InvalidPane(event.pane)
-                    )))
-                },
-                |target| self.apply_command_for_target_context(target, command),
-            );
+            let result = if let Some(target) = target {
+                self.apply_command_for_target_context(target, command)
+                    .map_err(|error| error.to_string())
+            } else if self.command_palette_execute(command) {
+                Ok(())
+            } else {
+                Err("command execution failed".to_owned())
+            };
             if let Err(error) = result {
                 eprintln!("open-uri action failed: {error}");
             }
@@ -192048,6 +192022,33 @@ return config
     }
 
     #[test]
+    fn window_app_wheel_palette_failure_retains_stale_target_without_active_fallback() {
+        let mut app = wheel_split_with_inactive_history_for_test();
+        let inactive = rssh_core::PaneId::new(1);
+        assert!(
+            run_wheel_command_on_pane_for_test(
+                &mut app,
+                inactive,
+                WindowCommand::ActivateCommandPalette,
+            )
+            .unwrap()
+        );
+        app.dispatch_app_action(AppAction::ClosePane { pane: inactive })
+            .unwrap();
+        let active_written = Arc::new(Mutex::new(Vec::new()));
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
+
+        assert!(
+            !app.command_palette_execute(WindowCommand::SendString("first-attempt".to_owned(),))
+        );
+        assert_eq!(app.deferred_wheel_context.unwrap().pane_id, inactive);
+        assert!(
+            !app.command_palette_execute(WindowCommand::SendString("second-attempt".to_owned(),))
+        );
+        assert!(active_written.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn window_app_wheel_palette_query_resolves_before_target_dispatch() {
         let mut app = wheel_split_with_inactive_history_for_test();
         let inactive = rssh_core::PaneId::new(1);
@@ -192203,6 +192204,152 @@ return config
     }
 
     #[test]
+    fn ordinary_emit_event_without_mouse_does_not_fabricate_nested_mouse_target() {
+        let mut app = NativeWindowApp::new(None);
+        app.lua_emit_event_handlers.insert(
+            "ordinary-no-mouse".to_owned(),
+            vec![super::NativeLuaEmitEventHandler {
+                command: Some(WindowCommand::SelectTextAtMouseCursorCell),
+                stop_propagation: false,
+            }],
+        );
+        assert!(app.mouse_pixel_position.is_none());
+
+        app.emit_event(WindowEmitEvent {
+            name: "ordinary-no-mouse".to_owned(),
+        });
+
+        assert!(app.active_ui.ordinary_selection.is_none());
+    }
+
+    #[test]
+    fn ordinary_open_uri_nested_command_uses_legacy_dispatch_without_mouse_target() {
+        let mut app = NativeWindowApp::new(None);
+        app.lua_open_uri = Some(super::NativeLuaOpenUri::UriPrefix {
+            prefix: "ssh://".to_owned(),
+            allow_default: false,
+            action: Some(super::NativeLuaOpenUriAction::SpawnCommandInNewWindow {
+                args: vec![super::NativeLuaOpenUriArg::Static("ssh".to_owned())],
+            }),
+        });
+        let label = WindowCommand::SpawnCommandInNewWindow(WindowSpawnCommandQuery {
+            label: None,
+            program: "ssh".to_owned(),
+            args: Vec::new(),
+            cwd: None,
+            environment: BTreeMap::new(),
+            domain: None,
+            window_position: None,
+        })
+        .label();
+        assert_eq!(app.command_palette_frecency(label).uses, 0);
+        assert!(app.mouse_pixel_position.is_none());
+
+        assert!(app.open_uri("ssh://host"));
+
+        assert_eq!(app.command_palette_frecency(label).uses, 1);
+        assert!(app.active_ui.ordinary_selection.is_none());
+    }
+
+    #[test]
+    fn ordinary_deferred_ui_completion_uses_completion_time_active_pane() {
+        let completion_pane = rssh_core::PaneId::new(1);
+
+        let mut char_app = wheel_split_with_inactive_history_for_test();
+        char_app.enter_char_select_mode_with_options(WindowCharSelectOptions {
+            copy_on_select: false,
+            ..WindowCharSelectOptions::default()
+        });
+        assert!(char_app.deferred_wheel_context.is_none());
+        char_app
+            .dispatch_app_action(AppAction::ActivatePane {
+                pane: completion_pane,
+            })
+            .unwrap();
+        let char_written = Arc::new(Mutex::new(Vec::new()));
+        char_app.writer = Some(Box::new(SharedWriter(Arc::clone(&char_written))));
+        assert!(
+            char_app.handle_char_select_key(&Key::Named(NamedKey::Enter), ModifiersState::empty())
+        );
+        assert!(!char_written.lock().unwrap().is_empty());
+
+        let mut prompt_app = wheel_split_with_inactive_history_for_test();
+        prompt_app.enter_prompt_input_line_mode(WindowPromptInputLineOptions {
+            action: Some(WindowPromptInputLineAction::SendLineText),
+            ..WindowPromptInputLineOptions::default()
+        });
+        assert!(prompt_app.deferred_wheel_context.is_none());
+        prompt_app
+            .dispatch_app_action(AppAction::ActivatePane {
+                pane: completion_pane,
+            })
+            .unwrap();
+        let prompt_written = Arc::new(Mutex::new(Vec::new()));
+        prompt_app.writer = Some(Box::new(SharedWriter(Arc::clone(&prompt_written))));
+        prompt_app.submit_prompt_input_line(Some("prompt-completion".to_owned()));
+        assert_eq!(
+            prompt_written.lock().unwrap().as_slice(),
+            b"prompt-completion"
+        );
+
+        let mut input_app = wheel_split_with_inactive_history_for_test();
+        let choice = WindowInputSelectorChoice {
+            label: "Completion".to_owned(),
+            id: Some("input-completion".to_owned()),
+        };
+        input_app.enter_input_selector_mode(WindowInputSelectorOptions {
+            choices: vec![choice.clone()],
+            action: Some(WindowInputSelectorAction::SendIdText),
+            ..WindowInputSelectorOptions::default()
+        });
+        assert!(input_app.deferred_wheel_context.is_none());
+        input_app
+            .dispatch_app_action(AppAction::ActivatePane {
+                pane: completion_pane,
+            })
+            .unwrap();
+        let input_written = Arc::new(Mutex::new(Vec::new()));
+        input_app.writer = Some(Box::new(SharedWriter(Arc::clone(&input_written))));
+        input_app.submit_input_selector(Some(choice));
+        assert_eq!(
+            input_written.lock().unwrap().as_slice(),
+            b"input-completion"
+        );
+
+        let confirmation_panes = Arc::new(Mutex::new(Vec::new()));
+        let recorded_panes = Arc::clone(&confirmation_panes);
+        let mut confirmation_app = wheel_split_with_inactive_history_for_test();
+        confirmation_app.confirmation_handler = Box::new(move |event| {
+            recorded_panes.lock().unwrap().push(event.pane);
+            true
+        });
+        confirmation_app.enter_confirmation_mode(WindowConfirmationOptions {
+            message: "Completion".to_owned(),
+            action: Box::new(WindowCommand::SendString(
+                "confirmation-completion".to_owned(),
+            )),
+            cancel: None,
+        });
+        assert!(confirmation_app.deferred_wheel_context.is_none());
+        confirmation_app
+            .dispatch_app_action(AppAction::ActivatePane {
+                pane: completion_pane,
+            })
+            .unwrap();
+        let confirmation_written = Arc::new(Mutex::new(Vec::new()));
+        confirmation_app.writer = Some(Box::new(SharedWriter(Arc::clone(&confirmation_written))));
+        confirmation_app.submit_confirmation(true);
+        assert_eq!(
+            confirmation_panes.lock().unwrap().as_slice(),
+            [completion_pane]
+        );
+        assert_eq!(
+            confirmation_written.lock().unwrap().as_slice(),
+            b"confirmation-completion"
+        );
+    }
+
+    #[test]
     fn window_app_wheel_pane_swap_uses_hovered_pane_as_source_after_focus_changes() {
         let mut app = wheel_split_with_inactive_history_for_test();
         let inactive = rssh_core::PaneId::new(1);
@@ -192315,7 +192462,11 @@ return config
         let mut app = wheel_split_with_inactive_history_for_test();
         let inactive = rssh_core::PaneId::new(1);
         move_wheel_to_pane_cell_for_test(&mut app, inactive, 1, 2, 1.0, 1.0);
-        let target = app.wheel_context_for_pane(inactive).unwrap();
+        let super::WheelHitTarget::PaneSurface(target) =
+            app.wheel_hit_target_at_mouse_position().unwrap()
+        else {
+            panic!("test pointer must resolve to the pane surface");
+        };
         app.dispatch_app_action(AppAction::ClosePane { pane: inactive })
             .unwrap();
 
