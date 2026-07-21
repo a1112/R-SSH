@@ -90160,15 +90160,24 @@ impl NativeWindowApp {
         if mouse_reporting_for_assignment {
             self.set_pane_scrollback_offset(target.pane_id, 0);
         }
-        if let Some(button) = native_mouse_assignment_wheel_button_from_delta(delta)
-            && self.handle_user_mouse_assignment(
-                NativeMouseAssignmentEventKind::Down,
-                button,
-                1,
-                mouse_reporting_for_assignment,
-                alternate_screen_active,
-            )
-        {
+        let assignment_modifiers = if bypass_mouse_reporting {
+            self.modifiers - self.bypass_mouse_reporting_modifiers
+        } else {
+            self.modifiers
+        };
+        let original_modifiers = std::mem::replace(&mut self.modifiers, assignment_modifiers);
+        let assignment_handled = native_mouse_assignment_wheel_button_from_delta(delta)
+            .is_some_and(|button| {
+                self.handle_user_mouse_assignment(
+                    NativeMouseAssignmentEventKind::Down,
+                    button,
+                    1,
+                    mouse_reporting_for_assignment,
+                    alternate_screen_active,
+                )
+            });
+        self.modifiers = original_modifiers;
+        if assignment_handled {
             return Ok(true);
         }
 
@@ -188794,26 +188803,53 @@ return config
 
     #[test]
     fn window_app_wheel_reports_local_sgr_pixel_to_inactive_target_writer() {
+        let active_written = Arc::new(Mutex::new(Vec::new()));
         let mut app = wheel_split_with_inactive_history_for_test();
-        let inactive = rssh_core::PaneId::new(1);
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
+        let inactive = rssh_core::PaneId::new(2);
+        let cell_width = app.cell_width();
+        let cell_height = app.cell_height();
+        let unpadded_rect = app.pane_render_rect(inactive).unwrap();
+        app.set_config_overrides(NativeConfigOverrides {
+            window_padding: Some(NativeWindowPadding {
+                left: NativeWindowPaddingDimension::Pixels(cell_width.saturating_add(3)),
+                right: NativeWindowPaddingDimension::Pixels(5),
+                top: NativeWindowPaddingDimension::Pixels(cell_height.saturating_add(2)),
+                bottom: NativeWindowPaddingDimension::Pixels(7),
+            }),
+            ..NativeConfigOverrides::default()
+        });
         let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
         app.handle_pane_pty_output(inactive, b"\x1b[?1000;1016h")
             .unwrap();
-        let cell_width = app.cell_width();
-        let cell_height = app.cell_height();
-        move_wheel_to_pane_cell_for_test(&mut app, inactive, 1, 3, 2.5, 4.25);
+        let inactive_rect = app.pane_render_rect(inactive).unwrap();
+        assert!(inactive_rect.column > 0, "target must be the right split");
+        assert!(
+            inactive_rect.column > unpadded_rect.column,
+            "configured left padding must shift the right split"
+        );
+        assert!(
+            inactive_rect.row > unpadded_rect.row,
+            "configured top padding must shift the target below its tab/frame offset"
+        );
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 3, 2.5, 4.25);
 
         assert!(
             app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
                 .unwrap()
         );
 
-        let expected = format!("\x1b[<64;{};{}M", 3 * cell_width + 3, cell_height + 5);
+        let expected = format!("\x1b[<64;{};5M", 3 * cell_width + 3);
         assert_eq!(
             inactive_written.lock().unwrap().as_slice(),
             expected.as_bytes()
         );
-        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        assert!(active_written.lock().unwrap().is_empty());
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
     }
 
     #[test]
@@ -188853,12 +188889,38 @@ return config
 
     #[test]
     fn window_app_wheel_reporting_bypass_keeps_target_viewport_and_scrolls_normally() {
+        let active_written = Arc::new(Mutex::new(Vec::new()));
         let mut app = wheel_split_with_inactive_history_for_test();
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
         let inactive = rssh_core::PaneId::new(1);
         let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
         app.handle_pane_pty_output(inactive, b"\x1b[?1000;1006h")
             .unwrap();
         app.modifiers = ModifiersState::SHIFT;
+        app.mouse_assignments = vec![
+            NativeUserMouseAssignment {
+                event: NativeMouseAssignmentEvent {
+                    kind: NativeMouseAssignmentEventKind::Down,
+                    button: NativeMouseAssignmentButton::WheelUp,
+                    streak: 1,
+                },
+                modifiers: ModifiersState::empty(),
+                mouse_reporting: false,
+                alt_screen: NativeMouseAssignmentAltScreen::Any,
+                command: WindowCommand::Nop,
+            },
+            NativeUserMouseAssignment {
+                event: NativeMouseAssignmentEvent {
+                    kind: NativeMouseAssignmentEventKind::Down,
+                    button: NativeMouseAssignmentButton::WheelUp,
+                    streak: 1,
+                },
+                modifiers: ModifiersState::SHIFT,
+                mouse_reporting: false,
+                alt_screen: NativeMouseAssignmentAltScreen::Any,
+                command: WindowCommand::SendString("wrong-owner".to_owned()),
+            },
+        ];
         move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
 
         assert!(
@@ -188867,6 +188929,26 @@ return config
         );
 
         assert!(inactive_written.lock().unwrap().is_empty());
+        assert!(active_written.lock().unwrap().is_empty());
+        assert_eq!(app.modifiers, ModifiersState::SHIFT);
+        assert_eq!(
+            app.pane_runtimes
+                .get(&inactive)
+                .unwrap()
+                .ui
+                .stable_viewport
+                .main_top,
+            None,
+            "matching the effective-modifier Nop must consume without scrolling"
+        );
+        app.mouse_assignments.clear();
+
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+        assert!(inactive_written.lock().unwrap().is_empty());
+        assert!(active_written.lock().unwrap().is_empty());
         assert_eq!(app.modifiers, ModifiersState::SHIFT);
         assert!(
             app.pane_runtimes
@@ -188887,8 +188969,30 @@ return config
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
         let inactive = rssh_core::PaneId::new(1);
         let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
-        app.handle_pane_pty_output(inactive, b"\x1b[?1049h\x1b[?1h")
+        app.set_config_overrides(NativeConfigOverrides {
+            enable_kitty_keyboard: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"\x1b[?1h\x1b[=0u").unwrap();
+        app.handle_pane_pty_output(inactive, b"\x1b[?1049h\x1b[?1l\x1b[=1u")
             .unwrap();
+        assert_eq!(app.runtime.kitty_keyboard_flags(), 0);
+        assert!(app.runtime.application_cursor_keys());
+        assert_eq!(
+            app.pane_runtimes
+                .get(&inactive)
+                .unwrap()
+                .runtime
+                .kitty_keyboard_flags(),
+            super::KITTY_KEYBOARD_DISAMBIGUATE
+        );
+        assert!(
+            !app.pane_runtimes
+                .get(&inactive)
+                .unwrap()
+                .runtime
+                .application_cursor_keys()
+        );
         move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
 
         assert!(
@@ -188898,7 +189002,7 @@ return config
 
         assert_eq!(
             inactive_written.lock().unwrap().as_slice(),
-            b"\x1bOA\x1bOA\x1bOA"
+            b"\x1b[A\x1b[A\x1b[A"
         );
         assert!(active_written.lock().unwrap().is_empty());
         assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
@@ -195072,6 +195176,8 @@ return config
             disable_default_mouse_bindings: Some(true),
             ..NativeConfigOverrides::default()
         });
+        let active = app.active_pane_id();
+        move_wheel_to_pane_cell_for_test(&mut app, active, 0, 0, 1.0, 1.0);
 
         assert!(
             !app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
@@ -206888,6 +206994,8 @@ return config
         .expect("expected WezTerm wheel mouse binding config");
         app.set_config_overrides(overrides);
         app.modifiers = ModifiersState::CONTROL;
+        let active = app.active_pane_id();
+        move_wheel_to_pane_cell_for_test(&mut app, active, 0, 0, 1.0, 1.0);
 
         assert!((app.font_size_scale_for_test() - 1.0).abs() < f64::EPSILON);
         assert!(
@@ -206922,6 +207030,8 @@ return config
         .expect("expected WezTerm mouse binding static wheel button config");
         app.set_config_overrides(overrides);
         app.modifiers = ModifiersState::CONTROL;
+        let active = app.active_pane_id();
+        move_wheel_to_pane_cell_for_test(&mut app, active, 0, 0, 1.0, 1.0);
 
         assert!((app.font_size_scale_for_test() - 1.0).abs() < f64::EPSILON);
         assert!(
@@ -206994,6 +207104,8 @@ return config
         .expect("expected WezTerm mouse binding static wheel button amount config");
         app.set_config_overrides(overrides);
         app.modifiers = ModifiersState::CONTROL;
+        let active = app.active_pane_id();
+        move_wheel_to_pane_cell_for_test(&mut app, active, 0, 0, 1.0, 1.0);
 
         assert!((app.font_size_scale_for_test() - 1.0).abs() < f64::EPSILON);
         assert!(
@@ -207029,6 +207141,8 @@ return config
         .expect("expected WezTerm wheel-current-event mouse binding config");
         app.set_config_overrides(overrides);
         app.modifiers = ModifiersState::CONTROL;
+        let active = app.active_pane_id();
+        move_wheel_to_pane_cell_for_test(&mut app, active, 0, 0, 1.0, 1.0);
 
         assert_eq!(app.current_scrollback_offset(), 0);
         assert!(
