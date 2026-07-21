@@ -191259,6 +191259,169 @@ return config
     }
 
     #[test]
+    fn window_app_wheel_restores_previous_delta_after_success_and_unhandled() {
+        let sentinel = MouseScrollDelta::PixelDelta(PhysicalPosition::new(13.0, -17.0));
+        let mut app = wheel_split_with_inactive_history_for_test();
+        let inactive = rssh_core::PaneId::new(1);
+        app.current_mouse_wheel_delta = Some(sentinel);
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+        assert_eq!(app.current_mouse_wheel_delta, Some(sentinel));
+
+        app.mouse_pixel_position = None;
+        assert!(
+            !app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+        assert_eq!(app.current_mouse_wheel_delta, Some(sentinel));
+    }
+
+    #[test]
+    fn window_app_wheel_restores_delta_and_refreshes_target_after_assignment_error() {
+        let mut app = wheel_split_with_inactive_history_for_test();
+        let inactive = rssh_core::PaneId::new(1);
+        let sentinel = MouseScrollDelta::PixelDelta(PhysicalPosition::new(-19.0, 23.0));
+        app.current_mouse_wheel_delta = Some(sentinel);
+        app.handle_pane_pty_output(inactive, b"\x1b[?1000h")
+            .unwrap();
+        assert!(app.set_pane_scrollback_offset(inactive, 1));
+        let snapshot_before = app.pane_snapshot(inactive).unwrap().clone();
+        let rebuilds_before = app.metrics.snapshot().snapshot_rebuilds;
+        app.mouse_assignments = vec![NativeUserMouseAssignment {
+            event: NativeMouseAssignmentEvent {
+                kind: NativeMouseAssignmentEventKind::Down,
+                button: NativeMouseAssignmentButton::WheelUp,
+                streak: 1,
+            },
+            modifiers: ModifiersState::empty(),
+            mouse_reporting: true,
+            alt_screen: NativeMouseAssignmentAltScreen::Any,
+            command: WindowCommand::CloseWorkspace,
+        }];
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+
+        let error = app
+            .handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+            .expect_err("last workspace close must propagate");
+
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert_eq!(
+            error.to_string(),
+            "wheel action 'Close Workspace' failed: CannotCloseLastWorkspace"
+        );
+        assert_eq!(app.current_mouse_wheel_delta, Some(sentinel));
+        assert_eq!(
+            app.pane_ui_ref(inactive).unwrap().stable_viewport.main_top,
+            None
+        );
+        assert_ne!(app.pane_snapshot(inactive).unwrap(), &snapshot_before);
+        assert!(app.metrics.snapshot().snapshot_rebuilds > rebuilds_before);
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+    }
+
+    #[test]
+    fn window_app_wheel_restores_delta_and_refreshes_target_after_pty_error() {
+        struct FailingWriter;
+
+        impl Write for FailingWriter {
+            fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+                Err(io::Error::other("intentional wheel writer failure"))
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut app = wheel_split_with_inactive_history_for_test();
+        let inactive = rssh_core::PaneId::new(1);
+        let sentinel = MouseScrollDelta::LineDelta(5.0, -7.0);
+        app.current_mouse_wheel_delta = Some(sentinel);
+        app.pane_runtimes.get_mut(&inactive).unwrap().writer = Some(Box::new(FailingWriter));
+        app.handle_pane_pty_output(inactive, b"\x1b[?1000;1006h")
+            .unwrap();
+        assert!(app.set_pane_scrollback_offset(inactive, 1));
+        let snapshot_before = app.pane_snapshot(inactive).unwrap().clone();
+        let rebuilds_before = app.metrics.snapshot().snapshot_rebuilds;
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+
+        let error = app
+            .handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+            .expect_err("target writer failure must propagate");
+
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert_eq!(error.to_string(), "intentional wheel writer failure");
+        assert_eq!(app.current_mouse_wheel_delta, Some(sentinel));
+        assert_eq!(
+            app.pane_ui_ref(inactive).unwrap().stable_viewport.main_top,
+            None
+        );
+        assert_ne!(app.pane_snapshot(inactive).unwrap(), &snapshot_before);
+        assert!(app.metrics.snapshot().snapshot_rebuilds > rebuilds_before);
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+    }
+
+    #[test]
+    fn window_app_wheel_missing_runtime_returns_false_without_active_fallback() {
+        let active_written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = wheel_split_with_inactive_history_for_test();
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
+        let inactive = rssh_core::PaneId::new(1);
+        let active_ui_before = app.active_ui.stable_viewport;
+        let active_snapshot_before = app.snapshot.clone();
+        app.pane_runtimes.remove(&inactive).unwrap();
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+
+        assert!(
+            !app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+        assert!(active_written.lock().unwrap().is_empty());
+        assert_eq!(app.active_ui.stable_viewport, active_ui_before);
+        assert_eq!(app.snapshot, active_snapshot_before);
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+    }
+
+    #[test]
+    fn window_app_wheel_reporting_unencodable_returns_false_without_default_scroll() {
+        let active_written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(500, 2));
+        app.handle_pty_output(b"left-0\r\nleft-1\r\nleft-2\r\nleft-live")
+            .unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
+        let inactive = rssh_core::PaneId::new(1);
+        let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
+        app.handle_pane_pty_output(inactive, b"\x1b[?1000h")
+            .unwrap();
+        assert!(app.set_pane_scrollback_offset(inactive, 1));
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 240, 1.0, 1.0);
+
+        assert!(
+            !app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+        assert_eq!(
+            app.pane_ui_ref(inactive).unwrap().stable_viewport.main_top,
+            None,
+            "an unencodable report must not fall through to default scrollback"
+        );
+        assert!(inactive_written.lock().unwrap().is_empty());
+        assert!(active_written.lock().unwrap().is_empty());
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+    }
+
+    #[test]
     fn window_app_wheel_disable_default_suppresses_inactive_scrollback_and_returns_false() {
         let mut app = wheel_split_with_inactive_history_for_test();
         let inactive = rssh_core::PaneId::new(1);

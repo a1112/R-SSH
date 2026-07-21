@@ -281,12 +281,16 @@ keyboard, mouse, paste, resize
   narrow per-placement marker selects the live attachment origin only when it
   conflicts with residual virtual-cache state; resize, rebase, alternate-screen,
   and delete lifecycle paths retire that marker with its placement.
-- This bounded work does not claim full selection parity, full App Shell v2,
-  or general WezTerm parity. Inactive-pane hover-wheel routing without focus
-  transfer, richer
-  pane focus visuals, arbitrary Lua callbacks, external CLI title control, and
-  a real mux/window registry with domain, protocol, and renderer parity remain
-  open.
+- Completed in v1: vertical wheel input over an inactive visible pane uses that
+  pane's local cell and pixel coordinates, runtime, UI state, writer, and
+  target-aware binding context without implicit focus transfer. Tab-bar wheel
+  switching, the window-right active-pane scrollbar, click/move focus behavior,
+  and explicit focus or pane-creation commands remain distinct paths.
+- This bounded work does not claim general mouse-event routing, full selection
+  parity, full App Shell v2, font-shaping parity, or general WezTerm parity.
+  Richer pane focus visuals, arbitrary Lua callbacks, external CLI title
+  control, and a real mux/window registry with domain, protocol, and renderer
+  parity remain open.
 - Completed in v1: tab bar entries include a configurable clickable close
   marker honoring `show_close_tab_button_in_tabs` that closes non-final tabs or
   requests native-window shutdown when the final tab is closed.
@@ -1316,10 +1320,15 @@ keyboard, mouse, paste, resize
    malformed or footprint-less placements retain conservative retirement.
    This bounded behavior is not a claim of general graphics, renderer, or
    protocol parity.
-   Subsequent backlog includes inactive-pane hover-wheel routing without focus
-   transfer, richer pane focus visuals and split-drag affordances, arbitrary Lua
-   callbacks including full arbitrary-Lua/custom tab-formatting parity, external
-   CLI title control, and a real mux/window registry with domain, protocol, and
+   Vertical wheel routing over an inactive visible pane is complete within its
+   bounded scope: it uses hovered-pane cell and pixel coordinates, runtime, UI,
+   writer, and target-aware bindings without implicit focus transfer. Tab-bar
+   wheel switching, the active-pane window-right scrollbar, click/move focus,
+   and explicit focus or pane-creation commands remain distinct. Subsequent
+   backlog includes general non-wheel mouse routing, richer pane focus visuals
+   and split-drag affordances, arbitrary Lua callbacks including full
+   arbitrary-Lua/custom tab-formatting parity, external CLI title control, font
+   shaping parity, and a real mux/window registry with domain, protocol, and
    renderer parity. The bounded-static `format-tab-title` surface is already
    implemented. The pinned WezTerm contract uses one
   window-right scrollbar bound to the active pane, which is already the
