@@ -188894,8 +188894,20 @@ return config
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
         let inactive = rssh_core::PaneId::new(1);
         let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
+        app.handle_pane_pty_output(
+            inactive,
+            b"left-extra-0\r\nleft-extra-1\r\nleft-extra-2\r\nleft-extra-3\r\nleft-live",
+        )
+        .unwrap();
         app.handle_pane_pty_output(inactive, b"\x1b[?1000;1006h")
             .unwrap();
+        assert!(app.set_pane_scrollback_offset(inactive, 2));
+        let target_viewport_before = app.pane_runtimes.get(&inactive).unwrap().ui.stable_viewport;
+        let target_offset_before = target_viewport_before
+            .scrollback_offset(app.pane_runtimes.get(&inactive).unwrap().runtime.terminal());
+        assert_eq!(target_offset_before, 2);
+        let target_snapshot_before = app.pane_snapshot(inactive).unwrap().clone();
+        let active = app.active_pane_id();
         app.modifiers = ModifiersState::SHIFT;
         app.mouse_assignments = vec![
             NativeUserMouseAssignment {
@@ -188938,28 +188950,45 @@ return config
                 .ui
                 .stable_viewport
                 .main_top,
-            None,
-            "matching the effective-modifier Nop must consume without scrolling"
+            target_viewport_before.main_top,
+            "bypass assignment must not force the target viewport to bottom"
         );
+        assert_eq!(
+            app.pane_snapshot(inactive).unwrap(),
+            &target_snapshot_before
+        );
+        assert_eq!(app.active_pane_id(), active);
+        let active_snapshot_after_binding = app.snapshot.clone();
         app.mouse_assignments.clear();
 
-        assert!(
-            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
-                .unwrap()
-        );
+        let normal_delta = MouseScrollDelta::LineDelta(0.0, 1.0);
+        let history_len = app
+            .pane_runtime_ref(inactive)
+            .unwrap()
+            .terminal()
+            .scrollback()
+            .len();
+        let expected_offset = target_offset_before
+            .saturating_add(super::scrollback_lines_from_mouse_delta(normal_delta).unsigned_abs())
+            .min(history_len);
+        assert!(app.handle_window_mouse_wheel(normal_delta).unwrap());
         assert!(inactive_written.lock().unwrap().is_empty());
         assert!(active_written.lock().unwrap().is_empty());
         assert_eq!(app.modifiers, ModifiersState::SHIFT);
-        assert!(
-            app.pane_runtimes
-                .get(&inactive)
+        assert_eq!(
+            app.pane_ui_ref(inactive)
                 .unwrap()
-                .ui
                 .stable_viewport
-                .main_top
-                .is_some()
+                .scrollback_offset(app.pane_runtime_ref(inactive).unwrap().terminal()),
+            expected_offset,
+            "normal bypass scroll must continue from the preserved target viewport"
         );
-        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        assert_ne!(
+            app.pane_snapshot(inactive).unwrap(),
+            &target_snapshot_before
+        );
+        assert_eq!(app.snapshot, active_snapshot_after_binding);
+        assert_eq!(app.active_pane_id(), active);
     }
 
     #[test]
