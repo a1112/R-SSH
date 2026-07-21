@@ -362,6 +362,8 @@ fn window_app_wheel_binding_multiple_recursively_retains_target() { /* ... */ }
 
 Cover `ScrollByLine`, `ScrollByPage`, `ScrollToTop`, `ScrollToBottom`, `ScrollToPrompt`, and `ScrollByCurrentEventWheelDelta`. Use `Multiple` with at least two target-dependent actions and assert both act on the same inactive owner while focus stays unchanged.
 
+Write these as black-box behavior tests through the existing `handle_window_mouse_wheel` entry point and existing `NativeUserMouseAssignment` fixtures. They must not name or call `WheelHitTarget`, `WheelTarget`, `WheelAssignmentMatch`, `WheelCommandOutcome`, `wheel_action_io_error`, or any other production symbol that does not exist at the Task 2 baseline.
+
 **Step 2: Write RED writer, pane-UI, mouse-cell, and pane-action binding tests**
 
 Add:
@@ -387,9 +389,6 @@ fn window_app_wheel_binding_extend_selection_uses_hovered_local_cell() { /* ... 
 
 #[test]
 fn window_app_wheel_binding_open_link_uses_hovered_snapshot_and_local_cell() { /* ... */ }
-
-#[test]
-fn wheel_action_io_error_includes_stable_command_and_app_error_context() { /* ... */ }
 ```
 
 The writer matrix covers `SendString`, `SendPaste`, `SendKey`, clipboard paste, and primary-selection paste with distinct bracketed-paste/application-key/Kitty modes and writers. The pane-UI matrix covers selection source, `CopyTo*`, `ClearSelection`, Search/Copy Mode/Quick Select ownership, and a representative overlay mutation. The pane-action matrix covers a non-focus pane-scoped command such as close/reset/clear scrollback against the hovered id. The global test uses a harmless implemented global action such as font adjustment or reload-state observation and proves it does not silently retarget pane state.
@@ -402,6 +401,8 @@ Explicitly classify and exercise every mouse-position pane-local command family:
 - `OpenLinkAtMouseCursor`.
 
 The three named RED tests are the minimum representative proof: selection starts in the inactive split at `WheelTarget.cell`, extension uses that owner's retained selection/overlay, and link lookup uses the hovered owner's snapshot/hyperlink context rather than `self.snapshot`/active mouse cell. Assert the window/global copy destination remains global and any resulting PTY or OS side effect follows the command's existing semantics; only its pane source/context changes.
+
+Although the expected behavior is described in terms of the future `WheelTarget.cell`, these RED tests must compute their expected local row/column from the existing `pane_render_layout` and drive only `handle_window_mouse_wheel`. They must not reference the future target/result/error types in test code.
 
 **Step 3: Write RED direction/reference and creation tests**
 
@@ -442,12 +443,31 @@ cargo test -p rssh-app window_app_wheel_binding_direction_ -- --nocapture
 cargo test -p rssh-app window_app_wheel_binding_by_index_ -- --nocapture
 cargo test -p rssh-app window_app_wheel_binding_new_tab_ -- --nocapture
 cargo test -p rssh-app window_app_wheel_binding_split_ -- --nocapture
+```
+
+Expected: every command compiles the whole test module, then the old path produces category-specific assertion failures because it focuses/uses active viewport, writer, runtime, UI, snapshot, mouse cell, pane id, or direction/split reference. Record the behavioral failure from every category. A missing-symbol compile failure is invalid evidence: remove the accidental future-symbol reference and rerun. Do not edit a production function, introduce a type/classifier/helper, or add dispatcher plumbing until this complete behavioral RED matrix has run.
+
+**Step 5: Add and separately witness the conversion-helper compile RED**
+
+Only after Step 4 has recorded every behavioral RED, add this one focused test:
+
+```rust
+#[test]
+fn wheel_action_io_error_includes_stable_command_and_app_error_context() {
+    /* call wheel_action_io_error with CloseWorkspace/CannotCloseLastWorkspace;
+       assert ErrorKind::Other and the exact diagnostic */
+}
+```
+
+Run:
+
+```text
 cargo test -p rssh-app wheel_action_io_error_ -- --nocapture
 ```
 
-Expected: the old path focuses/uses active viewport, writer, runtime, UI, snapshot, mouse cell, pane id, or direction/split reference. Record the failure from every category. Do not edit a production function, introduce the classifier, or add dispatcher plumbing until this complete RED matrix has run.
+Expected: compile failure naming only the missing `wheel_action_io_error`. This compile RED is intentionally separate; it must not be used as evidence for any behavior test from Step 4.
 
-**Step 5: Add the stable result/error contract and closed command classifier**
+**Step 6: Add the stable result/error contract and closed command classifier**
 
 Define these private contracts in the first dispatcher implementation; Task 3 extends their handling but must not replace them with an incompatible boolean API:
 
@@ -505,7 +525,7 @@ fn apply_wheel_command_for_target(
 
 The target-aware entry point must implement every pane-dependent command against `target.pane_id`; it may call `command_palette_apply_command` only for variants classified as truly window/tab/application/configuration global. `Multiple` recursively calls the target-aware entry point and stops at the first error. A future `WindowCommand` variant must fail compilation until classified. `Nop` is an ordinary matched command and returns `Consumed`; `DisableDefault` is represented by `WheelAssignmentMatch` and never reaches this dispatcher.
 
-**Step 6: Implement all target-dependent command categories**
+**Step 7: Implement all target-dependent command categories**
 
 Factor owner-local command helpers rather than duplicating the entire command palette. Required behavior:
 
@@ -522,11 +542,11 @@ Factor owner-local command helpers rather than duplicating the entire command pa
 
 If an existing helper is hard-coded to active state, add a `*_for_pane` core and leave the old active wrapper for keyboard/palette callers. Do not alter non-wheel command behavior.
 
-**Step 7: Implement reference-pane plumbing**
+**Step 8: Implement reference-pane plumbing**
 
 Add explicit reference-pane parameters to the narrow direction, split-source, current-pane-domain, and creation action builders/dispatch paths. Pass `target.pane_id` from the wheel dispatcher and the active pane id from existing keyboard/palette wrappers. Do not infer the reference by reading whichever pane is active at execution time.
 
-**Step 8: Run GREEN and command regressions**
+**Step 9: Run GREEN and command regressions**
 
 Run:
 
@@ -542,7 +562,7 @@ git diff --check
 
 Expected: the entire pre-recorded RED matrix, stable error-context assertion, and existing keyboard/palette dispatch pass. Inspect the test log to confirm the selection, extension, open-link, writer, direction, split, nested action, and error cases all executed rather than being filtered to zero tests.
 
-**Step 9: Commit Task 2**
+**Step 10: Commit Task 2**
 
 ```text
 git add crates/rssh-app/src/window.rs
@@ -772,7 +792,7 @@ Expected: all remaining `rssh-app` tests pass with zero failures.
 Run:
 
 ```text
-cargo test --workspace --all-targets
+cargo test --workspace --all-targets --no-fail-fast
 ```
 
 Expected in a checkout without `refs/wezterm/docs/colorschemes/data.json`: all targets build and run, and exactly the same two `rssh-app` palette-fixture tests named in Step 7 fail; no core, terminal, renderer, SSH, PTY, bin, example, or other target fails. If the fixture exists, expect the whole command to pass. Preserve this output separately from the app-only evidence; any additional failure blocks completion.

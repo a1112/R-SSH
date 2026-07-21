@@ -21,12 +21,14 @@ handling, so merely wheeling over an inactive pane changes focus.
 ## Architecture
 
 Separate pane hit-testing from pane focusing. Wheel handling first resolves a
-`PaneMouseCell` without activating it, then constructs a target-aware wheel
-context for that pane. The context owns the target pane id and its
-`PaneRenderRect`, and provides access to either the active or an inactive
-pane's runtime, pane-local UI state (including the stable viewport), selection
-and overlay snapshot state, PTY writer, and mouse coordinates local to that
-pane. It is the sole source of pane-dependent state for the event.
+typed hit: either a pane surface or the active window-right scrollbar overlay.
+A pane-surface hit constructs a target-aware wheel context. The context owns
+the target pane id and its `PaneRenderRect`, and provides access to either the
+active or an inactive pane's runtime, pane-local UI state (including the stable
+viewport), selection and overlay snapshot state, PTY writer, and mouse
+coordinates local to that pane. It is the sole source of pane-dependent state
+for that event. A scrollbar hit is distinct and has no pane-local cell or pixel
+coordinate.
 
 Both coordinate protocols are pane-local. Cell coordinates subtract the
 matched `PaneRenderRect` row and column. SGR pixel/1016 coordinates subtract
@@ -45,13 +47,20 @@ existing semantics:
 - Tab-bar wheel handling retains priority over pane routing.
 - The window-right scrollbar is an active-pane overlay and is not subtracted
   from any `PaneRenderRect`. Wheel routing therefore performs an explicit
-  `scrollbar_hit_test` before pane hit-testing and selects the active pane as
-  the target instead of the pane geometrically underneath the overlay.
+  `scrollbar_hit_test` before pane hit-testing. A hit runs the existing active
+  stable-viewport wheel behavior and stops; it does not become a pane-surface
+  target, synthesize or clamp local coordinates, match a user mouse assignment,
+  report terminal mouse input, or translate alternate-screen arrows. The pane
+  geometrically underneath the overlay is not consulted.
 - Zoomed layouts use the one visible pane as the only pane target; split
   separators are not pane targets.
 
 This is a focused wheel-routing layer, not a general rewrite of all mouse
-events.
+events. Treating `ActiveScrollbar` as an early window-overlay branch is the
+concrete preservation of the already-approved active-scrollbar contract, not a
+new behavior surface: it keeps the existing active stable-viewport operation,
+leaves focus unchanged, and prevents pane-surface protocols from being applied
+to a window-level overlay.
 
 ## Event flow
 
@@ -61,11 +70,12 @@ Each window wheel event follows this order:
    delta under a scope guard or closure finalizer, and restore the previous
    value on success, `false`, and every error return.
 2. If the pointer is in the tab bar, run the existing tab-wheel path and stop.
-3. If the pointer hits the active window-right scrollbar overlay, select the
-   active pane as the wheel target without consulting the underlying pane.
+3. If the pointer hits the active window-right scrollbar overlay, run the
+   existing active stable-viewport wheel behavior and stop without consulting
+   the underlying pane or entering assignment/reporting/alternate-arrow paths.
    Otherwise hit-test the visible pane layout without changing focus. If no
-   pane is hit, return `false`.
-4. Convert both cell and pixel positions to coordinates local to the target
+   pane surface is hit, return `false`.
+4. For a pane-surface hit, convert both cell and pixel positions to coordinates local to the target
    `PaneRenderRect`, then obtain that pane's runtime, UI state,
    selection/overlay state, and writer.
 5. Read mouse-reporting mode from the target. If reporting is enabled and not
@@ -225,9 +235,10 @@ Focused tests cover:
   and PTY-I/O-error results, including `current_mouse_wheel_delta` restoration
   and target refresh on every error path;
 - `pane_focus_follows_mouse` on cursor movement without wheel-induced focus;
-- tab-bar priority; active scrollbar targeting with active-left/inactive-right
-  and active-right split layouts; zoomed panes; split separators; and an
-  inactive pane with no history;
+- tab-bar priority; active scrollbar early routing with active-left/inactive-right
+  and active-right split layouts, including proof that assignments, reports,
+  alternate arrows, and synthetic local coordinates are bypassed; zoomed panes;
+  split separators; and an inactive pane with no history;
 - active-pane wheel compatibility and both enabled and disabled default mouse
   bindings.
 
