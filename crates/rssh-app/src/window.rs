@@ -191292,12 +191292,11 @@ return config
         let written = install_inactive_wheel_writer_for_test(&mut app, inactive);
         app.handle_pane_pty_output(inactive, b"\x1b[?1000;1006h")
             .unwrap();
-        app.pane_runtimes
-            .get_mut(&inactive)
-            .unwrap()
-            .ui
-            .stable_viewport
-            .main_top = Some(0);
+        assert!(app.set_pane_scrollback_offset(inactive, 1));
+        let target_snapshot_before = app.pane_snapshot(inactive).unwrap().clone();
+        let snapshot_rebuilds_before = app.metrics.snapshot().snapshot_rebuilds;
+        let sentinel_delta = MouseScrollDelta::PixelDelta(PhysicalPosition::new(17.0, -23.0));
+        app.current_mouse_wheel_delta = Some(sentinel_delta);
         app.mouse_assignments = vec![NativeUserMouseAssignment {
             event: NativeMouseAssignmentEvent {
                 kind: NativeMouseAssignmentEventKind::Down,
@@ -191321,7 +191320,13 @@ return config
             app.pane_ui_ref(inactive).unwrap().stable_viewport.main_top,
             None
         );
+        assert_ne!(
+            app.pane_snapshot(inactive).unwrap(),
+            &target_snapshot_before
+        );
+        assert!(app.metrics.snapshot().snapshot_rebuilds > snapshot_rebuilds_before);
         assert!(written.lock().unwrap().is_empty());
+        assert_eq!(app.current_mouse_wheel_delta, Some(sentinel_delta));
     }
 
     #[test]
@@ -191332,6 +191337,8 @@ return config
         let written = install_inactive_wheel_writer_for_test(&mut app, inactive);
         app.handle_pane_pty_output(inactive, b"\x1b[?1049h")
             .unwrap();
+        let sentinel_delta = MouseScrollDelta::PixelDelta(PhysicalPosition::new(-31.0, 29.0));
+        app.current_mouse_wheel_delta = Some(sentinel_delta);
         bind_wheel_command_for_test(&mut app, WindowCommand::DisableDefaultAssignment);
         move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
 
@@ -191342,6 +191349,7 @@ return config
 
         assert_eq!(app.active_pane_id(), active);
         assert!(written.lock().unwrap().is_empty());
+        assert_eq!(app.current_mouse_wheel_delta, Some(sentinel_delta));
     }
 
     #[test]
@@ -191410,8 +191418,12 @@ return config
         )
         .unwrap();
         assert!(app.set_pane_scrollback_offset(active, 1));
+        app.left_status = "left-status-sentinel".to_owned();
+        app.right_status = "right-status-sentinel".to_owned();
         let active_viewport_before = app.pane_ui_ref(active).unwrap().stable_viewport;
         let title_before = app.effective_window_title();
+        let left_status_before = app.left_status.clone();
+        let right_status_before = app.right_status.clone();
         move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
 
         assert!(
@@ -191421,6 +191433,8 @@ return config
 
         assert_eq!(app.active_pane_id(), active);
         assert_eq!(app.effective_window_title(), title_before);
+        assert_eq!(app.left_status, left_status_before);
+        assert_eq!(app.right_status, right_status_before);
         assert_eq!(
             app.pane_ui_ref(active).unwrap().stable_viewport,
             active_viewport_before,
@@ -191432,46 +191446,65 @@ return config
     fn window_app_wheel_does_not_replace_independent_pane_selections_or_overlays() {
         let mut app = wheel_split_with_inactive_history_for_test();
         let inactive = rssh_core::PaneId::new(1);
-        let inactive_runtime = app.pane_runtimes.get_mut(&inactive).unwrap();
-        let inactive_dimensions = inactive_runtime.runtime.terminal().stable_dimensions();
-        inactive_runtime.ui.ordinary_selection = Some(StableOrdinarySelection::new(
-            SelectionSourceCell {
-                domain: inactive_dimensions.domain,
-                row: inactive_dimensions.physical_top,
-                column: 0,
-            },
-            SelectionSourceCell {
-                domain: inactive_dimensions.domain,
-                row: inactive_dimensions.physical_top,
-                column: 1,
-            },
-            inactive_runtime.runtime.terminal().current_seqno(),
-        ));
-        let active_dimensions = app.runtime.terminal().stable_dimensions();
-        app.active_ui.ordinary_selection = Some(StableOrdinarySelection::new(
-            SelectionSourceCell {
-                domain: active_dimensions.domain,
-                row: active_dimensions.physical_top,
-                column: 0,
-            },
-            SelectionSourceCell {
-                domain: active_dimensions.domain,
-                row: active_dimensions.physical_top,
-                column: 1,
-            },
-            app.runtime.terminal().current_seqno(),
-        ));
-        app.handle_pty_output(b"right-search").unwrap();
-        let active_match = pane_overlay_test_match(&app, 0, 0, 1);
-        install_pane_search_presentation_for_test(&mut app, "right", active_match);
-        let active_selection_before = app.active_ui.ordinary_selection.clone();
-        let inactive_selection_before = app
-            .pane_runtimes
-            .get(&inactive)
-            .unwrap()
-            .ui
-            .ordinary_selection
-            .clone();
+        let active = rssh_core::PaneId::new(2);
+        app.dispatch_app_action(AppAction::ActivatePane { pane: inactive })
+            .unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 1 },
+        );
+        install_distinct_pane_overlay_for_lifecycle_test(
+            &mut app,
+            PaneOverlayLifecycleClass::Search,
+            "inactive-wheel-a",
+            0,
+            0,
+        );
+        app.dispatch_app_action(AppAction::ActivatePane { pane: active })
+            .unwrap();
+        app.handle_pty_output(b"active-overlay-owner").unwrap();
+        set_ordinary_viewport_range_for_test(
+            &mut app,
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 1 },
+        );
+        install_distinct_pane_overlay_for_lifecycle_test(
+            &mut app,
+            PaneOverlayLifecycleClass::Copy,
+            "active-wheel-b",
+            0,
+            0,
+        );
+
+        let active_selection_before = app.active_ui.ordinary_selection;
+        let active_search_before = app.active_ui.retained_search().unwrap();
+        let active_copy_before = app.active_ui.retained_copy_mode().unwrap();
+        let active_overlay_state_before = (
+            app.active_ui.copy_search_mode(),
+            active_search_before.query.clone(),
+            active_search_before.match_type,
+            active_search_before.current,
+            active_search_before.editing,
+            active_copy_before.selection_mode,
+            active_copy_before.cursor,
+        );
+        let active_snapshot_before = app.snapshot.clone();
+        let inactive_owner = app.pane_runtimes.get(&inactive).unwrap();
+        let inactive_selection_before = inactive_owner.ui.ordinary_selection;
+        let inactive_search_before = inactive_owner.ui.retained_search().unwrap();
+        let inactive_search_state_before = (
+            inactive_owner.ui.copy_search_mode(),
+            inactive_search_before.query.clone(),
+            inactive_search_before.match_type,
+            inactive_search_before.current,
+            inactive_search_before.editing,
+        );
+        let inactive_snapshot_before = inactive_owner.snapshot.clone();
+        let active_rect = app.pane_render_rect(active).unwrap();
+        let inactive_rect = app.pane_render_rect(inactive).unwrap();
+        let composite_before = app.render_snapshot();
+        let snapshot_rebuilds_before = app.metrics.snapshot().snapshot_rebuilds;
         move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
 
         assert!(
@@ -191479,18 +191512,63 @@ return config
                 .unwrap()
         );
 
+        assert_eq!(app.active_pane_id(), active);
         assert_eq!(app.active_ui.ordinary_selection, active_selection_before);
+        let active_search_after = app.active_ui.retained_search().unwrap();
+        let active_copy_after = app.active_ui.retained_copy_mode().unwrap();
         assert_eq!(
-            app.pane_runtimes
-                .get(&inactive)
-                .unwrap()
-                .ui
-                .ordinary_selection,
+            (
+                app.active_ui.copy_search_mode(),
+                active_search_after.query.clone(),
+                active_search_after.match_type,
+                active_search_after.current,
+                active_search_after.editing,
+                active_copy_after.selection_mode,
+                active_copy_after.cursor,
+            ),
+            active_overlay_state_before
+        );
+        assert_eq!(app.snapshot, active_snapshot_before);
+        let inactive_owner = app.pane_runtimes.get(&inactive).unwrap();
+        assert_eq!(
+            inactive_owner.ui.ordinary_selection,
             inactive_selection_before
         );
+        let inactive_search_after = inactive_owner.ui.retained_search().unwrap();
         assert_eq!(
-            search_for_test(&app).map(|search| search.query.as_str()),
-            Some("right")
+            (
+                inactive_owner.ui.copy_search_mode(),
+                inactive_search_after.query.clone(),
+                inactive_search_after.match_type,
+                inactive_search_after.current,
+                inactive_search_after.editing,
+            ),
+            inactive_search_state_before
+        );
+        assert!(inactive_owner.ui.overlay_active());
+        assert_ne!(inactive_owner.snapshot, inactive_snapshot_before);
+        assert!(app.metrics.snapshot().snapshot_rebuilds > snapshot_rebuilds_before);
+
+        let composite_after = app.render_snapshot();
+        for row in active_rect.row..active_rect.row.saturating_add(active_rect.rows) {
+            for column in active_rect.column..active_rect.column.saturating_add(active_rect.columns)
+            {
+                assert_eq!(
+                    snapshot_cell(&composite_after, row, column),
+                    snapshot_cell(&composite_before, row, column),
+                    "active composite presentation changed at ({row}, {column})"
+                );
+            }
+        }
+        assert!(
+            (inactive_rect.row..inactive_rect.row.saturating_add(inactive_rect.rows)).any(|row| {
+                (inactive_rect.column..inactive_rect.column.saturating_add(inactive_rect.columns))
+                    .any(|column| {
+                        snapshot_cell(&composite_after, row, column)
+                            != snapshot_cell(&composite_before, row, column)
+                    })
+            }),
+            "target composite must visibly refresh while retaining its overlay owner"
         );
     }
 
@@ -191573,6 +191651,7 @@ return config
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
         let tab_before = app.active_tab_id();
+        let tabs_len_before = app.app_shell.active_workspace().tabs().len();
         let pane_count_before = app.app_shell.pane_ids().len();
         let active_offset_before = app.current_scrollback_offset();
         app.mouse_pixel_position = Some(PhysicalPosition::new(f64::from(CELL_WIDTH), 0.0));
@@ -191583,6 +191662,10 @@ return config
         );
 
         assert_ne!(app.active_tab_id(), tab_before);
+        assert_eq!(
+            app.app_shell.active_workspace().tabs().len(),
+            tabs_len_before
+        );
         assert_eq!(app.app_shell.pane_ids().len(), pane_count_before);
         assert_eq!(app.current_scrollback_offset(), active_offset_before);
     }
