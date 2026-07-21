@@ -90511,6 +90511,13 @@ impl NativeWindowApp {
         } else {
             StableOrdinarySelection::new(selection.anchor, selection.focus, sequence)
         };
+        if target.pane_id == self.app_shell.active_pane_id() {
+            self.active_ui.exit_overlay();
+            self.selecting = false;
+            self.last_left_click = None;
+        } else if let Some(runtime) = self.pane_runtimes.get_mut(&target.pane_id) {
+            runtime.ui.exit_overlay();
+        }
         self.set_wheel_target_selection(target.pane_id, Some(stable));
     }
 
@@ -90543,6 +90550,13 @@ impl NativeWindowApp {
                 sequence,
             )
         };
+        if target.pane_id == self.app_shell.active_pane_id() {
+            self.active_ui.exit_overlay();
+            self.selecting = false;
+            self.last_left_click = None;
+        } else if let Some(runtime) = self.pane_runtimes.get_mut(&target.pane_id) {
+            runtime.ui.exit_overlay();
+        }
         self.set_wheel_target_selection(target.pane_id, Some(selection));
     }
 
@@ -90609,64 +90623,95 @@ impl NativeWindowApp {
         let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) else {
             return Err(AppShellError::InvalidPane(pane_id));
         };
-        let terminal = runtime.runtime.terminal();
+        Self::perform_copy_mode_assignment_for_owner(
+            runtime.runtime.terminal(),
+            &mut runtime.ui,
+            assignment,
+        );
+        self.refresh_wheel_target_owner(pane_id);
+        Ok(())
+    }
+
+    fn perform_copy_mode_assignment_for_owner(
+        terminal: &Terminal,
+        ui: &mut PaneUiState,
+        assignment: WindowCopyModeAssignment,
+    ) -> bool {
+        let had_copy_mode = ui.copy_mode().is_some();
+        let had_search = ui.retained_search().is_some();
+        let before = (
+            ui.copy_search_mode(),
+            ui.retained_copy_mode().cloned(),
+            ui.retained_search().cloned(),
+            ui.stable_viewport,
+        );
         match assignment {
             WindowCopyModeAssignment::Close => {
-                runtime.ui.stable_viewport = PaneStableViewport::default();
-                runtime.ui.exit_overlay();
+                if !had_copy_mode {
+                    return false;
+                }
+                ui.stable_viewport = PaneStableViewport::default();
+                ui.exit_overlay();
             }
             WindowCopyModeAssignment::AcceptPattern => {
-                runtime.ui.set_search_editing(false);
+                ui.set_search_editing(false);
             }
             WindowCopyModeAssignment::ClearPattern => {
-                let match_type = runtime
-                    .ui
+                let match_type = ui
                     .retained_search()
                     .map_or(WindowSearchMatchType::CaseSensitive, |search| {
                         search.match_type
                     });
-                runtime.ui.replace_search_pattern(String::new(), match_type);
+                ui.replace_search_pattern(String::new(), match_type);
             }
             WindowCopyModeAssignment::ClearSelectionMode => {
-                if let Some(copy_mode) = runtime.ui.copy_mode_mut() {
+                if let Some(copy_mode) = ui.copy_mode_mut() {
                     copy_mode.selection_mode = WindowCopySelectionMode::None;
                     copy_mode.anchor = None;
                     copy_mode.source_anchor = None;
                 }
             }
             WindowCopyModeAssignment::CycleMatchType => {
-                if let Some(search) = runtime.ui.retained_search() {
-                    runtime
-                        .ui
-                        .replace_search_pattern(search.query.clone(), search.match_type.next());
+                if let Some(search) = ui.retained_search() {
+                    let query = search.query.clone();
+                    ui.replace_search_pattern(query.clone(), search.match_type.next());
+                    if !query.is_empty() {
+                        ui.refresh_search_match_cache(terminal);
+                        let found = ui.cached_search_matches(terminal).and_then(|matches| {
+                            find_window_search_match(&matches, None, SearchDirection::Next)
+                        });
+                        ui.set_search_current(found);
+                        if let Some(found) = found {
+                            let preserve_copy_state = ui.copy_search_mode()
+                                == Some(WindowCopySearchMode::Search)
+                                && ui.retained_copy_mode().is_some();
+                            Self::apply_search_match_to_pane_ui(
+                                terminal,
+                                ui,
+                                found,
+                                preserve_copy_state,
+                            );
+                        }
+                    }
                 }
             }
             WindowCopyModeAssignment::EditPattern => {
-                runtime.ui.set_search_editing(true);
+                ui.set_search_editing(true);
             }
             WindowCopyModeAssignment::StartJump { forward, prev_char } => {
-                if let Some(copy_mode) = runtime.ui.copy_mode_mut() {
+                if let Some(copy_mode) = ui.copy_mode_mut() {
                     copy_mode.pending_jump = Some(WindowCopyPendingJump { forward, prev_char });
                 }
             }
             WindowCopyModeAssignment::JumpAgain | WindowCopyModeAssignment::JumpReverse => {
-                if let Some(mut jump) = runtime
-                    .ui
-                    .copy_mode()
-                    .and_then(|copy_mode| copy_mode.last_jump)
-                {
+                if let Some(mut jump) = ui.copy_mode().and_then(|copy_mode| copy_mode.last_jump) {
                     if assignment == WindowCopyModeAssignment::JumpReverse {
                         jump.forward = !jump.forward;
                     }
-                    if let Some(cursor) = runtime.ui.copy_mode().map(|mode| mode.source_cursor)
+                    if let Some(cursor) = ui.copy_mode().map(|mode| mode.source_cursor)
                         && let Some(target) = copy_mode_jump_target(terminal, cursor, jump, true)
                     {
-                        Self::set_inactive_copy_mode_source(
-                            terminal,
-                            &mut runtime.ui,
-                            target,
-                            None,
-                        );
+                        Self::set_copy_mode_owner_source(terminal, ui, target, None);
                     }
                 }
             }
@@ -90682,12 +90727,7 @@ impl NativeWindowApp {
                     } => (delta, Some(semantic_type)),
                     _ => unreachable!(),
                 };
-                Self::move_inactive_copy_mode_semantic_zone(
-                    terminal,
-                    &mut runtime.ui,
-                    delta,
-                    semantic_type,
-                );
+                Self::move_copy_mode_owner_semantic_zone(terminal, ui, delta, semantic_type);
             }
             WindowCopyModeAssignment::MoveBackwardWord
             | WindowCopyModeAssignment::MoveForwardWord
@@ -90698,10 +90738,10 @@ impl NativeWindowApp {
                     WindowCopyModeAssignment::MoveForwardWordEnd => WindowCopyWordMovement::End,
                     _ => unreachable!(),
                 };
-                if let Some(cursor) = runtime.ui.copy_mode().map(|mode| mode.source_cursor)
+                if let Some(cursor) = ui.copy_mode().map(|mode| mode.source_cursor)
                     && let Some(target) = copy_mode_word_target(terminal, cursor, movement)
                 {
-                    Self::set_inactive_copy_mode_source(terminal, &mut runtime.ui, target, None);
+                    Self::set_copy_mode_owner_source(terminal, ui, target, None);
                 }
             }
             WindowCopyModeAssignment::MoveDown
@@ -90715,11 +90755,11 @@ impl NativeWindowApp {
                     WindowCopyModeAssignment::MoveUp => (-1, 0),
                     _ => unreachable!(),
                 };
-                Self::move_inactive_copy_mode_cursor(terminal, &mut runtime.ui, rows, columns);
+                Self::move_copy_mode_owner_cursor(terminal, ui, rows, columns);
             }
             WindowCopyModeAssignment::MoveToEndOfLineContent
             | WindowCopyModeAssignment::MoveToStartOfLineContent => {
-                if let Some(cursor) = runtime.ui.copy_mode().map(|mode| mode.source_cursor)
+                if let Some(cursor) = ui.copy_mode().map(|mode| mode.source_cursor)
                     && let Some((start, end)) =
                         copy_mode_line_content_bounds(terminal, cursor.domain, cursor.row)
                 {
@@ -90728,9 +90768,9 @@ impl NativeWindowApp {
                     } else {
                         start
                     };
-                    Self::set_inactive_copy_mode_source(
+                    Self::set_copy_mode_owner_source(
                         terminal,
-                        &mut runtime.ui,
+                        ui,
                         SelectionSourceCell { column, ..cursor },
                         None,
                     );
@@ -90740,16 +90780,16 @@ impl NativeWindowApp {
             | WindowCopyModeAssignment::MoveToScrollbackTop => {
                 let retained = terminal.retained_stable_range();
                 if retained.start < retained.end
-                    && let Some(cursor) = runtime.ui.copy_mode().map(|mode| mode.source_cursor)
+                    && let Some(cursor) = ui.copy_mode().map(|mode| mode.source_cursor)
                 {
                     let row = if assignment == WindowCopyModeAssignment::MoveToScrollbackTop {
                         retained.start
                     } else {
                         retained.end.saturating_sub(1)
                     };
-                    Self::set_inactive_copy_mode_source(
+                    Self::set_copy_mode_owner_source(
                         terminal,
-                        &mut runtime.ui,
+                        ui,
                         SelectionSourceCell { row, ..cursor },
                         None,
                     );
@@ -90757,7 +90797,7 @@ impl NativeWindowApp {
             }
             WindowCopyModeAssignment::MoveToSelectionOtherEnd
             | WindowCopyModeAssignment::MoveToSelectionOtherEndHoriz => {
-                if let Some((cursor, anchor)) = runtime.ui.copy_mode().and_then(|mode| {
+                if let Some((cursor, anchor)) = ui.copy_mode().and_then(|mode| {
                     mode.source_anchor
                         .map(|anchor| (mode.source_cursor, anchor))
                 }) {
@@ -90776,19 +90816,14 @@ impl NativeWindowApp {
                                 },
                             )
                         };
-                    Self::set_inactive_copy_mode_source(
-                        terminal,
-                        &mut runtime.ui,
-                        next_cursor,
-                        Some(next_anchor),
-                    );
+                    Self::set_copy_mode_owner_source(terminal, ui, next_cursor, Some(next_anchor));
                 }
             }
             WindowCopyModeAssignment::MoveToStartOfLine => {
-                if let Some(cursor) = runtime.ui.copy_mode().map(|mode| mode.source_cursor) {
-                    Self::set_inactive_copy_mode_source(
+                if let Some(cursor) = ui.copy_mode().map(|mode| mode.source_cursor) {
+                    Self::set_copy_mode_owner_source(
                         terminal,
-                        &mut runtime.ui,
+                        ui,
                         SelectionSourceCell {
                             column: 0,
                             ..cursor
@@ -90798,11 +90833,11 @@ impl NativeWindowApp {
                 }
             }
             WindowCopyModeAssignment::MoveToStartOfNextLine => {
-                Self::move_inactive_copy_mode_cursor(terminal, &mut runtime.ui, 1, 0);
-                if let Some(cursor) = runtime.ui.copy_mode().map(|mode| mode.source_cursor) {
-                    Self::set_inactive_copy_mode_source(
+                Self::move_copy_mode_owner_cursor(terminal, ui, 1, 0);
+                if let Some(cursor) = ui.copy_mode().map(|mode| mode.source_cursor) {
+                    Self::set_copy_mode_owner_source(
                         terminal,
-                        &mut runtime.ui,
+                        ui,
                         SelectionSourceCell {
                             column: 0,
                             ..cursor
@@ -90815,8 +90850,7 @@ impl NativeWindowApp {
             | WindowCopyModeAssignment::MoveToViewportMiddle
             | WindowCopyModeAssignment::MoveToViewportTop => {
                 let size = terminal.grid().size();
-                let top = runtime
-                    .ui
+                let top = ui
                     .stable_viewport
                     .active_top(terminal)
                     .unwrap_or(terminal.stable_dimensions().physical_top);
@@ -90826,10 +90860,10 @@ impl NativeWindowApp {
                     WindowCopyModeAssignment::MoveToViewportBottom => size.rows.saturating_sub(1),
                     _ => unreachable!(),
                 };
-                if let Some(cursor) = runtime.ui.copy_mode().map(|mode| mode.source_cursor) {
-                    Self::set_inactive_copy_mode_source(
+                if let Some(cursor) = ui.copy_mode().map(|mode| mode.source_cursor) {
+                    Self::set_copy_mode_owner_source(
                         terminal,
-                        &mut runtime.ui,
+                        ui,
                         SelectionSourceCell {
                             row: top.saturating_add(
                                 StableRowIndex::try_from(offset).unwrap_or(StableRowIndex::MAX),
@@ -90843,12 +90877,7 @@ impl NativeWindowApp {
             }
             WindowCopyModeAssignment::MoveByPage(amount) => {
                 let page = isize::try_from(terminal.grid().size().rows).unwrap_or(0);
-                Self::move_inactive_copy_mode_cursor(
-                    terminal,
-                    &mut runtime.ui,
-                    -amount.viewport_lines(page),
-                    0,
-                );
+                Self::move_copy_mode_owner_cursor(terminal, ui, -amount.viewport_lines(page), 0);
             }
             WindowCopyModeAssignment::PageDown | WindowCopyModeAssignment::PageUp => {
                 let page = isize::try_from(terminal.grid().size().rows).unwrap_or(0);
@@ -90857,7 +90886,7 @@ impl NativeWindowApp {
                 } else {
                     -page
                 };
-                Self::move_inactive_copy_mode_cursor(terminal, &mut runtime.ui, delta, 0);
+                Self::move_copy_mode_owner_cursor(terminal, ui, delta, 0);
             }
             WindowCopyModeAssignment::NextMatch
             | WindowCopyModeAssignment::NextMatchPage
@@ -90871,34 +90900,45 @@ impl NativeWindowApp {
                 } else {
                     SearchDirection::Previous
                 };
-                if let Some((query, current)) = runtime
-                    .ui
+                if let Some((query, current)) = ui
                     .retained_search()
                     .map(|search| (search.query.clone(), search.current))
                     && !query.is_empty()
                 {
-                    runtime.ui.refresh_search_match_cache(terminal);
-                    let found = runtime
-                        .ui
-                        .cached_search_matches(terminal)
-                        .and_then(|matches| find_window_search_match(&matches, current, direction));
+                    ui.refresh_search_match_cache(terminal);
+                    let size = terminal.grid().size();
+                    let viewport_top = ui
+                        .stable_viewport
+                        .active_top(terminal)
+                        .unwrap_or(terminal.stable_dimensions().physical_top);
+                    let retained = terminal.retained_stable_range();
+                    let page = matches!(
+                        assignment,
+                        WindowCopyModeAssignment::NextMatchPage
+                            | WindowCopyModeAssignment::PriorMatchPage
+                    );
+                    let found = ui.cached_search_matches(terminal).and_then(|matches| {
+                        if page && size.rows != 0 {
+                            find_window_search_page_match(
+                                &matches,
+                                retained,
+                                viewport_top,
+                                usize::from(size.rows),
+                                direction,
+                            )
+                            .or_else(|| find_window_search_match(&matches, current, direction))
+                        } else {
+                            find_window_search_match(&matches, current, direction)
+                        }
+                    });
                     if let Some(found) = found {
-                        runtime.ui.set_search_current(Some(found));
-                        Self::set_inactive_copy_mode_source(
-                            terminal,
-                            &mut runtime.ui,
-                            SelectionSourceCell {
-                                domain: found.domain,
-                                row: found.source_row,
-                                column: usize::from(found.start_column),
-                            },
-                            None,
-                        );
+                        ui.set_search_current(Some(found));
+                        Self::apply_search_match_to_pane_ui(terminal, ui, found, false);
                     }
                 }
             }
             WindowCopyModeAssignment::SetSelectionMode(mode) => {
-                if let Some(copy_mode) = runtime.ui.copy_mode_mut() {
+                if let Some(copy_mode) = ui.copy_mode_mut() {
                     copy_mode.selection_mode = mode;
                     match mode {
                         WindowCopySelectionMode::None
@@ -90916,11 +90956,29 @@ impl NativeWindowApp {
                 }
             }
         }
-        self.refresh_wheel_target_owner(pane_id);
-        Ok(())
+        let changed = before
+            != (
+                ui.copy_search_mode(),
+                ui.retained_copy_mode().cloned(),
+                ui.retained_search().cloned(),
+                ui.stable_viewport,
+            );
+        changed
+            || matches!(
+                assignment,
+                WindowCopyModeAssignment::AcceptPattern
+                    | WindowCopyModeAssignment::ClearPattern
+                    | WindowCopyModeAssignment::EditPattern
+            ) && had_search
+            || matches!(
+                assignment,
+                WindowCopyModeAssignment::ClearSelectionMode
+                    | WindowCopyModeAssignment::StartJump { .. }
+                    | WindowCopyModeAssignment::SetSelectionMode(_)
+            ) && had_copy_mode
     }
 
-    fn set_inactive_copy_mode_source(
+    fn set_copy_mode_owner_source(
         terminal: &Terminal,
         ui: &mut PaneUiState,
         source_cursor: SelectionSourceCell,
@@ -90992,7 +91050,7 @@ impl NativeWindowApp {
         false
     }
 
-    fn move_inactive_copy_mode_cursor(
+    fn move_copy_mode_owner_cursor(
         terminal: &Terminal,
         ui: &mut PaneUiState,
         row_delta: isize,
@@ -91024,7 +91082,7 @@ impl NativeWindowApp {
                 .saturating_add(column_delta.unsigned_abs())
                 .min(max_column)
         };
-        Self::set_inactive_copy_mode_source(
+        Self::set_copy_mode_owner_source(
             terminal,
             ui,
             SelectionSourceCell {
@@ -91036,7 +91094,7 @@ impl NativeWindowApp {
         )
     }
 
-    fn move_inactive_copy_mode_semantic_zone(
+    fn move_copy_mode_owner_semantic_zone(
         terminal: &Terminal,
         ui: &mut PaneUiState,
         delta: isize,
@@ -91077,7 +91135,7 @@ impl NativeWindowApp {
             }
             remaining -= step;
             if remaining == 0 {
-                return Self::set_inactive_copy_mode_source(
+                return Self::set_copy_mode_owner_source(
                     terminal,
                     ui,
                     SelectionSourceCell {
@@ -91097,9 +91155,21 @@ impl NativeWindowApp {
         pane_id: rssh_core::PaneId,
         query: Option<WindowSearchCommandQuery>,
     ) {
+        if pane_id == self.app_shell.active_pane_id() {
+            if let Some(query) = query.as_ref() {
+                self.enter_search_mode_with_query(query);
+            } else {
+                self.enter_search_mode();
+            }
+            return;
+        }
         let Some(initial) = self.initial_copy_mode_for_pane(pane_id) else {
             return;
         };
+        let selected_query = self
+            .wheel_target_selected_text(pane_id)
+            .map(|text| single_line_search_query_from_selection(&text))
+            .filter(|query| !query.is_empty());
         let requested = match query {
             Some(WindowSearchCommandQuery::Pattern {
                 pattern,
@@ -91109,16 +91179,60 @@ impl NativeWindowApp {
                 match_type,
                 ..WindowSearch::default()
             },
-            Some(WindowSearchCommandQuery::CurrentSelectionOrEmptyString) | None => {
-                WindowSearch::default()
-            }
+            Some(WindowSearchCommandQuery::CurrentSelectionOrEmptyString) | None => WindowSearch {
+                query: selected_query.unwrap_or_default(),
+                ..WindowSearch::default()
+            },
         };
-        if pane_id == self.app_shell.active_pane_id() {
-            self.active_ui.enter_search(initial, requested);
-        } else if let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) {
+        if let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) {
             runtime.ui.enter_search(initial, requested);
+            let direction = runtime
+                .ui
+                .retained_copy_mode()
+                .and_then(|copy_mode| copy_mode.search_direction)
+                .unwrap_or(SearchDirection::Previous);
+            runtime
+                .ui
+                .refresh_search_match_cache(runtime.runtime.terminal());
+            let found = runtime
+                .ui
+                .cached_search_matches(runtime.runtime.terminal())
+                .and_then(|matches| find_window_search_match(&matches, None, direction));
+            runtime.ui.set_search_current(found);
+            if let Some(found) = found {
+                Self::apply_search_match_to_pane_ui(
+                    runtime.runtime.terminal(),
+                    &mut runtime.ui,
+                    found,
+                    true,
+                );
+            }
         }
         self.refresh_wheel_target_owner(pane_id);
+    }
+
+    fn apply_search_match_to_pane_ui(
+        terminal: &Terminal,
+        ui: &mut PaneUiState,
+        search_match: WindowSearchMatch,
+        preserve_copy_state: bool,
+    ) -> bool {
+        let Some((offset, selection)) = search_match.viewport_selection(terminal) else {
+            ui.set_search_current(None);
+            return false;
+        };
+        ui.stable_viewport.set_scrollback_offset(terminal, offset);
+        if !preserve_copy_state && let Some(copy_mode) = ui.retained_copy_mode_mut() {
+            copy_mode.cursor = selection.anchor;
+            copy_mode.source_cursor = SelectionSourceCell {
+                domain: search_match.domain,
+                row: search_match.source_row,
+                column: usize::from(search_match.start_column),
+            };
+            copy_mode.anchor = None;
+            copy_mode.source_anchor = None;
+        }
+        true
     }
 
     fn enter_wheel_target_quick_select(
@@ -91342,8 +91456,8 @@ impl NativeWindowApp {
                     }
                     _ => unreachable!(),
                 };
-                if self.wheel_target_selected_text(target.pane_id).is_some() {
-                    self.copy_wheel_target_selection(target.pane_id, destination);
+                if target.pane_id == self.app_shell.active_pane_id() && self.selecting {
+                    self.complete_selection_to(destination);
                 } else {
                     self.open_wheel_target_link(target);
                 }
@@ -91379,7 +91493,8 @@ impl NativeWindowApp {
             }
             WindowCommand::ClearScrollback(WindowClearScrollbackMode::ScrollbackAndViewport)
             | WindowCommand::ClearScrollbackAndViewport => {
-                return self.handle_pane_pty_output(pane, b"\x1b[3J\x1b[2J\x1b[H");
+                self.clear_wheel_target_scrollback_and_viewport(pane)?;
+                return Ok(());
             }
             WindowCommand::AdjustPaneSize { direction, amount } => {
                 self.dispatch_app_action(AppAction::ResizePane {
@@ -91429,6 +91544,31 @@ impl NativeWindowApp {
             }
         };
         result.map_err(|error| wheel_action_io_error(&command, error))
+    }
+
+    fn clear_wheel_target_scrollback_and_viewport(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+    ) -> io::Result<()> {
+        if pane_id == self.app_shell.active_pane_id() {
+            self.clear_scrollback_and_viewport();
+            return Ok(());
+        }
+        let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) else {
+            return Err(io::Error::other(format!(
+                "{:?}",
+                AppShellError::InvalidPane(pane_id)
+            )));
+        };
+        runtime.ui.stable_viewport = PaneStableViewport::default();
+        runtime.ui.retire_terminal_identity();
+        let damage = runtime.runtime.erase_scrollback_and_viewport();
+        runtime.reconcile_terminal_mutation();
+        self.metrics.record_damage(&damage);
+        self.metrics.record_snapshot_rebuild();
+        self.frame_needs_full_repaint = true;
+        self.pending_frame_damage.clear();
+        Ok(())
     }
 
     fn wheel_direction_destination(
@@ -97790,6 +97930,7 @@ impl NativeWindowApp {
         self.exit_copy_mode();
     }
 
+    #[cfg(test)]
     fn set_copy_mode_selection_mode(&mut self, mode: WindowCopySelectionMode) -> bool {
         let Some(copy_mode) = self.active_ui.copy_mode_mut() else {
             return false;
@@ -97813,104 +97954,27 @@ impl NativeWindowApp {
         true
     }
 
-    fn clear_copy_mode_selection_mode(&mut self) -> bool {
-        self.set_copy_mode_selection_mode(WindowCopySelectionMode::None)
-    }
-
     fn perform_copy_mode_assignment(&mut self, assignment: WindowCopyModeAssignment) -> bool {
-        match assignment {
-            WindowCopyModeAssignment::Close => {
-                if self.active_ui.copy_mode().is_none() {
-                    return false;
-                }
-                self.scroll_to_bottom_and_exit_copy_mode();
-                true
-            }
-            WindowCopyModeAssignment::AcceptPattern => self.set_search_pattern_editing(false),
-            WindowCopyModeAssignment::ClearPattern => self.clear_search_pattern(),
-            WindowCopyModeAssignment::ClearSelectionMode => self.clear_copy_mode_selection_mode(),
-            WindowCopyModeAssignment::CycleMatchType => self.cycle_search_match_type(),
-            WindowCopyModeAssignment::EditPattern => self.set_search_pattern_editing(true),
-            WindowCopyModeAssignment::JumpAgain => self.repeat_copy_mode_jump(false),
-            WindowCopyModeAssignment::JumpReverse => self.repeat_copy_mode_jump(true),
-            WindowCopyModeAssignment::StartJump { forward, prev_char } => {
-                self.start_copy_mode_jump(forward, prev_char)
-            }
-            WindowCopyModeAssignment::MoveBackwardSemanticZone => {
-                self.move_copy_mode_by_semantic_zone(-1, None)
-            }
-            WindowCopyModeAssignment::MoveSemanticZoneOfType {
-                delta,
-                semantic_type,
-            } => self.move_copy_mode_by_semantic_zone(delta, Some(semantic_type)),
-            WindowCopyModeAssignment::MoveBackwardWord => {
-                self.move_copy_mode_by_word(WindowCopyWordMovement::Backward)
-            }
-            WindowCopyModeAssignment::MoveDown => self.move_copy_mode_cursor(1, 0),
-            WindowCopyModeAssignment::MoveForwardSemanticZone => {
-                self.move_copy_mode_by_semantic_zone(1, None)
-            }
-            WindowCopyModeAssignment::MoveForwardWord => {
-                self.move_copy_mode_by_word(WindowCopyWordMovement::Forward)
-            }
-            WindowCopyModeAssignment::MoveForwardWordEnd => {
-                self.move_copy_mode_by_word(WindowCopyWordMovement::End)
-            }
-            WindowCopyModeAssignment::MoveLeft => self.move_copy_mode_cursor(0, -1),
-            WindowCopyModeAssignment::MoveRight => self.move_copy_mode_cursor(0, 1),
-            WindowCopyModeAssignment::MoveToEndOfLineContent => {
-                self.move_copy_mode_to_line_content_end()
-            }
-            WindowCopyModeAssignment::MoveToScrollbackBottom => {
-                self.move_copy_mode_to_scrollback_bottom()
-            }
-            WindowCopyModeAssignment::MoveToScrollbackTop => {
-                self.move_copy_mode_to_scrollback_top()
-            }
-            WindowCopyModeAssignment::MoveToSelectionOtherEnd => {
-                self.move_copy_mode_to_selection_other_end()
-            }
-            WindowCopyModeAssignment::MoveToSelectionOtherEndHoriz => {
-                self.move_copy_mode_to_selection_other_end_horiz()
-            }
-            WindowCopyModeAssignment::MoveToStartOfLine => self.move_copy_mode_to_line_start(),
-            WindowCopyModeAssignment::MoveToStartOfLineContent => {
-                self.move_copy_mode_to_line_content_start()
-            }
-            WindowCopyModeAssignment::MoveToStartOfNextLine => {
-                self.move_copy_mode_cursor_by_lines(1);
-                self.move_copy_mode_to_line_start()
-            }
-            WindowCopyModeAssignment::MoveToViewportBottom => {
-                self.move_copy_mode_to_viewport_bottom()
-            }
-            WindowCopyModeAssignment::MoveToViewportMiddle => {
-                self.move_copy_mode_to_viewport_middle()
-            }
-            WindowCopyModeAssignment::MoveToViewportTop => self.move_copy_mode_to_viewport_top(),
-            WindowCopyModeAssignment::MoveUp => self.move_copy_mode_cursor(-1, 0),
-            WindowCopyModeAssignment::MoveByPage(amount) => {
-                let page = isize::try_from(self.runtime.terminal().grid().size().rows).unwrap_or(0);
-                self.move_copy_mode_cursor_by_lines(-amount.viewport_lines(page))
-            }
-            WindowCopyModeAssignment::PageDown => {
-                let page = isize::try_from(self.runtime.terminal().grid().size().rows).unwrap_or(0);
-                self.move_copy_mode_cursor_by_lines(page)
-            }
-            WindowCopyModeAssignment::PageUp => {
-                let page = isize::try_from(self.runtime.terminal().grid().size().rows).unwrap_or(0);
-                self.move_copy_mode_cursor_by_lines(-page)
-            }
-            WindowCopyModeAssignment::NextMatch => self.step_search(SearchDirection::Next),
-            WindowCopyModeAssignment::NextMatchPage => self.step_search_page(SearchDirection::Next),
-            WindowCopyModeAssignment::PriorMatch => self.step_search(SearchDirection::Previous),
-            WindowCopyModeAssignment::PriorMatchPage => {
-                self.step_search_page(SearchDirection::Previous)
-            }
-            WindowCopyModeAssignment::SetSelectionMode(mode) => {
-                self.set_copy_mode_selection_mode(mode)
-            }
+        let handled = Self::perform_copy_mode_assignment_for_owner(
+            self.runtime.terminal(),
+            &mut self.active_ui,
+            assignment,
+        );
+        if !handled {
+            return false;
         }
+        if assignment == WindowCopyModeAssignment::Close {
+            self.selection = None;
+            self.selecting = false;
+            self.active_mouse_button = None;
+            self.last_left_click = None;
+            self.last_mouse_assignment_click = None;
+        } else {
+            self.update_selection_projection();
+        }
+        self.refresh_snapshot();
+        self.apply_window_title();
+        true
     }
 
     #[allow(clippy::too_many_lines)]
@@ -98917,20 +98981,7 @@ impl NativeWindowApp {
             .unwrap_or(SearchDirection::Previous)
     }
 
-    fn clear_search_pattern(&mut self) -> bool {
-        if self.active_ui.retained_search().is_none() {
-            return false;
-        }
-
-        let direction = if self.active_ui.retained_copy_mode().is_some() {
-            self.copy_mode_search_direction()
-        } else {
-            SearchDirection::Next
-        };
-        self.update_search_query_with_direction("", direction);
-        true
-    }
-
+    #[cfg(test)]
     fn set_search_pattern_editing(&mut self, editing: bool) -> bool {
         if self
             .active_ui
@@ -103312,7 +103363,7 @@ enum WindowFontSizeAction {
     Reset,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct WindowCopyMode {
     cursor: SelectionCell,
     source_cursor: SelectionSourceCell,
@@ -191024,6 +191075,566 @@ return config
                 _ => unreachable!(),
             }
         }
+    }
+
+    fn wheel_copy_owner_fixture_for_test(
+        inactive_target: bool,
+    ) -> (NativeWindowApp, rssh_core::PaneId) {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(24, 4));
+        app.handle_pty_output(
+            b"\x1b]133;A\x07> hit zero\r\noutput zero\r\n\x1b]133;A\x07> hit one\r\noutput one\r\n\x1b]133;A\x07> hit two\r\noutput two\r\n\x1b]133;A\x07> hit three\r\noutput three\r\n\x1b]133;A\x07> hit four\r\nlive",
+        )
+        .unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        if !inactive_target {
+            app.dispatch_app_action(AppAction::ActivatePane {
+                pane: rssh_core::PaneId::new(1),
+            })
+            .unwrap();
+        }
+        (app, rssh_core::PaneId::new(1))
+    }
+
+    fn all_copy_mode_assignments_for_wheel_test() -> Vec<super::WindowCopyModeAssignment> {
+        use super::WindowCopyModeAssignment as A;
+        vec![
+            A::AcceptPattern,
+            A::Close,
+            A::ClearPattern,
+            A::ClearSelectionMode,
+            A::CycleMatchType,
+            A::EditPattern,
+            A::JumpAgain,
+            A::JumpReverse,
+            A::StartJump {
+                forward: true,
+                prev_char: false,
+            },
+            A::MoveBackwardSemanticZone,
+            A::MoveSemanticZoneOfType {
+                delta: -1,
+                semantic_type: rssh_terminal::SemanticType::Prompt,
+            },
+            A::MoveBackwardWord,
+            A::MoveDown,
+            A::MoveForwardSemanticZone,
+            A::MoveForwardWord,
+            A::MoveForwardWordEnd,
+            A::MoveLeft,
+            A::MoveRight,
+            A::MoveToEndOfLineContent,
+            A::MoveToScrollbackBottom,
+            A::MoveToScrollbackTop,
+            A::MoveToSelectionOtherEnd,
+            A::MoveToSelectionOtherEndHoriz,
+            A::MoveToStartOfLine,
+            A::MoveToStartOfLineContent,
+            A::MoveToStartOfNextLine,
+            A::MoveToViewportBottom,
+            A::MoveToViewportMiddle,
+            A::MoveToViewportTop,
+            A::MoveUp,
+            A::MoveByPage(WindowScrollByPageAmount::from_per_mille(-1_000)),
+            A::PageDown,
+            A::PageUp,
+            A::NextMatch,
+            A::NextMatchPage,
+            A::PriorMatch,
+            A::PriorMatchPage,
+            A::SetSelectionMode(super::WindowCopySelectionMode::None),
+            A::SetSelectionMode(super::WindowCopySelectionMode::Cell),
+            A::SetSelectionMode(super::WindowCopySelectionMode::Word),
+            A::SetSelectionMode(super::WindowCopySelectionMode::Line),
+            A::SetSelectionMode(super::WindowCopySelectionMode::Block),
+            A::SetSelectionMode(super::WindowCopySelectionMode::SemanticZone),
+        ]
+    }
+
+    fn wheel_copy_assignment_sequence_for_test(
+        assignment: super::WindowCopyModeAssignment,
+    ) -> WindowCommand {
+        use super::WindowCopyModeAssignment as A;
+        let mut commands = if matches!(
+            assignment,
+            A::AcceptPattern
+                | A::ClearPattern
+                | A::CycleMatchType
+                | A::EditPattern
+                | A::NextMatch
+                | A::NextMatchPage
+                | A::PriorMatch
+                | A::PriorMatchPage
+        ) {
+            vec![WindowCommand::Search(WindowSearchCommandQuery::Pattern {
+                pattern: "hit".to_owned(),
+                match_type: WindowSearchMatchType::CaseSensitive,
+            })]
+        } else {
+            vec![WindowCommand::EnterCopyMode]
+        };
+        if matches!(
+            assignment,
+            A::MoveToSelectionOtherEnd | A::MoveToSelectionOtherEndHoriz
+        ) {
+            commands.extend([
+                WindowCommand::CopyMode(A::SetSelectionMode(super::WindowCopySelectionMode::Block)),
+                WindowCommand::CopyMode(A::MoveRight),
+            ]);
+        }
+        commands.push(WindowCommand::CopyMode(assignment));
+        WindowCommand::Multiple(commands)
+    }
+
+    #[test]
+    fn window_app_wheel_binding_all_copy_mode_assignments_match_active_owner() {
+        for assignment in all_copy_mode_assignments_for_wheel_test() {
+            let (mut active, active_pane) = wheel_copy_owner_fixture_for_test(false);
+            assert!(
+                run_wheel_command_on_pane_for_test(
+                    &mut active,
+                    active_pane,
+                    wheel_copy_assignment_sequence_for_test(assignment),
+                )
+                .unwrap()
+            );
+            let (mut inactive, inactive_pane) = wheel_copy_owner_fixture_for_test(true);
+            assert!(
+                run_wheel_command_on_pane_for_test(
+                    &mut inactive,
+                    inactive_pane,
+                    wheel_copy_assignment_sequence_for_test(assignment),
+                )
+                .unwrap()
+            );
+
+            let active_ui = &active.active_ui;
+            let target_ui = inactive.pane_ui_ref(inactive_pane).unwrap();
+            assert_eq!(
+                target_ui.copy_search_mode(),
+                active_ui.copy_search_mode(),
+                "{assignment:?}"
+            );
+            assert_eq!(
+                target_ui.retained_search(),
+                active_ui.retained_search(),
+                "{assignment:?}"
+            );
+            match (target_ui.copy_mode(), active_ui.copy_mode()) {
+                (Some(target), Some(active)) => {
+                    assert_eq!(target.cursor, active.cursor, "{assignment:?}");
+                    assert_eq!(target.source_cursor, active.source_cursor, "{assignment:?}");
+                    assert_eq!(target.pending_jump, active.pending_jump, "{assignment:?}");
+                    assert_eq!(target.last_jump, active.last_jump, "{assignment:?}");
+                    assert_eq!(
+                        target.search_direction, active.search_direction,
+                        "{assignment:?}"
+                    );
+                    assert_eq!(
+                        target.selection_mode, active.selection_mode,
+                        "{assignment:?}"
+                    );
+                    assert_eq!(target.anchor, active.anchor, "{assignment:?}");
+                    assert_eq!(target.source_anchor, active.source_anchor, "{assignment:?}");
+                }
+                (None, None) => {}
+                state => panic!("copy mode owner mismatch for {assignment:?}: {state:?}"),
+            }
+            assert_eq!(
+                target_ui.stable_viewport.scrollback_offset(
+                    inactive.pane_runtime_ref(inactive_pane).unwrap().terminal(),
+                ),
+                active.current_scrollback_offset(),
+                "{assignment:?}",
+            );
+            assert_eq!(inactive.active_pane_id(), rssh_core::PaneId::new(2));
+            assert!(!inactive.active_ui.overlay_active());
+        }
+    }
+
+    #[test]
+    fn window_app_wheel_copy_mode_core_never_installs_inactive_owner_as_active() {
+        let (mut app, inactive) = wheel_copy_owner_fixture_for_test(true);
+        app.enter_search_mode_with_query(&WindowSearchCommandQuery::Pattern {
+            pattern: "active-only".to_owned(),
+            match_type: WindowSearchMatchType::CaseSensitive,
+        });
+        app.selecting = true;
+        let active_pane = app.active_pane_id();
+        let active_snapshot = app.snapshot.clone();
+        let active_search = app.active_ui.retained_search().cloned();
+        let active_copy = format!("{:?}", app.active_ui.retained_copy_mode());
+        let active_selection = app.selection;
+        let active_viewport = app.active_ui.stable_viewport;
+
+        assert!(
+            run_wheel_command_on_pane_for_test(
+                &mut app,
+                inactive,
+                wheel_copy_assignment_sequence_for_test(
+                    super::WindowCopyModeAssignment::NextMatchPage,
+                ),
+            )
+            .unwrap()
+        );
+        assert_eq!(app.active_pane_id(), active_pane);
+        assert_eq!(app.snapshot, active_snapshot);
+        assert_eq!(app.active_ui.retained_search(), active_search.as_ref());
+        assert_eq!(
+            format!("{:?}", app.active_ui.retained_copy_mode()),
+            active_copy
+        );
+        assert_eq!(app.selection, active_selection);
+        assert_eq!(app.active_ui.stable_viewport, active_viewport);
+        assert!(app.selecting);
+
+        let error = app
+            .apply_wheel_copy_mode_assignment(
+                rssh_core::PaneId::new(999),
+                super::WindowCopyModeAssignment::MoveDown,
+            )
+            .expect_err("invalid owner must fail before any mutation");
+        assert_eq!(
+            error,
+            AppShellError::InvalidPane(rssh_core::PaneId::new(999))
+        );
+        assert_eq!(app.active_pane_id(), active_pane);
+        assert_eq!(app.snapshot, active_snapshot);
+        assert_eq!(app.active_ui.retained_search(), active_search.as_ref());
+        assert_eq!(
+            format!("{:?}", app.active_ui.retained_copy_mode()),
+            active_copy
+        );
+        assert_eq!(app.selection, active_selection);
+        assert_eq!(app.active_ui.stable_viewport, active_viewport);
+        assert!(app.selecting);
+    }
+
+    #[test]
+    fn window_app_wheel_binding_copy_mode_page_matches_use_viewport_page_semantics() {
+        for (page, step) in [
+            (
+                super::WindowCopyModeAssignment::NextMatchPage,
+                super::WindowCopyModeAssignment::NextMatch,
+            ),
+            (
+                super::WindowCopyModeAssignment::PriorMatchPage,
+                super::WindowCopyModeAssignment::PriorMatch,
+            ),
+        ] {
+            let sequence = |assignment| {
+                WindowCommand::Multiple(vec![
+                    WindowCommand::Search(WindowSearchCommandQuery::Pattern {
+                        pattern: "hit".to_owned(),
+                        match_type: WindowSearchMatchType::CaseSensitive,
+                    }),
+                    WindowCommand::ScrollToTop,
+                    WindowCommand::CopyMode(assignment),
+                ])
+            };
+            let (mut page_app, target) = wheel_copy_owner_fixture_for_test(true);
+            run_wheel_command_on_pane_for_test(&mut page_app, target, sequence(page)).unwrap();
+            let page_row = page_app
+                .pane_ui_ref(target)
+                .unwrap()
+                .retained_search()
+                .and_then(|search| search.current)
+                .map(|matched| matched.source_row);
+
+            let (mut step_app, target) = wheel_copy_owner_fixture_for_test(true);
+            run_wheel_command_on_pane_for_test(&mut step_app, target, sequence(step)).unwrap();
+            let step_row = step_app
+                .pane_ui_ref(target)
+                .unwrap()
+                .retained_search()
+                .and_then(|search| search.current)
+                .map(|matched| matched.source_row);
+            assert_ne!(page_row, step_row, "{page:?} must move by a viewport page");
+        }
+    }
+
+    #[test]
+    fn window_app_wheel_binding_search_uses_hovered_selection_and_initial_match() {
+        let mut app = wheel_split_with_inactive_history_for_test();
+        let inactive = rssh_core::PaneId::new(1);
+        let runtime = app.pane_runtimes.get_mut(&inactive).unwrap();
+        let dimensions = runtime.runtime.terminal().stable_dimensions();
+        runtime.ui.ordinary_selection = Some(StableOrdinarySelection::new(
+            SelectionSourceCell {
+                domain: dimensions.domain,
+                row: dimensions.physical_top,
+                column: 0,
+            },
+            SelectionSourceCell {
+                domain: dimensions.domain,
+                row: dimensions.physical_top,
+                column: 3,
+            },
+            runtime.runtime.terminal().current_seqno(),
+        ));
+        let active_before = app.snapshot.clone();
+
+        assert!(
+            run_wheel_command_on_pane_for_test(
+                &mut app,
+                inactive,
+                WindowCommand::Search(WindowSearchCommandQuery::CurrentSelectionOrEmptyString),
+            )
+            .unwrap()
+        );
+        let target_ui = app.pane_ui_ref(inactive).unwrap();
+        assert_eq!(target_ui.retained_search().unwrap().query, "left");
+        assert!(target_ui.retained_search().unwrap().current.is_some());
+        assert!(target_ui.retained_copy_mode().is_some());
+        assert_eq!(app.snapshot, active_before);
+        assert!(!app.active_ui.overlay_active());
+    }
+
+    #[test]
+    fn window_app_wheel_binding_search_pattern_applies_initial_target_match_and_projection() {
+        let (mut app, inactive) = wheel_copy_owner_fixture_for_test(true);
+        let target_before = app.pane_snapshot(inactive).unwrap().clone();
+        assert!(
+            run_wheel_command_on_pane_for_test(
+                &mut app,
+                inactive,
+                WindowCommand::Search(WindowSearchCommandQuery::Pattern {
+                    pattern: "hit zero".to_owned(),
+                    match_type: WindowSearchMatchType::CaseSensitive,
+                }),
+            )
+            .unwrap()
+        );
+        let ui = app.pane_ui_ref(inactive).unwrap();
+        let _current = ui
+            .retained_search()
+            .unwrap()
+            .current
+            .expect("initial match");
+        assert!(ui.retained_copy_mode().is_some());
+        assert!(
+            super::pane_overlay_viewport_selection(
+                app.pane_runtime_ref(inactive).unwrap().terminal(),
+                ui,
+                &app.selection_word_boundary,
+            )
+            .is_some()
+        );
+        assert_ne!(app.pane_snapshot(inactive).unwrap(), &target_before);
+        assert!(!app.active_ui.overlay_active());
+    }
+
+    #[test]
+    fn window_app_wheel_binding_selection_mouse_families_exit_target_overlay() {
+        for command in [
+            WindowCommand::SelectTextAtMouseCursorCell,
+            WindowCommand::ExtendSelectionToMouseCursorCell,
+        ] {
+            let mut app = wheel_split_with_inactive_history_for_test();
+            let inactive = rssh_core::PaneId::new(1);
+            app.handle_pane_pty_output(inactive, b"\x1b]133;A\x07prompt")
+                .unwrap();
+            assert!(
+                !app.pane_runtime_ref(inactive)
+                    .unwrap()
+                    .terminal()
+                    .stable_semantic_prompt_rows()
+                    .is_empty()
+            );
+            app.enter_wheel_target_copy_mode(inactive);
+            if matches!(command, WindowCommand::ExtendSelectionToMouseCursorCell) {
+                let source = app
+                    .wheel_target_source_cell(super::WheelTarget {
+                        pane_id: inactive,
+                        rect: app.pane_render_rect(inactive).unwrap(),
+                        cell: super::PaneMouseCell {
+                            pane_id: inactive,
+                            row: 0,
+                            column: 0,
+                        },
+                        pixel_position: PhysicalPosition::new(1.0, 1.0),
+                    })
+                    .unwrap();
+                app.pane_runtimes
+                    .get_mut(&inactive)
+                    .unwrap()
+                    .ui
+                    .ordinary_selection = Some(StableOrdinarySelection::new(source, source, 0));
+            }
+            move_wheel_to_pane_cell_for_test(&mut app, inactive, 1, 2, 1.0, 1.0);
+            bind_wheel_command_for_test(&mut app, command);
+            assert!(
+                app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                    .unwrap()
+            );
+            assert!(!app.pane_ui_ref(inactive).unwrap().overlay_active());
+            assert!(!app.active_ui.overlay_active());
+        }
+    }
+
+    #[test]
+    fn window_app_wheel_binding_complete_selection_distinguishes_drag_single_cell_and_link() {
+        let copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_copy = Arc::clone(&copied);
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let recorded_open = Arc::clone(&opened);
+        let mut app = wheel_split_with_inactive_history_for_test();
+        app.clipboard_writer = Box::new(move |text| {
+            recorded_copy.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.hyperlink_opener = Box::new(move |url| {
+            recorded_open.lock().unwrap().push(url.to_owned());
+            true
+        });
+        let inactive = rssh_core::PaneId::new(1);
+        app.handle_pane_pty_output(
+            inactive,
+            b"\r\n\x1b]8;;https://inactive.test\x1b\\link\x1b]8;;\x1b\\",
+        )
+        .unwrap();
+        let active = rssh_core::PaneId::new(2);
+        let active_dimensions = app.runtime.terminal().stable_dimensions();
+        let active_single = SelectionSourceCell {
+            domain: active_dimensions.domain,
+            row: active_dimensions.physical_top,
+            column: 1,
+        };
+        app.active_ui.ordinary_selection = Some(StableOrdinarySelection::new(
+            active_single,
+            active_single,
+            0,
+        ));
+        let terminal = app.pane_runtime_ref(inactive).unwrap().terminal();
+        let dimensions = terminal.stable_dimensions();
+        let single = SelectionSourceCell {
+            domain: dimensions.domain,
+            row: dimensions.physical_top.saturating_add(1),
+            column: 1,
+        };
+        app.selecting = true;
+        move_wheel_to_pane_cell_for_test(&mut app, active, 0, 1, 1.0, 1.0);
+        bind_wheel_command_for_test(
+            &mut app,
+            WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursorTo(
+                WindowCopyDestination::Clipboard,
+            ),
+        );
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+        assert!(app.active_ui.ordinary_selection.is_none());
+        assert!(copied.lock().unwrap().is_empty());
+
+        app.pane_runtimes
+            .get_mut(&inactive)
+            .unwrap()
+            .ui
+            .ordinary_selection = Some(StableOrdinarySelection::new(single, single, 0));
+        app.selecting = false;
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 1, 1, 1.0, 1.0);
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+        assert_eq!(opened.lock().unwrap().as_slice(), ["https://inactive.test"]);
+    }
+
+    #[test]
+    fn window_app_wheel_binding_clear_scrollback_and_viewport_uses_target_terminal_core() {
+        for command in [
+            WindowCommand::ClearScrollback(WindowClearScrollbackMode::ScrollbackAndViewport),
+            WindowCommand::ClearScrollbackAndViewport,
+        ] {
+            let mut app = wheel_split_with_inactive_history_for_test();
+            let inactive = rssh_core::PaneId::new(1);
+            app.enter_wheel_target_copy_mode(inactive);
+            let active_before = app.snapshot.clone();
+            assert!(run_wheel_command_on_pane_for_test(&mut app, inactive, command).unwrap());
+            let runtime = app.pane_runtimes.get(&inactive).unwrap();
+            assert!(runtime.runtime.terminal().scrollback().is_empty());
+            assert_eq!(runtime.runtime.terminal().cursor().0, 0);
+            assert!(
+                runtime
+                    .runtime
+                    .terminal()
+                    .stable_semantic_prompt_rows()
+                    .is_empty()
+            );
+            assert!(!runtime.ui.overlay_active());
+            assert!(runtime.ui.ordinary_selection.is_none());
+            assert_eq!(
+                runtime.ui.stable_viewport,
+                super::PaneStableViewport::default()
+            );
+            assert_eq!(app.snapshot, active_before);
+            assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        }
+    }
+
+    #[test]
+    fn window_app_wheel_binding_error_restores_event_state_without_fallback() {
+        let active_written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = wheel_split_with_inactive_history_for_test();
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
+        let inactive = rssh_core::PaneId::new(1);
+        let target_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
+        app.handle_pane_pty_output(inactive, b"\x1b[?1000h")
+            .unwrap();
+        app.set_pane_scrollback_offset(inactive, 1);
+        let target_offset_before = app
+            .pane_ui_ref(inactive)
+            .unwrap()
+            .stable_viewport
+            .scrollback_offset(app.pane_runtime_ref(inactive).unwrap().terminal());
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.current_mouse_wheel_delta = Some(MouseScrollDelta::LineDelta(0.0, -7.0));
+        app.mouse_assignments = vec![NativeUserMouseAssignment {
+            event: NativeMouseAssignmentEvent {
+                kind: NativeMouseAssignmentEventKind::Down,
+                button: NativeMouseAssignmentButton::WheelUp,
+                streak: 1,
+            },
+            modifiers: ModifiersState::CONTROL,
+            mouse_reporting: false,
+            alt_screen: NativeMouseAssignmentAltScreen::Any,
+            command: WindowCommand::CloseWorkspace,
+        }];
+        app.bypass_mouse_reporting_modifiers = ModifiersState::SHIFT;
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+        let error = app
+            .handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+            .expect_err("last workspace close must propagate");
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert_eq!(
+            error.to_string(),
+            "wheel action 'Close Workspace' failed: CannotCloseLastWorkspace"
+        );
+        assert_eq!(
+            app.modifiers,
+            ModifiersState::CONTROL | ModifiersState::SHIFT
+        );
+        assert_eq!(
+            app.current_mouse_wheel_delta,
+            Some(MouseScrollDelta::LineDelta(0.0, -7.0))
+        );
+        assert!(active_written.lock().unwrap().is_empty());
+        assert!(target_written.lock().unwrap().is_empty());
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        assert_eq!(app.current_scrollback_offset(), 0);
+        assert_eq!(
+            app.pane_ui_ref(inactive)
+                .unwrap()
+                .stable_viewport
+                .scrollback_offset(app.pane_runtime_ref(inactive).unwrap().terminal()),
+            target_offset_before
+        );
     }
 
     #[test]
