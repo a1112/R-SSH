@@ -219,9 +219,13 @@ keyboard, mouse, paste, resize
   swallowing honoring `swallow_mouse_click_on_window_focus`, configurable
   focus-follows-mouse honoring `pane_focus_follows_mouse`, configurable
   mouse-reporting bypass via
-  `bypass_mouse_reporting_modifiers`, and focus-targeted pane-local wheel
-  routing. Routing wheel input to an inactive pane under the pointer without
-  transferring focus remains open.
+  `bypass_mouse_reporting_modifiers`, and bounded vertical wheel routing over
+  an inactive visible pane using hovered-pane local cell and pixel coordinates,
+  runtime, UI state, writer, and target-aware bindings without implicit focus
+  transfer. Tab-bar wheel switching, the active-pane window-right scrollbar,
+  click/move focus, and explicit focus or pane-creation commands remain
+  distinct; the broader non-wheel mouse, App Shell v2, font-shaping, and general
+  WezTerm parity limits are described below.
 - Completed after v1: ordinary selection is owned per pane. Focus and tab
   changes save and restore each pane's independent selection, active and
   inactive panes render their selections simultaneously, and a selection-free
