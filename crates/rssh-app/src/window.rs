@@ -91398,16 +91398,23 @@ impl NativeWindowApp {
                 target.pane_id,
                 WindowCopyDestination::PrimarySelection,
             ),
-            WindowCommand::CopyToClipboardAndPrimarySelection
-            | WindowCommand::CompleteSelection => {
+            WindowCommand::CopyToClipboardAndPrimarySelection => {
                 self.copy_wheel_target_selection(
                     target.pane_id,
                     WindowCopyDestination::ClipboardAndPrimarySelection,
                 );
             }
-            WindowCommand::CopyTo(destination)
-            | WindowCommand::CompleteSelectionTo(destination) => {
+            WindowCommand::CopyTo(destination) => {
                 self.copy_wheel_target_selection(target.pane_id, destination);
+            }
+            WindowCommand::CompleteSelection => {
+                self.complete_wheel_target_selection_to(
+                    target.pane_id,
+                    WindowCopyDestination::ClipboardAndPrimarySelection,
+                );
+            }
+            WindowCommand::CompleteSelectionTo(destination) => {
+                self.complete_wheel_target_selection_to(target.pane_id, destination);
             }
             WindowCommand::SelectTextAtMouseCursorCell => {
                 self.select_wheel_target_text(target, WindowMouseSelectionMode::Cell);
@@ -91468,6 +91475,28 @@ impl NativeWindowApp {
         Ok(())
     }
 
+    fn complete_wheel_target_selection_to(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        destination: WindowCopyDestination,
+    ) -> bool {
+        if pane_id == self.app_shell.active_pane_id() {
+            return self.complete_selection_to(destination);
+        }
+        let single_cell = self
+            .pane_ui_ref(pane_id)
+            .and_then(|ui| ui.ordinary_selection)
+            .is_some_and(StableOrdinarySelection::is_single_cell);
+        if single_cell {
+            self.set_wheel_target_selection(pane_id, None);
+            return false;
+        }
+        let Some(text) = self.wheel_target_selected_text(pane_id) else {
+            return false;
+        };
+        self.write_text_to_copy_destination(&text, destination)
+    }
+
     fn apply_wheel_pane_action(
         &mut self,
         target: WheelTarget,
@@ -91493,7 +91522,8 @@ impl NativeWindowApp {
             }
             WindowCommand::ClearScrollback(WindowClearScrollbackMode::ScrollbackAndViewport)
             | WindowCommand::ClearScrollbackAndViewport => {
-                self.clear_wheel_target_scrollback_and_viewport(pane)?;
+                self.clear_wheel_target_scrollback_and_viewport(pane)
+                    .map_err(|error| wheel_action_io_error(&command, error))?;
                 return Ok(());
             }
             WindowCommand::AdjustPaneSize { direction, amount } => {
@@ -91549,16 +91579,13 @@ impl NativeWindowApp {
     fn clear_wheel_target_scrollback_and_viewport(
         &mut self,
         pane_id: rssh_core::PaneId,
-    ) -> io::Result<()> {
+    ) -> Result<(), AppShellError> {
         if pane_id == self.app_shell.active_pane_id() {
             self.clear_scrollback_and_viewport();
             return Ok(());
         }
         let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) else {
-            return Err(io::Error::other(format!(
-                "{:?}",
-                AppShellError::InvalidPane(pane_id)
-            )));
+            return Err(AppShellError::InvalidPane(pane_id));
         };
         runtime.ui.stable_viewport = PaneStableViewport::default();
         runtime.ui.retire_terminal_identity();
@@ -191546,6 +191573,84 @@ return config
         assert_eq!(opened.lock().unwrap().as_slice(), ["https://inactive.test"]);
     }
 
+    fn assert_wheel_complete_selection_semantics(command: WindowCommand) {
+        for single_cell in [true, false] {
+            let clipboard = Arc::new(Mutex::new(Vec::new()));
+            let clipboard_output = Arc::clone(&clipboard);
+            let primary = Arc::new(Mutex::new(Vec::new()));
+            let primary_output = Arc::clone(&primary);
+            let mut app = wheel_split_with_inactive_history_for_test();
+            app.clipboard_writer = Box::new(move |text| {
+                clipboard_output.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.primary_selection_writer = Box::new(move |text| {
+                primary_output.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.selecting = true;
+            let inactive = rssh_core::PaneId::new(1);
+            let terminal = app.pane_runtime_ref(inactive).unwrap().terminal();
+            let dimensions = terminal.stable_dimensions();
+            let start = SelectionSourceCell {
+                domain: dimensions.domain,
+                row: terminal.retained_stable_range().start,
+                column: 0,
+            };
+            let end = SelectionSourceCell {
+                column: if single_cell { 0 } else { 3 },
+                ..start
+            };
+            app.pane_runtimes
+                .get_mut(&inactive)
+                .unwrap()
+                .ui
+                .ordinary_selection = Some(StableOrdinarySelection::new(start, end, 0));
+            move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+            bind_wheel_command_for_test(&mut app, command.clone());
+
+            assert!(
+                app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                    .unwrap()
+            );
+            let target_selection = app.pane_ui_ref(inactive).unwrap().ordinary_selection;
+            if single_cell {
+                assert!(target_selection.is_none(), "{command:?}");
+                assert!(clipboard.lock().unwrap().is_empty(), "{command:?}");
+                assert!(primary.lock().unwrap().is_empty(), "{command:?}");
+            } else {
+                assert!(target_selection.is_some(), "{command:?}");
+                assert_eq!(
+                    clipboard.lock().unwrap().as_slice(),
+                    ["left"],
+                    "{command:?}"
+                );
+                if command == WindowCommand::CompleteSelection {
+                    assert_eq!(primary.lock().unwrap().as_slice(), ["left"]);
+                } else {
+                    assert!(primary.lock().unwrap().is_empty());
+                }
+            }
+            assert!(
+                app.selecting,
+                "inactive completion must not alter active selecting"
+            );
+            assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        }
+    }
+
+    #[test]
+    fn window_app_wheel_binding_complete_selection_uses_hovered_owner_semantics() {
+        assert_wheel_complete_selection_semantics(WindowCommand::CompleteSelection);
+    }
+
+    #[test]
+    fn window_app_wheel_binding_complete_selection_to_uses_hovered_owner_semantics() {
+        assert_wheel_complete_selection_semantics(WindowCommand::CompleteSelectionTo(
+            WindowCopyDestination::Clipboard,
+        ));
+    }
+
     #[test]
     fn window_app_wheel_binding_clear_scrollback_and_viewport_uses_target_terminal_core() {
         for command in [
@@ -191635,6 +191740,57 @@ return config
                 .scrollback_offset(app.pane_runtime_ref(inactive).unwrap().terminal()),
             target_offset_before
         );
+    }
+
+    #[test]
+    fn window_app_wheel_binding_nested_command_stops_on_typed_missing_owner_error() {
+        let active_written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = wheel_split_with_inactive_history_for_test();
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
+        let inactive = rssh_core::PaneId::new(1);
+        let target_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
+        app.handle_pane_pty_output(inactive, b"\x1b[?1000h")
+            .unwrap();
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.current_mouse_wheel_delta = Some(MouseScrollDelta::LineDelta(0.0, -9.0));
+        app.bypass_mouse_reporting_modifiers = ModifiersState::SHIFT;
+        app.mouse_assignments = vec![NativeUserMouseAssignment {
+            event: NativeMouseAssignmentEvent {
+                kind: NativeMouseAssignmentEventKind::Down,
+                button: NativeMouseAssignmentButton::WheelUp,
+                streak: 1,
+            },
+            modifiers: ModifiersState::CONTROL,
+            mouse_reporting: false,
+            alt_screen: NativeMouseAssignmentAltScreen::Any,
+            command: WindowCommand::Multiple(vec![
+                WindowCommand::ClosePane,
+                WindowCommand::ClearScrollbackAndViewport,
+            ]),
+        }];
+        move_wheel_to_pane_cell_for_test(&mut app, inactive, 0, 0, 1.0, 1.0);
+
+        let error = app
+            .handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+            .expect_err("second nested command must report the deleted owner");
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert_eq!(
+            error.to_string(),
+            "wheel action 'Clear Scrollback And Viewport' failed: InvalidPane(PaneId(1))"
+        );
+        assert_eq!(
+            app.modifiers,
+            ModifiersState::CONTROL | ModifiersState::SHIFT
+        );
+        assert_eq!(
+            app.current_mouse_wheel_delta,
+            Some(MouseScrollDelta::LineDelta(0.0, -9.0))
+        );
+        assert!(!app.pane_runtimes.contains_key(&inactive));
+        assert!(active_written.lock().unwrap().is_empty());
+        assert!(target_written.lock().unwrap().is_empty());
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        assert_eq!(app.current_scrollback_offset(), 0);
     }
 
     #[test]
