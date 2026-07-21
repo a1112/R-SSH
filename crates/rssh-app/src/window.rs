@@ -81817,6 +81817,22 @@ struct PaneMouseCell {
     column: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(not(test), allow(dead_code))]
+struct WheelTarget {
+    pane_id: rssh_core::PaneId,
+    rect: PaneRenderRect,
+    cell: PaneMouseCell,
+    pixel_position: PhysicalPosition<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(not(test), allow(dead_code))]
+enum WheelHitTarget {
+    PaneSurface(WheelTarget),
+    ActiveScrollbar { pane_id: rssh_core::PaneId },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NativeWindowFrame {
     x: i32,
@@ -91058,6 +91074,61 @@ impl NativeWindowApp {
             .panes
             .into_iter()
             .find_map(|rect| pane_mouse_cell(rect, render_row, column))
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn wheel_hit_target_at_mouse_position(&self) -> Option<WheelHitTarget> {
+        let position = self.mouse_pixel_position?;
+        if self.scrollbar_hit_test(position) {
+            return Some(WheelHitTarget::ActiveScrollbar {
+                pane_id: self.app_shell.active_pane_id(),
+            });
+        }
+
+        self.pane_render_layout()
+            .panes
+            .into_iter()
+            .find_map(|rect| self.wheel_target_for_rect(rect, position))
+            .map(WheelHitTarget::PaneSurface)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn wheel_target_for_rect(
+        &self,
+        rect: PaneRenderRect,
+        position: PhysicalPosition<f64>,
+    ) -> Option<WheelTarget> {
+        let pane_terminal_row = rect.row.checked_sub(self.terminal_frame_row_offset())?;
+        let x = position.x
+            - f64::from(self.frame_content_pixel_left())
+            - f64::from(rect.column) * f64::from(self.cell_width());
+        let y = position.y
+            - f64::from(self.terminal_pixel_top())
+            - f64::from(pane_terminal_row) * f64::from(self.cell_height());
+        let width = f64::from(u32::from(rect.columns).saturating_mul(self.cell_width()));
+        let height = f64::from(u32::from(rect.rows).saturating_mul(self.cell_height()));
+        if !x.is_finite() || !y.is_finite() || x < 0.0 || y < 0.0 || x >= width || y >= height {
+            return None;
+        }
+
+        Some(WheelTarget {
+            pane_id: rect.pane_id,
+            rect,
+            cell: PaneMouseCell {
+                pane_id: rect.pane_id,
+                row: pixel_axis_to_cell(y, self.cell_height())?,
+                column: pixel_axis_to_cell(x, self.cell_width())?,
+            },
+            pixel_position: PhysicalPosition::new(x, y),
+        })
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn pane_render_rect(&self, pane_id: rssh_core::PaneId) -> Option<PaneRenderRect> {
+        self.pane_render_layout()
+            .panes
+            .into_iter()
+            .find(|rect| rect.pane_id == pane_id)
     }
 
     fn pane_snapshot(&self, pane_id: rssh_core::PaneId) -> Option<&TerminalRenderSnapshot> {
@@ -188065,6 +188136,278 @@ return config
         .unwrap();
 
         assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
+    }
+
+    #[test]
+    fn window_app_wheel_target_hits_inactive_pane_without_focusing() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(80, 4));
+        app.refresh_snapshot();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        let inactive = app
+            .pane_render_layout()
+            .panes
+            .into_iter()
+            .find(|rect| rect.pane_id == rssh_core::PaneId::new(1))
+            .expect("inactive pane render rect");
+        app.mouse_pixel_position = Some(PhysicalPosition::new(
+            f64::from(app.frame_content_pixel_left())
+                + f64::from(inactive.column) * f64::from(CELL_WIDTH),
+            f64::from(app.terminal_pixel_top())
+                + f64::from(inactive.row - app.terminal_frame_row_offset())
+                    * f64::from(CELL_HEIGHT),
+        ));
+
+        let target = app
+            .wheel_hit_target_at_mouse_position()
+            .expect("inactive pane wheel target");
+
+        assert!(matches!(
+            target,
+            super::WheelHitTarget::PaneSurface(super::WheelTarget { pane_id, .. })
+                if pane_id == rssh_core::PaneId::new(1)
+        ));
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+    }
+
+    #[test]
+    fn window_app_wheel_target_cell_is_local_to_inactive_split() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(80, 6));
+        app.refresh_snapshot();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let inactive = app
+            .pane_render_layout()
+            .panes
+            .into_iter()
+            .find(|rect| rect.pane_id == rssh_core::PaneId::new(1))
+            .expect("inactive pane render rect");
+        let local_x = f64::from(3 * CELL_WIDTH) + 2.5;
+        let local_y = f64::from(CELL_HEIGHT) + 4.25;
+        app.mouse_pixel_position = Some(PhysicalPosition::new(
+            f64::from(app.frame_content_pixel_left())
+                + f64::from(inactive.column) * f64::from(CELL_WIDTH)
+                + local_x,
+            f64::from(app.terminal_pixel_top())
+                + f64::from(inactive.row - app.terminal_frame_row_offset())
+                    * f64::from(CELL_HEIGHT)
+                + local_y,
+        ));
+
+        let super::WheelHitTarget::PaneSurface(target) = app
+            .wheel_hit_target_at_mouse_position()
+            .expect("inactive pane wheel target")
+        else {
+            panic!("expected pane surface target");
+        };
+
+        assert_eq!(target.pane_id, rssh_core::PaneId::new(1));
+        assert_eq!(target.rect, inactive);
+        assert_eq!(
+            target.cell,
+            super::PaneMouseCell {
+                pane_id: rssh_core::PaneId::new(1),
+                row: 1,
+                column: 3,
+            }
+        );
+        assert_eq!(
+            target.pixel_position,
+            PhysicalPosition::new(local_x, local_y)
+        );
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+    }
+
+    #[test]
+    fn window_app_wheel_target_rejects_split_separator_and_outside_terminal() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(80, 6));
+        app.refresh_snapshot();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let separator = app.pane_render_layout().separators[0];
+        app.mouse_pixel_position = Some(PhysicalPosition::new(
+            f64::from(app.frame_content_pixel_left())
+                + f64::from(separator.column) * f64::from(CELL_WIDTH),
+            f64::from(app.terminal_pixel_top())
+                + f64::from(separator.row - app.terminal_frame_row_offset())
+                    * f64::from(CELL_HEIGHT),
+        ));
+        assert_eq!(app.wheel_hit_target_at_mouse_position(), None);
+
+        let first_pane = app.pane_render_layout().panes[0];
+        app.mouse_pixel_position = Some(PhysicalPosition::new(
+            f64::from(app.frame_content_pixel_left())
+                + f64::from(first_pane.column) * f64::from(CELL_WIDTH),
+            f64::from(app.terminal_pixel_bottom()),
+        ));
+        assert_eq!(app.wheel_hit_target_at_mouse_position(), None);
+
+        app.set_config_overrides(NativeConfigOverrides {
+            window_padding: Some(NativeWindowPadding {
+                left: NativeWindowPaddingDimension::Pixels(CELL_WIDTH),
+                right: NativeWindowPaddingDimension::Pixels(0),
+                top: NativeWindowPaddingDimension::Pixels(CELL_HEIGHT),
+                bottom: NativeWindowPaddingDimension::Pixels(0),
+            }),
+            ..NativeConfigOverrides::default()
+        });
+        app.mouse_pixel_position = Some(PhysicalPosition::new(
+            f64::from(app.frame_content_pixel_left()),
+            f64::from(app.terminal_pixel_top()),
+        ));
+        assert_eq!(app.wheel_hit_target_at_mouse_position(), None);
+
+        app.mouse_pixel_position = None;
+        assert_eq!(app.wheel_hit_target_at_mouse_position(), None);
+    }
+
+    #[test]
+    fn window_app_wheel_target_zoom_uses_only_visible_pane() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(80, 4));
+        app.refresh_snapshot();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let inactive_before_zoom = app
+            .pane_render_layout()
+            .panes
+            .into_iter()
+            .find(|rect| rect.pane_id == rssh_core::PaneId::new(1))
+            .expect("inactive pane render rect");
+        app.dispatch_app_action(AppAction::SetPaneZoomState {
+            pane: rssh_core::PaneId::new(2),
+            zoomed: true,
+        })
+        .unwrap();
+        app.mouse_pixel_position = Some(PhysicalPosition::new(
+            f64::from(app.frame_content_pixel_left())
+                + f64::from(inactive_before_zoom.column) * f64::from(CELL_WIDTH),
+            f64::from(app.terminal_pixel_top())
+                + f64::from(inactive_before_zoom.row - app.terminal_frame_row_offset())
+                    * f64::from(CELL_HEIGHT),
+        ));
+
+        let super::WheelHitTarget::PaneSurface(target) = app
+            .wheel_hit_target_at_mouse_position()
+            .expect("zoomed pane wheel target")
+        else {
+            panic!("expected pane surface target");
+        };
+
+        assert_eq!(target.pane_id, rssh_core::PaneId::new(2));
+        assert_eq!(app.pane_render_layout().panes, vec![target.rect]);
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+    }
+
+    #[test]
+    fn window_app_wheel_target_scrollbar_over_inactive_right_split_targets_active_left() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(
+            u16::try_from(FRAME_WIDTH / CELL_WIDTH).unwrap(),
+            4,
+        ));
+        app.refresh_snapshot();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::ActivatePane {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+        app.set_config_overrides(NativeConfigOverrides {
+            enable_scroll_bar: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"00\r\n01\r\n02\r\n03\r\n04\r\n05")
+            .unwrap();
+        let position = PhysicalPosition::new(
+            f64::from(FRAME_WIDTH - 1),
+            f64::from(app.terminal_pixel_top()),
+        );
+        let inactive_right = app
+            .pane_render_rect(rssh_core::PaneId::new(2))
+            .expect("inactive right pane render rect");
+        assert!(
+            app.wheel_target_for_rect(inactive_right, position)
+                .is_some(),
+            "fixture must place the inactive right pane beneath the scrollbar overlay"
+        );
+        assert!(app.scrollbar_hit_test(position));
+        app.mouse_pixel_position = Some(position);
+
+        assert_eq!(
+            app.wheel_hit_target_at_mouse_position(),
+            Some(super::WheelHitTarget::ActiveScrollbar {
+                pane_id: rssh_core::PaneId::new(1),
+            })
+        );
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
+    }
+
+    #[test]
+    fn window_app_wheel_target_scrollbar_over_active_right_split_targets_active_right() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(
+            u16::try_from(FRAME_WIDTH / CELL_WIDTH).unwrap(),
+            4,
+        ));
+        app.refresh_snapshot();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.set_config_overrides(NativeConfigOverrides {
+            enable_scroll_bar: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"00\r\n01\r\n02\r\n03\r\n04\r\n05")
+            .unwrap();
+        let position = PhysicalPosition::new(
+            f64::from(FRAME_WIDTH - 1),
+            f64::from(app.terminal_pixel_top()),
+        );
+        let active_right = app
+            .pane_render_rect(rssh_core::PaneId::new(2))
+            .expect("active right pane render rect");
+        assert!(
+            app.wheel_target_for_rect(active_right, position).is_some(),
+            "fixture must place the active right pane beneath the scrollbar overlay"
+        );
+        assert!(app.scrollbar_hit_test(position));
+        app.mouse_pixel_position = Some(position);
+
+        assert_eq!(
+            app.wheel_hit_target_at_mouse_position(),
+            Some(super::WheelHitTarget::ActiveScrollbar {
+                pane_id: rssh_core::PaneId::new(2),
+            })
+        );
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
     }
 
     #[test]
