@@ -91936,23 +91936,7 @@ impl NativeWindowApp {
         {
             return Err(AppShellError::UnsupportedAction);
         }
-        let mut launch = if let Some((program, args)) =
-            self.default_prog.as_ref().and_then(|v| v.split_first())
-        {
-            if program.is_empty() {
-                self.wheel_reference_launch(pane_id)
-                    .ok_or(AppShellError::InvalidPane(pane_id))?
-            } else {
-                let mut launch = PaneLaunch::local(program.clone()).with_args(args.iter().cloned());
-                if let Some(cwd) = self.pane_launch_current_working_dir(pane_id) {
-                    launch = launch.with_cwd(cwd.to_owned());
-                }
-                launch
-            }
-        } else {
-            self.wheel_reference_launch(pane_id)
-                .ok_or(AppShellError::InvalidPane(pane_id))?
-        };
+        let mut launch = self.default_prog_launch_for_wheel(pane_id)?;
         if let Some(cwd) = options.cwd {
             launch = launch.with_cwd(cwd);
         }
@@ -92031,7 +92015,7 @@ impl NativeWindowApp {
                 Some(options) => {
                     Some(self.default_pane_launch_with_options_for_wheel(pane_id, options)?)
                 }
-                None => self.wheel_reference_launch(pane_id),
+                None => Some(self.default_prog_launch_for_wheel(pane_id)?),
             },
         };
         if split_pane.top_level {
@@ -92080,13 +92064,19 @@ impl NativeWindowApp {
                 Some(AppAction::SplitPane {
                     pane,
                     direction: SplitDirection::Right,
-                    launch: self.wheel_reference_launch(pane),
+                    launch: Some(
+                        self.default_prog_launch_for_wheel(pane)
+                            .map_err(|error| wheel_action_io_error(&command, error))?,
+                    ),
                 })
             }
             WindowCommand::SplitDown | WindowCommand::SplitVertical => Some(AppAction::SplitPane {
                 pane,
                 direction: SplitDirection::Down,
-                launch: self.wheel_reference_launch(pane),
+                launch: Some(
+                    self.default_prog_launch_for_wheel(pane)
+                        .map_err(|error| wheel_action_io_error(&command, error))?,
+                ),
             }),
             _ => None,
         };
@@ -92116,7 +92106,10 @@ impl NativeWindowApp {
                 ));
             }
             let action = AppAction::NewTab {
-                launch: self.wheel_reference_launch(pane),
+                launch: Some(
+                    self.default_prog_launch_for_wheel(pane)
+                        .map_err(|error| wheel_action_io_error(&command, error))?,
+                ),
             };
             return self
                 .dispatch_app_action(action)
@@ -92148,7 +92141,10 @@ impl NativeWindowApp {
         }
 
         if command == WindowCommand::SpawnWindow {
-            let launch = self.wheel_reference_launch(pane);
+            let launch = self
+                .default_prog_launch_for_wheel(pane)
+                .map(Some)
+                .map_err(|error| wheel_action_io_error(&command, error))?;
             return self
                 .dispatch_spawn_window_or_preferred_tab(launch, None)
                 .map_err(|error| wheel_action_io_error(&command, error));
@@ -193977,6 +193973,188 @@ return config
             target_written.lock().unwrap().as_slice(),
             b"retained-target"
         );
+    }
+
+    fn configure_wheel_default_prog_fixture(app: &mut NativeWindowApp, pane: rssh_core::PaneId) {
+        app.dispatch_app_action(AppAction::SetPaneCurrentWorkingDir {
+            pane,
+            cwd: Some("C:/hovered-default-cwd".to_owned()),
+        })
+        .unwrap();
+        app.set_config_overrides(NativeConfigOverrides {
+            default_prog: Some(vec![
+                "wheel-default-shell".to_owned(),
+                "--wheel-login".to_owned(),
+            ]),
+            ..NativeConfigOverrides::default()
+        });
+    }
+
+    fn wheel_creation_fixture_for_test() -> NativeWindowApp {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("hovered-original-shell").with_args(["--hovered-original"]),
+        );
+        app.runtime.resize(rssh_core::TerminalSize::new(20, 4));
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: Some(
+                PaneLaunch::local("active-original-shell")
+                    .with_args(["--active-original"])
+                    .with_cwd("C:/active-original-cwd"),
+            ),
+        })
+        .unwrap();
+        app
+    }
+
+    fn assert_wheel_default_prog_launch(launch: &PaneLaunch) {
+        assert_eq!(launch.program(), "wheel-default-shell");
+        assert_eq!(launch.args(), ["--wheel-login"]);
+        assert_eq!(launch.cwd(), Some("C:/hovered-default-cwd"));
+    }
+
+    #[test]
+    fn window_app_wheel_implicit_creations_use_default_prog_with_hovered_cwd() {
+        let cases = [
+            (WindowCommand::SplitRight, false),
+            (WindowCommand::SplitDown, false),
+            (WindowCommand::NewTab, false),
+            (
+                WindowCommand::SpawnTab(WindowSpawnTabDomain::CurrentPaneDomain),
+                false,
+            ),
+            (
+                WindowCommand::SpawnTab(WindowSpawnTabDomain::DefaultDomain),
+                false,
+            ),
+            (
+                WindowCommand::SpawnTab(WindowSpawnTabDomain::DomainName("local".to_owned())),
+                false,
+            ),
+            (WindowCommand::SpawnWindow, true),
+        ];
+        for (command, pending_window) in cases {
+            let mut app = wheel_creation_fixture_for_test();
+            let hovered = rssh_core::PaneId::new(1);
+            let original_program = app
+                .wheel_reference_launch(hovered)
+                .unwrap()
+                .program()
+                .to_owned();
+            assert_eq!(original_program, "hovered-original-shell");
+            assert_eq!(
+                app.app_shell.active_pane().launch().program(),
+                "active-original-shell"
+            );
+            configure_wheel_default_prog_fixture(&mut app, hovered);
+
+            assert!(run_wheel_command_on_pane_for_test(&mut app, hovered, command).unwrap());
+
+            if pending_window {
+                let pending = app.app_shell.pending_windows().last().unwrap();
+                let pane = pending
+                    .tab()
+                    .panes()
+                    .iter()
+                    .find(|pane| pane.id() == pending.active_pane_id())
+                    .unwrap();
+                assert_wheel_default_prog_launch(pane.launch());
+            } else {
+                assert_wheel_default_prog_launch(app.app_shell.active_pane().launch());
+            }
+        }
+    }
+
+    #[test]
+    fn window_app_wheel_optionless_split_pane_uses_default_prog_and_hovered_source() {
+        let mut app = wheel_creation_fixture_for_test();
+        let hovered = rssh_core::PaneId::new(1);
+        configure_wheel_default_prog_fixture(&mut app, hovered);
+        let options = WindowSplitPaneOptions {
+            direction: SplitDirection::Right,
+            domain: Some(WindowSpawnTabDomain::CurrentPaneDomain),
+            command: None,
+            command_options: None,
+            size: Some(WindowSplitPaneSize::Cells(3)),
+            top_level: false,
+        };
+
+        assert!(
+            run_wheel_command_on_pane_for_test(
+                &mut app,
+                hovered,
+                WindowCommand::SplitPane(options),
+            )
+            .unwrap()
+        );
+
+        let pane = app.app_shell.active_pane();
+        assert_wheel_default_prog_launch(pane.launch());
+        assert_eq!(pane.split().unwrap().source_pane, hovered);
+    }
+
+    #[test]
+    fn window_app_wheel_implicit_creation_without_default_prog_clones_hovered_launch() {
+        let mut app = wheel_creation_fixture_for_test();
+        let hovered = rssh_core::PaneId::new(1);
+        app.dispatch_app_action(AppAction::SetPaneCurrentWorkingDir {
+            pane: hovered,
+            cwd: Some("C:/hovered-fallback".to_owned()),
+        })
+        .unwrap();
+        let expected = app.wheel_reference_launch(hovered).unwrap();
+        assert!(app.default_prog.is_none());
+
+        assert!(
+            run_wheel_command_on_pane_for_test(&mut app, hovered, WindowCommand::SplitDown,)
+                .unwrap()
+        );
+
+        assert_eq!(app.app_shell.active_pane().launch(), &expected);
+    }
+
+    #[test]
+    fn window_app_wheel_explicit_creation_preserves_program_cwd_and_domain() {
+        for command in [
+            WindowCommand::SplitPane(WindowSplitPaneOptions {
+                direction: SplitDirection::Right,
+                domain: Some(WindowSpawnTabDomain::DefaultDomain),
+                command: Some(WindowSpawnCommandQuery {
+                    label: None,
+                    program: "explicit-wheel-program".to_owned(),
+                    args: vec!["--explicit".to_owned()],
+                    cwd: Some("C:/explicit-wheel-cwd".to_owned()),
+                    environment: BTreeMap::new(),
+                    domain: Some(WindowSpawnTabDomain::DefaultDomain),
+                    window_position: None,
+                }),
+                command_options: None,
+                size: None,
+                top_level: false,
+            }),
+            WindowCommand::SpawnCommandInNewTab(WindowSpawnCommandQuery {
+                label: None,
+                program: "explicit-wheel-program".to_owned(),
+                args: vec!["--explicit".to_owned()],
+                cwd: Some("C:/explicit-wheel-cwd".to_owned()),
+                environment: BTreeMap::new(),
+                domain: Some(WindowSpawnTabDomain::DefaultDomain),
+                window_position: None,
+            }),
+        ] {
+            let mut app = wheel_creation_fixture_for_test();
+            let hovered = rssh_core::PaneId::new(1);
+            configure_wheel_default_prog_fixture(&mut app, hovered);
+
+            assert!(run_wheel_command_on_pane_for_test(&mut app, hovered, command).unwrap());
+
+            let launch = app.app_shell.active_pane().launch();
+            assert_eq!(launch.program(), "explicit-wheel-program");
+            assert_eq!(launch.args(), ["--explicit"]);
+            assert_eq!(launch.cwd(), Some("C:/explicit-wheel-cwd"));
+        }
     }
 
     #[test]
