@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{collections::BTreeMap, fmt, fs, path::PathBuf};
+use std::{collections::BTreeMap, ffi::OsString, fmt, fs, path::PathBuf};
 
 use crate::window::NativeConfigOverrides;
 
@@ -13,6 +13,15 @@ pub(crate) struct ConfigDiscoveryInputs {
     pub(crate) xdg_config_home: Option<PathBuf>,
     pub(crate) xdg_config_dirs: Vec<PathBuf>,
     pub(crate) environment_config_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ConfigEnvironmentSnapshot {
+    home: Option<OsString>,
+    user_profile: Option<OsString>,
+    xdg_config_home: Option<OsString>,
+    xdg_config_dirs: Option<OsString>,
+    wezterm_config_file: Option<OsString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,24 +155,34 @@ impl NativeConfigLifecycle {
             };
         }
 
-        let resolved = self.discover_source();
-        let ResolvedConfigSource::File(source) = &resolved else {
+        for source in self.candidate_sources() {
+            let path = source.path.clone();
+            let result = load_native_config_file(&path, &self.cli);
+            if !source.required
+                && matches!(
+                    result,
+                    Err(NativeConfigSourceError {
+                        kind: NativeConfigSourceErrorKind::Io(std::io::ErrorKind::NotFound),
+                        ..
+                    })
+                )
+            {
+                continue;
+            }
             return NativeConfigLoadAttempt {
-                preferred: None,
-                resolved,
-                result: Ok(parse_native_config_document("return {}", &self.cli)
-                    .expect("validated CLI overrides must apply to defaults")),
-                publication: DerivedConfigEnvironment::default(),
+                preferred: Some(path.clone()),
+                resolved: ResolvedConfigSource::File(source),
+                result,
+                publication: DerivedConfigEnvironment::for_file(&path),
             };
-        };
-        let path = source.path.clone();
-        let result = load_native_config_file(&path, &self.cli);
-        let publication = DerivedConfigEnvironment::for_file(&path);
+        }
+
         NativeConfigLoadAttempt {
-            preferred: Some(path),
-            resolved,
-            result,
-            publication,
+            preferred: None,
+            resolved: ResolvedConfigSource::Defaults,
+            result: Ok(parse_native_config_document("return {}", &self.cli)
+                .expect("validated CLI overrides must apply to defaults")),
+            publication: DerivedConfigEnvironment::default(),
         }
     }
 
@@ -204,18 +223,21 @@ impl NativeConfigLifecycle {
         }
     }
 
-    fn discover_source(&self) -> ResolvedConfigSource {
+    fn candidate_sources(&self) -> Vec<ConfigSource> {
+        let mut candidates = Vec::new();
         if let Some(path) = &self.explicit {
-            return ResolvedConfigSource::File(ConfigSource {
+            candidates.push(ConfigSource {
                 path: path.clone(),
                 required: true,
             });
+            return candidates;
         }
         if let Some(path) = &self.inputs.environment_config_file {
-            return ResolvedConfigSource::File(ConfigSource {
+            candidates.push(ConfigSource {
                 path: path.clone(),
                 required: true,
             });
+            return candidates;
         }
         if self.inputs.is_windows
             && let Some(path) = self
@@ -224,9 +246,8 @@ impl NativeConfigLifecycle {
                 .as_deref()
                 .and_then(std::path::Path::parent)
                 .map(|parent| parent.join("wezterm.lua"))
-            && path.is_file()
         {
-            return ResolvedConfigSource::File(ConfigSource {
+            candidates.push(ConfigSource {
                 path,
                 required: false,
             });
@@ -236,9 +257,8 @@ impl NativeConfigLifecycle {
             .home_dir
             .as_ref()
             .map(|home| home.join(".wezterm.lua"))
-            .filter(|path| path.is_file())
         {
-            return ResolvedConfigSource::File(ConfigSource {
+            candidates.push(ConfigSource {
                 path,
                 required: false,
             });
@@ -248,9 +268,8 @@ impl NativeConfigLifecycle {
             .xdg_config_home
             .as_ref()
             .map(|dir| dir.join("wezterm").join("wezterm.lua"))
-            .filter(|path| path.is_file())
         {
-            return ResolvedConfigSource::File(ConfigSource {
+            candidates.push(ConfigSource {
                 path,
                 required: false,
             });
@@ -261,52 +280,61 @@ impl NativeConfigLifecycle {
                 .home_dir
                 .as_ref()
                 .map(|home| home.join(".config").join("wezterm").join("wezterm.lua"))
-                .filter(|path| path.is_file())
         {
-            return ResolvedConfigSource::File(ConfigSource {
+            candidates.push(ConfigSource {
                 path,
                 required: false,
             });
         }
-        if self.inputs.is_unix
-            && let Some(path) = self
-                .inputs
-                .xdg_config_dirs
-                .iter()
-                .map(|dir| dir.join("wezterm").join("wezterm.lua"))
-                .find(|path| path.is_file())
-        {
-            return ResolvedConfigSource::File(ConfigSource {
-                path,
+        if self.inputs.is_unix {
+            candidates.extend(self.inputs.xdg_config_dirs.iter().map(|dir| ConfigSource {
+                path: dir.join("wezterm").join("wezterm.lua"),
                 required: false,
-            });
+            }));
         }
 
-        ResolvedConfigSource::Defaults
+        candidates
     }
 }
 
 impl ConfigDiscoveryInputs {
     pub(crate) fn capture_current_process() -> Self {
-        fn non_empty_path(name: &str) -> Option<PathBuf> {
-            std::env::var_os(name)
-                .filter(|value| !value.is_empty())
-                .map(PathBuf::from)
-        }
+        Self::from_environment_snapshot(
+            cfg!(windows),
+            cfg!(unix),
+            std::env::current_exe().ok(),
+            ConfigEnvironmentSnapshot {
+                home: std::env::var_os("HOME"),
+                user_profile: std::env::var_os("USERPROFILE"),
+                xdg_config_home: std::env::var_os("XDG_CONFIG_HOME"),
+                xdg_config_dirs: std::env::var_os("XDG_CONFIG_DIRS"),
+                wezterm_config_file: std::env::var_os("WEZTERM_CONFIG_FILE"),
+            },
+        )
+    }
 
-        let home_dir = non_empty_path("HOME").or_else(|| non_empty_path("USERPROFILE"));
-        let xdg_config_dirs = std::env::var_os("XDG_CONFIG_DIRS")
-            .filter(|value| !value.is_empty())
+    fn from_environment_snapshot(
+        is_windows: bool,
+        is_unix: bool,
+        current_exe: Option<PathBuf>,
+        environment: ConfigEnvironmentSnapshot,
+    ) -> Self {
+        let home_dir = environment
+            .home
+            .or(environment.user_profile)
+            .map(PathBuf::from);
+        let xdg_config_dirs = environment
+            .xdg_config_dirs
             .map(|value| std::env::split_paths(&value).collect())
             .unwrap_or_default();
         Self {
-            is_windows: cfg!(windows),
-            is_unix: cfg!(unix),
-            current_exe: std::env::current_exe().ok(),
+            is_windows,
+            is_unix,
+            current_exe,
             home_dir,
-            xdg_config_home: non_empty_path("XDG_CONFIG_HOME"),
+            xdg_config_home: environment.xdg_config_home.map(PathBuf::from),
             xdg_config_dirs,
-            environment_config_file: non_empty_path("WEZTERM_CONFIG_FILE"),
+            environment_config_file: environment.wezterm_config_file.map(PathBuf::from),
         }
     }
 }
@@ -2635,6 +2663,145 @@ literal]=],
             })
         );
         assert_eq!(attempt.result.unwrap().term.as_deref(), Some("xdg"));
+    }
+
+    #[test]
+    fn optional_non_not_found_open_error_fails_without_fallthrough() {
+        let root = unique_temp_dir("optional-open-error");
+        let portable = root.join("wezterm.lua");
+        let home = root.join("home");
+        fs::create_dir_all(&portable).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        fs::write(home.join(".wezterm.lua"), "return { term = 'home' }").unwrap();
+
+        let lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: true,
+                is_unix: false,
+                current_exe: Some(root.join("rssh.exe")),
+                home_dir: Some(home),
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            None,
+            Vec::new(),
+        );
+        let attempt = lifecycle.attempt_reload();
+
+        assert_eq!(attempt.preferred, Some(portable.clone()));
+        assert_eq!(
+            attempt.resolved,
+            ResolvedConfigSource::File(ConfigSource {
+                path: portable.clone(),
+                required: false,
+            })
+        );
+        assert!(matches!(
+            attempt.result.unwrap_err(),
+            NativeConfigSourceError {
+                path,
+                kind: NativeConfigSourceErrorKind::Io(kind),
+            } if path == portable && kind != std::io::ErrorKind::NotFound
+        ));
+    }
+
+    #[test]
+    fn environment_capture_preserves_empty_values_as_set() {
+        let captured = ConfigDiscoveryInputs::from_environment_snapshot(
+            false,
+            true,
+            None,
+            ConfigEnvironmentSnapshot {
+                home: Some("home".into()),
+                user_profile: Some("profile".into()),
+                xdg_config_home: Some("".into()),
+                xdg_config_dirs: Some("".into()),
+                wezterm_config_file: Some("".into()),
+            },
+        );
+
+        assert_eq!(captured.home_dir, Some(PathBuf::from("home")));
+        assert_eq!(captured.xdg_config_home, Some(PathBuf::new()));
+        assert_eq!(captured.xdg_config_dirs, vec![PathBuf::new()]);
+        assert_eq!(captured.environment_config_file, Some(PathBuf::new()));
+
+        let unset = ConfigDiscoveryInputs::from_environment_snapshot(
+            false,
+            true,
+            None,
+            ConfigEnvironmentSnapshot::default(),
+        );
+        assert_eq!(unset.home_dir, None);
+        assert_eq!(unset.xdg_config_home, None);
+        assert!(unset.xdg_config_dirs.is_empty());
+        assert_eq!(unset.environment_config_file, None);
+    }
+
+    #[test]
+    fn empty_environment_config_file_is_required_and_empty_xdg_home_suppresses_home_fallback() {
+        let root = unique_temp_dir("empty-environment-values");
+        let home = root.join("home");
+        let home_fallback = home.join(".config/wezterm/wezterm.lua");
+        fs::create_dir_all(home_fallback.parent().unwrap()).unwrap();
+        fs::write(&home_fallback, "return { term = 'must-not-load' }").unwrap();
+
+        let required_empty = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs::from_environment_snapshot(
+                false,
+                true,
+                None,
+                ConfigEnvironmentSnapshot {
+                    home: Some(home.clone().into_os_string()),
+                    wezterm_config_file: Some("".into()),
+                    ..ConfigEnvironmentSnapshot::default()
+                },
+            ),
+            false,
+            None,
+            Vec::new(),
+        )
+        .attempt_reload();
+        assert_eq!(
+            required_empty.resolved,
+            ResolvedConfigSource::File(ConfigSource {
+                path: PathBuf::new(),
+                required: true,
+            })
+        );
+        assert!(matches!(
+            required_empty.result.unwrap_err().kind,
+            NativeConfigSourceErrorKind::Io(_)
+        ));
+
+        let empty_xdg_home = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs::from_environment_snapshot(
+                false,
+                true,
+                None,
+                ConfigEnvironmentSnapshot {
+                    home: Some(home.clone().into_os_string()),
+                    xdg_config_home: Some("".into()),
+                    ..ConfigEnvironmentSnapshot::default()
+                },
+            ),
+            false,
+            None,
+            Vec::new(),
+        );
+        let candidates = empty_xdg_home.candidate_sources();
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|source| source.path.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                home.join(".wezterm.lua"),
+                PathBuf::from("wezterm/wezterm.lua"),
+            ],
+            "an explicitly empty XDG_CONFIG_HOME must use a relative XDG candidate and not HOME/.config"
+        );
     }
 
     #[test]
