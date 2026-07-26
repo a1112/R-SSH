@@ -956,10 +956,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   unsupported while local/`CurrentPaneDomain`/`DefaultDomain` cases for `AttachDomain`
   dispatch to local new-tab behavior. Static string field-name variables for
   detach-domain `DomainName`, plus `DetachDomain` parenthesized static domain table
-  variables remain supported. `DetachDomain` supports local behavior without opening
-  a new tab for `local`, `CurrentPaneDomain`, and `default`/`defaultdomain` when the
-  configured `default_domain` is local; all other `DetachDomain` values remain
-  unsupported.
+  variables remain supported. `DetachDomain` supports local behavior without
+  opening a new tab for `local`, `CurrentPaneDomain`, and
+  `default`/`defaultdomain`/`default-domain`/`default_domain` when the configured
+  `default_domain` is local; all other `DetachDomain` values remain unsupported.
 - Command palette split entries now use WezTerm action names:
   native `SplitHorizontal` dispatches the right-side split path and is exposed
   as Split Horizontal, while native `SplitVertical` dispatches the downward
