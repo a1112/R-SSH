@@ -211899,6 +211899,10 @@ return config
                 "act { DetachDomain = { DomainName = 'default-domain' } }",
                 WindowDomainSelector::DomainName("default-domain".to_owned()),
             ),
+            (
+                "wezterm.action { DetachDomain = { DomainName = 'default' } }",
+                WindowDomainSelector::DomainName("default".to_owned()),
+            ),
         ] {
             app.enter_command_palette_mode();
             app.command_palette_set_query(query.to_owned());
