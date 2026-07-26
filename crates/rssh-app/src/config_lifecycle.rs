@@ -239,6 +239,33 @@ impl NativeConfigLifecycle {
         }
     }
 
+    pub(crate) fn install_runtime_attempt(&mut self, attempt: NativeConfigLoadAttempt) -> bool {
+        self.latest_selection = attempt.resolved.clone();
+        match attempt.result {
+            Ok(overrides) => {
+                self.effective = EffectiveNativeConfig {
+                    source: match &attempt.resolved {
+                        ResolvedConfigSource::File(source) => Some(source.path.clone()),
+                        ResolvedConfigSource::Disabled | ResolvedConfigSource::Defaults => None,
+                    },
+                    overrides,
+                    generation: self
+                        .effective
+                        .generation
+                        .checked_add(1)
+                        .expect("configuration generation overflowed"),
+                    publication: attempt.publication,
+                };
+                self.latest_diagnostic = None;
+                true
+            }
+            Err(error) => {
+                self.latest_diagnostic = Some(error);
+                false
+            }
+        }
+    }
+
     fn candidate_sources(&self) -> Vec<ConfigSource> {
         let mut candidates = Vec::new();
         if let Some(path) = &self.explicit {

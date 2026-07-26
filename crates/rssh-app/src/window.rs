@@ -58,7 +58,7 @@ use winit::{
 use crate::{
     cli::{Osc52Policy, WindowOptions, WindowPosition, WindowPositionOrigin},
     config_lifecycle::{
-        ConfigDiscoveryInputs, NativeConfigLifecycle, NativeConfigLoadError,
+        ConfigDiscoveryInputs, EffectiveNativeConfig, NativeConfigLifecycle, NativeConfigLoadError,
         validate_cli_config_overrides,
     },
     terminal_input::{TerminalKey, encode_terminal_key},
@@ -2830,6 +2830,12 @@ struct ConfiguredStartupApp {
     lifecycle: NativeConfigLifecycle,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReloadDisposition {
+    SilentStartup,
+    ReloadAttempt,
+}
+
 fn configured_startup_app(
     options: &WindowOptions,
     discovery: ConfigDiscoveryInputs,
@@ -2871,8 +2877,7 @@ fn configured_startup_app_with_constructor(
 
     let startup = NativeWindowStartup::from_options(options);
     let mut app = constructor(startup);
-    app.derived_config_environment = lifecycle.effective().publication.variables().clone();
-    app.apply_config_overrides_silently(lifecycle.effective().overrides.clone());
+    app.set_base_config(lifecycle.effective(), ReloadDisposition::SilentStartup);
     Ok(ConfiguredStartupApp { app, lifecycle })
 }
 
@@ -81092,6 +81097,10 @@ struct NativeWindowApp {
     show_new_tab_button_in_tab_bar: bool,
     show_tab_index_in_tab_bar: bool,
     show_tabs_in_tab_bar: bool,
+    base_config_overrides: NativeConfigOverrides,
+    base_config_generation: u64,
+    base_config_source: Option<PathBuf>,
+    window_config_overrides: Option<NativeLuaWindowConfigOverrides>,
     #[allow(dead_code)]
     config_overrides: NativeConfigOverrides,
     latest_notification: Option<TerminalNotification>,
@@ -81300,6 +81309,7 @@ impl NativeWindowManager {
         event_loop: &ActiveEventLoop,
         mut app: NativeWindowApp,
     ) -> Result<winit::window::WindowId, Box<dyn Error>> {
+        self.refresh_app_to_current_base(&mut app);
         app.create_window(event_loop)?;
         app.spawn_pty()?;
         let Some(window_id) = app.window_id() else {
@@ -81312,9 +81322,20 @@ impl NativeWindowManager {
         Ok(window_id)
     }
 
+    fn refresh_app_to_current_base(&self, app: &mut NativeWindowApp) {
+        if let Some(config) = self
+            .config_lifecycle
+            .as_ref()
+            .map(|lifecycle| lifecycle.effective().clone())
+        {
+            app.set_base_config(&config, ReloadDisposition::SilentStartup);
+        }
+    }
+
     fn collect_pending_window_apps_from_app(&mut self, app: &mut NativeWindowApp) {
         let source_window_id = app.app_window_id;
-        while let Some(detached_app) = app.take_next_pending_window_app() {
+        while let Some(mut detached_app) = app.take_next_pending_window_app() {
+            self.refresh_app_to_current_base(&mut detached_app);
             let destination_window_id = detached_app.app_window_id;
             for pane_id in detached_app.app_shell.pane_ids() {
                 for ((_, routed_pane_id), target_window_id) in &mut self.pane_event_routes {
@@ -81329,6 +81350,51 @@ impl NativeWindowManager {
         }
     }
 
+    fn reload_configuration_attempt(&mut self) -> bool {
+        let Some(lifecycle) = self.config_lifecycle.as_mut() else {
+            return false;
+        };
+        let attempt = lifecycle.attempt_reload();
+        let succeeded = lifecycle.install_runtime_attempt(attempt);
+        let effective = lifecycle.effective().clone();
+        let diagnostic = lifecycle
+            .latest_diagnostic()
+            .map(std::string::ToString::to_string);
+
+        if let Some(app) = self.startup_app.as_mut() {
+            app.set_base_config(&effective, ReloadDisposition::SilentStartup);
+        }
+        for app in self.pending_apps.iter_mut() {
+            app.set_base_config(&effective, ReloadDisposition::SilentStartup);
+        }
+        for app in self.windows.values_mut() {
+            app.set_base_config(&effective, ReloadDisposition::SilentStartup);
+        }
+
+        if let Some(app) = self.startup_app.as_mut() {
+            app.reload_configuration();
+        }
+        for app in self.pending_apps.iter_mut() {
+            app.reload_configuration();
+        }
+        for app in self.windows.values_mut() {
+            app.reload_configuration();
+        }
+
+        if let Some(diagnostic) = diagnostic {
+            eprintln!("configuration reload failed: {diagnostic}");
+        }
+        succeeded
+    }
+
+    fn handle_manager_user_event(&mut self, event: &WindowUserEvent) -> bool {
+        if matches!(event, WindowUserEvent::ReloadConfigurationRequested) {
+            self.reload_configuration_attempt();
+            return true;
+        }
+        false
+    }
+
     fn app_owns_pane(app: &NativeWindowApp, pane_id: rssh_core::PaneId) -> bool {
         app.app_shell.pane_ids().contains(&pane_id)
     }
@@ -81337,8 +81403,7 @@ impl NativeWindowManager {
         &self,
         event: &WindowUserEvent,
     ) -> Option<ManagedWindowAppLocation> {
-        let declared_window_id = event.window_id();
-        let pane_id = event.pane_id();
+        let (declared_window_id, pane_id) = event.pane_identity()?;
         if let Some(location) =
             self.owned_app_location_for_window_and_pane(declared_window_id, pane_id)
         {
@@ -81445,11 +81510,12 @@ impl NativeWindowManager {
 
     fn dispatch_user_event_to_owner(&mut self, event: WindowUserEvent) -> Option<bool> {
         let location = self.user_event_owner_location(&event)?;
-        let pane_id = event.pane_id();
+        let (_, pane_id) = event.pane_identity()?;
         let event_is_exit = matches!(&event, WindowUserEvent::Exited { .. });
         let mut app = self.take_app_at_location(location)?;
         let owner_window_id = app.app_window_id;
         let close_window = match event {
+            WindowUserEvent::ReloadConfigurationRequested => false,
             WindowUserEvent::Output { bytes, .. } => {
                 if let Err(error) = app.handle_pane_pty_output(pane_id, &bytes) {
                     eprintln!("PTY write error: {error}");
@@ -81668,10 +81734,53 @@ impl NativeWindowManager {
     fn pending_app_for_test(&self, index: usize) -> Option<&NativeWindowApp> {
         self.pending_apps.get(index)
     }
+
+    #[cfg(test)]
+    fn all_apps_for_test(&self) -> Vec<&NativeWindowApp> {
+        self.startup_app
+            .iter()
+            .chain(self.pending_apps.iter())
+            .chain(self.windows.values())
+            .collect()
+    }
+
+    #[cfg(test)]
+    fn all_apps_mut_for_test(&mut self) -> Vec<&mut NativeWindowApp> {
+        self.startup_app
+            .iter_mut()
+            .chain(self.pending_apps.iter_mut())
+            .chain(self.windows.values_mut())
+            .collect()
+    }
+
+    #[cfg(test)]
+    fn config_generation_for_test(&self) -> Option<u64> {
+        self.config_lifecycle
+            .as_ref()
+            .map(|lifecycle| lifecycle.effective().generation)
+    }
+
+    #[cfg(test)]
+    fn install_lifecycle_attempt_without_fanout_for_test(&mut self) -> bool {
+        let lifecycle = self
+            .config_lifecycle
+            .as_mut()
+            .expect("test manager should own a configuration lifecycle");
+        let attempt = lifecycle.attempt_reload();
+        lifecycle.install_runtime_attempt(attempt)
+    }
+
+    #[cfg(test)]
+    fn refresh_pending_app_before_spawn_for_test(&mut self, index: usize) {
+        let mut app = self.pending_apps.remove(index);
+        self.refresh_app_to_current_base(&mut app);
+        self.pending_apps.insert(index, app);
+    }
 }
 
 #[derive(Debug)]
 enum WindowUserEvent {
+    ReloadConfigurationRequested,
     Output {
         window_id: rssh_core::WindowId,
         pane_id: rssh_core::PaneId,
@@ -81689,19 +81798,18 @@ enum WindowUserEvent {
 }
 
 impl WindowUserEvent {
-    const fn window_id(&self) -> rssh_core::WindowId {
+    const fn pane_identity(&self) -> Option<(rssh_core::WindowId, rssh_core::PaneId)> {
         match self {
-            Self::Output { window_id, .. }
-            | Self::Exited { window_id, .. }
-            | Self::ReadError { window_id, .. } => *window_id,
-        }
-    }
-
-    const fn pane_id(&self) -> rssh_core::PaneId {
-        match self {
-            Self::Output { pane_id, .. }
-            | Self::Exited { pane_id, .. }
-            | Self::ReadError { pane_id, .. } => *pane_id,
+            Self::ReloadConfigurationRequested => None,
+            Self::Output {
+                window_id, pane_id, ..
+            }
+            | Self::Exited {
+                window_id, pane_id, ..
+            }
+            | Self::ReadError {
+                window_id, pane_id, ..
+            } => Some((*window_id, *pane_id)),
         }
     }
 }
@@ -83057,6 +83165,10 @@ impl NativeWindowApp {
             show_new_tab_button_in_tab_bar: DEFAULT_SHOW_NEW_TAB_BUTTON_IN_TAB_BAR,
             show_tab_index_in_tab_bar: DEFAULT_SHOW_TAB_INDEX_IN_TAB_BAR,
             show_tabs_in_tab_bar: DEFAULT_SHOW_TABS_IN_TAB_BAR,
+            base_config_overrides: NativeConfigOverrides::default(),
+            base_config_generation: 0,
+            base_config_source: None,
+            window_config_overrides: None,
             config_overrides: NativeConfigOverrides::default(),
             latest_notification: None,
             left_status: String::new(),
@@ -83336,7 +83448,13 @@ impl NativeWindowApp {
         }
 
         let mut launch = PaneLaunch::local(program.clone()).with_args(args.iter().cloned());
-        if let Some(cwd) = self.app_shell.active_pane().launch().cwd() {
+        if let Some(cwd) = self
+            .app_shell
+            .active_pane()
+            .launch()
+            .cwd()
+            .or(self.default_cwd.as_deref())
+        {
             launch = launch.with_cwd(cwd.to_owned());
         }
         Some(launch)
@@ -84290,6 +84408,15 @@ impl NativeWindowApp {
     }
 
     fn inherit_effective_config_from(&mut self, source: &Self) {
+        self.base_config_overrides
+            .clone_from(&source.base_config_overrides);
+        self.base_config_generation = source.base_config_generation;
+        self.base_config_source
+            .clone_from(&source.base_config_source);
+        self.window_config_overrides
+            .clone_from(&source.window_config_overrides);
+        self.derived_config_environment
+            .clone_from(&source.derived_config_environment);
         self.config_overrides.clone_from(&source.config_overrides);
         self.configured_dpi = source.configured_dpi;
         self.dpi_by_screen.clone_from(&source.dpi_by_screen);
@@ -84995,7 +85122,7 @@ impl NativeWindowApp {
             return false;
         }
 
-        self.reload_configuration();
+        self.request_reload_configuration();
         true
     }
 
@@ -86160,7 +86287,7 @@ impl NativeWindowApp {
                 return Ok(());
             }
             WindowCommand::ReloadConfiguration => {
-                self.reload_configuration();
+                self.request_reload_configuration();
                 return Ok(());
             }
             WindowCommand::ToggleFullScreen => {
@@ -95703,16 +95830,53 @@ impl NativeWindowApp {
         self.config_overrides.clone()
     }
 
+    #[cfg(test)]
+    fn base_config_generation_for_test(&self) -> u64 {
+        self.base_config_generation
+    }
+
     #[allow(dead_code)]
     fn set_config_overrides(&mut self, overrides: NativeConfigOverrides) {
-        self.apply_config_overrides(overrides, true);
+        self.base_config_overrides = overrides;
+        self.apply_effective_config(ReloadDisposition::ReloadAttempt);
     }
 
+    #[cfg(test)]
     fn apply_config_overrides_silently(&mut self, overrides: NativeConfigOverrides) {
-        self.apply_config_overrides(overrides, false);
+        self.base_config_overrides = overrides;
+        self.apply_effective_config(ReloadDisposition::SilentStartup);
     }
 
-    fn apply_config_overrides(&mut self, overrides: NativeConfigOverrides, notify_reload: bool) {
+    fn set_base_config(&mut self, config: &EffectiveNativeConfig, disposition: ReloadDisposition) {
+        self.base_config_overrides = config.overrides.clone();
+        self.base_config_generation = config.generation;
+        self.base_config_source.clone_from(&config.source);
+        self.derived_config_environment = config.publication.variables().clone();
+        self.apply_effective_config(disposition);
+    }
+
+    fn set_window_config_overrides(
+        &mut self,
+        overrides: Option<NativeLuaWindowConfigOverrides>,
+        disposition: ReloadDisposition,
+    ) {
+        self.window_config_overrides = overrides;
+        self.apply_effective_config(disposition);
+    }
+
+    fn apply_effective_config(&mut self, disposition: ReloadDisposition) {
+        let mut overrides = self.base_config_overrides.clone();
+        if let Some(window_overrides) = self.window_config_overrides.clone() {
+            window_overrides.apply_to_native_config_overrides(&mut overrides);
+        }
+        self.apply_config_overrides(overrides, disposition);
+    }
+
+    fn apply_config_overrides(
+        &mut self,
+        overrides: NativeConfigOverrides,
+        disposition: ReloadDisposition,
+    ) {
         let previous_palette = self.native_resolved_palette();
         let previous_terminal_line_palette = previous_palette.terminal_line_palette();
         self.config_overrides = overrides.clone();
@@ -96266,7 +96430,6 @@ impl NativeWindowApp {
         self.apply_unicode_normalization_config_to_runtimes();
         self.apply_unicode_version_config_to_runtimes();
         self.leader = overrides.leader.filter(|leader| !leader.keys.is_empty());
-        self.leader_active_since = None;
         self.adjust_window_size_when_changing_font_size = overrides
             .adjust_window_size_when_changing_font_size
             .unwrap_or(DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE);
@@ -96306,9 +96469,6 @@ impl NativeWindowApp {
         self.min_scroll_bar_height = overrides
             .min_scroll_bar_height
             .or(DEFAULT_MIN_SCROLL_BAR_HEIGHT);
-        if notify_reload {
-            self.reload_configuration();
-        }
         let palette = self.native_resolved_palette();
         if palette.terminal_line_palette() != previous_terminal_line_palette {
             self.runtime.mark_all_lines_changed();
@@ -96321,6 +96481,9 @@ impl NativeWindowApp {
             self.refresh_snapshot();
         }
         self.apply_window_title();
+        if disposition == ReloadDisposition::ReloadAttempt {
+            self.reload_configuration();
+        }
     }
 
     fn apply_input_config_overrides(&mut self, overrides: &NativeConfigOverrides) {
@@ -99906,9 +100069,7 @@ impl NativeWindowApp {
         &mut self,
         config_overrides: NativeLuaWindowConfigOverrides,
     ) {
-        let mut overrides = self.config_overrides.clone();
-        config_overrides.apply_to_native_config_overrides(&mut overrides);
-        self.set_config_overrides(overrides);
+        self.set_window_config_overrides(Some(config_overrides), ReloadDisposition::ReloadAttempt);
     }
 
     fn lua_window_status_text(&self, status: NativeLuaWindowStatusText) -> String {
@@ -101232,11 +101393,23 @@ impl NativeWindowApp {
 
     fn reload_configuration(&mut self) {
         self.clear_key_table_stack();
+        self.leader_active_since = None;
         let event = NativeWindowConfigReloaded {
             window_id: self.app_window_id,
             pane: self.app_shell.active_pane_id(),
         };
         self.dispatch_config_reloaded(&event);
+    }
+
+    fn request_reload_configuration(&mut self) {
+        if let Some(event_proxy) = &self.event_proxy
+            && event_proxy
+                .send_event(WindowUserEvent::ReloadConfigurationRequested)
+                .is_ok()
+        {
+            return;
+        }
+        self.reload_configuration();
     }
 
     fn answer_clipboard_query(&mut self, selection: &str) -> io::Result<bool> {
@@ -128328,6 +128501,9 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: WindowUserEvent) {
+        if self.handle_manager_user_event(&event) {
+            return;
+        }
         let Some(close_window) = self.dispatch_user_event_to_owner(event) else {
             return;
         };
@@ -128457,6 +128633,9 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: WindowUserEvent) {
         match event {
+            WindowUserEvent::ReloadConfigurationRequested => {
+                self.reload_configuration();
+            }
             WindowUserEvent::Output { pane_id, bytes, .. } => {
                 if let Err(error) = self.handle_pane_pty_output(pane_id, &bytes) {
                     eprintln!("PTY write error: {error}");
@@ -129265,6 +129444,578 @@ mod tests {
                 .map(String::as_str),
             Some("user-stale")
         );
+    }
+
+    #[test]
+    fn window_manager_successful_reload_advances_one_generation_for_all_apps() {
+        let root = startup_test_dir("manager-success");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return { term = 'generation-one' }").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        manager
+            .primary_app_mut_for_test()
+            .dispatch_app_action(AppAction::SpawnWindow { launch: None })
+            .unwrap();
+        manager.collect_pending_window_apps_from_primary_for_test();
+        let current_base = manager
+            .config_lifecycle
+            .as_ref()
+            .unwrap()
+            .effective()
+            .clone();
+        let mut materialized = NativeWindowApp::new(None);
+        materialized.app_window_id = rssh_core::WindowId::new(3);
+        materialized.set_base_config(&current_base, super::ReloadDisposition::SilentStartup);
+        manager
+            .windows
+            .insert(winit::window::WindowId::dummy(), materialized);
+
+        let callbacks = Arc::new(AtomicUsize::new(0));
+        for app in manager.all_apps_mut_for_test() {
+            let callbacks = Arc::clone(&callbacks);
+            app.config_reloaded_handler = Box::new(move |_| {
+                callbacks.fetch_add(1, Ordering::Relaxed);
+                true
+            });
+        }
+
+        std::fs::write(&path, "return { term = 'generation-two' }").unwrap();
+        assert!(manager.reload_configuration_attempt());
+
+        assert_eq!(manager.config_generation_for_test(), Some(2));
+        let apps = manager.all_apps_for_test();
+        assert_eq!(apps.len(), 3);
+        for app in apps {
+            assert_eq!(app.base_config_generation_for_test(), 2);
+            assert_eq!(app.base_config_source.as_ref(), Some(&path));
+            assert_eq!(app.term, "generation-two");
+            assert_eq!(
+                app.derived_config_environment.get("WEZTERM_CONFIG_FILE"),
+                Some(&path.to_string_lossy().into_owned())
+            );
+        }
+        assert_eq!(callbacks.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn window_manager_reload_rebuilds_input_runtime_renderer_and_future_launch_state() {
+        let root = startup_test_dir("manager-runtime");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return { term = 'generation-one' }").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+
+        std::fs::write(
+            &path,
+            r##"return {
+                term = 'generation-two',
+                default_prog = { 'new-shell', '--login' },
+                default_cwd = 'new-cwd',
+                colors = { foreground = '#010203', background = '#040506' },
+                keys = {
+                    { key = 'k', mods = 'CTRL', action = wezterm.action.SendString('new') },
+                },
+            }"##,
+        )
+        .unwrap();
+
+        assert!(manager.reload_configuration_attempt());
+        let app = manager.primary_app_mut_for_test();
+        assert_eq!(app.term, "generation-two");
+        assert_eq!(
+            app.default_prog.as_deref(),
+            Some(&["new-shell".to_owned(), "--login".to_owned()][..])
+        );
+        assert_eq!(app.default_cwd.as_deref(), Some("new-cwd"));
+        assert_eq!(
+            app.native_resolved_palette().foreground,
+            Color::Rgb(1, 2, 3)
+        );
+        assert_eq!(
+            app.native_resolved_palette().background,
+            Color::Rgb(4, 5, 6)
+        );
+        assert_eq!(
+            app.key_assignments
+                .iter()
+                .map(NativeUserKeyAssignment::test_projection)
+                .collect::<Vec<_>>(),
+            [("CTRL+k", Some("new"))]
+        );
+
+        let runtime_reply = Arc::new(Mutex::new(Vec::new()));
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&runtime_reply))));
+        app.handle_pty_output(b"\x1bP+q544e\x1b\\").unwrap();
+        assert_eq!(
+            runtime_reply.lock().unwrap().as_slice(),
+            b"\x1bP1+r544E=67656E65726174696F6E2D74776F\x1b\\"
+        );
+    }
+
+    #[test]
+    fn window_manager_failed_reload_keeps_lkg_generation_and_effective_state() {
+        let root = startup_test_dir("manager-failure");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(
+            &path,
+            "return { term = 'last-good', colors = { background = '#102030' } }",
+        )
+        .unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let expected_effective = configured.lifecycle.effective().clone();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+
+        std::fs::write(&path, "return { term = dynamic_term() }").unwrap();
+        assert!(!manager.reload_configuration_attempt());
+
+        let lifecycle = manager.config_lifecycle.as_ref().unwrap();
+        assert_eq!(lifecycle.effective(), &expected_effective);
+        assert!(lifecycle.latest_diagnostic().is_some());
+        let app = manager.primary_app_mut_for_test();
+        assert_eq!(app.base_config_generation_for_test(), 1);
+        assert_eq!(app.base_config_source.as_ref(), Some(&path));
+        assert_eq!(app.term, "last-good");
+        assert_eq!(
+            app.native_resolved_palette().background,
+            Color::Rgb(16, 32, 48)
+        );
+        assert_eq!(
+            app.derived_config_environment.get("WEZTERM_CONFIG_FILE"),
+            Some(&path.to_string_lossy().into_owned())
+        );
+    }
+
+    #[test]
+    fn window_manager_failed_reload_still_notifies_each_window_once() {
+        let root = startup_test_dir("manager-failure-notify");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return {}").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        manager
+            .primary_app_mut_for_test()
+            .dispatch_app_action(AppAction::SpawnWindow { launch: None })
+            .unwrap();
+        manager.collect_pending_window_apps_from_primary_for_test();
+        let current_base = manager
+            .config_lifecycle
+            .as_ref()
+            .unwrap()
+            .effective()
+            .clone();
+        let mut materialized = NativeWindowApp::new(None);
+        materialized.app_window_id = rssh_core::WindowId::new(3);
+        materialized.set_base_config(&current_base, super::ReloadDisposition::SilentStartup);
+        manager
+            .windows
+            .insert(winit::window::WindowId::dummy(), materialized);
+        let callbacks = Arc::new(AtomicUsize::new(0));
+        for app in manager.all_apps_mut_for_test() {
+            let callbacks = Arc::clone(&callbacks);
+            app.config_reloaded_handler = Box::new(move |_| {
+                callbacks.fetch_add(1, Ordering::Relaxed);
+                true
+            });
+        }
+
+        std::fs::write(&path, "return { unknown_runtime_field = true }").unwrap();
+        assert!(!manager.reload_configuration_attempt());
+        assert_eq!(callbacks.load(Ordering::Relaxed), 3);
+        assert_eq!(manager.config_generation_for_test(), Some(1));
+    }
+
+    #[test]
+    fn window_manager_reload_rediscovers_optional_fallback_and_required_failure() {
+        let root = startup_test_dir("manager-rediscovery");
+        let home_source = root.0.join(".wezterm.lua");
+        let xdg_root = root.0.join("xdg");
+        let xdg_source = xdg_root.join("wezterm").join("wezterm.lua");
+        std::fs::create_dir_all(xdg_source.parent().unwrap()).unwrap();
+        std::fs::write(&home_source, "return { term = 'home' }").unwrap();
+        std::fs::write(&xdg_source, "return { term = 'xdg' }").unwrap();
+        let discovery = ConfigDiscoveryInputs {
+            home_dir: Some(root.0.clone()),
+            xdg_config_home: Some(xdg_root),
+            ..startup_test_discovery()
+        };
+        let options = startup_test_options(WindowConfigOptions::default());
+        let configured = super::configured_startup_app_for_test(&options, discovery).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        assert_eq!(manager.primary_app_mut_for_test().term, "home");
+
+        std::fs::remove_file(&home_source).unwrap();
+        assert!(manager.reload_configuration_attempt());
+        assert_eq!(manager.primary_app_mut_for_test().term, "xdg");
+        assert_eq!(manager.config_generation_for_test(), Some(2));
+        std::fs::remove_file(&xdg_source).unwrap();
+        assert!(manager.reload_configuration_attempt());
+        assert_eq!(manager.primary_app_mut_for_test().term, super::DEFAULT_TERM);
+        assert_eq!(manager.config_generation_for_test(), Some(3));
+        assert!(
+            manager
+                .primary_app_mut_for_test()
+                .derived_config_environment
+                .is_empty()
+        );
+        assert!(
+            manager
+                .config_lifecycle
+                .as_ref()
+                .unwrap()
+                .effective()
+                .source
+                .is_none()
+        );
+
+        let required = root.0.join("required.lua");
+        std::fs::write(&required, "return { term = 'required' }").unwrap();
+        let required_options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(required.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&required_options, startup_test_discovery())
+                .unwrap();
+        let mut required_manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        std::fs::remove_file(required).unwrap();
+        assert!(!required_manager.reload_configuration_attempt());
+        assert_eq!(required_manager.primary_app_mut_for_test().term, "required");
+        assert_eq!(required_manager.config_generation_for_test(), Some(1));
+    }
+
+    #[test]
+    fn window_manager_successful_reload_clears_latest_diagnostic() {
+        let root = startup_test_dir("manager-clear-diagnostic");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return { term = dynamic_term() }").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        assert!(configured.lifecycle.latest_diagnostic().is_some());
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+
+        std::fs::write(&path, "return { term = 'recovered' }").unwrap();
+        assert!(manager.reload_configuration_attempt());
+        assert_eq!(manager.config_generation_for_test(), Some(1));
+        assert!(
+            manager
+                .config_lifecycle
+                .as_ref()
+                .unwrap()
+                .latest_diagnostic()
+                .is_none()
+        );
+        assert_eq!(manager.primary_app_mut_for_test().term, "recovered");
+    }
+
+    #[test]
+    fn window_override_survives_base_reload_and_remains_highest_precedence() {
+        let root = startup_test_dir("manager-window-layer");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(
+            &path,
+            "return { term = 'base-one', default_cwd = 'base-one-cwd' }",
+        )
+        .unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        manager
+            .primary_app_mut_for_test()
+            .set_window_config_overrides(
+                Some(super::NativeLuaWindowConfigOverrides {
+                    term: Some("window-term".to_owned()),
+                    ..super::NativeLuaWindowConfigOverrides::default()
+                }),
+                super::ReloadDisposition::SilentStartup,
+            );
+
+        std::fs::write(
+            &path,
+            "return { term = 'base-two', default_cwd = 'base-two-cwd' }",
+        )
+        .unwrap();
+        assert!(manager.reload_configuration_attempt());
+
+        let app = manager.primary_app_mut_for_test();
+        assert_eq!(app.base_config_generation_for_test(), 2);
+        assert_eq!(app.base_config_overrides.term.as_deref(), Some("base-two"));
+        assert_eq!(app.term, "window-term");
+        assert_eq!(app.default_cwd.as_deref(), Some("base-two-cwd"));
+        assert_eq!(
+            app.window_config_overrides
+                .as_ref()
+                .and_then(|overrides| overrides.term.as_deref()),
+            Some("window-term")
+        );
+    }
+
+    #[test]
+    fn pending_window_is_refreshed_to_current_generation_before_spawn() {
+        let root = startup_test_dir("manager-pending-refresh");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return { term = 'one' }").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        manager
+            .primary_app_mut_for_test()
+            .dispatch_app_action(AppAction::SpawnWindow { launch: None })
+            .unwrap();
+        manager.collect_pending_window_apps_from_primary_for_test();
+        assert_eq!(
+            manager
+                .pending_app_for_test(0)
+                .unwrap()
+                .base_config_generation_for_test(),
+            1
+        );
+        {
+            let pending = manager.pending_apps.get_mut(0).unwrap();
+            assert!(
+                pending.command_palette_execute(WindowCommand::ActivateKeyTable(
+                    WindowActivateKeyTable {
+                        name: "pending".to_owned(),
+                        timeout_milliseconds: None,
+                        one_shot: false,
+                        replace_current: false,
+                        until_unknown: false,
+                        prevent_fallback: false,
+                    },
+                ))
+            );
+            pending.leader_active_since = Some(Instant::now());
+        }
+
+        std::fs::write(&path, "return { term = 'two' }").unwrap();
+        manager.install_lifecycle_attempt_without_fanout_for_test();
+        assert_eq!(manager.config_generation_for_test(), Some(2));
+        assert_eq!(
+            manager
+                .pending_app_for_test(0)
+                .unwrap()
+                .base_config_generation_for_test(),
+            1,
+            "the fixture must represent a pending app queued before the new generation"
+        );
+
+        manager.refresh_pending_app_before_spawn_for_test(0);
+        let pending = manager.pending_app_for_test(0).unwrap();
+        assert_eq!(pending.base_config_generation_for_test(), 2);
+        assert_eq!(pending.term, "two");
+        assert_eq!(pending.active_key_table_for_test(), Some("pending"));
+        assert!(
+            pending.leader_active_since.is_some(),
+            "silent pre-spawn refresh must not clear transient input state"
+        );
+    }
+
+    #[test]
+    fn detached_window_inherits_base_generation_and_window_layer() {
+        let root = startup_test_dir("manager-detached-layer");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return { term = 'base' }").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        {
+            let app = manager.primary_app_mut_for_test();
+            app.set_window_config_overrides(
+                Some(super::NativeLuaWindowConfigOverrides {
+                    term: Some("window".to_owned()),
+                    ..super::NativeLuaWindowConfigOverrides::default()
+                }),
+                super::ReloadDisposition::SilentStartup,
+            );
+            app.dispatch_app_action(AppAction::SpawnWindow { launch: None })
+                .unwrap();
+        }
+        manager.collect_pending_window_apps_from_primary_for_test();
+
+        let detached = manager.pending_app_for_test(0).unwrap();
+        assert_eq!(detached.base_config_generation_for_test(), 1);
+        assert_eq!(detached.base_config_overrides.term.as_deref(), Some("base"));
+        assert_eq!(detached.term, "window");
+        assert_eq!(
+            detached
+                .window_config_overrides
+                .as_ref()
+                .and_then(|overrides| overrides.term.as_deref()),
+            Some("window")
+        );
+    }
+
+    #[test]
+    fn new_split_and_tab_launches_use_reloaded_defaults() {
+        let root = startup_test_dir("manager-future-launch");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return {}").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        std::fs::write(
+            &path,
+            "return { default_prog = { 'reloaded-shell', '--login' }, default_cwd = 'reloaded-cwd', term = 'reloaded-term' }",
+        )
+        .unwrap();
+        assert!(manager.reload_configuration_attempt());
+
+        let app = manager.primary_app_mut_for_test();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: app.app_shell.active_pane_id(),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let split = app
+            .app_shell
+            .active_tab()
+            .panes()
+            .iter()
+            .find(|pane| pane.id() != rssh_core::PaneId::new(1))
+            .unwrap();
+        assert_eq!(split.launch().program(), "reloaded-shell");
+        assert_eq!(split.launch().args(), ["--login"]);
+        assert_eq!(split.launch().cwd(), Some("reloaded-cwd"));
+
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        let tab_launch = app.app_shell.active_pane().launch();
+        assert_eq!(tab_launch.program(), "reloaded-shell");
+        assert_eq!(tab_launch.args(), ["--login"]);
+        assert_eq!(tab_launch.cwd(), Some("reloaded-cwd"));
+        let command = pty_command_from_pane_launch_with_environment(
+            tab_launch,
+            &app.term,
+            &app.pane_environment_variables(),
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("TERM"), Some("reloaded-term"));
+    }
+
+    #[test]
+    fn reload_clears_key_table_and_leader_state_once_per_attempt() {
+        let root = startup_test_dir("manager-clear-transient");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return {}").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        let callbacks = Arc::new(AtomicUsize::new(0));
+        {
+            let app = manager.primary_app_mut_for_test();
+            assert!(app.command_palette_execute(WindowCommand::ActivateKeyTable(
+                WindowActivateKeyTable {
+                    name: "transient".to_owned(),
+                    timeout_milliseconds: None,
+                    one_shot: false,
+                    replace_current: false,
+                    until_unknown: false,
+                    prevent_fallback: false,
+                },
+            )));
+            app.leader_active_since = Some(Instant::now());
+            let callbacks = Arc::clone(&callbacks);
+            app.config_reloaded_handler = Box::new(move |_| {
+                callbacks.fetch_add(1, Ordering::Relaxed);
+                true
+            });
+        }
+
+        std::fs::write(&path, "return { term = 'new' }").unwrap();
+        assert!(manager.reload_configuration_attempt());
+        let app = manager.primary_app_mut_for_test();
+        assert_eq!(app.active_key_table_for_test(), None);
+        assert!(app.leader_active_since.is_none());
+        assert_eq!(callbacks.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn window_manager_reload_user_event_runs_global_transaction() {
+        let root = startup_test_dir("manager-event");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return { term = 'before-event' }").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        std::fs::write(&path, "return { term = 'after-event' }").unwrap();
+
+        assert!(manager.handle_manager_user_event(&WindowUserEvent::ReloadConfigurationRequested));
+        assert_eq!(manager.config_generation_for_test(), Some(2));
+        assert_eq!(manager.primary_app_mut_for_test().term, "after-event");
     }
 
     #[test]
