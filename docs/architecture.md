@@ -1366,10 +1366,12 @@ keyboard, mouse, paste, resize
   promote frequently and recently used entries.
 - Implemented in v1 against pinned WezTerm
   `093bf6bf2b82b929ed80c04fd54ebc80464f715e`: native window startup has a
-  file-backed WezTerm configuration lifecycle for the production strict-static
+  file-backed WezTerm configuration lifecycle for the strict production
   grammar. Source discovery follows explicit `--config-file`,
-  `WEZTERM_CONFIG_FILE`, Windows portable executable-adjacent config, the home
-  config, XDG config-home fallback, then Unix XDG config-directory candidates;
+  `WEZTERM_CONFIG_FILE`, Windows portable executable-adjacent config,
+  `$HOME/.wezterm.lua`, `$XDG_CONFIG_HOME/wezterm/wezterm.lua` or, when
+  `XDG_CONFIG_HOME` is unset, `$HOME/.config/wezterm/wezterm.lua`, then Unix
+  `$XDG_CONFIG_DIRS` candidates;
   `--skip-config` disables discovery, repeated
   `--config name=value` values apply last and above the file, and invalid CLI
   overrides fail before app construction. Every startup, manual reload, and
@@ -1379,7 +1381,7 @@ keyboard, mouse, paste, resize
   recover later. Derived `WEZTERM_CONFIG_FILE`/`WEZTERM_CONFIG_DIR` values are
   published only to child launch environments without mutating process-global
   environment state.
-  The accepted production grammar is intentionally bounded to a direct static
+  The strict production grammar is intentionally bounded to a direct static
   return table or the supported `wezterm.config_builder()` plus direct static
   assignments and a final return. Unsupported statements, dynamic expressions,
   and registry-excluded top-level or nested fields fail with explicit source
