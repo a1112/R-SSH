@@ -409,10 +409,14 @@ pub fn run(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
 
     let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
     let event_proxy = event_loop.create_proxy();
+    let reload_event_proxy = event_proxy.clone();
     app.session_log = match &options.log {
         Some(path) => Some(Box::new(File::create(path)?) as Box<dyn Write + Send>),
         None => None,
     };
+    app.reload_request_sender = Some(Arc::new(move |event| {
+        reload_event_proxy.send_event(event).is_ok()
+    }));
     app.event_proxy = Some(event_proxy);
     app.set_command_palette_frecency_path(default_command_palette_frecency_path());
     app.set_char_select_recently_used_path(default_char_select_recently_used_path());
@@ -80868,6 +80872,7 @@ struct NativeWindowApp {
     rendered_frames: u64,
     animation_started_at: Instant,
     event_proxy: Option<EventLoopProxy<WindowUserEvent>>,
+    reload_request_sender: Option<Arc<dyn Fn(WindowUserEvent) -> bool + Send + Sync>>,
     session: Option<PtySession>,
     session_process_id: Option<u32>,
     session_tty_name: Option<String>,
@@ -81101,6 +81106,10 @@ struct NativeWindowApp {
     base_config_generation: u64,
     base_config_source: Option<PathBuf>,
     window_config_overrides: Option<NativeLuaWindowConfigOverrides>,
+    #[cfg(test)]
+    base_config_apply_observer: Option<Box<dyn FnMut(u64) + Send>>,
+    #[cfg(test)]
+    pty_spawn_observer: Option<Arc<std::sync::atomic::AtomicUsize>>,
     #[allow(dead_code)]
     config_overrides: NativeConfigOverrides,
     latest_notification: Option<TerminalNotification>,
@@ -82930,6 +82939,7 @@ impl NativeWindowApp {
             rendered_frames: 0,
             animation_started_at: Instant::now(),
             event_proxy: None,
+            reload_request_sender: None,
             session: None,
             session_process_id: None,
             session_tty_name: None,
@@ -83169,6 +83179,10 @@ impl NativeWindowApp {
             base_config_generation: 0,
             base_config_source: None,
             window_config_overrides: None,
+            #[cfg(test)]
+            base_config_apply_observer: None,
+            #[cfg(test)]
+            pty_spawn_observer: None,
             config_overrides: NativeConfigOverrides::default(),
             latest_notification: None,
             left_status: String::new(),
@@ -84122,6 +84136,9 @@ impl NativeWindowApp {
             .initial_window_class
             .clone_from(&self.initial_window_class);
         detached_app.event_proxy.clone_from(&self.event_proxy);
+        detached_app
+            .reload_request_sender
+            .clone_from(&self.reload_request_sender);
         detached_app.app_shell = app_shell;
         detached_app.startup_workspace_was_explicit = true;
         detached_app.config_overrides = self.config_overrides.clone();
@@ -95853,6 +95870,10 @@ impl NativeWindowApp {
         self.base_config_source.clone_from(&config.source);
         self.derived_config_environment = config.publication.variables().clone();
         self.apply_effective_config(disposition);
+        #[cfg(test)]
+        if let Some(observer) = self.base_config_apply_observer.as_mut() {
+            observer(config.generation);
+        }
     }
 
     fn set_window_config_overrides(
@@ -97906,6 +97927,11 @@ impl NativeWindowApp {
     }
 
     fn spawn_pane_runtime_for_active_pane(&mut self) -> Result<PaneRuntime, Box<dyn Error>> {
+        #[cfg(test)]
+        if let Some(observer) = &self.pty_spawn_observer {
+            observer.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+
         let Some(event_proxy) = self.event_proxy.clone() else {
             return Err(Box::new(io::Error::other(
                 "window event proxy is not configured",
@@ -101402,10 +101428,8 @@ impl NativeWindowApp {
     }
 
     fn request_reload_configuration(&mut self) {
-        if let Some(event_proxy) = &self.event_proxy
-            && event_proxy
-                .send_event(WindowUserEvent::ReloadConfigurationRequested)
-                .is_ok()
+        if let Some(sender) = &self.reload_request_sender
+            && sender(WindowUserEvent::ReloadConfigurationRequested)
         {
             return;
         }
@@ -129251,6 +129275,137 @@ mod tests {
         }
     }
 
+    fn install_reload_transaction_observers(
+        manager: &mut NativeWindowManager,
+    ) -> (Arc<Mutex<Vec<bool>>>, Vec<Arc<AtomicUsize>>) {
+        let app_count = manager.all_apps_for_test().len();
+        let applied = Arc::new(Mutex::new(vec![false; app_count]));
+        let callbacks = (0..app_count)
+            .map(|_| Arc::new(AtomicUsize::new(0)))
+            .collect::<Vec<_>>();
+        for (index, app) in manager.all_apps_mut_for_test().into_iter().enumerate() {
+            let applied_by_app = Arc::clone(&applied);
+            app.base_config_apply_observer = Some(Box::new(move |_| {
+                applied_by_app.lock().unwrap()[index] = true;
+            }));
+            let all_applied = Arc::clone(&applied);
+            let callback = Arc::clone(&callbacks[index]);
+            app.config_reloaded_handler = Box::new(move |_| {
+                assert!(
+                    all_applied.lock().unwrap().iter().all(|applied| *applied),
+                    "no reload callback may run until every managed app finished applying"
+                );
+                callback.fetch_add(1, Ordering::Relaxed);
+                true
+            });
+        }
+        (applied, callbacks)
+    }
+
+    struct ReloadRuntimeSentinels {
+        active_pane: rssh_core::PaneId,
+        inactive_pane: rssh_core::PaneId,
+        active_writer: Arc<Mutex<Vec<u8>>>,
+        inactive_writer: Arc<Mutex<Vec<u8>>>,
+        active_process_id: u32,
+        inactive_process_id: u32,
+        active_reader_id: std::thread::ThreadId,
+        inactive_reader_id: std::thread::ThreadId,
+        spawn_attempts: Arc<AtomicUsize>,
+    }
+
+    fn install_reload_runtime_sentinels(app: &mut NativeWindowApp) -> ReloadRuntimeSentinels {
+        app.handle_pty_output(b"\x1b[38;2;100;150;200mI\x1b[0mD")
+            .unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: app.app_shell.active_pane_id(),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"\x1b[38;2;100;150;200mA\x1b[0mD")
+            .unwrap();
+
+        let active_pane = app.app_shell.active_pane_id();
+        let inactive_pane = app
+            .pane_runtimes
+            .keys()
+            .copied()
+            .find(|pane| *pane != active_pane)
+            .expect("split fixture should own one inactive pane runtime");
+        let active_writer = Arc::new(Mutex::new(Vec::new()));
+        let inactive_writer = Arc::new(Mutex::new(Vec::new()));
+        let active_process_id = 41_001;
+        let inactive_process_id = 41_002;
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_writer))));
+        app.session_process_id = Some(active_process_id);
+        app.reader_thread = Some(std::thread::spawn(|| {}));
+        let active_reader_id = app.reader_thread.as_ref().unwrap().thread().id();
+        let inactive = app.pane_runtimes.get_mut(&inactive_pane).unwrap();
+        inactive.writer = Some(Box::new(SharedWriter(Arc::clone(&inactive_writer))));
+        inactive.session_process_id = Some(inactive_process_id);
+        inactive.reader_thread = Some(std::thread::spawn(|| {}));
+        let inactive_reader_id = inactive.reader_thread.as_ref().unwrap().thread().id();
+        let spawn_attempts = Arc::new(AtomicUsize::new(0));
+        app.pty_spawn_observer = Some(Arc::clone(&spawn_attempts));
+
+        ReloadRuntimeSentinels {
+            active_pane,
+            inactive_pane,
+            active_writer,
+            inactive_writer,
+            active_process_id,
+            inactive_process_id,
+            active_reader_id,
+            inactive_reader_id,
+            spawn_attempts,
+        }
+    }
+
+    fn assert_reload_runtime_sentinels_preserved(
+        app: &mut NativeWindowApp,
+        sentinels: &ReloadRuntimeSentinels,
+    ) {
+        assert_eq!(sentinels.spawn_attempts.load(Ordering::Relaxed), 0);
+        assert_eq!(app.active_pane_id(), sentinels.active_pane);
+        assert_eq!(app.session_process_id, Some(sentinels.active_process_id));
+        assert_eq!(
+            app.reader_thread.as_ref().unwrap().thread().id(),
+            sentinels.active_reader_id
+        );
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('A'));
+        app.writer
+            .as_mut()
+            .unwrap()
+            .write_all(b"active-sentinel")
+            .unwrap();
+        assert_eq!(
+            sentinels.active_writer.lock().unwrap().as_slice(),
+            b"active-sentinel"
+        );
+
+        let inactive = app.pane_runtimes.get_mut(&sentinels.inactive_pane).unwrap();
+        assert_eq!(
+            inactive.session_process_id,
+            Some(sentinels.inactive_process_id)
+        );
+        assert_eq!(
+            inactive.reader_thread.as_ref().unwrap().thread().id(),
+            sentinels.inactive_reader_id
+        );
+        assert_eq!(snapshot_char(&inactive.snapshot, 0, 0), Some('I'));
+        inactive
+            .writer
+            .as_mut()
+            .unwrap()
+            .write_all(b"inactive-sentinel")
+            .unwrap();
+        assert_eq!(
+            sentinels.inactive_writer.lock().unwrap().as_slice(),
+            b"inactive-sentinel"
+        );
+    }
+
     #[test]
     fn window_run_configures_app_before_first_spawn() {
         let root = startup_test_dir("before-spawn");
@@ -129478,14 +129633,7 @@ mod tests {
             .windows
             .insert(winit::window::WindowId::dummy(), materialized);
 
-        let callbacks = Arc::new(AtomicUsize::new(0));
-        for app in manager.all_apps_mut_for_test() {
-            let callbacks = Arc::clone(&callbacks);
-            app.config_reloaded_handler = Box::new(move |_| {
-                callbacks.fetch_add(1, Ordering::Relaxed);
-                true
-            });
-        }
+        let (applied, callbacks) = install_reload_transaction_observers(&mut manager);
 
         std::fs::write(&path, "return { term = 'generation-two' }").unwrap();
         assert!(manager.reload_configuration_attempt());
@@ -129502,7 +129650,13 @@ mod tests {
                 Some(&path.to_string_lossy().into_owned())
             );
         }
-        assert_eq!(callbacks.load(Ordering::Relaxed), 3);
+        assert!(applied.lock().unwrap().iter().all(|applied| *applied));
+        assert!(
+            callbacks
+                .iter()
+                .all(|callback| callback.load(Ordering::Relaxed) == 1),
+            "every managed app must receive exactly one callback"
+        );
     }
 
     #[test]
@@ -129519,6 +129673,7 @@ mod tests {
             super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
         let mut manager = NativeWindowManager::new_for_test(configured.app)
             .with_config_lifecycle(configured.lifecycle);
+        let sentinels = install_reload_runtime_sentinels(manager.primary_app_mut_for_test());
 
         std::fs::write(
             &path,
@@ -129536,6 +129691,7 @@ mod tests {
 
         assert!(manager.reload_configuration_attempt());
         let app = manager.primary_app_mut_for_test();
+        assert_reload_runtime_sentinels_preserved(app, &sentinels);
         assert_eq!(app.term, "generation-two");
         assert_eq!(
             app.default_prog.as_deref(),
@@ -129558,12 +129714,40 @@ mod tests {
             [("CTRL+k", Some("new"))]
         );
 
-        let runtime_reply = Arc::new(Mutex::new(Vec::new()));
-        app.writer = Some(Box::new(SharedWriter(Arc::clone(&runtime_reply))));
+        sentinels.active_writer.lock().unwrap().clear();
         app.handle_pty_output(b"\x1bP+q544e\x1b\\").unwrap();
         assert_eq!(
-            runtime_reply.lock().unwrap().as_slice(),
+            sentinels.active_writer.lock().unwrap().as_slice(),
             b"\x1bP1+r544E=67656E65726174696F6E2D74776F\x1b\\"
+        );
+        let layout = app.pane_render_layout();
+        let active = layout
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == sentinels.active_pane)
+            .unwrap();
+        let snapshot = app.render_snapshot();
+        assert_eq!(
+            snapshot_cell(&snapshot, active.row, active.column)
+                .unwrap()
+                .foreground,
+            Color::Rgb(100, 150, 200),
+            "the composed renderer snapshot must retain the live pane contents"
+        );
+        assert_eq!(
+            snapshot_cell(&snapshot, active.row, active.column + 1)
+                .unwrap()
+                .foreground,
+            Color::Default,
+            "the default-colored live cell must remain palette-relative"
+        );
+        let (frame_width, frame_height) = app.frame_size_for_test();
+        let mut frame =
+            vec![0; usize::try_from(frame_width.saturating_mul(frame_height) * 4).unwrap()];
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert!(
+            frame.chunks_exact(4).any(|pixel| pixel == [1, 2, 3, 255]),
+            "the renderer must project palette-relative text through the reloaded foreground"
         );
     }
 
@@ -129586,6 +129770,7 @@ mod tests {
         let expected_effective = configured.lifecycle.effective().clone();
         let mut manager = NativeWindowManager::new_for_test(configured.app)
             .with_config_lifecycle(configured.lifecycle);
+        let sentinels = install_reload_runtime_sentinels(manager.primary_app_mut_for_test());
 
         std::fs::write(&path, "return { term = dynamic_term() }").unwrap();
         assert!(!manager.reload_configuration_attempt());
@@ -129594,6 +129779,7 @@ mod tests {
         assert_eq!(lifecycle.effective(), &expected_effective);
         assert!(lifecycle.latest_diagnostic().is_some());
         let app = manager.primary_app_mut_for_test();
+        assert_reload_runtime_sentinels_preserved(app, &sentinels);
         assert_eq!(app.base_config_generation_for_test(), 1);
         assert_eq!(app.base_config_source.as_ref(), Some(&path));
         assert_eq!(app.term, "last-good");
@@ -129638,18 +129824,17 @@ mod tests {
         manager
             .windows
             .insert(winit::window::WindowId::dummy(), materialized);
-        let callbacks = Arc::new(AtomicUsize::new(0));
-        for app in manager.all_apps_mut_for_test() {
-            let callbacks = Arc::clone(&callbacks);
-            app.config_reloaded_handler = Box::new(move |_| {
-                callbacks.fetch_add(1, Ordering::Relaxed);
-                true
-            });
-        }
+        let (applied, callbacks) = install_reload_transaction_observers(&mut manager);
 
         std::fs::write(&path, "return { unknown_runtime_field = true }").unwrap();
         assert!(!manager.reload_configuration_attempt());
-        assert_eq!(callbacks.load(Ordering::Relaxed), 3);
+        assert!(applied.lock().unwrap().iter().all(|applied| *applied));
+        assert!(
+            callbacks
+                .iter()
+                .all(|callback| callback.load(Ordering::Relaxed) == 1),
+            "every managed app must receive exactly one failure callback"
+        );
         assert_eq!(manager.config_generation_for_test(), Some(1));
     }
 
@@ -129863,10 +130048,14 @@ mod tests {
     fn detached_window_inherits_base_generation_and_window_layer() {
         let root = startup_test_dir("manager-detached-layer");
         let path = root.0.join("wezterm.lua");
-        std::fs::write(&path, "return { term = 'base' }").unwrap();
+        std::fs::write(
+            &path,
+            "return { term = 'base-one', default_cwd = 'base-one-cwd' }",
+        )
+        .unwrap();
         let options = startup_test_options(WindowConfigOptions {
             skip_config: false,
-            config_file: Some(path),
+            config_file: Some(path.clone()),
             config_overrides: Vec::new(),
         });
         let configured =
@@ -129882,14 +130071,46 @@ mod tests {
                 }),
                 super::ReloadDisposition::SilentStartup,
             );
+        }
+
+        std::fs::write(
+            &path,
+            "return { term = 'base-two', default_cwd = 'base-two-cwd' }",
+        )
+        .unwrap();
+        assert!(manager.install_lifecycle_attempt_without_fanout_for_test());
+        assert_eq!(manager.config_generation_for_test(), Some(2));
+        {
+            let app = manager.primary_app_mut_for_test();
+            assert_eq!(
+                app.base_config_generation_for_test(),
+                1,
+                "the source app must remain on the old generation for this fixture"
+            );
+            assert_eq!(app.term, "window");
             app.dispatch_app_action(AppAction::SpawnWindow { launch: None })
                 .unwrap();
         }
         manager.collect_pending_window_apps_from_primary_for_test();
 
         let detached = manager.pending_app_for_test(0).unwrap();
-        assert_eq!(detached.base_config_generation_for_test(), 1);
-        assert_eq!(detached.base_config_overrides.term.as_deref(), Some("base"));
+        assert_eq!(detached.base_config_generation_for_test(), 2);
+        assert_eq!(
+            detached.base_config_source.as_ref(),
+            Some(&path),
+            "the detached app must publish the manager's current source"
+        );
+        assert_eq!(
+            detached
+                .derived_config_environment
+                .get("WEZTERM_CONFIG_FILE"),
+            Some(&path.to_string_lossy().into_owned())
+        );
+        assert_eq!(
+            detached.base_config_overrides.term.as_deref(),
+            Some("base-two")
+        );
+        assert_eq!(detached.default_cwd.as_deref(), Some("base-two-cwd"));
         assert_eq!(detached.term, "window");
         assert_eq!(
             detached
@@ -129916,42 +130137,152 @@ mod tests {
             .with_config_lifecycle(configured.lifecycle);
         std::fs::write(
             &path,
-            "return { default_prog = { 'reloaded-shell', '--login' }, default_cwd = 'reloaded-cwd', term = 'reloaded-term' }",
+            r##"return {
+                default_prog = { 'reloaded-shell', '--login' },
+                default_cwd = 'reloaded-cwd',
+                term = 'reloaded-term',
+                set_environment_variables = { USER_MARKER = 'reloaded-user-env' },
+                colors = { foreground = '#010203', background = '#040506' },
+                keys = {
+                    { key = 'k', mods = 'CTRL', action = wezterm.action.SendString('reloaded-key') },
+                },
+            }"##,
         )
         .unwrap();
         assert!(manager.reload_configuration_attempt());
 
-        let app = manager.primary_app_mut_for_test();
-        app.dispatch_app_action(AppAction::SplitPane {
-            pane: app.app_shell.active_pane_id(),
-            direction: SplitDirection::Right,
-            launch: None,
-        })
-        .unwrap();
-        let split = app
-            .app_shell
-            .active_tab()
-            .panes()
-            .iter()
-            .find(|pane| pane.id() != rssh_core::PaneId::new(1))
+        {
+            let app = manager.primary_app_mut_for_test();
+            app.dispatch_app_action(AppAction::SplitPane {
+                pane: app.app_shell.active_pane_id(),
+                direction: SplitDirection::Right,
+                launch: None,
+            })
             .unwrap();
-        assert_eq!(split.launch().program(), "reloaded-shell");
-        assert_eq!(split.launch().args(), ["--login"]);
-        assert_eq!(split.launch().cwd(), Some("reloaded-cwd"));
+            let split = app
+                .app_shell
+                .active_tab()
+                .panes()
+                .iter()
+                .find(|pane| pane.id() != rssh_core::PaneId::new(1))
+                .unwrap();
+            assert_eq!(split.launch().program(), "reloaded-shell");
+            assert_eq!(split.launch().args(), ["--login"]);
+            assert_eq!(split.launch().cwd(), Some("reloaded-cwd"));
 
-        app.dispatch_app_action(AppAction::NewTab { launch: None })
-            .unwrap();
-        let tab_launch = app.app_shell.active_pane().launch();
-        assert_eq!(tab_launch.program(), "reloaded-shell");
-        assert_eq!(tab_launch.args(), ["--login"]);
-        assert_eq!(tab_launch.cwd(), Some("reloaded-cwd"));
+            app.dispatch_app_action(AppAction::NewTab { launch: None })
+                .unwrap();
+            let tab_launch = app.app_shell.active_pane().launch();
+            assert_eq!(tab_launch.program(), "reloaded-shell");
+            assert_eq!(tab_launch.args(), ["--login"]);
+            assert_eq!(tab_launch.cwd(), Some("reloaded-cwd"));
+            let command = pty_command_from_pane_launch_with_environment(
+                tab_launch,
+                &app.term,
+                &app.pane_environment_variables(),
+                app.default_cwd.as_deref(),
+            );
+            assert_eq!(command.env_value("TERM"), Some("reloaded-term"));
+
+            app.dispatch_app_action(AppAction::SpawnWindow { launch: None })
+                .unwrap();
+        }
+        manager.collect_pending_window_apps_from_primary_for_test();
+
+        let detached = manager.pending_app_for_test(0).unwrap();
+        assert_eq!(detached.base_config_generation_for_test(), 2);
+        assert_eq!(detached.term, "reloaded-term");
+        assert_eq!(
+            detached.default_prog.as_deref(),
+            Some(&["reloaded-shell".to_owned(), "--login".to_owned()][..])
+        );
+        assert_eq!(detached.default_cwd.as_deref(), Some("reloaded-cwd"));
+        assert_eq!(detached.startup_command().program(), "reloaded-shell");
+        assert_eq!(detached.startup_command().args(), ["--login"]);
+        assert_eq!(
+            detached.startup_command().cwd(),
+            Some(std::path::Path::new("reloaded-cwd"))
+        );
+        assert_eq!(
+            detached
+                .derived_config_environment
+                .get("WEZTERM_CONFIG_FILE"),
+            Some(&path.to_string_lossy().into_owned())
+        );
+        assert_eq!(
+            detached
+                .derived_config_environment
+                .get("WEZTERM_CONFIG_DIR"),
+            Some(&root.0.to_string_lossy().into_owned())
+        );
+        let environment = detached.pane_environment_variables();
+        assert_eq!(
+            environment.get("USER_MARKER").map(String::as_str),
+            Some("reloaded-user-env")
+        );
         let command = pty_command_from_pane_launch_with_environment(
-            tab_launch,
-            &app.term,
-            &app.pane_environment_variables(),
-            app.default_cwd.as_deref(),
+            detached.app_shell.active_pane().launch(),
+            &detached.term,
+            &environment,
+            detached.default_cwd.as_deref(),
         );
         assert_eq!(command.env_value("TERM"), Some("reloaded-term"));
+        assert_eq!(
+            command.env_value("WEZTERM_CONFIG_FILE"),
+            Some(path.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            command.env_value("WEZTERM_CONFIG_DIR"),
+            Some(root.0.to_string_lossy().as_ref())
+        );
+        assert_eq!(command.env_value("USER_MARKER"), Some("reloaded-user-env"));
+        assert_eq!(
+            detached
+                .key_assignments
+                .iter()
+                .map(NativeUserKeyAssignment::test_projection)
+                .collect::<Vec<_>>(),
+            [("CTRL+k", Some("reloaded-key"))]
+        );
+        assert_eq!(
+            detached.native_resolved_palette().foreground,
+            Color::Rgb(1, 2, 3)
+        );
+        assert_eq!(
+            detached.native_resolved_palette().background,
+            Color::Rgb(4, 5, 6)
+        );
+        let mut detached = manager.pending_apps.remove(0);
+        let written = Arc::new(Mutex::new(Vec::new()));
+        detached.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        detached.modifiers = ModifiersState::CONTROL;
+        detached
+            .handle_keyboard_input_event(
+                &Key::Character("k".into()),
+                PhysicalKey::Code(WinitKeyCode::KeyK),
+                Some("k"),
+                ElementState::Pressed,
+                KittyKeyEventKind::Press,
+            )
+            .unwrap();
+        assert_eq!(
+            written.lock().unwrap().as_slice(),
+            b"reloaded-key",
+            "the detached input path must execute the reloaded key assignment"
+        );
+        assert_eq!(detached.active_key_table_for_test(), None);
+        assert!(detached.leader_active_since.is_none());
+        let (frame_width, frame_height) = detached.frame_size_for_test();
+        let mut frame =
+            vec![0; usize::try_from(frame_width.saturating_mul(frame_height) * 4).unwrap()];
+        assert_eq!(
+            detached.render_framebuffer(&mut frame),
+            FrameRenderMode::Full
+        );
+        assert!(
+            frame.chunks_exact(4).any(|pixel| pixel == [4, 5, 6, 255]),
+            "the detached renderer must inherit the reloaded background projection"
+        );
     }
 
     #[test]
@@ -130016,6 +130347,121 @@ mod tests {
         assert!(manager.handle_manager_user_event(&WindowUserEvent::ReloadConfigurationRequested));
         assert_eq!(manager.config_generation_for_test(), Some(2));
         assert_eq!(manager.primary_app_mut_for_test().term, "after-event");
+    }
+
+    #[test]
+    fn window_reload_command_enqueues_one_manager_event_before_global_transaction() {
+        let root = startup_test_dir("manager-command-event");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return { term = 'before-command' }").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        manager
+            .primary_app_mut_for_test()
+            .dispatch_app_action(AppAction::SpawnWindow { launch: None })
+            .unwrap();
+        manager.collect_pending_window_apps_from_primary_for_test();
+        let queued = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&queued);
+        manager.primary_app_mut_for_test().reload_request_sender = Some(Arc::new(move |event| {
+            captured.lock().unwrap().push(event);
+            true
+        }));
+        std::fs::write(&path, "return { term = 'after-command' }").unwrap();
+
+        assert!(
+            manager
+                .primary_app_mut_for_test()
+                .command_palette_execute(WindowCommand::ReloadConfiguration)
+        );
+        assert_eq!(
+            manager.config_generation_for_test(),
+            Some(1),
+            "the command must enqueue instead of reloading the focused app inline"
+        );
+        let event = {
+            let mut queued = queued.lock().unwrap();
+            assert_eq!(queued.len(), 1);
+            let event = queued.remove(0);
+            assert!(matches!(
+                event,
+                WindowUserEvent::ReloadConfigurationRequested
+            ));
+            event
+        };
+
+        assert!(manager.handle_manager_user_event(&event));
+        assert_eq!(manager.config_generation_for_test(), Some(2));
+        assert!(
+            manager
+                .all_apps_for_test()
+                .iter()
+                .all(|app| app.term == "after-command")
+        );
+    }
+
+    #[test]
+    fn window_reload_shortcut_enqueues_one_manager_event_before_global_transaction() {
+        let root = startup_test_dir("manager-shortcut-event");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return { term = 'before-shortcut' }").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        manager
+            .primary_app_mut_for_test()
+            .dispatch_app_action(AppAction::SpawnWindow { launch: None })
+            .unwrap();
+        manager.collect_pending_window_apps_from_primary_for_test();
+        let queued = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&queued);
+        manager.primary_app_mut_for_test().reload_request_sender = Some(Arc::new(move |event| {
+            captured.lock().unwrap().push(event);
+            true
+        }));
+        std::fs::write(&path, "return { term = 'after-shortcut' }").unwrap();
+
+        assert!(
+            manager
+                .primary_app_mut_for_test()
+                .handle_reload_configuration_shortcut(
+                    &Key::Character("r".into()),
+                    ModifiersState::CONTROL | ModifiersState::SHIFT
+                )
+        );
+        assert_eq!(manager.config_generation_for_test(), Some(1));
+        let event = {
+            let mut queued = queued.lock().unwrap();
+            assert_eq!(queued.len(), 1);
+            let event = queued.remove(0);
+            assert!(matches!(
+                event,
+                WindowUserEvent::ReloadConfigurationRequested
+            ));
+            event
+        };
+
+        assert!(manager.handle_manager_user_event(&event));
+        assert_eq!(manager.config_generation_for_test(), Some(2));
+        assert!(
+            manager
+                .all_apps_for_test()
+                .iter()
+                .all(|app| app.term == "after-shortcut")
+        );
     }
 
     #[test]
