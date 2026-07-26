@@ -129302,6 +129302,98 @@ mod tests {
         (applied, callbacks)
     }
 
+    fn arm_reload_event_transaction_sentinels(
+        manager: &mut NativeWindowManager,
+    ) -> Vec<Arc<AtomicUsize>> {
+        let apps = manager.all_apps_mut_for_test();
+        assert_eq!(
+            apps.len(),
+            2,
+            "the event fixture must cover primary and detached owners"
+        );
+        apps.into_iter()
+            .enumerate()
+            .map(|(index, app)| {
+                let table = format!("reload-event-sentinel-{index}");
+                assert!(app.command_palette_execute(WindowCommand::ActivateKeyTable(
+                    WindowActivateKeyTable {
+                        name: table,
+                        timeout_milliseconds: None,
+                        one_shot: false,
+                        replace_current: false,
+                        until_unknown: false,
+                        prevent_fallback: false,
+                    },
+                )));
+                app.leader_active_since = Some(Instant::now());
+                let callbacks = Arc::new(AtomicUsize::new(0));
+                let callback = Arc::clone(&callbacks);
+                app.config_reloaded_handler = Box::new(move |_| {
+                    callback.fetch_add(1, Ordering::Relaxed);
+                    true
+                });
+                callbacks
+            })
+            .collect()
+    }
+
+    fn take_reload_event_before_global_dispatch(
+        manager: &NativeWindowManager,
+        queued: &Arc<Mutex<Vec<WindowUserEvent>>>,
+        callbacks: &[Arc<AtomicUsize>],
+    ) -> WindowUserEvent {
+        assert_eq!(
+            manager.config_generation_for_test(),
+            Some(1),
+            "enqueueing must not install the next global generation inline"
+        );
+        assert!(
+            callbacks
+                .iter()
+                .all(|callback| callback.load(Ordering::Relaxed) == 0),
+            "enqueueing must not invoke any app callback inline"
+        );
+        for (index, app) in manager.all_apps_for_test().into_iter().enumerate() {
+            assert_eq!(
+                app.active_key_table_for_test(),
+                Some(format!("reload-event-sentinel-{index}").as_str()),
+                "enqueueing must not clear any app key table inline"
+            );
+            assert!(
+                app.leader_active_since.is_some(),
+                "enqueueing must not clear any app leader inline"
+            );
+        }
+
+        let mut queued = queued.lock().unwrap();
+        assert_eq!(queued.len(), 1, "the entry point must enqueue exactly once");
+        let event = queued.remove(0);
+        assert!(matches!(
+            event,
+            WindowUserEvent::ReloadConfigurationRequested
+        ));
+        event
+    }
+
+    fn assert_global_reload_event_completed(
+        manager: &NativeWindowManager,
+        callbacks: &[Arc<AtomicUsize>],
+        expected_term: &str,
+    ) {
+        assert_eq!(manager.config_generation_for_test(), Some(2));
+        assert!(
+            callbacks
+                .iter()
+                .all(|callback| callback.load(Ordering::Relaxed) == 1),
+            "the manager transaction must notify each app exactly once"
+        );
+        for app in manager.all_apps_for_test() {
+            assert_eq!(app.term, expected_term);
+            assert_eq!(app.active_key_table_for_test(), None);
+            assert!(app.leader_active_since.is_none());
+        }
+    }
+
     struct ReloadRuntimeSentinels {
         active_pane: rssh_core::PaneId,
         inactive_pane: rssh_core::PaneId,
@@ -130363,17 +130455,22 @@ mod tests {
             super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
         let mut manager = NativeWindowManager::new_for_test(configured.app)
             .with_config_lifecycle(configured.lifecycle);
+        let queued = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&queued);
+        manager.primary_app_mut_for_test().reload_request_sender = Some(Arc::new(move |event| {
+            assert!(matches!(
+                event,
+                WindowUserEvent::ReloadConfigurationRequested
+            ));
+            captured.lock().unwrap().push(event);
+            true
+        }));
         manager
             .primary_app_mut_for_test()
             .dispatch_app_action(AppAction::SpawnWindow { launch: None })
             .unwrap();
         manager.collect_pending_window_apps_from_primary_for_test();
-        let queued = Arc::new(Mutex::new(Vec::new()));
-        let captured = Arc::clone(&queued);
-        manager.primary_app_mut_for_test().reload_request_sender = Some(Arc::new(move |event| {
-            captured.lock().unwrap().push(event);
-            true
-        }));
+        let callbacks = arm_reload_event_transaction_sentinels(&mut manager);
         std::fs::write(&path, "return { term = 'after-command' }").unwrap();
 
         assert!(
@@ -130381,30 +130478,10 @@ mod tests {
                 .primary_app_mut_for_test()
                 .command_palette_execute(WindowCommand::ReloadConfiguration)
         );
-        assert_eq!(
-            manager.config_generation_for_test(),
-            Some(1),
-            "the command must enqueue instead of reloading the focused app inline"
-        );
-        let event = {
-            let mut queued = queued.lock().unwrap();
-            assert_eq!(queued.len(), 1);
-            let event = queued.remove(0);
-            assert!(matches!(
-                event,
-                WindowUserEvent::ReloadConfigurationRequested
-            ));
-            event
-        };
+        let event = take_reload_event_before_global_dispatch(&manager, &queued, &callbacks);
 
         assert!(manager.handle_manager_user_event(&event));
-        assert_eq!(manager.config_generation_for_test(), Some(2));
-        assert!(
-            manager
-                .all_apps_for_test()
-                .iter()
-                .all(|app| app.term == "after-command")
-        );
+        assert_global_reload_event_completed(&manager, &callbacks, "after-command");
     }
 
     #[test]
@@ -130421,47 +130498,38 @@ mod tests {
             super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
         let mut manager = NativeWindowManager::new_for_test(configured.app)
             .with_config_lifecycle(configured.lifecycle);
+        let queued = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&queued);
+        manager.primary_app_mut_for_test().reload_request_sender = Some(Arc::new(move |event| {
+            assert!(matches!(
+                event,
+                WindowUserEvent::ReloadConfigurationRequested
+            ));
+            captured.lock().unwrap().push(event);
+            true
+        }));
         manager
             .primary_app_mut_for_test()
             .dispatch_app_action(AppAction::SpawnWindow { launch: None })
             .unwrap();
         manager.collect_pending_window_apps_from_primary_for_test();
-        let queued = Arc::new(Mutex::new(Vec::new()));
-        let captured = Arc::clone(&queued);
-        manager.primary_app_mut_for_test().reload_request_sender = Some(Arc::new(move |event| {
-            captured.lock().unwrap().push(event);
-            true
-        }));
+        let callbacks = arm_reload_event_transaction_sentinels(&mut manager);
         std::fs::write(&path, "return { term = 'after-shortcut' }").unwrap();
 
         assert!(
             manager
-                .primary_app_mut_for_test()
+                .pending_apps
+                .get_mut(0)
+                .unwrap()
                 .handle_reload_configuration_shortcut(
                     &Key::Character("r".into()),
                     ModifiersState::CONTROL | ModifiersState::SHIFT
                 )
         );
-        assert_eq!(manager.config_generation_for_test(), Some(1));
-        let event = {
-            let mut queued = queued.lock().unwrap();
-            assert_eq!(queued.len(), 1);
-            let event = queued.remove(0);
-            assert!(matches!(
-                event,
-                WindowUserEvent::ReloadConfigurationRequested
-            ));
-            event
-        };
+        let event = take_reload_event_before_global_dispatch(&manager, &queued, &callbacks);
 
         assert!(manager.handle_manager_user_event(&event));
-        assert_eq!(manager.config_generation_for_test(), Some(2));
-        assert!(
-            manager
-                .all_apps_for_test()
-                .iter()
-                .all(|app| app.term == "after-shortcut")
-        );
+        assert_global_reload_event_completed(&manager, &callbacks, "after-shortcut");
     }
 
     #[test]
