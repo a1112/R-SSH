@@ -598,7 +598,7 @@ mod tests {
 
     use crate::cli::{
         AppCommand, LocalOptions, NativeHostKeyPolicy, OpenSshTarget, ProfileOptions, SftpOptions,
-        SshForward, SshTarget, WindowOptions,
+        SshForward, SshTarget, WindowConfigOptions, WindowOptions,
     };
 
     fn temp_profile_file(name: &str, contents: &str) -> PathBuf {
@@ -985,6 +985,7 @@ command = ["cmd.exe", "/K", "echo", "window-profile-smoke"]
         assert_eq!(
             command,
             AppCommand::Window(WindowOptions {
+                config: WindowConfigOptions::default(),
                 frame_limit: Some(120),
                 workspace: None,
                 window_class: None,
@@ -1052,6 +1053,7 @@ metrics = "json"
         assert_eq!(
             command,
             AppCommand::Window(WindowOptions {
+                config: WindowConfigOptions::default(),
                 frame_limit: Some(3),
                 workspace: None,
                 window_class: None,

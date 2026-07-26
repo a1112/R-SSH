@@ -219,8 +219,16 @@ struct SshParseState {
     log: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WindowConfigOptions {
+    pub skip_config: bool,
+    pub config_file: Option<PathBuf>,
+    pub config_overrides: Vec<(String, String)>,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct WindowOptions {
+    pub config: WindowConfigOptions,
     pub frame_limit: Option<u64>,
     pub workspace: Option<String>,
     pub window_class: Option<String>,
@@ -272,8 +280,11 @@ where
 {
     let mut args = args.into_iter().map(Into::into);
     let _program = args.next();
-    let Some(command) = args.next() else {
+    let args = args.collect::<Vec<_>>();
+    let (config, command_index) = parse_global_window_config_prefix(&args)?;
+    let Some(command) = args.get(command_index) else {
         return Ok(AppCommand::Window(WindowOptions {
+            config,
             frame_limit: None,
             workspace: None,
             window_class: None,
@@ -285,6 +296,27 @@ where
             log: None,
         }));
     };
+    let args = args[command_index + 1..].iter().cloned();
+
+    if config != WindowConfigOptions::default()
+        && matches!(
+            command.as_str(),
+            "bench"
+                | "local"
+                | "console"
+                | "doctor"
+                | "version"
+                | "self-test"
+                | "profile"
+                | "scp"
+                | "ssh"
+                | "sftp"
+        )
+    {
+        return Err(
+            "global WezTerm config options cannot be used with non-GUI commands".to_owned(),
+        );
+    }
 
     match command.as_str() {
         "bench" => {
@@ -355,11 +387,59 @@ where
             if subcommand_help_requested(&window_args) {
                 return Ok(AppCommand::Help);
             }
-            parse_window(&window_args)
+            parse_window(&window_args, config)
         }
         "-h" | "--help" | "help" => Ok(AppCommand::Help),
         unknown => Err(format!("unknown command: {unknown}")),
     }
+}
+
+fn parse_global_window_config_prefix(
+    args: &[String],
+) -> Result<(WindowConfigOptions, usize), String> {
+    let mut config = WindowConfigOptions::default();
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "-n" | "--skip-config" => config.skip_config = true,
+            "--config-file" => {
+                index += 1;
+                config.config_file = Some(PathBuf::from(required_option_value(
+                    args.get(index),
+                    "--config-file",
+                )?));
+            }
+            "--config" => {
+                index += 1;
+                let value = required_option_value(args.get(index), "--config")?;
+                config.config_overrides.push(parse_config_override(value)?);
+            }
+            _ => break,
+        }
+        index += 1;
+    }
+
+    if config.skip_config && config.config_file.is_some() {
+        return Err("--skip-config conflicts with --config-file".to_owned());
+    }
+
+    Ok((config, index))
+}
+
+fn parse_config_override(value: &str) -> Result<(String, String), String> {
+    const INVALID_CONFIG_OVERRIDE: &str =
+        "invalid value for --config: expected NAME=VALUE with non-empty NAME and VALUE";
+
+    let Some((name, value)) = value.split_once('=') else {
+        return Err(INVALID_CONFIG_OVERRIDE.to_owned());
+    };
+    let name = name.trim();
+    if name.is_empty() || value.trim().is_empty() {
+        return Err(INVALID_CONFIG_OVERRIDE.to_owned());
+    }
+
+    Ok((name.to_owned(), value.to_owned()))
 }
 
 pub fn help_text() -> &'static str {
@@ -387,6 +467,13 @@ Usage:
   rssh-app profile --show NAME [--json] [--file PATH]
   rssh-app --help
   rssh-app <command> --help
+
+Global WezTerm configuration options (before window/start only):
+  -n, --skip-config    Skip loading a configuration file
+      --config-file PATH
+                       Load PATH (conflicts with --skip-config)
+      --config NAME=VALUE
+                       Override a config value (repeatable; may be used with --skip-config)
 "
 }
 
@@ -1347,7 +1434,7 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
     })
 }
 
-fn parse_window(args: &[String]) -> Result<AppCommand, String> {
+fn parse_window(args: &[String], config: WindowConfigOptions) -> Result<AppCommand, String> {
     let mut frame_limit = None;
     let mut workspace = None;
     let mut window_class = None;
@@ -1433,6 +1520,7 @@ fn parse_window(args: &[String]) -> Result<AppCommand, String> {
     let command = window_command_from_args(command_args, cwd);
 
     Ok(AppCommand::Window(WindowOptions {
+        config,
         frame_limit,
         workspace,
         window_class,
@@ -1672,6 +1760,7 @@ mod tests {
         assert_eq!(
             parse_args(["rssh-app"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
+                config: super::WindowConfigOptions::default(),
                 frame_limit: None,
                 workspace: None,
                 window_class: None,
@@ -1686,10 +1775,176 @@ mod tests {
     }
 
     #[test]
+    fn parses_global_wezterm_config_options_for_default_window() {
+        let parsed = parse_args([
+            "rssh-app",
+            "-n",
+            "--config",
+            "color_scheme=Builtin Solarized Dark",
+        ])
+        .unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(
+            options.config,
+            super::WindowConfigOptions {
+                skip_config: true,
+                config_file: None,
+                config_overrides: vec![(
+                    "color_scheme".to_owned(),
+                    "Builtin Solarized Dark".to_owned()
+                )],
+            }
+        );
+    }
+
+    #[test]
+    fn parses_repeated_global_config_overrides_in_order() {
+        let parsed = parse_args([
+            "rssh-app",
+            "--config",
+            "color_scheme=Builtin Solarized Dark",
+            "--config",
+            "font=JetBrains=Mono",
+        ])
+        .unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(
+            options.config.config_overrides,
+            [
+                (
+                    "color_scheme".to_owned(),
+                    "Builtin Solarized Dark".to_owned()
+                ),
+                ("font".to_owned(), "JetBrains=Mono".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_global_config_options_before_window_and_start() {
+        let parsed_window = parse_args([
+            "rssh-app",
+            "--config-file",
+            "C:/Users/test/.wezterm.lua",
+            "window",
+            "--frames",
+            "1",
+        ])
+        .unwrap();
+        let parsed_start = parse_args([
+            "rssh-app",
+            "--skip-config",
+            "--config",
+            "term=xterm-256color",
+            "start",
+            "-e",
+            "cmd.exe",
+            "/K",
+        ])
+        .unwrap();
+
+        let AppCommand::Window(window) = parsed_window else {
+            panic!("expected window command");
+        };
+        let AppCommand::Window(start) = parsed_start else {
+            panic!("expected start alias to produce window command");
+        };
+
+        assert_eq!(
+            window.config,
+            super::WindowConfigOptions {
+                skip_config: false,
+                config_file: Some("C:/Users/test/.wezterm.lua".into()),
+                config_overrides: Vec::new(),
+            }
+        );
+        assert_eq!(window.frame_limit, Some(1));
+        assert_eq!(
+            start.config,
+            super::WindowConfigOptions {
+                skip_config: true,
+                config_file: None,
+                config_overrides: vec![("term".to_owned(), "xterm-256color".to_owned())],
+            }
+        );
+        assert_eq!(start.command.program(), "cmd.exe");
+        assert_eq!(start.command.args(), ["/K"]);
+    }
+
+    #[test]
+    fn rejects_skip_config_with_config_file() {
+        for args in [
+            vec!["rssh-app", "--skip-config", "--config-file", "wezterm.lua"],
+            vec!["rssh-app", "--config-file", "wezterm.lua", "-n"],
+        ] {
+            assert_eq!(
+                parse_args(args).unwrap_err(),
+                "--skip-config conflicts with --config-file"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_global_config_override() {
+        for value in ["=value", "name=   ", "name"] {
+            assert_eq!(
+                parse_args(["rssh-app", "--config", value]).unwrap_err(),
+                "invalid value for --config: expected NAME=VALUE with non-empty NAME and VALUE"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_global_config_options_for_non_gui_commands() {
+        for command in [
+            "bench",
+            "local",
+            "console",
+            "doctor",
+            "profile",
+            "scp",
+            "sftp",
+            "ssh",
+            "version",
+            "self-test",
+        ] {
+            assert_eq!(
+                parse_args(["rssh-app", "--config", "term=xterm-256color", command]).unwrap_err(),
+                "global WezTerm config options cannot be used with non-GUI commands"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_wezterm_config_options_after_window_and_start() {
+        assert_eq!(
+            parse_args(["rssh-app", "window", "--skip-config"]).unwrap_err(),
+            "unexpected window option: --skip-config"
+        );
+        assert_eq!(
+            parse_args(["rssh-app", "start", "--config-file", "wezterm.lua"]).unwrap_err(),
+            "unexpected window option: --config-file"
+        );
+        assert_eq!(
+            parse_args(["rssh-app", "window", "--config", "term=xterm"]).unwrap_err(),
+            "unexpected window option: --config"
+        );
+    }
+
+    #[test]
     fn parses_explicit_window_command() {
         assert_eq!(
             parse_args(["rssh-app", "window"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
+                config: super::WindowConfigOptions::default(),
                 frame_limit: None,
                 workspace: None,
                 window_class: None,
@@ -1708,6 +1963,7 @@ mod tests {
         assert_eq!(
             parse_args(["rssh-app", "start"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
+                config: super::WindowConfigOptions::default(),
                 frame_limit: None,
                 workspace: None,
                 window_class: None,
@@ -1988,6 +2244,7 @@ mod tests {
         assert_eq!(
             parse_args(["rssh-app", "window", "--frames", "1"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
+                config: super::WindowConfigOptions::default(),
                 frame_limit: Some(1),
                 workspace: None,
                 window_class: None,
@@ -2006,6 +2263,7 @@ mod tests {
         assert_eq!(
             parse_args(["rssh-app", "window", "--metrics"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
+                config: super::WindowConfigOptions::default(),
                 frame_limit: None,
                 workspace: None,
                 window_class: None,
@@ -2024,6 +2282,7 @@ mod tests {
         assert_eq!(
             parse_args(["rssh-app", "window", "--metrics-json"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
+                config: super::WindowConfigOptions::default(),
                 frame_limit: None,
                 workspace: None,
                 window_class: None,
@@ -2300,6 +2559,7 @@ mod tests {
         assert_eq!(
             parse_args(["rssh-app", "window", "--osc52", "off"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
+                config: super::WindowConfigOptions::default(),
                 frame_limit: None,
                 workspace: None,
                 window_class: None,
@@ -2314,6 +2574,7 @@ mod tests {
         assert_eq!(
             parse_args(["rssh-app", "window", "--osc52", "write"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
+                config: super::WindowConfigOptions::default(),
                 frame_limit: None,
                 workspace: None,
                 window_class: None,
@@ -4111,6 +4372,19 @@ mod tests {
         assert!(help.contains("rssh-app <command> --help"));
         assert!(!help.contains("PASSWORD"));
         assert!(!help.contains("PASSPHRASE"));
+    }
+
+    #[test]
+    fn help_text_describes_global_wezterm_config_options() {
+        let help = super::help_text();
+
+        assert!(help.contains("Global WezTerm configuration options (before window/start only):"));
+        assert!(help.contains("-n, --skip-config"));
+        assert!(help.contains("--config-file PATH"));
+        assert!(help.contains("conflicts with --skip-config"));
+        assert!(help.contains("--config NAME=VALUE"));
+        assert!(help.contains("repeatable"));
+        assert!(help.contains("may be used with --skip-config"));
     }
 
     #[test]
