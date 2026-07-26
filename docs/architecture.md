@@ -605,8 +605,8 @@ keyboard, mouse, paste, resize
   indexed field mutations such as `user_key_tables.resize_pane[1].key = 'h'`;
   parsed `leader`, `keys`, and `key_tables` entries are retained in native
   effective config snapshots;
-  actual Lua callback execution, default key-table merging, and config-file
-  reload wiring remain future config parity work.
+  actual Lua callback execution, arbitrary Lua config evaluation, and default
+  key-table merging remain future config parity work.
 - Implemented in v1: native `WindowCommand::DisableDefaultAssignment` can be
   used in user key assignments to suppress matching built-in app-shell,
   window-level, and scrollback shortcuts, leaving the key available for the
@@ -915,7 +915,7 @@ keyboard, mouse, paste, resize
   `mode`/`alphabet` through top-level static string variables plus
   `show_pane_ids` through top-level static bool variables, with parenthesized
   calls also accepting top-level static options table variables inside static
-  WezTerm-style `config.keys`; broader dynamic config-file wiring remains
+  WezTerm-style `config.keys`; arbitrary dynamic Lua construction remains
   future parity work.
 - Completed in v1: WezTerm-style `ActivatePaneDirection` routes
   `Ctrl+Shift+Arrow` and command-palette Activate Pane Direction Left/Right/
@@ -1364,10 +1364,49 @@ keyboard, mouse, paste, resize
   configured RGBA alpha. Executed command labels update command-palette frecency
   in memory and persist it to a JSON state file so later app instances can
   promote frequently and recently used entries.
-- Implemented in v1: command-palette `ReloadConfiguration` and the default
-  `Ctrl+Shift+R` shortcut dispatch a typed native `window-config-reloaded` hook
-  with the window id and active pane id. Action-name `reloadconfiguration`
-  queries dispatch the same command.
+- Implemented in v1 against pinned WezTerm
+  `093bf6bf2b82b929ed80c04fd54ebc80464f715e`: native window startup has a
+  file-backed WezTerm configuration lifecycle for the production strict-static
+  grammar. Source discovery follows explicit `--config-file`,
+  `WEZTERM_CONFIG_FILE`, Windows portable executable-adjacent config, the home
+  config, XDG config-home fallback, then Unix XDG config-directory candidates;
+  `--skip-config` disables discovery, repeated
+  `--config name=value` values apply last and above the file, and invalid CLI
+  overrides fail before app construction. Every startup, manual reload, and
+  automatic reload attempt rediscovers the source. Successful startup installs
+  generation 1 before the first PTY spawn; a file read/parse/validation failure
+  starts generation 0 defaults with a diagnostic so the attempted source can
+  recover later. Derived `WEZTERM_CONFIG_FILE`/`WEZTERM_CONFIG_DIR` values are
+  published only to child launch environments without mutating process-global
+  environment state.
+  The accepted production grammar is intentionally bounded to a direct static
+  return table or the supported `wezterm.config_builder()` plus direct static
+  assignments and a final return. Unsupported statements, dynamic expressions,
+  and registry-excluded top-level or nested fields fail with explicit source
+  diagnostics; this does not provide an arbitrary Lua VM, general `require`
+  evaluation, dynamic helper execution, or config dependency/helper-file
+  watching.
+- Implemented in v1: command-palette `ReloadConfiguration`, action-name
+  `reloadconfiguration`, and the default `Ctrl+Shift+R` shortcut run one
+  manager-owned reload transaction across startup, pending, detached, and
+  materialized windows. On success the generation advances exactly once, all
+  apps consume the new base before any `window-config-reloaded` callback, and
+  per-window overrides remain the highest-precedence layer. On failure the
+  last-known-good generation and effective state remain installed, while every
+  app is still notified exactly once and the latest diagnostic is retained.
+  Future pending/detached window materialization inherits the current base
+  generation and its window layer; existing PTYs are not respawned.
+- Implemented in v1: when the manager-owned base-plus-CLI effective
+  `automatically_reload_config` policy is enabled, one native watcher tracks
+  each attempted source and eligible parent and coalesces relevant
+  create/modify/remove events using a fixed 200 ms first-event debounce before
+  invoking the same manager reload transaction. Failed attempted sources seed
+  the watcher; successful rediscovery accumulates normalized file and parent
+  paths so atomic replacement and source movement remain observable.
+  The home config file is watched without registering the noisy home parent.
+  Once created, the watcher and accumulated paths remain active if a later
+  generation disables automatic reload, but that disabled generation adds no
+  new paths. Per-window overrides never control this global policy.
   A typed native `set_config_overrides`/`get_config_overrides` subset stores
   per-window overrides for implemented effective-config fields (`dpi`, `tab_max_width`,
   `status_update_interval`, `max_fps`, `animation_fps`, `front_end`,
@@ -1589,9 +1628,9 @@ keyboard, mouse, paste, resize
   terminal runtime and emitted as native stderr warnings when
   `log_unknown_escape_sequences` is enabled. Native key events are emitted as
   stderr `INFO key_event` diagnostics when `debug_key_events` is enabled; full
-  WezTerm-style configuration error window UI, actual Lua config reload,
-  automatic file watching, Lua `window:set_config_overrides` wiring, and
-  broader config option coverage remain future parity work.
+  WezTerm-style configuration error window UI, arbitrary Lua config execution,
+  dependency/helper-file watching, Lua `window:set_config_overrides` wiring,
+  and broader registry coverage remain future parity work.
 - Implemented in v1: native `window_close_confirmation` defaults to
   `AlwaysPrompt` for window-manager/decorations close requests, showing the
   same confirmation overlay style as tab/pane close confirmations and only
@@ -1954,10 +1993,10 @@ keyboard, mouse, paste, resize
   unless this option is `true`, in which case it uses native macOS fullscreen.
   `macos_fullscreen_extend_behind_notch` is retained with WezTerm's default
   `false` and only affects the macOS simple-fullscreen request path.
-  Lua event wiring, full WezTerm-style configuration
-  error window UI, actual Lua config reload, automatic file watching, Lua
-  `window:set_config_overrides` wiring, and broader config option coverage
-  remain future parity work.
+  Lua event wiring, full WezTerm-style configuration error window UI,
+  arbitrary Lua config execution, dependency/helper-file watching, Lua
+  `window:set_config_overrides` wiring, and broader registry coverage remain
+  future parity work.
 - Implemented in v1: opening the command palette dispatches a typed native
   `augment-command-palette` hook with the window id and active pane id. Returned
   entries can add native `WindowCommand` actions to the same fuzzy-filtered
