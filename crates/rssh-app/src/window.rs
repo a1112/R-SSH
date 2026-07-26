@@ -188931,6 +188931,43 @@ return config
     }
 
     #[test]
+    fn window_app_macos_native_integrated_title_buttons_defaults_to_fancy_and_skips_top_retro_space()
+     {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            window_decorations: Some(NativeWindowDecorations {
+                title: false,
+                resize: true,
+                integrated_buttons: true,
+                macos_force_disable_shadow: false,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: false,
+            }),
+            integrated_title_button_style: Some(NativeIntegratedTitleButtonStyle::MacOsNative),
+            integrated_title_button_alignment: Some(NativeIntegratedTitleButtonAlignment::Left),
+            tab_bar_at_bottom: Some(false),
+            ..NativeConfigOverrides::default()
+        });
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+
+        assert!(
+            tab_bar.starts_with(" ws:default"),
+            "tab bar was {tab_bar:?}"
+        );
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(CELL_WIDTH), 0.0))
+            .unwrap();
+        assert!(
+            !app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(!app.window_hide_requested_for_test());
+    }
+
+    #[test]
     fn window_app_applies_wezterm_tab_bar_style_integrated_title_button_labels() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
