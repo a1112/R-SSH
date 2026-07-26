@@ -234,7 +234,7 @@ fn validate_colors(value: &StaticLuaValue) -> Result<(), String> {
         let key = string_key(key, "colors")?;
         match key {
             "foreground" | "background" | "cursor_bg" | "cursor_fg" | "cursor_border"
-            | "selection_bg" => validate_color(value)?,
+            | "compose_cursor" | "selection_bg" => validate_color(value)?,
             "selection_fg" => match value {
                 StaticLuaValue::String(value) if value.eq_ignore_ascii_case("none") => {}
                 _ => validate_color(value)?,
@@ -350,6 +350,7 @@ fn validate_key_entry(value: &StaticLuaValue) -> Result<(), String> {
     let entries = table_entries(value, "key entry")?;
     reject_duplicate_keys(entries, "key entry")?;
     let mut key_seen = false;
+    let mut modifiers_seen = false;
     let mut action_seen = false;
     for (key, value) in entries {
         match string_key(key, "key entry")? {
@@ -357,7 +358,13 @@ fn validate_key_entry(value: &StaticLuaValue) -> Result<(), String> {
                 validate_non_empty_string(value)?;
                 key_seen = true;
             }
-            "mods" | "mod" => validate_modifiers(value)?,
+            "mods" | "mod" => {
+                if modifiers_seen {
+                    return Err("duplicate modifier field via `mods`/`mod` alias".to_owned());
+                }
+                validate_modifiers(value)?;
+                modifiers_seen = true;
+            }
             "action" => {
                 validate_action(value)?;
                 action_seen = true;
@@ -491,7 +498,13 @@ fn write_canonical_value(value: &StaticLuaValue, output: &mut String) {
                         if is_identifier_start(key.chars().next().unwrap_or('_'))
                             && key.chars().all(is_identifier_continue) =>
                     {
-                        output.push_str(key);
+                        if is_lua_reserved_keyword(key) {
+                            output.push('[');
+                            write_canonical_value(&StaticLuaValue::String(key.clone()), output);
+                            output.push(']');
+                        } else {
+                            output.push_str(key);
+                        }
                     }
                     StaticLuaKey::String(key) => {
                         output.push('[');
@@ -505,17 +518,29 @@ fn write_canonical_value(value: &StaticLuaValue, output: &mut String) {
                     }
                 }
                 output.push('=');
-                if matches!(key, StaticLuaKey::String(key) if key == "action")
-                    && matches!(value, StaticLuaValue::Table(_))
-                {
-                    output.push_str("wezterm.action");
+                if matches!(key, StaticLuaKey::String(key) if key == "action") {
+                    write_canonical_action(value, output);
+                } else {
+                    write_canonical_value(value, output);
                 }
-                write_canonical_value(value, output);
                 output.push(',');
             }
             output.push('}');
         }
     }
+}
+
+fn write_canonical_action(value: &StaticLuaValue, output: &mut String) {
+    let StaticLuaValue::Table(entries) = value else {
+        unreachable!("validated action must be a table");
+    };
+    let [(StaticLuaKey::String(action), payload)] = entries.as_slice() else {
+        unreachable!("validated action must contain one string key");
+    };
+    debug_assert_eq!(action, "SendString");
+    output.push_str("wezterm.action.SendString(");
+    write_canonical_value(payload, output);
+    output.push(')');
 }
 
 struct Parser<'a> {
@@ -559,6 +584,8 @@ impl<'a> Parser<'a> {
         self.expect_char('=')?;
         self.skip_trivia()?;
         self.parse_builder_expression()?;
+        self.skip_trivia()?;
+        self.consume_char(';');
 
         let mut assignments = Vec::new();
         loop {
@@ -743,7 +770,11 @@ impl<'a> Parser<'a> {
                 let value = if is_action {
                     match self.parse_static_action()? {
                         Some(action) => action,
-                        None => self.parse_value()?,
+                        None => {
+                            return Err(self.dynamic(
+                                "action must be exactly `wezterm.action.SendString(STRING)`",
+                            ));
+                        }
                     }
                 } else {
                     self.parse_value()?
@@ -779,31 +810,29 @@ impl<'a> Parser<'a> {
             self.offset = start;
             return Ok(None);
         }
-        self.expect_char('.')?;
-        self.expect_identifier("action")?;
+        if self.expect_char('.').is_err()
+            || self.expect_identifier("action").is_err()
+            || self.expect_char('.').is_err()
+            || self.expect_identifier("SendString").is_err()
+        {
+            return Err(self.dynamic("action must be exactly `wezterm.action.SendString(STRING)`"));
+        }
         self.skip_trivia()?;
-        if self.consume_char('.') {
-            self.expect_identifier("SendString")?;
-            self.skip_trivia()?;
-            let payload = if self.consume_char('(') {
-                let payload = self.parse_value()?;
-                self.skip_trivia()?;
-                self.expect_char(')')?;
-                payload
-            } else {
-                self.parse_value()?
-            };
-            return Ok(Some(StaticLuaValue::Table(vec![(
-                StaticLuaKey::String("SendString".to_owned()),
-                payload,
-            )])));
+        if !self.consume_char('(') {
+            return Err(self.dynamic("action must be exactly `wezterm.action.SendString(STRING)`"));
         }
-
-        let action = self.parse_value()?;
-        match action {
-            StaticLuaValue::Table(_) => Ok(Some(action)),
-            _ => Err(self.dynamic("wezterm.action must contain a static action table")),
+        let payload = self.parse_value()?;
+        if !matches!(payload, StaticLuaValue::String(_)) {
+            return Err(self.dynamic("SendString payload must be one static string"));
         }
+        self.skip_trivia()?;
+        if !self.consume_char(')') {
+            return Err(self.dynamic("SendString requires exactly one parenthesized string"));
+        }
+        Ok(Some(StaticLuaValue::Table(vec![(
+            StaticLuaKey::String("SendString".to_owned()),
+            payload,
+        )])))
     }
 
     fn parse_string(&mut self) -> Result<String, NativeConfigLoadError> {
@@ -817,6 +846,9 @@ impl<'a> Parser<'a> {
                 return Ok(output);
             }
             if character != '\\' {
+                if matches!(character, '\n' | '\r') {
+                    return Err(self.syntax("short string literals cannot contain raw newlines"));
+                }
                 output.push(character);
                 continue;
             }
@@ -890,7 +922,9 @@ impl<'a> Parser<'a> {
                             .ok_or_else(|| self.syntax("decimal string escape exceeds 255"))?,
                     );
                 }
-                other => output.push(other),
+                other => {
+                    return Err(self.syntax(&format!("unknown short string escape `\\{other}`")));
+                }
             }
         }
         Err(self.syntax("unterminated string literal"))
@@ -1159,6 +1193,34 @@ fn is_identifier_continue(character: char) -> bool {
     character == '_' || character.is_ascii_alphanumeric()
 }
 
+fn is_lua_reserved_keyword(value: &str) -> bool {
+    matches!(
+        value,
+        "and"
+            | "break"
+            | "do"
+            | "else"
+            | "elseif"
+            | "end"
+            | "false"
+            | "for"
+            | "function"
+            | "goto"
+            | "if"
+            | "in"
+            | "local"
+            | "nil"
+            | "not"
+            | "or"
+            | "repeat"
+            | "return"
+            | "then"
+            | "true"
+            | "until"
+            | "while"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1180,6 +1242,21 @@ mod tests {
         "#;
 
         assert!(parse_native_config_document(source, &[]).is_ok());
+    }
+
+    #[test]
+    fn strict_parser_accepts_builder_and_assignment_semicolons_with_crlf_comments() {
+        let source = "\u{feff}-- header\r\n\
+            local config = require -- module\r\n\
+            ('wezterm').config_builder() ; -- builder\r\n\
+            config.term = 'xterm-256color'; -- assignment\r\n\
+            config.enable_tab_bar = false ;\r\n\
+            return config -- eof";
+
+        let overrides = parse_native_config_document(source, &[]).unwrap();
+
+        assert_eq!(overrides.term.as_deref(), Some("xterm-256color"));
+        assert_eq!(overrides.enable_tab_bar, Some(false));
     }
 
     #[test]
@@ -1282,6 +1359,29 @@ mod tests {
     }
 
     #[test]
+    fn strict_short_strings_preserve_known_escapes_and_reject_invalid_forms() {
+        let assignments =
+            Parser::new(r#"return { term = "\a\b\f\n\r\t\v\\\"\'\x41\065\u{42}\z   C" }"#)
+                .parse_document()
+                .unwrap();
+        assert_eq!(
+            assignments[0].value,
+            StaticLuaValue::String("\x07\x08\x0c\n\r\t\x0b\\\"'AABC".to_owned())
+        );
+
+        for source in [
+            r#"return { term = "bad\q" }"#,
+            "return { term = \"bare\nnewline\" }",
+            "return { term = \"bare\rcarriage\" }",
+        ] {
+            assert!(matches!(
+                parse_native_config_document(source, &[]),
+                Err(NativeConfigLoadError::InvalidSyntax { .. })
+            ));
+        }
+    }
+
+    #[test]
     fn strict_registry_accepts_lifecycle_consumer_fields() {
         let source = r##"
             return {
@@ -1302,6 +1402,7 @@ mod tests {
                     cursor_bg = "#ffffff",
                     cursor_fg = "#000000",
                     cursor_border = "#eeeeee",
+                    compose_cursor = "#123456",
                     selection_bg = "#303030",
                     selection_fg = "none",
                     ansi = {
@@ -1365,7 +1466,90 @@ mod tests {
             overrides.default_gui_startup_args.as_deref(),
             Some(["ssh".to_owned(), "host".to_owned()].as_slice())
         );
-        assert!(overrides.colors.is_some());
+        let colors = overrides.colors.as_ref().unwrap();
+        assert_eq!(
+            colors.foreground,
+            Some(rssh_terminal::Color::Rgb(0xc0, 0xc0, 0xc0))
+        );
+        assert_eq!(
+            colors.background,
+            Some(rssh_terminal::Color::Rgb(0x10, 0x10, 0x10))
+        );
+        assert_eq!(
+            colors.cursor_bg,
+            Some(rssh_terminal::Color::Rgb(0xff, 0xff, 0xff))
+        );
+        assert_eq!(
+            colors.cursor_fg,
+            Some(rssh_terminal::Color::Rgb(0x00, 0x00, 0x00))
+        );
+        assert_eq!(
+            colors.cursor_border,
+            Some(rssh_terminal::Color::Rgb(0xee, 0xee, 0xee))
+        );
+        assert_eq!(
+            colors.compose_cursor,
+            Some(rssh_terminal::Color::Rgb(0x12, 0x34, 0x56))
+        );
+        assert_eq!(colors.selection_fg, Some(None));
+        assert_eq!(
+            colors.selection_bg,
+            Some(rssh_terminal::Color::Rgb(0x30, 0x30, 0x30))
+        );
+        assert_eq!(
+            colors.ansi,
+            Some([
+                rssh_terminal::Color::Rgb(0x00, 0x00, 0x00),
+                rssh_terminal::Color::Rgb(0x80, 0x00, 0x00),
+                rssh_terminal::Color::Rgb(0x00, 0x80, 0x00),
+                rssh_terminal::Color::Rgb(0x80, 0x80, 0x00),
+                rssh_terminal::Color::Rgb(0x00, 0x00, 0x80),
+                rssh_terminal::Color::Rgb(0x80, 0x00, 0x80),
+                rssh_terminal::Color::Rgb(0x00, 0x80, 0x80),
+                rssh_terminal::Color::Rgb(0xc0, 0xc0, 0xc0),
+            ])
+        );
+        assert_eq!(
+            colors.brights,
+            Some([
+                rssh_terminal::Color::Rgb(0x80, 0x80, 0x80),
+                rssh_terminal::Color::Rgb(0xff, 0x00, 0x00),
+                rssh_terminal::Color::Rgb(0x00, 0xff, 0x00),
+                rssh_terminal::Color::Rgb(0xff, 0xff, 0x00),
+                rssh_terminal::Color::Rgb(0x00, 0x00, 0xff),
+                rssh_terminal::Color::Rgb(0xff, 0x00, 0xff),
+                rssh_terminal::Color::Rgb(0x00, 0xff, 0xff),
+                rssh_terminal::Color::Rgb(0xff, 0xff, 0xff),
+            ])
+        );
+        assert_eq!(
+            colors.tab_bar_background,
+            Some(rssh_terminal::Color::Rgb(0x11, 0x11, 0x11))
+        );
+        assert_eq!(
+            colors.tab_bar_inactive_tab_edge,
+            Some(rssh_terminal::Color::Rgb(0x22, 0x22, 0x22))
+        );
+        assert_eq!(
+            format!("{:?}", colors.tab_bar_active_tab),
+            "NativeTabBarItemColors { fg_color: Some(Rgb(255, 255, 255)), bg_color: Some(Rgb(51, 51, 51)), intensity: Some(Bold), underline: Some(Single), italic: Some(true), strikethrough: Some(false) }"
+        );
+        assert_eq!(
+            format!("{:?}", colors.tab_bar_inactive_tab),
+            "NativeTabBarItemColors { fg_color: Some(Rgb(170, 170, 170)), bg_color: Some(Rgb(34, 34, 34)), intensity: None, underline: None, italic: None, strikethrough: None }"
+        );
+        assert_eq!(
+            format!("{:?}", colors.tab_bar_inactive_tab_hover),
+            "NativeTabBarItemColors { fg_color: Some(Rgb(187, 187, 187)), bg_color: Some(Rgb(51, 51, 51)), intensity: None, underline: None, italic: None, strikethrough: None }"
+        );
+        assert_eq!(
+            format!("{:?}", colors.tab_bar_new_tab),
+            "NativeTabBarItemColors { fg_color: Some(Rgb(204, 204, 204)), bg_color: Some(Rgb(68, 68, 68)), intensity: None, underline: None, italic: None, strikethrough: None }"
+        );
+        assert_eq!(
+            format!("{:?}", colors.tab_bar_new_tab_hover),
+            "NativeTabBarItemColors { fg_color: Some(Rgb(221, 221, 221)), bg_color: Some(Rgb(85, 85, 85)), intensity: None, underline: None, italic: None, strikethrough: None }"
+        );
         assert_eq!(
             overrides
                 .set_environment_variables
@@ -1380,6 +1564,10 @@ mod tests {
                 .as_ref()
                 .map(|assignments| assignments.len()),
             Some(1)
+        );
+        assert_eq!(
+            format!("{:?}", overrides.key_assignments.as_ref().unwrap()[0]),
+            r#"NativeUserKeyAssignment { keys: "CTRL|SHIFT+x", command: SendString("safe\"\\\nvalue") }"#
         );
     }
 
@@ -1404,6 +1592,7 @@ mod tests {
             r##"return {
                 colors = {
                     cursor_bg = "#ffffff",
+                    compose_cursor = "#123456",
                     unexpected_cursor_key = "#000000",
                 },
             }"##,
@@ -1422,12 +1611,71 @@ mod tests {
     }
 
     #[test]
+    fn strict_colors_accepts_compose_cursor_and_converts_it() {
+        let overrides = parse_native_config_document(
+            r##"return { colors = { compose_cursor = "#123456" } }"##,
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(
+            overrides
+                .colors
+                .as_ref()
+                .and_then(|colors| colors.compose_cursor),
+            Some(rssh_terminal::Color::Rgb(0x12, 0x34, 0x56))
+        );
+    }
+
+    #[test]
     fn strict_registry_rejects_mixed_valid_and_unsupported_key_entries() {
         let error = parse_native_config_document(
             r#"return {
                 keys = {
-                    { key = "x", mods = "CTRL", action = { SendString = "ok" } },
+                    {
+                        key = "x",
+                        mods = "CTRL",
+                        action = wezterm.action.SendString("ok"),
+                    },
                     { key = "y", mods = "ALT", action = { DynamicAction = "bad" } },
+                },
+            }"#,
+            &[],
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            NativeConfigLoadError::UnsupportedDynamicLua { .. }
+        ));
+    }
+
+    #[test]
+    fn strict_keys_reject_noncanonical_send_string_action_forms() {
+        for action in [
+            r#"{ SendString = "x" }"#,
+            r#"wezterm.action { SendString = "x" }"#,
+            r#"wezterm.action.SendString "x""#,
+        ] {
+            let source = format!("return {{ keys = {{ {{ key = \"x\", action = {action} }} }} }}");
+            assert!(matches!(
+                parse_native_config_document(&source, &[]),
+                Err(NativeConfigLoadError::UnsupportedDynamicLua { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn strict_keys_reject_mods_and_mod_alias_duplicates_before_legacy() {
+        let error = parse_native_config_document(
+            r#"return {
+                keys = {
+                    {
+                        key = "x",
+                        mods = "CTRL",
+                        mod = "SHIFT",
+                        action = wezterm.action.SendString("x"),
+                    },
                 },
             }"#,
             &[],
@@ -1440,8 +1688,52 @@ mod tests {
                 ref field,
                 ref message,
                 ..
-            } if field == "keys" && message.contains("DynamicAction")
+            } if field == "keys" && message.contains("duplicate modifier")
         ));
+    }
+
+    #[test]
+    fn strict_canonical_quotes_reserved_and_injection_like_environment_keys() {
+        let source = r#"return {
+                set_environment_variables = {
+                    ["return"] = "reserved-return",
+                    ["end"] = "reserved-end",
+                    ["function"] = "reserved-function",
+                    ["x\"] = true; injected = [\""] = "key-roundtrip",
+                    ["VALUE"] = "\"]}; os.execute('never'); --",
+                },
+            }"#;
+        let assignments = Parser::new(source).parse_document().unwrap();
+        let canonical = canonical_document(&assignments);
+        assert!(canonical.contains(r#"["return"]="reserved-return""#));
+        assert!(canonical.contains(r#"["end"]="reserved-end""#));
+        assert!(canonical.contains(r#"["function"]="reserved-function""#));
+
+        let overrides = parse_native_config_document(source, &[]).unwrap();
+
+        let environment = overrides.set_environment_variables.unwrap();
+        assert_eq!(
+            environment.get("return").map(String::as_str),
+            Some("reserved-return")
+        );
+        assert_eq!(
+            environment.get("end").map(String::as_str),
+            Some("reserved-end")
+        );
+        assert_eq!(
+            environment.get("function").map(String::as_str),
+            Some("reserved-function")
+        );
+        assert_eq!(
+            environment
+                .get("x\"] = true; injected = [\"")
+                .map(String::as_str),
+            Some("key-roundtrip")
+        );
+        assert_eq!(
+            environment.get("VALUE").map(String::as_str),
+            Some("\"]}; os.execute('never'); --")
+        );
     }
 
     #[test]

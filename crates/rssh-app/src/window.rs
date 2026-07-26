@@ -2959,7 +2959,7 @@ struct NativePaneInformation {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct NativeTabBarItemColors {
+pub(crate) struct NativeTabBarItemColors {
     fg_color: Option<Color>,
     bg_color: Option<Color>,
     intensity: Option<NativeFormatIntensity>,
@@ -3337,27 +3337,27 @@ struct NativeTlsClientDomain {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub(crate) struct NativePalette {
-    foreground: Option<Color>,
-    background: Option<Color>,
-    cursor_fg: Option<Color>,
-    cursor_bg: Option<Color>,
-    cursor_border: Option<Color>,
-    selection_fg: Option<Option<Color>>,
-    selection_bg: Option<Color>,
-    ansi: Option<[Color; 8]>,
-    brights: Option<[Color; 8]>,
+    pub(crate) foreground: Option<Color>,
+    pub(crate) background: Option<Color>,
+    pub(crate) cursor_fg: Option<Color>,
+    pub(crate) cursor_bg: Option<Color>,
+    pub(crate) cursor_border: Option<Color>,
+    pub(crate) selection_fg: Option<Option<Color>>,
+    pub(crate) selection_bg: Option<Color>,
+    pub(crate) ansi: Option<[Color; 8]>,
+    pub(crate) brights: Option<[Color; 8]>,
     indexed: [Option<Color>; 256],
-    tab_bar_background: Option<Color>,
-    tab_bar_inactive_tab_edge: Option<Color>,
-    tab_bar_active_tab: NativeTabBarItemColors,
-    tab_bar_inactive_tab: NativeTabBarItemColors,
-    tab_bar_inactive_tab_hover: NativeTabBarItemColors,
-    tab_bar_new_tab: NativeTabBarItemColors,
-    tab_bar_new_tab_hover: NativeTabBarItemColors,
+    pub(crate) tab_bar_background: Option<Color>,
+    pub(crate) tab_bar_inactive_tab_edge: Option<Color>,
+    pub(crate) tab_bar_active_tab: NativeTabBarItemColors,
+    pub(crate) tab_bar_inactive_tab: NativeTabBarItemColors,
+    pub(crate) tab_bar_inactive_tab_hover: NativeTabBarItemColors,
+    pub(crate) tab_bar_new_tab: NativeTabBarItemColors,
+    pub(crate) tab_bar_new_tab_hover: NativeTabBarItemColors,
     scrollbar_thumb: Option<Color>,
     split: Option<Color>,
     visual_bell: Option<Color>,
-    compose_cursor: Option<Color>,
+    pub(crate) compose_cursor: Option<Color>,
     copy_mode_active_highlight_fg: Option<NativeColorSpec>,
     copy_mode_active_highlight_bg: Option<NativeColorSpec>,
     copy_mode_inactive_highlight_fg: Option<NativeColorSpec>,
