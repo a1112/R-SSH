@@ -57,6 +57,10 @@ use winit::{
 
 use crate::{
     cli::{Osc52Policy, WindowOptions, WindowPosition, WindowPositionOrigin},
+    config_lifecycle::{
+        ConfigDiscoveryInputs, NativeConfigLifecycle, NativeConfigLoadError,
+        validate_cli_config_overrides,
+    },
     terminal_input::{TerminalKey, encode_terminal_key},
     terminal_modes::{
         KITTY_KEYBOARD_ALTERNATE_KEYS, KITTY_KEYBOARD_ASSOCIATED_TEXT, KITTY_KEYBOARD_DISAMBIGUATE,
@@ -397,21 +401,22 @@ const UNICODE_NAMES_CHAR_SELECT_CANDIDATES: &[char] =
     &['A', 'B', 'C', '0', '1', 'α', 'β', 'Ω', '中', '字'];
 
 pub fn run(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
+    let ConfiguredStartupApp { mut app, lifecycle } =
+        configured_startup_app(options, ConfigDiscoveryInputs::capture_current_process())?;
+    if let Some(diagnostic) = lifecycle.latest_diagnostic() {
+        eprintln!("failed to load WezTerm config: {diagnostic}");
+    }
+
     let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
     let event_proxy = event_loop.create_proxy();
-    let session_log = match &options.log {
+    app.session_log = match &options.log {
         Some(path) => Some(Box::new(File::create(path)?) as Box<dyn Write + Send>),
         None => None,
     };
-    let startup = NativeWindowStartup::from_options(options);
-    let app = NativeWindowApp::with_event_proxy(
-        options.frame_limit,
-        options.osc52_policy,
-        startup,
-        session_log,
-        event_proxy,
-    );
-    let mut app = NativeWindowManager::new(app);
+    app.event_proxy = Some(event_proxy);
+    app.set_command_palette_frecency_path(default_command_palette_frecency_path());
+    app.set_char_select_recently_used_path(default_char_select_recently_used_path());
+    let mut app = NativeWindowManager::new(app).with_config_lifecycle(lifecycle);
 
     event_loop.run_app(&mut app)?;
     if options.metrics_json {
@@ -2818,6 +2823,57 @@ impl NativeLaunchMenuCommand {
 pub(crate) struct NativeUserKeyAssignment {
     keys: String,
     command: WindowCommand,
+}
+
+struct ConfiguredStartupApp {
+    app: NativeWindowApp,
+    lifecycle: NativeConfigLifecycle,
+}
+
+fn configured_startup_app(
+    options: &WindowOptions,
+    discovery: ConfigDiscoveryInputs,
+) -> Result<ConfiguredStartupApp, NativeConfigLoadError> {
+    configured_startup_app_with_constructor(options, discovery, |startup| {
+        NativeWindowApp::new_with_workspace_class_position_and_osc52_policy(
+            options.frame_limit,
+            options.osc52_policy,
+            startup.command,
+            startup.workspace.as_deref(),
+            startup.window_class,
+            startup.position,
+        )
+    })
+}
+
+#[cfg(test)]
+fn configured_startup_app_for_test(
+    options: &WindowOptions,
+    discovery: ConfigDiscoveryInputs,
+) -> Result<ConfiguredStartupApp, NativeConfigLoadError> {
+    configured_startup_app(options, discovery)
+}
+
+fn configured_startup_app_with_constructor(
+    options: &WindowOptions,
+    discovery: ConfigDiscoveryInputs,
+    constructor: impl FnOnce(NativeWindowStartup) -> NativeWindowApp,
+) -> Result<ConfiguredStartupApp, NativeConfigLoadError> {
+    let cli = validate_cli_config_overrides(&options.config.config_overrides)?;
+    let mut lifecycle = NativeConfigLifecycle::new(
+        discovery,
+        options.config.skip_config,
+        options.config.config_file.clone(),
+        cli,
+    );
+    let attempt = lifecycle.attempt_reload();
+    lifecycle.install_initial_attempt(attempt);
+
+    let startup = NativeWindowStartup::from_options(options);
+    let mut app = constructor(startup);
+    app.derived_config_environment = lifecycle.effective().publication.variables().clone();
+    app.apply_config_overrides_silently(lifecycle.effective().overrides.clone());
+    Ok(ConfiguredStartupApp { app, lifecycle })
 }
 
 #[cfg(test)]
@@ -80966,6 +81022,7 @@ struct NativeWindowApp {
     ulimit_nproc: u64,
     mux_env_remove: Vec<String>,
     tiling_desktop_environments: Vec<String>,
+    derived_config_environment: BTreeMap<String, String>,
     set_environment_variables: BTreeMap<String, String>,
     launch_menu: Vec<NativeLaunchMenuItem>,
     key_map_preference: NativeKeyMapPreference,
@@ -81143,6 +81200,8 @@ fn hide_native_application(_event_loop: &ActiveEventLoop) {}
 
 struct NativeWindowManager {
     startup_app: Option<NativeWindowApp>,
+    #[allow(dead_code)]
+    config_lifecycle: Option<NativeConfigLifecycle>,
     windows: HashMap<winit::window::WindowId, NativeWindowApp>,
     pending_apps: Vec<NativeWindowApp>,
     pane_event_routes: HashMap<(rssh_core::WindowId, rssh_core::PaneId), rssh_core::WindowId>,
@@ -81163,6 +81222,7 @@ impl NativeWindowManager {
         let quit_when_all_windows_are_closed = startup_app.quit_when_all_windows_are_closed;
         Self {
             startup_app: Some(startup_app),
+            config_lifecycle: None,
             windows: HashMap::new(),
             pending_apps: Vec::new(),
             pane_event_routes: HashMap::new(),
@@ -81170,6 +81230,11 @@ impl NativeWindowManager {
             last_metrics: None,
             quit_when_all_windows_are_closed,
         }
+    }
+
+    fn with_config_lifecycle(mut self, lifecycle: NativeConfigLifecycle) -> Self {
+        self.config_lifecycle = Some(lifecycle);
+        self
     }
 
     fn metrics_app(&self) -> Option<&NativeWindowApp> {
@@ -82917,6 +82982,7 @@ impl NativeWindowApp {
             ulimit_nproc: DEFAULT_ULIMIT_NPROC,
             mux_env_remove: default_mux_env_remove(),
             tiling_desktop_environments: default_tiling_desktop_environments(),
+            derived_config_environment: BTreeMap::new(),
             set_environment_variables: BTreeMap::new(),
             launch_menu: Vec::new(),
             key_map_preference: NativeKeyMapPreference::Mapped,
@@ -84625,7 +84691,8 @@ impl NativeWindowApp {
     }
 
     fn pane_environment_variables(&self) -> BTreeMap<String, String> {
-        let mut environment = self.set_environment_variables.clone();
+        let mut environment = self.derived_config_environment.clone();
+        environment.extend(self.set_environment_variables.clone());
         for name in &self.mux_env_remove {
             environment.remove(name);
         }
@@ -89460,28 +89527,6 @@ impl NativeWindowApp {
     ) -> Self {
         let mut app = Self::new(frame_limit);
         app.session_log = Some(Box::new(session_log));
-        app
-    }
-
-    fn with_event_proxy(
-        frame_limit: Option<u64>,
-        osc52_policy: Osc52Policy,
-        startup: NativeWindowStartup,
-        session_log: Option<Box<dyn Write + Send>>,
-        event_proxy: EventLoopProxy<WindowUserEvent>,
-    ) -> Self {
-        let mut app = Self::new_with_workspace_class_position_and_osc52_policy(
-            frame_limit,
-            osc52_policy,
-            startup.command,
-            startup.workspace.as_deref(),
-            startup.window_class,
-            startup.position,
-        );
-        app.session_log = session_log;
-        app.event_proxy = Some(event_proxy);
-        app.set_command_palette_frecency_path(default_command_palette_frecency_path());
-        app.set_char_select_recently_used_path(default_char_select_recently_used_path());
         app
     }
 
@@ -95658,6 +95703,14 @@ impl NativeWindowApp {
 
     #[allow(dead_code)]
     fn set_config_overrides(&mut self, overrides: NativeConfigOverrides) {
+        self.apply_config_overrides(overrides, true);
+    }
+
+    fn apply_config_overrides_silently(&mut self, overrides: NativeConfigOverrides) {
+        self.apply_config_overrides(overrides, false);
+    }
+
+    fn apply_config_overrides(&mut self, overrides: NativeConfigOverrides, notify_reload: bool) {
         let previous_palette = self.native_resolved_palette();
         let previous_terminal_line_palette = previous_palette.terminal_line_palette();
         self.config_overrides = overrides.clone();
@@ -96251,7 +96304,9 @@ impl NativeWindowApp {
         self.min_scroll_bar_height = overrides
             .min_scroll_bar_height
             .or(DEFAULT_MIN_SCROLL_BAR_HEIGHT);
-        self.reload_configuration();
+        if notify_reload {
+            self.reload_configuration();
+        }
         let palette = self.native_resolved_palette();
         if palette.terminal_line_palette() != previous_terminal_line_palette {
             self.runtime.mark_all_lines_changed();
@@ -128828,7 +128883,8 @@ mod tests {
     };
 
     use crate::{
-        cli::Osc52Policy,
+        cli::{Osc52Policy, WindowConfigOptions, WindowOptions},
+        config_lifecycle::ConfigDiscoveryInputs,
         terminal_modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode},
         terminal_runtime::TerminalNotification,
         window::builtin_color_scheme_toml,
@@ -128967,6 +129023,326 @@ mod tests {
         window_show_debug_overlay_shortcut, window_toggle_full_screen_shortcut,
         winit_window_level_for_native,
     };
+
+    struct StartupTestDir(PathBuf);
+
+    impl Drop for StartupTestDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn startup_test_dir(label: &str) -> StartupTestDir {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "rssh-window-startup-{label}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        StartupTestDir(path)
+    }
+
+    fn startup_test_options(config: WindowConfigOptions) -> WindowOptions {
+        WindowOptions {
+            config,
+            frame_limit: None,
+            workspace: None,
+            window_class: None,
+            position: None,
+            osc52_policy: Osc52Policy::default(),
+            metrics: false,
+            metrics_json: false,
+            command: rssh_pty::PtyCommand::default_shell(),
+            log: None,
+        }
+    }
+
+    fn startup_test_discovery() -> ConfigDiscoveryInputs {
+        ConfigDiscoveryInputs {
+            is_windows: false,
+            is_unix: false,
+            current_exe: None,
+            home_dir: None,
+            xdg_config_home: None,
+            xdg_config_dirs: Vec::new(),
+            environment_config_file: None,
+        }
+    }
+
+    #[test]
+    fn window_run_configures_app_before_first_spawn() {
+        let root = startup_test_dir("before-spawn");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(
+            &path,
+            "return {
+                term = 'startup-term',
+                default_prog = { 'configured-shell', '--login' },
+                default_cwd = 'file-cwd',
+            }",
+        )
+        .unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path),
+            config_overrides: Vec::new(),
+        });
+
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+
+        assert_eq!(configured.lifecycle.effective().generation, 1);
+        assert_eq!(configured.app.term, "startup-term");
+        assert_eq!(configured.app.startup_command.program(), "configured-shell");
+        assert_eq!(configured.app.startup_command.args(), ["--login"]);
+        let command = pty_command_from_pane_launch_with_environment(
+            configured.app.app_shell.active_pane().launch(),
+            &configured.app.term,
+            &configured.app.pane_environment_variables(),
+            configured.app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.cwd(), Some(Path::new("file-cwd")));
+        assert!(configured.app.window.is_none());
+        assert!(configured.app.session.is_none());
+    }
+
+    #[test]
+    fn initial_invalid_source_uses_generation_zero_defaults_and_diagnostic() {
+        let root = startup_test_dir("invalid-source");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return { term = dynamic_term() }").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+
+        assert_eq!(configured.lifecycle.effective().generation, 0);
+        assert!(configured.lifecycle.effective().source.is_none());
+        assert!(
+            configured
+                .lifecycle
+                .effective()
+                .publication
+                .variables()
+                .is_empty()
+        );
+        assert!(configured.app.derived_config_environment.is_empty());
+        assert_eq!(configured.app.term, super::DEFAULT_TERM);
+        let diagnostic = configured.lifecycle.latest_diagnostic().unwrap();
+        assert_eq!(diagnostic.path, path);
+        assert!(diagnostic.to_string().contains("unsupported dynamic Lua"));
+        assert!(configured.app.window.is_none());
+        assert!(configured.app.session.is_none());
+    }
+
+    #[test]
+    fn invalid_cli_override_fails_before_app_construction() {
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: None,
+            config_overrides: vec![("not_a_config_field".to_owned(), "true".to_owned())],
+        });
+
+        let error = super::configured_startup_app_with_constructor(
+            &options,
+            startup_test_discovery(),
+            |_| panic!("app constructor must not run for invalid CLI overrides"),
+        )
+        .err()
+        .expect("invalid CLI override should be fatal");
+
+        assert!(matches!(
+            error,
+            crate::config_lifecycle::NativeConfigLoadError::UnknownField { .. }
+        ));
+    }
+
+    #[test]
+    fn explicit_cli_program_and_cwd_beat_file_defaults() {
+        let root = startup_test_dir("cli-precedence");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(
+            &path,
+            "return { default_prog = { 'file-shell', '--login' }, default_cwd = 'file-cwd' }",
+        )
+        .unwrap();
+        let cli_cwd = root.0.join("cli-cwd");
+        let mut options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path),
+            config_overrides: Vec::new(),
+        });
+        options.command = rssh_pty::PtyCommand::new("cli-program").with_cwd(cli_cwd.clone());
+
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+
+        assert_eq!(configured.app.startup_command.program(), "cli-program");
+        assert_eq!(
+            configured.app.startup_command.cwd(),
+            Some(cli_cwd.as_path())
+        );
+        assert_eq!(configured.app.default_cwd.as_deref(), Some("file-cwd"));
+        assert!(configured.app.session.is_none());
+    }
+
+    #[test]
+    fn successful_source_publishes_wezterm_config_environment() {
+        let root = startup_test_dir("publication");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return {}").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let environment = configured.app.pane_environment_variables();
+
+        assert_eq!(
+            configured
+                .app
+                .derived_config_environment
+                .get("WEZTERM_CONFIG_FILE"),
+            Some(&path.to_string_lossy().into_owned())
+        );
+        assert_eq!(
+            environment.get("WEZTERM_CONFIG_FILE"),
+            Some(&path.to_string_lossy().into_owned())
+        );
+        assert_eq!(
+            environment.get("WEZTERM_CONFIG_DIR"),
+            Some(&root.0.to_string_lossy().into_owned())
+        );
+    }
+
+    #[test]
+    fn successful_default_or_skip_clears_config_environment() {
+        let defaults = super::configured_startup_app_for_test(
+            &startup_test_options(WindowConfigOptions::default()),
+            startup_test_discovery(),
+        )
+        .unwrap();
+        assert_eq!(defaults.lifecycle.effective().generation, 1);
+        assert!(defaults.app.derived_config_environment.is_empty());
+        assert!(
+            !defaults
+                .app
+                .pane_environment_variables()
+                .contains_key("WEZTERM_CONFIG_FILE")
+        );
+
+        let mut stale_discovery = startup_test_discovery();
+        stale_discovery.environment_config_file = Some(PathBuf::from("stale/wezterm.lua"));
+        let skipped = super::configured_startup_app_for_test(
+            &startup_test_options(WindowConfigOptions {
+                skip_config: true,
+                config_file: None,
+                config_overrides: vec![(
+                    "set_environment_variables".to_owned(),
+                    "{ WEZTERM_CONFIG_FILE = 'user-stale' }".to_owned(),
+                )],
+            }),
+            stale_discovery,
+        )
+        .unwrap();
+        assert_eq!(skipped.lifecycle.effective().generation, 1);
+        assert!(skipped.app.derived_config_environment.is_empty());
+        assert_eq!(
+            skipped
+                .app
+                .pane_environment_variables()
+                .get("WEZTERM_CONFIG_FILE")
+                .map(String::as_str),
+            Some("user-stale")
+        );
+    }
+
+    #[test]
+    fn user_config_environment_overrides_derived_publication() {
+        let root = startup_test_dir("publication-user-wins");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(
+            &path,
+            "return { set_environment_variables = {
+                WEZTERM_CONFIG_FILE = 'user-file',
+                WEZTERM_CONFIG_DIR = 'user-dir',
+            } }",
+        )
+        .unwrap();
+        let configured = super::configured_startup_app_for_test(
+            &startup_test_options(WindowConfigOptions {
+                skip_config: false,
+                config_file: Some(path.clone()),
+                config_overrides: Vec::new(),
+            }),
+            startup_test_discovery(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            configured
+                .app
+                .derived_config_environment
+                .get("WEZTERM_CONFIG_FILE"),
+            Some(&path.to_string_lossy().into_owned())
+        );
+        let environment = configured.app.pane_environment_variables();
+        assert_eq!(
+            environment.get("WEZTERM_CONFIG_FILE").map(String::as_str),
+            Some("user-file")
+        );
+        assert_eq!(
+            environment.get("WEZTERM_CONFIG_DIR").map(String::as_str),
+            Some("user-dir")
+        );
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_config_default_prog() {
+        let overrides = crate::config_lifecycle::parse_native_config_document(
+            "return { default_prog = { 'nu', '--login' } }",
+            &[],
+        )
+        .unwrap();
+        let mut app =
+            NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::default_shell());
+
+        app.apply_config_overrides_silently(overrides);
+
+        assert_eq!(app.startup_command().program(), "nu");
+        assert_eq!(app.startup_command().args(), ["--login"]);
+        assert!(app.session.is_none());
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_config_term() {
+        let overrides = crate::config_lifecycle::parse_native_config_document(
+            "return { term = 'wezterm-test-term' }",
+            &[],
+        )
+        .unwrap();
+        let mut app = NativeWindowApp::new(None);
+
+        app.apply_config_overrides_silently(overrides);
+
+        assert_eq!(app.term, "wezterm-test-term");
+        let command = pty_command_from_pane_launch_with_environment(
+            app.app_shell.active_pane().launch(),
+            &app.term,
+            &app.pane_environment_variables(),
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("TERM"), Some("wezterm-test-term"));
+        assert!(app.session.is_none());
+    }
 
     fn pane_overlay_copy_mode(
         row: u16,

@@ -1,8 +1,343 @@
 #![allow(dead_code)]
 
-use std::fmt;
+use std::{collections::BTreeMap, fmt, fs, path::PathBuf};
 
 use crate::window::NativeConfigOverrides;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConfigDiscoveryInputs {
+    pub(crate) is_windows: bool,
+    pub(crate) is_unix: bool,
+    pub(crate) current_exe: Option<PathBuf>,
+    pub(crate) home_dir: Option<PathBuf>,
+    pub(crate) xdg_config_home: Option<PathBuf>,
+    pub(crate) xdg_config_dirs: Vec<PathBuf>,
+    pub(crate) environment_config_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConfigSource {
+    pub(crate) path: PathBuf,
+    pub(crate) required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ResolvedConfigSource {
+    Disabled,
+    Defaults,
+    File(ConfigSource),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum NativeConfigSourceErrorKind {
+    Io(std::io::ErrorKind),
+    InvalidUtf8,
+    Strict(NativeConfigLoadError),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct NativeConfigSourceError {
+    pub(crate) path: PathBuf,
+    pub(crate) kind: NativeConfigSourceErrorKind,
+}
+
+impl fmt::Display for NativeConfigSourceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}: ", self.path.display())?;
+        match &self.kind {
+            NativeConfigSourceErrorKind::Io(kind) => {
+                let kind = match kind {
+                    std::io::ErrorKind::NotFound => "not found".to_owned(),
+                    kind => kind.to_string(),
+                };
+                write!(formatter, "I/O error: {kind}")
+            }
+            NativeConfigSourceErrorKind::InvalidUtf8 => formatter.write_str("invalid UTF-8"),
+            NativeConfigSourceErrorKind::Strict(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for NativeConfigSourceError {}
+
+#[derive(Debug, Clone)]
+pub(crate) struct NativeConfigLoadAttempt {
+    pub(crate) preferred: Option<PathBuf>,
+    pub(crate) resolved: ResolvedConfigSource,
+    pub(crate) result: Result<NativeConfigOverrides, NativeConfigSourceError>,
+    pub(crate) publication: DerivedConfigEnvironment,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct DerivedConfigEnvironment {
+    variables: BTreeMap<String, String>,
+}
+
+impl DerivedConfigEnvironment {
+    pub(crate) fn variables(&self) -> &BTreeMap<String, String> {
+        &self.variables
+    }
+
+    fn for_file(path: &std::path::Path) -> Self {
+        let mut variables = BTreeMap::new();
+        variables.insert(
+            "WEZTERM_CONFIG_FILE".to_owned(),
+            path.to_string_lossy().into_owned(),
+        );
+        if let Some(parent) = path.parent() {
+            variables.insert(
+                "WEZTERM_CONFIG_DIR".to_owned(),
+                parent.to_string_lossy().into_owned(),
+            );
+        }
+        Self { variables }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct EffectiveNativeConfig {
+    pub(crate) source: Option<PathBuf>,
+    pub(crate) overrides: NativeConfigOverrides,
+    pub(crate) generation: u64,
+    pub(crate) publication: DerivedConfigEnvironment,
+}
+
+pub(crate) struct NativeConfigLifecycle {
+    inputs: ConfigDiscoveryInputs,
+    skip: bool,
+    explicit: Option<PathBuf>,
+    cli: Vec<StaticNativeConfigAssignment>,
+    effective: EffectiveNativeConfig,
+    latest_diagnostic: Option<NativeConfigSourceError>,
+    latest_selection: ResolvedConfigSource,
+}
+
+impl NativeConfigLifecycle {
+    pub(crate) fn new(
+        inputs: ConfigDiscoveryInputs,
+        skip: bool,
+        explicit: Option<PathBuf>,
+        cli: Vec<StaticNativeConfigAssignment>,
+    ) -> Self {
+        Self {
+            inputs,
+            skip,
+            explicit,
+            cli,
+            effective: EffectiveNativeConfig {
+                source: None,
+                overrides: NativeConfigOverrides::default(),
+                generation: 0,
+                publication: DerivedConfigEnvironment::default(),
+            },
+            latest_diagnostic: None,
+            latest_selection: ResolvedConfigSource::Defaults,
+        }
+    }
+
+    pub(crate) fn attempt_reload(&self) -> NativeConfigLoadAttempt {
+        if self.skip {
+            return NativeConfigLoadAttempt {
+                preferred: None,
+                resolved: ResolvedConfigSource::Disabled,
+                result: Ok(parse_native_config_document("return {}", &self.cli)
+                    .expect("validated CLI overrides must apply to defaults")),
+                publication: DerivedConfigEnvironment::default(),
+            };
+        }
+
+        let resolved = self.discover_source();
+        let ResolvedConfigSource::File(source) = &resolved else {
+            return NativeConfigLoadAttempt {
+                preferred: None,
+                resolved,
+                result: Ok(parse_native_config_document("return {}", &self.cli)
+                    .expect("validated CLI overrides must apply to defaults")),
+                publication: DerivedConfigEnvironment::default(),
+            };
+        };
+        let path = source.path.clone();
+        let result = load_native_config_file(&path, &self.cli);
+        let publication = DerivedConfigEnvironment::for_file(&path);
+        NativeConfigLoadAttempt {
+            preferred: Some(path),
+            resolved,
+            result,
+            publication,
+        }
+    }
+
+    pub(crate) fn validated_cli(&self) -> &[StaticNativeConfigAssignment] {
+        &self.cli
+    }
+
+    pub(crate) fn effective(&self) -> &EffectiveNativeConfig {
+        &self.effective
+    }
+
+    pub(crate) fn latest_diagnostic(&self) -> Option<&NativeConfigSourceError> {
+        self.latest_diagnostic.as_ref()
+    }
+
+    pub(crate) fn latest_selection(&self) -> &ResolvedConfigSource {
+        &self.latest_selection
+    }
+
+    pub(crate) fn install_initial_attempt(&mut self, attempt: NativeConfigLoadAttempt) {
+        self.latest_selection = attempt.resolved.clone();
+        match attempt.result {
+            Ok(overrides) => {
+                self.effective = EffectiveNativeConfig {
+                    source: match &attempt.resolved {
+                        ResolvedConfigSource::File(source) => Some(source.path.clone()),
+                        ResolvedConfigSource::Disabled | ResolvedConfigSource::Defaults => None,
+                    },
+                    overrides,
+                    generation: 1,
+                    publication: attempt.publication,
+                };
+                self.latest_diagnostic = None;
+            }
+            Err(error) => {
+                self.latest_diagnostic = Some(error);
+            }
+        }
+    }
+
+    fn discover_source(&self) -> ResolvedConfigSource {
+        if let Some(path) = &self.explicit {
+            return ResolvedConfigSource::File(ConfigSource {
+                path: path.clone(),
+                required: true,
+            });
+        }
+        if let Some(path) = &self.inputs.environment_config_file {
+            return ResolvedConfigSource::File(ConfigSource {
+                path: path.clone(),
+                required: true,
+            });
+        }
+        if self.inputs.is_windows
+            && let Some(path) = self
+                .inputs
+                .current_exe
+                .as_deref()
+                .and_then(std::path::Path::parent)
+                .map(|parent| parent.join("wezterm.lua"))
+            && path.is_file()
+        {
+            return ResolvedConfigSource::File(ConfigSource {
+                path,
+                required: false,
+            });
+        }
+        if let Some(path) = self
+            .inputs
+            .home_dir
+            .as_ref()
+            .map(|home| home.join(".wezterm.lua"))
+            .filter(|path| path.is_file())
+        {
+            return ResolvedConfigSource::File(ConfigSource {
+                path,
+                required: false,
+            });
+        }
+        if let Some(path) = self
+            .inputs
+            .xdg_config_home
+            .as_ref()
+            .map(|dir| dir.join("wezterm").join("wezterm.lua"))
+            .filter(|path| path.is_file())
+        {
+            return ResolvedConfigSource::File(ConfigSource {
+                path,
+                required: false,
+            });
+        }
+        if self.inputs.xdg_config_home.is_none()
+            && let Some(path) = self
+                .inputs
+                .home_dir
+                .as_ref()
+                .map(|home| home.join(".config").join("wezterm").join("wezterm.lua"))
+                .filter(|path| path.is_file())
+        {
+            return ResolvedConfigSource::File(ConfigSource {
+                path,
+                required: false,
+            });
+        }
+        if self.inputs.is_unix
+            && let Some(path) = self
+                .inputs
+                .xdg_config_dirs
+                .iter()
+                .map(|dir| dir.join("wezterm").join("wezterm.lua"))
+                .find(|path| path.is_file())
+        {
+            return ResolvedConfigSource::File(ConfigSource {
+                path,
+                required: false,
+            });
+        }
+
+        ResolvedConfigSource::Defaults
+    }
+}
+
+impl ConfigDiscoveryInputs {
+    pub(crate) fn capture_current_process() -> Self {
+        fn non_empty_path(name: &str) -> Option<PathBuf> {
+            std::env::var_os(name)
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        }
+
+        let home_dir = non_empty_path("HOME").or_else(|| non_empty_path("USERPROFILE"));
+        let xdg_config_dirs = std::env::var_os("XDG_CONFIG_DIRS")
+            .filter(|value| !value.is_empty())
+            .map(|value| std::env::split_paths(&value).collect())
+            .unwrap_or_default();
+        Self {
+            is_windows: cfg!(windows),
+            is_unix: cfg!(unix),
+            current_exe: std::env::current_exe().ok(),
+            home_dir,
+            xdg_config_home: non_empty_path("XDG_CONFIG_HOME"),
+            xdg_config_dirs,
+            environment_config_file: non_empty_path("WEZTERM_CONFIG_FILE"),
+        }
+    }
+}
+
+fn load_native_config_file(
+    path: &std::path::Path,
+    cli: &[StaticNativeConfigAssignment],
+) -> Result<NativeConfigOverrides, NativeConfigSourceError> {
+    let bytes = fs::read(path).map_err(|error| NativeConfigSourceError {
+        path: path.to_path_buf(),
+        kind: NativeConfigSourceErrorKind::Io(error.kind()),
+    })?;
+    let source = std::str::from_utf8(&bytes).map_err(|_| NativeConfigSourceError {
+        path: path.to_path_buf(),
+        kind: NativeConfigSourceErrorKind::InvalidUtf8,
+    })?;
+    let source = source.strip_prefix('\u{feff}').unwrap_or(source);
+    if source.starts_with('\u{feff}') {
+        return Err(NativeConfigSourceError {
+            path: path.to_path_buf(),
+            kind: NativeConfigSourceErrorKind::Strict(NativeConfigLoadError::InvalidSyntax {
+                location: SourceLocation { line: 1, column: 1 },
+                message: "unexpected second UTF-8 BOM".to_owned(),
+            }),
+        });
+    }
+    parse_native_config_document(source, cli).map_err(|error| NativeConfigSourceError {
+        path: path.to_path_buf(),
+        kind: NativeConfigSourceErrorKind::Strict(error),
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SourceLocation {
@@ -1276,6 +1611,39 @@ fn is_lua_reserved_keyword(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        fs,
+        ops::Deref,
+        path::{Path, PathBuf},
+        sync::atomic::{AtomicU64, Ordering},
+    };
+
+    struct TestDir(PathBuf);
+
+    impl Deref for TestDir {
+        type Target = Path;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn unique_temp_dir(label: &str) -> TestDir {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "rssh-config-lifecycle-{label}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&path).unwrap();
+        TestDir(path)
+    }
 
     #[test]
     fn strict_parser_accepts_empty_direct_table() {
@@ -1914,5 +2282,556 @@ literal]=],
             validate_cli_config_overrides(&[("initial_cols".to_owned(), "-1".to_owned())]),
             Err(NativeConfigLoadError::InvalidFieldValue { .. })
         ));
+    }
+
+    #[test]
+    fn explicit_file_beats_environment_and_candidates() {
+        let root = unique_temp_dir("explicit-priority");
+        let explicit = root.join("explicit.lua");
+        let environment = root.join("environment.lua");
+        let portable = root.join("wezterm.lua");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        fs::write(&explicit, "return { term = 'explicit' }").unwrap();
+        fs::write(&environment, "return { term = 'environment' }").unwrap();
+        fs::write(&portable, "return { term = 'portable' }").unwrap();
+        fs::write(home.join(".wezterm.lua"), "return { term = 'home' }").unwrap();
+
+        let inputs = ConfigDiscoveryInputs {
+            is_windows: true,
+            is_unix: false,
+            current_exe: Some(root.join("rssh.exe")),
+            home_dir: Some(home),
+            xdg_config_home: None,
+            xdg_config_dirs: Vec::new(),
+            environment_config_file: Some(environment),
+        };
+        let lifecycle =
+            NativeConfigLifecycle::new(inputs, false, Some(explicit.clone()), Vec::new());
+        let attempt = lifecycle.attempt_reload();
+
+        assert_eq!(
+            attempt.resolved,
+            ResolvedConfigSource::File(ConfigSource {
+                path: explicit.clone(),
+                required: true,
+            })
+        );
+        assert_eq!(attempt.preferred, Some(explicit.clone()));
+        assert_eq!(attempt.result.unwrap().term.as_deref(), Some("explicit"));
+    }
+
+    #[test]
+    fn environment_file_beats_portable_home_and_xdg_candidates() {
+        let root = unique_temp_dir("environment-priority");
+        let environment = root.join("environment.lua");
+        let home = root.join("home");
+        let xdg_home = root.join("xdg");
+        fs::create_dir_all(xdg_home.join("wezterm")).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        fs::write(&environment, "return { term = 'environment' }").unwrap();
+        fs::write(root.join("wezterm.lua"), "return { term = 'portable' }").unwrap();
+        fs::write(home.join(".wezterm.lua"), "return { term = 'home' }").unwrap();
+        fs::write(
+            xdg_home.join("wezterm/wezterm.lua"),
+            "return { term = 'xdg' }",
+        )
+        .unwrap();
+
+        let lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: true,
+                is_unix: false,
+                current_exe: Some(root.join("rssh.exe")),
+                home_dir: Some(home),
+                xdg_config_home: Some(xdg_home),
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: Some(environment.clone()),
+            },
+            false,
+            None,
+            Vec::new(),
+        );
+        let attempt = lifecycle.attempt_reload();
+
+        assert_eq!(
+            attempt.resolved,
+            ResolvedConfigSource::File(ConfigSource {
+                path: environment.clone(),
+                required: true,
+            })
+        );
+        assert_eq!(attempt.preferred, Some(environment));
+        assert_eq!(attempt.result.unwrap().term.as_deref(), Some("environment"));
+    }
+
+    #[test]
+    fn windows_portable_config_beats_home_and_xdg() {
+        let root = unique_temp_dir("portable-priority");
+        let portable = root.join("wezterm.lua");
+        let home = root.join("home");
+        let xdg_home = root.join("xdg");
+        fs::create_dir_all(xdg_home.join("wezterm")).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        fs::write(&portable, "return { term = 'portable' }").unwrap();
+        fs::write(home.join(".wezterm.lua"), "return { term = 'home' }").unwrap();
+        fs::write(
+            xdg_home.join("wezterm/wezterm.lua"),
+            "return { term = 'xdg' }",
+        )
+        .unwrap();
+
+        let lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: true,
+                is_unix: false,
+                current_exe: Some(root.join("rssh.exe")),
+                home_dir: Some(home),
+                xdg_config_home: Some(xdg_home),
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            None,
+            Vec::new(),
+        );
+        let attempt = lifecycle.attempt_reload();
+
+        assert_eq!(
+            attempt.resolved,
+            ResolvedConfigSource::File(ConfigSource {
+                path: portable,
+                required: false,
+            })
+        );
+        assert_eq!(attempt.result.unwrap().term.as_deref(), Some("portable"));
+    }
+
+    #[test]
+    fn home_dot_wezterm_beats_xdg() {
+        let root = unique_temp_dir("home-priority");
+        let home = root.join("home");
+        let xdg_home = root.join("xdg");
+        fs::create_dir_all(xdg_home.join("wezterm")).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        let home_config = home.join(".wezterm.lua");
+        fs::write(&home_config, "return { term = 'home' }").unwrap();
+        fs::write(
+            xdg_home.join("wezterm/wezterm.lua"),
+            "return { term = 'xdg' }",
+        )
+        .unwrap();
+
+        let lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: true,
+                current_exe: None,
+                home_dir: Some(home),
+                xdg_config_home: Some(xdg_home),
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            None,
+            Vec::new(),
+        );
+        let attempt = lifecycle.attempt_reload();
+
+        assert_eq!(
+            attempt.resolved,
+            ResolvedConfigSource::File(ConfigSource {
+                path: home_config,
+                required: false,
+            })
+        );
+        assert_eq!(attempt.result.unwrap().term.as_deref(), Some("home"));
+    }
+
+    #[test]
+    fn xdg_config_home_then_unix_xdg_config_dirs_retain_source_order() {
+        let root = unique_temp_dir("xdg-order");
+        let xdg_home = root.join("xdg-home");
+        let xdg_first = root.join("xdg-first");
+        let xdg_second = root.join("xdg-second");
+        for dir in [&xdg_home, &xdg_first, &xdg_second] {
+            fs::create_dir_all(dir.join("wezterm")).unwrap();
+        }
+        let home_path = xdg_home.join("wezterm/wezterm.lua");
+        let first_path = xdg_first.join("wezterm/wezterm.lua");
+        let second_path = xdg_second.join("wezterm/wezterm.lua");
+        fs::write(&home_path, "return { term = 'xdg-home' }").unwrap();
+        fs::write(&first_path, "return { term = 'xdg-first' }").unwrap();
+        fs::write(&second_path, "return { term = 'xdg-second' }").unwrap();
+
+        let inputs = ConfigDiscoveryInputs {
+            is_windows: false,
+            is_unix: true,
+            current_exe: None,
+            home_dir: None,
+            xdg_config_home: Some(xdg_home),
+            xdg_config_dirs: vec![xdg_first, xdg_second],
+            environment_config_file: None,
+        };
+        let lifecycle = NativeConfigLifecycle::new(inputs, false, None, Vec::new());
+        let first_attempt = lifecycle.attempt_reload();
+        assert_eq!(
+            first_attempt.result.unwrap().term.as_deref(),
+            Some("xdg-home")
+        );
+
+        fs::remove_file(home_path).unwrap();
+        let second_attempt = lifecycle.attempt_reload();
+        assert_eq!(
+            second_attempt.resolved,
+            ResolvedConfigSource::File(ConfigSource {
+                path: first_path,
+                required: false,
+            })
+        );
+        assert_eq!(
+            second_attempt.result.unwrap().term.as_deref(),
+            Some("xdg-first")
+        );
+    }
+
+    #[test]
+    fn unset_xdg_config_home_uses_home_dot_config() {
+        let root = unique_temp_dir("xdg-home-fallback");
+        let home = root.join("home");
+        let fallback = home.join(".config/wezterm/wezterm.lua");
+        fs::create_dir_all(fallback.parent().unwrap()).unwrap();
+        fs::write(&fallback, "return { term = 'home-config' }").unwrap();
+
+        let lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: true,
+                current_exe: None,
+                home_dir: Some(home),
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            None,
+            Vec::new(),
+        );
+        let attempt = lifecycle.attempt_reload();
+
+        assert_eq!(
+            attempt.resolved,
+            ResolvedConfigSource::File(ConfigSource {
+                path: fallback,
+                required: false,
+            })
+        );
+        assert_eq!(attempt.result.unwrap().term.as_deref(), Some("home-config"));
+    }
+
+    #[test]
+    fn missing_required_path_is_failed_attempt_without_fallthrough() {
+        let root = unique_temp_dir("required-missing");
+        let missing = root.join("missing.lua");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        fs::write(home.join(".wezterm.lua"), "return { term = 'home' }").unwrap();
+
+        let lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: true,
+                current_exe: None,
+                home_dir: Some(home),
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            Some(missing.clone()),
+            Vec::new(),
+        );
+        let attempt = lifecycle.attempt_reload();
+
+        assert_eq!(
+            attempt.resolved,
+            ResolvedConfigSource::File(ConfigSource {
+                path: missing.clone(),
+                required: true,
+            })
+        );
+        let error = attempt.result.unwrap_err();
+        assert_eq!(error.path, missing.clone());
+        assert!(matches!(
+            error.kind,
+            NativeConfigSourceErrorKind::Io(std::io::ErrorKind::NotFound)
+        ));
+        assert_eq!(
+            error.to_string(),
+            format!("{}: I/O error: not found", missing.display())
+        );
+
+        let environment_missing = root.join("environment-missing.lua");
+        let environment_lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: true,
+                current_exe: None,
+                home_dir: lifecycle.inputs.home_dir.clone(),
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: Some(environment_missing.clone()),
+            },
+            false,
+            None,
+            Vec::new(),
+        );
+        let environment_attempt = environment_lifecycle.attempt_reload();
+        assert_eq!(
+            environment_attempt.preferred,
+            Some(environment_missing.clone())
+        );
+        assert!(matches!(
+            environment_attempt.result.unwrap_err(),
+            NativeConfigSourceError {
+                path,
+                kind: NativeConfigSourceErrorKind::Io(std::io::ErrorKind::NotFound),
+            } if path == environment_missing
+        ));
+    }
+
+    #[test]
+    fn missing_optional_path_falls_through() {
+        let root = unique_temp_dir("optional-missing");
+        let home = root.join("home");
+        let xdg_home = root.join("xdg");
+        let xdg_config = xdg_home.join("wezterm/wezterm.lua");
+        fs::create_dir_all(xdg_config.parent().unwrap()).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        fs::write(&xdg_config, "return { term = 'xdg' }").unwrap();
+
+        let lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: true,
+                is_unix: false,
+                current_exe: Some(root.join("rssh.exe")),
+                home_dir: Some(home),
+                xdg_config_home: Some(xdg_home),
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            None,
+            Vec::new(),
+        );
+        let attempt = lifecycle.attempt_reload();
+
+        assert_eq!(attempt.preferred, Some(xdg_config.clone()));
+        assert_eq!(
+            attempt.resolved,
+            ResolvedConfigSource::File(ConfigSource {
+                path: xdg_config,
+                required: false,
+            })
+        );
+        assert_eq!(attempt.result.unwrap().term.as_deref(), Some("xdg"));
+    }
+
+    #[test]
+    fn skip_disables_file_discovery_but_retains_and_applies_validated_cli_ir() {
+        let root = unique_temp_dir("skip");
+        let environment = root.join("environment.lua");
+        fs::write(&environment, "return { term = 'environment' }").unwrap();
+        let cli =
+            validate_cli_config_overrides(&[("term".to_owned(), "'cli'".to_owned())]).unwrap();
+        let lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: true,
+                is_unix: false,
+                current_exe: Some(root.join("rssh.exe")),
+                home_dir: None,
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: Some(environment),
+            },
+            true,
+            None,
+            cli.clone(),
+        );
+        let attempt = lifecycle.attempt_reload();
+
+        assert_eq!(attempt.resolved, ResolvedConfigSource::Disabled);
+        assert_eq!(lifecycle.validated_cli(), cli.as_slice());
+        assert_eq!(attempt.result.unwrap().term.as_deref(), Some("cli"));
+    }
+
+    #[test]
+    fn every_attempt_reload_reruns_discovery_and_reads_fresh_file_state() {
+        let root = unique_temp_dir("rediscovery");
+        let home = root.join("home");
+        let xdg_home = root.join("xdg");
+        let portable = root.join("wezterm.lua");
+        let home_config = home.join(".wezterm.lua");
+        let xdg_config = xdg_home.join("wezterm/wezterm.lua");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(xdg_config.parent().unwrap()).unwrap();
+        fs::write(&home_config, "return { term = 'home-v1' }").unwrap();
+        fs::write(&xdg_config, "return { term = 'xdg' }").unwrap();
+        let lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: true,
+                is_unix: false,
+                current_exe: Some(root.join("rssh.exe")),
+                home_dir: Some(home),
+                xdg_config_home: Some(xdg_home),
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            None,
+            Vec::new(),
+        );
+
+        assert_eq!(
+            lifecycle.attempt_reload().result.unwrap().term.as_deref(),
+            Some("home-v1")
+        );
+        fs::write(&home_config, "return { term = 'home-v2' }").unwrap();
+        assert_eq!(
+            lifecycle.attempt_reload().result.unwrap().term.as_deref(),
+            Some("home-v2")
+        );
+        fs::remove_file(home_config).unwrap();
+        assert_eq!(
+            lifecycle.attempt_reload().result.unwrap().term.as_deref(),
+            Some("xdg")
+        );
+        fs::write(&portable, "return { term = 'portable' }").unwrap();
+        let attempt = lifecycle.attempt_reload();
+        assert_eq!(attempt.preferred, Some(portable));
+        assert_eq!(attempt.result.unwrap().term.as_deref(), Some("portable"));
+    }
+
+    #[test]
+    fn loader_removes_exactly_one_utf8_bom() {
+        let root = unique_temp_dir("bom");
+        let path = root.join("wezterm.lua");
+        fs::write(&path, "\u{feff}return { term = 'single-bom' }".as_bytes()).unwrap();
+        let lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: false,
+                current_exe: None,
+                home_dir: None,
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            Some(path.clone()),
+            Vec::new(),
+        );
+        assert_eq!(
+            lifecycle.attempt_reload().result.unwrap().term.as_deref(),
+            Some("single-bom")
+        );
+
+        fs::write(&path, "\u{feff}\u{feff}return {}".as_bytes()).unwrap();
+        let error = lifecycle.attempt_reload().result.unwrap_err();
+        assert_eq!(error.path, path);
+        assert!(matches!(
+            error.kind,
+            NativeConfigSourceErrorKind::Strict(NativeConfigLoadError::InvalidSyntax { .. })
+        ));
+    }
+
+    #[test]
+    fn invalid_utf8_and_parser_errors_carry_preferred_path_diagnostic() {
+        let root = unique_temp_dir("diagnostic-path");
+        let path = root.join("wezterm.lua");
+        fs::write(&path, [0xff, 0xfe]).unwrap();
+        let lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: false,
+                current_exe: None,
+                home_dir: None,
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            Some(path.clone()),
+            Vec::new(),
+        );
+
+        let utf8_error = lifecycle.attempt_reload().result.unwrap_err();
+        assert_eq!(utf8_error.path, path);
+        assert!(matches!(
+            utf8_error.kind,
+            NativeConfigSourceErrorKind::InvalidUtf8
+        ));
+        assert!(utf8_error.to_string().ends_with(": invalid UTF-8"));
+
+        fs::write(&path, "return { term = dynamic_value() }").unwrap();
+        let parser_error = lifecycle.attempt_reload().result.unwrap_err();
+        assert_eq!(parser_error.path, path.clone());
+        assert!(matches!(
+            parser_error.kind,
+            NativeConfigSourceErrorKind::Strict(
+                NativeConfigLoadError::UnsupportedDynamicLua { .. }
+            )
+        ));
+        assert!(
+            parser_error
+                .to_string()
+                .starts_with(&path.display().to_string())
+        );
+    }
+
+    #[test]
+    fn successful_initial_file_install_advances_generation_and_publishes_source() {
+        let root = unique_temp_dir("initial-success");
+        let path = root.join("wezterm.lua");
+        fs::write(&path, "return { term = 'loaded' }").unwrap();
+        let mut lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: false,
+                current_exe: None,
+                home_dir: None,
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            Some(path.clone()),
+            Vec::new(),
+        );
+
+        assert_eq!(lifecycle.effective().generation, 0);
+        assert_eq!(lifecycle.effective().source, None);
+        let attempt = lifecycle.attempt_reload();
+        assert_eq!(
+            attempt.publication.variables().get("WEZTERM_CONFIG_FILE"),
+            Some(&path.to_string_lossy().into_owned())
+        );
+        lifecycle.install_initial_attempt(attempt);
+
+        assert_eq!(lifecycle.effective().generation, 1);
+        assert_eq!(lifecycle.effective().source.as_ref(), Some(&path));
+        assert_eq!(
+            lifecycle.effective().overrides.term.as_deref(),
+            Some("loaded")
+        );
+        assert_eq!(
+            lifecycle
+                .effective()
+                .publication
+                .variables()
+                .get("WEZTERM_CONFIG_DIR"),
+            Some(&root.to_string_lossy().into_owned())
+        );
+        assert!(lifecycle.latest_diagnostic().is_none());
     }
 }
