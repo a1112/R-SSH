@@ -222986,6 +222986,46 @@ return config
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_detach_domain_table_wrapper_default_domain_aliases() {
+        for default_domain in [
+            "default",
+            "default domain",
+            "default-domain",
+            "default_domain",
+        ] {
+            let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+                r#"
+                local wezterm = require 'wezterm'
+                local act = wezterm.action
+                local config = {}
+
+                config.keys = {{
+                  {{
+                    key = 'D',
+                    mods = 'CTRL|ALT',
+                    action = act {{ DetachDomain = {{ DomainName = '{0}' }} }},
+                  }},
+                }}
+
+                return config
+                "#,
+                default_domain
+            ))
+            .expect("expected WezTerm DetachDomain table-wrapper default-domain config");
+
+            assert_eq!(
+                overrides.key_assignments,
+                Some(vec![NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+D".to_owned(),
+                    command: WindowCommand::DetachDomain(WindowDomainSelector::DomainName(
+                        default_domain.to_owned()
+                    )),
+                }])
+            );
+        }
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_detach_domain_static_field_variable() {
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
             r#"
