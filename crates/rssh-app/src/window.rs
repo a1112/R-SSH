@@ -260800,7 +260800,7 @@ act.Confirmation {
         app.set_config_overrides(NativeConfigOverrides {
             default_domain: Some("LOCAL".to_owned()),
             exec_domains: Some(vec![NativeExecDomain {
-                name: "local".to_owned(),
+                name: "LoCaL".to_owned(),
                 fixup_command: "wezterm cli spawn".to_owned(),
                 label: None,
             }]),
