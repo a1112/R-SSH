@@ -260854,6 +260854,74 @@ act.Confirmation {
     }
 
     #[test]
+    fn window_app_dispatches_native_show_launcher_args_domains_payload_with_explicit_local_domain_deduplicated()
+     {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            default_domain: Some("remote-default".to_owned()),
+            exec_domains: Some(vec![
+                NativeExecDomain {
+                    name: "Local".to_owned(),
+                    fixup_command: "wezterm cli spawn".to_owned(),
+                    label: None,
+                },
+                NativeExecDomain {
+                    name: "ops".to_owned(),
+                    fixup_command: "wezterm cli spawn".to_owned(),
+                    label: None,
+                },
+            ]),
+            unix_domains: Some(vec![NativeUnixDomain {
+                name: "local".to_owned(),
+                socket_path: Some("/tmp/ops.sock".to_owned()),
+                connect_automatically: true,
+                no_serve_automatically: true,
+                serve_command: None,
+                proxy_command: None,
+                skip_permissions_check: true,
+                read_timeout_ms: 45_000,
+                write_timeout_ms: 30_000,
+                local_echo_threshold_ms: Some(12),
+                overlay_lag_indicator: true,
+            }]),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::domains(),
+                title: Some("Pick Domain".to_owned()),
+                alphabet: None,
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+        let palette = app
+            .command_palette
+            .as_ref()
+            .expect("launcher should be open");
+        assert_eq!(
+            app.command_palette_status(palette),
+            "Pick Domain: Select an item and press Enter=launch Esc=cancel /=filter [1 / 3] Spawn In Domain: local"
+        );
+
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].label(), "Spawn In Domain: local");
+        assert_eq!(entries[1].label(), "Spawn In Domain: remote-default");
+        assert_eq!(entries[2].label(), "Spawn In Domain: ops");
+
+        app.command_palette_set_query("local".to_owned());
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "Spawn In Domain: local");
+        assert!(app.command_palette_execute_entry(entries[0].clone()));
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
     fn window_app_dispatches_native_show_launcher_args_launch_menu_items_payload() {
         let mut app = NativeWindowApp::new(None);
         app.set_config_overrides(NativeConfigOverrides {
