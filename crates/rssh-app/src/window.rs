@@ -211798,6 +211798,10 @@ return config
                 "default",
             ),
             (
+                "wezterm.action { AttachDomain = { DomainName = 'default domain' } }",
+                "default domain",
+            ),
+            (
                 "act { AttachDomain = { DomainName = 'default-domain' } }",
                 "default-domain",
             ),
