@@ -81373,7 +81373,7 @@ impl NativeWindowManager {
         if let Some(app) = self.startup_app.as_mut() {
             app.set_base_config(&effective, ReloadDisposition::SilentStartup);
         }
-        for app in self.pending_apps.iter_mut() {
+        for app in &mut self.pending_apps {
             app.set_base_config(&effective, ReloadDisposition::SilentStartup);
         }
         for app in self.windows.values_mut() {
@@ -81383,7 +81383,7 @@ impl NativeWindowManager {
         if let Some(app) = self.startup_app.as_mut() {
             app.reload_configuration();
         }
-        for app in self.pending_apps.iter_mut() {
+        for app in &mut self.pending_apps {
             app.reload_configuration();
         }
         for app in self.windows.values_mut() {
@@ -129769,7 +129769,7 @@ mod tests {
 
         std::fs::write(
             &path,
-            r##"return {
+            r"return {
                 term = 'generation-two',
                 default_prog = { 'new-shell', '--login' },
                 default_cwd = 'new-cwd',
@@ -129777,7 +129777,7 @@ mod tests {
                 keys = {
                     { key = 'k', mods = 'CTRL', action = wezterm.action.SendString('new') },
                 },
-            }"##,
+            }",
         )
         .unwrap();
 
@@ -130213,23 +130213,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn new_split_and_tab_launches_use_reloaded_defaults() {
-        let root = startup_test_dir("manager-future-launch");
-        let path = root.0.join("wezterm.lua");
-        std::fs::write(&path, "return {}").unwrap();
-        let options = startup_test_options(WindowConfigOptions {
-            skip_config: false,
-            config_file: Some(path.clone()),
-            config_overrides: Vec::new(),
-        });
-        let configured =
-            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
-        let mut manager = NativeWindowManager::new_for_test(configured.app)
-            .with_config_lifecycle(configured.lifecycle);
+    fn write_reloaded_future_launch_config(path: &Path) {
         std::fs::write(
-            &path,
-            r##"return {
+            path,
+            r"return {
                 default_prog = { 'reloaded-shell', '--login' },
                 default_cwd = 'reloaded-cwd',
                 term = 'reloaded-term',
@@ -130238,50 +130225,52 @@ mod tests {
                 keys = {
                     { key = 'k', mods = 'CTRL', action = wezterm.action.SendString('reloaded-key') },
                 },
-            }"##,
+            }",
         )
         .unwrap();
-        assert!(manager.reload_configuration_attempt());
+    }
 
-        {
-            let app = manager.primary_app_mut_for_test();
-            app.dispatch_app_action(AppAction::SplitPane {
-                pane: app.app_shell.active_pane_id(),
-                direction: SplitDirection::Right,
-                launch: None,
-            })
+    fn spawn_reloaded_split_tab_and_window(app: &mut NativeWindowApp) {
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: app.app_shell.active_pane_id(),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let split = app
+            .app_shell
+            .active_tab()
+            .panes()
+            .iter()
+            .find(|pane| pane.id() != rssh_core::PaneId::new(1))
             .unwrap();
-            let split = app
-                .app_shell
-                .active_tab()
-                .panes()
-                .iter()
-                .find(|pane| pane.id() != rssh_core::PaneId::new(1))
-                .unwrap();
-            assert_eq!(split.launch().program(), "reloaded-shell");
-            assert_eq!(split.launch().args(), ["--login"]);
-            assert_eq!(split.launch().cwd(), Some("reloaded-cwd"));
+        assert_eq!(split.launch().program(), "reloaded-shell");
+        assert_eq!(split.launch().args(), ["--login"]);
+        assert_eq!(split.launch().cwd(), Some("reloaded-cwd"));
 
-            app.dispatch_app_action(AppAction::NewTab { launch: None })
-                .unwrap();
-            let tab_launch = app.app_shell.active_pane().launch();
-            assert_eq!(tab_launch.program(), "reloaded-shell");
-            assert_eq!(tab_launch.args(), ["--login"]);
-            assert_eq!(tab_launch.cwd(), Some("reloaded-cwd"));
-            let command = pty_command_from_pane_launch_with_environment(
-                tab_launch,
-                &app.term,
-                &app.pane_environment_variables(),
-                app.default_cwd.as_deref(),
-            );
-            assert_eq!(command.env_value("TERM"), Some("reloaded-term"));
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        let tab_launch = app.app_shell.active_pane().launch();
+        assert_eq!(tab_launch.program(), "reloaded-shell");
+        assert_eq!(tab_launch.args(), ["--login"]);
+        assert_eq!(tab_launch.cwd(), Some("reloaded-cwd"));
+        let command = pty_command_from_pane_launch_with_environment(
+            tab_launch,
+            &app.term,
+            &app.pane_environment_variables(),
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("TERM"), Some("reloaded-term"));
 
-            app.dispatch_app_action(AppAction::SpawnWindow { launch: None })
-                .unwrap();
-        }
-        manager.collect_pending_window_apps_from_primary_for_test();
+        app.dispatch_app_action(AppAction::SpawnWindow { launch: None })
+            .unwrap();
+    }
 
-        let detached = manager.pending_app_for_test(0).unwrap();
+    fn assert_reloaded_detached_launch_and_environment(
+        detached: &NativeWindowApp,
+        path: &Path,
+        config_dir: &Path,
+    ) {
         assert_eq!(detached.base_config_generation_for_test(), 2);
         assert_eq!(detached.term, "reloaded-term");
         assert_eq!(
@@ -130305,7 +130294,7 @@ mod tests {
             detached
                 .derived_config_environment
                 .get("WEZTERM_CONFIG_DIR"),
-            Some(&root.0.to_string_lossy().into_owned())
+            Some(&config_dir.to_string_lossy().into_owned())
         );
         let environment = detached.pane_environment_variables();
         assert_eq!(
@@ -130325,7 +130314,7 @@ mod tests {
         );
         assert_eq!(
             command.env_value("WEZTERM_CONFIG_DIR"),
-            Some(root.0.to_string_lossy().as_ref())
+            Some(config_dir.to_string_lossy().as_ref())
         );
         assert_eq!(command.env_value("USER_MARKER"), Some("reloaded-user-env"));
         assert_eq!(
@@ -130344,7 +130333,9 @@ mod tests {
             detached.native_resolved_palette().background,
             Color::Rgb(4, 5, 6)
         );
-        let mut detached = manager.pending_apps.remove(0);
+    }
+
+    fn assert_reloaded_detached_input_and_renderer(mut detached: NativeWindowApp) {
         let written = Arc::new(Mutex::new(Vec::new()));
         detached.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         detached.modifiers = ModifiersState::CONTROL;
@@ -130375,6 +130366,34 @@ mod tests {
             frame.chunks_exact(4).any(|pixel| pixel == [4, 5, 6, 255]),
             "the detached renderer must inherit the reloaded background projection"
         );
+    }
+
+    #[test]
+    fn new_split_and_tab_launches_use_reloaded_defaults() {
+        let root = startup_test_dir("manager-future-launch");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return {}").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+
+        write_reloaded_future_launch_config(&path);
+        assert!(manager.reload_configuration_attempt());
+        spawn_reloaded_split_tab_and_window(manager.primary_app_mut_for_test());
+        manager.collect_pending_window_apps_from_primary_for_test();
+
+        assert_reloaded_detached_launch_and_environment(
+            manager.pending_app_for_test(0).unwrap(),
+            &path,
+            &root.0,
+        );
+        assert_reloaded_detached_input_and_renderer(manager.pending_apps.remove(0));
     }
 
     #[test]
