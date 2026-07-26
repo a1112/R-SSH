@@ -401,14 +401,27 @@ const UNICODE_NAMES_CHAR_SELECT_CANDIDATES: &[char] =
     &['A', 'B', 'C', '0', '1', 'α', 'β', 'Ω', '中', '字'];
 
 pub fn run(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
-    let ConfiguredStartupApp { mut app, lifecycle } =
-        configured_startup_app(options, ConfigDiscoveryInputs::capture_current_process())?;
+    let ConfiguredStartupApp {
+        mut app,
+        mut lifecycle,
+    } = configured_startup_app(options, ConfigDiscoveryInputs::capture_current_process())?;
     if let Some(diagnostic) = lifecycle.latest_diagnostic() {
         eprintln!("failed to load WezTerm config: {diagnostic}");
     }
 
     let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
     let event_proxy = event_loop.create_proxy();
+    let config_event_proxy = event_proxy.clone();
+    if let Err(diagnostic) = lifecycle.install_watcher_sink(Arc::new(move || {
+        config_event_proxy
+            .send_event(WindowUserEvent::ConfigFileChanged)
+            .is_ok()
+    })) {
+        eprintln!(
+            "failed to initialize WezTerm config watcher: {}",
+            diagnostic.detail
+        );
+    }
     let reload_event_proxy = event_proxy.clone();
     app.session_log = match &options.log {
         Some(path) => Some(Box::new(File::create(path)?) as Box<dyn Write + Send>),
@@ -81397,7 +81410,10 @@ impl NativeWindowManager {
     }
 
     fn handle_manager_user_event(&mut self, event: &WindowUserEvent) -> bool {
-        if matches!(event, WindowUserEvent::ReloadConfigurationRequested) {
+        if matches!(
+            event,
+            WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged
+        ) {
             self.reload_configuration_attempt();
             return true;
         }
@@ -81524,7 +81540,9 @@ impl NativeWindowManager {
         let mut app = self.take_app_at_location(location)?;
         let owner_window_id = app.app_window_id;
         let close_window = match event {
-            WindowUserEvent::ReloadConfigurationRequested => false,
+            WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged => {
+                false
+            }
             WindowUserEvent::Output { bytes, .. } => {
                 if let Err(error) = app.handle_pane_pty_output(pane_id, &bytes) {
                     eprintln!("PTY write error: {error}");
@@ -81785,11 +81803,48 @@ impl NativeWindowManager {
         self.refresh_app_to_current_base(&mut app);
         self.pending_apps.insert(index, app);
     }
+
+    #[cfg(test)]
+    fn install_config_watcher_for_test(
+        &mut self,
+        debounce: Duration,
+        sink: crate::config_lifecycle::ConfigFileChangedSink,
+    ) -> Result<(), crate::config_lifecycle::NativeConfigWatchDiagnostic> {
+        self.config_lifecycle
+            .as_mut()
+            .expect("test manager should own a configuration lifecycle")
+            .install_watcher_sink_for_test(debounce, sink, None)
+    }
+
+    #[cfg(test)]
+    fn watched_config_paths_for_test(&self) -> std::collections::BTreeSet<PathBuf> {
+        self.config_lifecycle
+            .as_ref()
+            .expect("test manager should own a configuration lifecycle")
+            .watched_paths_for_test()
+    }
+
+    #[cfg(test)]
+    fn config_watcher_exists_for_test(&self) -> bool {
+        self.config_lifecycle
+            .as_ref()
+            .expect("test manager should own a configuration lifecycle")
+            .watcher_exists_for_test()
+    }
+
+    #[cfg(test)]
+    fn enqueue_config_watch_burst_for_test(&mut self, count: usize) {
+        self.config_lifecycle
+            .as_mut()
+            .expect("test manager should own a configuration lifecycle")
+            .enqueue_watcher_relevant_burst_for_test(count);
+    }
 }
 
 #[derive(Debug)]
 enum WindowUserEvent {
     ReloadConfigurationRequested,
+    ConfigFileChanged,
     Output {
         window_id: rssh_core::WindowId,
         pane_id: rssh_core::PaneId,
@@ -81809,7 +81864,7 @@ enum WindowUserEvent {
 impl WindowUserEvent {
     const fn pane_identity(&self) -> Option<(rssh_core::WindowId, rssh_core::PaneId)> {
         match self {
-            Self::ReloadConfigurationRequested => None,
+            Self::ReloadConfigurationRequested | Self::ConfigFileChanged => None,
             Self::Output {
                 window_id, pane_id, ..
             }
@@ -128657,7 +128712,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: WindowUserEvent) {
         match event {
-            WindowUserEvent::ReloadConfigurationRequested => {
+            WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged => {
                 self.reload_configuration();
             }
             WindowUserEvent::Output { pane_id, bytes, .. } => {
@@ -129067,6 +129122,7 @@ mod tests {
     use std::sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
+        mpsc,
     };
     use std::time::{Duration, Instant};
 
@@ -130458,6 +130514,382 @@ mod tests {
         assert!(manager.handle_manager_user_event(&WindowUserEvent::ReloadConfigurationRequested));
         assert_eq!(manager.config_generation_for_test(), Some(2));
         assert_eq!(manager.primary_app_mut_for_test().term, "after-event");
+    }
+
+    #[test]
+    fn initial_invalid_watched_config_recovers_to_generation_one() {
+        let root = startup_test_dir("auto-initial-invalid");
+        let config_dir = root.0.join("config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let path = config_dir.join("wezterm.lua");
+        std::fs::write(&path, "return dynamic_config").unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        manager
+            .install_config_watcher_for_test(Duration::from_millis(1), Arc::new(|| true))
+            .unwrap();
+        assert_eq!(manager.config_generation_for_test(), Some(0));
+        assert!(manager.watched_config_paths_for_test().contains(&path));
+
+        std::fs::write(
+            &path,
+            "return { automatically_reload_config = true, term = 'recovered' }",
+        )
+        .unwrap();
+        assert!(manager.handle_manager_user_event(&WindowUserEvent::ConfigFileChanged));
+
+        assert_eq!(manager.config_generation_for_test(), Some(1));
+        assert_eq!(manager.primary_app_mut_for_test().term, "recovered");
+    }
+
+    #[test]
+    fn automatic_reload_updates_all_windows_once_after_burst() {
+        let root = startup_test_dir("auto-all-windows");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(
+            &path,
+            "return { automatically_reload_config = true, term = 'one' }",
+        )
+        .unwrap();
+        let options = startup_test_options(WindowConfigOptions {
+            skip_config: false,
+            config_file: Some(path.clone()),
+            config_overrides: Vec::new(),
+        });
+        let configured =
+            super::configured_startup_app_for_test(&options, startup_test_discovery()).unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        manager
+            .primary_app_mut_for_test()
+            .dispatch_app_action(AppAction::SpawnWindow { launch: None })
+            .unwrap();
+        manager.collect_pending_window_apps_from_primary_for_test();
+        let current_base = manager
+            .config_lifecycle
+            .as_ref()
+            .unwrap()
+            .effective()
+            .clone();
+        let mut materialized = NativeWindowApp::new(None);
+        materialized.app_window_id = rssh_core::WindowId::new(3);
+        materialized.set_base_config(&current_base, super::ReloadDisposition::SilentStartup);
+        manager
+            .windows
+            .insert(winit::window::WindowId::dummy(), materialized);
+        let (_, callbacks) = install_reload_transaction_observers(&mut manager);
+        std::fs::write(
+            &path,
+            "return { automatically_reload_config = true, term = 'two' }",
+        )
+        .unwrap();
+        let (event_sender, event_receiver) = mpsc::channel();
+        manager
+            .install_config_watcher_for_test(
+                Duration::from_millis(10),
+                Arc::new(move || {
+                    event_sender
+                        .send(WindowUserEvent::ConfigFileChanged)
+                        .is_ok()
+                }),
+            )
+            .unwrap();
+
+        manager.enqueue_config_watch_burst_for_test(3);
+        let event = event_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("one debounced manager event");
+        assert!(
+            event_receiver
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "one watcher burst must enqueue only one manager event"
+        );
+        assert!(manager.handle_manager_user_event(&event));
+
+        assert_eq!(manager.config_generation_for_test(), Some(2));
+        assert_eq!(manager.all_apps_for_test().len(), 3);
+        assert!(
+            manager
+                .all_apps_for_test()
+                .iter()
+                .all(|app| app.term == "two")
+        );
+        assert!(
+            callbacks
+                .iter()
+                .all(|callback| callback.load(Ordering::Relaxed) == 1),
+            "startup, pending, and materialized apps each receive one callback"
+        );
+    }
+
+    #[test]
+    fn per_window_auto_reload_override_does_not_control_global_watcher() {
+        let root = startup_test_dir("auto-base-policy-only");
+        let disabled_path = root.0.join("disabled.lua");
+        std::fs::write(
+            &disabled_path,
+            "return { automatically_reload_config = false }",
+        )
+        .unwrap();
+        let disabled = super::configured_startup_app_for_test(
+            &startup_test_options(WindowConfigOptions {
+                skip_config: false,
+                config_file: Some(disabled_path),
+                config_overrides: Vec::new(),
+            }),
+            startup_test_discovery(),
+        )
+        .unwrap();
+        let mut disabled_manager = NativeWindowManager::new_for_test(disabled.app)
+            .with_config_lifecycle(disabled.lifecycle);
+        disabled_manager
+            .primary_app_mut_for_test()
+            .set_window_config_overrides(
+                Some(super::NativeLuaWindowConfigOverrides {
+                    automatically_reload_config: Some(true),
+                    ..super::NativeLuaWindowConfigOverrides::default()
+                }),
+                super::ReloadDisposition::SilentStartup,
+            );
+        assert!(
+            disabled_manager
+                .primary_app_mut_for_test()
+                .automatically_reload_config
+        );
+        disabled_manager
+            .install_config_watcher_for_test(Duration::from_millis(1), Arc::new(|| true))
+            .unwrap();
+        assert!(
+            !disabled_manager.config_watcher_exists_for_test(),
+            "a per-window true override cannot enable the global watcher"
+        );
+
+        let enabled_path = root.0.join("enabled.lua");
+        std::fs::write(
+            &enabled_path,
+            "return { automatically_reload_config = true }",
+        )
+        .unwrap();
+        let enabled = super::configured_startup_app_for_test(
+            &startup_test_options(WindowConfigOptions {
+                skip_config: false,
+                config_file: Some(enabled_path.clone()),
+                config_overrides: Vec::new(),
+            }),
+            startup_test_discovery(),
+        )
+        .unwrap();
+        let mut enabled_manager =
+            NativeWindowManager::new_for_test(enabled.app).with_config_lifecycle(enabled.lifecycle);
+        enabled_manager
+            .primary_app_mut_for_test()
+            .set_window_config_overrides(
+                Some(super::NativeLuaWindowConfigOverrides {
+                    automatically_reload_config: Some(false),
+                    ..super::NativeLuaWindowConfigOverrides::default()
+                }),
+                super::ReloadDisposition::SilentStartup,
+            );
+        assert!(
+            !enabled_manager
+                .primary_app_mut_for_test()
+                .automatically_reload_config
+        );
+        enabled_manager
+            .install_config_watcher_for_test(Duration::from_millis(1), Arc::new(|| true))
+            .unwrap();
+        assert!(enabled_manager.config_watcher_exists_for_test());
+        assert!(
+            enabled_manager
+                .watched_config_paths_for_test()
+                .contains(&enabled_path),
+            "a per-window false override cannot disable the manager-owned watcher"
+        );
+    }
+
+    #[test]
+    fn automatic_reload_recovers_after_invalid_intermediate_file() {
+        let root = startup_test_dir("auto-invalid-intermediate");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(
+            &path,
+            "return { automatically_reload_config = true, term = 'good-one' }",
+        )
+        .unwrap();
+        let configured = super::configured_startup_app_for_test(
+            &startup_test_options(WindowConfigOptions {
+                skip_config: false,
+                config_file: Some(path.clone()),
+                config_overrides: Vec::new(),
+            }),
+            startup_test_discovery(),
+        )
+        .unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        manager
+            .install_config_watcher_for_test(Duration::from_millis(1), Arc::new(|| true))
+            .unwrap();
+        let callbacks = Arc::new(AtomicUsize::new(0));
+        {
+            let callbacks = Arc::clone(&callbacks);
+            manager.primary_app_mut_for_test().config_reloaded_handler = Box::new(move |_| {
+                callbacks.fetch_add(1, Ordering::Relaxed);
+                true
+            });
+        }
+
+        std::fs::write(&path, "return dynamic_config").unwrap();
+        assert!(manager.handle_manager_user_event(&WindowUserEvent::ConfigFileChanged));
+        assert_eq!(manager.config_generation_for_test(), Some(1));
+        assert_eq!(manager.primary_app_mut_for_test().term, "good-one");
+        assert!(
+            manager
+                .config_lifecycle
+                .as_ref()
+                .unwrap()
+                .latest_diagnostic()
+                .is_some()
+        );
+        assert_eq!(callbacks.load(Ordering::Relaxed), 1);
+        assert!(manager.config_watcher_exists_for_test());
+
+        std::fs::write(
+            &path,
+            "return { automatically_reload_config = true, term = 'good-two' }",
+        )
+        .unwrap();
+        assert!(manager.handle_manager_user_event(&WindowUserEvent::ConfigFileChanged));
+        assert_eq!(manager.config_generation_for_test(), Some(2));
+        assert_eq!(manager.primary_app_mut_for_test().term, "good-two");
+        assert!(
+            manager
+                .config_lifecycle
+                .as_ref()
+                .unwrap()
+                .latest_diagnostic()
+                .is_none()
+        );
+        assert_eq!(callbacks.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn automatic_reload_atomic_replace_rediscovers_non_home_source() {
+        let root = startup_test_dir("auto-atomic-replace");
+        let config_dir = root.0.join("config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let path = config_dir.join("wezterm.lua");
+        std::fs::write(
+            &path,
+            "return { automatically_reload_config = true, term = 'before' }",
+        )
+        .unwrap();
+        let configured = super::configured_startup_app_for_test(
+            &startup_test_options(WindowConfigOptions {
+                skip_config: false,
+                config_file: Some(path.clone()),
+                config_overrides: Vec::new(),
+            }),
+            ConfigDiscoveryInputs {
+                home_dir: Some(root.0.join("home")),
+                ..startup_test_discovery()
+            },
+        )
+        .unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        manager
+            .install_config_watcher_for_test(Duration::from_millis(1), Arc::new(|| true))
+            .unwrap();
+        let watched = manager.watched_config_paths_for_test();
+        assert!(watched.contains(&path));
+        assert!(watched.contains(&config_dir));
+
+        let replacement = config_dir.join("wezterm.lua.replacement");
+        std::fs::write(
+            &replacement,
+            "return { automatically_reload_config = true, term = 'after' }",
+        )
+        .unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        assert!(manager.handle_manager_user_event(&WindowUserEvent::ConfigFileChanged));
+
+        assert_eq!(manager.config_generation_for_test(), Some(2));
+        assert_eq!(manager.primary_app_mut_for_test().term, "after");
+        assert_eq!(
+            manager
+                .primary_app_mut_for_test()
+                .base_config_source
+                .as_ref(),
+            Some(&path)
+        );
+    }
+
+    #[test]
+    fn disabled_generation_does_not_add_new_watch_paths_but_existing_watch_remains() {
+        let root = startup_test_dir("auto-disabled-new-source");
+        let home = root.0.join("home");
+        let xdg = root.0.join("xdg");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(xdg.join("wezterm")).unwrap();
+        let home_file = home.join(".wezterm.lua");
+        let xdg_file = xdg.join("wezterm/wezterm.lua");
+        std::fs::write(
+            &home_file,
+            "return { automatically_reload_config = true, term = 'home' }",
+        )
+        .unwrap();
+        let configured = super::configured_startup_app_for_test(
+            &startup_test_options(WindowConfigOptions {
+                skip_config: false,
+                config_file: None,
+                config_overrides: Vec::new(),
+            }),
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: false,
+                current_exe: None,
+                home_dir: Some(home.clone()),
+                xdg_config_home: Some(xdg.clone()),
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+        )
+        .unwrap();
+        let mut manager = NativeWindowManager::new_for_test(configured.app)
+            .with_config_lifecycle(configured.lifecycle);
+        manager
+            .install_config_watcher_for_test(Duration::from_millis(1), Arc::new(|| true))
+            .unwrap();
+        let watched_before = manager.watched_config_paths_for_test();
+        assert_eq!(watched_before, [home_file.clone()].into_iter().collect());
+
+        std::fs::remove_file(&home_file).unwrap();
+        std::fs::write(
+            &xdg_file,
+            "return { automatically_reload_config = false, term = 'xdg-disabled' }",
+        )
+        .unwrap();
+        assert!(manager.handle_manager_user_event(&WindowUserEvent::ConfigFileChanged));
+
+        assert_eq!(manager.config_generation_for_test(), Some(2));
+        assert_eq!(manager.primary_app_mut_for_test().term, "xdg-disabled");
+        assert!(manager.config_watcher_exists_for_test());
+        assert_eq!(
+            manager.watched_config_paths_for_test(),
+            watched_before,
+            "disabled base generation retains the watcher but adds no new path"
+        );
+        assert!(!manager.watched_config_paths_for_test().contains(&xdg_file));
     }
 
     #[test]

@@ -1,8 +1,227 @@
 #![allow(dead_code)]
 
-use std::{collections::BTreeMap, ffi::OsString, fmt, fs, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ffi::OsString,
+    fmt, fs,
+    path::PathBuf,
+    sync::{Arc, Mutex, mpsc},
+    thread,
+    time::{Duration, Instant},
+};
+
+use notify::{Event, EventKind, RecommendedWatcher, Watcher};
 
 use crate::window::NativeConfigOverrides;
+
+const CONFIG_WATCH_DEBOUNCE: Duration = Duration::from_millis(200);
+
+pub(crate) type ConfigFileChangedSink = Arc<dyn Fn() -> bool + Send + Sync + 'static>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NativeConfigWatchDiagnostic {
+    pub(crate) path: Option<PathBuf>,
+    pub(crate) detail: String,
+}
+
+enum NativeConfigWatcherMessage {
+    Notify(notify::Result<Event>),
+    Stop(mpsc::Sender<()>),
+}
+
+pub(crate) struct NativeConfigWatcher {
+    watcher: Option<RecommendedWatcher>,
+    worker_sender: Option<mpsc::Sender<NativeConfigWatcherMessage>>,
+    worker: Option<thread::JoinHandle<()>>,
+    watched_paths: BTreeSet<PathBuf>,
+    diagnostics: Arc<Mutex<Vec<NativeConfigWatchDiagnostic>>>,
+}
+
+struct NativeConfigWatcherOptions {
+    debounce: Duration,
+    event_sink: ConfigFileChangedSink,
+    worker_stopped: Option<mpsc::Sender<()>>,
+}
+
+impl NativeConfigWatcher {
+    fn new(
+        debounce: Duration,
+        event_sink: ConfigFileChangedSink,
+        worker_stopped: Option<mpsc::Sender<()>>,
+    ) -> notify::Result<Self> {
+        let (worker_sender, worker_receiver) = mpsc::channel();
+        let callback_sender = worker_sender.clone();
+        let watcher = notify::recommended_watcher(move |event| {
+            let _ = callback_sender.send(NativeConfigWatcherMessage::Notify(event));
+        })?;
+        let diagnostics = Arc::new(Mutex::new(Vec::new()));
+        let worker_diagnostics = Arc::clone(&diagnostics);
+        let worker = thread::Builder::new()
+            .name("rssh-config-watcher".to_owned())
+            .spawn(move || {
+                run_config_watcher_worker(
+                    worker_receiver,
+                    debounce,
+                    event_sink,
+                    &worker_diagnostics,
+                );
+                if let Some(worker_stopped) = worker_stopped {
+                    let _ = worker_stopped.send(());
+                }
+            })
+            .map_err(notify::Error::io)?;
+        Ok(Self {
+            watcher: Some(watcher),
+            worker_sender: Some(worker_sender),
+            worker: Some(worker),
+            watched_paths: BTreeSet::new(),
+            diagnostics,
+        })
+    }
+
+    #[cfg(test)]
+    fn new_for_test(
+        debounce: Duration,
+        event_sink: ConfigFileChangedSink,
+        worker_stopped: Option<mpsc::Sender<()>>,
+    ) -> notify::Result<Self> {
+        Self::new(debounce, event_sink, worker_stopped)
+    }
+
+    #[cfg(test)]
+    fn enqueue_relevant_event_for_test(&mut self) {
+        let event = Event::new(EventKind::Modify(notify::event::ModifyKind::Any));
+        self.enqueue_notify_event_for_test(event);
+    }
+
+    #[cfg(test)]
+    fn enqueue_notify_event_for_test(&mut self, event: Event) {
+        self.worker_sender
+            .as_ref()
+            .expect("live test watcher has a sender")
+            .send(NativeConfigWatcherMessage::Notify(Ok(event)))
+            .expect("live test watcher has a worker");
+    }
+
+    fn watch_path(&mut self, path: PathBuf) {
+        if self.watched_paths.contains(&path) {
+            return;
+        }
+        let Some(watcher) = self.watcher.as_mut() else {
+            self.diagnostics
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(NativeConfigWatchDiagnostic {
+                    path: Some(path),
+                    detail: "watch registration attempted after watcher shutdown".to_owned(),
+                });
+            return;
+        };
+        match watcher.watch(&path, notify::RecursiveMode::NonRecursive) {
+            Ok(()) => {
+                self.watched_paths.insert(path);
+            }
+            Err(error) => {
+                self.diagnostics
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(NativeConfigWatchDiagnostic {
+                        path: Some(path),
+                        detail: error.to_string(),
+                    });
+            }
+        }
+    }
+}
+
+impl Drop for NativeConfigWatcher {
+    fn drop(&mut self) {
+        self.watcher.take();
+        if let Some(sender) = self.worker_sender.take() {
+            let (stopped_sender, stopped_receiver) = mpsc::channel();
+            if sender
+                .send(NativeConfigWatcherMessage::Stop(stopped_sender))
+                .is_ok()
+            {
+                let _ = stopped_receiver.recv_timeout(Duration::from_secs(5));
+            }
+        }
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn run_config_watcher_worker(
+    receiver: mpsc::Receiver<NativeConfigWatcherMessage>,
+    debounce: Duration,
+    event_sink: ConfigFileChangedSink,
+    diagnostics: &Mutex<Vec<NativeConfigWatchDiagnostic>>,
+) {
+    'worker: while let Ok(message) = receiver.recv() {
+        let relevant = match message {
+            NativeConfigWatcherMessage::Notify(Ok(event)) => {
+                matches!(
+                    event.kind,
+                    EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+                )
+            }
+            NativeConfigWatcherMessage::Notify(Err(error)) => {
+                diagnostics
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(NativeConfigWatchDiagnostic {
+                        path: error.paths.first().cloned(),
+                        detail: error.to_string(),
+                    });
+                false
+            }
+            NativeConfigWatcherMessage::Stop(stopped) => {
+                let _ = stopped.send(());
+                break;
+            }
+        };
+        if !relevant {
+            continue;
+        }
+
+        let deadline = Instant::now() + debounce;
+        let mut stop = None;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match receiver.recv_timeout(remaining) {
+                Ok(NativeConfigWatcherMessage::Notify(Ok(event))) => {
+                    let _ = matches!(
+                        event.kind,
+                        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+                    );
+                }
+                Ok(NativeConfigWatcherMessage::Notify(Err(error))) => {
+                    diagnostics
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .push(NativeConfigWatchDiagnostic {
+                            path: error.paths.first().cloned(),
+                            detail: error.to_string(),
+                        });
+                }
+                Ok(NativeConfigWatcherMessage::Stop(stopped)) => {
+                    stop = Some(stopped);
+                    break;
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => break,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break 'worker,
+            }
+        }
+        if let Some(stopped) = stop {
+            let _ = stopped.send(());
+            break;
+        }
+        let _ = event_sink();
+    }
+    drop(receiver);
+    drop(event_sink);
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ConfigDiscoveryInputs {
@@ -130,6 +349,9 @@ pub(crate) struct NativeConfigLifecycle {
     effective: EffectiveNativeConfig,
     latest_diagnostic: Option<NativeConfigSourceError>,
     latest_selection: ResolvedConfigSource,
+    watcher: Option<NativeConfigWatcher>,
+    watcher_options: Option<NativeConfigWatcherOptions>,
+    watcher_initialization_diagnostic: Option<NativeConfigWatchDiagnostic>,
 }
 
 impl NativeConfigLifecycle {
@@ -152,6 +374,9 @@ impl NativeConfigLifecycle {
             },
             latest_diagnostic: None,
             latest_selection: ResolvedConfigSource::Defaults,
+            watcher: None,
+            watcher_options: None,
+            watcher_initialization_diagnostic: None,
         }
     }
 
@@ -237,11 +462,12 @@ impl NativeConfigLifecycle {
                 self.latest_diagnostic = Some(error);
             }
         }
+        self.refresh_watched_paths();
     }
 
     pub(crate) fn install_runtime_attempt(&mut self, attempt: NativeConfigLoadAttempt) -> bool {
         self.latest_selection = attempt.resolved.clone();
-        match attempt.result {
+        let succeeded = match attempt.result {
             Ok(overrides) => {
                 self.effective = EffectiveNativeConfig {
                     source: match &attempt.resolved {
@@ -263,7 +489,151 @@ impl NativeConfigLifecycle {
                 self.latest_diagnostic = Some(error);
                 false
             }
+        };
+        self.refresh_watched_paths();
+        succeeded
+    }
+
+    pub(crate) fn install_watcher_sink(
+        &mut self,
+        event_sink: ConfigFileChangedSink,
+    ) -> Result<(), NativeConfigWatchDiagnostic> {
+        self.install_watcher_sink_with_options(CONFIG_WATCH_DEBOUNCE, event_sink, None)
+    }
+
+    pub(crate) fn watch_diagnostics(&self) -> Vec<NativeConfigWatchDiagnostic> {
+        let mut diagnostics = self
+            .watcher_initialization_diagnostic
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        if let Some(watcher) = &self.watcher {
+            diagnostics.extend(
+                watcher
+                    .diagnostics
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .iter()
+                    .cloned(),
+            );
         }
+        diagnostics
+    }
+
+    fn install_watcher_sink_with_options(
+        &mut self,
+        debounce: Duration,
+        event_sink: ConfigFileChangedSink,
+        worker_stopped: Option<mpsc::Sender<()>>,
+    ) -> Result<(), NativeConfigWatchDiagnostic> {
+        if self.watcher.is_some() || self.watcher_options.is_some() {
+            return Ok(());
+        }
+        self.watcher_options = Some(NativeConfigWatcherOptions {
+            debounce,
+            event_sink,
+            worker_stopped,
+        });
+        self.refresh_watched_paths();
+        if let Some(diagnostic) = self.watcher_initialization_diagnostic.clone() {
+            Err(diagnostic)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn refresh_watched_paths(&mut self) {
+        let enabled = if self.effective.generation == 0 {
+            self.cli
+                .default_overrides()
+                .automatically_reload_config
+                .unwrap_or(true)
+        } else {
+            self.effective
+                .overrides
+                .automatically_reload_config
+                .unwrap_or(true)
+        };
+        if !enabled {
+            return;
+        }
+        let ResolvedConfigSource::File(source) = &self.latest_selection else {
+            return;
+        };
+        let path = source.path.clone();
+        let parent = path.parent().map(std::path::Path::to_path_buf);
+        let home = self.inputs.home_dir.clone();
+        if self.watcher.is_none() {
+            let Some(options) = self.watcher_options.as_ref() else {
+                return;
+            };
+            match NativeConfigWatcher::new(
+                options.debounce,
+                Arc::clone(&options.event_sink),
+                options.worker_stopped.clone(),
+            ) {
+                Ok(watcher) => {
+                    self.watcher = Some(watcher);
+                    self.watcher_initialization_diagnostic = None;
+                }
+                Err(error) => {
+                    self.watcher_initialization_diagnostic = Some(NativeConfigWatchDiagnostic {
+                        path: None,
+                        detail: error.to_string(),
+                    });
+                    return;
+                }
+            }
+        }
+        let Some(watcher) = self.watcher.as_mut() else {
+            return;
+        };
+        watcher.watch_path(path);
+        if let Some(parent) = parent
+            && !home
+                .as_deref()
+                .is_some_and(|home| paths_refer_to_same_directory(home, &parent))
+        {
+            watcher.watch_path(parent);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_watcher_sink_for_test(
+        &mut self,
+        debounce: Duration,
+        event_sink: ConfigFileChangedSink,
+        worker_stopped: Option<mpsc::Sender<()>>,
+    ) -> Result<(), NativeConfigWatchDiagnostic> {
+        self.install_watcher_sink_with_options(debounce, event_sink, worker_stopped)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn watched_paths_for_test(&self) -> BTreeSet<PathBuf> {
+        self.watcher
+            .as_ref()
+            .map_or_else(BTreeSet::new, |watcher| watcher.watched_paths.clone())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn watcher_exists_for_test(&self) -> bool {
+        self.watcher.is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn enqueue_watcher_relevant_burst_for_test(&mut self, count: usize) {
+        let watcher = self
+            .watcher
+            .as_mut()
+            .expect("test lifecycle should own an active watcher");
+        for _ in 0..count {
+            watcher.enqueue_relevant_event_for_test();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn watch_diagnostics_for_test(&self) -> Vec<NativeConfigWatchDiagnostic> {
+        self.watch_diagnostics()
     }
 
     fn candidate_sources(&self) -> Vec<ConfigSource> {
@@ -337,6 +707,13 @@ impl NativeConfigLifecycle {
         }
 
         candidates
+    }
+}
+
+fn paths_refer_to_same_directory(left: &std::path::Path, right: &std::path::Path) -> bool {
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
     }
 }
 
@@ -1745,7 +2122,12 @@ mod tests {
         fs,
         ops::Deref,
         path::{Path, PathBuf},
-        sync::atomic::{AtomicU64, Ordering},
+        sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+            mpsc,
+        },
+        time::Duration,
     };
 
     struct TestDir(PathBuf);
@@ -1773,6 +2155,347 @@ mod tests {
         ));
         fs::create_dir_all(&path).unwrap();
         TestDir(path)
+    }
+
+    #[test]
+    fn watcher_coalesces_modify_burst_into_one_reload_event() {
+        let (event_sender, event_receiver) = mpsc::channel();
+        let mut watcher = NativeConfigWatcher::new_for_test(
+            Duration::from_millis(10),
+            Arc::new(move || event_sender.send(()).is_ok()),
+            None,
+        )
+        .unwrap();
+
+        for _ in 0..3 {
+            watcher.enqueue_relevant_event_for_test();
+        }
+
+        event_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("one debounced reload event");
+        assert!(
+            event_receiver
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "one burst must not enqueue more than one reload"
+        );
+    }
+
+    #[test]
+    fn watcher_accepts_create_modify_remove_and_ignores_other_kinds() {
+        use notify::event::{AccessKind, CreateKind, ModifyKind, RemoveKind, RenameMode};
+
+        let (event_sender, event_receiver) = mpsc::channel();
+        let mut watcher = NativeConfigWatcher::new_for_test(
+            Duration::from_millis(1),
+            Arc::new(move || event_sender.send(()).is_ok()),
+            None,
+        )
+        .unwrap();
+        let relevant = [
+            Event::new(EventKind::Create(CreateKind::File)),
+            Event::new(EventKind::Modify(ModifyKind::Data(
+                notify::event::DataChange::Content,
+            ))),
+            Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both))),
+            Event::new(EventKind::Remove(RemoveKind::File)),
+        ];
+        for event in relevant {
+            watcher.enqueue_notify_event_for_test(event);
+            event_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("create/modify/rename/remove should enqueue reload");
+        }
+
+        watcher.enqueue_notify_event_for_test(Event::new(EventKind::Access(AccessKind::Read)));
+        watcher.enqueue_notify_event_for_test(Event::new(EventKind::Other));
+        assert!(
+            event_receiver
+                .recv_timeout(Duration::from_millis(30))
+                .is_err(),
+            "access and other events must be ignored"
+        );
+    }
+
+    #[test]
+    fn watcher_watches_attempted_invalid_source_and_parent() {
+        let root = unique_temp_dir("watch-invalid-source");
+        let config_dir = root.join("config");
+        fs::create_dir_all(&config_dir).unwrap();
+        let path = config_dir.join("wezterm.lua");
+        fs::write(&path, "return dynamic_config").unwrap();
+        let mut lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: false,
+                current_exe: None,
+                home_dir: Some(root.join("home")),
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            Some(path.clone()),
+            ValidatedNativeConfigAssignments::default(),
+        );
+        let attempt = lifecycle.attempt_reload();
+        lifecycle.install_initial_attempt(attempt);
+        assert_eq!(lifecycle.effective().generation, 0);
+
+        lifecycle
+            .install_watcher_sink_for_test(Duration::from_millis(1), Arc::new(|| true), None)
+            .unwrap();
+
+        let watched = lifecycle.watched_paths_for_test();
+        assert!(watched.contains(&path));
+        assert!(watched.contains(&config_dir));
+    }
+
+    #[test]
+    fn watcher_skips_home_parent_but_watches_home_file() {
+        let root = unique_temp_dir("watch-home-source");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let path = home.join(".wezterm.lua");
+        fs::write(&path, "return { automatically_reload_config = true }").unwrap();
+        let mut lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: false,
+                current_exe: None,
+                home_dir: Some(home.clone()),
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            None,
+            ValidatedNativeConfigAssignments::default(),
+        );
+        let attempt = lifecycle.attempt_reload();
+        lifecycle.install_initial_attempt(attempt);
+
+        lifecycle
+            .install_watcher_sink_for_test(Duration::from_millis(1), Arc::new(|| true), None)
+            .unwrap();
+
+        let watched = lifecycle.watched_paths_for_test();
+        assert!(watched.contains(&path));
+        assert!(
+            !watched.contains(&home),
+            "the user's home directory is intentionally too noisy to watch"
+        );
+    }
+
+    #[test]
+    fn watcher_is_created_lazily_only_for_enabled_attempted_source() {
+        let mut lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: false,
+                current_exe: None,
+                home_dir: None,
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            None,
+            ValidatedNativeConfigAssignments::default(),
+        );
+        let attempt = lifecycle.attempt_reload();
+        lifecycle.install_initial_attempt(attempt);
+
+        lifecycle
+            .install_watcher_sink_for_test(Duration::from_millis(1), Arc::new(|| true), None)
+            .unwrap();
+
+        assert!(!lifecycle.watcher_exists_for_test());
+    }
+
+    #[test]
+    fn failed_initial_attempt_uses_cli_only_auto_reload_policy() {
+        let root = unique_temp_dir("watch-initial-cli-policy");
+        let path = root.join("wezterm.lua");
+        fs::write(&path, "return dynamic_config").unwrap();
+        let lifecycle_with_cli = |enabled: bool| {
+            let cli = validate_cli_config_overrides(&[(
+                "automatically_reload_config".to_owned(),
+                enabled.to_string(),
+            )])
+            .unwrap();
+            let mut lifecycle = NativeConfigLifecycle::new(
+                ConfigDiscoveryInputs {
+                    is_windows: false,
+                    is_unix: false,
+                    current_exe: None,
+                    home_dir: None,
+                    xdg_config_home: None,
+                    xdg_config_dirs: Vec::new(),
+                    environment_config_file: None,
+                },
+                false,
+                Some(path.clone()),
+                cli,
+            );
+            let attempt = lifecycle.attempt_reload();
+            lifecycle.install_initial_attempt(attempt);
+            assert_eq!(lifecycle.effective().generation, 0);
+            lifecycle
+        };
+
+        let mut disabled = lifecycle_with_cli(false);
+        disabled
+            .install_watcher_sink_for_test(Duration::from_millis(1), Arc::new(|| true), None)
+            .unwrap();
+        assert!(!disabled.watcher_exists_for_test());
+
+        let mut enabled = lifecycle_with_cli(true);
+        enabled
+            .install_watcher_sink_for_test(Duration::from_millis(1), Arc::new(|| true), None)
+            .unwrap();
+        assert!(enabled.watcher_exists_for_test());
+        assert!(enabled.watched_paths_for_test().contains(&path));
+    }
+
+    #[test]
+    fn watch_paths_accumulate_across_rediscovery() {
+        let root = unique_temp_dir("watch-rediscovery");
+        let home = root.join("home");
+        let xdg = root.join("xdg");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(xdg.join("wezterm")).unwrap();
+        let home_file = home.join(".wezterm.lua");
+        let xdg_file = xdg.join("wezterm/wezterm.lua");
+        fs::write(&home_file, "return { automatically_reload_config = true }").unwrap();
+        let mut lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: false,
+                current_exe: None,
+                home_dir: Some(home.clone()),
+                xdg_config_home: Some(xdg.clone()),
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            None,
+            ValidatedNativeConfigAssignments::default(),
+        );
+        let attempt = lifecycle.attempt_reload();
+        lifecycle.install_initial_attempt(attempt);
+        lifecycle
+            .install_watcher_sink_for_test(Duration::from_millis(1), Arc::new(|| true), None)
+            .unwrap();
+
+        fs::remove_file(&home_file).unwrap();
+        fs::write(&xdg_file, "return { automatically_reload_config = true }").unwrap();
+        let attempt = lifecycle.attempt_reload();
+        assert!(lifecycle.install_runtime_attempt(attempt));
+
+        let watched = lifecycle.watched_paths_for_test();
+        assert!(watched.contains(&home_file));
+        assert!(watched.contains(&xdg_file));
+        assert!(watched.contains(&xdg.join("wezterm")));
+    }
+
+    #[test]
+    fn watcher_remains_after_later_config_disables_auto_reload() {
+        let root = unique_temp_dir("watch-retained-after-disable");
+        let config_dir = root.join("config");
+        fs::create_dir_all(&config_dir).unwrap();
+        let path = config_dir.join("wezterm.lua");
+        fs::write(
+            &path,
+            "return { automatically_reload_config = true, term = 'enabled' }",
+        )
+        .unwrap();
+        let mut lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: false,
+                current_exe: None,
+                home_dir: Some(root.join("home")),
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            Some(path.clone()),
+            ValidatedNativeConfigAssignments::default(),
+        );
+        let attempt = lifecycle.attempt_reload();
+        lifecycle.install_initial_attempt(attempt);
+        lifecycle
+            .install_watcher_sink_for_test(Duration::from_millis(1), Arc::new(|| true), None)
+            .unwrap();
+        let watched_before = lifecycle.watched_paths_for_test();
+
+        fs::write(
+            &path,
+            "return { automatically_reload_config = false, term = 'disabled' }",
+        )
+        .unwrap();
+        let attempt = lifecycle.attempt_reload();
+        assert!(lifecycle.install_runtime_attempt(attempt));
+
+        assert!(lifecycle.watcher_exists_for_test());
+        assert_eq!(lifecycle.watched_paths_for_test(), watched_before);
+    }
+
+    #[test]
+    fn dropping_watcher_stops_and_joins_worker() {
+        let (stopped_sender, stopped_receiver) = mpsc::channel();
+        let watcher = NativeConfigWatcher::new_for_test(
+            Duration::from_millis(1),
+            Arc::new(|| true),
+            Some(stopped_sender),
+        )
+        .unwrap();
+
+        drop(watcher);
+
+        stopped_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("drop must receive the worker's explicit stopped acknowledgement");
+    }
+
+    #[test]
+    fn watch_registration_error_is_diagnostic_and_preserves_lkg() {
+        let root = unique_temp_dir("watch-registration-error");
+        let missing = root.join("missing.lua");
+        let mut lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: false,
+                current_exe: None,
+                home_dir: None,
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            Some(missing.clone()),
+            ValidatedNativeConfigAssignments::default(),
+        );
+        let attempt = lifecycle.attempt_reload();
+        lifecycle.install_initial_attempt(attempt);
+        assert_eq!(lifecycle.effective().generation, 0);
+
+        lifecycle
+            .install_watcher_sink_for_test(Duration::from_millis(1), Arc::new(|| true), None)
+            .unwrap();
+
+        assert!(
+            lifecycle
+                .watch_diagnostics_for_test()
+                .iter()
+                .any(|diagnostic| diagnostic.path.as_ref() == Some(&missing)),
+            "failed file watch registration must remain observable"
+        );
+        assert_eq!(lifecycle.effective().generation, 0);
+        assert!(lifecycle.latest_diagnostic().is_some());
     }
 
     #[test]

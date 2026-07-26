@@ -10,6 +10,7 @@ version.workspace = true
 arboard = "3"
 base64 = "0.22"
 crossterm = "0.29"
+notify = "8"
 pixels = "0.15"
 regex = "1"
 rpassword = "7"
