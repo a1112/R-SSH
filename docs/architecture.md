@@ -816,7 +816,8 @@ keyboard, mouse, paste, resize
   through a top-level static `local <alias> = wezterm.emit` and callback-local or
   top-level static string event-name variables, re-enter matching static
   handlers. Static `return false` stops later static handlers for that event.
-  Arbitrary Lua `wezterm.on`/`wezterm.emit` wiring remains future parity work.
+  Bounded-static `wezterm.on`/`wezterm.emit` wiring is implemented in v1; arbitrary
+  Lua event execution remains future parity work.
 - Completed in v1: native WezTerm-style `ActivateKeyTable`, `PopKeyTable`, and
   `ClearKeyTableStack` action payloads maintain a per-window key-table
   activation stack, expose the active table in native window status and the
@@ -1040,7 +1041,8 @@ keyboard, mouse, paste, resize
   `Alt+Enter` shortcut and command-palette `Toggle Full Screen` entry through
   the native window fullscreen state, then dispatches the typed resize hook
   with fullscreen dimension metadata. Action-name `togglefullscreen` queries
-  dispatch the same command. Lua event wiring remains future parity work.
+  dispatch the same command. Arbitrary Lua callback execution beyond this bounded
+  static surface remains future parity work.
 - Completed in v1: WezTerm-style `StartWindowDrag` routes command-palette
   dispatch plus the default `SUPER` + left drag and `CTRL|SHIFT` + left drag
   bindings to the native drag-to-move request path, calling the platform
@@ -1657,8 +1659,9 @@ keyboard, mouse, paste, resize
   execution flow using the implemented `WindowCommand` action subset, with
   optional `doc` text and known Nerd Font `icon` names, including the official
   `md_rename_box`, `fa_clock_o`, and `cod_github` examples, shown in the visible
-  candidate row. Lua event wiring, arbitrary Lua callbacks, the full Nerd Font
-  icon catalog, and the full WezTerm action surface remain future parity work.
+  candidate row. Bounded-static event callbacks are implemented; arbitrary Lua
+  callbacks, the full Nerd Font icon catalog, and the full WezTerm action surface
+  remain future parity work.
 - Implemented in v1: native WezTerm-style `Multiple` action payloads can
   sequence implemented `WindowCommand` values, applying each command in order
   and stopping on the first failure. Structured `multiple <command> ; <command>`
@@ -1906,17 +1909,19 @@ keyboard, mouse, paste, resize
   pinned to WezTerm `093bf6b`, including alpha-bearing selection colors, all 16
   ANSI colors, and every indexed color from 16 through 255. Arguments,
   expression tails, dynamic keys or rebinding, escaped identities, and
-  arbitrary Lua execution remain unsupported. Lua event wiring and richer
+  arbitrary Lua execution remain unsupported. Arbitrary Lua event execution and richer
   dynamic `load_scheme` composition remain future parity work.
 - Implemented in v1: native window focus changes still write CSI focus-reporting
   sequences to the PTY when requested and now dispatch a typed focus-change hook
   with the window id, active pane id, and focused/unfocused state. Lua event
-  wiring remains future parity work.
+  wiring on static event names is implemented; arbitrary Lua event execution
+  remains future parity work.
 - Implemented in v1: successful native window resizes and fullscreen/windowed
   transitions dispatch a typed resize hook with the window id, active pane id,
   pixel size, terminal rows/columns, and `is_full_screen` state so native
   handlers receive the fullscreen dimension metadata exposed by WezTerm's
-  window dimensions APIs. Lua event wiring remains future parity work.
+  window dimensions APIs. Static event wiring is implemented; arbitrary Lua
+  event execution remains future parity work.
 - Implemented in v1: command-palette `ReloadConfiguration` and the default
   `Ctrl+Shift+R` shortcut dispatch a typed native `window-config-reloaded` hook
   with the window id and active pane id.
@@ -1995,7 +2000,8 @@ keyboard, mouse, paste, resize
   unless this option is `true`, in which case it uses native macOS fullscreen.
   `macos_fullscreen_extend_behind_notch` is retained with WezTerm's default
   `false` and only affects the macOS simple-fullscreen request path.
-  Lua event wiring, full WezTerm-style configuration error window UI,
+  Bounded-static event wiring plus command and focus hooks are implemented. Full
+  WezTerm-style configuration error window UI,
   arbitrary Lua config execution, dependency/helper-file watching, Lua
   `window:set_config_overrides` wiring, and broader registry coverage remain
   future parity work.
@@ -2003,9 +2009,9 @@ keyboard, mouse, paste, resize
   `augment-command-palette` hook with the window id and active pane id. Returned
   entries can add native `WindowCommand` actions to the same fuzzy-filtered
   palette list, and optional entry `doc` text plus known Nerd Font `icon` names
-  are rendered alongside the brief label. Lua event wiring, arbitrary Lua
-  callbacks, full Nerd Font icon catalog coverage, and full action-value parity
-  remain future work.
+  are rendered alongside the brief label. Bounded-static event callbacks are
+  implemented; arbitrary Lua callbacks, full Nerd Font icon catalog coverage, and
+  full action-value parity remain future work.
 - Implemented in v1: native tab bar title rendering now passes the computed
   default title, tab id, active pane id, tab index, tab count, active-tab pane
   count, active state, and last-active state through a typed `format-tab-title`
@@ -2456,7 +2462,8 @@ keyboard, mouse, paste, resize
   literal returns can suppress the default opener, and the documented
   `uri:find 'mailto:'` branch can spawn `SpawnCommandInNewWindow { args = {
   'mutt', recipient } }`, deriving `recipient` from `uri:sub(match_end + 1)`,
-  before returning `false`. Lua event wiring remains future parity work.
+  before returning `false`. Bounded-static `wezterm.on` event callbacks are
+  implemented; arbitrary Lua event execution remains future parity work.
 - Implemented in v1: command-palette Reset Terminal injects RIS (`ESC c`) into
   the active pane output side, matching WezTerm-style `ResetTerminal`.
   Action-name `resetterminal` queries dispatch the same command.

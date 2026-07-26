@@ -1370,10 +1370,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `local <alias> = require('wezterm').emit` alias whose dotted helper path may
   contain Lua comments, callback-local aliases assigned from `window` or
   `pane`, and callback-local or top-level static string event-name variables,
-  and static
-  `return false` stops later static handlers
-  for that event. Arbitrary Lua `wezterm.on`/`wezterm.emit` wiring remains
-  open.
+  and static `return false` stops later static handlers
+  for that event. Bounded-static `wezterm.on`/`wezterm.emit` wiring is
+  implemented; arbitrary Lua event execution remains open.
 - Native `ActivateKeyTable`, `PopKeyTable`, and `ClearKeyTableStack` action
   payloads now maintain a per-window key-table activation stack and show the
   active table in native window status and title-formatting snapshots; reload

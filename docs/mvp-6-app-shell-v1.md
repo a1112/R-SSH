@@ -1120,8 +1120,9 @@ runtime storage for tabs and split panes.
   `WindowCommand` action, participate in the same fuzzy filtering, palette
   status, selection, and execution flow, and render optional `doc` text plus
   known Nerd Font `icon` names including `md_rename_box`, `fa_clock_o`, and
-  `cod_github` beside the brief label. Lua event wiring, arbitrary Lua
-  callbacks, full Nerd Font icon catalog coverage, exact WezTerm frecency, and
+  `cod_github` beside the brief label. Bounded-static Lua event wiring,
+  arbitrary Lua callbacks, full Nerd Font icon catalog coverage, exact WezTerm
+  frecency, and
   full WezTerm action-value parity remain later work.
 - `rssh-app` exposes a native WezTerm-style `Multiple` action payload for the
   implemented `WindowCommand` subset. It executes commands in order and stops on
@@ -1588,18 +1589,18 @@ runtime storage for tabs and split panes.
   The palette is pinned to WezTerm `093bf6b`, including alpha-bearing selection
   colors, all 16 ANSI colors, and indexed colors 16 through 255. Arguments,
   expression tails, dynamic keys or rebinding, escaped identities, arbitrary
-  Lua execution, Lua event wiring, and richer dynamic `load_scheme`
-  composition remain later parity work.
+  Lua execution, and richer dynamic `load_scheme` composition remain later
+  parity work.
 - `rssh-app` preserves CSI focus-reporting writes on window focus changes and
   dispatches a typed native-window focus-change hook with the window id, active
-  pane id, and focused/unfocused state. Lua event wiring remains later parity
-  work.
+  pane id, and focused/unfocused state. Static event hooks are implemented;
+  arbitrary Lua event execution remains later parity work.
 - `rssh-app` dispatches a typed native-window resize hook after successful
   terminal/runtime resize and fullscreen/windowed transitions, carrying the
   window id, active pane id, pixel size, terminal rows/columns, and
   `is_full_screen` state so native handlers receive the fullscreen dimension
-  metadata exposed by WezTerm's window dimensions APIs. Lua event wiring
-  remains later parity work.
+  metadata exposed by WezTerm's window dimensions APIs. Static event hooks are
+  implemented; arbitrary Lua event execution remains later parity work.
 - `rssh-app` dispatches a typed native-window `window-config-reloaded` hook for
   command-palette `ReloadConfiguration` and the default `Ctrl+Shift+R`
   shortcut, carrying the window id and active pane id. A typed native
@@ -1670,9 +1671,9 @@ runtime storage for tabs and split panes.
   `md_rename_box`, `fa_clock_o`, and `cod_github`, are rendered beside the brief
   label. Executed command labels update in-memory and persisted
   JSON frecency so empty queries and equal-score fuzzy matches can prefer
-  higher-use and more-recent entries across app instances. Lua event wiring,
-  arbitrary Lua callbacks, full Nerd Font icon catalog coverage, and full
-  action-value parity remain later work.
+  higher-use and more-recent entries across app instances. Bounded-static event
+  callbacks are implemented; arbitrary Lua callbacks, full Nerd Font icon catalog
+  coverage, and full action-value parity remain later work.
 - `rssh-app` dispatches a typed native-window `format-tab-title` hook when
   rendering tab bar labels. The event carries the computed default title, tab
   id, active pane id, tab index, tab count, active-tab pane count, and active
@@ -2092,8 +2093,8 @@ runtime storage for tabs and split panes.
   event payload, while Right/Middle clicks have no default action; returning
   `false` suppresses any default action. The documented static callback shape
   that calls `window:perform_action(default_action, pane)` before returning
-  `false` runs that native default action exactly once. Lua event wiring remains
-  later parity work.
+  `false` runs that native default action exactly once. Static event hooks are
+  implemented; arbitrary Lua event execution remains later parity work.
 - `rssh-app` dispatches a typed native-window open-uri hook for ctrl-clicked OSC
   8 hyperlinks before invoking the default opener, carrying the window id,
   active pane id, and URI. Returning `false` suppresses the default opener. The
@@ -2123,8 +2124,8 @@ runtime storage for tabs and split panes.
   literal returns can suppress the default opener, and the documented
   `uri:find 'mailto:'` branch can spawn `SpawnCommandInNewWindow { args = {
   'mutt', recipient } }` using the prefix-stripped URI suffix before returning
-  `false`.
-  Lua event wiring remains later parity work.
+  `false`. Bounded-static event callbacks are implemented; arbitrary Lua event
+  execution remains later parity work.
 - `rssh-app` answers WezTerm/iTerm2-compatible `OSC 1337;ReportCellSize`
   queries with the current fixed cell pixel dimensions, alongside the existing
   xterm cell/window size query responses.
