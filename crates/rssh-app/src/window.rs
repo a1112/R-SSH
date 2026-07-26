@@ -211744,6 +211744,8 @@ return config
             ("attach domain current-pane-domain", "current-pane-domain"),
             ("attach domain current_pane_domain", "current_pane_domain"),
             ("attach domain name current", "current"),
+            ("attach domain default-domain", "default-domain"),
+            ("attach domain default_domain", "default_domain"),
         ] {
             let mut app = NativeWindowApp::new_with_command(
                 None,
@@ -211766,9 +211768,17 @@ return config
 
     #[test]
     fn window_app_parses_wezterm_attach_domain_action_queries_as_table_actions() {
-        for query in [
-            "wezterm.action.AttachDomain({ DomainName = 'local' })",
-            "act.AttachDomain { DomainName = \"local\" }",
+        for (query, expected_domain) in [
+            (
+                "wezterm.action.AttachDomain({ DomainName = 'local' })",
+                "local",
+            ),
+            ("act.AttachDomain { DomainName = \"local\" }", "local"),
+            ("act.AttachDomain('default-domain')", "default-domain"),
+            (
+                "wezterm.action { AttachDomain = \"default_domain\" }",
+                "default_domain",
+            ),
         ] {
             let mut app = NativeWindowApp::new_with_command(
                 None,
@@ -211776,7 +211786,7 @@ return config
             );
             app.enter_command_palette_mode();
             app.command_palette_set_query(query.to_owned());
-            let expected = WindowCommand::AttachDomain("local".to_owned());
+            let expected = WindowCommand::AttachDomain(expected_domain.to_owned());
 
             assert_eq!(
                 app.command_palette_filtered_commands(),
