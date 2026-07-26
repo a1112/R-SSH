@@ -94603,7 +94603,11 @@ impl NativeWindowApp {
         if self.show_tabs_in_tab_bar {
             let active_tab_id = self.app_shell.active_tab_id();
             let tabs = self.app_shell.active_workspace().tabs();
-            let tab_width_max = self.tab_title_second_pass_max_width().max(1);
+            let tab_width_max = if self.use_fancy_tab_bar {
+                self.tab_title_second_pass_max_width().max(1)
+            } else {
+                usize::MAX
+            };
             for (index, tab) in tabs.iter().enumerate() {
                 let active = tab.id() == active_tab_id;
                 let first_pass_title = self.formatted_tab_title_for_tab_first_pass(index, tab);
@@ -95547,13 +95551,14 @@ impl NativeWindowApp {
         tab: &rssh_core::app_shell::Tab,
     ) -> Option<NativeTabTitle> {
         let hovered = Some(tab.id()) == self.hovered_tab_for_tab_bar();
+        let max_width = if self.use_fancy_tab_bar {
+            self.tab_title_second_pass_max_width()
+        } else {
+            usize::MAX
+        };
+
         let _ = self.formatted_tab_title_for_tab_first_pass(position, tab);
-        self.formatted_tab_title_for_tab_with_max_width(
-            position,
-            tab,
-            hovered,
-            self.tab_title_second_pass_max_width(),
-        )
+        self.formatted_tab_title_for_tab_with_max_width(position, tab, hovered, max_width)
     }
 
     fn formatted_tab_title_for_tab_first_pass(
@@ -188766,6 +188771,59 @@ return config
                 (rssh_core::TabId::new(1), false, 16),
                 (rssh_core::TabId::new(1), true, 16)
             ]
+        );
+    }
+
+    #[test]
+    fn window_app_tab_title_formatter_uses_unbounded_width_for_non_fancy_tab_bar() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&seen);
+        let mut app = NativeWindowApp::new(None);
+        let tab_max_width = app.tab_max_width;
+        app.set_config_overrides(NativeConfigOverrides {
+            use_fancy_tab_bar: Some(false),
+            ..NativeConfigOverrides::default()
+        });
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.tab_title_formatter = Box::new(move |event| {
+            recorded
+                .lock()
+                .unwrap()
+                .push((event.tab, event.hover, event.max_width));
+            None
+        });
+
+        app.render_snapshot();
+
+        let events = seen.lock().unwrap();
+        assert!(
+            events.len() >= 4,
+            "expected two-pass events for both tabs; saw {events:?}"
+        );
+        let first_pass_widths = events
+            .iter()
+            .step_by(2)
+            .map(|(_, _, max_width)| *max_width)
+            .collect::<Vec<_>>();
+        let second_pass_widths = events
+            .iter()
+            .skip(1)
+            .step_by(2)
+            .map(|(_, _, max_width)| *max_width)
+            .collect::<Vec<_>>();
+
+        assert!(
+            first_pass_widths
+                .iter()
+                .all(|max_width| *max_width == tab_max_width),
+            "first pass widths were {first_pass_widths:?}"
+        );
+        assert!(
+            second_pass_widths
+                .iter()
+                .all(|max_width| *max_width == usize::MAX),
+            "second pass widths were {second_pass_widths:?}"
         );
     }
 
