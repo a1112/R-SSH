@@ -94529,6 +94529,24 @@ impl NativeWindowApp {
         if !self.tab_bar_is_visible() {
             return Vec::new();
         }
+        if self.use_fancy_tab_bar {
+            self.tab_bar_cells_fancy()
+        } else {
+            self.tab_bar_cells_retro()
+        }
+    }
+
+    fn tab_bar_cells_retro(&self) -> Vec<RenderCell> {
+        self.tab_bar_cells_fancy()
+    }
+
+    // WezTerm-style proportional "fancy" tab bar rendering is still not implemented yet.
+    // For now, keep current retro rendering as the fallback for both modes while retaining
+    // behavior parity and leaving an explicit extension point.
+    fn tab_bar_cells_fancy(&self) -> Vec<RenderCell> {
+        if !self.tab_bar_is_visible() {
+            return Vec::new();
+        }
 
         let columns = self.runtime.terminal().grid().size().columns;
         let background = self.window_frame_title_bar_background_color();
@@ -188861,6 +188879,44 @@ return config
         assert_eq!(&tab_bar[..10], "          ");
         assert!(
             tab_bar[10..].starts_with(" ws:default"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert_eq!(app.integrated_title_button_for_tab_bar_column(1), None);
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(CELL_WIDTH), 0.0))
+            .unwrap();
+        assert!(
+            !app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(!app.window_hide_requested_for_test());
+    }
+
+    #[test]
+    fn window_app_macos_native_integrated_title_buttons_skip_top_retro_space_when_fancy() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            window_decorations: Some(NativeWindowDecorations {
+                title: false,
+                resize: true,
+                integrated_buttons: true,
+                macos_force_disable_shadow: false,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: false,
+            }),
+            integrated_title_button_style: Some(NativeIntegratedTitleButtonStyle::MacOsNative),
+            integrated_title_button_alignment: Some(NativeIntegratedTitleButtonAlignment::Left),
+            use_fancy_tab_bar: Some(true),
+            tab_bar_at_bottom: Some(false),
+            ..NativeConfigOverrides::default()
+        });
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+
+        assert!(
+            tab_bar.starts_with(" ws:default"),
             "tab bar was {tab_bar:?}"
         );
         assert_eq!(app.integrated_title_button_for_tab_bar_column(1), None);
