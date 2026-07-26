@@ -163146,6 +163146,56 @@ return config
     }
 
     #[test]
+    fn static_load_scheme_path_expressions_accept_wezterm_alias_config_dir_parenthesized_require_call()
+     {
+        let source = "
+            local wt = require('wezterm')
+            local _scheme = wt.config_dir .. '/scheme.toml'
+            wezterm.color.load_scheme(_scheme)
+        ";
+        let expected = std::env::var("WEZTERM_CONFIG_DIR")
+            .ok()
+            .map(|config_dir| format!("{}/scheme.toml", config_dir.replace('\\', "/")));
+        let call_start = source
+            .find("wezterm.color.load_scheme(_scheme)")
+            .expect("expected call marker");
+
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                source,
+                "wt.config_dir .. '/scheme.toml'",
+                call_start,
+            ),
+            expected
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_accept_wezterm_alias_config_dir_aliased_binding() {
+        let source = "
+            local wt0 = require 'wezterm'
+            local wt = wt0
+            local _scheme = wt.config_dir .. '/scheme.toml'
+            wezterm.color.load_scheme(_scheme)
+        ";
+        let expected = std::env::var("WEZTERM_CONFIG_DIR")
+            .ok()
+            .map(|config_dir| format!("{}/scheme.toml", config_dir.replace('\\', "/")));
+        let call_start = source
+            .find("wezterm.color.load_scheme(_scheme)")
+            .expect("expected call marker");
+
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                source,
+                "wt.config_dir .. '/scheme.toml'",
+                call_start,
+            ),
+            expected
+        );
+    }
+
+    #[test]
     fn static_load_scheme_path_expressions_reflect_wezterm_config_dir_environment() {
         let call_start = "wezterm.color.load_scheme(wezterm.config_dir .. '/scheme.toml')"
             .find("wezterm.color.load_scheme(wezterm.config_dir .. '/scheme.toml')")
