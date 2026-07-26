@@ -211732,11 +211732,53 @@ return config
     }
 
     #[test]
+    fn window_app_dispatches_wezterm_attach_domain_action_table_wrapper_queries() {
+        for query in [
+            "wezterm.action { AttachDomain = 'local' }",
+            "act { AttachDomain = { DomainName = \"local\" } }",
+        ] {
+            let mut app = NativeWindowApp::new_with_command(
+                None,
+                rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+            );
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            let expected = WindowCommand::AttachDomain("local".to_owned());
+
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![expected.clone()]
+            );
+            assert!(app.command_palette_execute(expected));
+            assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+            assert!(app.command_palette.is_none());
+        }
+    }
+
+    #[test]
     fn window_app_parses_wezterm_attach_domain_action_queries_as_domain_id_unsupported_actions() {
         let mut app = NativeWindowApp::new(None);
 
         app.enter_command_palette_mode();
         app.command_palette_set_query("wezterm.action.AttachDomain({ DomainId = 7 })".to_owned());
+        let expected = WindowCommand::AttachDomain("domainid:7".to_owned());
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+        assert!(!app.command_palette_execute(expected));
+        assert!(app.command_palette.is_some());
+    }
+
+    #[test]
+    fn window_app_rejects_wezterm_attach_domain_action_table_wrapper_domain_id_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action { AttachDomain = { DomainId = 7 } }".to_owned(),
+        );
         let expected = WindowCommand::AttachDomain("domainid:7".to_owned());
 
         assert_eq!(
@@ -211791,6 +211833,37 @@ return config
             (
                 "detach domain name devhost",
                 WindowDomainSelector::DomainName("devhost".to_owned()),
+            ),
+        ] {
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            let expected = WindowCommand::DetachDomain(expected_domain);
+
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![expected.clone()]
+            );
+            assert!(!app.command_palette_execute(expected));
+            assert!(app.command_palette.is_some());
+        }
+    }
+
+    #[test]
+    fn window_app_rejects_wezterm_detach_domain_action_table_wrapper_queries() {
+        let mut app = NativeWindowApp::new(None);
+
+        for (query, expected_domain) in [
+            (
+                "wezterm.action { DetachDomain = 'CurrentPaneDomain' }",
+                WindowDomainSelector::CurrentPaneDomain,
+            ),
+            (
+                "act { DetachDomain = { DomainName = 'devhost' } }",
+                WindowDomainSelector::DomainName("devhost".to_owned()),
+            ),
+            (
+                "act { DetachDomain = { DomainId = 7 } }",
+                WindowDomainSelector::DomainId(7),
             ),
         ] {
             app.enter_command_palette_mode();
@@ -222599,6 +222672,66 @@ return config
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_attach_domain_table_wrapper() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'A',
+                mods = 'CTRL|ALT',
+                action = wezterm.action { AttachDomain = 'devhost' },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm AttachDomain table-wrapper config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+A".to_owned(),
+                command: WindowCommand::AttachDomain("devhost".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_attach_domain_domainid_table_wrapper() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'A',
+                mods = 'CTRL|ALT',
+                action = act { AttachDomain = { DomainId = 7 } },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm AttachDomain table-wrapper DomainId config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+A".to_owned(),
+                command: WindowCommand::AttachDomain("domainid:7".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_attach_domain_domainid_table_field() {
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
             r#"
@@ -222624,6 +222757,38 @@ return config
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|ALT+A".to_owned(),
                 command: WindowCommand::AttachDomain("domainid:7".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_detach_domain_table_wrapper() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'D',
+                mods = 'CTRL|ALT',
+                action = act { DetachDomain = { DomainName = 'devhost' } },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm DetachDomain table-wrapper config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+D".to_owned(),
+                command: WindowCommand::DetachDomain(WindowDomainSelector::DomainName(
+                    "devhost".to_owned(),
+                )),
             }])
         );
     }
