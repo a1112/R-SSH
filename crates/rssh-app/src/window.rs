@@ -85753,7 +85753,11 @@ impl NativeWindowApp {
                 }
                 let doc = match action {
                     WindowCommand::AttachDomain(_) => {
-                        Some("Attach Domain actions are currently unsupported".to_owned())
+                        if is_local_domain_name(name) {
+                            None
+                        } else {
+                            Some("Attach Domain actions are currently unsupported".to_owned())
+                        }
                     }
                     _ => None,
                 };
@@ -86623,7 +86627,13 @@ impl NativeWindowApp {
                 }
                 AppAction::NewTab { launch: None }
             }
-            WindowCommand::AttachDomain(_) | WindowCommand::DetachDomain(_) => {
+            WindowCommand::AttachDomain(domain) => {
+                if !is_attach_domain_supported_locally(&domain, &self.default_domain) {
+                    return Err(AppShellError::UnsupportedAction);
+                }
+                AppAction::NewTab { launch: None }
+            }
+            WindowCommand::DetachDomain(_) => {
                 return Err(AppShellError::UnsupportedAction);
             }
             WindowCommand::SpawnCommandInNewTab(spawn_command) => AppAction::NewTab {
@@ -129238,6 +129248,22 @@ fn default_tiling_desktop_environments() -> Vec<String> {
 
 fn is_local_domain_name(domain: &str) -> bool {
     domain.eq_ignore_ascii_case(DEFAULT_DOMAIN_NAME)
+}
+
+fn is_attach_domain_supported_locally(domain: &str, default_domain: &str) -> bool {
+    let normalized = domain
+        .chars()
+        .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
+        .collect::<String>()
+        .to_ascii_lowercase();
+    if is_local_domain_name(&normalized) {
+        return true;
+    }
+    match normalized.as_str() {
+        "currentpanedomain" | "currentpane" | "current" => true,
+        "defaultdomain" | "default" => is_local_domain_name(default_domain),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -211589,6 +211615,34 @@ return config
     }
 
     #[test]
+    fn window_app_dispatches_wezterm_attach_domain_action_queries_as_supported_local_actions() {
+        for (query, expected_domain) in [
+            ("wezterm.action.AttachDomain('local')", "local"),
+            ("wezterm.action.AttachDomain \"Local\"", "Local"),
+            ("attach domain DefaultDomain", "DefaultDomain"),
+            ("act.AttachDomain \"currentpane\"", "currentpane"),
+            ("attach domain name current", "current"),
+        ] {
+            let mut app = NativeWindowApp::new_with_command(
+                None,
+                rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+            );
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            let expected = WindowCommand::AttachDomain(expected_domain.to_owned());
+
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![expected.clone()]
+            );
+            assert!(app.command_palette_execute(expected));
+            assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+            assert!(app.command_palette.is_none());
+        }
+    }
+
+    #[test]
     fn window_app_parses_wezterm_detach_domain_action_queries_as_unsupported_actions() {
         let mut app = NativeWindowApp::new(None);
 
@@ -260581,6 +260635,56 @@ act.Confirmation {
 
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
         assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_native_show_launcher_args_domains_payload_marks_local_entry_supported()
+    {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            default_domain: Some("remote-default".to_owned()),
+            exec_domains: Some(vec![NativeExecDomain {
+                name: "remote-default".to_owned(),
+                fixup_command: "wezterm cli spawn".to_owned(),
+                label: None,
+            }]),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::domains(),
+                title: Some("Pick Domain".to_owned()),
+                alphabet: None,
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+        let entries = app.command_palette_filtered_entries();
+        assert!(entries.len() >= 2);
+
+        let local_entry = entries
+            .iter()
+            .find(|entry| entry.label() == "Spawn In Domain: local")
+            .expect("expected Spawn In Domain: local entry");
+        let remote_entry = entries
+            .iter()
+            .find(|entry| entry.label() == "Spawn In Domain: remote-default")
+            .expect("expected remote-default domain entry");
+
+        if let WindowCommandPaletteEntry::Augmented(entry) = local_entry {
+            assert!(entry.doc.is_none());
+        } else {
+            panic!("expected local domain entry to be augmented");
+        }
+        if let WindowCommandPaletteEntry::Augmented(entry) = remote_entry {
+            assert_eq!(
+                entry.doc.as_deref(),
+                Some("Attach Domain actions are currently unsupported")
+            );
+        } else {
+            panic!("expected remote domain entry to be augmented");
+        }
     }
 
     #[test]

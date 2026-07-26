@@ -953,10 +953,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   attach-domain strings and detach-domain `DomainName` fields, top-level static
   integer variables for detach-domain official `DomainId` table fields, static
   string field-name variables for detach-domain `DomainName`, plus
-  `DetachDomain` parenthesized static domain table variables. Because the
-  current domain model is local-only, executing those actions returns the
-  existing unsupported-action result instead of pretending to attach or detach a
-  mux domain; actual remote domain import/removal behavior remains open.
+  `DetachDomain` parenthesized static domain table variables.
+  For local domains, `AttachDomain` behaves like a local new-tab action:
+  `local`, `CurrentPaneDomain`, and `DefaultDomain` (when the default domain is
+  local) now dispatch to tab creation.
+  Non-local `AttachDomain` values remain unsupported, and full remote/mux
+  attach behavior stays open.
 - Command palette split entries now use WezTerm action names:
   native `SplitHorizontal` dispatches the right-side split path and is exposed
   as Split Horizontal, while native `SplitVertical` dispatches the downward
