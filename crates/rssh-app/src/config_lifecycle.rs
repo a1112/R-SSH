@@ -190,12 +190,9 @@ fn run_config_watcher_worker(
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             match receiver.recv_timeout(remaining) {
-                Ok(NativeConfigWatcherMessage::Notify(Ok(event))) => {
-                    let _ = matches!(
-                        event.kind,
-                        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-                    );
-                }
+                // Once a relevant event opens the fixed debounce window, coalesce every
+                // subsequent successful notification in that burst.
+                Ok(NativeConfigWatcherMessage::Notify(Ok(_))) => {}
                 Ok(NativeConfigWatcherMessage::Notify(Err(error))) => {
                     diagnostics
                         .lock()
