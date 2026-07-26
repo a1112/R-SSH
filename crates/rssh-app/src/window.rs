@@ -85740,6 +85740,34 @@ impl NativeWindowApp {
             );
         }
         if args.flags.domains {
+            let mut added_domains = HashSet::new();
+            fn add_domain_entry(
+                entries: &mut Vec<WindowCommandPaletteEntry>,
+                added_domains: &mut HashSet<String>,
+                name: &str,
+                action: WindowCommand,
+            ) {
+                let normalized_name = name.to_ascii_lowercase();
+                if !added_domains.insert(normalized_name) {
+                    return;
+                }
+                let doc = match action {
+                    WindowCommand::AttachDomain(_) => {
+                        Some("Attach Domain actions are currently unsupported".to_owned())
+                    }
+                    _ => None,
+                };
+                entries.push(WindowCommandPaletteEntry::Augmented(
+                    NativeCommandPaletteEntry {
+                        brief: format!("Spawn In Domain: {name}"),
+                        doc,
+                        icon: None,
+                        key_assignment: None,
+                        action,
+                    },
+                ));
+            }
+
             entries.push(WindowCommandPaletteEntry::Augmented(
                 NativeCommandPaletteEntry {
                     brief: "Spawn In Domain: local".to_owned(),
@@ -85749,6 +85777,80 @@ impl NativeWindowApp {
                     action: WindowCommand::NewTab,
                 },
             ));
+            added_domains.insert(DEFAULT_DOMAIN_NAME.to_owned());
+
+            add_domain_entry(
+                &mut entries,
+                &mut added_domains,
+                &self.default_domain,
+                WindowCommand::AttachDomain(self.default_domain.clone()),
+            );
+            self.exec_domains
+                .iter()
+                .map(|domain| &domain.name)
+                .for_each(|name| {
+                    add_domain_entry(
+                        &mut entries,
+                        &mut added_domains,
+                        name,
+                        WindowCommand::AttachDomain(name.to_owned()),
+                    )
+                });
+            self.wsl_domains
+                .iter()
+                .map(|domain| &domain.name)
+                .for_each(|name| {
+                    add_domain_entry(
+                        &mut entries,
+                        &mut added_domains,
+                        name,
+                        WindowCommand::AttachDomain(name.to_owned()),
+                    )
+                });
+            self.unix_domains
+                .iter()
+                .map(|domain| &domain.name)
+                .for_each(|name| {
+                    add_domain_entry(
+                        &mut entries,
+                        &mut added_domains,
+                        name,
+                        WindowCommand::AttachDomain(name.to_owned()),
+                    )
+                });
+            self.ssh_domains
+                .iter()
+                .map(|domain| &domain.name)
+                .for_each(|name| {
+                    add_domain_entry(
+                        &mut entries,
+                        &mut added_domains,
+                        name,
+                        WindowCommand::AttachDomain(name.to_owned()),
+                    )
+                });
+            self.tls_clients
+                .iter()
+                .map(|domain| &domain.name)
+                .for_each(|name| {
+                    add_domain_entry(
+                        &mut entries,
+                        &mut added_domains,
+                        name,
+                        WindowCommand::AttachDomain(name.to_owned()),
+                    )
+                });
+            self.serial_ports
+                .iter()
+                .map(|domain| &domain.name)
+                .for_each(|name| {
+                    add_domain_entry(
+                        &mut entries,
+                        &mut added_domains,
+                        name,
+                        WindowCommand::AttachDomain(name.to_owned()),
+                    )
+                });
         }
         if args.flags.key_assignments {
             entries.extend(native_window_key_assignment_entries());
@@ -260463,8 +260565,13 @@ act.Confirmation {
             .expect("launcher should be open");
         assert_eq!(
             app.command_palette_status(palette),
-            "Pick Domain: Select an item and press Enter=launch Esc=cancel /=filter [1 / 1] Spawn In Domain: local"
+            "Pick Domain: Select an item and press Enter=launch Esc=cancel /=filter [1 / 2] Spawn In Domain: local"
         );
+
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].label(), "Spawn In Domain: local");
+        assert_eq!(entries[1].label(), "Spawn In Domain: unix");
 
         app.command_palette_set_query("local".to_owned());
         let entries = app.command_palette_filtered_entries();
@@ -260474,6 +260581,119 @@ act.Confirmation {
 
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
         assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_native_show_launcher_args_domains_payload_with_custom_domains() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            default_domain: Some("remote-default".to_owned()),
+            exec_domains: Some(vec![NativeExecDomain {
+                name: "ops".to_owned(),
+                fixup_command: "wezterm cli spawn".to_owned(),
+                label: None,
+            }]),
+            wsl_domains: Some(vec![NativeWslDomain {
+                name: "wsl-ubuntu".to_owned(),
+                distribution: Some("Ubuntu".to_owned()),
+                username: Some("ops".to_owned()),
+                default_cwd: Some("~".to_owned()),
+                default_prog: Some(vec!["zsh".to_owned()]),
+            }]),
+            unix_domains: Some(vec![NativeUnixDomain {
+                name: "ops-unix".to_owned(),
+                socket_path: Some("/tmp/ops.sock".to_owned()),
+                connect_automatically: true,
+                no_serve_automatically: true,
+                serve_command: None,
+                proxy_command: None,
+                skip_permissions_check: true,
+                read_timeout_ms: 45_000,
+                write_timeout_ms: 30_000,
+                local_echo_threshold_ms: Some(12),
+                overlay_lag_indicator: true,
+            }]),
+            ssh_domains: Some(vec![NativeSshDomain {
+                name: "ops-ssh".to_owned(),
+                remote_address: "ops.example.com:2222".to_owned(),
+                no_agent_auth: true,
+                username: Some("ops".to_owned()),
+                connect_automatically: true,
+                timeout_ms: 45_000,
+                local_echo_threshold_ms: Some(12),
+                overlay_lag_indicator: true,
+                remote_wezterm_path: Some("/opt/wezterm/wezterm".to_owned()),
+                override_proxy_command: Some("wezterm cli proxy --stdio".to_owned()),
+                ssh_backend: Some(NativeSshBackend::Ssh2),
+                multiplexing: NativeSshMultiplexing::None,
+                ssh_option: BTreeMap::from([("compression".to_owned(), "yes".to_owned())]),
+                default_prog: Some(vec!["zsh".to_owned(), "-l".to_owned()]),
+                assume_shell: NativeShellAssumption::Posix,
+            }]),
+            tls_clients: Some(vec![NativeTlsClientDomain {
+                name: "ops-tls".to_owned(),
+                bootstrap_via_ssh: Some("ops@bastion.example.com:22".to_owned()),
+                remote_address: "ops.example.com:8443".to_owned(),
+                pem_private_key: Some("/home/ops/client.key".to_owned()),
+                pem_cert: Some("/home/ops/client.crt".to_owned()),
+                pem_ca: Some("/home/ops/ca.pem".to_owned()),
+                pem_root_certs: vec![
+                    "/etc/ssl/certs".to_owned(),
+                    "/opt/wezterm/ca.pem".to_owned(),
+                ],
+                accept_invalid_hostnames: true,
+                expected_cn: Some("ops.internal".to_owned()),
+                connect_automatically: true,
+                read_timeout_ms: 45_000,
+                write_timeout_ms: 30_000,
+                local_echo_threshold_ms: Some(12),
+                remote_wezterm_path: Some("/opt/wezterm/wezterm".to_owned()),
+                overlay_lag_indicator: true,
+            }]),
+            serial_ports: Some(vec![NativeSerialDomain {
+                name: "ops-console".to_owned(),
+                port: Some("/dev/ttyUSB0".to_owned()),
+                baud: Some(115200),
+            }]),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::domains(),
+                title: Some("Pick Domain".to_owned()),
+                alphabet: None,
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+        let palette = app
+            .command_palette
+            .as_ref()
+            .expect("launcher should be open");
+        assert_eq!(
+            app.command_palette_status(palette),
+            "Pick Domain: Select an item and press Enter=launch Esc=cancel /=filter [1 / 8] Spawn In Domain: local"
+        );
+
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 8);
+        assert_eq!(entries[0].label(), "Spawn In Domain: local");
+        assert_eq!(entries[1].label(), "Spawn In Domain: remote-default");
+        assert_eq!(entries[2].label(), "Spawn In Domain: ops");
+        assert_eq!(entries[3].label(), "Spawn In Domain: wsl-ubuntu");
+        assert_eq!(entries[4].label(), "Spawn In Domain: ops-unix");
+        assert_eq!(entries[5].label(), "Spawn In Domain: ops-ssh");
+        assert_eq!(entries[6].label(), "Spawn In Domain: ops-tls");
+        assert_eq!(entries[7].label(), "Spawn In Domain: ops-console");
+
+        app.command_palette_set_query("wsl-ubuntu".to_owned());
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "Spawn In Domain: wsl-ubuntu");
+
+        assert!(!app.command_palette_execute_entry(entries[0].clone()));
+        assert!(app.command_palette.is_some());
     }
 
     #[test]
@@ -260557,13 +260777,14 @@ act.Confirmation {
             .expect("launcher should be open");
         assert_eq!(
             app.command_palette_status(palette),
-            "Launcher: Select an item and press Enter=launch Esc=cancel /=filter [1 / 2] Spawn In Domain: local"
+            "Launcher: Select an item and press Enter=launch Esc=cancel /=filter [1 / 3] Spawn In Domain: local"
         );
 
         let entries = app.command_palette_filtered_entries();
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 3);
         assert_eq!(entries[0].label(), "Spawn In Domain: local");
-        assert_eq!(entries[1].label(), "System Monitor");
+        assert_eq!(entries[1].label(), "Spawn In Domain: unix");
+        assert_eq!(entries[2].label(), "System Monitor");
     }
 
     #[test]
