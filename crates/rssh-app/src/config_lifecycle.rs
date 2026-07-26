@@ -352,6 +352,7 @@ pub(crate) struct NativeConfigLifecycle {
     watcher: Option<NativeConfigWatcher>,
     watcher_options: Option<NativeConfigWatcherOptions>,
     watcher_initialization_diagnostic: Option<NativeConfigWatchDiagnostic>,
+    watch_current_dir: PathBuf,
 }
 
 impl NativeConfigLifecycle {
@@ -377,6 +378,7 @@ impl NativeConfigLifecycle {
             watcher: None,
             watcher_options: None,
             watcher_initialization_diagnostic: None,
+            watch_current_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         }
     }
 
@@ -560,7 +562,7 @@ impl NativeConfigLifecycle {
         let ResolvedConfigSource::File(source) = &self.latest_selection else {
             return;
         };
-        let path = source.path.clone();
+        let path = watcher_registration_path(&source.path, &self.watch_current_dir);
         let parent = path.parent().map(std::path::Path::to_path_buf);
         let home = self.inputs.home_dir.clone();
         if self.watcher.is_none() {
@@ -634,6 +636,11 @@ impl NativeConfigLifecycle {
     #[cfg(test)]
     pub(crate) fn watch_diagnostics_for_test(&self) -> Vec<NativeConfigWatchDiagnostic> {
         self.watch_diagnostics()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_watch_current_dir_for_test(&mut self, current_dir: PathBuf) {
+        self.watch_current_dir = current_dir;
     }
 
     fn candidate_sources(&self) -> Vec<ConfigSource> {
@@ -714,6 +721,14 @@ fn paths_refer_to_same_directory(left: &std::path::Path, right: &std::path::Path
     match (fs::canonicalize(left), fs::canonicalize(right)) {
         (Ok(left), Ok(right)) => left == right,
         _ => left == right,
+    }
+}
+
+fn watcher_registration_path(path: &std::path::Path, current_dir: &std::path::Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        current_dir.join(path)
     }
 }
 
@@ -2286,6 +2301,95 @@ mod tests {
             !watched.contains(&home),
             "the user's home directory is intentionally too noisy to watch"
         );
+    }
+
+    #[test]
+    fn watcher_normalizes_bare_relative_source_to_injected_current_directory() {
+        let root = unique_temp_dir("watch-relative-source");
+        let relative = PathBuf::from("wezterm.lua");
+        let absolute = root.join(&relative);
+        fs::write(&absolute, "return {}").unwrap();
+        let mut lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: false,
+                current_exe: None,
+                home_dir: None,
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            None,
+            ValidatedNativeConfigAssignments::default(),
+        );
+        lifecycle.set_watch_current_dir_for_test(root.0.clone());
+        lifecycle.latest_selection = ResolvedConfigSource::File(ConfigSource {
+            path: relative.clone(),
+            required: true,
+        });
+        lifecycle.effective.source = Some(relative.clone());
+        lifecycle.effective.generation = 1;
+        lifecycle.effective.overrides.automatically_reload_config = Some(true);
+
+        lifecycle
+            .install_watcher_sink_for_test(Duration::from_millis(1), Arc::new(|| true), None)
+            .unwrap();
+
+        let watched = lifecycle.watched_paths_for_test();
+        assert!(watched.contains(&absolute));
+        assert!(watched.contains(&root.0));
+        assert_eq!(
+            lifecycle.effective().source.as_ref(),
+            Some(&relative),
+            "watch registration must not rewrite config source semantics"
+        );
+    }
+
+    #[test]
+    fn watcher_observes_atomic_replacement_for_bare_relative_source() {
+        let root = unique_temp_dir("watch-relative-atomic-replace");
+        let relative = PathBuf::from("wezterm.lua");
+        let absolute = root.join(&relative);
+        let replacement = root.join("wezterm.lua.replacement");
+        fs::write(&absolute, "return { term = 'before' }").unwrap();
+        fs::write(&replacement, "return { term = 'after' }").unwrap();
+        let mut lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: false,
+                current_exe: None,
+                home_dir: None,
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            None,
+            ValidatedNativeConfigAssignments::default(),
+        );
+        lifecycle.set_watch_current_dir_for_test(root.0.clone());
+        lifecycle.latest_selection = ResolvedConfigSource::File(ConfigSource {
+            path: relative,
+            required: true,
+        });
+        lifecycle.effective.generation = 1;
+        lifecycle.effective.overrides.automatically_reload_config = Some(true);
+        let (event_sender, event_receiver) = mpsc::channel();
+        lifecycle
+            .install_watcher_sink_for_test(
+                Duration::from_millis(20),
+                Arc::new(move || event_sender.send(()).is_ok()),
+                None,
+            )
+            .unwrap();
+
+        fs::remove_file(&absolute).unwrap();
+        fs::rename(&replacement, &absolute).unwrap();
+
+        event_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("watching the normalized parent must observe atomic replacement");
     }
 
     #[test]
