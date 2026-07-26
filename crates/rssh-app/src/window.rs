@@ -84541,6 +84541,8 @@ impl NativeWindowApp {
         self.mux_env_remove.clone_from(&source.mux_env_remove);
         self.tiling_desktop_environments
             .clone_from(&source.tiling_desktop_environments);
+        self.derived_config_environment
+            .clone_from(&source.derived_config_environment);
         self.set_environment_variables
             .clone_from(&source.set_environment_variables);
         self.launch_menu.clone_from(&source.launch_menu);
@@ -202371,6 +202373,52 @@ return config
         assert_eq!(detached_app.active_pane_id(), rssh_core::PaneId::new(2));
         assert_eq!(snapshot_char(&detached_app.snapshot, 0, 0), Some('r'));
         assert_eq!(snapshot_char(&detached_app.snapshot, 0, 4), Some('t'));
+    }
+
+    #[test]
+    fn window_manager_detached_app_inherits_derived_config_environment() {
+        let mut app = NativeWindowApp::new(None);
+        app.derived_config_environment = BTreeMap::from([
+            (
+                "WEZTERM_CONFIG_FILE".to_owned(),
+                "/derived/wezterm.lua".to_owned(),
+            ),
+            ("WEZTERM_CONFIG_DIR".to_owned(), "/derived".to_owned()),
+        ]);
+        app.set_environment_variables = BTreeMap::from([(
+            "WEZTERM_CONFIG_FILE".to_owned(),
+            "/user/wezterm.lua".to_owned(),
+        )]);
+        app.dispatch_app_action(AppAction::SpawnWindow { launch: None })
+            .unwrap();
+
+        let mut manager = NativeWindowManager::new_for_test(app);
+        manager.collect_pending_window_apps_from_primary_for_test();
+        let detached = manager
+            .pending_app_for_test(0)
+            .expect("manager should collect the detached app");
+        let environment = detached.pane_environment_variables();
+        assert_eq!(
+            environment.get("WEZTERM_CONFIG_FILE").map(String::as_str),
+            Some("/user/wezterm.lua"),
+            "the user environment must continue to override lifecycle publication"
+        );
+        assert_eq!(
+            environment.get("WEZTERM_CONFIG_DIR").map(String::as_str),
+            Some("/derived")
+        );
+
+        let command = pty_command_from_pane_launch_with_environment(
+            detached.app_shell.active_pane().launch(),
+            &detached.term,
+            &environment,
+            detached.default_cwd.as_deref(),
+        );
+        assert_eq!(
+            command.env_value("WEZTERM_CONFIG_FILE"),
+            Some("/user/wezterm.lua")
+        );
+        assert_eq!(command.env_value("WEZTERM_CONFIG_DIR"), Some("/derived"));
     }
 
     #[test]

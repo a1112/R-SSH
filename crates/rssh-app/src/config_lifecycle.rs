@@ -19,6 +19,8 @@ pub(crate) struct ConfigDiscoveryInputs {
 struct ConfigEnvironmentSnapshot {
     home: Option<OsString>,
     user_profile: Option<OsString>,
+    home_drive: Option<OsString>,
+    home_path: Option<OsString>,
     xdg_config_home: Option<OsString>,
     xdg_config_dirs: Option<OsString>,
     wezterm_config_file: Option<OsString>,
@@ -41,6 +43,7 @@ pub(crate) enum ResolvedConfigSource {
 pub(crate) enum NativeConfigSourceErrorKind {
     Io(std::io::ErrorKind),
     InvalidUtf8,
+    NonUnicodePath,
     Strict(NativeConfigLoadError),
 }
 
@@ -48,6 +51,7 @@ pub(crate) enum NativeConfigSourceErrorKind {
 pub(crate) struct NativeConfigSourceError {
     pub(crate) path: PathBuf,
     pub(crate) kind: NativeConfigSourceErrorKind,
+    pub(crate) detail: String,
 }
 
 impl fmt::Display for NativeConfigSourceError {
@@ -59,9 +63,12 @@ impl fmt::Display for NativeConfigSourceError {
                     std::io::ErrorKind::NotFound => "not found".to_owned(),
                     kind => kind.to_string(),
                 };
-                write!(formatter, "I/O error: {kind}")
+                write!(formatter, "I/O error: {kind}: {}", self.detail)
             }
             NativeConfigSourceErrorKind::InvalidUtf8 => formatter.write_str("invalid UTF-8"),
+            NativeConfigSourceErrorKind::NonUnicodePath => {
+                formatter.write_str("config source path cannot be published losslessly")
+            }
             NativeConfigSourceErrorKind::Strict(error) => error.fmt(formatter),
         }
     }
@@ -87,19 +94,23 @@ impl DerivedConfigEnvironment {
         &self.variables
     }
 
-    fn for_file(path: &std::path::Path) -> Self {
-        let mut variables = BTreeMap::new();
-        variables.insert(
-            "WEZTERM_CONFIG_FILE".to_owned(),
-            path.to_string_lossy().into_owned(),
-        );
-        if let Some(parent) = path.parent() {
-            variables.insert(
-                "WEZTERM_CONFIG_DIR".to_owned(),
-                parent.to_string_lossy().into_owned(),
-            );
+    fn for_file(path: &std::path::Path) -> Result<Self, NativeConfigSourceError> {
+        fn non_unicode_path(path: &std::path::Path) -> NativeConfigSourceError {
+            NativeConfigSourceError {
+                path: path.to_path_buf(),
+                kind: NativeConfigSourceErrorKind::NonUnicodePath,
+                detail: "config source path is not valid Unicode".to_owned(),
+            }
         }
-        Self { variables }
+
+        let file = path.to_str().ok_or_else(|| non_unicode_path(path))?;
+        let mut variables = BTreeMap::new();
+        variables.insert("WEZTERM_CONFIG_FILE".to_owned(), file.to_owned());
+        if let Some(parent) = path.parent() {
+            let parent = parent.to_str().ok_or_else(|| non_unicode_path(path))?;
+            variables.insert("WEZTERM_CONFIG_DIR".to_owned(), parent.to_owned());
+        }
+        Ok(Self { variables })
     }
 }
 
@@ -115,7 +126,7 @@ pub(crate) struct NativeConfigLifecycle {
     inputs: ConfigDiscoveryInputs,
     skip: bool,
     explicit: Option<PathBuf>,
-    cli: Vec<StaticNativeConfigAssignment>,
+    cli: ValidatedNativeConfigAssignments,
     effective: EffectiveNativeConfig,
     latest_diagnostic: Option<NativeConfigSourceError>,
     latest_selection: ResolvedConfigSource,
@@ -126,7 +137,7 @@ impl NativeConfigLifecycle {
         inputs: ConfigDiscoveryInputs,
         skip: bool,
         explicit: Option<PathBuf>,
-        cli: Vec<StaticNativeConfigAssignment>,
+        cli: ValidatedNativeConfigAssignments,
     ) -> Self {
         Self {
             inputs,
@@ -149,8 +160,7 @@ impl NativeConfigLifecycle {
             return NativeConfigLoadAttempt {
                 preferred: None,
                 resolved: ResolvedConfigSource::Disabled,
-                result: Ok(parse_native_config_document("return {}", &self.cli)
-                    .expect("validated CLI overrides must apply to defaults")),
+                result: Ok(self.cli.default_overrides().clone()),
                 publication: DerivedConfigEnvironment::default(),
             };
         }
@@ -169,25 +179,31 @@ impl NativeConfigLifecycle {
             {
                 continue;
             }
+            let (result, publication) = match result {
+                Ok(overrides) => match DerivedConfigEnvironment::for_file(&path) {
+                    Ok(publication) => (Ok(overrides), publication),
+                    Err(error) => (Err(error), DerivedConfigEnvironment::default()),
+                },
+                Err(error) => (Err(error), DerivedConfigEnvironment::default()),
+            };
             return NativeConfigLoadAttempt {
                 preferred: Some(path.clone()),
                 resolved: ResolvedConfigSource::File(source),
                 result,
-                publication: DerivedConfigEnvironment::for_file(&path),
+                publication,
             };
         }
 
         NativeConfigLoadAttempt {
             preferred: None,
             resolved: ResolvedConfigSource::Defaults,
-            result: Ok(parse_native_config_document("return {}", &self.cli)
-                .expect("validated CLI overrides must apply to defaults")),
+            result: Ok(self.cli.default_overrides().clone()),
             publication: DerivedConfigEnvironment::default(),
         }
     }
 
     pub(crate) fn validated_cli(&self) -> &[StaticNativeConfigAssignment] {
-        &self.cli
+        self.cli.as_slice()
     }
 
     pub(crate) fn effective(&self) -> &EffectiveNativeConfig {
@@ -306,6 +322,8 @@ impl ConfigDiscoveryInputs {
             ConfigEnvironmentSnapshot {
                 home: std::env::var_os("HOME"),
                 user_profile: std::env::var_os("USERPROFILE"),
+                home_drive: std::env::var_os("HOMEDRIVE"),
+                home_path: std::env::var_os("HOMEPATH"),
                 xdg_config_home: std::env::var_os("XDG_CONFIG_HOME"),
                 xdg_config_dirs: std::env::var_os("XDG_CONFIG_DIRS"),
                 wezterm_config_file: std::env::var_os("WEZTERM_CONFIG_FILE"),
@@ -319,10 +337,23 @@ impl ConfigDiscoveryInputs {
         current_exe: Option<PathBuf>,
         environment: ConfigEnvironmentSnapshot,
     ) -> Self {
-        let home_dir = environment
-            .home
-            .or(environment.user_profile)
-            .map(PathBuf::from);
+        fn non_empty_path(value: Option<OsString>) -> Option<PathBuf> {
+            value.filter(|value| !value.is_empty()).map(PathBuf::from)
+        }
+
+        let home_dir = if is_windows {
+            non_empty_path(environment.user_profile)
+                .or_else(|| {
+                    let drive = environment.home_drive.filter(|value| !value.is_empty())?;
+                    let path = environment.home_path.filter(|value| !value.is_empty())?;
+                    let mut home = drive;
+                    home.push(path);
+                    Some(PathBuf::from(home))
+                })
+                .or_else(|| non_empty_path(environment.home))
+        } else {
+            non_empty_path(environment.home)
+        };
         let xdg_config_dirs = environment
             .xdg_config_dirs
             .map(|value| std::env::split_paths(&value).collect())
@@ -346,10 +377,12 @@ fn load_native_config_file(
     let bytes = fs::read(path).map_err(|error| NativeConfigSourceError {
         path: path.to_path_buf(),
         kind: NativeConfigSourceErrorKind::Io(error.kind()),
+        detail: error.to_string(),
     })?;
     let source = std::str::from_utf8(&bytes).map_err(|_| NativeConfigSourceError {
         path: path.to_path_buf(),
         kind: NativeConfigSourceErrorKind::InvalidUtf8,
+        detail: "input is not valid UTF-8".to_owned(),
     })?;
     let source = source.strip_prefix('\u{feff}').unwrap_or(source);
     if source.starts_with('\u{feff}') {
@@ -359,11 +392,16 @@ fn load_native_config_file(
                 location: SourceLocation { line: 1, column: 1 },
                 message: "unexpected second UTF-8 BOM".to_owned(),
             }),
+            detail: "unexpected second UTF-8 BOM".to_owned(),
         });
     }
-    parse_native_config_document(source, cli).map_err(|error| NativeConfigSourceError {
-        path: path.to_path_buf(),
-        kind: NativeConfigSourceErrorKind::Strict(error),
+    parse_native_config_document(source, cli).map_err(|error| {
+        let detail = error.to_string();
+        NativeConfigSourceError {
+            path: path.to_path_buf(),
+            kind: NativeConfigSourceErrorKind::Strict(error),
+            detail,
+        }
     })
 }
 
@@ -396,6 +434,39 @@ pub(crate) struct StaticNativeConfigAssignment {
     pub(crate) value: StaticLuaValue,
     pub(crate) value_source: String,
     pub(crate) location: SourceLocation,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ValidatedNativeConfigAssignments {
+    assignments: Vec<StaticNativeConfigAssignment>,
+    default_overrides: NativeConfigOverrides,
+}
+
+impl Default for ValidatedNativeConfigAssignments {
+    fn default() -> Self {
+        Self {
+            assignments: Vec::new(),
+            default_overrides: NativeConfigOverrides::default(),
+        }
+    }
+}
+
+impl std::ops::Deref for ValidatedNativeConfigAssignments {
+    type Target = [StaticNativeConfigAssignment];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl ValidatedNativeConfigAssignments {
+    pub(crate) fn as_slice(&self) -> &[StaticNativeConfigAssignment] {
+        &self.assignments
+    }
+
+    pub(crate) fn default_overrides(&self) -> &NativeConfigOverrides {
+        &self.default_overrides
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -465,7 +536,7 @@ impl std::error::Error for NativeConfigLoadError {}
 
 pub(crate) fn validate_cli_config_overrides(
     items: &[(String, String)],
-) -> Result<Vec<StaticNativeConfigAssignment>, NativeConfigLoadError> {
+) -> Result<ValidatedNativeConfigAssignments, NativeConfigLoadError> {
     let mut assignments = Vec::with_capacity(items.len());
     for (field, source) in items {
         let mut parser = Parser::new(source);
@@ -488,7 +559,11 @@ pub(crate) fn validate_cli_config_overrides(
         validate_assignment(&assignment)?;
         assignments.push(assignment);
     }
-    Ok(assignments)
+    let default_overrides = parse_native_config_document("return {}", &assignments)?;
+    Ok(ValidatedNativeConfigAssignments {
+        assignments,
+        default_overrides,
+    })
 }
 
 pub(crate) fn parse_native_config_document(
@@ -2296,6 +2371,11 @@ literal]=],
         assert_eq!(cli[0].field_path, ["term"]);
         assert_eq!(cli[2].value_source, r#""last\"safe""#);
         assert_eq!(cli[2].location, SourceLocation { line: 1, column: 1 });
+        assert_eq!(
+            cli.default_overrides().term.as_deref(),
+            Some("last\"safe"),
+            "validated CLI must carry a precomputed panic-free defaults projection"
+        );
 
         let overrides =
             parse_native_config_document("return { term = 'from-file' }", &cli).unwrap();
@@ -2334,8 +2414,12 @@ literal]=],
             xdg_config_dirs: Vec::new(),
             environment_config_file: Some(environment),
         };
-        let lifecycle =
-            NativeConfigLifecycle::new(inputs, false, Some(explicit.clone()), Vec::new());
+        let lifecycle = NativeConfigLifecycle::new(
+            inputs,
+            false,
+            Some(explicit.clone()),
+            ValidatedNativeConfigAssignments::default(),
+        );
         let attempt = lifecycle.attempt_reload();
 
         assert_eq!(
@@ -2378,7 +2462,7 @@ literal]=],
             },
             false,
             None,
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -2421,7 +2505,7 @@ literal]=],
             },
             false,
             None,
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -2462,7 +2546,7 @@ literal]=],
             },
             false,
             None,
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -2501,7 +2585,12 @@ literal]=],
             xdg_config_dirs: vec![xdg_first, xdg_second],
             environment_config_file: None,
         };
-        let lifecycle = NativeConfigLifecycle::new(inputs, false, None, Vec::new());
+        let lifecycle = NativeConfigLifecycle::new(
+            inputs,
+            false,
+            None,
+            ValidatedNativeConfigAssignments::default(),
+        );
         let first_attempt = lifecycle.attempt_reload();
         assert_eq!(
             first_attempt.result.unwrap().term.as_deref(),
@@ -2543,7 +2632,7 @@ literal]=],
             },
             false,
             None,
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -2577,7 +2666,7 @@ literal]=],
             },
             false,
             Some(missing.clone()),
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -2594,10 +2683,12 @@ literal]=],
             error.kind,
             NativeConfigSourceErrorKind::Io(std::io::ErrorKind::NotFound)
         ));
-        assert_eq!(
-            error.to_string(),
-            format!("{}: I/O error: not found", missing.display())
+        assert!(
+            error
+                .to_string()
+                .starts_with(&format!("{}: I/O error: not found: ", missing.display()))
         );
+        assert!(!error.detail.is_empty());
 
         let environment_missing = root.join("environment-missing.lua");
         let environment_lifecycle = NativeConfigLifecycle::new(
@@ -2612,7 +2703,7 @@ literal]=],
             },
             false,
             None,
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         );
         let environment_attempt = environment_lifecycle.attempt_reload();
         assert_eq!(
@@ -2624,6 +2715,7 @@ literal]=],
             NativeConfigSourceError {
                 path,
                 kind: NativeConfigSourceErrorKind::Io(std::io::ErrorKind::NotFound),
+                ..
             } if path == environment_missing
         ));
     }
@@ -2650,7 +2742,7 @@ literal]=],
             },
             false,
             None,
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -2686,7 +2778,7 @@ literal]=],
             },
             false,
             None,
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -2698,11 +2790,18 @@ literal]=],
                 required: false,
             })
         );
+        let error = attempt.result.unwrap_err();
+        assert!(
+            !error.detail.is_empty(),
+            "the original OS error detail must be retained"
+        );
+        assert!(error.to_string().contains(&error.detail));
         assert!(matches!(
-            attempt.result.unwrap_err(),
+            error,
             NativeConfigSourceError {
                 path,
                 kind: NativeConfigSourceErrorKind::Io(kind),
+                ..
             } if path == portable && kind != std::io::ErrorKind::NotFound
         ));
     }
@@ -2716,6 +2815,8 @@ literal]=],
             ConfigEnvironmentSnapshot {
                 home: Some("home".into()),
                 user_profile: Some("profile".into()),
+                home_drive: None,
+                home_path: None,
                 xdg_config_home: Some("".into()),
                 xdg_config_dirs: Some("".into()),
                 wezterm_config_file: Some("".into()),
@@ -2740,6 +2841,51 @@ literal]=],
     }
 
     #[test]
+    fn environment_capture_uses_platform_home_precedence_and_ignores_empty_home() {
+        let windows_profile_wins = ConfigDiscoveryInputs::from_environment_snapshot(
+            true,
+            false,
+            None,
+            ConfigEnvironmentSnapshot {
+                home: Some("wrong-home".into()),
+                user_profile: Some("windows-profile".into()),
+                ..ConfigEnvironmentSnapshot::default()
+            },
+        );
+        assert_eq!(
+            windows_profile_wins.home_dir,
+            Some(PathBuf::from("windows-profile"))
+        );
+
+        let windows_empty_home_uses_profile = ConfigDiscoveryInputs::from_environment_snapshot(
+            true,
+            false,
+            None,
+            ConfigEnvironmentSnapshot {
+                home: Some("".into()),
+                user_profile: Some("windows-profile".into()),
+                ..ConfigEnvironmentSnapshot::default()
+            },
+        );
+        assert_eq!(
+            windows_empty_home_uses_profile.home_dir,
+            Some(PathBuf::from("windows-profile"))
+        );
+
+        let unix_does_not_use_user_profile = ConfigDiscoveryInputs::from_environment_snapshot(
+            false,
+            true,
+            None,
+            ConfigEnvironmentSnapshot {
+                home: Some("".into()),
+                user_profile: Some("windows-profile".into()),
+                ..ConfigEnvironmentSnapshot::default()
+            },
+        );
+        assert_eq!(unix_does_not_use_user_profile.home_dir, None);
+    }
+
+    #[test]
     fn empty_environment_config_file_is_required_and_empty_xdg_home_suppresses_home_fallback() {
         let root = unique_temp_dir("empty-environment-values");
         let home = root.join("home");
@@ -2760,7 +2906,7 @@ literal]=],
             ),
             false,
             None,
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         )
         .attempt_reload();
         assert_eq!(
@@ -2788,7 +2934,7 @@ literal]=],
             ),
             false,
             None,
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         );
         let candidates = empty_xdg_home.candidate_sources();
         assert_eq!(
@@ -2856,7 +3002,7 @@ literal]=],
             },
             false,
             None,
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         );
 
         assert_eq!(
@@ -2896,7 +3042,7 @@ literal]=],
             },
             false,
             Some(path.clone()),
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         );
         assert_eq!(
             lifecycle.attempt_reload().result.unwrap().term.as_deref(),
@@ -2929,7 +3075,7 @@ literal]=],
             },
             false,
             Some(path.clone()),
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         );
 
         let utf8_error = lifecycle.attempt_reload().result.unwrap_err();
@@ -2973,7 +3119,7 @@ literal]=],
             },
             false,
             Some(path.clone()),
-            Vec::new(),
+            ValidatedNativeConfigAssignments::default(),
         );
 
         assert_eq!(lifecycle.effective().generation, 0);
@@ -2981,7 +3127,7 @@ literal]=],
         let attempt = lifecycle.attempt_reload();
         assert_eq!(
             attempt.publication.variables().get("WEZTERM_CONFIG_FILE"),
-            Some(&path.to_string_lossy().into_owned())
+            Some(&path.to_str().unwrap().to_owned())
         );
         lifecycle.install_initial_attempt(attempt);
 
@@ -2997,8 +3143,86 @@ literal]=],
                 .publication
                 .variables()
                 .get("WEZTERM_CONFIG_DIR"),
-            Some(&root.to_string_lossy().into_owned())
+            Some(&root.to_str().unwrap().to_owned())
         );
         assert!(lifecycle.latest_diagnostic().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_source_path_is_diagnostic_and_never_installed() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let root = unique_temp_dir("non-utf8-source");
+        let path = root.join(OsString::from_vec(b"wezterm-\xff.lua".to_vec()));
+        fs::write(&path, "return { term = 'loaded' }").unwrap();
+        let mut lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: true,
+                current_exe: None,
+                home_dir: None,
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            Some(path.clone()),
+            ValidatedNativeConfigAssignments::default(),
+        );
+
+        let attempt = lifecycle.attempt_reload();
+        assert!(matches!(
+            &attempt.result,
+            Err(NativeConfigSourceError {
+                path: error_path,
+                kind: NativeConfigSourceErrorKind::NonUnicodePath,
+                ..
+            }) if error_path == &path
+        ));
+        lifecycle.install_initial_attempt(attempt);
+        assert_eq!(lifecycle.effective().generation, 0);
+        assert!(lifecycle.effective().publication.variables().is_empty());
+        assert_eq!(
+            lifecycle.latest_diagnostic().map(|error| &error.path),
+            Some(&path)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_optional_non_utf8_path_still_falls_through() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let root = unique_temp_dir("missing-non-utf8-source");
+        let missing_home = root.join(OsString::from_vec(b"home-\xff".to_vec()));
+        let xdg_home = root.join("xdg");
+        let xdg_config = xdg_home.join("wezterm/wezterm.lua");
+        fs::create_dir_all(xdg_config.parent().unwrap()).unwrap();
+        fs::write(&xdg_config, "return { term = 'xdg' }").unwrap();
+        let lifecycle = NativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: true,
+                current_exe: None,
+                home_dir: Some(missing_home),
+                xdg_config_home: Some(xdg_home),
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            None,
+            ValidatedNativeConfigAssignments::default(),
+        );
+
+        let attempt = lifecycle.attempt_reload();
+        assert_eq!(
+            attempt.resolved,
+            ResolvedConfigSource::File(ConfigSource {
+                path: xdg_config,
+                required: false,
+            })
+        );
+        assert_eq!(attempt.result.unwrap().term.as_deref(), Some("xdg"));
     }
 }
