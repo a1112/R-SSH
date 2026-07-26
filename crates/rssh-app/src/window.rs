@@ -211621,6 +211621,8 @@ return config
             ("wezterm.action.AttachDomain \"Local\"", "Local"),
             ("attach domain DefaultDomain", "DefaultDomain"),
             ("act.AttachDomain \"currentpane\"", "currentpane"),
+            ("attach domain current-pane-domain", "current-pane-domain"),
+            ("attach domain current_pane_domain", "current_pane_domain"),
             ("attach domain name current", "current"),
         ] {
             let mut app = NativeWindowApp::new_with_command(
@@ -211640,6 +211642,30 @@ return config
             assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
             assert!(app.command_palette.is_none());
         }
+    }
+
+    #[test]
+    fn window_app_rejects_default_domain_attach_domain_when_default_is_non_local() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            default_domain: Some("remote-default".to_owned()),
+            exec_domains: Some(vec![NativeExecDomain {
+                name: "remote-default".to_owned(),
+                fixup_command: "wezterm cli spawn".to_owned(),
+                label: None,
+            }]),
+            ..NativeConfigOverrides::default()
+        });
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("attach domain defaultdomain".to_owned());
+        let expected = WindowCommand::AttachDomain("defaultdomain".to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+        assert!(!app.command_palette_execute(expected));
+        assert!(app.command_palette.is_some());
     }
 
     #[test]
