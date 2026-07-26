@@ -119825,7 +119825,19 @@ fn attach_domain_from_query_with_static_source(
     };
 
     if let Some(domain) = strip_lua_function_call_from_query(query, "attachdomain") {
+        if (domain.trim_start().starts_with('{') || static_source.is_some())
+            && let Some(domain) =
+                attach_domain_lua_table_from_query_with_static_source(static_source, domain)
+        {
+            return Some(domain);
+        }
         return named_domain_from_query_with_static_source(static_source, domain);
+    }
+
+    if let Some(domain) = strip_query_table_assignment_from_prefix(query, "attachdomain=")
+        && (domain.trim_start().starts_with('{') || static_source.is_some())
+    {
+        return attach_domain_lua_table_from_query_with_static_source(static_source, domain);
     }
 
     let domain = strip_query_prefix_from_any(
@@ -119837,7 +119849,58 @@ fn attach_domain_from_query_with_static_source(
             "attachdomain ",
         ],
     )?;
+    if domain.trim_start().starts_with('{') {
+        return attach_domain_lua_table_from_query_with_static_source(static_source, domain);
+    }
     named_domain_from_query_with_static_source(static_source, domain)
+}
+
+fn attach_domain_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<String> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
+    let table = value.strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut domain_name = None;
+    let mut domain_id = None;
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
+        if domain_name.is_some() || domain_id.is_some() {
+            return None;
+        }
+        if key.eq_ignore_ascii_case("domainname") {
+            let value = parse_maybe_static_query_text(static_source, value)?;
+            if value.is_empty() {
+                return None;
+            }
+            domain_name = Some(value);
+        } else if key.eq_ignore_ascii_case("domainid") {
+            domain_id = Some(parse_maybe_static_usize_query(static_source, value)?);
+        } else {
+            return None;
+        }
+    }
+    if let Some(domain_name) = domain_name {
+        return Some(domain_name);
+    }
+    domain_id.map(|domain_id| format!("domainid:{domain_id}"))
 }
 
 fn detach_domain_from_query(query: &str) -> Option<WindowDomainSelector> {
@@ -211645,6 +211708,46 @@ return config
     }
 
     #[test]
+    fn window_app_parses_wezterm_attach_domain_action_queries_as_table_actions() {
+        for query in [
+            "wezterm.action.AttachDomain({ DomainName = 'local' })",
+            "act.AttachDomain { DomainName = \"local\" }",
+        ] {
+            let mut app = NativeWindowApp::new_with_command(
+                None,
+                rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+            );
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            let expected = WindowCommand::AttachDomain("local".to_owned());
+
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![expected.clone()]
+            );
+            assert!(app.command_palette_execute(expected));
+            assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+            assert!(app.command_palette.is_none());
+        }
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_attach_domain_action_queries_as_domain_id_unsupported_actions() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action.AttachDomain({ DomainId = 7 })".to_owned());
+        let expected = WindowCommand::AttachDomain("domainid:7".to_owned());
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+        assert!(!app.command_palette_execute(expected));
+        assert!(app.command_palette.is_some());
+    }
+
+    #[test]
     fn window_app_rejects_default_domain_attach_domain_when_default_is_non_local() {
         let mut app = NativeWindowApp::new(None);
         app.set_config_overrides(NativeConfigOverrides {
@@ -222460,6 +222563,67 @@ return config
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|ALT+A".to_owned(),
                 command: WindowCommand::AttachDomain("devhost".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_attach_domain_table_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local domain = 'devhost'
+
+            config.keys = {
+              {
+                key = 'A',
+                mods = 'CTRL|ALT',
+                action = act.AttachDomain { DomainName = domain },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm AttachDomain static table config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+A".to_owned(),
+                command: WindowCommand::AttachDomain("devhost".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_attach_domain_domainid_table_field() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'A',
+                mods = 'CTRL|ALT',
+                action = act.AttachDomain { DomainId = 7 },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm AttachDomain DomainId static table config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+A".to_owned(),
+                command: WindowCommand::AttachDomain("domainid:7".to_owned()),
             }])
         );
     }

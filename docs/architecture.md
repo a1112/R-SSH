@@ -1034,11 +1034,12 @@ keyboard, mouse, paste, resize
   domain spawning remains future mux/domain parity work.
 - Completed in v1: WezTerm-style `AttachDomain` and `DetachDomain` action
   parsing recognizes string, function-call, and `DomainName` table forms,
-  including static `config.keys` top-level string variables and
-  `DetachDomain` parenthesized static domain table variables. `AttachDomain`
-  now dispatches to local tab creation for `local`, `CurrentPaneDomain`, and
-  local default-domain cases (for example `DefaultDomain` when the configured
-  default is local); non-local `AttachDomain` values still return unsupported-action.
+  including static `config.keys` top-level string variables, `AttachDomain` and
+  `DetachDomain` table fields for `DomainName`, and `DetachDomain` parenthesized
+  static domain `DomainId` table variables. `AttachDomain` now dispatches to local
+  tab creation for `local`, `CurrentPaneDomain`, and local default-domain cases
+  (for example `DefaultDomain` when the configured default is local); non-local
+  `AttachDomain` values still return unsupported-action.
 - Completed in v1: WezTerm-style `ToggleFullScreen` routes the default
   `Alt+Enter` shortcut and command-palette `Toggle Full Screen` entry through
   the native window fullscreen state, then dispatches the typed resize hook

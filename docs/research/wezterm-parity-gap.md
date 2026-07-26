@@ -951,8 +951,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   keys with long-bracket values for the domain-name table form. Static
   `config.keys` action calls also resolve top-level string variables for
   attach-domain strings and detach-domain `DomainName` fields, top-level static
-  integer variables for detach-domain official `DomainId` table fields, static
-  string field-name variables for detach-domain `DomainName`, plus
+  integer variables for detach-domain official `DomainId` table fields. `AttachDomain`
+  table forms also resolve `DomainName` and `DomainId` fields; `DomainId` remains
+  unsupported while local/`CurrentPaneDomain`/`DefaultDomain` cases for `AttachDomain`
+  dispatch to local new-tab behavior. Static string field-name variables for
+  detach-domain `DomainName`, plus
   `DetachDomain` parenthesized static domain table variables.
   For local domains, `AttachDomain` behaves like a local new-tab action:
   `local`, `CurrentPaneDomain`, and `DefaultDomain` (when the default domain is
