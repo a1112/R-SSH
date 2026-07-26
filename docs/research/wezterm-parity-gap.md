@@ -4155,7 +4155,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
 - Split panes now have pane-local mouse hit testing for click-to-focus,
   optional focus-follows-mouse via `pane_focus_follows_mouse`, and
   focus-targeted wheel scroll routing. Routing wheel input to an inactive pane
-  under the pointer without transferring focus remains open.
+  under the pointer without transferring focus is complete within hovered target
+  context, without implicit focus transfer.
 - Inactive-pane clicks preserve WezTerm's default click-through behavior, while
   `swallow_mouse_click_on_pane_focus=true` focuses the pane and consumes the
   initial click.
