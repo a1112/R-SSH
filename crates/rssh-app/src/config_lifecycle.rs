@@ -1451,6 +1451,8 @@ impl<'a> Parser<'a> {
             }
             let assignments = self.parse_root_config_table()?;
             self.skip_trivia()?;
+            self.consume_char(';');
+            self.skip_trivia()?;
             if !self.is_eof() {
                 return Err(self.dynamic("unexpected trailing top-level statement"));
             }
@@ -1459,15 +1461,34 @@ impl<'a> Parser<'a> {
 
         self.expect_keyword("local")?;
         self.skip_trivia()?;
-        if self.parse_identifier()? != "config" {
+        if self.parse_identifier()? != "wezterm" {
             return Err(self.dynamic(
-                "only the static config builder declaration is allowed before top-level statements",
+                "the documented builder form must declare `local wezterm = require 'wezterm'`",
             ));
         }
         self.skip_trivia()?;
         self.expect_char('=')?;
         self.skip_trivia()?;
-        self.parse_builder_expression()?;
+        self.parse_wezterm_require_expression()?;
+        self.skip_trivia()?;
+        self.consume_char(';');
+
+        self.skip_trivia()?;
+        if !self.consume_keyword("local") {
+            return Err(self.dynamic(
+                "only the documented config builder declarations are allowed before direct top-level statements",
+            ));
+        }
+        self.skip_trivia()?;
+        if self.parse_identifier()? != "config" {
+            return Err(self.dynamic(
+                "the documented builder form must declare `local config = wezterm.config_builder()`",
+            ));
+        }
+        self.skip_trivia()?;
+        self.expect_char('=')?;
+        self.skip_trivia()?;
+        self.parse_config_builder_expression()?;
         self.skip_trivia()?;
         self.consume_char(';');
 
@@ -1477,6 +1498,8 @@ impl<'a> Parser<'a> {
             if self.consume_keyword("return") {
                 self.skip_trivia()?;
                 self.expect_identifier("config")?;
+                self.skip_trivia()?;
+                self.consume_char(';');
                 self.skip_trivia()?;
                 if !self.is_eof() {
                     return Err(self.syntax("unexpected trailing top-level statement"));
@@ -1509,7 +1532,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_builder_expression(&mut self) -> Result<(), NativeConfigLoadError> {
+    fn parse_wezterm_require_expression(&mut self) -> Result<(), NativeConfigLoadError> {
         self.expect_identifier("require")?;
         self.skip_trivia()?;
         let module = if self.consume_char('(') {
@@ -1524,6 +1547,11 @@ impl<'a> Parser<'a> {
         if module != "wezterm" {
             return Err(self.dynamic("config builder must require `wezterm`"));
         }
+        Ok(())
+    }
+
+    fn parse_config_builder_expression(&mut self) -> Result<(), NativeConfigLoadError> {
+        self.expect_identifier("wezterm")?;
         self.skip_trivia()?;
         self.expect_char('.')?;
         self.expect_identifier("config_builder")?;
@@ -2601,36 +2629,64 @@ mod tests {
 
     #[test]
     fn strict_parser_accepts_empty_direct_table() {
-        let overrides = parse_native_config_document("return {}", &[]).unwrap();
+        let overrides =
+            parse_native_config_document("return {} -- before separator\n ; -- eof", &[]).unwrap();
 
         assert_eq!(overrides, crate::window::NativeConfigOverrides::default());
     }
 
     #[test]
-    fn strict_parser_accepts_config_builder_direct_assignments() {
-        let source = r#"
-            local config = require 'wezterm'.config_builder()
+    fn strict_parser_accepts_documented_config_builder_direct_assignments() {
+        let source = r"
+            local wezterm = require 'wezterm'
+            local config = wezterm.config_builder()
             config.term = 'xterm-256color'
             config.enable_tab_bar = false
             return config
-        "#;
-
-        assert!(parse_native_config_document(source, &[]).is_ok());
-    }
-
-    #[test]
-    fn strict_parser_accepts_builder_and_assignment_semicolons_with_crlf_comments() {
-        let source = "\u{feff}-- header\r\n\
-            local config = require -- module\r\n\
-            ('wezterm').config_builder() ; -- builder\r\n\
-            config.term = 'xterm-256color'; -- assignment\r\n\
-            config.enable_tab_bar = false ;\r\n\
-            return config -- eof";
+        ";
 
         let overrides = parse_native_config_document(source, &[]).unwrap();
 
         assert_eq!(overrides.term.as_deref(), Some("xterm-256color"));
         assert_eq!(overrides.enable_tab_bar, Some(false));
+    }
+
+    #[test]
+    fn strict_parser_accepts_builder_and_assignment_semicolons_with_crlf_comments() {
+        let source = "\u{feff}-- header\r\n\
+            local wezterm = require -- module\r\n\
+            ('wezterm') ; -- require\r\n\
+            local config = wezterm.config_builder() ; -- builder\r\n\
+            config.term = 'xterm-256color'; -- assignment\r\n\
+            config.enable_tab_bar = false ;\r\n\
+            return config; -- eof";
+
+        let overrides = parse_native_config_document(source, &[]).unwrap();
+
+        assert_eq!(overrides.term.as_deref(), Some("xterm-256color"));
+        assert_eq!(overrides.enable_tab_bar, Some(false));
+    }
+
+    #[test]
+    fn strict_parser_rejects_undocumented_builder_aliases_and_extra_statements() {
+        let sources = [
+            "local config = require 'wezterm'.config_builder()\nreturn config",
+            "local wt = require 'wezterm'\nlocal config = wt.config_builder()\nreturn config",
+            "local wezterm = require 'wezterm'\nlocal cfg = wezterm.config_builder()\nreturn cfg",
+            "local wezterm = require 'other'\nlocal config = wezterm.config_builder()\nreturn config",
+            "local wezterm = require 'wezterm'\nlocal config = other.config_builder()\nreturn config",
+            "local wezterm = require 'wezterm'\nlocal helper = true\nlocal config = wezterm.config_builder()\nreturn config",
+            "local wezterm = require 'wezterm'\nlocal config = wezterm.config_builder()\nlocal helper = true\nreturn config",
+        ];
+
+        for source in sources {
+            let error = Parser::new(source).parse_document().unwrap_err();
+            assert!(matches!(
+                error,
+                NativeConfigLoadError::UnsupportedDynamicLua { .. }
+                    | NativeConfigLoadError::InvalidSyntax { .. }
+            ));
+        }
     }
 
     #[test]
@@ -2683,7 +2739,8 @@ mod tests {
 
     #[test]
     fn strict_parser_rejects_variable_derived_value() {
-        let source = "local config = require('wezterm').config_builder()\n\
+        let source = "local wezterm = require('wezterm')\n\
+                      local config = wezterm.config_builder()\n\
                       config.term = dynamic_term\n\
                       return config";
         let error = Parser::new(source).parse_document().unwrap_err();
@@ -2700,7 +2757,8 @@ mod tests {
         let event = "local wezterm = require 'wezterm'\n\
                      wezterm.on('update-right-status', function() end)\n\
                      return {}";
-        let inserted = "local config = require 'wezterm'.config_builder()\n\
+        let inserted = "local wezterm = require 'wezterm'\n\
+                        local config = wezterm.config_builder()\n\
                         config.keys = {}\n\
                         table.insert(config.keys, { key = 'x' })\n\
                         return config";
