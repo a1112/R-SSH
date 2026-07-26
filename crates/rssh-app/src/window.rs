@@ -260697,6 +260697,103 @@ act.Confirmation {
     }
 
     #[test]
+    fn window_app_dispatches_native_show_launcher_args_domains_payload_deduplicates_domain_names() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            default_domain: Some("Remote-Default".to_owned()),
+            exec_domains: Some(vec![NativeExecDomain {
+                name: "remote-default".to_owned(),
+                fixup_command: "wezterm cli spawn".to_owned(),
+                label: None,
+            }]),
+            wsl_domains: Some(vec![NativeWslDomain {
+                name: "REMOTE-DEFAULT".to_owned(),
+                distribution: Some("Ubuntu".to_owned()),
+                username: Some("ops".to_owned()),
+                default_cwd: Some("~".to_owned()),
+                default_prog: None,
+            }]),
+            unix_domains: Some(vec![NativeUnixDomain {
+                name: "reMoTe-DEFAULT".to_owned(),
+                socket_path: Some("/tmp/ops.sock".to_owned()),
+                connect_automatically: true,
+                no_serve_automatically: true,
+                serve_command: None,
+                proxy_command: None,
+                skip_permissions_check: true,
+                read_timeout_ms: 45_000,
+                write_timeout_ms: 30_000,
+                local_echo_threshold_ms: Some(12),
+                overlay_lag_indicator: true,
+            }]),
+            ssh_domains: Some(vec![NativeSshDomain {
+                name: "rEmOtE-default".to_owned(),
+                remote_address: "ops.example.com:2222".to_owned(),
+                no_agent_auth: true,
+                username: Some("ops".to_owned()),
+                connect_automatically: true,
+                timeout_ms: 45_000,
+                local_echo_threshold_ms: Some(12),
+                overlay_lag_indicator: true,
+                remote_wezterm_path: Some("/opt/wezterm/wezterm".to_owned()),
+                override_proxy_command: Some("wezterm cli proxy --stdio".to_owned()),
+                ssh_backend: Some(NativeSshBackend::Ssh2),
+                multiplexing: NativeSshMultiplexing::None,
+                ssh_option: BTreeMap::from([("compression".to_owned(), "yes".to_owned())]),
+                default_prog: Some(vec!["zsh".to_owned(), "-l".to_owned()]),
+                assume_shell: NativeShellAssumption::Posix,
+            }]),
+            tls_clients: Some(vec![NativeTlsClientDomain {
+                name: "REMOTE-default".to_owned(),
+                bootstrap_via_ssh: Some("ops@bastion.example.com:22".to_owned()),
+                remote_address: "ops.example.com:8443".to_owned(),
+                pem_private_key: Some("/home/ops/client.key".to_owned()),
+                pem_cert: Some("/home/ops/client.crt".to_owned()),
+                pem_ca: Some("/home/ops/ca.pem".to_owned()),
+                pem_root_certs: vec![],
+                accept_invalid_hostnames: true,
+                expected_cn: Some("ops.internal".to_owned()),
+                connect_automatically: true,
+                read_timeout_ms: 45_000,
+                write_timeout_ms: 30_000,
+                local_echo_threshold_ms: Some(12),
+                remote_wezterm_path: Some("/opt/wezterm/wezterm".to_owned()),
+                overlay_lag_indicator: true,
+            }]),
+            serial_ports: Some(vec![NativeSerialDomain {
+                name: "ops-console".to_owned(),
+                port: Some("/dev/ttyUSB0".to_owned()),
+                baud: Some(115200),
+            }]),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::domains(),
+                title: Some("Pick Domain".to_owned()),
+                alphabet: None,
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+        let palette = app
+            .command_palette
+            .as_ref()
+            .expect("launcher should be open");
+        assert_eq!(
+            app.command_palette_status(palette),
+            "Pick Domain: Select an item and press Enter=launch Esc=cancel /=filter [1 / 3] Spawn In Domain: local"
+        );
+
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].label(), "Spawn In Domain: local");
+        assert_eq!(entries[1].label(), "Spawn In Domain: Remote-Default");
+        assert_eq!(entries[2].label(), "Spawn In Domain: ops-console");
+    }
+
+    #[test]
     fn window_app_dispatches_native_show_launcher_args_launch_menu_items_payload() {
         let mut app = NativeWindowApp::new(None);
         app.set_config_overrides(NativeConfigOverrides {
