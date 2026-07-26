@@ -950,18 +950,16 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `DetachDomain { DomainName = 'devhost' }`, including bracketed string table
   keys with long-bracket values for the domain-name table form. Static
   `config.keys` action calls also resolve top-level string variables for
-  attach-domain strings and detach-domain `DomainName` fields, top-level static
+  attach-domain strings and detach-domain `DomainName` fields, plus top-level static
   integer variables for detach-domain official `DomainId` table fields. `AttachDomain`
   table forms also resolve `DomainName` and `DomainId` fields; `DomainId` remains
   unsupported while local/`CurrentPaneDomain`/`DefaultDomain` cases for `AttachDomain`
   dispatch to local new-tab behavior. Static string field-name variables for
-  detach-domain `DomainName`, plus
-  `DetachDomain` parenthesized static domain table variables.
-  For local domains, `AttachDomain` behaves like a local new-tab action:
-  `local`, `CurrentPaneDomain`, and `DefaultDomain` (when the default domain is
-  local) now dispatch to tab creation.
-  Non-local `AttachDomain` values remain unsupported, and full remote/mux
-  attach behavior stays open.
+  detach-domain `DomainName`, plus `DetachDomain` parenthesized static domain table
+  variables remain supported. `DetachDomain` supports local behavior without opening
+  a new tab for `local`, `CurrentPaneDomain`, and `default`/`defaultdomain` when the
+  configured `default_domain` is local; all other `DetachDomain` values remain
+  unsupported.
 - Command palette split entries now use WezTerm action names:
   native `SplitHorizontal` dispatches the right-side split path and is exposed
   as Split Horizontal, while native `SplitVertical` dispatches the downward

@@ -86633,7 +86633,10 @@ impl NativeWindowApp {
                 }
                 AppAction::NewTab { launch: None }
             }
-            WindowCommand::DetachDomain(_) => {
+            WindowCommand::DetachDomain(selector) => {
+                if selector.is_supported_local_domain(&self.default_domain) {
+                    return Ok(());
+                }
                 return Err(AppShellError::UnsupportedAction);
             }
             WindowCommand::SpawnCommandInNewTab(spawn_command) => AppAction::NewTab {
@@ -121202,6 +121205,30 @@ impl WindowSpawnTabDomain {
             Self::DefaultDomain => is_local_domain_name(default_domain),
             Self::DomainId(_) => false,
             Self::DomainName(name) => is_local_domain_name(name),
+        }
+    }
+}
+
+impl WindowDomainSelector {
+    fn is_supported_local_domain(&self, default_domain: &str) -> bool {
+        match self {
+            Self::CurrentPaneDomain => true,
+            Self::DomainId(_) => false,
+            Self::DomainName(name) => {
+                if is_local_domain_name(name) {
+                    return true;
+                }
+                matches!(
+                    name.chars()
+                        .filter(|character| !character.is_whitespace()
+                            && *character != '-'
+                            && *character != '_')
+                        .collect::<String>()
+                        .to_ascii_lowercase()
+                        .as_str(),
+                    "defaultdomain" | "default"
+                ) && is_local_domain_name(default_domain)
+            }
         }
     }
 }
@@ -211844,7 +211871,7 @@ return config
     }
 
     #[test]
-    fn window_app_parses_wezterm_detach_domain_action_queries_as_unsupported_actions() {
+    fn window_app_dispatches_wezterm_detach_domain_action_queries_as_supported_local_actions() {
         let mut app = NativeWindowApp::new(None);
 
         for (query, expected_domain) in [
@@ -211852,6 +211879,37 @@ return config
                 "wezterm.action.DetachDomain 'CurrentPaneDomain'",
                 WindowDomainSelector::CurrentPaneDomain,
             ),
+            (
+                "detach domain defaultdomain",
+                WindowDomainSelector::DomainName("defaultdomain".to_owned()),
+            ),
+            (
+                "detach domain default",
+                WindowDomainSelector::DomainName("default".to_owned()),
+            ),
+            (
+                "wezterm.action { DetachDomain = 'CurrentPaneDomain' }",
+                WindowDomainSelector::CurrentPaneDomain,
+            ),
+        ] {
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            let expected = WindowCommand::DetachDomain(expected_domain);
+
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![expected.clone()]
+            );
+            assert!(app.command_palette_execute(expected));
+            assert!(app.command_palette.is_none());
+        }
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_detach_domain_action_queries_as_unsupported_actions() {
+        let mut app = NativeWindowApp::new(None);
+
+        for (query, expected_domain) in [
             (
                 "wezterm.action.DetachDomain({ DomainName = 'devhost' })",
                 WindowDomainSelector::DomainName("devhost".to_owned()),
@@ -211879,14 +211937,36 @@ return config
     }
 
     #[test]
+    fn window_app_rejects_default_domain_detach_domain_when_default_is_non_local() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            default_domain: Some("remote-default".to_owned()),
+            exec_domains: Some(vec![NativeExecDomain {
+                name: "remote-default".to_owned(),
+                fixup_command: "wezterm cli spawn".to_owned(),
+                label: None,
+            }]),
+            ..NativeConfigOverrides::default()
+        });
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("detach domain defaultdomain".to_owned());
+        let expected = WindowCommand::DetachDomain(WindowDomainSelector::DomainName(
+            "defaultdomain".to_owned(),
+        ));
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+        assert!(!app.command_palette_execute(expected));
+        assert!(app.command_palette.is_some());
+    }
+
+    #[test]
     fn window_app_rejects_wezterm_detach_domain_action_table_wrapper_queries() {
         let mut app = NativeWindowApp::new(None);
 
         for (query, expected_domain) in [
-            (
-                "wezterm.action { DetachDomain = 'CurrentPaneDomain' }",
-                WindowDomainSelector::CurrentPaneDomain,
-            ),
             (
                 "act { DetachDomain = { DomainName = 'devhost' } }",
                 WindowDomainSelector::DomainName("devhost".to_owned()),
