@@ -2815,7 +2815,7 @@ impl NativeLaunchMenuCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct NativeUserKeyAssignment {
+pub(crate) struct NativeUserKeyAssignment {
     keys: String,
     command: WindowCommand,
 }
@@ -3336,7 +3336,7 @@ struct NativeTlsClientDomain {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
-struct NativePalette {
+pub(crate) struct NativePalette {
     foreground: Option<Color>,
     background: Option<Color>,
     cursor_fg: Option<Color>,
@@ -4035,12 +4035,12 @@ struct NativeEffectiveConfig {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct NativeConfigOverrides {
+pub(crate) struct NativeConfigOverrides {
     dpi: Option<u32>,
     dpi_by_screen: Option<BTreeMap<String, u32>>,
     tab_max_width: Option<usize>,
     status_update_interval_ms: Option<u64>,
-    max_fps: Option<usize>,
+    pub(crate) max_fps: Option<usize>,
     animation_fps: Option<usize>,
     front_end: Option<NativeRenderFrontEnd>,
     webgpu_power_preference: Option<NativeWebGpuPowerPreference>,
@@ -4124,8 +4124,8 @@ struct NativeConfigOverrides {
     reverse_video_cursor_min_contrast: Option<NativeContrastRatio>,
     window_padding: Option<NativeWindowPadding>,
     window_content_alignment: Option<NativeWindowContentAlignment>,
-    initial_cols: Option<u16>,
-    initial_rows: Option<u16>,
+    pub(crate) initial_cols: Option<u16>,
+    pub(crate) initial_rows: Option<u16>,
     inactive_pane_hsb: Option<NativeInactivePaneHsb>,
     command_palette_rows: Option<usize>,
     command_palette_font: Option<NativeFontConfig>,
@@ -4159,12 +4159,12 @@ struct NativeConfigOverrides {
     launcher_label_bg: Option<NativeColorSpec>,
     launcher_label_fg: Option<NativeColorSpec>,
     selection_word_boundary: Option<String>,
-    term: Option<String>,
+    pub(crate) term: Option<String>,
     enq_answerback: Option<String>,
     audible_bell: Option<NativeAudibleBell>,
     visual_bell: Option<NativeVisualBell>,
-    colors: Option<NativePalette>,
-    color_scheme: Option<String>,
+    pub(crate) colors: Option<NativePalette>,
+    pub(crate) color_scheme: Option<String>,
     color_scheme_dirs: Option<Vec<String>>,
     color_schemes: Option<HashMap<String, NativeResolvedPalette>>,
     foreground_color: Option<Color>,
@@ -4189,12 +4189,12 @@ struct NativeConfigOverrides {
     tab_bar_style: NativeTabBarStyle,
     visual_bell_color: Option<Color>,
     notification_handling: Option<NativeNotificationHandling>,
-    default_prog: Option<Vec<String>>,
-    default_gui_startup_args: Option<Vec<String>>,
+    pub(crate) default_prog: Option<Vec<String>>,
+    pub(crate) default_gui_startup_args: Option<Vec<String>>,
     default_domain: Option<String>,
     default_workspace: Option<String>,
     prefer_to_spawn_tabs: Option<bool>,
-    automatically_reload_config: Option<bool>,
+    pub(crate) automatically_reload_config: Option<bool>,
     check_for_updates: Option<bool>,
     check_for_updates_interval_seconds: Option<u64>,
     show_update_window: Option<bool>,
@@ -4204,7 +4204,7 @@ struct NativeConfigOverrides {
     debug_key_events: Option<bool>,
     log_unknown_escape_sequences: Option<bool>,
     warn_about_missing_glyphs: Option<bool>,
-    default_cwd: Option<String>,
+    pub(crate) default_cwd: Option<String>,
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
     daemon_options: Option<NativeDaemonOptions>,
@@ -4225,7 +4225,7 @@ struct NativeConfigOverrides {
     ulimit_nproc: Option<u64>,
     mux_env_remove: Option<Vec<String>>,
     tiling_desktop_environments: Option<Vec<String>>,
-    set_environment_variables: Option<BTreeMap<String, String>>,
+    pub(crate) set_environment_variables: Option<BTreeMap<String, String>>,
     launch_menu: Option<Vec<NativeLaunchMenuItem>>,
     key_map_preference: Option<NativeKeyMapPreference>,
     ui_key_cap_rendering: Option<NativeUiKeyCapRendering>,
@@ -4255,7 +4255,7 @@ struct NativeConfigOverrides {
     xim_im_name: Option<String>,
     detect_password_input: Option<bool>,
     leader: Option<NativeLeaderKey>,
-    key_assignments: Option<Vec<NativeUserKeyAssignment>>,
+    pub(crate) key_assignments: Option<Vec<NativeUserKeyAssignment>>,
     key_tables: Option<BTreeMap<String, Vec<NativeUserKeyAssignment>>>,
     mouse_assignments: Option<Vec<NativeUserMouseAssignment>>,
     lua_tab_title: Option<NativeLuaTabTitle>,
@@ -4284,9 +4284,9 @@ struct NativeConfigOverrides {
     swallow_mouse_click_on_window_focus: Option<bool>,
     bypass_mouse_reporting_modifiers: Option<ModifiersState>,
     enable_scroll_bar: Option<bool>,
-    scrollback_lines: Option<usize>,
+    pub(crate) scrollback_lines: Option<usize>,
     min_scroll_bar_height: Option<NativeScrollBarHeight>,
-    enable_tab_bar: Option<bool>,
+    pub(crate) enable_tab_bar: Option<bool>,
     hide_tab_bar_if_only_one_tab: Option<bool>,
     use_fancy_tab_bar: Option<bool>,
     unzoom_on_switch_pane: Option<bool>,
@@ -4307,7 +4307,9 @@ struct NativeConfigOverrides {
 }
 
 #[allow(dead_code)]
-fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<NativeConfigOverrides> {
+pub(crate) fn native_config_overrides_from_wezterm_lua_config(
+    config: &str,
+) -> Option<NativeConfigOverrides> {
     let mut overrides = NativeConfigOverrides::default();
     let mut parsed = false;
     let config_receiver =

@@ -1,5 +1,6 @@
 mod bench;
 mod cli;
+mod config_lifecycle;
 mod diagnostics;
 mod local;
 mod profiles;
