@@ -105446,6 +105446,36 @@ fn wezterm_action_table_wrapper_command_with_static_source(
         return command_palette_structured_query_command_inner(&name);
     }
 
+    if let Some(static_source) = static_source {
+        let static_source = LuaStaticSource {
+            source: static_source.source,
+            max_start: static_source.source.len(),
+        };
+        let name = name.to_ascii_lowercase();
+        if name == "attachdomain" {
+            return attach_domain_lua_table_from_query_with_static_source(
+                Some(static_source),
+                value,
+            )
+            .map(WindowCommand::AttachDomain)
+            .or_else(|| {
+                named_domain_from_query_with_static_source(Some(static_source), value)
+                    .map(WindowCommand::AttachDomain)
+            });
+        }
+        if name == "detachdomain" {
+            return window_domain_selector_lua_table_from_query_with_static_source(
+                Some(static_source),
+                value,
+            )
+            .map(WindowCommand::DetachDomain)
+            .or_else(|| {
+                window_domain_selector_from_query_with_static_source(Some(static_source), value)
+                    .map(WindowCommand::DetachDomain)
+            });
+        }
+    }
+
     command_palette_structured_query_command_inner(&format!("{name}={value}"))
 }
 
@@ -222678,12 +222708,13 @@ return config
             local wezterm = require 'wezterm'
             local act = wezterm.action
             local config = {}
+            local domain = 'devhost'
 
             config.keys = {
               {
                 key = 'A',
                 mods = 'CTRL|ALT',
-                action = wezterm.action { AttachDomain = 'devhost' },
+                action = act { AttachDomain = domain },
               },
             }
 
@@ -222708,12 +222739,15 @@ return config
             local wezterm = require 'wezterm'
             local act = wezterm.action
             local config = {}
+            local domain_opts = {
+              DomainId = 7,
+            }
 
             config.keys = {
               {
                 key = 'A',
                 mods = 'CTRL|ALT',
-                action = act { AttachDomain = { DomainId = 7 } },
+                action = act { AttachDomain = domain_opts },
               },
             }
 
@@ -222768,12 +222802,16 @@ return config
             local wezterm = require 'wezterm'
             local act = wezterm.action
             local config = {}
+            local domain = 'devhost'
+            local detach_domain = {
+              DomainName = domain,
+            }
 
             config.keys = {
               {
                 key = 'D',
                 mods = 'CTRL|ALT',
-                action = act { DetachDomain = { DomainName = 'devhost' } },
+                action = act { DetachDomain = detach_domain },
               },
             }
 
