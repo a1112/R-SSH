@@ -1583,24 +1583,59 @@ mod tests {
             Some(rssh_terminal::Color::Rgb(0x22, 0x22, 0x22))
         );
         assert_eq!(
-            format!("{:?}", colors.tab_bar_active_tab),
-            "NativeTabBarItemColors { fg_color: Some(Rgb(255, 255, 255)), bg_color: Some(Rgb(51, 51, 51)), intensity: Some(Bold), underline: Some(Single), italic: Some(true), strikethrough: Some(false) }"
+            colors.tab_bar_active_tab.test_projection(),
+            (
+                Some(rssh_terminal::Color::Rgb(0xff, 0xff, 0xff)),
+                Some(rssh_terminal::Color::Rgb(0x33, 0x33, 0x33)),
+                Some("Bold"),
+                Some("Single"),
+                Some(true),
+                Some(false),
+            )
         );
         assert_eq!(
-            format!("{:?}", colors.tab_bar_inactive_tab),
-            "NativeTabBarItemColors { fg_color: Some(Rgb(170, 170, 170)), bg_color: Some(Rgb(34, 34, 34)), intensity: None, underline: None, italic: None, strikethrough: None }"
+            colors.tab_bar_inactive_tab.test_projection(),
+            (
+                Some(rssh_terminal::Color::Rgb(0xaa, 0xaa, 0xaa)),
+                Some(rssh_terminal::Color::Rgb(0x22, 0x22, 0x22)),
+                None,
+                None,
+                None,
+                None,
+            )
         );
         assert_eq!(
-            format!("{:?}", colors.tab_bar_inactive_tab_hover),
-            "NativeTabBarItemColors { fg_color: Some(Rgb(187, 187, 187)), bg_color: Some(Rgb(51, 51, 51)), intensity: None, underline: None, italic: None, strikethrough: None }"
+            colors.tab_bar_inactive_tab_hover.test_projection(),
+            (
+                Some(rssh_terminal::Color::Rgb(0xbb, 0xbb, 0xbb)),
+                Some(rssh_terminal::Color::Rgb(0x33, 0x33, 0x33)),
+                None,
+                None,
+                None,
+                None,
+            )
         );
         assert_eq!(
-            format!("{:?}", colors.tab_bar_new_tab),
-            "NativeTabBarItemColors { fg_color: Some(Rgb(204, 204, 204)), bg_color: Some(Rgb(68, 68, 68)), intensity: None, underline: None, italic: None, strikethrough: None }"
+            colors.tab_bar_new_tab.test_projection(),
+            (
+                Some(rssh_terminal::Color::Rgb(0xcc, 0xcc, 0xcc)),
+                Some(rssh_terminal::Color::Rgb(0x44, 0x44, 0x44)),
+                None,
+                None,
+                None,
+                None,
+            )
         );
         assert_eq!(
-            format!("{:?}", colors.tab_bar_new_tab_hover),
-            "NativeTabBarItemColors { fg_color: Some(Rgb(221, 221, 221)), bg_color: Some(Rgb(85, 85, 85)), intensity: None, underline: None, italic: None, strikethrough: None }"
+            colors.tab_bar_new_tab_hover.test_projection(),
+            (
+                Some(rssh_terminal::Color::Rgb(0xdd, 0xdd, 0xdd)),
+                Some(rssh_terminal::Color::Rgb(0x55, 0x55, 0x55)),
+                None,
+                None,
+                None,
+                None,
+            )
         );
         assert_eq!(
             overrides
@@ -1618,8 +1653,8 @@ mod tests {
             Some(1)
         );
         assert_eq!(
-            format!("{:?}", overrides.key_assignments.as_ref().unwrap()[0]),
-            r#"NativeUserKeyAssignment { keys: "CTRL|SHIFT+x", command: SendString("safe\"\\\nvalue") }"#
+            overrides.key_assignments.as_ref().unwrap()[0].test_projection(),
+            ("CTRL|SHIFT+x", Some("safe\"\\\nvalue"))
         );
     }
 

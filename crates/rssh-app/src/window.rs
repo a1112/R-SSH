@@ -2820,6 +2820,17 @@ pub(crate) struct NativeUserKeyAssignment {
     command: WindowCommand,
 }
 
+#[cfg(test)]
+impl NativeUserKeyAssignment {
+    pub(crate) fn test_projection(&self) -> (&str, Option<&str>) {
+        let send_string = match &self.command {
+            WindowCommand::SendString(payload) => Some(payload.as_str()),
+            _ => None,
+        };
+        (&self.keys, send_string)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NativeUserMouseAssignment {
     event: NativeMouseAssignmentEvent,
@@ -2966,6 +2977,42 @@ pub(crate) struct NativeTabBarItemColors {
     underline: Option<NativeFormatUnderline>,
     italic: Option<bool>,
     strikethrough: Option<bool>,
+}
+
+#[cfg(test)]
+impl NativeTabBarItemColors {
+    pub(crate) fn test_projection(
+        &self,
+    ) -> (
+        Option<Color>,
+        Option<Color>,
+        Option<&'static str>,
+        Option<&'static str>,
+        Option<bool>,
+        Option<bool>,
+    ) {
+        let intensity = self.intensity.map(|intensity| match intensity {
+            NativeFormatIntensity::Normal => "Normal",
+            NativeFormatIntensity::Bold => "Bold",
+            NativeFormatIntensity::Half => "Half",
+        });
+        let underline = self.underline.map(|underline| match underline {
+            NativeFormatUnderline::None => "None",
+            NativeFormatUnderline::Single => "Single",
+            NativeFormatUnderline::Double => "Double",
+            NativeFormatUnderline::Curly => "Curly",
+            NativeFormatUnderline::Dotted => "Dotted",
+            NativeFormatUnderline::Dashed => "Dashed",
+        });
+        (
+            self.fg_color,
+            self.bg_color,
+            intensity,
+            underline,
+            self.italic,
+            self.strikethrough,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
