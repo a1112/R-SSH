@@ -211790,9 +211790,21 @@ return config
 
     #[test]
     fn window_app_dispatches_wezterm_attach_domain_action_table_wrapper_queries() {
-        for query in [
-            "wezterm.action { AttachDomain = 'local' }",
-            "act { AttachDomain = { DomainName = \"local\" } }",
+        for (query, expected_domain) in [
+            ("wezterm.action { AttachDomain = 'local' }", "local"),
+            ("act { AttachDomain = { DomainName = \"local\" } }", "local"),
+            (
+                "wezterm.action { AttachDomain = { DomainName = 'default' } }",
+                "default",
+            ),
+            (
+                "act { AttachDomain = { DomainName = 'default-domain' } }",
+                "default-domain",
+            ),
+            (
+                "wezterm.action { AttachDomain = { DomainName = 'default_domain' } }",
+                "default_domain",
+            ),
         ] {
             let mut app = NativeWindowApp::new_with_command(
                 None,
@@ -211800,7 +211812,7 @@ return config
             );
             app.enter_command_palette_mode();
             app.command_palette_set_query(query.to_owned());
-            let expected = WindowCommand::AttachDomain("local".to_owned());
+            let expected = WindowCommand::AttachDomain(expected_domain.to_owned());
 
             assert_eq!(
                 app.command_palette_filtered_commands(),
