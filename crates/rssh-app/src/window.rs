@@ -69595,6 +69595,20 @@ fn lua_static_load_scheme_path_expression_value_from_query_with_depth(
         return Some(value);
     }
 
+    if let Some(rest) = lua_static_wezterm_receiver_rest_from_query(source, max_start, query) {
+        let static_source = Some(LuaStaticSource { source, max_start });
+        let rest = lua_trim_start_comments(rest)?;
+        let (field, rest) =
+            lua_table_map_field_key_from_query_with_static_source(static_source, rest)?;
+        if field == "config_dir" && lua_static_value_tail_is_value_end(rest) {
+            return std::env::var("WEZTERM_CONFIG_DIR").ok();
+        }
+    }
+
+    if query == "wezterm.config_dir" {
+        return std::env::var("WEZTERM_CONFIG_DIR").ok();
+    }
+
     if let Some(segments) = split_lua_string_concat_segments(query) {
         let mut value = String::new();
         for segment in segments {
@@ -138071,6 +138085,85 @@ return config
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_custom_color_scheme_from_load_scheme_wezterm_config_dir() {
+        static NEXT_COLOR_SCHEME_LOAD_SCHEME_WEZTERM_CONFIG_DIR_ID: AtomicUsize =
+            AtomicUsize::new(0);
+
+        let Some(original_config_dir) = std::env::var_os("WEZTERM_CONFIG_DIR") else {
+            return;
+        };
+        let scheme_dir = PathBuf::from(&original_config_dir);
+        if std::fs::create_dir_all(&scheme_dir).is_err() {
+            return;
+        }
+        let mut scheme_file = scheme_dir.clone();
+        scheme_file.push(format!(
+            "rssh-color-scheme-load-scheme-wezterm-config-dir-{}-{}.toml",
+            std::process::id(),
+            NEXT_COLOR_SCHEME_LOAD_SCHEME_WEZTERM_CONFIG_DIR_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Config Dir Loaded Scheme"
+
+            [colors]
+            foreground = "#c1c2c3"
+            background = "#c4c5c6"
+            cursor_bg = "#c7c8c9"
+            ansi = [
+              "#000001",
+              "#000002",
+              "#000003",
+              "#000004",
+              "#000005",
+              "#000006",
+              "#000007",
+              "#000008",
+            ]
+            "##,
+        )
+        .expect("expected temp custom color_scheme config_dir-load-scheme TOML file");
+        let scheme_name = scheme_file
+            .file_name()
+            .expect("expected temp scheme file name")
+            .to_string_lossy()
+            .into_owned();
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wt = require 'wezterm'
+            local config = {{}}
+            local load_scheme = wt.color.load_scheme
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {{
+              ['Project Scheme'] = load_scheme(wt.config_dir .. '/{}'),
+            }}
+
+            return config
+            "##,
+            scheme_name
+        ))
+        .expect("expected WezTerm custom color_scheme config_dir load_scheme config");
+
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(193, 194, 195));
+        assert_eq!(effective.background_color, Color::Rgb(196, 197, 198));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(199, 200, 201));
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[5],
+            Color::Rgb(0, 0, 5)
+        );
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_custom_color_scheme_from_load_scheme_variable() {
         static NEXT_COLOR_SCHEME_LOAD_SCHEME_VARIABLE_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -162982,6 +163075,68 @@ return config
                 call_start,
             ),
             None
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_accept_wezterm_config_dir() {
+        let expected = std::env::var("WEZTERM_CONFIG_DIR")
+            .ok()
+            .map(|config_dir| format!("{}/scheme.toml", config_dir.replace('\\', "/")));
+        let call_start = "wezterm.color.load_scheme(wezterm.config_dir .. '/scheme.toml')"
+            .find("wezterm.color.load_scheme(wezterm.config_dir .. '/scheme.toml')")
+            .expect("expected call marker");
+
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                "",
+                "wezterm.config_dir .. '/scheme.toml'",
+                call_start,
+            ),
+            expected
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_accept_wezterm_alias_config_dir() {
+        let source = "
+            local wt = require 'wezterm'
+            local _scheme = wt.config_dir .. '/scheme.toml'
+            wezterm.color.load_scheme(_scheme)
+        ";
+        let expected = std::env::var("WEZTERM_CONFIG_DIR")
+            .ok()
+            .map(|config_dir| format!("{}/scheme.toml", config_dir.replace('\\', "/")));
+        let call_start = source
+            .find("wezterm.color.load_scheme(_scheme)")
+            .expect("expected call marker");
+
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                source,
+                "wt.config_dir .. '/scheme.toml'",
+                call_start,
+            ),
+            expected
+        );
+    }
+
+    #[test]
+    fn static_load_scheme_path_expressions_reflect_wezterm_config_dir_environment() {
+        let call_start = "wezterm.color.load_scheme(wezterm.config_dir .. '/scheme.toml')"
+            .find("wezterm.color.load_scheme(wezterm.config_dir .. '/scheme.toml')")
+            .expect("expected call marker");
+        let expected = std::env::var("WEZTERM_CONFIG_DIR")
+            .ok()
+            .map(|config_dir| format!("{}/scheme.toml", config_dir.replace('\\', "/")));
+
+        assert_eq!(
+            super::lua_static_load_scheme_path_expression_value_from_query(
+                "",
+                "wezterm.config_dir .. '/scheme.toml'",
+                call_start,
+            ),
+            expected
         );
     }
 

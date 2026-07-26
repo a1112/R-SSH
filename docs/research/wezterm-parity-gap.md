@@ -3555,10 +3555,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   applied, or through the first returned variable from
   `local colors, metadata = ...` or `colors, metadata = ...` assignments. This
   remains bounded static interpretation: paths derived from dynamic helpers,
-  branches, or environment-backed values, `wezterm.config_dir` composition,
-  arbitrary Lua execution, and downstream consumption of returned `metadata`
-  remain open. Modern and legacy built-in lookups are also supported in this
-  bounded pipeline through static-key access and direct/static aliases. Both
+  branches, arbitrary Lua execution, and downstream consumption of returned
+  `metadata`
+  remain open. `wezterm.config_dir` (including alias forms such as `wt.config_dir`)
+  resolves via `WEZTERM_CONFIG_DIR` in static composition. Modern and legacy
+  built-in lookups are also supported in this bounded pipeline through
+  static-key access and direct/static aliases. Both
   `wezterm.color.get_builtin_schemes()` and
   `wezterm.get_builtin_color_schemes()` may be retained as whole-map variables,
   indexed with static literal or statically bound keys, and consumed by

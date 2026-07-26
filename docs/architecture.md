@@ -1862,8 +1862,10 @@ keyboard, mouse, paste, resize
   through the first returned variable from `local colors, metadata = ...` or
   `colors, metadata = ...` assignments. This remains bounded static
   interpretation: paths derived from dynamic helpers, branches, or
-  environment-backed values, `wezterm.config_dir` composition, arbitrary Lua
+  environment-backed values, arbitrary Lua
   execution, and downstream consumption of returned `metadata` remain open.
+  `wezterm.config_dir` (including `local wt = require 'wezterm'` alias forms) resolves
+  from `WEZTERM_CONFIG_DIR` in static path composition.
   Static `load_scheme` result-variable references resolve to the latest top-level
   binding before the `config.colors` assignment and ignore
   helper-function-local bindings/mutations plus later rebinding, including
