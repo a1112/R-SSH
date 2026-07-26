@@ -110,10 +110,18 @@ source that disappeared to fall through to a lower-priority candidate or
 defaults and allows a later manual reload to select a newly created
 higher-priority source. A required source never falls through.
 
-After a successful file load, set `WEZTERM_CONFIG_FILE` to the selected path
-and `WEZTERM_CONFIG_DIR` to its parent. A successful disabled/default load
-clears both. A failed runtime reload keeps the previous values because the
-last-known-good source remains active.
+After a successful file load, publish `WEZTERM_CONFIG_FILE` as the selected
+path and `WEZTERM_CONFIG_DIR` as its parent to the bounded evaluator context
+and future PTY command environment. A successful disabled/default load removes
+them from those derived environments. A failed runtime reload keeps the
+last-known-good publication because the effective source remains active.
+
+R-SSH does not mutate the process-global environment after threads exist.
+The workspace uses Rust 2024 with `unsafe_code = "forbid"`, while
+`std::env::set_var/remove_var` are unsafe in this context. This is an explicit
+safety adaptation from fixed upstream: loader state is authoritative inside
+the app, and child commands receive equivalent values without introducing
+unsound process-global mutation.
 
 ## Loading and bounded-static diagnostics
 
@@ -230,6 +238,7 @@ bounded-static evaluator with a real Lua runtime later.
 `NativeWindowManager`, not an individual window, owns:
 
 - the discovery inputs and ordered CLI overrides;
+- a three-state source selection (`Disabled`, `Defaults`, or `File`);
 - the last-known-good `EffectiveNativeConfig`;
 - the preferred and most recently resolved source from the latest attempt;
 - the latest load diagnostic;
@@ -305,12 +314,23 @@ The manager handles that event on the event-loop thread and runs the same
 transaction as manual reload. The watcher callback never mutates window or
 configuration state.
 
+The watcher policy is derived only from the manager-owned base file plus CLI
+configuration; a per-window runtime override cannot enable or disable this
+global resource.
+
 The watcher is first created whenever an attempt identifies a source path and
-the last-known-good effective configuration has automatic reload enabled;
+the last-known-good base configuration has automatic reload enabled;
 attempt success is not required. Once created it is retained even if a later
 generation disables automatic reload, matching the fixed upstream; only newly
 attempted paths stop being added while the flag is false. Dropping the
 lifecycle cleanly stops and joins the debounce worker.
+
+When the selected file is directly under the user's home directory, fixed
+upstream watches the file but deliberately does not watch the noisy home
+parent. Modify events remain supported, but a delete followed by later
+recreation is not guaranteed to be observed for that one source location.
+Atomic replace/remove/recreate recovery tests therefore use non-home config
+directories.
 
 ## Error behavior and observability
 
@@ -364,8 +384,9 @@ Focused tests must prove:
 - automatic reload can create the watcher from an enabled failed attempt,
   repairs an initially invalid generation-0 source into generation 1, retains
   an existing watcher after a later disable, accumulates attempted paths,
-  coalesces a burst, handles atomic replace/remove/recreate, and recovers after
-  an invalid intermediate file;
+  ignores per-window automatic-reload overrides, coalesces a burst, handles
+  atomic replace/remove/recreate outside the home-root exception, and recovers
+  after an invalid intermediate file;
 - watcher shutdown does not leak a worker; and
 - existing static-parser, app-shell, PTY-launch, renderer-palette, key-table,
   manager-routing, and complete workspace suites remain green.
