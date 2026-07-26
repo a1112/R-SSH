@@ -94540,9 +94540,7 @@ impl NativeWindowApp {
         self.tab_bar_cells_fancy()
     }
 
-    // WezTerm-style proportional "fancy" tab bar rendering is still not implemented yet.
-    // For now, keep current retro rendering as the fallback for both modes while retaining
-    // behavior parity and leaving an explicit extension point.
+    // WezTerm-style proportional tab bar rendering for `use_fancy_tab_bar = true`.
     fn tab_bar_cells_fancy(&self) -> Vec<RenderCell> {
         if !self.tab_bar_is_visible() {
             return Vec::new();
@@ -94590,10 +94588,15 @@ impl NativeWindowApp {
 
         if self.show_tabs_in_tab_bar {
             let active_tab_id = self.app_shell.active_tab_id();
-            for (index, tab) in self.app_shell.active_workspace().tabs().iter().enumerate() {
+            let tabs = self.app_shell.active_workspace().tabs();
+            let tab_width_max = self.tab_title_second_pass_max_width().max(1);
+            for (index, tab) in tabs.iter().enumerate() {
                 let active = tab.id() == active_tab_id;
-                let title = self.formatted_tab_title_for_tab(index, tab);
-                let title_text = title.as_ref().map(NativeTabTitle::plain_text);
+                let first_pass_title = self.formatted_tab_title_for_tab_first_pass(index, tab);
+                let title_text = first_pass_title.as_ref().map(NativeTabTitle::plain_text);
+                let first_pass_title_width = first_pass_title
+                    .as_ref()
+                    .map_or(0, |title| native_tab_title_visible_width(title));
                 let label = tab_bar_tab_label_segments(
                     index,
                     tab.id(),
@@ -94603,39 +94606,23 @@ impl NativeWindowApp {
                     Self::tab_progress_for_tab(tab),
                     self.tab_bar_label_options(),
                 );
-                let label_width = label
-                    .prefix
-                    .chars()
-                    .count()
-                    .saturating_add(label.title.chars().count())
-                    .saturating_add(label.suffix.chars().count())
-                    .saturating_add(if active {
-                        self.tab_bar_style
-                            .active_tab_left
-                            .as_deref()
-                            .map_or(0, native_format_items_visible_width)
-                            .saturating_add(
-                                self.tab_bar_style
-                                    .active_tab_right
-                                    .as_deref()
-                                    .map_or(0, native_format_items_visible_width),
-                            )
-                    } else {
-                        self.tab_bar_style
-                            .inactive_tab_left
-                            .as_deref()
-                            .map_or(0, native_format_items_visible_width)
-                            .saturating_add(
-                                self.tab_bar_style
-                                    .inactive_tab_right
-                                    .as_deref()
-                                    .map_or(0, native_format_items_visible_width),
-                            )
-                    });
+                let tab_title_len = if first_pass_title_width == 0 {
+                    tab_width_max.max(1)
+                } else {
+                    first_pass_title_width.min(tab_width_max)
+                };
                 let hovered = hover_column.is_some_and(|hover_column| {
+                    let label_width = label
+                        .prefix
+                        .chars()
+                        .count()
+                        .saturating_add(tab_title_len)
+                        .saturating_add(label.suffix.chars().count());
                     let end = column.saturating_add(u16::try_from(label_width).unwrap_or(u16::MAX));
-                    !active && hover_column >= column && hover_column < end
+                    hover_column >= column && hover_column < end
                 });
+                let hovered_style = hovered && !active;
+
                 let default_foreground = if active {
                     Color::Rgb(20, 20, 20)
                 } else {
@@ -94648,7 +94635,7 @@ impl NativeWindowApp {
                 };
                 let item_colors = if active {
                     self.tab_bar_active_tab_colors
-                } else if hovered {
+                } else if hovered_style {
                     self.tab_bar_inactive_tab_hover_colors
                 } else {
                     self.tab_bar_inactive_tab_colors
@@ -94658,7 +94645,7 @@ impl NativeWindowApp {
                         self.tab_bar_style.active_tab_left.as_deref(),
                         self.tab_bar_style.active_tab_right.as_deref(),
                     )
-                } else if hovered {
+                } else if hovered_style {
                     (
                         self.tab_bar_style
                             .inactive_tab_hover_left
@@ -94681,16 +94668,22 @@ impl NativeWindowApp {
                     default_background,
                     active,
                 );
+                let title = self
+                    .formatted_tab_title_for_tab_with_max_width(index, tab, hovered, tab_width_max)
+                    .or_else(|| {
+                        first_pass_title
+                            .clone()
+                            .or_else(|| Some(NativeTabTitle::Text(label.title.clone())))
+                    });
                 write_tab_bar_format_items_if_configured(&mut cells, &mut column, left_edge, style);
                 write_tab_bar_ansi_segment(&mut cells, &mut column, &label.prefix, style);
-                match title.as_ref() {
-                    Some(NativeTabTitle::Format(items)) => {
-                        write_tab_bar_format_items(&mut cells, &mut column, items, style);
-                    }
-                    Some(NativeTabTitle::Text(_)) | None => {
-                        write_tab_bar_ansi_segment(&mut cells, &mut column, &label.title, style);
-                    }
-                }
+                let _ = write_tab_bar_title_with_max_width(
+                    &mut cells,
+                    &mut column,
+                    &title.unwrap_or_else(|| NativeTabTitle::Text(label.title.clone())),
+                    style,
+                    usize::MAX,
+                );
                 write_tab_bar_ansi_segment(&mut cells, &mut column, &label.suffix, style);
                 write_tab_bar_format_items_if_configured(
                     &mut cells,
@@ -95539,6 +95532,21 @@ impl NativeWindowApp {
         position: usize,
         tab: &rssh_core::app_shell::Tab,
     ) -> Option<NativeTabTitle> {
+        let hovered = Some(tab.id()) == self.hovered_tab_for_tab_bar();
+        let _ = self.formatted_tab_title_for_tab_first_pass(position, tab);
+        self.formatted_tab_title_for_tab_with_max_width(
+            position,
+            tab,
+            hovered,
+            self.tab_title_second_pass_max_width(),
+        )
+    }
+
+    fn formatted_tab_title_for_tab_first_pass(
+        &self,
+        position: usize,
+        tab: &rssh_core::app_shell::Tab,
+    ) -> Option<NativeTabTitle> {
         let default_title = self.tab_title_for_tab(tab);
         let tab_title = tab.title().map(str::to_owned);
         let tab_info = self.native_tab_information(position, tab, tab_title.clone());
@@ -95567,12 +95575,51 @@ impl NativeWindowApp {
         };
 
         let first_pass = title_format(false, self.tab_max_width);
-        let _ = (self.tab_title_formatter)(&first_pass);
+        let lua_tab_title = self
+            .lua_tab_title
+            .as_ref()
+            .and_then(|title| title.resolve(&first_pass));
 
-        let second_pass = title_format(
-            Some(tab.id()) == self.hovered_tab_for_tab_bar(),
-            self.tab_title_second_pass_max_width(),
-        );
+        (self.tab_title_formatter)(&first_pass)
+            .or(lua_tab_title)
+            .or_else(|| default_title.map(NativeTabTitle::Text))
+    }
+
+    fn formatted_tab_title_for_tab_with_max_width(
+        &self,
+        position: usize,
+        tab: &rssh_core::app_shell::Tab,
+        hover: bool,
+        max_width: usize,
+    ) -> Option<NativeTabTitle> {
+        let default_title = self.tab_title_for_tab(tab);
+        let tab_title = tab.title().map(str::to_owned);
+        let tab_info = self.native_tab_information(position, tab, tab_title.clone());
+        let tabs = self.native_window_tab_information();
+        let active_tab_panes = self.native_pane_information_for_tab(self.app_shell.active_tab());
+        let config = self.native_effective_config();
+        let title_format = |hover, max_width| NativeTabTitleFormat {
+            default_title: default_title.clone(),
+            tab: tab.id(),
+            active_pane: tab.active_pane_id(),
+            tab_index: position,
+            tab_count: self.app_shell.active_workspace().tabs().len(),
+            pane_count: active_tab_panes.len(),
+            is_active: tab.id() == self.app_shell.active_tab_id(),
+            is_last_active: Some(tab.id()) == self.app_shell.last_active_tab_id(),
+            hover,
+            max_width,
+            config: config.clone(),
+            window_id: self.app_window_id,
+            window_title: self.window_title.clone(),
+            tab_title: tab_title.clone(),
+            active_pane_info: tab_info.active_pane.clone(),
+            tabs: tabs.clone(),
+            panes: active_tab_panes.clone(),
+            tab_info: tab_info.clone(),
+        };
+
+        let second_pass = title_format(hover, max_width);
         let lua_tab_title = self
             .lua_tab_title
             .as_ref()
@@ -127517,6 +127564,107 @@ fn native_format_items_visible_width(items: &[NativeFormatItem]) -> usize {
             | NativeFormatItem::ResetAttributes => None,
         })
         .sum()
+}
+
+fn native_tab_title_visible_width(title: &NativeTabTitle) -> usize {
+    match title {
+        NativeTabTitle::Text(text) => tab_bar_ansi_visible_width(text),
+        NativeTabTitle::Format(items) => native_format_items_visible_width(items),
+    }
+}
+
+fn write_tab_bar_title_with_max_width(
+    cells: &mut [RenderCell],
+    column: &mut u16,
+    title: &NativeTabTitle,
+    base_style: TabBarSegmentStyle,
+    max_width: usize,
+) -> usize {
+    let mut remaining = max_width;
+    let mut written = 0usize;
+    let mut style = base_style;
+
+    let write_text = |text: &str,
+                      style: &mut TabBarSegmentStyle,
+                      column: &mut u16,
+                      cells: &mut [RenderCell],
+                      written: &mut usize,
+                      remaining: &mut usize| {
+        let text_cells = tab_bar_ansi_text_cells_with_style(text, base_style, style);
+        let max_len = (*remaining).min(text_cells.len());
+        for (ch, cell_style) in text_cells.into_iter().take(max_len) {
+            if *remaining == 0 {
+                return;
+            }
+            let index = usize::from(*column);
+            let Some(cell) = cells.get_mut(index) else {
+                return;
+            };
+
+            *cell = tab_bar_styled_render_cell(*column, ch, cell_style);
+            *column = column.saturating_add(1);
+            *written = written.saturating_add(1);
+            *remaining = remaining.saturating_sub(1);
+        }
+    };
+
+    match title {
+        NativeTabTitle::Text(text) => {
+            write_text(
+                text,
+                &mut style,
+                column,
+                cells,
+                &mut written,
+                &mut remaining,
+            );
+        }
+        NativeTabTitle::Format(items) => {
+            for item in items {
+                if remaining == 0 {
+                    break;
+                }
+
+                match item {
+                    NativeFormatItem::Attribute(attribute) => match attribute {
+                        NativeFormatAttribute::Intensity(NativeFormatIntensity::Bold) => {
+                            style.bold = true;
+                            style.faint = false;
+                        }
+                        NativeFormatAttribute::Intensity(NativeFormatIntensity::Normal) => {
+                            style.bold = false;
+                            style.faint = false;
+                        }
+                        NativeFormatAttribute::Intensity(NativeFormatIntensity::Half) => {
+                            style.bold = false;
+                            style.faint = true;
+                        }
+                        NativeFormatAttribute::Italic(italic) => style.italic = *italic,
+                        NativeFormatAttribute::Underline(underline) => {
+                            style.underline_style = underline_style_for_native_format(*underline);
+                        }
+                    },
+                    NativeFormatItem::ResetAttributes => {
+                        style = base_style;
+                    }
+                    NativeFormatItem::Text(text) => {
+                        write_text(
+                            text,
+                            &mut style,
+                            column,
+                            cells,
+                            &mut written,
+                            &mut remaining,
+                        );
+                    }
+                    NativeFormatItem::Foreground(color) => style.foreground = *color,
+                    NativeFormatItem::Background(color) => style.background = *color,
+                }
+            }
+        }
+    }
+
+    written
 }
 
 fn write_right_aligned_tab_bar_segment_with_reserved(
@@ -188029,7 +188177,6 @@ return config
             !label.contains('\x1b'),
             "layout label should omit SGR escapes: {label:?}"
         );
-
         let new_tab_start = app
             .tab_bar_new_tab_column_start()
             .expect("new tab button should have a column");
