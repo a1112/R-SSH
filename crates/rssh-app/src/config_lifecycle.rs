@@ -111,7 +111,7 @@ pub(crate) fn validate_cli_config_overrides(
         }
         parser.skip_trivia()?;
         let location = parser.location();
-        let value = parser.parse_value()?;
+        let value = parser.parse_config_field_value(field)?;
         parser.skip_trivia()?;
         if !parser.is_eof() {
             return Err(parser.dynamic("unexpected trailing tokens after static CLI value"));
@@ -452,7 +452,12 @@ fn canonical_document(assignments: &[StaticNativeConfigAssignment]) -> String {
         }
         output.push_str(&assignment.field_path[0]);
         output.push('=');
-        write_canonical_value(&assignment.value, &mut output);
+        let context = if assignment.field_path[0] == "keys" {
+            StaticValueContext::KeyBindings
+        } else {
+            StaticValueContext::General
+        };
+        write_canonical_value_with_context(&assignment.value, context, &mut output);
         output.push_str(",\n");
     }
     output.push('}');
@@ -460,6 +465,14 @@ fn canonical_document(assignments: &[StaticNativeConfigAssignment]) -> String {
 }
 
 fn write_canonical_value(value: &StaticLuaValue, output: &mut String) {
+    write_canonical_value_with_context(value, StaticValueContext::General, output);
+}
+
+fn write_canonical_value_with_context(
+    value: &StaticLuaValue,
+    context: StaticValueContext,
+    output: &mut String,
+) {
     match value {
         StaticLuaValue::Nil => output.push_str("nil"),
         StaticLuaValue::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
@@ -485,7 +498,7 @@ fn write_canonical_value(value: &StaticLuaValue, output: &mut String) {
         StaticLuaValue::Array(values) => {
             output.push('{');
             for value in values {
-                write_canonical_value(value, output);
+                write_canonical_value_with_context(value, context, output);
                 output.push(',');
             }
             output.push('}');
@@ -518,10 +531,14 @@ fn write_canonical_value(value: &StaticLuaValue, output: &mut String) {
                     }
                 }
                 output.push('=');
-                if matches!(key, StaticLuaKey::String(key) if key == "action") {
-                    write_canonical_action(value, output);
+                if let Some(payload) = (context == StaticValueContext::KeyBindings
+                    && matches!(key, StaticLuaKey::String(key) if key == "action"))
+                .then(|| static_send_string_payload(value))
+                .flatten()
+                {
+                    write_canonical_action(payload, output);
                 } else {
-                    write_canonical_value(value, output);
+                    write_canonical_value_with_context(value, context, output);
                 }
                 output.push(',');
             }
@@ -530,17 +547,30 @@ fn write_canonical_value(value: &StaticLuaValue, output: &mut String) {
     }
 }
 
-fn write_canonical_action(value: &StaticLuaValue, output: &mut String) {
+fn static_send_string_payload(value: &StaticLuaValue) -> Option<&str> {
     let StaticLuaValue::Table(entries) = value else {
-        unreachable!("validated action must be a table");
+        return None;
     };
-    let [(StaticLuaKey::String(action), payload)] = entries.as_slice() else {
-        unreachable!("validated action must contain one string key");
-    };
-    debug_assert_eq!(action, "SendString");
+    match entries.as_slice() {
+        [(StaticLuaKey::String(action), StaticLuaValue::String(payload))]
+            if action == "SendString" =>
+        {
+            Some(payload)
+        }
+        _ => None,
+    }
+}
+
+fn write_canonical_action(payload: &str, output: &mut String) {
     output.push_str("wezterm.action.SendString(");
-    write_canonical_value(payload, output);
+    write_canonical_value(&StaticLuaValue::String(payload.to_owned()), output);
     output.push(')');
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StaticValueContext {
+    General,
+    KeyBindings,
 }
 
 struct Parser<'a> {
@@ -612,7 +642,7 @@ impl<'a> Parser<'a> {
             self.expect_char('=')?;
             self.skip_trivia()?;
             let value_start = self.offset;
-            let value = self.parse_value()?;
+            let value = self.parse_config_field_value(&field)?;
             let value_source = self.source[value_start..self.offset].to_owned();
             assignments.push(StaticNativeConfigAssignment {
                 field_path: vec![field],
@@ -677,7 +707,7 @@ impl<'a> Parser<'a> {
             self.expect_char('=')?;
             self.skip_trivia()?;
             let value_start = self.offset;
-            let value = self.parse_value()?;
+            let value = self.parse_config_field_value(&field)?;
             assignments.push(StaticNativeConfigAssignment {
                 field_path: vec![field],
                 value,
@@ -697,14 +727,33 @@ impl<'a> Parser<'a> {
         Ok(assignments)
     }
 
+    fn parse_config_field_value(
+        &mut self,
+        field: &str,
+    ) -> Result<StaticLuaValue, NativeConfigLoadError> {
+        let context = if field == "keys" {
+            StaticValueContext::KeyBindings
+        } else {
+            StaticValueContext::General
+        };
+        self.parse_value_with_context(context)
+    }
+
     fn parse_value(&mut self) -> Result<StaticLuaValue, NativeConfigLoadError> {
+        self.parse_value_with_context(StaticValueContext::General)
+    }
+
+    fn parse_value_with_context(
+        &mut self,
+        context: StaticValueContext,
+    ) -> Result<StaticLuaValue, NativeConfigLoadError> {
         self.skip_trivia()?;
         match self.peek() {
             Some('\'') | Some('"') => self.parse_string().map(StaticLuaValue::String),
             Some('[') if self.long_bracket_level().is_some() => {
                 self.parse_long_string().map(StaticLuaValue::String)
             }
-            Some('{') => self.parse_table(),
+            Some('{') => self.parse_table(context),
             Some('-' | '+' | '.' | '0'..='9') => self.parse_number(),
             Some(_) if self.consume_keyword("true") => Ok(StaticLuaValue::Bool(true)),
             Some(_) if self.consume_keyword("false") => Ok(StaticLuaValue::Bool(false)),
@@ -717,7 +766,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_table(&mut self) -> Result<StaticLuaValue, NativeConfigLoadError> {
+    fn parse_table(
+        &mut self,
+        context: StaticValueContext,
+    ) -> Result<StaticLuaValue, NativeConfigLoadError> {
         self.expect_char('{')?;
         self.skip_trivia()?;
         if self.consume_char('}') {
@@ -767,7 +819,7 @@ impl<'a> Parser<'a> {
                     return Err(self.syntax("mixed keyed and positional tables are unsupported"));
                 }
                 let is_action = matches!(&key, StaticLuaKey::String(key) if key == "action");
-                let value = if is_action {
+                let value = if context == StaticValueContext::KeyBindings && is_action {
                     match self.parse_static_action()? {
                         Some(action) => action,
                         None => {
@@ -777,14 +829,14 @@ impl<'a> Parser<'a> {
                         }
                     }
                 } else {
-                    self.parse_value()?
+                    self.parse_value_with_context(context)?
                 };
                 keyed_entries.push((key, value));
             } else {
                 if !keyed_entries.is_empty() {
                     return Err(self.syntax("mixed keyed and positional tables are unsupported"));
                 }
-                array_entries.push(self.parse_value()?);
+                array_entries.push(self.parse_value_with_context(context)?);
             }
             self.skip_trivia()?;
             if self.is_eof() {
@@ -1733,6 +1785,53 @@ mod tests {
         assert_eq!(
             environment.get("VALUE").map(String::as_str),
             Some("\"]}; os.execute('never'); --")
+        );
+    }
+
+    #[test]
+    fn strict_environment_action_key_identifier_form_roundtrips() {
+        let source = r#"return {
+                set_environment_variables = {
+                    action = "literal",
+                },
+            }"#;
+
+        let assignments = Parser::new(source).parse_document().unwrap();
+        let canonical = canonical_document(&assignments);
+        assert!(canonical.contains(r#"action="literal""#));
+
+        let overrides = parse_native_config_document(source, &[]).unwrap();
+        assert_eq!(
+            overrides
+                .set_environment_variables
+                .as_ref()
+                .and_then(|environment| environment.get("action"))
+                .map(String::as_str),
+            Some("literal")
+        );
+    }
+
+    #[test]
+    fn strict_environment_action_key_bracketed_form_roundtrips() {
+        let source = r#"return {
+                set_environment_variables = {
+                    ["action"] = [=[long
+literal]=],
+                },
+            }"#;
+
+        let assignments = Parser::new(source).parse_document().unwrap();
+        let canonical = canonical_document(&assignments);
+        assert!(canonical.contains(r#"action="long\nliteral""#));
+
+        let overrides = parse_native_config_document(source, &[]).unwrap();
+        assert_eq!(
+            overrides
+                .set_environment_variables
+                .as_ref()
+                .and_then(|environment| environment.get("action"))
+                .map(String::as_str),
+            Some("long\nliteral")
         );
     }
 
