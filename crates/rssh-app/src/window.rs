@@ -95623,11 +95623,6 @@ impl NativeWindowApp {
         )
     }
 
-    fn tab_bar_new_tab_column_start(&self) -> Option<u16> {
-        self.current_tab_bar_visible_layout(None)
-            .new_tab_start_column
-    }
-
     fn close_tab_for_tab_bar_column(&self, column: u16) -> Option<rssh_core::TabId> {
         if !self.show_tabs_in_tab_bar {
             return None;
@@ -95659,21 +95654,6 @@ impl NativeWindowApp {
 
     fn tab_bar_workspace_label(&self) -> String {
         format!(" ws:{} ", self.app_shell.active_workspace().name())
-    }
-
-    fn tab_bar_label_for_tab(&self, position: usize, tab: &rssh_core::app_shell::Tab) -> String {
-        let title = self.formatted_tab_title_for_tab(position, tab);
-        let title = title.as_ref().map(NativeTabTitle::plain_text);
-        let progress = Self::tab_progress_for_tab(tab);
-        tab_bar_tab_label_with_options(
-            position,
-            tab.id(),
-            tab.panes().len(),
-            tab.id() == self.app_shell.active_tab_id(),
-            title.as_deref(),
-            progress,
-            self.tab_bar_label_options(),
-        )
     }
 
     fn tab_bar_label_options(&self) -> TabBarTabLabelOptions {
@@ -95941,15 +95921,6 @@ impl NativeWindowApp {
         }
     }
 
-    fn tab_title_second_pass_max_width(&self) -> usize {
-        let new_tab_width = if self.show_new_tab_button_in_tab_bar {
-            self.new_tab_button_tab_bar_width()
-        } else {
-            0
-        };
-        self.tab_title_second_pass_max_width_with_new_tab_width(new_tab_width)
-    }
-
     fn tab_title_second_pass_max_width_with_new_tab_width(&self, new_tab_width: usize) -> usize {
         if !self.show_tabs_in_tab_bar {
             return 0;
@@ -96005,42 +95976,6 @@ impl NativeWindowApp {
             .iter()
             .find(|pane| pane.id() == tab.active_pane_id())
             .map_or(PaneProgress::None, rssh_core::app_shell::Pane::progress)
-    }
-
-    fn hovered_tab_for_tab_bar(&self) -> Option<rssh_core::TabId> {
-        let position = self.mouse_pixel_position?;
-        if !position.x.is_finite()
-            || !position.y.is_finite()
-            || position.x < 0.0
-            || position.y < f64::from(self.tab_bar_pixel_top())
-            || position.y
-                >= f64::from(
-                    self.tab_bar_pixel_top()
-                        .saturating_add(self.tab_bar_pixel_height()),
-                )
-        {
-            return None;
-        }
-
-        let column = pixel_axis_to_cell(position.x, self.cell_width())?;
-        self.tab_bar_tab_target_for_column(column)
-            .map(|(_, tab_id)| tab_id)
-    }
-
-    fn formatted_tab_title_for_tab(
-        &self,
-        position: usize,
-        tab: &rssh_core::app_shell::Tab,
-    ) -> Option<NativeTabTitle> {
-        let hovered = Some(tab.id()) == self.hovered_tab_for_tab_bar();
-        let max_width = if self.use_fancy_tab_bar {
-            self.tab_title_second_pass_max_width()
-        } else {
-            usize::MAX
-        };
-
-        let _ = self.formatted_tab_title_for_tab_first_pass(position, tab);
-        self.formatted_tab_title_for_tab_with_max_width(position, tab, hovered, max_width)
     }
 
     fn formatted_tab_title_for_tab_first_pass(
@@ -126100,21 +126035,6 @@ fn tab_bar_tab_label(
             zero_based_tab_index: false,
             show_close_button: true,
         },
-    );
-    format!("{}{}{}", label.prefix, label.title, label.suffix)
-}
-
-fn tab_bar_tab_label_with_options(
-    position: usize,
-    tab_id: rssh_core::TabId,
-    pane_count: usize,
-    active: bool,
-    title: Option<&str>,
-    progress: PaneProgress,
-    options: TabBarTabLabelOptions,
-) -> String {
-    let label = tab_bar_tab_label_segments(
-        position, tab_id, pane_count, active, title, progress, options,
     );
     format!("{}{}{}", label.prefix, label.title, label.suffix)
 }
@@ -185076,10 +184996,13 @@ return config
             rssh_terminal::UnderlineStyle::Double
         );
 
-        let new_tab_column = app
-            .tab_bar_new_tab_column_start()
-            .expect("new-tab button should be visible")
-            + 1;
+        let new_tab_column = u16::try_from(
+            tab_bar
+                .find(" + ")
+                .expect("new-tab button should be visible")
+                + 1,
+        )
+        .unwrap();
         let new_tab_x = u32::from(new_tab_column) * CELL_WIDTH;
         app.handle_cursor_moved(PhysicalPosition::new(f64::from(new_tab_x), 0.0))
             .unwrap();
@@ -188539,12 +188462,6 @@ return config
         })
         .unwrap();
 
-        let formatted = app
-            .formatted_tab_title_for_tab(0, app.app_shell.active_tab())
-            .expect("expected formatted tab title")
-            .plain_text();
-        assert_eq!(formatted, "one:Solo");
-
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("one:Solo"), "tab bar was {tab_bar:?}");
@@ -188580,12 +188497,6 @@ return config
             title: "Solo".to_owned(),
         })
         .unwrap();
-
-        let formatted = app
-            .formatted_tab_title_for_tab(0, app.app_shell.active_tab())
-            .expect("expected formatted tab title")
-            .plain_text();
-        assert_eq!(formatted, "one:Solo");
 
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
@@ -189073,22 +188984,21 @@ return config
             )]))
         });
 
-        let tab = app.app_shell.active_tab();
-        let label = app.tab_bar_label_for_tab(0, tab);
-        assert!(label.contains("LAYOUT"), "label was {label:?}");
-        assert!(
-            !label.contains('\x1b'),
-            "layout label should omit SGR escapes: {label:?}"
-        );
-        let new_tab_start = app
-            .tab_bar_new_tab_column_start()
-            .expect("new tab button should have a column");
         let visible_tab_bar = snapshot_row_text(&app.render_snapshot(), 0, TERMINAL_COLUMNS);
+        assert!(
+            visible_tab_bar.contains("LAYOUT"),
+            "tab bar was {visible_tab_bar:?}"
+        );
+        assert!(
+            !visible_tab_bar.contains('\x1b'),
+            "rendered layout should omit SGR escapes: {visible_tab_bar:?}"
+        );
         let plus_column = visible_tab_bar
             .find(" + ")
             .expect("new tab button should render after visible title");
+        let title_end = visible_tab_bar.find("LAYOUT").unwrap() + "LAYOUT".len();
 
-        assert_eq!(usize::from(new_tab_start), plus_column);
+        assert!(plus_column >= title_end, "tab bar was {visible_tab_bar:?}");
     }
 
     #[test]
@@ -189688,15 +189598,6 @@ return config
             Some(rssh_core::TabId::new(1))
         );
         assert!(app.new_tab_button_for_tab_bar_column(new_tab_column));
-        app.handle_cursor_moved(PhysicalPosition::new(
-            f64::from(u32::from(title_column) * CELL_WIDTH),
-            0.0,
-        ))
-        .unwrap();
-        assert_eq!(
-            app.hovered_tab_for_tab_bar(),
-            Some(rssh_core::TabId::new(1))
-        );
         assert_eq!(
             calls.load(Ordering::Relaxed),
             calls_after_render,
@@ -190049,10 +189950,6 @@ return config
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(!tab_bar.contains(" x "), "tab bar was {tab_bar:?}");
         assert!(tab_bar.contains("panes:1"), "tab bar was {tab_bar:?}");
-
-        let visible_label =
-            app.tab_bar_label_for_tab(0, &app.app_shell.active_workspace().tabs()[0]);
-        assert!(!visible_label.contains('x'));
 
         let closable_label = tab_bar_tab_label(
             0,
