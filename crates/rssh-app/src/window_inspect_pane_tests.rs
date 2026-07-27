@@ -38,7 +38,7 @@ fn pane_inspection_metadata_is_live_for_an_inactive_pane_and_hides_environment_v
     let source = app.active_pane_id();
     let launch = PaneLaunch::local("inspect-program")
         .with_args(["--mode", "safe"])
-        .with_cwd("file://host/work")
+        .with_cwd("file://host/launch")
         .with_environment([("PUBLIC_NAME", "secret-value")]);
     app.dispatch_app_action(AppAction::SplitPane {
         pane: source,
@@ -47,7 +47,7 @@ fn pane_inspection_metadata_is_live_for_an_inactive_pane_and_hides_environment_v
     })
     .unwrap();
     let inspected = app.active_pane_id();
-    app.handle_pty_output(b"\x1b]2;live title\x07\x1b]7;file://host/work\x07")
+    app.handle_pty_output(b"\x1b]2;live title\x07\x1b]7;file://host/runtime\x07")
         .unwrap();
     app.session_process_id = Some(42_424);
     app.dispatch_app_action(AppAction::ActivatePane { pane: source })
@@ -63,7 +63,8 @@ fn pane_inspection_metadata_is_live_for_an_inactive_pane_and_hides_environment_v
     assert!(text.contains("title: live title"));
     assert!(text.contains("dimensions: 80x24"));
     assert!(text.contains("pid: 42424"));
-    assert!(text.contains("cwd: file://host/work"), "{text}");
+    assert!(text.contains("cwd: file://host/runtime"), "{text}");
+    assert!(!text.contains("cwd: file://host/launch"), "{text}");
     assert!(text.contains("program: inspect-program"));
     assert!(text.contains("args: --mode safe"));
     assert!(text.contains("domain: local"));
@@ -131,6 +132,41 @@ fn pane_inspection_overlay_targets_inactive_rect_and_clips_tiny_panes() {
     assert_eq!(tiny_cells.len(), 1);
     assert_eq!((tiny_cells[0].row, tiny_cells[0].column), (7, 11));
     assert_eq!(tiny_cells[0].ch, 'P');
+}
+
+#[test]
+fn pane_inspection_overlay_uses_grapheme_width_and_never_partially_draws_a_wide_cell() {
+    let rect = PaneRenderRect {
+        pane_id: rssh_core::PaneId::new(1),
+        row: 3,
+        column: 5,
+        rows: 1,
+        columns: 4,
+    };
+
+    let cells = pane_inspection_cells_for_rect(&["e\u{301}界Z".to_owned()], rect);
+
+    assert_eq!(cells.len(), 4);
+    assert_eq!(
+        cells.iter().map(|cell| cell.ch).collect::<Vec<_>>(),
+        ['e', '界', ' ', 'Z']
+    );
+    assert_eq!(
+        cells.iter().map(|cell| cell.column).collect::<Vec<_>>(),
+        [5, 6, 7, 8]
+    );
+    assert!(cells.iter().all(|cell| {
+        cell.foreground == PANE_INSPECTION_FOREGROUND
+            && cell.background == PANE_INSPECTION_BACKGROUND
+            && cell.bold
+    }));
+
+    let clipped =
+        pane_inspection_cells_for_rect(&["A界".to_owned()], PaneRenderRect { columns: 2, ..rect });
+    assert_eq!(
+        clipped.iter().map(|cell| cell.ch).collect::<Vec<_>>(),
+        ['A', ' ']
+    );
 }
 
 #[test]
@@ -255,6 +291,69 @@ fn inspect_swallows_terminal_input_and_the_paired_close_key_release() {
     )
     .unwrap();
     assert!(app.pane_inspection.is_none());
+
+    // Closing the overlay on key-down keeps a full UI input barrier until the
+    // matching release, even if focus or another modal changes in between.
+    app.handle_keyboard_input_event(
+        &Key::Character("x".into()),
+        PhysicalKey::Code(WinitKeyCode::KeyX),
+        Some("x"),
+        ElementState::Pressed,
+        KittyKeyEventKind::Press,
+    )
+    .unwrap();
+    app.handle_keyboard_input_event(
+        &Key::Named(NamedKey::Enter),
+        PhysicalKey::Code(WinitKeyCode::Enter),
+        None,
+        ElementState::Pressed,
+        KittyKeyEventKind::Repeat,
+    )
+    .unwrap();
+    app.handle_keyboard_input_event(
+        &Key::Named(NamedKey::Escape),
+        PhysicalKey::Code(WinitKeyCode::Escape),
+        None,
+        ElementState::Released,
+        KittyKeyEventKind::Release,
+    )
+    .unwrap();
+    app.handle_ime_commit("barrier-ime").unwrap();
+    assert!(app.handle_window_paste().unwrap());
+    assert!(
+        app.handle_dropped_file_path(std::path::Path::new("barrier.txt"))
+            .unwrap()
+    );
+    assert!(
+        app.handle_mouse_input(ElementState::Pressed, MouseButton::Right)
+            .unwrap()
+    );
+    assert!(
+        app.handle_cursor_moved(PhysicalPosition::new(3.0, 3.0))
+            .unwrap()
+    );
+    assert!(
+        app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+            .unwrap()
+    );
+    app.handle_focus_changed(false).unwrap();
+    app.enter_confirmation_mode(WindowConfirmationOptions {
+        message: "interleaved modal".to_owned(),
+        action: Box::new(WindowCommand::Nop),
+        cancel: None,
+    });
+    app.handle_keyboard_input_event(
+        &Key::Character("y".into()),
+        PhysicalKey::Code(WinitKeyCode::KeyY),
+        Some("y"),
+        ElementState::Pressed,
+        KittyKeyEventKind::Press,
+    )
+    .unwrap();
+    assert!(app.confirmation.is_some());
+    assert_eq!(app.ui_key_release_pending, Some(UiKeyRelease::Enter));
+    assert!(written.lock().unwrap().is_empty());
+
     app.handle_keyboard_input_event(
         &Key::Named(NamedKey::Enter),
         PhysicalKey::Code(WinitKeyCode::Enter),
@@ -263,7 +362,9 @@ fn inspect_swallows_terminal_input_and_the_paired_close_key_release() {
         KittyKeyEventKind::Release,
     )
     .unwrap();
+    assert!(app.ui_key_release_pending.is_none());
 
+    app.exit_confirmation_mode();
     app.request_pane_inspection(app.active_pane_id());
     app.handle_keyboard_input_event(
         &Key::Named(NamedKey::Escape),
@@ -282,6 +383,32 @@ fn inspect_swallows_terminal_input_and_the_paired_close_key_release() {
     )
     .unwrap();
 
+    assert!(written.lock().unwrap().is_empty());
+}
+
+#[test]
+fn carriage_return_is_an_enter_compatible_inspection_close_key() {
+    let written = Arc::new(Mutex::new(Vec::new()));
+    let mut app = NativeWindowApp::new(None);
+    app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+    app.request_pane_inspection(app.active_pane_id());
+
+    for state in [ElementState::Pressed, ElementState::Released] {
+        app.handle_keyboard_input_event(
+            &Key::Character("\r".into()),
+            PhysicalKey::Code(WinitKeyCode::Enter),
+            Some("\r"),
+            state,
+            if state == ElementState::Pressed {
+                KittyKeyEventKind::Press
+            } else {
+                KittyKeyEventKind::Release
+            },
+        )
+        .unwrap();
+    }
+
+    assert!(app.pane_inspection.is_none());
     assert!(written.lock().unwrap().is_empty());
 }
 
@@ -341,6 +468,164 @@ fn inspect_keeps_a_visible_stable_target_and_cancels_when_target_leaves_the_acti
     app.dispatch_app_action(AppAction::ClosePane { pane: close_target })
         .unwrap();
     assert!(app.pane_inspection.is_none());
+}
+
+#[test]
+fn moving_the_inspected_pane_to_a_new_tab_cancels_even_when_it_remains_visible() {
+    let mut app = NativeWindowApp::new(None);
+    let source = app.active_pane_id();
+    app.dispatch_app_action(AppAction::SplitPane {
+        pane: source,
+        direction: SplitDirection::Right,
+        launch: Some(PaneLaunch::local("target")),
+    })
+    .unwrap();
+    let target = app.active_pane_id();
+    app.request_pane_inspection(target);
+
+    app.dispatch_app_action(AppAction::MovePaneToNewTab { pane: target })
+        .unwrap();
+
+    assert_eq!(app.active_pane_id(), target);
+    assert!(app.pane_render_rect(target).is_some());
+    assert!(app.pane_inspection.is_none());
+}
+
+#[test]
+fn nested_multiple_ownership_move_cancels_the_inspected_pane() {
+    let mut app = NativeWindowApp::new(None);
+    let source = app.active_pane_id();
+    app.dispatch_app_action(AppAction::SplitPane {
+        pane: source,
+        direction: SplitDirection::Right,
+        launch: Some(PaneLaunch::local("target")),
+    })
+    .unwrap();
+    let target = app.active_pane_id();
+    app.request_pane_inspection(target);
+
+    app.dispatch_app_action(AppAction::Multiple {
+        actions: vec![AppAction::Multiple {
+            actions: vec![AppAction::MovePaneToNewTab { pane: target }],
+        }],
+    })
+    .unwrap();
+
+    assert!(app.pane_inspection.is_none());
+}
+
+#[test]
+fn manager_read_error_cancels_inspection_when_an_inactive_runtime_owner_is_removed() {
+    let mut app = NativeWindowApp::new(None);
+    let inactive = app.active_pane_id();
+    app.dispatch_app_action(AppAction::SplitPane {
+        pane: inactive,
+        direction: SplitDirection::Right,
+        launch: Some(PaneLaunch::local("active")),
+    })
+    .unwrap();
+    let window_id = app.app_window_id;
+    let runtime_generation = 73;
+    app.pane_runtimes
+        .get_mut(&inactive)
+        .unwrap()
+        .runtime_generation = runtime_generation;
+    app.request_pane_inspection(inactive);
+    let mut manager = NativeWindowManager::new_for_test(app);
+
+    assert_eq!(
+        manager.dispatch_user_event_to_owner(WindowUserEvent::ReadError {
+            window_id,
+            pane_id: inactive,
+            runtime_generation,
+            error: "reader failed".to_owned(),
+        }),
+        Some(false)
+    );
+
+    let app = manager.startup_app.as_ref().unwrap();
+    assert!(!app.pane_runtimes.contains_key(&inactive));
+    assert!(app.pane_inspection.is_none());
+}
+
+#[test]
+fn direct_read_error_handler_cancels_inspection_when_an_inactive_runtime_owner_is_removed() {
+    let mut app = NativeWindowApp::new(None);
+    let inactive = app.active_pane_id();
+    app.dispatch_app_action(AppAction::SplitPane {
+        pane: inactive,
+        direction: SplitDirection::Right,
+        launch: Some(PaneLaunch::local("active")),
+    })
+    .unwrap();
+    app.request_pane_inspection(inactive);
+
+    assert!(!app.handle_pane_runtime_read_error(inactive, "reader failed"));
+
+    assert!(!app.pane_runtimes.contains_key(&inactive));
+    assert!(app.pane_inspection.is_none());
+}
+
+#[test]
+fn inspect_refuses_global_and_other_visible_pane_overlays_but_palette_execute_opens_after_exit() {
+    let mut app = NativeWindowApp::new(None);
+    let inactive = app.active_pane_id();
+    app.dispatch_app_action(AppAction::SplitPane {
+        pane: inactive,
+        direction: SplitDirection::Right,
+        launch: Some(PaneLaunch::local("active")),
+    })
+    .unwrap();
+    let active = app.active_pane_id();
+    let rect = app.pane_render_rect(inactive).unwrap();
+    let target = WheelTarget {
+        pane_id: inactive,
+        rect,
+        cell: PaneMouseCell {
+            pane_id: inactive,
+            row: 0,
+            column: 0,
+        },
+        pixel_position: PhysicalPosition::new(1.0, 1.0),
+    };
+
+    app.enter_copy_mode();
+    app.apply_wheel_pane_action(target, WindowCommand::InspectPane)
+        .unwrap();
+    assert!(app.pane_inspection.is_none());
+    assert!(pane_copy_overlay_rendering(&app.active_ui));
+    assert_eq!(app.active_pane_id(), active);
+
+    app.exit_copy_mode();
+    app.enter_quick_select_mode();
+    assert!(app.active_ui.quick_select().is_some());
+    app.apply_wheel_pane_action(target, WindowCommand::InspectPane)
+        .unwrap();
+    assert!(app.pane_inspection.is_none());
+    app.exit_quick_select_mode();
+
+    app.enter_command_palette_mode_for_pane(inactive);
+    app.apply_wheel_pane_action(target, WindowCommand::InspectPane)
+        .unwrap();
+    assert!(app.pane_inspection.is_none());
+    assert!(app.command_palette.is_some());
+
+    app.enter_copy_mode();
+    app.enter_command_palette_mode_for_pane(inactive);
+    app.deferred_wheel_context = Some(target);
+    assert!(!app.command_palette_execute(WindowCommand::InspectPane));
+    assert!(app.command_palette.is_some());
+    assert!(pane_copy_overlay_rendering(&app.active_ui));
+    assert!(app.pane_inspection.is_none());
+
+    app.exit_command_palette_mode();
+    app.exit_copy_mode();
+    app.enter_command_palette_mode_for_pane(inactive);
+    app.deferred_wheel_context = Some(target);
+    assert!(app.command_palette_execute(WindowCommand::InspectPane));
+    assert!(app.command_palette.is_none());
+    assert_eq!(app.pane_inspection, Some(inactive));
+    assert_eq!(app.active_pane_id(), active);
 }
 
 #[test]

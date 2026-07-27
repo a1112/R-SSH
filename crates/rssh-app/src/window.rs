@@ -46,6 +46,7 @@ use rssh_terminal::{
 };
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 #[cfg(target_os = "macos")]
 use winit::platform::macos::WindowExtMacOS;
 #[cfg(target_os = "windows")]
@@ -80937,7 +80938,7 @@ struct NativeWindowApp {
     ui_left_release_pending: bool,
     pressed_pane_close_button: Option<rssh_core::PaneId>,
     pane_inspection: Option<rssh_core::PaneId>,
-    pane_inspection_key_release_pending: Option<PaneInspectionCloseKey>,
+    ui_key_release_pending: Option<UiKeyRelease>,
     last_mouse_assignment_click: Option<WindowMouseAssignmentClick>,
     last_left_click: Option<WindowClick>,
     command_palette: Option<WindowCommandPalette>,
@@ -81594,16 +81595,7 @@ impl NativeWindowManager {
                 app.apply_pane_exit_behavior_after_exit(pane_id, status)
             }
             WindowUserEvent::ReadError { error, .. } => {
-                if pane_id == app.app_shell.active_pane_id() {
-                    eprintln!("PTY read error: {error}");
-                    app.stop_active_runtime();
-                    true
-                } else {
-                    if let Some(mut runtime) = app.pane_runtimes.remove(&pane_id) {
-                        runtime.close();
-                    }
-                    false
-                }
+                app.handle_pane_runtime_read_error(pane_id, &error)
             }
         };
 
@@ -82273,9 +82265,15 @@ struct PanePointerTransientState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PaneInspectionCloseKey {
+enum UiKeyRelease {
     Escape,
     Enter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PaneInspectionRequestSource {
+    Direct,
+    CommandPaletteExecute,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83122,7 +83120,7 @@ impl NativeWindowApp {
             ui_left_release_pending: false,
             pressed_pane_close_button: None,
             pane_inspection: None,
-            pane_inspection_key_release_pending: None,
+            ui_key_release_pending: None,
             last_mouse_assignment_click: None,
             last_left_click: None,
             command_palette: None,
@@ -83712,6 +83710,9 @@ impl NativeWindowApp {
             return Ok(());
         }
 
+        let moves_inspected_pane = self
+            .pane_inspection
+            .is_some_and(|pane_id| Self::app_action_moves_pane_ownership(&action, pane_id));
         let previous_active_pane = self.app_shell.active_pane_id();
         let previous_shell = self.app_shell.clone();
         let pointer_transient = self.pointer_transient_state();
@@ -83729,9 +83730,25 @@ impl NativeWindowApp {
             self.restore_split_resize_pointer_state(pointer_transient);
         }
         self.sync_pane_runtimes(previous_active_pane, previous_runtime);
-        self.clear_pane_inspection_if_invalid();
+        if moves_inspected_pane {
+            self.cancel_pane_inspection();
+        } else {
+            self.clear_pane_inspection_if_invalid();
+        }
         self.apply_window_title();
         Ok(())
+    }
+
+    fn app_action_moves_pane_ownership(action: &AppAction, pane_id: rssh_core::PaneId) -> bool {
+        match action {
+            AppAction::MovePaneToNewTab { pane } | AppAction::MovePaneToNewWindow { pane } => {
+                *pane == pane_id
+            }
+            AppAction::Multiple { actions } => actions
+                .iter()
+                .any(|action| Self::app_action_moves_pane_ownership(action, pane_id)),
+            _ => false,
+        }
     }
 
     fn should_block_zoomed_pane_direction_switch(&self, action: &AppAction) -> bool {
@@ -87177,6 +87194,23 @@ impl NativeWindowApp {
             WindowCommand::ActivateCommandPalette => None,
             command => Some(command.label().to_owned()),
         };
+        if command == WindowCommand::InspectPane && self.command_palette.is_some() {
+            let pane_id =
+                target.map_or_else(|| self.app_shell.active_pane_id(), |target| target.pane_id);
+            let succeeded = self.request_pane_inspection_from(
+                pane_id,
+                PaneInspectionRequestSource::CommandPaletteExecute,
+            );
+            if succeeded {
+                self.exit_command_palette_mode();
+                if let Some(frecency_label) = frecency_label.as_deref() {
+                    self.record_command_palette_label(frecency_label);
+                }
+            } else {
+                self.deferred_wheel_context = target;
+            }
+            return succeeded;
+        }
         let succeeded = match command {
             WindowCommand::ShowLauncherArgs(args) => {
                 self.enter_launcher_mode_with_args(args);
@@ -90877,7 +90911,7 @@ impl NativeWindowApp {
     }
 
     fn handle_window_mouse_wheel(&mut self, delta: MouseScrollDelta) -> io::Result<bool> {
-        if self.pane_inspection.is_some() {
+        if self.pane_inspection_input_barrier_active() {
             return Ok(true);
         }
         let previous_delta = self.current_mouse_wheel_delta.replace(delta);
@@ -92921,7 +92955,7 @@ impl NativeWindowApp {
     }
 
     fn handle_mouse_input(&mut self, state: ElementState, button: MouseButton) -> io::Result<bool> {
-        if self.pane_inspection.is_some() {
+        if self.pane_inspection_input_barrier_active() {
             if self.handle_pending_ui_left_release(state, button) {
                 return Ok(true);
             }
@@ -93164,7 +93198,7 @@ impl NativeWindowApp {
         let next_position = self.window_mouse_cell(position);
         let mouse_cell_changed = self.mouse_position != next_position;
         self.mouse_position = next_position;
-        if self.pane_inspection.is_some() {
+        if self.pane_inspection_input_barrier_active() {
             return Ok(true);
         }
         self.update_split_resize_cursor_icon();
@@ -94160,8 +94194,19 @@ impl NativeWindowApp {
     }
 
     fn request_pane_inspection(&mut self, pane_id: rssh_core::PaneId) {
-        if self.pane_inspection == Some(pane_id)
-            || self.debug_overlay_active
+        self.request_pane_inspection_from(pane_id, PaneInspectionRequestSource::Direct);
+    }
+
+    fn request_pane_inspection_from(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        source: PaneInspectionRequestSource,
+    ) -> bool {
+        let layout = self.pane_render_layout();
+        if self.pane_inspection == Some(pane_id) {
+            return true;
+        }
+        if self.debug_overlay_active
             || self.char_select.is_some()
             || self.pane_select.is_some()
             || self.tab_navigator.is_some()
@@ -94169,16 +94214,16 @@ impl NativeWindowApp {
             || self.input_selector.is_some()
             || self.confirmation.is_some()
             || self.close_confirmation.is_some()
-            || self
-                .pane_ui_ref(pane_id)
-                .is_some_and(PaneUiState::overlay_active)
-            || !self
-                .pane_render_layout()
-                .panes
-                .iter()
-                .any(|rect| rect.pane_id == pane_id)
+            || (self.command_palette.is_some()
+                && source != PaneInspectionRequestSource::CommandPaletteExecute)
+            || layout.panes.iter().any(|rect| {
+                self.pane_ui_ref(rect.pane_id)
+                    .is_some_and(PaneUiState::overlay_active)
+            })
+            || !layout.panes.iter().any(|rect| rect.pane_id == pane_id)
+            || !self.pane_runtime_owner_exists(pane_id)
         {
-            return;
+            return false;
         }
 
         let consume_left_release = self.active_mouse_button == Some(MouseButton::Left);
@@ -94194,8 +94239,9 @@ impl NativeWindowApp {
         self.dead_key_active = false;
         self.dead_key_text = None;
         self.pane_inspection = Some(pane_id);
-        self.pane_inspection_key_release_pending = None;
+        self.ui_key_release_pending = None;
         self.frame_needs_full_repaint = true;
+        true
     }
 
     fn cancel_pane_inspection(&mut self) {
@@ -94208,47 +94254,54 @@ impl NativeWindowApp {
         let Some(pane_id) = self.pane_inspection else {
             return;
         };
-        if !self
-            .pane_render_layout()
-            .panes
-            .iter()
-            .any(|rect| rect.pane_id == pane_id)
+        if !self.pane_runtime_owner_exists(pane_id)
+            || !self
+                .pane_render_layout()
+                .panes
+                .iter()
+                .any(|rect| rect.pane_id == pane_id)
         {
             self.cancel_pane_inspection();
         }
     }
 
-    fn pane_inspection_close_key(key: &Key) -> Option<PaneInspectionCloseKey> {
+    fn pane_runtime_owner_exists(&self, pane_id: rssh_core::PaneId) -> bool {
+        pane_id == self.app_shell.active_pane_id() || self.pane_runtimes.contains_key(&pane_id)
+    }
+
+    fn pane_inspection_close_key(key: &Key) -> Option<UiKeyRelease> {
         match key {
-            Key::Named(NamedKey::Escape) => Some(PaneInspectionCloseKey::Escape),
-            Key::Named(NamedKey::Enter) => Some(PaneInspectionCloseKey::Enter),
+            Key::Named(NamedKey::Escape) => Some(UiKeyRelease::Escape),
+            Key::Named(NamedKey::Enter) => Some(UiKeyRelease::Enter),
+            Key::Character(value) if value.as_str() == "\r" => Some(UiKeyRelease::Enter),
             _ => None,
         }
     }
 
     fn handle_pane_inspection_key_event(&mut self, key: &Key, state: ElementState) -> bool {
-        match state {
-            ElementState::Pressed if self.pane_inspection.is_some() => {
-                if let Some(close_key) = Self::pane_inspection_close_key(key) {
-                    self.pane_inspection = None;
-                    self.pane_inspection_key_release_pending = Some(close_key);
-                    self.frame_needs_full_repaint = true;
-                }
-                true
+        if let Some(pending) = self.ui_key_release_pending {
+            if state == ElementState::Released
+                && Self::pane_inspection_close_key(key) == Some(pending)
+            {
+                self.ui_key_release_pending = None;
             }
-            ElementState::Released if self.pane_inspection.is_some() => true,
-            ElementState::Released => {
-                let Some(close_key) = Self::pane_inspection_close_key(key) else {
-                    return false;
-                };
-                if self.pane_inspection_key_release_pending == Some(close_key) {
-                    self.pane_inspection_key_release_pending = None;
-                    return true;
-                }
-                false
-            }
-            ElementState::Pressed => false,
+            return true;
         }
+        if self.pane_inspection.is_none() {
+            return false;
+        }
+        if state == ElementState::Pressed
+            && let Some(close_key) = Self::pane_inspection_close_key(key)
+        {
+            self.pane_inspection = None;
+            self.ui_key_release_pending = Some(close_key);
+            self.frame_needs_full_repaint = true;
+        }
+        true
+    }
+
+    fn pane_inspection_input_barrier_active(&self) -> bool {
+        self.pane_inspection.is_some() || self.ui_key_release_pending.is_some()
     }
 
     fn pane_inspection_cells(&self, layout: &PaneRenderLayout) -> Vec<RenderCell> {
@@ -99063,6 +99116,21 @@ impl NativeWindowApp {
             .is_some_and(|runtime| runtime.runtime_generation == runtime_generation)
     }
 
+    fn handle_pane_runtime_read_error(&mut self, pane_id: rssh_core::PaneId, error: &str) -> bool {
+        let close_window = if pane_id == self.app_shell.active_pane_id() {
+            eprintln!("PTY read error: {error}");
+            self.stop_active_runtime();
+            true
+        } else {
+            if let Some(mut runtime) = self.pane_runtimes.remove(&pane_id) {
+                runtime.close();
+            }
+            false
+        };
+        self.clear_pane_inspection_if_invalid();
+        close_window
+    }
+
     fn spawn_pane_runtime_for_active_pane(&mut self) -> Result<PaneRuntime, Box<dyn Error>> {
         self.spawn_pane_runtime_for_pane(self.app_shell.active_pane_id())
     }
@@ -99289,7 +99357,7 @@ impl NativeWindowApp {
         self.ime_preedit = None;
         self.dead_key_active = false;
         self.dead_key_text = None;
-        if self.pane_inspection.is_some() {
+        if self.pane_inspection_input_barrier_active() {
             return Ok(());
         }
         if !self.use_ime || text.is_empty() {
@@ -99301,7 +99369,7 @@ impl NativeWindowApp {
     }
 
     fn handle_ime_preedit(&mut self, text: &str) {
-        if self.pane_inspection.is_some() {
+        if self.pane_inspection_input_barrier_active() {
             self.ime_preedit = None;
             return;
         }
@@ -99384,6 +99452,10 @@ impl NativeWindowApp {
         self.record_debug_key_event(logical_key, physical_key, text, state, key_event_kind);
         let modifiers = self.effective_keyboard_modifiers(physical_key, text);
 
+        if self.handle_pane_inspection_key_event(logical_key, state) {
+            return Ok(());
+        }
+
         if state == ElementState::Pressed
             && native_key_should_forward_to_ime(
                 self.use_ime,
@@ -99391,12 +99463,6 @@ impl NativeWindowApp {
                 modifiers,
                 self.macos_forward_to_ime_modifier_mask,
             )
-        {
-            return Ok(());
-        }
-
-        if state != ElementState::Pressed
-            && self.handle_pane_inspection_key_event(logical_key, state)
         {
             return Ok(());
         }
@@ -99498,10 +99564,6 @@ impl NativeWindowApp {
             if self.handle_char_select_key(logical_key, modifiers) {
                 return Ok(());
             }
-            return Ok(());
-        }
-
-        if self.handle_pane_inspection_key_event(logical_key, state) {
             return Ok(());
         }
 
@@ -102696,7 +102758,7 @@ impl NativeWindowApp {
     }
 
     fn handle_window_paste_from(&mut self, source: WindowPasteSource) -> io::Result<bool> {
-        if self.pane_inspection.is_some() {
+        if self.pane_inspection_input_barrier_active() {
             return Ok(true);
         }
         let text = match source {
@@ -102720,7 +102782,7 @@ impl NativeWindowApp {
     }
 
     fn handle_dropped_file_path(&mut self, path: &Path) -> io::Result<bool> {
-        if self.pane_inspection.is_some() {
+        if self.pane_inspection_input_barrier_active() {
             return Ok(true);
         }
         let path = path.to_string_lossy();
@@ -128428,13 +128490,45 @@ fn pane_inspection_cells_for_rect(lines: &[String], rect: PaneRenderRect) -> Vec
     for (row_offset, line) in lines.iter().take(usize::from(rect.rows)).enumerate() {
         let row_offset = u16::try_from(row_offset).unwrap_or(u16::MAX);
         let row = rect.row.saturating_add(row_offset);
-        let mut characters = line.chars();
-        for column_offset in 0..rect.columns {
+        let mut column_offset = 0_u16;
+        for grapheme in line.graphemes(true) {
+            let width = UnicodeWidthStr::width(grapheme);
+            if width == 0 {
+                continue;
+            }
+            let width = u16::try_from(width).unwrap_or(u16::MAX);
+            let Some(end_offset) = column_offset.checked_add(width) else {
+                break;
+            };
+            if end_offset > rect.columns {
+                break;
+            }
             let column = rect.column.saturating_add(column_offset);
             cells.push(ui_render_cell(
                 row,
                 column,
-                characters.next().unwrap_or(' '),
+                grapheme.chars().next().unwrap_or(' '),
+                PANE_INSPECTION_FOREGROUND,
+                PANE_INSPECTION_BACKGROUND,
+                true,
+            ));
+            for continuation_offset in column_offset.saturating_add(1)..end_offset {
+                cells.push(ui_render_cell(
+                    row,
+                    rect.column.saturating_add(continuation_offset),
+                    ' ',
+                    PANE_INSPECTION_FOREGROUND,
+                    PANE_INSPECTION_BACKGROUND,
+                    true,
+                ));
+            }
+            column_offset = end_offset;
+        }
+        for trailing_offset in column_offset..rect.columns {
+            cells.push(ui_render_cell(
+                row,
+                rect.column.saturating_add(trailing_offset),
+                ' ',
                 PANE_INSPECTION_FOREGROUND,
                 PANE_INSPECTION_BACKGROUND,
                 true,
@@ -130212,12 +130306,8 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                 if !self.pane_runtime_generation_matches(pane_id, runtime_generation) {
                     return;
                 }
-                if pane_id == self.app_shell.active_pane_id() {
-                    eprintln!("PTY read error: {error}");
-                    self.stop_active_runtime();
+                if self.handle_pane_runtime_read_error(pane_id, &error) {
                     event_loop.exit();
-                } else if let Some(mut runtime) = self.pane_runtimes.remove(&pane_id) {
-                    runtime.close();
                 }
             }
         }

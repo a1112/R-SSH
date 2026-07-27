@@ -3078,6 +3078,7 @@ dependencies = [
  "sysinfo",
  "toml",
  "unicode-segmentation",
+ "unicode-width 0.2.2",
  "unicode_names2",
  "wezterm-color-types",
  "winit",
