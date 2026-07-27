@@ -1,11 +1,14 @@
 # WezTerm App Shell Salvage Coverage Ledger
 
 This ledger is the final behavior-by-behavior accounting for the parity-based
-App Shell implementation through `0df5f313`. Every behavior found in the
-archived WIP is either already covered by the parity baseline or has a dedicated
-parity-native commit range and committed tests below. The current parity
-architecture remains the source of truth; the archived implementation was used
-only as behavioral evidence.
+App Shell implementation through `0df5f313`. Commit `5008069a` finalized the
+salvage evidence and was locally fast-forwarded onto
+`codex/wezterm-parity-progress`; this follow-up documentation commit records the
+completed branch convergence. Every behavior found in the archived WIP is
+either already covered by the parity baseline or has a dedicated parity-native
+commit range and committed tests below. The current parity architecture remains
+the source of truth; the archived implementation was used only as behavioral
+evidence.
 
 ## Archive and integration boundary
 
@@ -16,13 +19,29 @@ only as behavioral evidence.
   base in total). The snapshot preserves all nine tracked WIP files.
 - Salvage started from parity commit
   `f686180136d73d9e5d97bfc99bc735a5afc3bec8`.
-- The old `codex/wezterm-app-shell-v1` branch and its worktree are still
-  retained. Keep them, the salvage branch, and the archive tag until the
-  pre-merge and post-merge validation succeeds. Only then may the old and
-  temporary branches/worktrees be removed; retain the archive tag as the
-  historical recovery point.
-- This is local-only integration. Do not merge or rebase the old App Shell
-  branch, push these branches, merge parity into `main`, or create a PR.
+- The salvage result was locally fast-forwarded onto
+  `codex/wezterm-parity-progress` at `5008069a`; the old App Shell history was
+  never merged or rebased.
+- Both before and after that fast-forward, the all-target workspace tests,
+  workspace check, formatting check, and diff check passed:
+
+  ```powershell
+  cargo test --locked --workspace --all-targets
+  cargo check --locked --workspace --all-targets
+  cargo fmt --check
+  git diff --check
+  ```
+
+- After validation, the old and salvage worktrees and their local branches were
+  deleted and `git worktree prune` was run. The only remaining worktree is the
+  clean primary worktree on `codex/wezterm-parity-progress`; the only remaining
+  local branches are `main` and `codex/wezterm-parity-progress`.
+- The annotated archive tag remains the historical recovery point. It peels to
+  `de763f1ec342aaa8d1a57c7e5aad639a20a36afe`; the ranges from the parity base
+  through `5330a450d9fd08ba90d0a25d87e109b85cf0fa7b` and through the WIP snapshot
+  contain 99 and 100 commits, respectively.
+- Integration remained local-only: nothing was pushed, no PR was created, and
+  parity was not merged into `main`.
 
 ## Covered by the parity baseline
 
@@ -230,17 +249,19 @@ Representative committed tests:
 
 ## Final validation gate
 
-The ledger accounts for every archived behavior, but cleanup is intentionally
-not claimed here. Before merging salvage into parity, and again after the local
-merge, run:
+The ledger accounts for every archived behavior and the convergence is
+complete. Before and after the local fast-forward to parity, the following
+validation gate passed:
 
 ```powershell
 cargo test --locked --workspace --all-targets
+cargo check --locked --workspace --all-targets
 cargo fmt --check
 git diff --check
 ```
 
-After both validation passes, verify that the archive tag still peels to
-`de763f1ec342aaa8d1a57c7e5aad639a20a36afe`, remove only the old and temporary
-worktrees/branches, prune worktrees, and confirm that local branches are limited
-to `main` and `codex/wezterm-parity-progress`. Keep the annotated archive tag.
+Cleanup and its final invariants were also verified: only the clean primary
+worktree and the `main` and `codex/wezterm-parity-progress` local branches
+remain, while the annotated archive tag still peels to
+`de763f1ec342aaa8d1a57c7e5aad639a20a36afe`. No push, PR, or merge into `main`
+was performed.
