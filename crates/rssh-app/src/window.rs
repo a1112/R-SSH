@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    cell::{Ref, RefCell},
     cmp::Reverse,
     collections::{BTreeMap, HashMap, HashSet},
     error::Error,
@@ -80913,6 +80914,7 @@ struct NativeWindowApp {
     right_alt_pressed: bool,
     active_ui: PaneUiState,
     mouse_pixel_position: Option<PhysicalPosition<f64>>,
+    rendered_tab_bar_layout: RefCell<Option<TabBarVisibleLayout>>,
     mouse_position: Option<(u16, u16)>,
     current_mouse_wheel_delta: Option<MouseScrollDelta>,
     mouse_cursor_visible: bool,
@@ -83024,6 +83026,7 @@ impl NativeWindowApp {
             right_alt_pressed: false,
             active_ui: PaneUiState::default(),
             mouse_pixel_position: None,
+            rendered_tab_bar_layout: RefCell::new(None),
             mouse_position: None,
             current_mouse_wheel_delta: None,
             mouse_cursor_visible: true,
@@ -94828,6 +94831,7 @@ impl NativeWindowApp {
 
     fn tab_bar_cells(&self) -> Vec<RenderCell> {
         if !self.tab_bar_is_visible() {
+            self.rendered_tab_bar_layout.replace(None);
             return Vec::new();
         }
         if self.use_fancy_tab_bar {
@@ -94844,6 +94848,7 @@ impl NativeWindowApp {
     // WezTerm-style proportional tab bar rendering for `use_fancy_tab_bar = true`.
     fn tab_bar_cells_fancy(&self) -> Vec<RenderCell> {
         if !self.tab_bar_is_visible() {
+            self.rendered_tab_bar_layout.replace(None);
             return Vec::new();
         }
 
@@ -94887,7 +94892,7 @@ impl NativeWindowApp {
             );
         }
 
-        let visible_layout = self.tab_bar_visible_layout(hover_column);
+        let visible_layout = self.build_tab_bar_visible_layout(hover_column);
         if self.show_tabs_in_tab_bar {
             for tab in &visible_layout.tabs {
                 let active = tab.active;
@@ -94917,24 +94922,33 @@ impl NativeWindowApp {
                     active,
                 );
                 column = tab.start_column;
-                let visible_cells = &mut cells[..usize::from(tab.end_column.min(columns))];
                 write_tab_bar_format_items_if_configured(
-                    visible_cells,
+                    &mut cells[..usize::from(tab.left_edge_end_column.min(columns))],
                     &mut column,
                     tab.left_edge.as_deref(),
                     style,
                 );
-                write_tab_bar_ansi_segment(visible_cells, &mut column, &tab.label.prefix, style);
+                write_tab_bar_ansi_segment(
+                    &mut cells[..usize::from(tab.prefix_end_column.min(columns))],
+                    &mut column,
+                    &tab.label.prefix,
+                    style,
+                );
                 let _ = write_tab_bar_title_with_max_width(
-                    visible_cells,
+                    &mut cells[..usize::from(tab.title_end_column.min(columns))],
                     &mut column,
                     &tab.title,
                     style,
                     usize::MAX,
                 );
-                write_tab_bar_ansi_segment(visible_cells, &mut column, &tab.label.suffix, style);
+                write_tab_bar_ansi_segment(
+                    &mut cells[..usize::from(tab.suffix_end_column.min(columns))],
+                    &mut column,
+                    &tab.label.suffix,
+                    style,
+                );
                 write_tab_bar_format_items_if_configured(
-                    visible_cells,
+                    &mut cells[..usize::from(tab.end_column.min(columns))],
                     &mut column,
                     tab.right_edge.as_deref(),
                     style,
@@ -95060,6 +95074,7 @@ impl NativeWindowApp {
             cell.row = row;
         }
 
+        self.rendered_tab_bar_layout.replace(Some(visible_layout));
         cells
     }
 
@@ -95338,18 +95353,23 @@ impl NativeWindowApp {
         if !self.show_tabs_in_tab_bar {
             return None;
         }
-        self.tab_bar_visible_layout(Some(column))
+        self.tab_bar_tab_target_for_column(column)
+            .map(|(_, tab_id)| tab_id)
+    }
+
+    fn tab_bar_tab_target_for_column(&self, column: u16) -> Option<(usize, rssh_core::TabId)> {
+        self.current_tab_bar_visible_layout(Some(column))
             .tabs
-            .into_iter()
+            .iter()
             .find(|tab| column >= tab.start_column && column < tab.end_column)
-            .map(|tab| tab.tab_id)
+            .map(|tab| (tab.position, tab.tab_id))
     }
 
     fn new_tab_button_for_tab_bar_column(&self, column: u16) -> bool {
         if !self.show_new_tab_button_in_tab_bar {
             return false;
         }
-        let layout = self.tab_bar_visible_layout(Some(column));
+        let layout = self.current_tab_bar_visible_layout(Some(column));
         let Some(start) = layout.new_tab_start_column else {
             return false;
         };
@@ -95604,16 +95624,17 @@ impl NativeWindowApp {
     }
 
     fn tab_bar_new_tab_column_start(&self) -> Option<u16> {
-        self.tab_bar_visible_layout(None).new_tab_start_column
+        self.current_tab_bar_visible_layout(None)
+            .new_tab_start_column
     }
 
     fn close_tab_for_tab_bar_column(&self, column: u16) -> Option<rssh_core::TabId> {
         if !self.show_tabs_in_tab_bar {
             return None;
         }
-        self.tab_bar_visible_layout(Some(column))
+        self.current_tab_bar_visible_layout(Some(column))
             .tabs
-            .into_iter()
+            .iter()
             .find(|tab| tab.close_column == Some(column))
             .map(|tab| tab.tab_id)
     }
@@ -95663,7 +95684,22 @@ impl NativeWindowApp {
         }
     }
 
-    fn tab_bar_visible_layout(&self, hover_column: Option<u16>) -> TabBarVisibleLayout {
+    fn current_tab_bar_visible_layout(
+        &self,
+        fallback_hover_column: Option<u16>,
+    ) -> Ref<'_, TabBarVisibleLayout> {
+        if self.rendered_tab_bar_layout.borrow().is_none() {
+            let layout = self.build_tab_bar_visible_layout(fallback_hover_column);
+            self.rendered_tab_bar_layout.replace(Some(layout));
+        }
+        Ref::map(self.rendered_tab_bar_layout.borrow(), |layout| {
+            layout
+                .as_ref()
+                .expect("tab bar layout must be initialized before it is borrowed")
+        })
+    }
+
+    fn build_tab_bar_visible_layout(&self, hover_column: Option<u16>) -> TabBarVisibleLayout {
         let columns = self.runtime.terminal().grid().size().columns;
         let left_prefix_width = self.tab_bar_left_prefix_width().unwrap_or(0);
         let right_status_width =
@@ -95676,14 +95712,24 @@ impl NativeWindowApp {
         let interactive_end = columns
             .saturating_sub(right_button_width)
             .saturating_sub(right_status_width);
-        let new_tab_width = if self.show_new_tab_button_in_tab_bar {
+        let requested_new_tab_width = if self.show_new_tab_button_in_tab_bar {
             u16::try_from(self.new_tab_button_tab_bar_width()).unwrap_or(u16::MAX)
+        } else {
+            0
+        };
+        let tabs_need_room =
+            self.show_tabs_in_tab_bar && !self.app_shell.active_workspace().tabs().is_empty();
+        let new_tab_width = if !tabs_need_room
+            || interactive_end.saturating_sub(left_prefix_width) > requested_new_tab_width
+        {
+            requested_new_tab_width
         } else {
             0
         };
         let tab_area_end = interactive_end.saturating_sub(new_tab_width);
         let tab_width_max = if self.use_fancy_tab_bar {
-            self.tab_title_second_pass_max_width().max(1)
+            self.tab_title_second_pass_max_width_with_new_tab_width(usize::from(new_tab_width))
+                .max(1)
         } else {
             usize::MAX
         };
@@ -95814,8 +95860,18 @@ impl NativeWindowApp {
             }
         }
 
-        let overflow_column = (cursor > tab_area_end && tab_area_end > left_prefix_width)
-            .then(|| tab_area_end.saturating_sub(1));
+        let tabs_were_clipped = tabs_need_room && cursor > tab_area_end;
+        let overflow_column = if tabs_were_clipped {
+            if tab_area_end > left_prefix_width {
+                Some(tab_area_end.saturating_sub(1))
+            } else if interactive_end > 0 {
+                Some(interactive_end.saturating_sub(1))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         let visible_tab_end = overflow_column.unwrap_or(tab_area_end);
         tabs.retain(|tab| tab.start_column < visible_tab_end);
         for tab in &mut tabs {
@@ -95886,6 +95942,15 @@ impl NativeWindowApp {
     }
 
     fn tab_title_second_pass_max_width(&self) -> usize {
+        let new_tab_width = if self.show_new_tab_button_in_tab_bar {
+            self.new_tab_button_tab_bar_width()
+        } else {
+            0
+        };
+        self.tab_title_second_pass_max_width_with_new_tab_width(new_tab_width)
+    }
+
+    fn tab_title_second_pass_max_width_with_new_tab_width(&self, new_tab_width: usize) -> usize {
         if !self.show_tabs_in_tab_bar {
             return 0;
         }
@@ -95897,11 +95962,6 @@ impl NativeWindowApp {
 
         let columns = usize::from(self.runtime.terminal().grid().size().columns);
         let left_prefix_width = usize::from(self.tab_bar_left_prefix_width().unwrap_or(0));
-        let new_tab_width = if self.show_new_tab_button_in_tab_bar {
-            self.new_tab_button_tab_bar_width()
-        } else {
-            0
-        };
         let right_status_width = tab_bar_ansi_visible_width(&self.right_status);
         let right_integrated_title_buttons_width =
             if self.integrated_title_buttons_are_right_aligned() {
@@ -95963,11 +96023,8 @@ impl NativeWindowApp {
         }
 
         let column = pixel_axis_to_cell(position.x, self.cell_width())?;
-        self.tab_bar_visible_layout(Some(column))
-            .tabs
-            .into_iter()
-            .find(|tab| column >= tab.start_column && column < tab.end_column)
-            .map(|tab| tab.tab_id)
+        self.tab_bar_tab_target_for_column(column)
+            .map(|(_, tab_id)| tab_id)
     }
 
     fn formatted_tab_title_for_tab(
@@ -126062,15 +126119,12 @@ fn tab_bar_tab_label_with_options(
     format!("{}{}{}", label.prefix, label.title, label.suffix)
 }
 
-#[derive(Clone)]
 struct TabBarTabLabelSegments {
     prefix: String,
     title: String,
     suffix: String,
 }
 
-#[derive(Clone)]
-#[allow(dead_code)]
 struct TabBarVisibleTabLayout {
     position: usize,
     tab_id: rssh_core::TabId,
@@ -189603,6 +189657,94 @@ return config
             Some(rssh_core::TabId::new(1))
         );
         assert!(app.new_tab_button_for_tab_bar_column(new_tab_column));
+    }
+
+    #[test]
+    fn tab_bar_hit_testing_reuses_and_refreshes_the_rendered_layout() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let title = Arc::new(Mutex::new("FIRST".to_owned()));
+        let recorded_calls = Arc::clone(&calls);
+        let recorded_title = Arc::clone(&title);
+        let mut app = NativeWindowApp::new(None);
+        app.tab_title_formatter = Box::new(move |_| {
+            recorded_calls.fetch_add(1, Ordering::Relaxed);
+            Some(NativeTabTitle::Text(recorded_title.lock().unwrap().clone()))
+        });
+
+        let first_tab_bar = snapshot_row_text(&app.render_snapshot(), 0, TERMINAL_COLUMNS);
+        let title_column = u16::try_from(first_tab_bar.find("FIRST").unwrap()).unwrap();
+        let close_column =
+            u16::try_from(first_tab_bar.find(" x ").expect("close segment") + 1).unwrap();
+        let new_tab_column =
+            u16::try_from(first_tab_bar.find(" + ").expect("new tab button") + 1).unwrap();
+        let calls_after_render = calls.load(Ordering::Relaxed);
+
+        assert_eq!(
+            app.tab_for_tab_bar_column(title_column),
+            Some(rssh_core::TabId::new(1))
+        );
+        assert_eq!(
+            app.close_tab_for_tab_bar_column(close_column),
+            Some(rssh_core::TabId::new(1))
+        );
+        assert!(app.new_tab_button_for_tab_bar_column(new_tab_column));
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(u32::from(title_column) * CELL_WIDTH),
+            0.0,
+        ))
+        .unwrap();
+        assert_eq!(
+            app.hovered_tab_for_tab_bar(),
+            Some(rssh_core::TabId::new(1))
+        );
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            calls_after_render,
+            "hit testing must consume the rendered ledger without rerunning formatters"
+        );
+
+        *title.lock().unwrap() = "SECOND".to_owned();
+        let second_tab_bar = snapshot_row_text(&app.render_snapshot(), 0, TERMINAL_COLUMNS);
+        assert!(
+            second_tab_bar.contains("SECOND"),
+            "tab bar was {second_tab_bar:?}"
+        );
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            calls_after_render + 2,
+            "the next render must atomically refresh the two-pass ledger"
+        );
+    }
+
+    #[test]
+    fn tab_bar_extreme_narrow_width_prioritizes_overflow_over_new_tab() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(15, 2));
+
+        let tab_bar = snapshot_row_text(&app.render_snapshot(), 0, 15);
+        let overflow_column =
+            u16::try_from(tab_bar.find('…').expect("overflow indicator")).unwrap();
+
+        assert!(!tab_bar.contains(" + "), "tab bar was {tab_bar:?}");
+        assert_eq!(app.tab_for_tab_bar_column(overflow_column), None);
+        assert_eq!(app.close_tab_for_tab_bar_column(overflow_column), None);
+        assert!(!app.new_tab_button_for_tab_bar_column(overflow_column));
+    }
+
+    #[test]
+    fn tab_bar_overflow_never_overwrites_reserved_right_status() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(18, 2));
+        app.right_status = "RIGHT".to_owned();
+
+        let tab_bar = snapshot_row_text(&app.render_snapshot(), 0, 18);
+        let overflow_column =
+            u16::try_from(tab_bar.find('…').expect("overflow indicator")).unwrap();
+
+        assert!(tab_bar.ends_with("RIGHT"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains(" + "), "tab bar was {tab_bar:?}");
+        assert_eq!(app.tab_for_tab_bar_column(overflow_column), None);
+        assert_eq!(app.close_tab_for_tab_bar_column(overflow_column), None);
     }
 
     #[test]
