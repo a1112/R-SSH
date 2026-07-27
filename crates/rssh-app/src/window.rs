@@ -120025,6 +120025,7 @@ fn window_domain_selector_from_query_with_static_source(
         "currentpanedomain" | "currentpane" | "current" => {
             Some(WindowDomainSelector::CurrentPaneDomain)
         }
+        "defaultdomain" | "default" => Some(WindowDomainSelector::DefaultDomain),
         _ => Some(WindowDomainSelector::DomainName(domain)),
     }
 }
@@ -121213,6 +121214,7 @@ impl WindowDomainSelector {
     fn is_supported_local_domain(&self, default_domain: &str) -> bool {
         match self {
             Self::CurrentPaneDomain => true,
+            Self::DefaultDomain => is_local_domain_name(default_domain),
             Self::DomainId(_) => false,
             Self::DomainName(name) => {
                 if is_local_domain_name(name) {
@@ -121295,6 +121297,7 @@ impl WindowSendKey {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WindowDomainSelector {
     CurrentPaneDomain,
+    DefaultDomain,
     DomainId(usize),
     DomainName(String),
 }
@@ -211906,16 +211909,29 @@ return config
                 WindowDomainSelector::CurrentPaneDomain,
             ),
             (
-                "detach domain defaultdomain",
-                WindowDomainSelector::DomainName("defaultdomain".to_owned()),
+                "wezterm.action.DetachDomain 'DefaultDomain'",
+                WindowDomainSelector::DefaultDomain,
             ),
             (
-                "detach domain default",
-                WindowDomainSelector::DomainName("default".to_owned()),
+                "detach domain defaultdomain",
+                WindowDomainSelector::DefaultDomain,
+            ),
+            ("detach domain default", WindowDomainSelector::DefaultDomain),
+            (
+                "detach domain default-domain",
+                WindowDomainSelector::DefaultDomain,
+            ),
+            (
+                "detach domain default_domain",
+                WindowDomainSelector::DefaultDomain,
             ),
             (
                 "wezterm.action { DetachDomain = 'CurrentPaneDomain' }",
                 WindowDomainSelector::CurrentPaneDomain,
+            ),
+            (
+                "wezterm.action { DetachDomain = 'DefaultDomain' }",
+                WindowDomainSelector::DefaultDomain,
             ),
             (
                 "wezterm.action { DetachDomain = { DomainName = 'local' } }",
@@ -211997,9 +212013,7 @@ return config
 
         app.enter_command_palette_mode();
         app.command_palette_set_query("detach domain defaultdomain".to_owned());
-        let expected = WindowCommand::DetachDomain(WindowDomainSelector::DomainName(
-            "defaultdomain".to_owned(),
-        ));
+        let expected = WindowCommand::DetachDomain(WindowDomainSelector::DefaultDomain);
         assert_eq!(
             app.command_palette_filtered_commands(),
             vec![expected.clone()]
@@ -222991,6 +223005,36 @@ return config
                 command: WindowCommand::DetachDomain(WindowDomainSelector::DomainName(
                     "devhost".to_owned(),
                 )),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_detach_domain_default_domain_selector() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'D',
+                mods = 'CTRL|ALT',
+                action = act.DetachDomain 'DefaultDomain',
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm DetachDomain DefaultDomain config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+D".to_owned(),
+                command: WindowCommand::DetachDomain(WindowDomainSelector::DefaultDomain),
             }])
         );
     }

@@ -956,8 +956,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   unsupported while local/`CurrentPaneDomain`/`DefaultDomain` cases for `AttachDomain`
   dispatch to local new-tab behavior. Static string field-name variables for
   detach-domain `DomainName`, plus `DetachDomain` parenthesized static domain table
-  variables remain supported. `DetachDomain` supports local behavior without
-  opening a new tab for `local`, `CurrentPaneDomain`, and
+  variables remain supported. Bare `DetachDomain 'DefaultDomain'` and equivalent
+  table-wrapper string values preserve WezTerm's dedicated `DefaultDomain`
+  selector, while explicit `{ DomainName = ... }` values remain named-domain
+  selectors. `DetachDomain` supports local behavior without opening a new tab
+  for `local`, `CurrentPaneDomain`, and
   `default`/`defaultdomain`/`default-domain`/`default_domain` when the configured
   `default_domain` is local; all other `DetachDomain` values remain unsupported.
 - Command palette split entries now use WezTerm action names:
