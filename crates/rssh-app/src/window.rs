@@ -93499,9 +93499,9 @@ impl NativeWindowApp {
                 }
             });
             let pane_base =
-                pane_local_overlay_snapshot(&self.snapshot, rect, &pane_close_button_cells);
+                pane_local_overlay_snapshot(self.snapshot.clone(), rect, &pane_close_button_cells);
             let snapshot = pane_presentation_snapshot(
-                &pane_base,
+                pane_base,
                 self.runtime.terminal(),
                 &self.active_ui,
                 rect,
@@ -93553,9 +93553,10 @@ impl NativeWindowApp {
                 };
                 (&runtime.snapshot, runtime.runtime.terminal(), &runtime.ui)
             };
-            let pane_base = pane_local_overlay_snapshot(base, rect, &pane_close_button_cells);
+            let pane_base =
+                pane_local_overlay_snapshot(base.clone(), rect, &pane_close_button_cells);
             let mut pane_snapshot = pane_presentation_snapshot(
-                &pane_base,
+                pane_base,
                 terminal,
                 ui,
                 rect,
@@ -124931,7 +124932,7 @@ fn quick_select_cells_for_pane(
 
 #[allow(clippy::too_many_arguments)]
 fn pane_presentation_snapshot(
-    base: &TerminalRenderSnapshot,
+    base: TerminalRenderSnapshot,
     terminal: &Terminal,
     ui: &PaneUiState,
     rect: PaneRenderRect,
@@ -124947,7 +124948,7 @@ fn pane_presentation_snapshot(
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
 ) -> TerminalRenderSnapshot {
     let size = terminal.grid().size();
-    let mut snapshot = base.clone();
+    let mut snapshot = base;
     if !suppress_pane_overlay && ui.quick_select().is_some() && quick_select_remove_styling {
         snapshot = quick_select_remove_styling_snapshot(snapshot);
     }
@@ -127594,18 +127595,17 @@ fn pane_close_button_position(rect: PaneRenderRect) -> Option<(u16, u16)> {
 }
 
 fn pane_local_overlay_snapshot(
-    base: &TerminalRenderSnapshot,
+    base: TerminalRenderSnapshot,
     rect: PaneRenderRect,
     cells: &[RenderCell],
 ) -> TerminalRenderSnapshot {
-    base.clone()
-        .with_overlay_cells(cells.iter().filter_map(|cell| {
-            let local = pane_mouse_cell(rect, cell.row, cell.column)?;
-            let mut cell = cell.clone();
-            cell.row = local.row;
-            cell.column = local.column;
-            Some(cell)
-        }))
+    base.with_overlay_cells(cells.iter().filter_map(|cell| {
+        let local = pane_mouse_cell(rect, cell.row, cell.column)?;
+        let mut cell = cell.clone();
+        cell.row = local.row;
+        cell.column = local.column;
+        Some(cell)
+    }))
 }
 
 fn split_resize_drag(
@@ -192035,7 +192035,7 @@ return config
             .find(|rect| rect.pane_id == app.active_pane_id())
             .expect("active pane rect");
         super::pane_presentation_snapshot(
-            &app.snapshot,
+            app.snapshot.clone(),
             app.runtime.terminal(),
             &app.active_ui,
             rect,
@@ -255657,6 +255657,35 @@ act.Confirmation {
 
         assert_eq!(cells.len(), 1);
         assert_eq!((cells[0].row, cells[0].column), (2, 3));
+    }
+
+    #[test]
+    fn pane_local_overlay_snapshot_consumes_base_and_preserves_later_overlay_priority() {
+        let app = NativeWindowApp::new(None);
+        let rect = super::PaneRenderRect {
+            pane_id: app.active_pane_id(),
+            row: 3,
+            column: 4,
+            rows: 2,
+            columns: 2,
+        };
+        let close = super::ui_render_cell(
+            3,
+            5,
+            'x',
+            super::PANE_CLOSE_BUTTON_FOREGROUND,
+            super::PANE_CLOSE_BUTTON_BACKGROUND,
+            true,
+        );
+        let later =
+            super::ui_render_cell(0, 1, 'q', Color::Rgb(1, 2, 3), Color::Rgb(4, 5, 6), true);
+
+        let snapshot = super::pane_local_overlay_snapshot(app.snapshot.clone(), rect, &[close])
+            .with_overlay_cells([later]);
+
+        let cell = snapshot_cell(&snapshot, 0, 1).expect("later overlay cell");
+        assert_eq!(cell.ch, 'q');
+        assert_eq!(cell.background, Color::Rgb(4, 5, 6));
     }
 
     #[test]
