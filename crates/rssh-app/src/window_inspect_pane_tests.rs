@@ -539,6 +539,49 @@ fn synthesized_matching_release_on_focus_loss_clears_the_downgraded_pending_stat
 }
 
 #[test]
+fn fresh_matching_keypress_after_refocus_supersedes_the_stale_release_pending_state() {
+    let written = Arc::new(Mutex::new(Vec::new()));
+    let mut app = NativeWindowApp::new(None);
+    assert!(app.handle_focus_changed(true).unwrap());
+    app.handle_pty_output(b"\x1b[?9001h").unwrap();
+    app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+    app.request_pane_inspection(app.active_pane_id());
+    app.handle_keyboard_input_event(
+        &Key::Named(NamedKey::Enter),
+        PhysicalKey::Code(WinitKeyCode::Enter),
+        None,
+        ElementState::Pressed,
+        KittyKeyEventKind::Press,
+    )
+    .unwrap();
+    assert!(app.handle_focus_changed(false).unwrap());
+    assert!(app.handle_focus_changed(true).unwrap());
+    written.lock().unwrap().clear();
+
+    app.handle_keyboard_input_event(
+        &Key::Named(NamedKey::Enter),
+        PhysicalKey::Code(WinitKeyCode::Enter),
+        None,
+        ElementState::Pressed,
+        KittyKeyEventKind::Press,
+    )
+    .unwrap();
+    let press_len = written.lock().unwrap().len();
+    assert_ne!(press_len, 0);
+    app.handle_keyboard_input_event(
+        &Key::Named(NamedKey::Enter),
+        PhysicalKey::Code(WinitKeyCode::Enter),
+        None,
+        ElementState::Released,
+        KittyKeyEventKind::Release,
+    )
+    .unwrap();
+
+    assert!(written.lock().unwrap().len() > press_len);
+    assert!(app.ui_key_release_pending.is_none());
+}
+
+#[test]
 fn carriage_return_is_an_enter_compatible_inspection_close_key() {
     let written = Arc::new(Mutex::new(Vec::new()));
     let mut app = NativeWindowApp::new(None);

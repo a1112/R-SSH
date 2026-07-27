@@ -94291,6 +94291,14 @@ impl NativeWindowApp {
                 UiKeyReleasePending::FullBarrier(key) => (key, true),
                 UiKeyReleasePending::MatchingReleaseOnly(key) => (key, false),
             };
+            if !full_barrier
+                && self.window_focused
+                && state == ElementState::Pressed
+                && Self::pane_inspection_close_key(key) == Some(pending_key)
+            {
+                self.ui_key_release_pending = None;
+                return false;
+            }
             if state == ElementState::Released
                 && Self::pane_inspection_close_key(key) == Some(pending_key)
             {
