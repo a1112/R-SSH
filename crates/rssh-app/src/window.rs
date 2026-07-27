@@ -93888,6 +93888,14 @@ impl NativeWindowApp {
 
     fn padded_terminal_render_rect(&self, pane_id: rssh_core::PaneId) -> PaneRenderRect {
         let size = self.runtime.terminal().grid().size();
+        self.padded_terminal_render_rect_for_size(pane_id, size)
+    }
+
+    fn padded_terminal_render_rect_for_size(
+        &self,
+        pane_id: rssh_core::PaneId,
+        size: rssh_core::TerminalSize,
+    ) -> PaneRenderRect {
         let cell_width = self.cell_width();
         let cell_height = self.cell_height();
         let terminal_width = u32::from(size.columns).saturating_mul(cell_width);
@@ -102276,6 +102284,25 @@ impl NativeWindowApp {
             cell_width,
             cell_height,
         );
+        let old_terminal_size = self.runtime.terminal().grid().size();
+        let split_resize = self
+            .app_shell
+            .active_tab()
+            .panes()
+            .first()
+            .map(|pane| pane.id())
+            .map(|root_pane_id| {
+                let old_root =
+                    self.padded_terminal_render_rect_for_size(root_pane_id, old_terminal_size);
+                let new_root =
+                    self.padded_terminal_render_rect_for_size(root_pane_id, terminal_size);
+                (
+                    old_root.columns,
+                    old_root.rows,
+                    new_root.columns,
+                    new_root.rows,
+                )
+            });
         if self.config_overrides.window_content_alignment.is_some() {
             self.frame_width = size.width;
             self.frame_height = size.height;
@@ -102290,6 +102317,14 @@ impl NativeWindowApp {
         }
 
         let pty_size = PtySize::try_new(terminal_size.columns, terminal_size.rows)?;
+        if let Some((old_columns, old_rows, new_columns, new_rows)) = split_resize {
+            self.app_shell.preserve_split_layout_for_resize(
+                old_columns,
+                old_rows,
+                new_columns,
+                new_rows,
+            );
+        }
         let active_height_changed =
             self.runtime.terminal().grid().size().rows != terminal_size.rows;
         let active_resize_outcome = self.runtime.resize(terminal_size);
@@ -198790,6 +198825,128 @@ return config
         let snapshot = app.render_snapshot();
         assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS, 47), Some('|'));
         assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS, 48), Some('r'));
+    }
+
+    #[test]
+    fn window_app_preserves_split_ratio_when_window_width_changes() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::ResizePane {
+            pane: rssh_core::PaneId::new(1),
+            direction: ResizeDirection::Right,
+            amount: 8,
+        })
+        .unwrap();
+
+        let before = app.pane_render_layout();
+        let before_source = before
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(1))
+            .expect("source pane before resize");
+        let before_usable = before.panes.iter().map(|pane| pane.columns).sum::<u16>();
+        let next_size =
+            rssh_core::TerminalSize::new(160, app.runtime.terminal().grid().size().rows);
+
+        app.handle_window_resize(app.frame_size_for_terminal_size(next_size))
+            .unwrap();
+
+        let after = app.pane_render_layout();
+        let after_source = after
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(1))
+            .expect("source pane after resize");
+        let after_usable = after.panes.iter().map(|pane| pane.columns).sum::<u16>();
+        let expected = (u32::from(before_source.columns) * u32::from(after_usable)
+            + u32::from(before_usable) / 2)
+            / u32::from(before_usable);
+
+        assert!(
+            u32::from(after_source.columns).abs_diff(expected) <= 1,
+            "source pane changed from {}/{} to {}/{}, expected {expected}±1 cells",
+            before_source.columns,
+            before_usable,
+            after_source.columns,
+            after_usable
+        );
+    }
+
+    #[test]
+    fn window_app_uses_separator_drag_ratio_as_resize_baseline() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let separator = app.pane_render_layout().separators[0];
+        let separator_x = u32::from(separator.column) * CELL_WIDTH;
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(separator_x),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(separator_x + 12 * CELL_WIDTH),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+        let before = app.pane_render_layout();
+        let before_source = before
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(1))
+            .expect("source pane before resize");
+        let before_other = before
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(2))
+            .expect("new pane before resize");
+        let next_size =
+            rssh_core::TerminalSize::new(160, app.runtime.terminal().grid().size().rows);
+
+        app.handle_window_resize(app.frame_size_for_terminal_size(next_size))
+            .unwrap();
+
+        let after = app.pane_render_layout();
+        let after_source = after
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(1))
+            .expect("source pane after resize");
+        let after_other = after
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(2))
+            .expect("new pane after resize");
+        let old_usable = u32::from(before_source.columns + before_other.columns);
+        let new_usable = u32::from(after_source.columns + after_other.columns);
+        let expected =
+            (u32::from(before_source.columns) * new_usable + old_usable / 2) / old_usable;
+
+        assert!(
+            u32::from(after_source.columns).abs_diff(expected) <= 1,
+            "dragged ratio changed from {}/{} to {}/{}, expected {expected}±1 cells",
+            before_source.columns,
+            old_usable,
+            after_source.columns,
+            new_usable
+        );
     }
 
     #[test]

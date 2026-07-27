@@ -219,6 +219,26 @@ impl AppShell {
         self.active_workspace().active_tab()
     }
 
+    /// Rebalances every split tree from its current cell layout when the
+    /// available pane grid changes.
+    pub fn preserve_split_layout_for_resize(
+        &mut self,
+        old_columns: u16,
+        old_rows: u16,
+        new_columns: u16,
+        new_rows: u16,
+    ) {
+        if old_columns == new_columns && old_rows == new_rows {
+            return;
+        }
+
+        for workspace in &mut self.workspaces {
+            for tab in &mut workspace.tabs {
+                tab.preserve_split_layout_for_resize(old_columns, old_rows, new_columns, new_rows);
+            }
+        }
+    }
+
     #[must_use]
     pub fn active_pane(&self) -> &Pane {
         self.active_workspace().active_pane()
@@ -1469,6 +1489,59 @@ impl Tab {
         Ok(())
     }
 
+    fn preserve_split_layout_for_resize(
+        &mut self,
+        old_columns: u16,
+        old_rows: u16,
+        new_columns: u16,
+        new_rows: u16,
+    ) {
+        let Some(first_pane) = self.panes.first() else {
+            return;
+        };
+        let old_root = SplitLayoutSize {
+            columns: i32::from(old_columns),
+            rows: i32::from(old_rows),
+        };
+        let new_root = SplitLayoutSize {
+            columns: i32::from(new_columns),
+            rows: i32::from(new_rows),
+        };
+        let mut old_sizes = HashMap::from([(first_pane.id(), old_root)]);
+        let mut new_sizes = HashMap::from([(first_pane.id(), new_root)]);
+
+        for pane in self.panes.iter_mut().skip(1) {
+            let pane_id = pane.id();
+            let Some(old_split) = pane.split else {
+                continue;
+            };
+            let Some(old_source) = old_sizes.remove(&old_split.source_pane) else {
+                continue;
+            };
+            let Some(new_source) = new_sizes.remove(&old_split.source_pane) else {
+                continue;
+            };
+            let (old_source_next, old_new_pane) =
+                split_layout_size(old_source, old_split.direction, old_split.source_size_delta);
+            let old_total = split_layout_axis_size(old_source, old_split.direction);
+            let new_total = split_layout_axis_size(new_source, old_split.direction);
+            let source_size_delta =
+                preserve_split_source_size_delta(old_total, old_split.source_size_delta, new_total);
+            let new_split = PaneSplit {
+                source_size_delta,
+                ..old_split
+            };
+            let (new_source_next, new_new_pane) =
+                split_layout_size(new_source, new_split.direction, source_size_delta);
+
+            pane.split = Some(new_split);
+            old_sizes.insert(old_split.source_pane, old_source_next);
+            old_sizes.insert(pane_id, old_new_pane);
+            new_sizes.insert(new_split.source_pane, new_source_next);
+            new_sizes.insert(pane_id, new_new_pane);
+        }
+    }
+
     fn toggle_pane_zoom(&mut self, pane_id: PaneId) -> Result<(), AppShellError> {
         if self.pane_position(pane_id).is_none() {
             return Err(AppShellError::InvalidPane(pane_id));
@@ -2001,6 +2074,83 @@ fn adjusted_direction_source_size(total_cells: i32, default_source_cells: i32, d
     adjusted.clamp(1, max_source_cells)
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SplitLayoutSize {
+    columns: i32,
+    rows: i32,
+}
+
+fn split_layout_axis_size(size: SplitLayoutSize, direction: SplitDirection) -> i32 {
+    match direction {
+        SplitDirection::Left | SplitDirection::Right => size.columns,
+        SplitDirection::Up | SplitDirection::Down => size.rows,
+    }
+}
+
+fn split_layout_size(
+    source: SplitLayoutSize,
+    direction: SplitDirection,
+    source_size_delta: i16,
+) -> (SplitLayoutSize, SplitLayoutSize) {
+    let total = split_layout_axis_size(source, direction).max(3);
+    let (source_cells, new_cells) = split_pane_direction_sizes(total, source_size_delta)
+        .expect("a normalized split span always fits two panes and a separator");
+    match direction {
+        SplitDirection::Right | SplitDirection::Left => (
+            SplitLayoutSize {
+                columns: source_cells,
+                ..source
+            },
+            SplitLayoutSize {
+                columns: new_cells,
+                ..source
+            },
+        ),
+        SplitDirection::Down | SplitDirection::Up => (
+            SplitLayoutSize {
+                rows: source_cells,
+                ..source
+            },
+            SplitLayoutSize {
+                rows: new_cells,
+                ..source
+            },
+        ),
+    }
+}
+
+fn preserve_split_source_size_delta(
+    old_total_cells: i32,
+    old_source_size_delta: i16,
+    new_total_cells: i32,
+) -> i16 {
+    // A valid split needs two pane cells and one separator. Treat smaller
+    // spans as the fully clamped 1:1 layout so growing again has a stable
+    // current-layout baseline.
+    let old_total_cells = old_total_cells.max(3);
+    let new_total_cells = new_total_cells.max(3);
+    let (old_source_cells, _) = split_pane_direction_sizes(old_total_cells, old_source_size_delta)
+        .expect("a normalized split span always fits");
+    let old_usable_cells = old_total_cells - 1;
+    let new_usable_cells = new_total_cells - 1;
+    // Round to the nearest cell; rendering may therefore differ from the
+    // exact rational ratio by at most one cell.
+    let scaled_source_cells = (i64::from(old_source_cells) * i64::from(new_usable_cells)
+        + i64::from(old_usable_cells) / 2)
+        / i64::from(old_usable_cells);
+    let source_cells = i32::try_from(scaled_source_cells)
+        .unwrap_or(i32::MAX)
+        .clamp(1, new_usable_cells - 1);
+    let default_source_cells = new_usable_cells / 2;
+    i16::try_from(source_cells - default_source_cells).unwrap_or_else(|_| {
+        if source_cells < default_source_cells {
+            i16::MIN
+        } else {
+            i16::MAX
+        }
+    })
+}
+
 fn split_resize_source_delta(
     pane_id: PaneId,
     new_pane_id: PaneId,
@@ -2345,6 +2495,47 @@ mod tests {
     use crate::{PaneId, TabId, WindowId, WorkspaceId};
 
     use super::*;
+
+    fn pane_layout_rects(tab: &Tab, columns: u16, rows: u16) -> HashMap<PaneId, PaneDirectionRect> {
+        let first_pane = tab.panes().first().expect("tab has a root pane");
+        let mut rects = HashMap::from([(
+            first_pane.id(),
+            PaneDirectionRect {
+                pane_id: first_pane.id(),
+                row: 0,
+                column: 0,
+                rows: i32::from(rows),
+                columns: i32::from(columns),
+            },
+        )]);
+        for pane in tab.panes().iter().skip(1) {
+            let split = pane.split().expect("non-root pane has split metadata");
+            let source = rects
+                .get(&split.source_pane)
+                .copied()
+                .expect("split source has a layout rect");
+            let (next_source, new_pane) =
+                split_pane_direction_rect(source, pane.id(), split).expect("split fits");
+            rects.insert(split.source_pane, next_source);
+            rects.insert(pane.id(), new_pane);
+        }
+        rects
+    }
+
+    fn assert_ratio_within_one_cell(
+        old_source: i32,
+        old_other: i32,
+        new_source: i32,
+        new_other: i32,
+    ) {
+        let old_usable = old_source + old_other;
+        let new_usable = new_source + new_other;
+        let expected = (old_source * new_usable + old_usable / 2).div_euclid(old_usable);
+        assert!(
+            new_source.abs_diff(expected) <= 1,
+            "ratio changed from {old_source}/{old_usable} to {new_source}/{new_usable}, expected {expected}±1 cells"
+        );
+    }
 
     #[test]
     fn app_shell_starts_with_default_workspace_tab_and_pane() {
@@ -3379,6 +3570,213 @@ mod tests {
             .split()
             .expect("split should be present");
         assert_eq!(split.source_size_delta, -3);
+    }
+
+    #[test]
+    fn preserve_split_layout_scales_down_split_with_height_only() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::SplitPane {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Down,
+                launch: None,
+            })
+            .unwrap();
+        shell
+            .apply_action(AppAction::ResizePane {
+                pane: PaneId::new(1),
+                direction: ResizeDirection::Down,
+                amount: 4,
+            })
+            .unwrap();
+        let before = pane_layout_rects(shell.active_tab(), 80, 25);
+
+        shell.preserve_split_layout_for_resize(80, 25, 80, 49);
+
+        let after = pane_layout_rects(shell.active_tab(), 80, 49);
+        assert_ratio_within_one_cell(
+            before[&PaneId::new(1)].rows,
+            before[&PaneId::new(2)].rows,
+            after[&PaneId::new(1)].rows,
+            after[&PaneId::new(2)].rows,
+        );
+        let height_delta = shell.active_tab().panes()[1]
+            .split()
+            .expect("split metadata")
+            .source_size_delta;
+
+        shell.preserve_split_layout_for_resize(80, 49, 160, 49);
+
+        assert_eq!(
+            shell.active_tab().panes()[1]
+                .split()
+                .expect("split metadata")
+                .source_size_delta,
+            height_delta,
+            "changing columns must not alter a vertical split"
+        );
+    }
+
+    #[test]
+    fn preserve_split_layout_recurses_through_mixed_local_splits() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::SplitPaneWithSize {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+                source_size_delta: 14,
+            })
+            .unwrap();
+        shell
+            .apply_action(AppAction::SplitPaneWithSize {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Down,
+                launch: None,
+                source_size_delta: -5,
+            })
+            .unwrap();
+        shell
+            .apply_action(AppAction::TogglePaneZoom {
+                pane: PaneId::new(3),
+            })
+            .unwrap();
+        let before = pane_layout_rects(shell.active_tab(), 101, 41);
+        let pane_ids = shell
+            .active_tab()
+            .panes()
+            .iter()
+            .map(Pane::id)
+            .collect::<Vec<_>>();
+
+        shell.preserve_split_layout_for_resize(101, 41, 181, 73);
+
+        let after = pane_layout_rects(shell.active_tab(), 181, 73);
+        assert_eq!(
+            shell
+                .active_tab()
+                .panes()
+                .iter()
+                .map(Pane::id)
+                .collect::<Vec<_>>(),
+            pane_ids
+        );
+        assert_eq!(shell.active_pane_id(), PaneId::new(3));
+        assert_eq!(shell.active_tab().zoomed_pane_id(), Some(PaneId::new(3)));
+        assert_ratio_within_one_cell(
+            before[&PaneId::new(1)].columns,
+            before[&PaneId::new(2)].columns,
+            after[&PaneId::new(1)].columns,
+            after[&PaneId::new(2)].columns,
+        );
+        assert_ratio_within_one_cell(
+            before[&PaneId::new(1)].rows,
+            before[&PaneId::new(3)].rows,
+            after[&PaneId::new(1)].rows,
+            after[&PaneId::new(3)].rows,
+        );
+    }
+
+    #[test]
+    fn preserve_split_layout_uses_dragged_ratio_as_resize_baseline() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::SplitPane {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+        shell
+            .apply_action(AppAction::ResizePane {
+                pane: PaneId::new(1),
+                direction: ResizeDirection::Right,
+                amount: 17,
+            })
+            .unwrap();
+        let before = pane_layout_rects(shell.active_tab(), 80, 24);
+
+        shell.preserve_split_layout_for_resize(80, 24, 140, 24);
+
+        let after = pane_layout_rects(shell.active_tab(), 140, 24);
+        assert_ratio_within_one_cell(
+            before[&PaneId::new(1)].columns,
+            before[&PaneId::new(2)].columns,
+            after[&PaneId::new(1)].columns,
+            after[&PaneId::new(2)].columns,
+        );
+        let width_delta = shell.active_tab().panes()[1]
+            .split()
+            .expect("split metadata")
+            .source_size_delta;
+
+        shell.preserve_split_layout_for_resize(140, 24, 140, 48);
+
+        assert_eq!(
+            shell.active_tab().panes()[1]
+                .split()
+                .expect("split metadata")
+                .source_size_delta,
+            width_delta,
+            "changing rows must not alter a horizontal split"
+        );
+    }
+
+    #[test]
+    fn preserve_split_layout_clamps_tiny_sizes_and_uses_clamp_as_next_baseline() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::SplitPaneWithSize {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+                source_size_delta: 30,
+            })
+            .unwrap();
+
+        shell.preserve_split_layout_for_resize(80, 24, 3, 24);
+
+        let tiny = pane_layout_rects(shell.active_tab(), 3, 24);
+        assert_eq!(tiny[&PaneId::new(1)].columns, 1);
+        assert_eq!(tiny[&PaneId::new(2)].columns, 1);
+
+        shell.preserve_split_layout_for_resize(3, 24, 0, 24);
+        assert_eq!(
+            shell.active_tab().panes()[1]
+                .split()
+                .expect("split metadata")
+                .source_size_delta,
+            0
+        );
+
+        shell.preserve_split_layout_for_resize(0, 24, 80, 24);
+
+        let expanded = pane_layout_rects(shell.active_tab(), 80, 24);
+        assert_eq!(expanded[&PaneId::new(1)].columns, 40);
+        assert_eq!(expanded[&PaneId::new(2)].columns, 39);
+    }
+
+    #[test]
+    fn preserve_split_layout_same_size_is_exact_noop() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::SplitPaneWithSize {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+                source_size_delta: 7,
+            })
+            .unwrap();
+        shell
+            .apply_action(AppAction::TogglePaneZoom {
+                pane: PaneId::new(2),
+            })
+            .unwrap();
+        let before = shell.clone();
+
+        shell.preserve_split_layout_for_resize(80, 24, 80, 24);
+
+        assert_eq!(shell, before);
     }
 
     #[test]
