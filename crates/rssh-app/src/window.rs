@@ -80923,6 +80923,7 @@ struct NativeWindowApp {
     selecting: bool,
     scrollbar_dragging: bool,
     split_resize_dragging: Option<PaneSplitResizeDrag>,
+    ui_left_release_pending: bool,
     pressed_pane_close_button: Option<rssh_core::PaneId>,
     last_mouse_assignment_click: Option<WindowMouseAssignmentClick>,
     last_left_click: Option<WindowClick>,
@@ -83033,6 +83034,7 @@ impl NativeWindowApp {
             selecting: false,
             scrollbar_dragging: false,
             split_resize_dragging: None,
+            ui_left_release_pending: false,
             pressed_pane_close_button: None,
             last_mouse_assignment_click: None,
             last_left_click: None,
@@ -92797,6 +92799,10 @@ impl NativeWindowApp {
             self.mouse_click_may_focus_window = false;
         }
 
+        if self.handle_pending_ui_left_release(state, button) {
+            return Ok(true);
+        }
+
         let mouse_click_focuses_window = state == ElementState::Pressed
             && (!self.window_focused || self.mouse_click_may_focus_window);
         if mouse_click_focuses_window {
@@ -92808,10 +92814,12 @@ impl NativeWindowApp {
 
         if self.pane_select.is_some() {
             self.exit_pane_select_mode();
+            self.mark_ui_left_press_consumed(state, button);
             return Ok(true);
         }
 
         if self.handle_input_selector_mouse_input(state, button) {
+            self.mark_ui_left_press_consumed(state, button);
             return Ok(true);
         }
 
@@ -92820,6 +92828,7 @@ impl NativeWindowApp {
         }
 
         if self.higher_level_ui_blocks_pane_surface_mouse() {
+            self.mark_ui_left_press_consumed(state, button);
             return Ok(true);
         }
 
@@ -92946,11 +92955,13 @@ impl NativeWindowApp {
 
         match state {
             ElementState::Pressed => {
+                self.ui_left_release_pending = false;
                 self.pressed_pane_close_button = None;
                 let Some(pane) = self.pane_close_button_at_mouse_position() else {
                     return false;
                 };
 
+                self.ui_left_release_pending = true;
                 self.pressed_pane_close_button = Some(pane);
                 self.clear_ordinary_selection();
                 self.selecting = false;
@@ -92958,7 +92969,39 @@ impl NativeWindowApp {
                 self.request_close_confirmation_or_close(WindowCloseTarget::Pane(pane));
                 true
             }
-            ElementState::Released => self.pressed_pane_close_button.take().is_some(),
+            ElementState::Released => {
+                let handled = self.pressed_pane_close_button.take().is_some();
+                if handled {
+                    self.ui_left_release_pending = false;
+                }
+                handled
+            }
+        }
+    }
+
+    fn handle_pending_ui_left_release(&mut self, state: ElementState, button: MouseButton) -> bool {
+        if button != MouseButton::Left {
+            return false;
+        }
+
+        match state {
+            ElementState::Pressed => {
+                self.ui_left_release_pending = false;
+                self.pressed_pane_close_button = None;
+                false
+            }
+            ElementState::Released if self.ui_left_release_pending => {
+                self.ui_left_release_pending = false;
+                self.pressed_pane_close_button = None;
+                true
+            }
+            ElementState::Released => false,
+        }
+    }
+
+    fn mark_ui_left_press_consumed(&mut self, state: ElementState, button: MouseButton) {
+        if state == ElementState::Pressed && button == MouseButton::Left {
+            self.ui_left_release_pending = true;
         }
     }
 
@@ -255405,6 +255448,54 @@ act.Confirmation {
         assert_eq!(app.active_pane_id(), active_pane);
         assert!(written.lock().unwrap().is_empty());
         assert!(!app.window_drag_requested_for_test());
+    }
+
+    #[test]
+    fn window_app_pane_select_consumes_paired_left_release() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.set_config_overrides(NativeConfigOverrides {
+            mouse_assignments: Some(vec![NativeUserMouseAssignment {
+                event: NativeMouseAssignmentEvent {
+                    kind: NativeMouseAssignmentEventKind::Up,
+                    button: NativeMouseAssignmentButton::Mouse(MouseButton::Left),
+                    streak: 1,
+                },
+                modifiers: ModifiersState::empty(),
+                mouse_reporting: true,
+                alt_screen: NativeMouseAssignmentAltScreen::Any,
+                command: WindowCommand::StartWindowDrag,
+            }]),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
+        app.mouse_position = Some((0, 0));
+        let active_pane = app.active_pane_id();
+        app.enter_pane_select_mode();
+        assert!(app.pane_select.is_some());
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert!(app.pane_select.is_none());
+        assert_eq!(app.active_pane_id(), active_pane);
+        assert!(written.lock().unwrap().is_empty());
+        assert!(!app.window_drag_requested_for_test());
+        assert!(app.selection.is_none());
+        assert!(!app.selecting);
     }
 
     #[test]
