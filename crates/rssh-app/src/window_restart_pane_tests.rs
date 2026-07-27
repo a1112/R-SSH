@@ -1,7 +1,8 @@
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
+use std::time::Duration;
 
 use super::*;
 
@@ -141,7 +142,7 @@ fn window_app_restart_pane_installs_fresh_runtime_without_touching_other_owner()
     ))));
     app.session_process_id = Some(41_201);
 
-    app.restart_pane_runtime_with(active, |app| {
+    app.restart_pane_runtime_with(active, |app, _| {
         let mut runtime = app.new_inactive_pane_runtime();
         runtime.runtime.feed_pty_output_with_display(b"fresh");
         runtime
@@ -167,7 +168,7 @@ fn window_manager_ignores_events_from_retired_pane_runtime_generation() {
     let window_id = app.app_window_id_for_test();
     let retired_generation = app.active_runtime_generation;
 
-    app.restart_pane_runtime_with(pane_id, |app| {
+    app.restart_pane_runtime_with(pane_id, |app, _| {
         let mut runtime = app.new_inactive_pane_runtime();
         runtime.runtime.feed_pty_output_with_display(b"fresh");
         runtime.snapshot = terminal_runtime_snapshot(&runtime.runtime, runtime.ui.stable_viewport);
@@ -209,7 +210,6 @@ fn window_manager_ignores_retired_events_after_pane_owner_transfer() {
     primary.runtime.resize(rssh_core::TerminalSize::new(16, 1));
     primary.handle_pty_output(b"relocated").unwrap();
     primary.active_runtime_generation = 41;
-    primary.next_runtime_generation = 42;
     primary
         .dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -243,6 +243,449 @@ fn window_manager_ignores_retired_events_after_pane_owner_transfer() {
         pending_text.as_deref().map(str::trim_end),
         Some("relocated")
     );
+}
+
+#[test]
+fn runtime_tokens_are_process_unique_across_window_apps() {
+    let mut first = NativeWindowApp::new(None);
+    let mut second = NativeWindowApp::new(None);
+
+    let first_token = first.allocate_pane_runtime_generation();
+    let second_token = second.allocate_pane_runtime_generation();
+
+    assert_ne!(first_token, second_token);
+    assert_ne!(first_token, 0);
+    assert_ne!(second_token, 0);
+}
+
+#[test]
+fn runtime_token_allocator_fails_fast_before_overflow_reuse() {
+    let exhausted = AtomicU64::new(u64::MAX);
+
+    let panic = std::panic::catch_unwind(|| allocate_pane_runtime_token_from(&exhausted));
+
+    assert!(panic.is_err());
+    assert_eq!(exhausted.load(Ordering::Relaxed), u64::MAX);
+}
+
+#[test]
+fn manager_never_falls_back_to_same_pane_id_without_a_route() {
+    let mut owner = NativeWindowApp::new(None);
+    owner.handle_pty_output(b"RED").unwrap();
+    owner.active_runtime_generation = 72;
+    let mut manager = NativeWindowManager::new_for_test(owner);
+
+    for event in [
+        WindowUserEvent::Output {
+            window_id: rssh_core::WindowId::new(99),
+            pane_id: rssh_core::PaneId::new(1),
+            runtime_generation: 71,
+            bytes: b"-wrong".to_vec(),
+        },
+        WindowUserEvent::Exited {
+            window_id: rssh_core::WindowId::new(99),
+            pane_id: rssh_core::PaneId::new(1),
+            runtime_generation: 71,
+        },
+        WindowUserEvent::ReadError {
+            window_id: rssh_core::WindowId::new(99),
+            pane_id: rssh_core::PaneId::new(1),
+            runtime_generation: 71,
+            error: "stale".to_owned(),
+        },
+    ] {
+        assert_eq!(manager.dispatch_user_event_to_owner(event), None);
+    }
+
+    let owner = manager.startup_app.as_ref().unwrap();
+    assert_eq!(snapshot_row_text(&owner.snapshot, 0, 3), "RED");
+    assert_eq!(owner.active_runtime_generation, 72);
+}
+
+#[test]
+fn closed_detach_route_never_delivers_old_events_to_another_detached_same_id_owner() {
+    let mut first_source = NativeWindowApp::new(None);
+    first_source
+        .runtime
+        .resize(rssh_core::TerminalSize::new(16, 1));
+    first_source.handle_pty_output(b"first").unwrap();
+    first_source.active_runtime_generation = 41;
+    first_source
+        .dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+    first_source
+        .dispatch_app_action(AppAction::MovePaneToNewWindow {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+    let mut manager = NativeWindowManager::new_for_test(first_source);
+    manager.collect_pending_window_apps_from_primary_for_test();
+
+    drop(manager.startup_app.take());
+    drop(manager.pending_apps.remove(0));
+    manager.remove_pane_event_routes_for_window(rssh_core::WindowId::new(1));
+    manager.remove_pane_event_routes_for_window(rssh_core::WindowId::new(2));
+
+    let mut second_source = NativeWindowApp::new(None);
+    second_source.app_window_id = rssh_core::WindowId::new(3);
+    second_source
+        .runtime
+        .resize(rssh_core::TerminalSize::new(16, 1));
+    second_source.handle_pty_output(b"RED").unwrap();
+    second_source.active_runtime_generation = 41;
+    second_source
+        .dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+    second_source
+        .dispatch_app_action(AppAction::MovePaneToNewWindow {
+            pane: rssh_core::PaneId::new(1),
+        })
+        .unwrap();
+    let mut second_owner = second_source
+        .take_next_pending_window_app()
+        .expect("second detached owner");
+    second_owner.app_window_id = rssh_core::WindowId::new(4);
+    manager.pending_apps.push(second_owner);
+    manager.pane_event_routes.insert(
+        (rssh_core::WindowId::new(3), rssh_core::PaneId::new(1)),
+        rssh_core::WindowId::new(4),
+    );
+
+    for event in [
+        WindowUserEvent::Output {
+            window_id: rssh_core::WindowId::new(1),
+            pane_id: rssh_core::PaneId::new(1),
+            runtime_generation: 41,
+            bytes: b"-stale".to_vec(),
+        },
+        WindowUserEvent::Exited {
+            window_id: rssh_core::WindowId::new(1),
+            pane_id: rssh_core::PaneId::new(1),
+            runtime_generation: 41,
+        },
+        WindowUserEvent::ReadError {
+            window_id: rssh_core::WindowId::new(1),
+            pane_id: rssh_core::PaneId::new(1),
+            runtime_generation: 41,
+            error: "stale".to_owned(),
+        },
+    ] {
+        assert_eq!(manager.dispatch_user_event_to_owner(event), None);
+    }
+    assert_eq!(
+        manager
+            .pending_apps
+            .first()
+            .map(|app| snapshot_row_text(&app.snapshot, 0, 3)),
+        Some("RED".to_owned())
+    );
+
+    assert_eq!(
+        manager.dispatch_user_event_to_owner(WindowUserEvent::Output {
+            window_id: rssh_core::WindowId::new(3),
+            pane_id: rssh_core::PaneId::new(1),
+            runtime_generation: 41,
+            bytes: b"-current".to_vec(),
+        }),
+        Some(false)
+    );
+    assert_eq!(
+        manager
+            .pending_apps
+            .first()
+            .map(|app| snapshot_row_text(&app.snapshot, 0, 11)),
+        Some("RED-current".to_owned())
+    );
+}
+
+#[test]
+fn restart_inactive_pane_replaces_only_target_runtime() {
+    let mut app = NativeWindowApp::new(None);
+    app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+    app.handle_pty_output(b"inactive-old").unwrap();
+    app.dispatch_app_action(AppAction::SplitPane {
+        pane: app.active_pane_id(),
+        direction: SplitDirection::Right,
+        launch: Some(PaneLaunch::local("active-shell")),
+    })
+    .unwrap();
+    app.handle_pty_output(b"active-old").unwrap();
+    let active = app.active_pane_id();
+    let inactive = rssh_core::PaneId::new(1);
+    let active_snapshot = app.snapshot.clone();
+    let active_generation = app.active_runtime_generation;
+
+    app.restart_pane_runtime_with(inactive, |app, pane_id| {
+        assert_eq!(pane_id, inactive);
+        let mut runtime = app.new_inactive_pane_runtime();
+        runtime
+            .runtime
+            .feed_pty_output_with_display(b"inactive-fresh");
+        runtime.snapshot = terminal_runtime_snapshot(&runtime.runtime, runtime.ui.stable_viewport);
+        Ok::<_, Box<dyn std::error::Error>>(runtime)
+    })
+    .unwrap();
+
+    assert_eq!(app.active_pane_id(), active);
+    assert_eq!(app.snapshot, active_snapshot);
+    assert_eq!(app.active_runtime_generation, active_generation);
+    assert_eq!(
+        app.pane_runtimes
+            .get(&inactive)
+            .map(|runtime| snapshot_row_text(&runtime.snapshot, 0, 14)),
+        Some("inactive-fresh".to_owned())
+    );
+}
+
+#[test]
+fn restart_without_new_cwd_evidence_preserves_full_pane_launch_on_success_and_failure() {
+    let launch = PaneLaunch::local("restart-shell")
+        .with_args(["--login", "--noprofile"])
+        .with_cwd("file://host/preserved")
+        .with_environment([("KEEP_ONE", "yes"), ("KEEP_TWO", "also")]);
+
+    for spawn_succeeds in [true, false] {
+        let mut app = NativeWindowApp::new(None);
+        app.app_shell = AppShell::new(launch.clone());
+        app.session_process_id = None;
+        let pane = app.active_pane_id();
+
+        let result = app.restart_pane_runtime_with(pane, |app, _| {
+            if spawn_succeeds {
+                Ok::<_, Box<dyn std::error::Error>>(app.new_inactive_pane_runtime())
+            } else {
+                Err::<PaneRuntime, _>(Box::new(io::Error::other("spawn failed")))
+            }
+        });
+        assert_eq!(result.is_ok(), spawn_succeeds);
+        assert_eq!(app.app_shell.active_pane().launch(), &launch);
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), None);
+        assert_ne!(app.active_runtime_generation, 0);
+    }
+}
+
+#[test]
+fn restart_uses_explicit_runtime_cwd_evidence_without_changing_other_launch_fields() {
+    let original = PaneLaunch::local("restart-shell")
+        .with_args(["--login"])
+        .with_cwd("file://host/original")
+        .with_environment([("KEEP", "yes")]);
+    let mut app = NativeWindowApp::new(None);
+    app.app_shell = AppShell::new(original);
+    app.runtime
+        .feed_pty_output_with_display(b"\x1b]7;file://host/new-cwd\x07");
+    let pane = app.active_pane_id();
+
+    app.restart_pane_runtime_with(pane, |app, _| {
+        Ok::<_, Box<dyn std::error::Error>>(app.new_inactive_pane_runtime())
+    })
+    .unwrap();
+
+    let launch = app.app_shell.active_pane().launch();
+    assert_eq!(launch.program(), "restart-shell");
+    assert_eq!(launch.args(), ["--login"]);
+    assert_eq!(launch.cwd(), Some("file://host/new-cwd"));
+    assert_eq!(
+        launch.environment().get("KEEP").map(String::as_str),
+        Some("yes")
+    );
+}
+
+#[test]
+fn restart_clears_only_target_runtime_projection_and_resets_active_title() {
+    let mut app = NativeWindowApp::new(None);
+    app.dispatch_app_action(AppAction::SplitPane {
+        pane: app.active_pane_id(),
+        direction: SplitDirection::Right,
+        launch: Some(PaneLaunch::local("active")),
+    })
+    .unwrap();
+    let active = app.active_pane_id();
+    let inactive = rssh_core::PaneId::new(1);
+    for pane in [active, inactive] {
+        app.dispatch_app_action(AppAction::SetPaneUserVar {
+            pane,
+            name: "RUNTIME".to_owned(),
+            value: pane.get().to_string(),
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::SetPaneBadgeFormat {
+            pane,
+            badge_format: Some(format!("badge-{}", pane.get())),
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::SetPaneProgress {
+            pane,
+            progress: PaneProgress::Percentage(42),
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::SetPaneHasUnseenOutput {
+            pane,
+            has_unseen_output: true,
+        })
+        .unwrap();
+    }
+    app.window_title = "stale runtime title".to_owned();
+
+    app.restart_pane_runtime_with(active, |app, _| {
+        Ok::<_, Box<dyn std::error::Error>>(app.new_inactive_pane_runtime())
+    })
+    .unwrap();
+
+    let target = app.app_shell.active_pane();
+    assert!(target.user_vars().is_empty());
+    assert_eq!(target.badge_format(), None);
+    assert_eq!(target.progress(), PaneProgress::None);
+    assert!(!target.has_unseen_output());
+    assert_eq!(app.window_title, DEFAULT_WINDOW_TITLE);
+    let sibling = app
+        .app_shell
+        .active_tab()
+        .panes()
+        .iter()
+        .find(|pane| pane.id() == inactive)
+        .unwrap();
+    assert_eq!(
+        sibling.user_vars().get("RUNTIME").map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(sibling.badge_format(), Some("badge-1"));
+    assert_eq!(sibling.progress(), PaneProgress::Percentage(42));
+    assert!(sibling.has_unseen_output());
+}
+
+#[test]
+fn manager_ignores_stale_read_error_and_accepts_current_read_error() {
+    let mut app = NativeWindowApp::new(None);
+    let pane = app.active_pane_id();
+    let window = app.app_window_id;
+    app.active_runtime_generation = 91;
+    let mut manager = NativeWindowManager::new_for_test(app);
+
+    assert_eq!(
+        manager.dispatch_user_event_to_owner(WindowUserEvent::ReadError {
+            window_id: window,
+            pane_id: pane,
+            runtime_generation: 90,
+            error: "stale".to_owned(),
+        }),
+        Some(false)
+    );
+    assert!(manager.startup_app.is_some());
+
+    assert_eq!(
+        manager.dispatch_user_event_to_owner(WindowUserEvent::ReadError {
+            window_id: window,
+            pane_id: pane,
+            runtime_generation: 91,
+            error: "current".to_owned(),
+        }),
+        Some(true)
+    );
+    assert!(manager.startup_app.is_none());
+}
+
+#[test]
+fn wheel_restart_targets_inactive_pane_and_keeps_active_runtime_unchanged_on_spawn_failure() {
+    let mut app = NativeWindowApp::new(None);
+    app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+    app.handle_pty_output(b"inactive-old").unwrap();
+    app.dispatch_app_action(AppAction::SplitPane {
+        pane: app.active_pane_id(),
+        direction: SplitDirection::Right,
+        launch: Some(PaneLaunch::local("active")),
+    })
+    .unwrap();
+    app.handle_pty_output(b"active-old").unwrap();
+    let active_snapshot = app.snapshot.clone();
+    let active_generation = app.active_runtime_generation;
+    let inactive = rssh_core::PaneId::new(1);
+    let rect = app.pane_render_rect(inactive).unwrap();
+    let target = WheelTarget {
+        pane_id: inactive,
+        rect,
+        cell: PaneMouseCell {
+            pane_id: inactive,
+            row: 0,
+            column: 0,
+        },
+        pixel_position: PhysicalPosition::new(1.0, 1.0),
+    };
+
+    let error = app
+        .apply_wheel_pane_action(target, WindowCommand::RestartPane)
+        .unwrap_err();
+
+    assert!(error.to_string().contains("window event proxy"));
+    assert_eq!(app.snapshot, active_snapshot);
+    assert_eq!(app.active_runtime_generation, active_generation);
+    let inactive_runtime = app.pane_runtimes.get(&inactive).unwrap();
+    assert_eq!(snapshot_char(&inactive_runtime.snapshot, 0, 0), None);
+    assert_ne!(inactive_runtime.runtime_generation, 0);
+}
+
+#[test]
+fn pane_runtime_close_drops_writer_before_joining_reader() {
+    let app = NativeWindowApp::new(None);
+    let mut runtime = app.new_inactive_pane_runtime();
+    let writer_dropped = Arc::new(AtomicUsize::new(0));
+    let reader_saw_writer_drop = Arc::new(AtomicBool::new(false));
+    runtime.writer = Some(Box::new(DropTrackingWriter(Arc::clone(&writer_dropped))));
+    let observed_writer = Arc::clone(&writer_dropped);
+    let observed_order = Arc::clone(&reader_saw_writer_drop);
+    runtime.reader_thread = Some(std::thread::spawn(move || {
+        observed_order.store(
+            observed_writer.load(Ordering::Acquire) == 1,
+            Ordering::Release,
+        );
+    }));
+
+    runtime.close();
+
+    assert_eq!(writer_dropped.load(Ordering::Acquire), 1);
+    assert!(reader_saw_writer_drop.load(Ordering::Acquire));
+}
+
+#[test]
+#[ignore = "spawns and terminates a real platform PTY"]
+fn real_pty_close_lifecycle_finishes_within_timeout() {
+    let app = NativeWindowApp::new(None);
+    let mut runtime = app.new_inactive_pane_runtime();
+    let mut session = PtySession::spawn(
+        &PtyCommand::default_shell(),
+        PtySize::try_new(80, 24).unwrap(),
+    )
+    .unwrap();
+    let mut reader = session.take_reader().unwrap();
+    runtime.writer = Some(Box::new(session.take_writer().unwrap()));
+    runtime.session_process_id = session.process_id();
+    runtime.session = Some(session);
+    runtime.reader_thread = Some(std::thread::spawn(move || {
+        let mut buffer = [0_u8; 512];
+        while let Ok(count) = reader.read(&mut buffer) {
+            if count == 0 {
+                break;
+            }
+        }
+    }));
+    let (sender, receiver) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || {
+        runtime.close();
+        let _ = sender.send(());
+    });
+
+    receiver
+        .recv_timeout(Duration::from_secs(5))
+        .expect("real PTY close lifecycle timed out");
 }
 
 fn snapshot_char(

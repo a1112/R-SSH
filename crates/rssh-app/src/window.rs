@@ -8,7 +8,10 @@ use std::{
     io::{self, Read, Write},
     path::{Path, PathBuf},
     process::Command,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -79,6 +82,7 @@ const TAB_BAR_ROWS: u16 = 1;
 const CELL_WIDTH: u32 = 8;
 const CELL_HEIGHT: u32 = 16;
 const DEFAULT_WINDOW_TITLE: &str = "R-SSH";
+static NEXT_PANE_RUNTIME_TOKEN: AtomicU64 = AtomicU64::new(1);
 const DEFAULT_DOMAIN_NAME: &str = "local";
 const DEFAULT_GUI_STARTUP_ARGS: &[&str] = &["start"];
 const DEFAULT_MUX_ENABLE_SSH_AGENT: bool = true;
@@ -80910,7 +80914,6 @@ struct NativeWindowApp {
     session_log: Option<Box<dyn Write + Send>>,
     reader_thread: Option<thread::JoinHandle<()>>,
     active_runtime_generation: u64,
-    next_runtime_generation: u64,
     modifiers: ModifiersState,
     left_alt_pressed: bool,
     right_alt_pressed: bool,
@@ -81482,12 +81485,7 @@ impl NativeWindowManager {
             return None;
         }
 
-        let mut owners = self.all_app_locations().into_iter().filter(|location| {
-            self.app_at_location(*location)
-                .is_some_and(|app| Self::app_owns_pane(app, pane_id))
-        });
-        let owner = owners.next()?;
-        owners.next().is_none().then_some(owner)
+        None
     }
 
     fn owned_app_location_for_window_and_pane(
@@ -82060,35 +82058,76 @@ impl PaneRuntime {
     }
 
     fn close(&mut self) {
-        if let Some(session) = self.session.as_mut() {
-            let _ = session.kill();
-            let _ = session.wait();
-        }
-
-        if let Some(reader_thread) = self.reader_thread.take() {
-            let _ = reader_thread.join();
-        }
-
-        self.session_process_id = None;
-        self.session_tty_name = None;
-        self.writer = None;
+        stop_pty_lifecycle(
+            &mut self.session,
+            &mut self.session_process_id,
+            &mut self.session_tty_name,
+            &mut self.writer,
+            &mut self.reader_thread,
+        );
     }
 
     fn finish_after_exit(&mut self) -> Option<PtyExitStatus> {
-        let status = self
-            .session
-            .as_mut()
-            .and_then(|session| session.wait().ok());
+        finish_pty_lifecycle_after_exit(
+            &mut self.session,
+            &mut self.session_process_id,
+            &mut self.session_tty_name,
+            &mut self.writer,
+            &mut self.reader_thread,
+        )
+    }
+}
 
-        if let Some(reader_thread) = self.reader_thread.take() {
-            let _ = reader_thread.join();
+fn stop_pty_lifecycle(
+    session: &mut Option<PtySession>,
+    session_process_id: &mut Option<u32>,
+    session_tty_name: &mut Option<String>,
+    writer: &mut Option<Box<dyn Write + Send>>,
+    reader_thread: &mut Option<thread::JoinHandle<()>>,
+) {
+    drop(writer.take());
+    if let Some(mut session) = session.take() {
+        let _ = session.kill();
+        let _ = session.wait();
+        drop(session);
+    }
+    *session_process_id = None;
+    *session_tty_name = None;
+    if let Some(reader_thread) = reader_thread.take() {
+        let _ = reader_thread.join();
+    }
+}
+
+fn finish_pty_lifecycle_after_exit(
+    session: &mut Option<PtySession>,
+    session_process_id: &mut Option<u32>,
+    session_tty_name: &mut Option<String>,
+    writer: &mut Option<Box<dyn Write + Send>>,
+    reader_thread: &mut Option<thread::JoinHandle<()>>,
+) -> Option<PtyExitStatus> {
+    drop(writer.take());
+    let status = session.as_mut().and_then(|session| session.wait().ok());
+    drop(session.take());
+    *session_process_id = None;
+    *session_tty_name = None;
+    if let Some(reader_thread) = reader_thread.take() {
+        let _ = reader_thread.join();
+    }
+    status
+}
+
+fn allocate_pane_runtime_token_from(next_token: &AtomicU64) -> u64 {
+    let mut current = next_token.load(Ordering::Relaxed);
+    loop {
+        assert_ne!(current, 0, "pane runtime token allocator reached zero");
+        let next = current
+            .checked_add(1)
+            .expect("pane runtime token space exhausted");
+        match next_token.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed)
+        {
+            Ok(_) => return current,
+            Err(observed) => current = observed,
         }
-
-        self.session = None;
-        self.session_process_id = None;
-        self.session_tty_name = None;
-        self.writer = None;
-        status
     }
 }
 
@@ -83050,7 +83089,6 @@ impl NativeWindowApp {
             session_log: None,
             reader_thread: None,
             active_runtime_generation: 0,
-            next_runtime_generation: 1,
             modifiers: ModifiersState::empty(),
             left_alt_pressed: false,
             right_alt_pressed: false,
@@ -85126,9 +85164,6 @@ impl NativeWindowApp {
     }
 
     fn install_active_runtime(&mut self, mut runtime: PaneRuntime) {
-        self.next_runtime_generation = self
-            .next_runtime_generation
-            .max(runtime.runtime_generation.saturating_add(1));
         let mut runtime_runtime = TerminalRuntime::new(self.runtime.terminal().grid().size());
         let mut runtime_snapshot =
             terminal_runtime_snapshot(&self.runtime, PaneStableViewport::default());
@@ -92298,6 +92333,11 @@ impl NativeWindowApp {
                 Ok(())
             }
             WindowCommand::ResetTerminal => return self.handle_pane_pty_output(pane, b"\x1bc"),
+            WindowCommand::RestartPane => {
+                return self
+                    .restart_pane_runtime(pane)
+                    .map_err(|error| io::Error::other(error.to_string()));
+            }
             WindowCommand::ClearScrollback(WindowClearScrollbackMode::ScrollbackOnly) => {
                 if pane == self.app_shell.active_pane_id() {
                     self.active_ui.stable_viewport = PaneStableViewport::default();
@@ -98655,7 +98695,7 @@ impl NativeWindowApp {
     }
 
     fn restart_pane_runtime(&mut self, pane_id: rssh_core::PaneId) -> Result<(), Box<dyn Error>> {
-        self.restart_pane_runtime_with(pane_id, Self::spawn_pane_runtime_for_active_pane)
+        self.restart_pane_runtime_with(pane_id, Self::spawn_pane_runtime_for_pane)
     }
 
     fn restart_pane_runtime_with<F>(
@@ -98664,41 +98704,91 @@ impl NativeWindowApp {
         spawn: F,
     ) -> Result<(), Box<dyn Error>>
     where
-        F: FnOnce(&mut Self) -> Result<PaneRuntime, Box<dyn Error>>,
+        F: FnOnce(&mut Self, rssh_core::PaneId) -> Result<PaneRuntime, Box<dyn Error>>,
     {
-        if pane_id != self.app_shell.active_pane_id() {
+        let is_active = pane_id == self.app_shell.active_pane_id();
+        let runtime_cwd = if is_active {
+            Some(pane_runtime_current_working_dir(
+                &self.runtime,
+                self.session_process_id,
+            ))
+        } else {
+            self.pane_runtimes.get(&pane_id).map(|runtime| {
+                pane_runtime_current_working_dir(&runtime.runtime, runtime.session_process_id)
+            })
+        };
+        let Some(runtime_cwd) = runtime_cwd else {
             return Err(Box::new(io::Error::other(format!(
-                "pane {} is not active",
+                "pane {} has no runtime owner",
                 pane_id.get()
             ))));
+        };
+
+        if let Some(cwd) = runtime_cwd {
+            self.sync_pane_current_working_dir_from_value(pane_id, Some(cwd));
         }
 
-        self.sync_active_pane_current_working_dir_from_runtime();
-        self.stop_active_runtime();
-        let mut blank_runtime = self.new_inactive_pane_runtime();
-        blank_runtime.runtime_generation = self.allocate_pane_runtime_generation();
-        self.install_active_runtime(blank_runtime);
-        self.clear_active_pane_restart_state(pane_id);
+        let mut previous_runtime = if is_active {
+            self.take_active_runtime()
+        } else {
+            self.pane_runtimes
+                .remove(&pane_id)
+                .expect("validated inactive pane runtime must exist")
+        };
+        let previous_size = previous_runtime.runtime.terminal().grid().size();
+        previous_runtime.close();
 
-        let mut runtime = spawn(self)?;
+        let mut blank_runtime = self.new_inactive_pane_runtime();
+        blank_runtime.runtime.resize(previous_size);
+        blank_runtime.snapshot =
+            terminal_runtime_snapshot(&blank_runtime.runtime, blank_runtime.ui.stable_viewport);
+        blank_runtime.runtime_generation = self.allocate_pane_runtime_generation();
+        self.install_pane_runtime(pane_id, is_active, blank_runtime);
+        self.clear_pane_restart_state(pane_id, is_active);
+        self.app_shell
+            .reset_pane_runtime_projection(pane_id)
+            .map_err(|error| {
+                Box::new(io::Error::other(format!(
+                    "failed to reset pane runtime projection: {error:?}"
+                ))) as Box<dyn Error>
+            })?;
+
+        let mut runtime = spawn(self, pane_id)?;
         if runtime.runtime_generation == 0 {
             runtime.runtime_generation = self.allocate_pane_runtime_generation();
         }
-        self.install_active_runtime(runtime);
+        self.install_pane_runtime(pane_id, is_active, runtime);
         Ok(())
     }
 
-    fn clear_active_pane_restart_state(&mut self, pane_id: rssh_core::PaneId) {
-        self.end_pointer_modes_for_pane_change();
-        self.current_mouse_wheel_delta = None;
-        self.last_mouse_info = None;
-        self.deferred_wheel_context = None;
-        self.ui_left_release_pending = false;
-        self.pressed_pane_close_button = None;
-        self.ime_preedit = None;
-        self.dead_key_active = false;
-        self.dead_key_text = None;
-        self.selection = None;
+    fn install_pane_runtime(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        is_active: bool,
+        runtime: PaneRuntime,
+    ) {
+        if is_active {
+            self.install_active_runtime(runtime);
+        } else {
+            self.pane_runtimes.insert(pane_id, runtime);
+        }
+    }
+
+    fn clear_pane_restart_state(&mut self, pane_id: rssh_core::PaneId, is_active: bool) {
+        if is_active {
+            self.end_pointer_modes_for_pane_change();
+            self.current_mouse_wheel_delta = None;
+            self.last_mouse_info = None;
+            self.deferred_wheel_context = None;
+            self.ui_left_release_pending = false;
+            self.pressed_pane_close_button = None;
+            self.ime_preedit = None;
+            self.dead_key_active = false;
+            self.dead_key_text = None;
+            self.selection = None;
+            self.window_title = DEFAULT_WINDOW_TITLE.to_owned();
+            self.apply_window_title();
+        }
         self.pane_bell_counts.remove(&pane_id);
         self.visual_bell_started_at.remove(&pane_id);
         self.frame_needs_full_repaint = true;
@@ -98706,9 +98796,7 @@ impl NativeWindowApp {
     }
 
     fn allocate_pane_runtime_generation(&mut self) -> u64 {
-        let generation = self.next_runtime_generation;
-        self.next_runtime_generation = self.next_runtime_generation.saturating_add(1).max(1);
-        generation
+        allocate_pane_runtime_token_from(&NEXT_PANE_RUNTIME_TOKEN)
     }
 
     fn pane_runtime_generation_matches(
@@ -98725,6 +98813,13 @@ impl NativeWindowApp {
     }
 
     fn spawn_pane_runtime_for_active_pane(&mut self) -> Result<PaneRuntime, Box<dyn Error>> {
+        self.spawn_pane_runtime_for_pane(self.app_shell.active_pane_id())
+    }
+
+    fn spawn_pane_runtime_for_pane(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+    ) -> Result<PaneRuntime, Box<dyn Error>> {
         #[cfg(test)]
         if let Some(observer) = &self.pty_spawn_observer {
             observer.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -98736,23 +98831,39 @@ impl NativeWindowApp {
             )));
         };
 
-        let pane_id = self.app_shell.active_pane_id();
         let runtime_generation = self.allocate_pane_runtime_generation();
-        let term_session_id = iterm_session_termid(
-            self.app_window_id.get(),
-            self.app_shell.active_tab_id().get(),
-            pane_id.get(),
-        );
+        let (tab_id, launch) = self
+            .app_shell
+            .workspaces()
+            .iter()
+            .flat_map(rssh_core::app_shell::Workspace::tabs)
+            .find_map(|tab| {
+                tab.panes()
+                    .iter()
+                    .find(|pane| pane.id() == pane_id)
+                    .map(|pane| (tab.id(), pane.launch().clone()))
+            })
+            .ok_or_else(|| {
+                Box::new(io::Error::other(format!(
+                    "pane {} has no launch metadata",
+                    pane_id.get()
+                ))) as Box<dyn Error>
+            })?;
+        let term_session_id =
+            iterm_session_termid(self.app_window_id.get(), tab_id.get(), pane_id.get());
         let environment = self.pane_environment_variables();
         let command = pty_command_from_pane_launch_with_term_session_id(
-            self.app_shell.active_pane().launch(),
+            &launch,
             &self.term,
             &environment,
             self.default_cwd.as_deref(),
             &term_session_id,
         );
 
-        let size = self.runtime.terminal().grid().size();
+        let size = self.pane_runtime_ref(pane_id).map_or_else(
+            || self.runtime.terminal().grid().size(),
+            |runtime| runtime.terminal().grid().size(),
+        );
         let pty_size = PtySize::try_new(size.columns, size.rows)?;
         self.metrics.start_spawn_timer();
         let mut session = PtySession::spawn(&command, pty_size)?;
@@ -102647,36 +102758,23 @@ impl Drop for NativeWindowApp {
 
 impl NativeWindowApp {
     fn finish_active_runtime_after_exit(&mut self) -> Option<PtyExitStatus> {
-        let status = self
-            .session
-            .as_mut()
-            .and_then(|session| session.wait().ok());
-
-        if let Some(reader_thread) = self.reader_thread.take() {
-            let _ = reader_thread.join();
-        }
-
-        self.session = None;
-        self.session_process_id = None;
-        self.session_tty_name = None;
-        self.writer = None;
-        status
+        finish_pty_lifecycle_after_exit(
+            &mut self.session,
+            &mut self.session_process_id,
+            &mut self.session_tty_name,
+            &mut self.writer,
+            &mut self.reader_thread,
+        )
     }
 
     fn stop_active_runtime(&mut self) {
-        if let Some(session) = self.session.as_mut() {
-            let _ = session.kill();
-            let _ = session.wait();
-        }
-
-        if let Some(reader_thread) = self.reader_thread.take() {
-            let _ = reader_thread.join();
-        }
-
-        self.session = None;
-        self.session_process_id = None;
-        self.session_tty_name = None;
-        self.writer = None;
+        stop_pty_lifecycle(
+            &mut self.session,
+            &mut self.session_process_id,
+            &mut self.session_tty_name,
+            &mut self.writer,
+            &mut self.reader_thread,
+        );
     }
 }
 
@@ -137276,8 +137374,7 @@ local lab_l, lab_a, lab_b, lab_alpha = base:laba()
 
     #[test]
     fn static_wezterm_color_value_evaluator_resolves_scalar_results() {
-        let source = r#"
-local red = wezterm.color.parse('red')
+        let source = r#"local red = wezterm.color.parse('red')
 local navy = wezterm.color.parse('navy')
 local ratio = red:contrast_ratio(navy)
 local distance = red:delta_e(navy)
@@ -193798,7 +193895,6 @@ return config
         primary.runtime.resize(rssh_core::TerminalSize::new(16, 1));
         primary.handle_pty_output(b"relocated").unwrap();
         primary.active_runtime_generation = 41;
-        primary.next_runtime_generation = 42;
         primary
             .dispatch_app_action(AppAction::SplitPane {
                 pane: rssh_core::PaneId::new(1),

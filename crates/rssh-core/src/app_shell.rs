@@ -277,6 +277,26 @@ impl AppShell {
             .collect()
     }
 
+    /// Clear metadata projected from the current runtime for one pane while
+    /// preserving its durable identity, launch configuration, and layout.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppShellError::InvalidPane`] when `pane` is not owned by this
+    /// shell.
+    pub fn reset_pane_runtime_projection(&mut self, pane: PaneId) -> Result<(), AppShellError> {
+        for workspace in &mut self.workspaces {
+            for tab in &mut workspace.tabs {
+                if let Some(candidate) = tab.panes.iter_mut().find(|candidate| candidate.id == pane)
+                {
+                    candidate.reset_runtime_projection();
+                    return Ok(());
+                }
+            }
+        }
+        Err(AppShellError::InvalidPane(pane))
+    }
+
     /// Applies a shell action and returns whether it was accepted.
     ///
     /// # Panics
@@ -2293,6 +2313,13 @@ impl Pane {
         self.has_unseen_output = has_unseen_output;
     }
 
+    fn reset_runtime_projection(&mut self) {
+        self.user_vars.clear();
+        self.badge_format = None;
+        self.progress = PaneProgress::None;
+        self.has_unseen_output = false;
+    }
+
     #[must_use]
     pub const fn split(&self) -> Option<PaneSplit> {
         self.split
@@ -2770,6 +2797,83 @@ mod tests {
             shell.active_workspace().tabs()[1].panes()[0].progress(),
             PaneProgress::Percentage(42)
         );
+    }
+
+    #[test]
+    fn reset_pane_runtime_projection_clears_only_target_runtime_metadata() {
+        let mut shell = AppShell::new(
+            PaneLaunch::local("pwsh")
+                .with_args(["-NoLogo"])
+                .with_cwd("file://host/original")
+                .with_environment([("KEEP", "yes")]),
+        );
+        shell
+            .apply_action(AppAction::SplitPane {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: Some(PaneLaunch::local("sibling")),
+            })
+            .unwrap();
+        let target = shell.active_pane_id();
+        let sibling = PaneId::new(1);
+        for pane in [target, sibling] {
+            shell
+                .apply_action(AppAction::SetPaneUserVar {
+                    pane,
+                    name: "RUNTIME".to_owned(),
+                    value: pane.get().to_string(),
+                })
+                .unwrap();
+            shell
+                .apply_action(AppAction::SetPaneBadgeFormat {
+                    pane,
+                    badge_format: Some(format!("badge-{}", pane.get())),
+                })
+                .unwrap();
+            shell
+                .apply_action(AppAction::SetPaneProgress {
+                    pane,
+                    progress: PaneProgress::Percentage(42),
+                })
+                .unwrap();
+            shell
+                .apply_action(AppAction::SetPaneHasUnseenOutput {
+                    pane,
+                    has_unseen_output: true,
+                })
+                .unwrap();
+        }
+        let target_launch = shell.active_pane().launch().clone();
+        let target_split = shell.active_pane().split();
+        let active_workspace = shell.active_workspace_id();
+        let active_tab = shell.active_tab_id();
+
+        shell.reset_pane_runtime_projection(target).unwrap();
+
+        let target_pane = shell.active_pane();
+        assert_eq!(target_pane.id(), target);
+        assert_eq!(target_pane.launch(), &target_launch);
+        assert_eq!(target_pane.split(), target_split);
+        assert!(target_pane.user_vars().is_empty());
+        assert_eq!(target_pane.badge_format(), None);
+        assert_eq!(target_pane.progress(), PaneProgress::None);
+        assert!(!target_pane.has_unseen_output());
+        assert_eq!(shell.active_workspace_id(), active_workspace);
+        assert_eq!(shell.active_tab_id(), active_tab);
+
+        let sibling_pane = shell
+            .active_tab()
+            .panes()
+            .iter()
+            .find(|pane| pane.id() == sibling)
+            .unwrap();
+        assert_eq!(
+            sibling_pane.user_vars().get("RUNTIME").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(sibling_pane.badge_format(), Some("badge-1"));
+        assert_eq!(sibling_pane.progress(), PaneProgress::Percentage(42));
+        assert!(sibling_pane.has_unseen_output());
     }
 
     #[test]
