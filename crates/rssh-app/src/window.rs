@@ -80925,6 +80925,7 @@ struct NativeWindowApp {
     selecting: bool,
     scrollbar_dragging: bool,
     split_resize_dragging: Option<PaneSplitResizeDrag>,
+    tab_bar_drag: Option<TabBarDrag>,
     ui_left_release_pending: bool,
     pressed_pane_close_button: Option<rssh_core::PaneId>,
     last_mouse_assignment_click: Option<WindowMouseAssignmentClick>,
@@ -83037,6 +83038,7 @@ impl NativeWindowApp {
             selecting: false,
             scrollbar_dragging: false,
             split_resize_dragging: None,
+            tab_bar_drag: None,
             ui_left_release_pending: false,
             pressed_pane_close_button: None,
             last_mouse_assignment_click: None,
@@ -92802,6 +92804,18 @@ impl NativeWindowApp {
             self.mouse_click_may_focus_window = false;
         }
 
+        if button == MouseButton::Left {
+            match state {
+                ElementState::Pressed => {
+                    self.tab_bar_drag = None;
+                }
+                ElementState::Released if self.handle_tab_bar_drag_release() => {
+                    return Ok(true);
+                }
+                ElementState::Released => {}
+            }
+        }
+
         if self.handle_pending_ui_left_release(state, button) {
             return Ok(true);
         }
@@ -92831,6 +92845,11 @@ impl NativeWindowApp {
         }
 
         if self.higher_level_ui_blocks_pane_surface_mouse() {
+            self.mark_ui_left_press_consumed(state, button);
+            return Ok(true);
+        }
+
+        if self.handle_tab_bar_mouse_input(state, button) {
             self.mark_ui_left_press_consumed(state, button);
             return Ok(true);
         }
@@ -92885,10 +92904,6 @@ impl NativeWindowApp {
             && self.modifiers.is_empty()
         {
             return self.handle_window_primary_selection_paste();
-        }
-
-        if self.handle_tab_bar_mouse_input(state, button) {
-            return Ok(true);
         }
 
         if self.handle_split_resize_mouse_input(state, button) {
@@ -93015,6 +93030,10 @@ impl NativeWindowApp {
         let mouse_cell_changed = self.mouse_position != next_position;
         self.mouse_position = next_position;
         self.update_split_resize_cursor_icon();
+
+        if self.update_tab_bar_drag_from_mouse_position() {
+            return Ok(true);
+        }
 
         if self.scrollbar_dragging {
             return Ok(self.scroll_to_scrollbar_position(position));
@@ -95275,26 +95294,10 @@ impl NativeWindowApp {
             return false;
         }
 
-        let Some(position) = self.mouse_pixel_position else {
+        let Some(column) = self.tab_bar_column_at_mouse_position() else {
             return false;
         };
-        if !position.x.is_finite()
-            || !position.y.is_finite()
-            || position.x < f64::from(self.frame_content_pixel_left())
-            || position.y < f64::from(self.tab_bar_pixel_top())
-            || position.y
-                >= f64::from(
-                    self.tab_bar_pixel_top()
-                        .saturating_add(self.tab_bar_pixel_height()),
-                )
-        {
-            return false;
-        }
-
-        let x = position.x - f64::from(self.frame_content_pixel_left());
-        let Some(column) = pixel_axis_to_cell(x, self.cell_width()) else {
-            return false;
-        };
+        let rendered_drag_source = self.rendered_tab_bar_body_target_for_column(column);
         if let Some(integrated_button) = self.integrated_title_button_for_tab_bar_column(column) {
             if button != MouseButton::Left {
                 return false;
@@ -95345,8 +95348,89 @@ impl NativeWindowApp {
             eprintln!("tab bar activation failed: {error:?}");
             return false;
         }
+        if let Some((source_position, source_tab_id)) = rendered_drag_source
+            && source_tab_id == tab
+        {
+            self.tab_bar_drag = Some(TabBarDrag {
+                source_tab_id,
+                source_position,
+                pressed_column: column,
+                moved: false,
+            });
+        }
+        self.clear_ordinary_selection();
+        self.selecting = false;
+        self.last_left_click = None;
 
         true
+    }
+
+    fn handle_tab_bar_drag_release(&mut self) -> bool {
+        let Some(drag) = self.tab_bar_drag.take() else {
+            return false;
+        };
+        self.ui_left_release_pending = false;
+
+        if !drag.moved || self.app_shell.active_tab_id() != drag.source_tab_id {
+            return true;
+        }
+        let Some(column) = self.tab_bar_column_at_mouse_position() else {
+            return true;
+        };
+        let Some((target_position, target_tab_id)) = self.rendered_tab_bar_drag_target_for_column(
+            column,
+            drag.source_tab_id,
+            drag.source_position,
+        ) else {
+            return true;
+        };
+        if target_tab_id == drag.source_tab_id || target_position == drag.source_position {
+            return true;
+        }
+
+        if let Err(error) = self.dispatch_app_action(AppAction::MoveTab {
+            index: target_position,
+        }) {
+            eprintln!("tab bar reorder failed: {error:?}");
+        }
+        true
+    }
+
+    fn update_tab_bar_drag_from_mouse_position(&mut self) -> bool {
+        let Some(mut drag) = self.tab_bar_drag else {
+            return false;
+        };
+        if let Some(column) = self.tab_bar_column_at_mouse_position()
+            && column != drag.pressed_column
+        {
+            drag.moved = true;
+            self.tab_bar_drag = Some(drag);
+        }
+        true
+    }
+
+    fn tab_bar_column_at_mouse_position(&self) -> Option<u16> {
+        let position = self.mouse_pixel_position?;
+        let content_left = f64::from(self.frame_content_pixel_left());
+        let content_right = f64::from(
+            self.frame_content_pixel_left()
+                .saturating_add(self.frame_content_placement().width),
+        );
+        if !position.x.is_finite()
+            || !position.y.is_finite()
+            || position.x < content_left
+            || position.x >= content_right
+            || position.y < f64::from(self.tab_bar_pixel_top())
+            || position.y
+                >= f64::from(
+                    self.tab_bar_pixel_top()
+                        .saturating_add(self.tab_bar_pixel_height()),
+                )
+        {
+            return None;
+        }
+
+        pixel_axis_to_cell(position.x - content_left, self.cell_width())
     }
 
     fn tab_for_tab_bar_column(&self, column: u16) -> Option<rssh_core::TabId> {
@@ -95362,6 +95446,49 @@ impl NativeWindowApp {
             .tabs
             .iter()
             .find(|tab| column >= tab.start_column && column < tab.end_column)
+            .map(|tab| (tab.position, tab.tab_id))
+    }
+
+    fn rendered_tab_bar_body_target_for_column(
+        &self,
+        column: u16,
+    ) -> Option<(usize, rssh_core::TabId)> {
+        if !self.show_tabs_in_tab_bar {
+            return None;
+        }
+        self.rendered_tab_bar_layout
+            .borrow()
+            .as_ref()?
+            .tabs
+            .iter()
+            .find(|tab| {
+                column >= tab.start_column
+                    && column < tab.end_column
+                    && tab.close_column != Some(column)
+            })
+            .map(|tab| (tab.position, tab.tab_id))
+    }
+
+    fn rendered_tab_bar_drag_target_for_column(
+        &self,
+        column: u16,
+        source_tab_id: rssh_core::TabId,
+        source_position: usize,
+    ) -> Option<(usize, rssh_core::TabId)> {
+        let layout = self.rendered_tab_bar_layout.borrow();
+        let layout = layout.as_ref()?;
+        let source = layout.tabs.iter().find(|tab| tab.tab_id == source_tab_id)?;
+        if source.position != source_position {
+            return None;
+        }
+        layout
+            .tabs
+            .iter()
+            .find(|tab| {
+                column >= tab.start_column
+                    && column < tab.end_column
+                    && tab.close_column != Some(column)
+            })
             .map(|tab| (tab.position, tab.tab_id))
     }
 
@@ -102106,6 +102233,9 @@ impl NativeWindowApp {
 
         self.window_focused = focused;
         self.mouse_click_may_focus_window = focused;
+        if !focused && self.tab_bar_drag.take().is_some() {
+            self.ui_left_release_pending = true;
+        }
 
         let change = NativeWindowFocusChange {
             window_id: self.app_window_id,
@@ -126071,6 +126201,14 @@ struct TabBarVisibleLayout {
 }
 
 #[derive(Clone, Copy)]
+struct TabBarDrag {
+    source_tab_id: rssh_core::TabId,
+    source_position: usize,
+    pressed_column: u16,
+    moved: bool,
+}
+
+#[derive(Clone, Copy)]
 struct TabBarTabLabelOptions {
     show_tab_index: bool,
     zero_based_tab_index: bool,
@@ -129889,7 +130027,7 @@ fn hex_value(byte: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::{BTreeMap, HashMap, HashSet};
     use std::io::{self, Write};
     use std::path::{Path, PathBuf};
     use std::process::{Child, Command};
@@ -189646,6 +189784,356 @@ return config
         assert!(!tab_bar.contains(" + "), "tab bar was {tab_bar:?}");
         assert_eq!(app.tab_for_tab_bar_column(overflow_column), None);
         assert_eq!(app.close_tab_for_tab_bar_column(overflow_column), None);
+    }
+
+    fn rendered_tab_body_columns(app: &mut NativeWindowApp) -> Vec<(rssh_core::TabId, u16)> {
+        app.render_snapshot();
+        app.rendered_tab_bar_layout
+            .borrow()
+            .as_ref()
+            .expect("rendered tab bar layout")
+            .tabs
+            .iter()
+            .map(|tab| {
+                let column = (tab.start_column..tab.end_column)
+                    .find(|column| tab.close_column != Some(*column))
+                    .expect("visible tab body column");
+                (tab.tab_id, column)
+            })
+            .collect()
+    }
+
+    fn move_mouse_to_tab_bar_column(app: &mut NativeWindowApp, column: u16) {
+        let x = app
+            .frame_content_pixel_left()
+            .saturating_add(u32::from(column) * app.cell_width())
+            .saturating_add(app.cell_width() / 2);
+        let y = app
+            .tab_bar_pixel_top()
+            .saturating_add(app.tab_bar_pixel_height() / 2);
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), f64::from(y)))
+            .unwrap();
+    }
+
+    fn active_workspace_tab_ids(app: &NativeWindowApp) -> Vec<rssh_core::TabId> {
+        app.app_shell
+            .active_workspace()
+            .tabs()
+            .iter()
+            .map(rssh_core::app_shell::Tab::id)
+            .collect()
+    }
+
+    #[test]
+    fn dragging_tab_bar_reorders_tabs() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        let columns = rendered_tab_body_columns(&mut app);
+        let source_column = columns
+            .iter()
+            .find(|(tab, _)| *tab == rssh_core::TabId::new(1))
+            .unwrap()
+            .1;
+        let target_column = columns
+            .iter()
+            .find(|(tab, _)| *tab == rssh_core::TabId::new(3))
+            .unwrap()
+            .1;
+
+        move_mouse_to_tab_bar_column(&mut app, source_column);
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        move_mouse_to_tab_bar_column(&mut app, target_column);
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(
+            active_workspace_tab_ids(&app),
+            vec![
+                rssh_core::TabId::new(2),
+                rssh_core::TabId::new(3),
+                rssh_core::TabId::new(1),
+            ]
+        );
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));
+        let refreshed_columns = rendered_tab_body_columns(&mut app);
+        assert_eq!(
+            refreshed_columns
+                .iter()
+                .map(|(tab, _)| *tab)
+                .collect::<Vec<_>>(),
+            active_workspace_tab_ids(&app),
+            "the next render must refresh the ledger in the new order"
+        );
+    }
+
+    #[test]
+    fn dragging_tab_bar_to_same_target_is_a_no_op() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        let before = active_workspace_tab_ids(&app);
+        let source_column = rendered_tab_body_columns(&mut app)[0].1;
+
+        move_mouse_to_tab_bar_column(&mut app, source_column);
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(active_workspace_tab_ids(&app), before);
+    }
+
+    #[test]
+    fn tab_drag_does_not_start_before_the_first_rendered_ledger() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        let before = active_workspace_tab_ids(&app);
+        let first_tab_column =
+            u16::try_from(app.tab_bar_workspace_label().chars().count() + 1).unwrap();
+
+        move_mouse_to_tab_bar_column(&mut app, first_tab_column);
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        let target_column = app
+            .rendered_tab_bar_layout
+            .borrow()
+            .as_ref()
+            .expect("ordinary click fallback may populate click hit testing")
+            .tabs
+            .last()
+            .map(|tab| tab.start_column)
+            .unwrap();
+        move_mouse_to_tab_bar_column(&mut app, target_column);
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(active_workspace_tab_ids(&app), before);
+    }
+
+    #[test]
+    fn dragging_tab_bar_reorder_ignores_hidden_overflow_target() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        let before = active_workspace_tab_ids(&app);
+        let columns = rendered_tab_body_columns(&mut app);
+        let source_column = columns[0].1;
+        let overflow_column = app
+            .rendered_tab_bar_layout
+            .borrow()
+            .as_ref()
+            .and_then(|layout| layout.overflow_column)
+            .expect("narrow tab bar overflow column");
+
+        move_mouse_to_tab_bar_column(&mut app, source_column);
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        move_mouse_to_tab_bar_column(&mut app, overflow_column);
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap(),
+            "the paired tab UI release must remain consumed"
+        );
+
+        assert_eq!(active_workspace_tab_ids(&app), before);
+    }
+
+    #[test]
+    fn dragging_active_tab_preserves_tab_identity_and_runtime_owners() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        let active_tab = app.active_tab_id();
+        let active_pane = app.active_pane_id();
+        let inactive_runtime_owners = app.pane_runtimes.keys().copied().collect::<HashSet<_>>();
+        let columns = rendered_tab_body_columns(&mut app);
+        let source_column = columns
+            .iter()
+            .find(|(tab, _)| *tab == active_tab)
+            .unwrap()
+            .1;
+        let target_column = columns[0].1;
+
+        move_mouse_to_tab_bar_column(&mut app, source_column);
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        move_mouse_to_tab_bar_column(&mut app, target_column);
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(app.active_tab_id(), active_tab);
+        assert_eq!(app.active_pane_id(), active_pane);
+        assert_eq!(
+            app.pane_runtimes.keys().copied().collect::<HashSet<_>>(),
+            inactive_runtime_owners
+        );
+    }
+
+    #[test]
+    fn tab_drag_hit_testing_does_not_rerun_stateful_formatter() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let recorded_calls = Arc::clone(&calls);
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.tab_title_formatter = Box::new(move |_| {
+            recorded_calls.fetch_add(1, Ordering::Relaxed);
+            Some(NativeTabTitle::Text("STATEFUL".to_owned()))
+        });
+        let columns = rendered_tab_body_columns(&mut app);
+        let calls_after_render = calls.load(Ordering::Relaxed);
+
+        move_mouse_to_tab_bar_column(&mut app, columns[0].1);
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        move_mouse_to_tab_bar_column(&mut app, columns[2].1);
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            calls_after_render,
+            "press, drag, and release must only use the last rendered ledger"
+        );
+    }
+
+    #[test]
+    fn tab_drag_consumes_full_mouse_sequence_and_focus_loss_cancels_safely() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.set_config_overrides(NativeConfigOverrides {
+            mouse_assignments: Some(
+                [
+                    NativeMouseAssignmentEventKind::Down,
+                    NativeMouseAssignmentEventKind::Drag,
+                    NativeMouseAssignmentEventKind::Up,
+                ]
+                .into_iter()
+                .map(|kind| NativeUserMouseAssignment {
+                    event: NativeMouseAssignmentEvent {
+                        kind,
+                        button: NativeMouseAssignmentButton::Mouse(MouseButton::Left),
+                        streak: 1,
+                    },
+                    modifiers: ModifiersState::empty(),
+                    mouse_reporting: true,
+                    alt_screen: NativeMouseAssignmentAltScreen::Any,
+                    command: WindowCommand::StartWindowDrag,
+                })
+                .collect(),
+            ),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
+        let columns = rendered_tab_body_columns(&mut app);
+
+        move_mouse_to_tab_bar_column(&mut app, columns[0].1);
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        move_mouse_to_tab_bar_column(&mut app, columns[2].1);
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(!app.window_drag_requested_for_test());
+        assert!(written.lock().unwrap().is_empty());
+        assert!(app.selection.is_none());
+        assert!(!app.selecting);
+
+        let before_focus_loss = active_workspace_tab_ids(&app);
+        let columns = rendered_tab_body_columns(&mut app);
+        move_mouse_to_tab_bar_column(&mut app, columns[0].1);
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(app.handle_focus_changed(true).unwrap());
+        assert!(app.handle_focus_changed(false).unwrap());
+        move_mouse_to_tab_bar_column(&mut app, columns[2].1);
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(active_workspace_tab_ids(&app), before_focus_loss);
+        assert!(!app.window_drag_requested_for_test());
+        assert!(written.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn tab_drag_cancels_if_the_source_disappears_from_the_rendered_ledger() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        let columns = rendered_tab_body_columns(&mut app);
+        let source = columns[0].0;
+
+        move_mouse_to_tab_bar_column(&mut app, columns[0].1);
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        app.dispatch_app_action(AppAction::CloseTab {
+            tab: source,
+            switch_to_last_active: false,
+        })
+        .unwrap();
+        let remaining_columns = rendered_tab_body_columns(&mut app);
+        let before_release = active_workspace_tab_ids(&app);
+        move_mouse_to_tab_bar_column(&mut app, remaining_columns[0].1);
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(active_workspace_tab_ids(&app), before_release);
     }
 
     #[test]
