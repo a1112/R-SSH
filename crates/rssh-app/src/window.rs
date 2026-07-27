@@ -460,6 +460,7 @@ pub fn run(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[derive(Debug)]
 struct ConfiguredWindowStateReport {
     diagnostic: Option<String>,
     format: window_state_report::WindowStateFormat,
@@ -472,24 +473,45 @@ fn run_configured_window_state_report(options: &WindowOptions) -> Result<(), Box
     let options = options.clone();
     // Keep the report-only path reliable on the smaller Windows main-thread
     // stack while configuration and the native app projection are materialized.
-    let output = thread::Builder::new()
+    let spawned = thread::Builder::new()
         .name("rssh-window-state-report".to_owned())
         .stack_size(WINDOW_STATE_REPORT_STACK_SIZE)
-        .spawn(move || configured_window_state_report(&options))
-        .map_err(|error| io::Error::other(format!("failed to start state reporter: {error}")))?
-        .join()
-        .map_err(|_| io::Error::other("window state reporter panicked"))?
-        .map_err(io::Error::other)?;
+        .spawn(move || configured_window_state_report(&options));
+    let output =
+        resolve_configured_window_state_report_thread(spawned.map(std::thread::JoinHandle::join))?;
 
-    if let Some(diagnostic) = output.diagnostic {
+    if let Some(diagnostic) = &output.diagnostic {
         eprintln!("failed to load WezTerm config: {diagnostic}");
     }
-    if output.format == window_state_report::WindowStateFormat::Json {
-        println!("{}", output.report);
-    } else {
-        print!("{}", output.report);
-    }
+    let stdout = io::stdout();
+    let mut stdout = stdout.lock();
+    write_configured_window_state_report(&output, &mut stdout)?;
     Ok(())
+}
+
+fn resolve_configured_window_state_report_thread(
+    result: io::Result<thread::Result<Result<ConfiguredWindowStateReport, String>>>,
+) -> io::Result<ConfiguredWindowStateReport> {
+    let joined = result.map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!("failed to start state reporter: {error}"),
+        )
+    })?;
+    let generated = joined.map_err(|_| io::Error::other("window state reporter panicked"))?;
+    generated.map_err(io::Error::other)
+}
+
+fn write_configured_window_state_report(
+    output: &ConfiguredWindowStateReport,
+    writer: &mut impl Write,
+) -> io::Result<()> {
+    let mut bytes = output.report.as_bytes().to_vec();
+    if output.format == window_state_report::WindowStateFormat::Json {
+        bytes.push(b'\n');
+    }
+    writer.write_all(&bytes)?;
+    writer.flush()
 }
 
 fn configured_window_state_report(
@@ -94120,11 +94142,6 @@ impl NativeWindowApp {
         self.pane_render_layout_for_tab(self.app_shell.active_tab())
     }
 
-    fn padded_terminal_render_rect(&self, pane_id: rssh_core::PaneId) -> PaneRenderRect {
-        let size = self.runtime.terminal().grid().size();
-        self.padded_terminal_render_rect_for_size(pane_id, size)
-    }
-
     fn padded_terminal_render_rect_for_size(
         &self,
         pane_id: rssh_core::PaneId,
@@ -94173,6 +94190,15 @@ impl NativeWindowApp {
     }
 
     fn pane_render_layout_for_tab(&self, tab: &rssh_core::app_shell::Tab) -> PaneRenderLayout {
+        let size = self.runtime.terminal().grid().size();
+        self.pane_render_layout_for_tab_at_size(tab, size)
+    }
+
+    fn pane_render_layout_for_tab_at_size(
+        &self,
+        tab: &rssh_core::app_shell::Tab,
+        size: rssh_core::TerminalSize,
+    ) -> PaneRenderLayout {
         let panes = tab.panes();
         let Some(first_pane) = panes.first() else {
             return PaneRenderLayout::default();
@@ -94180,12 +94206,12 @@ impl NativeWindowApp {
 
         if let Some(zoomed_pane_id) = tab.zoomed_pane_id() {
             return PaneRenderLayout {
-                panes: vec![self.padded_terminal_render_rect(zoomed_pane_id)],
+                panes: vec![self.padded_terminal_render_rect_for_size(zoomed_pane_id, size)],
                 separators: Vec::new(),
             };
         }
 
-        let first_rect = self.padded_terminal_render_rect(first_pane.id());
+        let first_rect = self.padded_terminal_render_rect_for_size(first_pane.id(), size);
         let mut rects = HashMap::from([(first_pane.id(), first_rect)]);
         let mut separators = Vec::new();
 

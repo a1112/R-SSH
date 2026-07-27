@@ -81,7 +81,7 @@ pub(super) struct WindowStateSplit {
 impl WindowStateSnapshot {
     pub(super) fn capture(app: &NativeWindowApp) -> Self {
         let active_workspace_id = app.app_shell.active_workspace_id();
-        let active_dimensions = app.runtime.terminal().grid().size();
+        let startup_dimensions = rssh_core::TerminalSize::new(app.initial_cols, app.initial_rows);
         let configured_environment_keys = app
             .pane_environment_variables()
             .into_keys()
@@ -101,15 +101,19 @@ impl WindowStateSnapshot {
                     .map(|(tab_index, tab)| {
                         let tab_active = tab.id() == active_tab_id;
                         let active_pane_id = tab.active_pane_id();
+                        let layout =
+                            app.pane_render_layout_for_tab_at_size(tab, startup_dimensions);
                         let panes = tab
                             .panes()
                             .iter()
                             .enumerate()
                             .map(|(pane_index, pane)| {
-                                let dimensions = app
-                                    .pane_runtime_ref(pane.id())
-                                    .map_or(active_dimensions, |runtime| {
-                                        runtime.terminal().grid().size()
+                                let dimensions = layout
+                                    .panes
+                                    .iter()
+                                    .find(|rect| rect.pane_id == pane.id())
+                                    .map_or(startup_dimensions, |rect| {
+                                        rssh_core::TerminalSize::new(rect.columns, rect.rows)
                                     });
                                 WindowStatePane {
                                     id: pane.id().get(),
@@ -157,8 +161,8 @@ impl WindowStateSnapshot {
             window_id: app.app_window_id.get(),
             title: app.window_title.clone(),
             terminal_dimensions: WindowStateDimensions {
-                columns: active_dimensions.columns,
-                rows: active_dimensions.rows,
+                columns: startup_dimensions.columns,
+                rows: startup_dimensions.rows,
             },
             active_workspace_id: active_workspace_id.get(),
             workspaces,
@@ -310,6 +314,8 @@ pub(super) fn render_requested_window_state(
 
 #[cfg(test)]
 mod tests {
+    use std::io::{self, Write};
+
     use crate::cli::WindowConfigOptions;
     use rssh_core::app_shell::{AppAction, PaneLaunch, SplitDirection};
 
@@ -405,15 +411,47 @@ mod tests {
 
         assert_eq!(snapshot.schema_version, 1);
         assert_eq!(snapshot.workspaces.len(), 2);
+        assert_eq!(
+            snapshot
+                .workspaces
+                .iter()
+                .map(|workspace| (workspace.index, workspace.id))
+                .collect::<Vec<_>>(),
+            [(0, 1), (1, 2)]
+        );
         assert_eq!(snapshot.workspaces[0].name, "primary");
         assert_eq!(snapshot.workspaces[0].index, 0);
         assert!(!snapshot.workspaces[0].active);
         assert_eq!(snapshot.workspaces[0].tabs.len(), 2);
         assert_eq!(
+            snapshot.workspaces[0]
+                .tabs
+                .iter()
+                .map(|tab| (tab.index, tab.id, tab.active))
+                .collect::<Vec<_>>(),
+            [(0, 1, false), (1, 2, true)]
+        );
+        assert_eq!(
             snapshot.workspaces[0].tabs[0].title.as_deref(),
             Some("build")
         );
         assert_eq!(snapshot.workspaces[0].tabs[0].panes.len(), 2);
+        assert_eq!(
+            snapshot.workspaces[0].tabs[0]
+                .panes
+                .iter()
+                .map(|pane| (pane.index, pane.id, pane.active))
+                .collect::<Vec<_>>(),
+            [(0, 1, false), (1, 2, true)]
+        );
+        assert_eq!(
+            snapshot.workspaces[0].tabs[1]
+                .panes
+                .iter()
+                .map(|pane| (pane.index, pane.id, pane.active))
+                .collect::<Vec<_>>(),
+            [(0, 3, true)]
+        );
         assert_eq!(
             snapshot.workspaces[0].tabs[0].zoomed_pane_id,
             Some(snapshot.workspaces[0].tabs[0].panes[1].id)
@@ -426,6 +464,22 @@ mod tests {
         assert_eq!(split.source_size_delta, 7);
         assert_eq!(snapshot.workspaces[1].name, "secondary");
         assert!(snapshot.workspaces[1].active);
+        assert_eq!(
+            snapshot.workspaces[1]
+                .tabs
+                .iter()
+                .map(|tab| (tab.index, tab.id, tab.active))
+                .collect::<Vec<_>>(),
+            [(0, 3, true)]
+        );
+        assert_eq!(
+            snapshot.workspaces[1].tabs[0]
+                .panes
+                .iter()
+                .map(|pane| (pane.index, pane.id, pane.active))
+                .collect::<Vec<_>>(),
+            [(0, 4, true)]
+        );
     }
 
     #[test]
@@ -513,11 +567,12 @@ mod tests {
     }
 
     #[test]
-    fn configured_state_uses_default_prog_workspace_cwd_and_redacts_override_values() {
-        let mut options = startup_options(WindowConfigOptions {
+    fn configured_state_uses_cli_default_workspace_prog_cwd_and_redacts_values() {
+        let options = startup_options(WindowConfigOptions {
             skip_config: true,
             config_file: None,
             config_overrides: vec![
+                ("default_workspace".to_owned(), "reports".to_owned()),
                 (
                     "default_prog".to_owned(),
                     "{ 'configured-shell', '--login' }".to_owned(),
@@ -529,7 +584,6 @@ mod tests {
                 ),
             ],
         });
-        options.workspace = Some("reports".to_owned());
         let configured = configured_startup_app_for_test(&options, isolated_discovery()).unwrap();
 
         let snapshot = WindowStateSnapshot::capture(&configured.app);
@@ -544,5 +598,215 @@ mod tests {
         assert!(!report.contains("override-secret-value"));
         assert!(configured.app.window.is_none());
         assert!(configured.app.session.is_none());
+    }
+
+    #[test]
+    fn configured_state_uses_file_default_workspace_prog_and_dimensions() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static NEXT_CONFIG: AtomicUsize = AtomicUsize::new(0);
+        let config_dir = std::env::temp_dir().join(format!(
+            "rssh-state-file-config-{}-{}",
+            std::process::id(),
+            NEXT_CONFIG.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let config_file = config_dir.join("wezterm.lua");
+        std::fs::write(
+            &config_file,
+            "return {
+                default_workspace = 'file-space',
+                default_prog = { 'file-shell', '--login' },
+                initial_cols = 90,
+                initial_rows = 28,
+            }",
+        )
+        .unwrap();
+        let configured = configured_startup_app_for_test(
+            &startup_options(WindowConfigOptions {
+                skip_config: false,
+                config_file: Some(config_file),
+                config_overrides: Vec::new(),
+            }),
+            isolated_discovery(),
+        )
+        .unwrap();
+
+        let snapshot = WindowStateSnapshot::capture(&configured.app);
+        assert_eq!(snapshot.workspaces[0].name, "file-space");
+        assert_eq!(
+            snapshot.workspaces[0].tabs[0].panes[0].launch.program,
+            "file-shell"
+        );
+        assert_eq!(
+            snapshot.workspaces[0].tabs[0].panes[0].launch.args,
+            ["--login"]
+        );
+        assert_eq!(
+            snapshot.terminal_dimensions,
+            super::WindowStateDimensions {
+                columns: 90,
+                rows: 28
+            }
+        );
+        assert!(configured.app.window.is_none());
+        assert!(configured.app.session.is_none());
+        std::fs::remove_dir_all(config_dir).unwrap();
+    }
+
+    #[test]
+    fn configured_initial_grid_drives_json_text_and_nested_split_dimensions() {
+        let mut configured = configured_startup_app_for_test(
+            &startup_options(WindowConfigOptions {
+                skip_config: true,
+                config_file: None,
+                config_overrides: vec![
+                    ("initial_cols".to_owned(), "100".to_owned()),
+                    ("initial_rows".to_owned(), "30".to_owned()),
+                ],
+            }),
+            isolated_discovery(),
+        )
+        .unwrap();
+        let root = configured.app.app_shell.active_pane_id();
+        configured
+            .app
+            .app_shell
+            .apply_action(AppAction::SplitPane {
+                pane: root,
+                direction: SplitDirection::Right,
+                launch: Some(PaneLaunch::local("right")),
+            })
+            .unwrap();
+        let right = configured.app.app_shell.active_pane_id();
+        configured
+            .app
+            .app_shell
+            .apply_action(AppAction::SplitPane {
+                pane: right,
+                direction: SplitDirection::Down,
+                launch: Some(PaneLaunch::local("bottom-right")),
+            })
+            .unwrap();
+
+        let snapshot = WindowStateSnapshot::capture(&configured.app);
+        assert_eq!(
+            snapshot.terminal_dimensions,
+            super::WindowStateDimensions {
+                columns: 100,
+                rows: 30
+            }
+        );
+        let panes = &snapshot.workspaces[0].tabs[0].panes;
+        assert_eq!(
+            panes
+                .iter()
+                .map(|pane| (pane.id, pane.dimensions.columns, pane.dimensions.rows))
+                .collect::<Vec<_>>(),
+            [(1, 49, 30), (2, 50, 14), (3, 50, 15)]
+        );
+
+        let json = render_window_state(&configured.app, WindowStateFormat::Json).unwrap();
+        assert_eq!(
+            serde_json::from_str::<WindowStateSnapshot>(&json).unwrap(),
+            snapshot
+        );
+        let text = render_window_state(&configured.app, WindowStateFormat::Text).unwrap();
+        assert!(text.contains("dimensions=100x30"));
+        assert!(text.contains("pane[0] id=1 active=false title=null dimensions=49x30"));
+        assert!(text.contains("pane[1] id=2 active=false title=null dimensions=50x14"));
+        assert!(text.contains("pane[2] id=3 active=true title=null dimensions=50x15"));
+        assert!(configured.app.window.is_none());
+        assert!(configured.app.session.is_none());
+    }
+
+    #[derive(Default)]
+    struct StateOutputWriter {
+        bytes: Vec<u8>,
+        writes: usize,
+        flushes: usize,
+        write_error: Option<io::ErrorKind>,
+    }
+
+    impl Write for StateOutputWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.writes += 1;
+            if let Some(kind) = self.write_error {
+                return Err(io::Error::new(kind, "injected write failure"));
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushes += 1;
+            Ok(())
+        }
+    }
+
+    fn configured_report(format: WindowStateFormat, report: &str) -> ConfiguredWindowStateReport {
+        ConfiguredWindowStateReport {
+            diagnostic: None,
+            format,
+            report: report.to_owned(),
+        }
+    }
+
+    #[test]
+    fn state_stdout_writes_once_flushes_and_propagates_broken_pipe() {
+        let mut json_writer = StateOutputWriter::default();
+        write_configured_window_state_report(
+            &configured_report(WindowStateFormat::Json, "{\"schema_version\":1}"),
+            &mut json_writer,
+        )
+        .unwrap();
+        assert_eq!(json_writer.writes, 1);
+        assert_eq!(json_writer.flushes, 1);
+        assert_eq!(json_writer.bytes, b"{\"schema_version\":1}\n");
+
+        let mut text_writer = StateOutputWriter::default();
+        write_configured_window_state_report(
+            &configured_report(WindowStateFormat::Text, "R-SSH state\n"),
+            &mut text_writer,
+        )
+        .unwrap();
+        assert_eq!(text_writer.writes, 1);
+        assert_eq!(text_writer.flushes, 1);
+        assert_eq!(text_writer.bytes, b"R-SSH state\n");
+
+        let mut broken = StateOutputWriter {
+            write_error: Some(io::ErrorKind::BrokenPipe),
+            ..StateOutputWriter::default()
+        };
+        let error = write_configured_window_state_report(
+            &configured_report(WindowStateFormat::Json, "{}"),
+            &mut broken,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+        assert_eq!(broken.writes, 1);
+        assert_eq!(broken.flushes, 0);
+    }
+
+    #[test]
+    fn state_report_thread_seam_maps_spawn_panic_and_inner_errors() {
+        let spawn = resolve_configured_window_state_report_thread(Err(io::Error::new(
+            io::ErrorKind::OutOfMemory,
+            "spawn failed",
+        )))
+        .unwrap_err();
+        assert_eq!(spawn.kind(), io::ErrorKind::OutOfMemory);
+        assert!(spawn.to_string().contains("failed to start state reporter"));
+
+        let panic =
+            resolve_configured_window_state_report_thread(Ok(Err(Box::new("panic")))).unwrap_err();
+        assert_eq!(panic.kind(), io::ErrorKind::Other);
+        assert!(panic.to_string().contains("state reporter panicked"));
+
+        let inner =
+            resolve_configured_window_state_report_thread(Ok(Ok(Err("inner failure".to_owned()))))
+                .unwrap_err();
+        assert_eq!(inner.kind(), io::ErrorKind::Other);
+        assert!(inner.to_string().contains("inner failure"));
     }
 }

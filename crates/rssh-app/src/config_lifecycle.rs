@@ -961,11 +961,16 @@ pub(crate) fn validate_cli_config_overrides(
         }
         parser.skip_trivia()?;
         let location = parser.location();
-        let value = parser.parse_config_field_value(field)?;
-        parser.skip_trivia()?;
-        if !parser.is_eof() {
-            return Err(parser.dynamic("unexpected trailing tokens after static CLI value"));
-        }
+        let value = if let Some(value) = bare_cli_default_workspace(field, source) {
+            value
+        } else {
+            let value = parser.parse_config_field_value(field)?;
+            parser.skip_trivia()?;
+            if !parser.is_eof() {
+                return Err(parser.dynamic("unexpected trailing tokens after static CLI value"));
+            }
+            value
+        };
         let assignment = StaticNativeConfigAssignment {
             field_path: vec![field.clone()],
             value,
@@ -980,6 +985,21 @@ pub(crate) fn validate_cli_config_overrides(
         assignments,
         default_overrides,
     })
+}
+
+fn bare_cli_default_workspace(field: &str, source: &str) -> Option<StaticLuaValue> {
+    if field != "default_workspace" {
+        return None;
+    }
+    let value = source.trim();
+    if value.is_empty()
+        || value
+            .chars()
+            .all(|character| character.is_alphanumeric() || matches!(character, '_' | '-' | '.'))
+    {
+        return Some(StaticLuaValue::String(value.to_owned()));
+    }
+    None
 }
 
 pub(crate) fn parse_native_config_document(
@@ -1009,7 +1029,9 @@ fn validate_assignment(
 ) -> Result<(), NativeConfigLoadError> {
     let field = assignment.field_path.join(".");
     let result = match field.as_str() {
-        "term" | "default_cwd" | "color_scheme" => validate_non_empty_string(&assignment.value),
+        "term" | "default_cwd" | "default_workspace" | "color_scheme" => {
+            validate_non_empty_string(&assignment.value)
+        }
         "initial_cols" | "initial_rows" => {
             validate_integer_range(&assignment.value, 1, u16::MAX as u64)
         }
@@ -3297,6 +3319,30 @@ literal]=],
         ));
         assert!(matches!(
             validate_cli_config_overrides(&[("initial_cols".to_owned(), "-1".to_owned())]),
+            Err(NativeConfigLoadError::InvalidFieldValue { .. })
+        ));
+    }
+
+    #[test]
+    fn strict_default_workspace_supports_file_and_cli_with_unknown_field_boundary() {
+        parse_native_config_document("return { default_workspace = 'file-space' }", &[]).unwrap();
+
+        let cli = validate_cli_config_overrides(&[(
+            "default_workspace".to_owned(),
+            "cli-space".to_owned(),
+        )])
+        .unwrap();
+        parse_native_config_document("return { default_workspace = 'file-space' }", &cli).unwrap();
+
+        assert!(matches!(
+            validate_cli_config_overrides(&[(
+                "default_workspace_typo".to_owned(),
+                "'nope'".to_owned()
+            )]),
+            Err(NativeConfigLoadError::UnknownField { .. })
+        ));
+        assert!(matches!(
+            validate_cli_config_overrides(&[("default_workspace".to_owned(), "".to_owned())]),
             Err(NativeConfigLoadError::InvalidFieldValue { .. })
         ));
     }
