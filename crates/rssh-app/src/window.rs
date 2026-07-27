@@ -148,6 +148,8 @@ const DEFAULT_CHAR_SELECT_FG_COLOR: Color = Color::Rgb(191, 191, 191);
 const DEFAULT_CHAR_SELECT_BG_COLOR: Color = Color::Rgb(0x33, 0x33, 0x33);
 const DEFAULT_PANE_SELECT_FG_COLOR: Color = Color::Rgb(191, 191, 191);
 const DEFAULT_PANE_SELECT_BG_COLOR: Color = Color::Rgba(0, 0, 0, 127);
+const PANE_CLOSE_BUTTON_FOREGROUND: Color = Color::Rgb(255, 255, 255);
+const PANE_CLOSE_BUTTON_BACKGROUND: Color = Color::Rgb(176, 42, 42);
 const DEFAULT_CELL_WIDTH: NativeCellWidth = NativeCellWidth::from_per_mille(1_000);
 const DEFAULT_LINE_HEIGHT: NativeLineHeight = NativeLineHeight::from_per_mille(1_000);
 const DEFAULT_FONT_ANTIALIAS: NativeFontAntialias = NativeFontAntialias::Greyscale;
@@ -92810,6 +92812,10 @@ impl NativeWindowApp {
             return Ok(true);
         }
 
+        if self.handle_pane_close_button_mouse_input(state, button) {
+            return Ok(true);
+        }
+
         let mode = self.runtime.mouse_input_mode();
         let alternate_screen_active = self.runtime.terminal().alternate_screen_active();
         let bypass_mouse_reporting = mode.reporting_enabled()
@@ -92920,6 +92926,26 @@ impl NativeWindowApp {
         self.record_reported_iterm_mouse_info(mouse_cell, kind, self.modifiers);
         self.write_pty_bytes(&bytes)?;
         Ok(true)
+    }
+
+    fn handle_pane_close_button_mouse_input(
+        &mut self,
+        state: ElementState,
+        button: MouseButton,
+    ) -> bool {
+        if state != ElementState::Pressed || button != MouseButton::Left {
+            return false;
+        }
+
+        let Some(pane) = self.pane_close_button_at_mouse_position() else {
+            return false;
+        };
+
+        self.clear_ordinary_selection();
+        self.selecting = false;
+        self.last_left_click = None;
+        self.request_close_confirmation_or_close(WindowCloseTarget::Pane(pane));
+        true
     }
 
     fn handle_cursor_moved(&mut self, position: PhysicalPosition<f64>) -> io::Result<bool> {
@@ -93442,6 +93468,7 @@ impl NativeWindowApp {
             return snapshot
                 .with_viewport(rect.row, rect.column, rect.rows, rect.columns)
                 .with_overlay_cells(self.pane_badge_cells(&layout))
+                .with_overlay_cells(self.pane_close_button_cells(&layout))
                 .with_overlay_cells(self.pane_select_cells(&layout))
                 .with_overlay_cells(self.ime_preedit_cells(&layout))
                 .with_overlay_cells(self.window_frame_border_cells())
@@ -93523,6 +93550,7 @@ impl NativeWindowApp {
             })
             .with_overlay_cells(self.pane_separator_cells(&layout))
             .with_overlay_cells(self.pane_badge_cells(&layout))
+            .with_overlay_cells(self.pane_close_button_cells(&layout))
             .with_overlay_cells(self.pane_select_cells(&layout))
             .with_overlay_cells(self.ime_preedit_cells(&layout))
             .with_overlay_cells(self.window_frame_border_cells())
@@ -93647,6 +93675,20 @@ impl NativeWindowApp {
             .panes
             .into_iter()
             .find_map(|rect| pane_mouse_cell(rect, render_row, column))
+    }
+
+    fn pane_close_button_at_mouse_position(&self) -> Option<rssh_core::PaneId> {
+        let (column, row) = self.mouse_position?;
+        let render_row = row.checked_add(self.terminal_frame_row_offset())?;
+        let layout = self.pane_render_layout();
+        if layout.panes.len() <= 1 {
+            return None;
+        }
+
+        layout.panes.into_iter().find_map(|rect| {
+            let (button_row, button_column) = pane_close_button_position(rect)?;
+            (button_row == render_row && button_column == column).then_some(rect.pane_id)
+        })
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -93869,6 +93911,28 @@ impl NativeWindowApp {
             SplitDirection::Up | SplitDirection::Down => rect.rows,
         };
         split_pane_source_size_delta(total_cells, size)
+    }
+
+    fn pane_close_button_cells(&self, layout: &PaneRenderLayout) -> Vec<RenderCell> {
+        if layout.panes.len() <= 1 {
+            return Vec::new();
+        }
+
+        layout
+            .panes
+            .iter()
+            .filter_map(|rect| {
+                let (row, column) = pane_close_button_position(*rect)?;
+                Some(ui_render_cell(
+                    row,
+                    column,
+                    'x',
+                    PANE_CLOSE_BUTTON_FOREGROUND,
+                    PANE_CLOSE_BUTTON_BACKGROUND,
+                    true,
+                ))
+            })
+            .collect()
     }
 
     fn pane_separator_cells(&self, layout: &PaneRenderLayout) -> Vec<RenderCell> {
@@ -127408,6 +127472,14 @@ fn pane_mouse_cell(rect: PaneRenderRect, row: u16, column: u16) -> Option<PaneMo
         row: row.saturating_sub(rect.row),
         column: column.saturating_sub(rect.column),
     })
+}
+
+fn pane_close_button_position(rect: PaneRenderRect) -> Option<(u16, u16)> {
+    let column_offset = rect.columns.checked_sub(1)?;
+    let row_end = rect.row.checked_add(rect.rows)?;
+    let column_end = rect.column.checked_add(rect.columns)?;
+    let column = rect.column.checked_add(column_offset)?;
+    (rect.row < row_end && column < column_end).then_some((rect.row, column))
 }
 
 fn split_resize_drag(
@@ -255005,6 +255077,123 @@ act.Confirmation {
         assert!(app.command_palette_execute(WindowCommand::ClosePane));
         assert!(app.command_palette.is_none());
         assert!(app.window_close_requested_for_test());
+    }
+
+    #[test]
+    fn window_app_renders_and_hits_close_buttons_for_each_visible_pane() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let layout = app.pane_render_layout();
+
+        let close_cells = app.pane_close_button_cells(&layout);
+
+        assert_eq!(close_cells.len(), 2);
+        let snapshot = app.render_snapshot();
+        for rect in &layout.panes {
+            let (row, column) =
+                super::pane_close_button_position(*rect).expect("close button fits pane");
+            let cell = snapshot_cell(&snapshot, row, column).expect("rendered close button");
+            assert_eq!(cell.ch, 'x');
+
+            app.mouse_position =
+                Some((column, row.saturating_sub(app.terminal_frame_row_offset())));
+            assert_eq!(
+                app.pane_close_button_at_mouse_position(),
+                Some(rect.pane_id)
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_omits_pane_close_button_for_single_pane() {
+        let mut app = NativeWindowApp::new(None);
+        let layout = app.pane_render_layout();
+        let rect = layout.panes[0];
+        let (row, column) =
+            super::pane_close_button_position(rect).expect("button geometry fits pane");
+        app.mouse_position = Some((column, row.saturating_sub(app.terminal_frame_row_offset())));
+
+        assert!(app.pane_close_button_cells(&layout).is_empty());
+        assert!(app.pane_close_button_at_mouse_position().is_none());
+    }
+
+    #[test]
+    fn window_app_pane_close_button_targets_non_active_pane_confirmation_without_forwarding() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("pane-close-test-process"),
+        );
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
+        let active_pane = app.active_pane_id();
+        let target_pane = rssh_core::PaneId::new(1);
+        assert_ne!(active_pane, target_pane);
+        let target_rect = app
+            .pane_render_layout()
+            .panes
+            .into_iter()
+            .find(|rect| rect.pane_id == target_pane)
+            .expect("inactive pane rect");
+        let (row, column) =
+            super::pane_close_button_position(target_rect).expect("close button fits pane");
+        app.mouse_position = Some((column, row.saturating_sub(app.terminal_frame_row_offset())));
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(app.active_pane_id(), active_pane);
+        assert_eq!(
+            app.close_confirmation
+                .map(|confirmation| confirmation.target),
+            Some(WindowCloseTarget::Pane(target_pane))
+        );
+        assert_eq!(app.app_shell.pane_ids().len(), 2);
+        assert!(written.lock().unwrap().is_empty());
+        assert!(app.selection.is_none());
+        assert!(!app.selecting);
+    }
+
+    #[test]
+    fn pane_close_button_position_rejects_empty_or_overflowing_rects() {
+        for rect in [
+            super::PaneRenderRect {
+                pane_id: rssh_core::PaneId::new(1),
+                row: 0,
+                column: 0,
+                rows: 0,
+                columns: 1,
+            },
+            super::PaneRenderRect {
+                pane_id: rssh_core::PaneId::new(1),
+                row: 0,
+                column: 0,
+                rows: 1,
+                columns: 0,
+            },
+            super::PaneRenderRect {
+                pane_id: rssh_core::PaneId::new(1),
+                row: 0,
+                column: u16::MAX,
+                rows: 1,
+                columns: 2,
+            },
+        ] {
+            assert!(super::pane_close_button_position(rect).is_none());
+        }
     }
 
     #[test]
