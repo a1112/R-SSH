@@ -1064,7 +1064,8 @@ impl Workspace {
         self.tabs.iter().position(|tab| tab.id == tab_id)
     }
 
-    fn active_tab_id(&self) -> TabId {
+    #[must_use]
+    pub const fn active_tab_id(&self) -> TabId {
         self.active_tab_id
     }
 

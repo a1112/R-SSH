@@ -993,6 +993,8 @@ command = ["cmd.exe", "/K", "echo", "window-profile-smoke"]
                 osc52_policy: crate::cli::Osc52Policy::WriteOnly,
                 metrics: true,
                 metrics_json: false,
+                state: false,
+                state_json: false,
                 command: rssh_pty::PtyCommand::new("cmd.exe")
                     .with_args(["/K", "echo", "window-profile-smoke"])
                     .with_env("RSSH_PROFILE", "ops-window"),
@@ -1061,6 +1063,8 @@ metrics = "json"
                 osc52_policy: crate::cli::Osc52Policy::WriteOnly,
                 metrics: false,
                 metrics_json: true,
+                state: false,
+                state_json: false,
                 command: rssh_pty::PtyCommand::default_shell()
                     .with_env("RSSH_PROFILE", "ops-window"),
                 log: None,

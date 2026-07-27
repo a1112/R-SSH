@@ -226,7 +226,7 @@ pub struct WindowConfigOptions {
     pub config_overrides: Vec<(String, String)>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowOptions {
     pub config: WindowConfigOptions,
     pub frame_limit: Option<u64>,
@@ -236,6 +236,8 @@ pub struct WindowOptions {
     pub osc52_policy: Osc52Policy,
     pub metrics: bool,
     pub metrics_json: bool,
+    pub state: bool,
+    pub state_json: bool,
     pub command: PtyCommand,
     pub log: Option<PathBuf>,
 }
@@ -292,6 +294,8 @@ where
             osc52_policy: Osc52Policy::default(),
             metrics: false,
             metrics_json: false,
+            state: false,
+            state_json: false,
             command: PtyCommand::default_shell(),
             log: None,
         }));
@@ -451,8 +455,8 @@ Usage:
   rssh-app version [--json]
   rssh-app self-test [--json]
   rssh-app bench [--json] [--bytes N] [--chunk-size N] [--render-frames N] [--idle-ms N] [--min-throughput-bytes-per-sec N] [--max-chunk-p95-us N] [--max-render-frame-p95-us N] [--max-idle-cpu-percent N] [--max-process-memory-bytes N] [--cols N --rows N]
-  rssh-app window [--frames N] [--cwd CWD] [--workspace WORKSPACE] [--class CLASS] [--position POSITION] [--domain DOMAIN] [--attach] [--no-auto-connect] [--always-new-process] [--new-tab] [--osc52 off|write|read-write] [--metrics | --metrics-json] [--log PATH] [-e <program> [args...] | -- <program> [args...] | <program> [args...]]
-  rssh-app start [--frames N] [--cwd CWD] [--workspace WORKSPACE] [--class CLASS] [--position POSITION] [--domain DOMAIN] [--attach] [--no-auto-connect] [--always-new-process] [--new-tab] [--osc52 off|write|read-write] [--metrics | --metrics-json] [--log PATH] [-e <program> [args...] | -- <program> [args...] | <program> [args...]]
+  rssh-app window [--frames N] [--cwd CWD] [--workspace WORKSPACE] [--class CLASS] [--position POSITION] [--domain DOMAIN] [--attach] [--no-auto-connect] [--always-new-process] [--new-tab] [--osc52 off|write|read-write] [--metrics | --metrics-json | --state | --state-json] [--log PATH] [-e <program> [args...] | -- <program> [args...] | <program> [args...]]
+  rssh-app start [--frames N] [--cwd CWD] [--workspace WORKSPACE] [--class CLASS] [--position POSITION] [--domain DOMAIN] [--attach] [--no-auto-connect] [--always-new-process] [--new-tab] [--osc52 off|write|read-write] [--metrics | --metrics-json | --state | --state-json] [--log PATH] [-e <program> [args...] | -- <program> [args...] | <program> [args...]]
   rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--cwd CWD] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
   rssh-app console [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--cwd CWD] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
   rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [-l USER | --user USER] [-p N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-B IFACE] [-b ADDR] [-c CIPHER] [-E LOG] [-e CHAR] [-I PKCS11] [-m MAC] [-O CTL] [-P TAG] [-Q QUERY] [-S CTL_PATH] [-W HOST:PORT] [-w TUN] [-f] [-G] [-g] [-K | -k] [-M] [-n] [-s] [-T | -t | -tt] [-X | -x | -Y | -y] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-L SPEC | --local-forward SPEC] [-R SPEC | --remote-forward SPEC] [-D SPEC | --dynamic-forward SPEC] [-N | --no-shell] [--osc52 off|write|read-write] [--log PATH] [COMMAND [ARGS...]]
@@ -1057,6 +1061,27 @@ fn set_console_metrics(
     Ok(())
 }
 
+fn set_window_report_format(
+    metrics: &mut bool,
+    metrics_json: &mut bool,
+    state: &mut bool,
+    state_json: &mut bool,
+    selected: &str,
+) -> Result<(), String> {
+    if *metrics || *metrics_json || *state || *state_json {
+        return Err("only one window report format can be selected".to_owned());
+    }
+
+    match selected {
+        "--metrics" => *metrics = true,
+        "--metrics-json" => *metrics_json = true,
+        "--state" => *state = true,
+        "--state-json" => *state_json = true,
+        _ => unreachable!("validated window report format"),
+    }
+    Ok(())
+}
+
 fn set_ssh_console_metrics(console: &mut ConsoleOptions, selected: &str) -> Result<(), String> {
     set_console_metrics(&mut console.metrics, &mut console.metrics_json, selected)
 }
@@ -1442,6 +1467,8 @@ fn parse_window(args: &[String], config: WindowConfigOptions) -> Result<AppComma
     let mut osc52_policy = Osc52Policy::default();
     let mut metrics = false;
     let mut metrics_json = false;
+    let mut state = false;
+    let mut state_json = false;
     let mut log = None;
     let mut cwd = None;
     let mut command_args = Vec::new();
@@ -1458,10 +1485,40 @@ fn parse_window(args: &[String], config: WindowConfigOptions) -> Result<AppComma
                 osc52_policy = parse_osc52_policy(args.get(index))?;
             }
             "--metrics" => {
-                set_console_metrics(&mut metrics, &mut metrics_json, "--metrics")?;
+                set_window_report_format(
+                    &mut metrics,
+                    &mut metrics_json,
+                    &mut state,
+                    &mut state_json,
+                    "--metrics",
+                )?;
             }
             "--metrics-json" => {
-                set_console_metrics(&mut metrics, &mut metrics_json, "--metrics-json")?;
+                set_window_report_format(
+                    &mut metrics,
+                    &mut metrics_json,
+                    &mut state,
+                    &mut state_json,
+                    "--metrics-json",
+                )?;
+            }
+            "--state" => {
+                set_window_report_format(
+                    &mut metrics,
+                    &mut metrics_json,
+                    &mut state,
+                    &mut state_json,
+                    "--state",
+                )?;
+            }
+            "--state-json" => {
+                set_window_report_format(
+                    &mut metrics,
+                    &mut metrics_json,
+                    &mut state,
+                    &mut state_json,
+                    "--state-json",
+                )?;
             }
             "--log" => {
                 index += 1;
@@ -1528,6 +1585,8 @@ fn parse_window(args: &[String], config: WindowConfigOptions) -> Result<AppComma
         osc52_policy,
         metrics,
         metrics_json,
+        state,
+        state_json,
         command,
         log,
     }))
@@ -1768,6 +1827,8 @@ mod tests {
                 osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: false,
                 metrics_json: false,
+                state: false,
+                state_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })
@@ -1952,6 +2013,8 @@ mod tests {
                 osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: false,
                 metrics_json: false,
+                state: false,
+                state_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })
@@ -1971,6 +2034,8 @@ mod tests {
                 osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: false,
                 metrics_json: false,
+                state: false,
+                state_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None,
             })
@@ -2252,6 +2317,8 @@ mod tests {
                 osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: false,
                 metrics_json: false,
+                state: false,
+                state_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })
@@ -2271,6 +2338,8 @@ mod tests {
                 osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: true,
                 metrics_json: false,
+                state: false,
+                state_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })
@@ -2290,9 +2359,53 @@ mod tests {
                 osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: false,
                 metrics_json: true,
+                state: false,
+                state_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })
+        );
+    }
+
+    #[test]
+    fn parses_window_state_flags() {
+        let AppCommand::Window(text) = parse_args(["rssh-app", "window", "--state"]).unwrap()
+        else {
+            panic!("expected window command");
+        };
+        assert!(text.state);
+        assert!(!text.state_json);
+        assert!(!text.metrics);
+        assert!(!text.metrics_json);
+
+        let AppCommand::Window(json) = parse_args(["rssh-app", "window", "--state-json"]).unwrap()
+        else {
+            panic!("expected window command");
+        };
+        assert!(!json.state);
+        assert!(json.state_json);
+        assert!(!json.metrics);
+        assert!(!json.metrics_json);
+    }
+
+    #[test]
+    fn window_report_formats_are_strictly_mutually_exclusive() {
+        let flags = ["--metrics", "--metrics-json", "--state", "--state-json"];
+        for left in flags {
+            for right in flags {
+                let error = parse_args(["rssh-app", "window", left, right]).unwrap_err();
+                assert!(
+                    error.contains("only one window report format can be selected"),
+                    "{left} with {right}: {error}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn window_help_lists_state_and_metrics_as_one_choice() {
+        assert!(
+            super::help_text().contains("[--metrics | --metrics-json | --state | --state-json]")
         );
     }
 
@@ -2567,6 +2680,8 @@ mod tests {
                 osc52_policy: super::Osc52Policy::Off,
                 metrics: false,
                 metrics_json: false,
+                state: false,
+                state_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })
@@ -2582,6 +2697,8 @@ mod tests {
                 osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: false,
                 metrics_json: false,
+                state: false,
+                state_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })

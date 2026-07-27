@@ -412,6 +412,10 @@ const UNICODE_NAMES_CHAR_SELECT_CANDIDATES: &[char] =
     &['A', 'B', 'C', '0', '1', 'α', 'β', 'Ω', '中', '字'];
 
 pub fn run(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
+    if options.state || options.state_json {
+        return run_configured_window_state_report(options);
+    }
+
     let ConfiguredStartupApp {
         mut app,
         mut lifecycle,
@@ -454,6 +458,57 @@ pub fn run(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+struct ConfiguredWindowStateReport {
+    diagnostic: Option<String>,
+    format: window_state_report::WindowStateFormat,
+    report: String,
+}
+
+const WINDOW_STATE_REPORT_STACK_SIZE: usize = 8 * 1024 * 1024;
+
+fn run_configured_window_state_report(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
+    let options = options.clone();
+    // Keep the report-only path reliable on the smaller Windows main-thread
+    // stack while configuration and the native app projection are materialized.
+    let output = thread::Builder::new()
+        .name("rssh-window-state-report".to_owned())
+        .stack_size(WINDOW_STATE_REPORT_STACK_SIZE)
+        .spawn(move || configured_window_state_report(&options))
+        .map_err(|error| io::Error::other(format!("failed to start state reporter: {error}")))?
+        .join()
+        .map_err(|_| io::Error::other("window state reporter panicked"))?
+        .map_err(io::Error::other)?;
+
+    if let Some(diagnostic) = output.diagnostic {
+        eprintln!("failed to load WezTerm config: {diagnostic}");
+    }
+    if output.format == window_state_report::WindowStateFormat::Json {
+        println!("{}", output.report);
+    } else {
+        print!("{}", output.report);
+    }
+    Ok(())
+}
+
+fn configured_window_state_report(
+    options: &WindowOptions,
+) -> Result<ConfiguredWindowStateReport, String> {
+    let ConfiguredStartupApp { app, lifecycle } =
+        configured_startup_app(options, ConfigDiscoveryInputs::capture_current_process())
+            .map_err(|error| error.to_string())?;
+    let diagnostic = lifecycle.latest_diagnostic().map(ToString::to_string);
+    let Some((format, report)) = window_state_report::render_requested_window_state(options, &app)
+        .map_err(|error| error.to_string())?
+    else {
+        return Err("window state report was not requested".to_owned());
+    };
+    Ok(ConfiguredWindowStateReport {
+        diagnostic,
+        format,
+        report,
+    })
 }
 
 #[cfg(test)]
@@ -130928,6 +130983,8 @@ mod tests {
             osc52_policy: Osc52Policy::default(),
             metrics: false,
             metrics_json: false,
+            state: false,
+            state_json: false,
             command: rssh_pty::PtyCommand::default_shell(),
             log: None,
         }
@@ -266401,3 +266458,6 @@ mod window_restart_pane_tests;
 #[cfg(test)]
 #[path = "window_inspect_pane_tests.rs"]
 mod window_inspect_pane_tests;
+
+#[path = "window_state_report.rs"]
+mod window_state_report;
