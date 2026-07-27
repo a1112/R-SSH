@@ -94887,46 +94887,11 @@ impl NativeWindowApp {
             );
         }
 
+        let visible_layout = self.tab_bar_visible_layout(hover_column);
         if self.show_tabs_in_tab_bar {
-            let active_tab_id = self.app_shell.active_tab_id();
-            let tabs = self.app_shell.active_workspace().tabs();
-            let tab_width_max = if self.use_fancy_tab_bar {
-                self.tab_title_second_pass_max_width().max(1)
-            } else {
-                usize::MAX
-            };
-            for (index, tab) in tabs.iter().enumerate() {
-                let active = tab.id() == active_tab_id;
-                let first_pass_title = self.formatted_tab_title_for_tab_first_pass(index, tab);
-                let title_text = first_pass_title.as_ref().map(NativeTabTitle::plain_text);
-                let first_pass_title_width = first_pass_title
-                    .as_ref()
-                    .map_or(0, |title| native_tab_title_visible_width(title));
-                let label = tab_bar_tab_label_segments(
-                    index,
-                    tab.id(),
-                    tab.panes().len(),
-                    active,
-                    title_text.as_deref(),
-                    Self::tab_progress_for_tab(tab),
-                    self.tab_bar_label_options(),
-                );
-                let tab_title_len = if first_pass_title_width == 0 {
-                    tab_width_max.max(1)
-                } else {
-                    first_pass_title_width.min(tab_width_max)
-                };
-                let hovered = hover_column.is_some_and(|hover_column| {
-                    let label_width = label
-                        .prefix
-                        .chars()
-                        .count()
-                        .saturating_add(tab_title_len)
-                        .saturating_add(label.suffix.chars().count());
-                    let end = column.saturating_add(u16::try_from(label_width).unwrap_or(u16::MAX));
-                    hover_column >= column && hover_column < end
-                });
-                let hovered_style = hovered && !active;
+            for tab in &visible_layout.tabs {
+                let active = tab.active;
+                let hovered_style = tab.hovered && !active;
 
                 let default_foreground = if active {
                     Color::Rgb(20, 20, 20)
@@ -94945,65 +94910,56 @@ impl NativeWindowApp {
                 } else {
                     self.tab_bar_inactive_tab_colors
                 };
-                let (left_edge, right_edge) = if active {
-                    (
-                        self.tab_bar_style.active_tab_left.as_deref(),
-                        self.tab_bar_style.active_tab_right.as_deref(),
-                    )
-                } else if hovered_style {
-                    (
-                        self.tab_bar_style
-                            .inactive_tab_hover_left
-                            .as_deref()
-                            .or(self.tab_bar_style.inactive_tab_left.as_deref()),
-                        self.tab_bar_style
-                            .inactive_tab_hover_right
-                            .as_deref()
-                            .or(self.tab_bar_style.inactive_tab_right.as_deref()),
-                    )
-                } else {
-                    (
-                        self.tab_bar_style.inactive_tab_left.as_deref(),
-                        self.tab_bar_style.inactive_tab_right.as_deref(),
-                    )
-                };
                 let style = tab_bar_item_segment_style(
                     item_colors,
                     default_foreground,
                     default_background,
                     active,
                 );
-                let title = self
-                    .formatted_tab_title_for_tab_with_max_width(index, tab, hovered, tab_width_max)
-                    .or_else(|| {
-                        first_pass_title
-                            .clone()
-                            .or_else(|| Some(NativeTabTitle::Text(label.title.clone())))
-                    });
-                write_tab_bar_format_items_if_configured(&mut cells, &mut column, left_edge, style);
-                write_tab_bar_ansi_segment(&mut cells, &mut column, &label.prefix, style);
-                let _ = write_tab_bar_title_with_max_width(
-                    &mut cells,
+                column = tab.start_column;
+                let visible_cells = &mut cells[..usize::from(tab.end_column.min(columns))];
+                write_tab_bar_format_items_if_configured(
+                    visible_cells,
                     &mut column,
-                    &title.unwrap_or_else(|| NativeTabTitle::Text(label.title.clone())),
+                    tab.left_edge.as_deref(),
+                    style,
+                );
+                write_tab_bar_ansi_segment(visible_cells, &mut column, &tab.label.prefix, style);
+                let _ = write_tab_bar_title_with_max_width(
+                    visible_cells,
+                    &mut column,
+                    &tab.title,
                     style,
                     usize::MAX,
                 );
-                write_tab_bar_ansi_segment(&mut cells, &mut column, &label.suffix, style);
+                write_tab_bar_ansi_segment(visible_cells, &mut column, &tab.label.suffix, style);
                 write_tab_bar_format_items_if_configured(
-                    &mut cells,
+                    visible_cells,
                     &mut column,
-                    right_edge,
+                    tab.right_edge.as_deref(),
                     style,
                 );
             }
         }
+        if let Some(overflow_column) = visible_layout.overflow_column
+            && let Some(cell) = cells.get_mut(usize::from(overflow_column))
+        {
+            let style = tab_bar_item_segment_style(
+                self.tab_bar_inactive_tab_colors,
+                tab_bar_foreground,
+                background,
+                true,
+            );
+            *cell = tab_bar_styled_render_cell(overflow_column, '…', style);
+        }
 
-        if self.show_new_tab_button_in_tab_bar {
-            let new_tab_width = u16::try_from(self.new_tab_button_tab_bar_width()).unwrap_or(0);
+        if let (Some(new_tab_start), Some(new_tab_end)) = (
+            visible_layout.new_tab_start_column,
+            visible_layout.new_tab_end_column,
+        ) {
+            column = new_tab_start;
             let new_tab_hovered = hover_column.is_some_and(|hover_column| {
-                let end = column.saturating_add(new_tab_width);
-                hover_column >= column && hover_column < end
+                hover_column >= new_tab_start && hover_column < new_tab_end
             });
             let new_tab_colors = if new_tab_hovered {
                 self.tab_bar_new_tab_hover_colors
@@ -95033,20 +94989,31 @@ impl NativeWindowApp {
                 Color::Rgb(46, 56, 48),
                 true,
             );
+            let visible_cells = &mut cells[..usize::from(new_tab_end.min(columns))];
             if self.tab_bar_style.new_tab.is_some()
                 || (new_tab_hovered && self.tab_bar_style.new_tab_hover.is_some())
             {
                 write_tab_bar_format_items(
-                    &mut cells,
+                    visible_cells,
                     &mut column,
                     &self.new_tab_button_tab_bar_items(new_tab_hovered),
                     style,
                 );
             } else {
-                write_tab_bar_format_items_if_configured(&mut cells, &mut column, left_edge, style);
-                write_tab_bar_ansi_segment(&mut cells, &mut column, tab_bar_new_tab_label(), style);
                 write_tab_bar_format_items_if_configured(
-                    &mut cells,
+                    visible_cells,
+                    &mut column,
+                    left_edge,
+                    style,
+                );
+                write_tab_bar_ansi_segment(
+                    visible_cells,
+                    &mut column,
+                    tab_bar_new_tab_label(),
+                    style,
+                );
+                write_tab_bar_format_items_if_configured(
+                    visible_cells,
                     &mut column,
                     right_edge,
                     style,
@@ -95371,31 +95338,25 @@ impl NativeWindowApp {
         if !self.show_tabs_in_tab_bar {
             return None;
         }
-        let mut cursor = self.tab_bar_left_prefix_width()?;
-        for (index, tab) in self.app_shell.active_workspace().tabs().iter().enumerate() {
-            let label = self.tab_bar_label_for_tab(index, tab);
-            let width = u16::try_from(label.chars().count()).ok()?;
-            let end = cursor.saturating_add(width);
-            if column >= cursor && column < end {
-                return Some(tab.id());
-            }
-            cursor = end;
-        }
-
-        None
+        self.tab_bar_visible_layout(Some(column))
+            .tabs
+            .into_iter()
+            .find(|tab| column >= tab.start_column && column < tab.end_column)
+            .map(|tab| tab.tab_id)
     }
 
     fn new_tab_button_for_tab_bar_column(&self, column: u16) -> bool {
         if !self.show_new_tab_button_in_tab_bar {
             return false;
         }
-        let Some(start) = self.tab_bar_new_tab_column_start() else {
+        let layout = self.tab_bar_visible_layout(Some(column));
+        let Some(start) = layout.new_tab_start_column else {
             return false;
         };
-        let Ok(width) = u16::try_from(self.new_tab_button_tab_bar_width()) else {
+        let Some(end) = layout.new_tab_end_column else {
             return false;
         };
-        column >= start && column < start.saturating_add(width)
+        column >= start && column < end
     }
 
     fn new_tab_button_default_action(button: MouseButton) -> Option<WindowCommand> {
@@ -95643,38 +95604,18 @@ impl NativeWindowApp {
     }
 
     fn tab_bar_new_tab_column_start(&self) -> Option<u16> {
-        let mut cursor = self.tab_bar_left_prefix_width()?;
-        if !self.show_tabs_in_tab_bar {
-            return Some(cursor);
-        }
-        for (index, tab) in self.app_shell.active_workspace().tabs().iter().enumerate() {
-            let label = self.tab_bar_label_for_tab(index, tab);
-            let width = u16::try_from(label.chars().count()).ok()?;
-            cursor = cursor.saturating_add(width);
-        }
-        Some(cursor)
+        self.tab_bar_visible_layout(None).new_tab_start_column
     }
 
     fn close_tab_for_tab_bar_column(&self, column: u16) -> Option<rssh_core::TabId> {
         if !self.show_tabs_in_tab_bar {
             return None;
         }
-        let mut cursor = self.tab_bar_left_prefix_width()?;
-        for (index, tab) in self.app_shell.active_workspace().tabs().iter().enumerate() {
-            let label = self.tab_bar_label_for_tab(index, tab);
-            let width = u16::try_from(label.chars().count()).ok()?;
-            let end = cursor.saturating_add(width);
-            if column >= cursor && column < end {
-                let offset = usize::from(column.saturating_sub(cursor));
-                if label.chars().nth(offset) == Some('x') {
-                    return Some(tab.id());
-                }
-                return None;
-            }
-            cursor = end;
-        }
-
-        None
+        self.tab_bar_visible_layout(Some(column))
+            .tabs
+            .into_iter()
+            .find(|tab| tab.close_column == Some(column))
+            .map(|tab| tab.tab_id)
     }
 
     fn tab_bar_left_prefix_width(&self) -> Option<u16> {
@@ -95714,29 +95655,233 @@ impl NativeWindowApp {
         )
     }
 
-    fn default_tab_bar_label_for_tab(
-        &self,
-        position: usize,
-        tab: &rssh_core::app_shell::Tab,
-    ) -> String {
-        let title = self.tab_title_for_tab(tab);
-        let progress = Self::tab_progress_for_tab(tab);
-        tab_bar_tab_label_with_options(
-            position,
-            tab.id(),
-            tab.panes().len(),
-            tab.id() == self.app_shell.active_tab_id(),
-            title.as_deref(),
-            progress,
-            self.tab_bar_label_options(),
-        )
-    }
-
     fn tab_bar_label_options(&self) -> TabBarTabLabelOptions {
         TabBarTabLabelOptions {
             show_tab_index: self.show_tab_index_in_tab_bar,
             zero_based_tab_index: self.tab_and_split_indices_are_zero_based,
             show_close_button: self.show_close_tab_button_in_tabs,
+        }
+    }
+
+    fn tab_bar_visible_layout(&self, hover_column: Option<u16>) -> TabBarVisibleLayout {
+        let columns = self.runtime.terminal().grid().size().columns;
+        let left_prefix_width = self.tab_bar_left_prefix_width().unwrap_or(0);
+        let right_status_width =
+            u16::try_from(tab_bar_ansi_visible_width(&self.right_status)).unwrap_or(u16::MAX);
+        let right_button_width = if self.integrated_title_buttons_are_right_aligned() {
+            u16::try_from(self.integrated_title_buttons_tab_bar_width()).unwrap_or(u16::MAX)
+        } else {
+            0
+        };
+        let interactive_end = columns
+            .saturating_sub(right_button_width)
+            .saturating_sub(right_status_width);
+        let new_tab_width = if self.show_new_tab_button_in_tab_bar {
+            u16::try_from(self.new_tab_button_tab_bar_width()).unwrap_or(u16::MAX)
+        } else {
+            0
+        };
+        let tab_area_end = interactive_end.saturating_sub(new_tab_width);
+        let tab_width_max = if self.use_fancy_tab_bar {
+            self.tab_title_second_pass_max_width().max(1)
+        } else {
+            usize::MAX
+        };
+        let active_tab_id = self.app_shell.active_tab_id();
+        let mut cursor = left_prefix_width;
+        let mut tabs = Vec::new();
+
+        if self.show_tabs_in_tab_bar {
+            for (position, tab) in self.app_shell.active_workspace().tabs().iter().enumerate() {
+                let active = tab.id() == active_tab_id;
+                let first_pass_title = self.formatted_tab_title_for_tab_first_pass(position, tab);
+                let title_text = first_pass_title.as_ref().map(NativeTabTitle::plain_text);
+                let first_pass_title_width = first_pass_title
+                    .as_ref()
+                    .map_or(0, native_tab_title_visible_width);
+                let label = tab_bar_tab_label_segments(
+                    position,
+                    tab.id(),
+                    tab.panes().len(),
+                    active,
+                    title_text.as_deref(),
+                    Self::tab_progress_for_tab(tab),
+                    self.tab_bar_label_options(),
+                );
+                let allocated_title_width = if first_pass_title_width == 0 {
+                    tab_width_max.max(1)
+                } else {
+                    first_pass_title_width.min(tab_width_max)
+                };
+                let (normal_left_edge, normal_right_edge) = self.tab_bar_tab_edges(active, false);
+                let normal_width = normal_left_edge
+                    .as_deref()
+                    .map_or(0, native_format_items_visible_width)
+                    .saturating_add(tab_bar_ansi_visible_width(&label.prefix))
+                    .saturating_add(allocated_title_width)
+                    .saturating_add(tab_bar_ansi_visible_width(&label.suffix))
+                    .saturating_add(
+                        normal_right_edge
+                            .as_deref()
+                            .map_or(0, native_format_items_visible_width),
+                    );
+                let provisional_end =
+                    cursor.saturating_add(u16::try_from(normal_width).unwrap_or(u16::MAX));
+                let hovered = hover_column.is_some_and(|hover_column| {
+                    hover_column >= cursor
+                        && hover_column < provisional_end
+                        && hover_column < tab_area_end
+                });
+                let (left_edge, right_edge) = if hovered {
+                    self.tab_bar_tab_edges(active, true)
+                } else {
+                    (normal_left_edge, normal_right_edge)
+                };
+                let title = self
+                    .formatted_tab_title_for_tab_with_max_width(
+                        position,
+                        tab,
+                        hovered,
+                        tab_width_max,
+                    )
+                    .or(first_pass_title)
+                    .unwrap_or_else(|| NativeTabTitle::Text(label.title.clone()));
+
+                let start_column = cursor;
+                let left_edge_end_column = cursor.saturating_add(
+                    u16::try_from(
+                        left_edge
+                            .as_deref()
+                            .map_or(0, native_format_items_visible_width),
+                    )
+                    .unwrap_or(u16::MAX),
+                );
+                let prefix_end_column = left_edge_end_column.saturating_add(
+                    u16::try_from(tab_bar_ansi_visible_width(&label.prefix)).unwrap_or(u16::MAX),
+                );
+                let title_end_column = prefix_end_column.saturating_add(
+                    u16::try_from(native_tab_title_visible_width(&title)).unwrap_or(u16::MAX),
+                );
+                let suffix_end_column = title_end_column.saturating_add(
+                    u16::try_from(tab_bar_ansi_visible_width(&label.suffix)).unwrap_or(u16::MAX),
+                );
+                let end_column = suffix_end_column.saturating_add(
+                    u16::try_from(
+                        right_edge
+                            .as_deref()
+                            .map_or(0, native_format_items_visible_width),
+                    )
+                    .unwrap_or(u16::MAX),
+                );
+                let close_column = if self.show_close_tab_button_in_tabs {
+                    let prefix_text = tab_bar_ansi_plain_text(&label.prefix);
+                    if let Some(offset) = prefix_text.chars().position(|ch| ch == 'x') {
+                        Some(
+                            left_edge_end_column
+                                .saturating_add(u16::try_from(offset).unwrap_or(u16::MAX)),
+                        )
+                    } else {
+                        tab_bar_ansi_plain_text(&label.suffix)
+                            .chars()
+                            .position(|ch| ch == 'x')
+                            .map(|offset| {
+                                title_end_column
+                                    .saturating_add(u16::try_from(offset).unwrap_or(u16::MAX))
+                            })
+                    }
+                } else {
+                    None
+                };
+
+                tabs.push(TabBarVisibleTabLayout {
+                    position,
+                    tab_id: tab.id(),
+                    active,
+                    hovered,
+                    start_column,
+                    end_column,
+                    left_edge_end_column,
+                    prefix_end_column,
+                    title_end_column,
+                    suffix_end_column,
+                    left_edge,
+                    label,
+                    title,
+                    right_edge,
+                    close_column,
+                });
+                cursor = end_column;
+            }
+        }
+
+        let overflow_column = (cursor > tab_area_end && tab_area_end > left_prefix_width)
+            .then(|| tab_area_end.saturating_sub(1));
+        let visible_tab_end = overflow_column.unwrap_or(tab_area_end);
+        tabs.retain(|tab| tab.start_column < visible_tab_end);
+        for tab in &mut tabs {
+            tab.end_column = tab.end_column.min(visible_tab_end);
+            tab.left_edge_end_column = tab.left_edge_end_column.min(tab.end_column);
+            tab.prefix_end_column = tab.prefix_end_column.min(tab.end_column);
+            tab.title_end_column = tab.title_end_column.min(tab.end_column);
+            tab.suffix_end_column = tab.suffix_end_column.min(tab.end_column);
+            if tab
+                .close_column
+                .is_some_and(|column| column >= tab.end_column)
+            {
+                tab.close_column = None;
+            }
+        }
+
+        let tabs_end = tabs.last().map_or(left_prefix_width, |tab| tab.end_column);
+        let new_tab_start_column = if self.show_new_tab_button_in_tab_bar
+            && new_tab_width > 0
+            && interactive_end >= left_prefix_width.saturating_add(new_tab_width)
+        {
+            Some(if overflow_column.is_some() {
+                tab_area_end
+            } else {
+                tabs_end
+            })
+        } else {
+            None
+        };
+        let new_tab_end_column = new_tab_start_column
+            .map(|start| start.saturating_add(new_tab_width).min(interactive_end));
+
+        TabBarVisibleLayout {
+            tabs,
+            overflow_column,
+            new_tab_start_column,
+            new_tab_end_column,
+        }
+    }
+
+    fn tab_bar_tab_edges(
+        &self,
+        active: bool,
+        hovered: bool,
+    ) -> (Option<Vec<NativeFormatItem>>, Option<Vec<NativeFormatItem>>) {
+        if active {
+            (
+                self.tab_bar_style.active_tab_left.clone(),
+                self.tab_bar_style.active_tab_right.clone(),
+            )
+        } else if hovered {
+            (
+                self.tab_bar_style
+                    .inactive_tab_hover_left
+                    .clone()
+                    .or_else(|| self.tab_bar_style.inactive_tab_left.clone()),
+                self.tab_bar_style
+                    .inactive_tab_hover_right
+                    .clone()
+                    .or_else(|| self.tab_bar_style.inactive_tab_right.clone()),
+            )
+        } else {
+            (
+                self.tab_bar_style.inactive_tab_left.clone(),
+                self.tab_bar_style.inactive_tab_right.clone(),
+            )
         }
     }
 
@@ -95818,18 +95963,11 @@ impl NativeWindowApp {
         }
 
         let column = pixel_axis_to_cell(position.x, self.cell_width())?;
-        let mut cursor = self.tab_bar_left_prefix_width()?;
-        for (index, tab) in self.app_shell.active_workspace().tabs().iter().enumerate() {
-            let label = self.default_tab_bar_label_for_tab(index, tab);
-            let width = u16::try_from(label.chars().count()).ok()?;
-            let end = cursor.saturating_add(width);
-            if column >= cursor && column < end {
-                return Some(tab.id());
-            }
-            cursor = end;
-        }
-
-        None
+        self.tab_bar_visible_layout(Some(column))
+            .tabs
+            .into_iter()
+            .find(|tab| column >= tab.start_column && column < tab.end_column)
+            .map(|tab| tab.tab_id)
     }
 
     fn formatted_tab_title_for_tab(
@@ -125924,10 +126062,38 @@ fn tab_bar_tab_label_with_options(
     format!("{}{}{}", label.prefix, label.title, label.suffix)
 }
 
+#[derive(Clone)]
 struct TabBarTabLabelSegments {
     prefix: String,
     title: String,
     suffix: String,
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+struct TabBarVisibleTabLayout {
+    position: usize,
+    tab_id: rssh_core::TabId,
+    active: bool,
+    hovered: bool,
+    start_column: u16,
+    end_column: u16,
+    left_edge_end_column: u16,
+    prefix_end_column: u16,
+    title_end_column: u16,
+    suffix_end_column: u16,
+    left_edge: Option<Vec<NativeFormatItem>>,
+    label: TabBarTabLabelSegments,
+    title: NativeTabTitle,
+    right_edge: Option<Vec<NativeFormatItem>>,
+    close_column: Option<u16>,
+}
+
+struct TabBarVisibleLayout {
+    tabs: Vec<TabBarVisibleTabLayout>,
+    overflow_column: Option<u16>,
+    new_tab_start_column: Option<u16>,
+    new_tab_end_column: Option<u16>,
 }
 
 #[derive(Clone, Copy)]
@@ -189347,6 +189513,96 @@ return config
         );
 
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));
+    }
+
+    #[test]
+    fn tab_bar_renders_overflow_indicator_for_clipped_tabs() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let tab_bar = snapshot_row_text(&app.render_snapshot(), 0, 32);
+
+        assert!(
+            tab_bar.contains('…'),
+            "clipped tabs should render an overflow indicator: {tab_bar:?}"
+        );
+    }
+
+    #[test]
+    fn tab_bar_overflow_indicator_does_not_target_tabs() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let tab_bar = snapshot_row_text(&app.render_snapshot(), 0, 32);
+        let overflow_column = tab_bar
+            .find('…')
+            .expect("clipped tabs should render an overflow indicator");
+        let overflow_column = u16::try_from(overflow_column).unwrap();
+
+        assert_eq!(app.tab_for_tab_bar_column(overflow_column), None);
+        assert_eq!(app.close_tab_for_tab_bar_column(overflow_column), None);
+        assert_eq!(app.tab_for_tab_bar_column(45), None);
+        assert_eq!(app.close_tab_for_tab_bar_column(45), None);
+    }
+
+    #[test]
+    fn tab_bar_render_and_hit_testing_share_formatted_segment_layout() {
+        let mut app = NativeWindowApp::new(None);
+        app.left_status = "\x1b[32mLEFT\x1b[0m".to_owned();
+        app.tab_bar_style.active_tab_left = Some(vec![NativeFormatItem::Text("<".to_owned())]);
+        app.tab_title_formatter = Box::new(|_| {
+            Some(NativeTabTitle::Format(vec![NativeFormatItem::Text(
+                "\x1b[34mFMT\x1b[0m".to_owned(),
+            )]))
+        });
+
+        let tab_bar = snapshot_row_text(&app.render_snapshot(), 0, TERMINAL_COLUMNS);
+        let title_column = u16::try_from(
+            tab_bar
+                .find("FMT")
+                .expect("formatted title should render in the tab bar"),
+        )
+        .unwrap();
+        let close_column = u16::try_from(
+            tab_bar
+                .find(" x ")
+                .expect("formatted tab should retain its close segment")
+                + 1,
+        )
+        .unwrap();
+
+        assert_eq!(
+            app.tab_for_tab_bar_column(title_column),
+            Some(rssh_core::TabId::new(1))
+        );
+        assert_eq!(
+            app.close_tab_for_tab_bar_column(close_column),
+            Some(rssh_core::TabId::new(1))
+        );
+    }
+
+    #[test]
+    fn tab_bar_without_overflow_keeps_existing_targets_and_new_tab_button() {
+        let app = NativeWindowApp::new(None);
+
+        let tab_bar = snapshot_row_text(&app.render_snapshot(), 0, TERMINAL_COLUMNS);
+        let tab_column = u16::try_from(tab_bar.find("panes:1").unwrap()).unwrap();
+        let new_tab_column = u16::try_from(tab_bar.find(" + ").unwrap() + 1).unwrap();
+
+        assert!(!tab_bar.contains('…'), "tab bar was {tab_bar:?}");
+        assert_eq!(
+            app.tab_for_tab_bar_column(tab_column),
+            Some(rssh_core::TabId::new(1))
+        );
+        assert!(app.new_tab_button_for_tab_bar_column(new_tab_column));
     }
 
     #[test]
