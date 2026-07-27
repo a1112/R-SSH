@@ -80923,6 +80923,7 @@ struct NativeWindowApp {
     selecting: bool,
     scrollbar_dragging: bool,
     split_resize_dragging: Option<PaneSplitResizeDrag>,
+    pressed_pane_close_button: Option<rssh_core::PaneId>,
     last_mouse_assignment_click: Option<WindowMouseAssignmentClick>,
     last_left_click: Option<WindowClick>,
     command_palette: Option<WindowCommandPalette>,
@@ -83032,6 +83033,7 @@ impl NativeWindowApp {
             selecting: false,
             scrollbar_dragging: false,
             split_resize_dragging: None,
+            pressed_pane_close_button: None,
             last_mouse_assignment_click: None,
             last_left_click: None,
             command_palette: None,
@@ -92933,19 +92935,26 @@ impl NativeWindowApp {
         state: ElementState,
         button: MouseButton,
     ) -> bool {
-        if state != ElementState::Pressed || button != MouseButton::Left {
+        if button != MouseButton::Left {
             return false;
         }
 
-        let Some(pane) = self.pane_close_button_at_mouse_position() else {
-            return false;
-        };
+        match state {
+            ElementState::Pressed => {
+                self.pressed_pane_close_button = None;
+                let Some(pane) = self.pane_close_button_at_mouse_position() else {
+                    return false;
+                };
 
-        self.clear_ordinary_selection();
-        self.selecting = false;
-        self.last_left_click = None;
-        self.request_close_confirmation_or_close(WindowCloseTarget::Pane(pane));
-        true
+                self.pressed_pane_close_button = Some(pane);
+                self.clear_ordinary_selection();
+                self.selecting = false;
+                self.last_left_click = None;
+                self.request_close_confirmation_or_close(WindowCloseTarget::Pane(pane));
+                true
+            }
+            ElementState::Released => self.pressed_pane_close_button.take().is_some(),
+        }
     }
 
     fn handle_cursor_moved(&mut self, position: PhysicalPosition<f64>) -> io::Result<bool> {
@@ -101858,6 +101867,9 @@ impl NativeWindowApp {
     }
 
     fn handle_focus_changed(&mut self, focused: bool) -> io::Result<bool> {
+        if !focused {
+            self.pressed_pane_close_button = None;
+        }
         if self.window_focused == focused {
             return Ok(false);
         }
@@ -255168,8 +255180,145 @@ act.Confirmation {
     }
 
     #[test]
-    fn pane_close_button_position_rejects_empty_or_overflowing_rects() {
-        for rect in [
+    fn window_app_pane_close_button_consumes_full_active_pane_click() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("pane-close-test-process"),
+        );
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.set_config_overrides(NativeConfigOverrides {
+            mouse_assignments: Some(vec![NativeUserMouseAssignment {
+                event: NativeMouseAssignmentEvent {
+                    kind: NativeMouseAssignmentEventKind::Up,
+                    button: NativeMouseAssignmentButton::Mouse(MouseButton::Left),
+                    streak: 1,
+                },
+                modifiers: ModifiersState::empty(),
+                mouse_reporting: true,
+                alt_screen: NativeMouseAssignmentAltScreen::Any,
+                command: WindowCommand::StartWindowDrag,
+            }]),
+            skip_close_confirmation_for_processes_named: Some(vec![
+                "pane-close-test-process".to_owned(),
+            ]),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
+        let active_pane = app.active_pane_id();
+        let active_rect = app
+            .pane_render_layout()
+            .panes
+            .into_iter()
+            .find(|rect| rect.pane_id == active_pane)
+            .expect("active pane rect");
+        let (row, column) =
+            super::pane_close_button_position(active_rect).expect("close button fits pane");
+        app.mouse_position = Some((column, row.saturating_sub(app.terminal_frame_row_offset())));
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(app.app_shell.pane_ids(), vec![rssh_core::PaneId::new(1)]);
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
+        assert!(app.close_confirmation.is_none());
+        assert!(written.lock().unwrap().is_empty());
+        assert!(!app.window_drag_requested_for_test());
+        assert!(app.selection.is_none());
+        assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_pane_close_button_latch_ignores_unmatched_release_and_clears_on_next_press() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let active_pane = app.active_pane_id();
+        let active_rect = app
+            .pane_render_layout()
+            .panes
+            .into_iter()
+            .find(|rect| rect.pane_id == active_pane)
+            .expect("active pane rect");
+        let (close_row, close_column) =
+            super::pane_close_button_position(active_rect).expect("close button fits pane");
+        let terminal_row = close_row.saturating_sub(app.terminal_frame_row_offset());
+        app.mouse_position = Some((close_column, terminal_row));
+
+        assert!(
+            !app.handle_pane_close_button_mouse_input(ElementState::Released, MouseButton::Left)
+        );
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert_eq!(app.pressed_pane_close_button, Some(active_pane));
+        app.mouse_position = Some((active_rect.column, terminal_row));
+        assert!(
+            !app.handle_pane_close_button_mouse_input(ElementState::Pressed, MouseButton::Left)
+        );
+        assert!(app.pressed_pane_close_button.is_none());
+
+        app.mouse_position = Some((close_column, terminal_row));
+        assert!(
+            !app.handle_pane_close_button_mouse_input(ElementState::Released, MouseButton::Left)
+        );
+    }
+
+    #[test]
+    fn window_app_pane_close_button_latch_clears_when_window_loses_focus() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        assert!(app.handle_focus_changed(true).unwrap());
+        let active_pane = app.active_pane_id();
+        let active_rect = app
+            .pane_render_layout()
+            .panes
+            .into_iter()
+            .find(|rect| rect.pane_id == active_pane)
+            .expect("active pane rect");
+        let (row, column) =
+            super::pane_close_button_position(active_rect).expect("close button fits pane");
+        app.mouse_position = Some((column, row.saturating_sub(app.terminal_frame_row_offset())));
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert_eq!(app.pressed_pane_close_button, Some(active_pane));
+        assert!(app.handle_focus_changed(false).unwrap());
+        assert!(app.pressed_pane_close_button.is_none());
+
+        assert!(
+            !app.handle_pane_close_button_mouse_input(ElementState::Released, MouseButton::Left)
+        );
+    }
+
+    #[test]
+    fn pane_close_button_geometry_rejects_empty_or_overflowing_rects() {
+        let invalid_rects = [
             super::PaneRenderRect {
                 pane_id: rssh_core::PaneId::new(1),
                 row: 0,
@@ -255191,9 +255340,36 @@ act.Confirmation {
                 rows: 1,
                 columns: 2,
             },
-        ] {
+            super::PaneRenderRect {
+                pane_id: rssh_core::PaneId::new(1),
+                row: u16::MAX,
+                column: 0,
+                rows: 2,
+                columns: 1,
+            },
+        ];
+        for rect in invalid_rects {
             assert!(super::pane_close_button_position(rect).is_none());
         }
+
+        let app = NativeWindowApp::new(None);
+        let layout = super::PaneRenderLayout {
+            panes: invalid_rects
+                .into_iter()
+                .chain([super::PaneRenderRect {
+                    pane_id: rssh_core::PaneId::new(2),
+                    row: 2,
+                    column: 3,
+                    rows: 1,
+                    columns: 1,
+                }])
+                .collect(),
+            separators: Vec::new(),
+        };
+        let cells = app.pane_close_button_cells(&layout);
+
+        assert_eq!(cells.len(), 1);
+        assert_eq!((cells[0].row, cells[0].column), (2, 3));
     }
 
     #[test]
