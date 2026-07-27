@@ -155,6 +155,8 @@ const DEFAULT_PANE_SELECT_FG_COLOR: Color = Color::Rgb(191, 191, 191);
 const DEFAULT_PANE_SELECT_BG_COLOR: Color = Color::Rgba(0, 0, 0, 127);
 const PANE_CLOSE_BUTTON_FOREGROUND: Color = Color::Rgb(255, 255, 255);
 const PANE_CLOSE_BUTTON_BACKGROUND: Color = Color::Rgb(176, 42, 42);
+const PANE_INSPECTION_FOREGROUND: Color = Color::Rgb(236, 255, 255);
+const PANE_INSPECTION_BACKGROUND: Color = Color::Rgb(32, 78, 102);
 const DEFAULT_CELL_WIDTH: NativeCellWidth = NativeCellWidth::from_per_mille(1_000);
 const DEFAULT_LINE_HEIGHT: NativeLineHeight = NativeLineHeight::from_per_mille(1_000);
 const DEFAULT_FONT_ANTIALIAS: NativeFontAntialias = NativeFontAntialias::Greyscale;
@@ -80934,6 +80936,8 @@ struct NativeWindowApp {
     tab_bar_drag: Option<TabBarDrag>,
     ui_left_release_pending: bool,
     pressed_pane_close_button: Option<rssh_core::PaneId>,
+    pane_inspection: Option<rssh_core::PaneId>,
+    pane_inspection_key_release_pending: Option<PaneInspectionCloseKey>,
     last_mouse_assignment_click: Option<WindowMouseAssignmentClick>,
     last_left_click: Option<WindowClick>,
     command_palette: Option<WindowCommandPalette>,
@@ -82269,6 +82273,12 @@ struct PanePointerTransientState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PaneInspectionCloseKey {
+    Escape,
+    Enter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FrameRenderMode {
     Full,
     Damage,
@@ -83111,6 +83121,8 @@ impl NativeWindowApp {
             tab_bar_drag: None,
             ui_left_release_pending: false,
             pressed_pane_close_button: None,
+            pane_inspection: None,
+            pane_inspection_key_release_pending: None,
             last_mouse_assignment_click: None,
             last_left_click: None,
             command_palette: None,
@@ -83717,6 +83729,7 @@ impl NativeWindowApp {
             self.restore_split_resize_pointer_state(pointer_transient);
         }
         self.sync_pane_runtimes(previous_active_pane, previous_runtime);
+        self.clear_pane_inspection_if_invalid();
         self.apply_window_title();
         Ok(())
     }
@@ -83920,6 +83933,7 @@ impl NativeWindowApp {
     }
 
     fn show_debug_overlay(&mut self) {
+        self.cancel_pane_inspection();
         self.debug_overlay_active = true;
     }
 
@@ -83946,6 +83960,7 @@ impl NativeWindowApp {
     }
 
     fn enter_char_select_mode_with_options(&mut self, mut options: WindowCharSelectOptions) {
+        self.cancel_pane_inspection();
         self.deferred_wheel_context = None;
         self.command_palette = None;
         self.pane_select = None;
@@ -85544,6 +85559,7 @@ impl NativeWindowApp {
     }
 
     fn enter_command_palette_mode_for_pane(&mut self, pane_id: rssh_core::PaneId) {
+        self.cancel_pane_inspection();
         self.pane_select = None;
         self.tab_navigator = None;
         self.prompt_input_line = None;
@@ -85564,6 +85580,7 @@ impl NativeWindowApp {
     }
 
     fn enter_launcher_mode_with_args(&mut self, args: WindowShowLauncherArgs) {
+        self.cancel_pane_inspection();
         self.deferred_wheel_context = None;
         self.pane_select = None;
         self.tab_navigator = None;
@@ -86577,6 +86594,10 @@ impl NativeWindowApp {
                 }
                 return Ok(());
             }
+            WindowCommand::InspectPane => {
+                self.request_pane_inspection(self.app_shell.active_pane_id());
+                return Ok(());
+            }
             WindowCommand::ReloadConfiguration => {
                 self.request_reload_configuration();
                 return Ok(());
@@ -87573,6 +87594,7 @@ impl NativeWindowApp {
     }
 
     fn enter_close_confirmation_mode(&mut self, target: WindowCloseTarget) {
+        self.cancel_pane_inspection();
         self.deferred_wheel_context = None;
         self.command_palette = None;
         self.pane_select = None;
@@ -87646,6 +87668,7 @@ impl NativeWindowApp {
     }
 
     fn enter_confirmation_mode(&mut self, options: WindowConfirmationOptions) {
+        self.cancel_pane_inspection();
         self.deferred_wheel_context = None;
         self.command_palette = None;
         self.pane_select = None;
@@ -88004,6 +88027,7 @@ impl NativeWindowApp {
     }
 
     fn enter_input_selector_mode(&mut self, options: WindowInputSelectorOptions) {
+        self.cancel_pane_inspection();
         self.deferred_wheel_context = None;
         self.command_palette = None;
         self.pane_select = None;
@@ -88513,6 +88537,7 @@ impl NativeWindowApp {
     }
 
     fn enter_prompt_input_line_mode(&mut self, options: WindowPromptInputLineOptions) {
+        self.cancel_pane_inspection();
         self.deferred_wheel_context = None;
         self.command_palette = None;
         self.pane_select = None;
@@ -88674,6 +88699,7 @@ impl NativeWindowApp {
         show_pane_ids: bool,
         alphabet: &str,
     ) {
+        self.cancel_pane_inspection();
         self.deferred_wheel_context = None;
         self.command_palette = None;
         self.tab_navigator = None;
@@ -88703,6 +88729,7 @@ impl NativeWindowApp {
     }
 
     fn enter_tab_navigator_mode(&mut self) {
+        self.cancel_pane_inspection();
         self.deferred_wheel_context = None;
         self.command_palette = None;
         self.pane_select = None;
@@ -89541,6 +89568,7 @@ impl NativeWindowApp {
         action: WindowQuickSelectAction,
         skip_action_on_paste: bool,
     ) {
+        self.cancel_pane_inspection();
         self.command_palette = None;
         self.pane_select = None;
         self.tab_navigator = None;
@@ -90849,6 +90877,9 @@ impl NativeWindowApp {
     }
 
     fn handle_window_mouse_wheel(&mut self, delta: MouseScrollDelta) -> io::Result<bool> {
+        if self.pane_inspection.is_some() {
+            return Ok(true);
+        }
         let previous_delta = self.current_mouse_wheel_delta.replace(delta);
         let result = self.handle_window_mouse_wheel_with_current_delta(delta);
         self.current_mouse_wheel_delta = previous_delta;
@@ -92347,6 +92378,10 @@ impl NativeWindowApp {
                     .restart_pane_runtime(pane)
                     .map_err(|error| io::Error::other(error.to_string()));
             }
+            WindowCommand::InspectPane => {
+                self.request_pane_inspection(pane);
+                return Ok(());
+            }
             WindowCommand::ClearScrollback(WindowClearScrollbackMode::ScrollbackOnly) => {
                 if pane == self.app_shell.active_pane_id() {
                     self.active_ui.stable_viewport = PaneStableViewport::default();
@@ -92886,6 +92921,13 @@ impl NativeWindowApp {
     }
 
     fn handle_mouse_input(&mut self, state: ElementState, button: MouseButton) -> io::Result<bool> {
+        if self.pane_inspection.is_some() {
+            if self.handle_pending_ui_left_release(state, button) {
+                return Ok(true);
+            }
+            self.mark_ui_left_press_consumed(state, button);
+            return Ok(true);
+        }
         let kind = match state {
             ElementState::Pressed => WindowMouseEventKind::Down(button),
             ElementState::Released => WindowMouseEventKind::Up(button),
@@ -93122,6 +93164,9 @@ impl NativeWindowApp {
         let next_position = self.window_mouse_cell(position);
         let mouse_cell_changed = self.mouse_position != next_position;
         self.mouse_position = next_position;
+        if self.pane_inspection.is_some() {
+            return Ok(true);
+        }
         self.update_split_resize_cursor_icon();
 
         if self.update_tab_bar_drag_from_mouse_position() {
@@ -93646,6 +93691,7 @@ impl NativeWindowApp {
             return snapshot
                 .with_viewport(rect.row, rect.column, rect.rows, rect.columns)
                 .with_overlay_cells(self.pane_badge_cells(&layout))
+                .with_overlay_cells(self.pane_inspection_cells(&layout))
                 .with_overlay_cells(self.pane_select_cells(&layout))
                 .with_overlay_cells(self.ime_preedit_cells(&layout))
                 .with_overlay_cells(self.window_frame_border_cells())
@@ -93729,6 +93775,7 @@ impl NativeWindowApp {
             })
             .with_overlay_cells(self.pane_separator_cells(&layout))
             .with_overlay_cells(self.pane_badge_cells(&layout))
+            .with_overlay_cells(self.pane_inspection_cells(&layout))
             .with_overlay_cells(self.pane_select_cells(&layout))
             .with_overlay_cells(self.ime_preedit_cells(&layout))
             .with_overlay_cells(self.window_frame_border_cells())
@@ -94110,6 +94157,116 @@ impl NativeWindowApp {
                 )
             })
             .collect()
+    }
+
+    fn request_pane_inspection(&mut self, pane_id: rssh_core::PaneId) {
+        if self.pane_inspection == Some(pane_id)
+            || self.debug_overlay_active
+            || self.char_select.is_some()
+            || self.pane_select.is_some()
+            || self.tab_navigator.is_some()
+            || self.prompt_input_line.is_some()
+            || self.input_selector.is_some()
+            || self.confirmation.is_some()
+            || self.close_confirmation.is_some()
+            || self
+                .pane_ui_ref(pane_id)
+                .is_some_and(PaneUiState::overlay_active)
+            || !self
+                .pane_render_layout()
+                .panes
+                .iter()
+                .any(|rect| rect.pane_id == pane_id)
+        {
+            return;
+        }
+
+        let consume_left_release = self.active_mouse_button == Some(MouseButton::Left);
+        self.clear_ordinary_selection_for_pane(pane_id);
+        self.end_pointer_modes_for_pane_change();
+        self.tab_bar_drag = None;
+        self.current_mouse_wheel_delta = None;
+        self.last_mouse_info = None;
+        self.deferred_wheel_context = None;
+        self.pressed_pane_close_button = None;
+        self.ui_left_release_pending |= consume_left_release;
+        self.ime_preedit = None;
+        self.dead_key_active = false;
+        self.dead_key_text = None;
+        self.pane_inspection = Some(pane_id);
+        self.pane_inspection_key_release_pending = None;
+        self.frame_needs_full_repaint = true;
+    }
+
+    fn cancel_pane_inspection(&mut self) {
+        if self.pane_inspection.take().is_some() {
+            self.frame_needs_full_repaint = true;
+        }
+    }
+
+    fn clear_pane_inspection_if_invalid(&mut self) {
+        let Some(pane_id) = self.pane_inspection else {
+            return;
+        };
+        if !self
+            .pane_render_layout()
+            .panes
+            .iter()
+            .any(|rect| rect.pane_id == pane_id)
+        {
+            self.cancel_pane_inspection();
+        }
+    }
+
+    fn pane_inspection_close_key(key: &Key) -> Option<PaneInspectionCloseKey> {
+        match key {
+            Key::Named(NamedKey::Escape) => Some(PaneInspectionCloseKey::Escape),
+            Key::Named(NamedKey::Enter) => Some(PaneInspectionCloseKey::Enter),
+            _ => None,
+        }
+    }
+
+    fn handle_pane_inspection_key_event(&mut self, key: &Key, state: ElementState) -> bool {
+        match state {
+            ElementState::Pressed if self.pane_inspection.is_some() => {
+                if let Some(close_key) = Self::pane_inspection_close_key(key) {
+                    self.pane_inspection = None;
+                    self.pane_inspection_key_release_pending = Some(close_key);
+                    self.frame_needs_full_repaint = true;
+                }
+                true
+            }
+            ElementState::Released if self.pane_inspection.is_some() => true,
+            ElementState::Released => {
+                let Some(close_key) = Self::pane_inspection_close_key(key) else {
+                    return false;
+                };
+                if self.pane_inspection_key_release_pending == Some(close_key) {
+                    self.pane_inspection_key_release_pending = None;
+                    return true;
+                }
+                false
+            }
+            ElementState::Pressed => false,
+        }
+    }
+
+    fn pane_inspection_cells(&self, layout: &PaneRenderLayout) -> Vec<RenderCell> {
+        let Some(pane_id) = self.pane_inspection else {
+            return Vec::new();
+        };
+        let Some(rect) = layout
+            .panes
+            .iter()
+            .find(|rect| rect.pane_id == pane_id)
+            .copied()
+        else {
+            return Vec::new();
+        };
+        let Some(lines) = self.pane_inspection_lines(pane_id) else {
+            return Vec::new();
+        };
+        pane_inspection_cells_for_rect(&lines, rect)
     }
 
     fn pane_close_button_targets(
@@ -97751,6 +97908,66 @@ impl NativeWindowApp {
             .map(str::to_owned)
     }
 
+    fn pane_inspection_lines(&self, pane_id: rssh_core::PaneId) -> Option<Vec<String>> {
+        let workspace = self.app_shell.active_workspace();
+        let workspace_index = self
+            .app_shell
+            .workspaces()
+            .iter()
+            .position(|candidate| candidate.id() == workspace.id())?
+            .saturating_add(1);
+        let tab = workspace
+            .tabs()
+            .iter()
+            .find(|candidate| candidate.id() == self.app_shell.active_tab_id())?;
+        let tab_index = workspace
+            .tabs()
+            .iter()
+            .position(|candidate| candidate.id() == tab.id())?
+            .saturating_add(1);
+        let pane_index = tab
+            .panes()
+            .iter()
+            .position(|candidate| candidate.id() == pane_id)?
+            .saturating_add(1);
+        let pane = tab.panes().get(pane_index.saturating_sub(1))?;
+        let size = self.pane_runtime_ref(pane_id)?.terminal().grid().size();
+        let launch = pane.launch();
+        let title = self
+            .pane_title(pane_id)
+            .unwrap_or_else(|| "unavailable".to_owned());
+        let pid = self
+            .pane_process_id(pane_id)
+            .map_or_else(|| "unavailable".to_owned(), |pid| pid.to_string());
+        let cwd = launch.cwd().unwrap_or("unavailable");
+        let args = if launch.args().is_empty() {
+            "none".to_owned()
+        } else {
+            launch.args().join(" ")
+        };
+        let environment_count = launch.environment().len();
+        let environment_label = if environment_count == 1 {
+            "variable"
+        } else {
+            "variables"
+        };
+
+        Some(vec![
+            format!("Pane {}", pane_id.get()),
+            format!("workspace: {} ({workspace_index})", workspace.name()),
+            format!("tab: {tab_index}"),
+            format!("pane: {pane_index}"),
+            format!("title: {title}"),
+            format!("dimensions: {}x{}", size.columns, size.rows),
+            format!("pid: {pid}"),
+            format!("cwd: {cwd}"),
+            format!("program: {}", launch.program()),
+            format!("args: {args}"),
+            "domain: local".to_owned(),
+            format!("environment: {environment_count} {environment_label}"),
+        ])
+    }
+
     fn pane_process_id(&self, pane: rssh_core::PaneId) -> Option<u32> {
         if pane == self.app_shell.active_pane_id() {
             self.session_process_id
@@ -99072,6 +99289,9 @@ impl NativeWindowApp {
         self.ime_preedit = None;
         self.dead_key_active = false;
         self.dead_key_text = None;
+        if self.pane_inspection.is_some() {
+            return Ok(());
+        }
         if !self.use_ime || text.is_empty() {
             return Ok(());
         }
@@ -99081,6 +99301,10 @@ impl NativeWindowApp {
     }
 
     fn handle_ime_preedit(&mut self, text: &str) {
+        if self.pane_inspection.is_some() {
+            self.ime_preedit = None;
+            return;
+        }
         if !self.use_ime
             || self.ime_preedit_rendering != NativeImePreeditRendering::Builtin
             || text.is_empty()
@@ -99167,6 +99391,12 @@ impl NativeWindowApp {
                 modifiers,
                 self.macos_forward_to_ime_modifier_mask,
             )
+        {
+            return Ok(());
+        }
+
+        if state != ElementState::Pressed
+            && self.handle_pane_inspection_key_event(logical_key, state)
         {
             return Ok(());
         }
@@ -99268,6 +99498,10 @@ impl NativeWindowApp {
             if self.handle_char_select_key(logical_key, modifiers) {
                 return Ok(());
             }
+            return Ok(());
+        }
+
+        if self.handle_pane_inspection_key_event(logical_key, state) {
             return Ok(());
         }
 
@@ -99469,6 +99703,7 @@ impl NativeWindowApp {
     }
 
     fn enter_search_mode(&mut self) {
+        self.cancel_pane_inspection();
         let initial_query = self
             .ordinary_selected_text()
             .map(|text| single_line_search_query_from_selection(&text))
@@ -99578,6 +99813,7 @@ impl NativeWindowApp {
     }
 
     fn enter_copy_mode(&mut self) {
+        self.cancel_pane_inspection();
         self.command_palette = None;
         self.pane_select = None;
         self.tab_navigator = None;
@@ -102460,6 +102696,9 @@ impl NativeWindowApp {
     }
 
     fn handle_window_paste_from(&mut self, source: WindowPasteSource) -> io::Result<bool> {
+        if self.pane_inspection.is_some() {
+            return Ok(true);
+        }
         let text = match source {
             WindowPasteSource::Clipboard => self.read_clipboard_text(),
             WindowPasteSource::PrimarySelection => self.read_primary_selection_text(),
@@ -102481,6 +102720,9 @@ impl NativeWindowApp {
     }
 
     fn handle_dropped_file_path(&mut self, path: &Path) -> io::Result<bool> {
+        if self.pane_inspection.is_some() {
+            return Ok(true);
+        }
         let path = path.to_string_lossy();
         if path.is_empty() {
             return Ok(false);
@@ -106584,6 +106826,7 @@ fn basic_no_arg_action_name_command(action_name: &str) -> Option<WindowCommand> 
         "zoompane" => return Some(WindowCommand::ZoomPane),
         "unzoompane" => return Some(WindowCommand::UnzoomPane),
         "restartpane" => return Some(WindowCommand::RestartPane),
+        "inspectpane" => return Some(WindowCommand::InspectPane),
         "reloadconfiguration" => return Some(WindowCommand::ReloadConfiguration),
         "activatecommandpalette" => return Some(WindowCommand::ActivateCommandPalette),
         "togglefullscreen" => return Some(WindowCommand::ToggleFullScreen),
@@ -122152,6 +122395,7 @@ enum WindowCommand {
     #[allow(dead_code)]
     ScrollByCurrentEventWheelDelta,
     RestartPane,
+    InspectPane,
     ReloadConfiguration,
     ToggleFullScreen,
     StartWindowDrag,
@@ -122419,6 +122663,7 @@ impl WindowCommand {
             | Self::CloseCurrentPane { .. }
             | Self::ClosePane
             | Self::RestartPane
+            | Self::InspectPane
             | Self::AdjustPaneSize { .. }
             | Self::ResizePaneDown
             | Self::ResizePaneLeft
@@ -122667,6 +122912,7 @@ impl WindowCommand {
             Self::SendKey(_) => "Send Key",
             Self::Confirmation(_) => "Confirmation",
             Self::RestartPane => "Restart Pane",
+            Self::InspectPane => "Inspect Pane",
             Self::ReloadConfiguration => "Reload Configuration",
             Self::ToggleFullScreen => "Toggle Full Screen",
             Self::Hide => "Hide",
@@ -122757,6 +123003,7 @@ impl WindowCommand {
         Some(match self {
             Self::ReloadConfiguration => "Reload Configuration",
             Self::RestartPane => "Restart Pane",
+            Self::InspectPane => "Inspect Pane",
             Self::ToggleFullScreen => "Toggle Full Screen",
             Self::StartWindowDrag => "Start Window Drag",
             Self::ActivateWindow(_) => "Activate Window",
@@ -123876,6 +124123,7 @@ const WINDOW_COMMANDS: &[WindowCommand] = &[
     WindowCommand::PasteFromClipboard,
     WindowCommand::PasteFromPrimarySelection,
     WindowCommand::RestartPane,
+    WindowCommand::InspectPane,
     WindowCommand::ReloadConfiguration,
     WindowCommand::ToggleFullScreen,
     WindowCommand::StartWindowDrag,
@@ -128169,6 +128417,31 @@ fn pane_local_overlay_snapshot(
         cell.column = local.column;
         Some(cell)
     }))
+}
+
+fn pane_inspection_cells_for_rect(lines: &[String], rect: PaneRenderRect) -> Vec<RenderCell> {
+    if rect.rows == 0 || rect.columns == 0 {
+        return Vec::new();
+    }
+
+    let mut cells = Vec::new();
+    for (row_offset, line) in lines.iter().take(usize::from(rect.rows)).enumerate() {
+        let row_offset = u16::try_from(row_offset).unwrap_or(u16::MAX);
+        let row = rect.row.saturating_add(row_offset);
+        let mut characters = line.chars();
+        for column_offset in 0..rect.columns {
+            let column = rect.column.saturating_add(column_offset);
+            cells.push(ui_render_cell(
+                row,
+                column,
+                characters.next().unwrap_or(' '),
+                PANE_INSPECTION_FOREGROUND,
+                PANE_INSPECTION_BACKGROUND,
+                true,
+            ));
+        }
+    }
+    cells
 }
 
 fn split_resize_drag(
@@ -266003,3 +266276,7 @@ act.Confirmation {
 #[cfg(test)]
 #[path = "window_restart_pane_tests.rs"]
 mod window_restart_pane_tests;
+
+#[cfg(test)]
+#[path = "window_inspect_pane_tests.rs"]
+mod window_inspect_pane_tests;
