@@ -149,7 +149,7 @@ fn pane_inspection_overlay_uses_grapheme_width_and_never_partially_draws_a_wide_
     assert_eq!(cells.len(), 4);
     assert_eq!(
         cells.iter().map(|cell| cell.ch).collect::<Vec<_>>(),
-        ['e', '界', ' ', 'Z']
+        ['é', '界', ' ', 'Z']
     );
     assert_eq!(
         cells.iter().map(|cell| cell.column).collect::<Vec<_>>(),
@@ -336,7 +336,6 @@ fn inspect_swallows_terminal_input_and_the_paired_close_key_release() {
         app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
             .unwrap()
     );
-    app.handle_focus_changed(false).unwrap();
     app.enter_confirmation_mode(WindowConfirmationOptions {
         message: "interleaved modal".to_owned(),
         action: Box::new(WindowCommand::Nop),
@@ -351,7 +350,10 @@ fn inspect_swallows_terminal_input_and_the_paired_close_key_release() {
     )
     .unwrap();
     assert!(app.confirmation.is_some());
-    assert_eq!(app.ui_key_release_pending, Some(UiKeyRelease::Enter));
+    assert_eq!(
+        app.ui_key_release_pending,
+        Some(UiKeyReleasePending::FullBarrier(UiKeyRelease::Enter))
+    );
     assert!(written.lock().unwrap().is_empty());
 
     app.handle_keyboard_input_event(
@@ -384,6 +386,156 @@ fn inspect_swallows_terminal_input_and_the_paired_close_key_release() {
     .unwrap();
 
     assert!(written.lock().unwrap().is_empty());
+}
+
+#[test]
+fn focus_loss_downgrades_the_close_release_barrier_without_leaking_a_late_release() {
+    let written = Arc::new(Mutex::new(Vec::new()));
+    let mut app = NativeWindowApp::new(None);
+    assert!(app.handle_focus_changed(true).unwrap());
+    app.handle_pty_output(b"\x1b[?9001h\x1b[?1003h").unwrap();
+    app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+    app.clipboard_reader = Box::new(|| Some("recovered-paste".to_owned()));
+    app.request_pane_inspection(app.active_pane_id());
+    app.handle_keyboard_input_event(
+        &Key::Named(NamedKey::Enter),
+        PhysicalKey::Code(WinitKeyCode::Enter),
+        None,
+        ElementState::Pressed,
+        KittyKeyEventKind::Press,
+    )
+    .unwrap();
+    assert!(app.pane_inspection_input_barrier_active());
+    app.enter_confirmation_mode(WindowConfirmationOptions {
+        message: "focus-loss interleave".to_owned(),
+        action: Box::new(WindowCommand::Nop),
+        cancel: None,
+    });
+
+    assert!(app.handle_focus_changed(false).unwrap());
+
+    assert!(!app.pane_inspection_input_barrier_active());
+    assert_eq!(
+        app.ui_key_release_pending,
+        Some(UiKeyReleasePending::MatchingReleaseOnly(
+            UiKeyRelease::Enter
+        ))
+    );
+
+    let before_nonmatching_release = written.lock().unwrap().len();
+    app.handle_keyboard_input_event(
+        &Key::Named(NamedKey::Escape),
+        PhysicalKey::Code(WinitKeyCode::Escape),
+        None,
+        ElementState::Released,
+        KittyKeyEventKind::Release,
+    )
+    .unwrap();
+    assert_eq!(written.lock().unwrap().len(), before_nonmatching_release);
+    assert_eq!(
+        app.ui_key_release_pending,
+        Some(UiKeyReleasePending::MatchingReleaseOnly(
+            UiKeyRelease::Enter
+        ))
+    );
+
+    assert!(app.handle_focus_changed(true).unwrap());
+    app.exit_confirmation_mode();
+
+    let pane = app.active_pane_id();
+    let rect = app.pane_render_rect(pane).unwrap();
+    let position = PhysicalPosition::new(
+        f64::from(app.frame_content_pixel_left())
+            + f64::from(rect.column) * f64::from(app.cell_width())
+            + 1.0,
+        f64::from(app.terminal_pixel_top())
+            + f64::from(rect.row.saturating_sub(app.terminal_frame_row_offset()))
+                * f64::from(app.cell_height())
+            + 1.0,
+    );
+
+    app.handle_keyboard_input_event(
+        &Key::Character("x".into()),
+        PhysicalKey::Code(WinitKeyCode::KeyX),
+        Some("x"),
+        ElementState::Pressed,
+        KittyKeyEventKind::Press,
+    )
+    .unwrap();
+    let mut recovered_len = written.lock().unwrap().len();
+    assert_ne!(recovered_len, 0);
+
+    app.handle_ime_commit("回復").unwrap();
+    assert!(written.lock().unwrap().len() > recovered_len);
+    recovered_len = written.lock().unwrap().len();
+
+    assert!(app.handle_window_paste().unwrap());
+    assert!(written.lock().unwrap().len() > recovered_len);
+    recovered_len = written.lock().unwrap().len();
+
+    assert!(
+        app.handle_dropped_file_path(std::path::Path::new("recovered.txt"))
+            .unwrap()
+    );
+    assert!(written.lock().unwrap().len() > recovered_len);
+    recovered_len = written.lock().unwrap().len();
+
+    assert!(app.handle_cursor_moved(position).unwrap());
+    assert!(written.lock().unwrap().len() > recovered_len);
+    recovered_len = written.lock().unwrap().len();
+
+    assert!(
+        app.handle_mouse_input(ElementState::Pressed, MouseButton::Right)
+            .unwrap()
+    );
+    assert!(written.lock().unwrap().len() > recovered_len);
+    recovered_len = written.lock().unwrap().len();
+
+    assert!(
+        app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+            .unwrap()
+    );
+    assert!(written.lock().unwrap().len() > recovered_len);
+    recovered_len = written.lock().unwrap().len();
+
+    app.handle_keyboard_input_event(
+        &Key::Named(NamedKey::Enter),
+        PhysicalKey::Code(WinitKeyCode::Enter),
+        None,
+        ElementState::Released,
+        KittyKeyEventKind::Release,
+    )
+    .unwrap();
+
+    assert_eq!(written.lock().unwrap().len(), recovered_len);
+    assert!(app.ui_key_release_pending.is_none());
+}
+
+#[test]
+fn synthesized_matching_release_on_focus_loss_clears_the_downgraded_pending_state() {
+    let mut app = NativeWindowApp::new(None);
+    assert!(app.handle_focus_changed(true).unwrap());
+    app.request_pane_inspection(app.active_pane_id());
+    app.handle_keyboard_input_event(
+        &Key::Named(NamedKey::Escape),
+        PhysicalKey::Code(WinitKeyCode::Escape),
+        None,
+        ElementState::Pressed,
+        KittyKeyEventKind::Press,
+    )
+    .unwrap();
+
+    assert!(app.handle_focus_changed(false).unwrap());
+    app.handle_keyboard_input_event(
+        &Key::Named(NamedKey::Escape),
+        PhysicalKey::Code(WinitKeyCode::Escape),
+        None,
+        ElementState::Released,
+        KittyKeyEventKind::Release,
+    )
+    .unwrap();
+
+    assert!(app.ui_key_release_pending.is_none());
 }
 
 #[test]

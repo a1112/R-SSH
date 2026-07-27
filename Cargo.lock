@@ -3077,6 +3077,7 @@ dependencies = [
  "serde_json",
  "sysinfo",
  "toml",
+ "unicode-normalization",
  "unicode-segmentation",
  "unicode-width 0.2.2",
  "unicode_names2",

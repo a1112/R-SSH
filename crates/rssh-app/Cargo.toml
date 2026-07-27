@@ -24,6 +24,7 @@ serde_json = "1"
 sysinfo = { version = "=0.36.1", default-features = false, features = ["system"] }
 toml = "0.8"
 unicode_names2 = "3.1"
+unicode-normalization = "0.1"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 wezterm-color-types = "=0.3.0"

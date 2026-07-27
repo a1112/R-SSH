@@ -45,6 +45,7 @@ use rssh_terminal::{
     Terminal, TerminalResizeOutcome, TerminalScreenDomain, UnderlineStyle, VerticalAlign,
 };
 use serde::{Deserialize, Serialize};
+use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 #[cfg(target_os = "macos")]
@@ -80938,7 +80939,7 @@ struct NativeWindowApp {
     ui_left_release_pending: bool,
     pressed_pane_close_button: Option<rssh_core::PaneId>,
     pane_inspection: Option<rssh_core::PaneId>,
-    ui_key_release_pending: Option<UiKeyRelease>,
+    ui_key_release_pending: Option<UiKeyReleasePending>,
     last_mouse_assignment_click: Option<WindowMouseAssignmentClick>,
     last_left_click: Option<WindowClick>,
     command_palette: Option<WindowCommandPalette>,
@@ -82268,6 +82269,12 @@ struct PanePointerTransientState {
 enum UiKeyRelease {
     Escape,
     Enter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UiKeyReleasePending {
+    FullBarrier(UiKeyRelease),
+    MatchingReleaseOnly(UiKeyRelease),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94280,12 +94287,20 @@ impl NativeWindowApp {
 
     fn handle_pane_inspection_key_event(&mut self, key: &Key, state: ElementState) -> bool {
         if let Some(pending) = self.ui_key_release_pending {
+            let (pending_key, full_barrier) = match pending {
+                UiKeyReleasePending::FullBarrier(key) => (key, true),
+                UiKeyReleasePending::MatchingReleaseOnly(key) => (key, false),
+            };
             if state == ElementState::Released
-                && Self::pane_inspection_close_key(key) == Some(pending)
+                && Self::pane_inspection_close_key(key) == Some(pending_key)
             {
                 self.ui_key_release_pending = None;
+                return true;
             }
-            return true;
+            if !full_barrier && state == ElementState::Released && !self.window_focused {
+                return true;
+            }
+            return full_barrier;
         }
         if self.pane_inspection.is_none() {
             return false;
@@ -94294,14 +94309,18 @@ impl NativeWindowApp {
             && let Some(close_key) = Self::pane_inspection_close_key(key)
         {
             self.pane_inspection = None;
-            self.ui_key_release_pending = Some(close_key);
+            self.ui_key_release_pending = Some(UiKeyReleasePending::FullBarrier(close_key));
             self.frame_needs_full_repaint = true;
         }
         true
     }
 
     fn pane_inspection_input_barrier_active(&self) -> bool {
-        self.pane_inspection.is_some() || self.ui_key_release_pending.is_some()
+        self.pane_inspection.is_some()
+            || matches!(
+                self.ui_key_release_pending,
+                Some(UiKeyReleasePending::FullBarrier(_))
+            )
     }
 
     fn pane_inspection_cells(&self, layout: &PaneRenderLayout) -> Vec<RenderCell> {
@@ -102802,6 +102821,10 @@ impl NativeWindowApp {
 
         self.window_focused = focused;
         self.mouse_click_may_focus_window = focused;
+        if !focused && let Some(UiKeyReleasePending::FullBarrier(key)) = self.ui_key_release_pending
+        {
+            self.ui_key_release_pending = Some(UiKeyReleasePending::MatchingReleaseOnly(key));
+        }
         if !focused && self.tab_bar_drag.take().is_some() {
             self.ui_left_release_pending = true;
         }
@@ -128507,7 +128530,7 @@ fn pane_inspection_cells_for_rect(lines: &[String], rect: PaneRenderRect) -> Vec
             cells.push(ui_render_cell(
                 row,
                 column,
-                grapheme.chars().next().unwrap_or(' '),
+                grapheme.nfc().next().unwrap_or(' '),
                 PANE_INSPECTION_FOREGROUND,
                 PANE_INSPECTION_BACKGROUND,
                 true,
