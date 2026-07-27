@@ -80909,6 +80909,8 @@ struct NativeWindowApp {
     writer: Option<Box<dyn Write + Send>>,
     session_log: Option<Box<dyn Write + Send>>,
     reader_thread: Option<thread::JoinHandle<()>>,
+    active_runtime_generation: u64,
+    next_runtime_generation: u64,
     modifiers: ModifiersState,
     left_alt_pressed: bool,
     right_alt_pressed: bool,
@@ -81558,8 +81560,13 @@ impl NativeWindowManager {
     fn dispatch_user_event_to_owner(&mut self, event: WindowUserEvent) -> Option<bool> {
         let location = self.user_event_owner_location(&event)?;
         let (_, pane_id) = event.pane_identity()?;
+        let runtime_generation = event.runtime_generation()?;
         let event_is_exit = matches!(&event, WindowUserEvent::Exited { .. });
         let mut app = self.take_app_at_location(location)?;
+        if !app.pane_runtime_generation_matches(pane_id, runtime_generation) {
+            self.restore_app_at_location(location, app);
+            return Some(false);
+        }
         let owner_window_id = app.app_window_id;
         let close_window = match event {
             WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged => {
@@ -81870,15 +81877,18 @@ enum WindowUserEvent {
     Output {
         window_id: rssh_core::WindowId,
         pane_id: rssh_core::PaneId,
+        runtime_generation: u64,
         bytes: Vec<u8>,
     },
     Exited {
         window_id: rssh_core::WindowId,
         pane_id: rssh_core::PaneId,
+        runtime_generation: u64,
     },
     ReadError {
         window_id: rssh_core::WindowId,
         pane_id: rssh_core::PaneId,
+        runtime_generation: u64,
         error: String,
     },
 }
@@ -81898,6 +81908,21 @@ impl WindowUserEvent {
             } => Some((*window_id, *pane_id)),
         }
     }
+
+    const fn runtime_generation(&self) -> Option<u64> {
+        match self {
+            Self::ReloadConfigurationRequested | Self::ConfigFileChanged => None,
+            Self::Output {
+                runtime_generation, ..
+            }
+            | Self::Exited {
+                runtime_generation, ..
+            }
+            | Self::ReadError {
+                runtime_generation, ..
+            } => Some(*runtime_generation),
+        }
+    }
 }
 
 struct PaneRuntime {
@@ -81907,6 +81932,7 @@ struct PaneRuntime {
     session_tty_name: Option<String>,
     writer: Option<Box<dyn Write + Send>>,
     reader_thread: Option<thread::JoinHandle<()>>,
+    runtime_generation: u64,
     snapshot: TerminalRenderSnapshot,
     ui: PaneUiState,
 }
@@ -83023,6 +83049,8 @@ impl NativeWindowApp {
             writer: None,
             session_log: None,
             reader_thread: None,
+            active_runtime_generation: 0,
+            next_runtime_generation: 1,
             modifiers: ModifiersState::empty(),
             left_alt_pressed: false,
             right_alt_pressed: false,
@@ -85027,6 +85055,7 @@ impl NativeWindowApp {
         let session_tty_name = self.session_tty_name.take();
         let writer = self.writer.take();
         let reader_thread = self.reader_thread.take();
+        let runtime_generation = std::mem::replace(&mut self.active_runtime_generation, 0);
         let ui = std::mem::take(&mut self.active_ui);
         self.clear_derived_selection_projection_for_shell_action();
 
@@ -85058,6 +85087,7 @@ impl NativeWindowApp {
             session_tty_name,
             writer,
             reader_thread,
+            runtime_generation,
             snapshot: old_snapshot,
             ui,
         }
@@ -85089,12 +85119,16 @@ impl NativeWindowApp {
             session_tty_name: None,
             writer: None,
             reader_thread: None,
+            runtime_generation: 0,
             snapshot,
             ui: PaneUiState::default(),
         }
     }
 
     fn install_active_runtime(&mut self, mut runtime: PaneRuntime) {
+        self.next_runtime_generation = self
+            .next_runtime_generation
+            .max(runtime.runtime_generation.saturating_add(1));
         let mut runtime_runtime = TerminalRuntime::new(self.runtime.terminal().grid().size());
         let mut runtime_snapshot =
             terminal_runtime_snapshot(&self.runtime, PaneStableViewport::default());
@@ -85122,6 +85156,7 @@ impl NativeWindowApp {
         self.session_tty_name = runtime.session_tty_name.take();
         self.writer = runtime.writer.take();
         self.reader_thread = runtime.reader_thread.take();
+        self.active_runtime_generation = runtime.runtime_generation;
         self.active_ui = std::mem::take(&mut runtime.ui);
         self.update_selection_projection();
         self.rebuild_snapshot();
@@ -86488,6 +86523,13 @@ impl NativeWindowApp {
             WindowCommand::SendKey(send_key) => {
                 if let Err(error) = self.send_key_to_active_pane(&send_key) {
                     eprintln!("send key failed: {error}");
+                }
+                return Ok(());
+            }
+            WindowCommand::RestartPane => {
+                let pane_id = self.app_shell.active_pane_id();
+                if let Err(error) = self.restart_pane_runtime(pane_id) {
+                    eprintln!("restart pane failed: {error}");
                 }
                 return Ok(());
             }
@@ -98612,6 +98654,76 @@ impl NativeWindowApp {
         Ok(())
     }
 
+    fn restart_pane_runtime(&mut self, pane_id: rssh_core::PaneId) -> Result<(), Box<dyn Error>> {
+        self.restart_pane_runtime_with(pane_id, Self::spawn_pane_runtime_for_active_pane)
+    }
+
+    fn restart_pane_runtime_with<F>(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        spawn: F,
+    ) -> Result<(), Box<dyn Error>>
+    where
+        F: FnOnce(&mut Self) -> Result<PaneRuntime, Box<dyn Error>>,
+    {
+        if pane_id != self.app_shell.active_pane_id() {
+            return Err(Box::new(io::Error::other(format!(
+                "pane {} is not active",
+                pane_id.get()
+            ))));
+        }
+
+        self.sync_active_pane_current_working_dir_from_runtime();
+        self.stop_active_runtime();
+        let mut blank_runtime = self.new_inactive_pane_runtime();
+        blank_runtime.runtime_generation = self.allocate_pane_runtime_generation();
+        self.install_active_runtime(blank_runtime);
+        self.clear_active_pane_restart_state(pane_id);
+
+        let mut runtime = spawn(self)?;
+        if runtime.runtime_generation == 0 {
+            runtime.runtime_generation = self.allocate_pane_runtime_generation();
+        }
+        self.install_active_runtime(runtime);
+        Ok(())
+    }
+
+    fn clear_active_pane_restart_state(&mut self, pane_id: rssh_core::PaneId) {
+        self.end_pointer_modes_for_pane_change();
+        self.current_mouse_wheel_delta = None;
+        self.last_mouse_info = None;
+        self.deferred_wheel_context = None;
+        self.ui_left_release_pending = false;
+        self.pressed_pane_close_button = None;
+        self.ime_preedit = None;
+        self.dead_key_active = false;
+        self.dead_key_text = None;
+        self.selection = None;
+        self.pane_bell_counts.remove(&pane_id);
+        self.visual_bell_started_at.remove(&pane_id);
+        self.frame_needs_full_repaint = true;
+        self.pending_frame_damage.clear();
+    }
+
+    fn allocate_pane_runtime_generation(&mut self) -> u64 {
+        let generation = self.next_runtime_generation;
+        self.next_runtime_generation = self.next_runtime_generation.saturating_add(1).max(1);
+        generation
+    }
+
+    fn pane_runtime_generation_matches(
+        &self,
+        pane_id: rssh_core::PaneId,
+        runtime_generation: u64,
+    ) -> bool {
+        if pane_id == self.app_shell.active_pane_id() {
+            return self.active_runtime_generation == runtime_generation;
+        }
+        self.pane_runtimes
+            .get(&pane_id)
+            .is_some_and(|runtime| runtime.runtime_generation == runtime_generation)
+    }
+
     fn spawn_pane_runtime_for_active_pane(&mut self) -> Result<PaneRuntime, Box<dyn Error>> {
         #[cfg(test)]
         if let Some(observer) = &self.pty_spawn_observer {
@@ -98625,6 +98737,7 @@ impl NativeWindowApp {
         };
 
         let pane_id = self.app_shell.active_pane_id();
+        let runtime_generation = self.allocate_pane_runtime_generation();
         let term_session_id = iterm_session_termid(
             self.app_window_id.get(),
             self.app_shell.active_tab_id().get(),
@@ -98676,6 +98789,7 @@ impl NativeWindowApp {
                         let _ = event_proxy.send_event(WindowUserEvent::Exited {
                             window_id: app_window_id,
                             pane_id,
+                            runtime_generation,
                         });
                         break;
                     }
@@ -98684,6 +98798,7 @@ impl NativeWindowApp {
                             .send_event(WindowUserEvent::Output {
                                 window_id: app_window_id,
                                 pane_id,
+                                runtime_generation,
                                 bytes: buffer[..count].to_vec(),
                             })
                             .is_err()
@@ -98696,6 +98811,7 @@ impl NativeWindowApp {
                         let _ = event_proxy.send_event(WindowUserEvent::ReadError {
                             window_id: app_window_id,
                             pane_id,
+                            runtime_generation,
                             error: error.to_string(),
                         });
                         break;
@@ -98711,6 +98827,7 @@ impl NativeWindowApp {
             session_tty_name,
             writer: Some(Box::new(writer)),
             reader_thread: Some(reader_thread),
+            runtime_generation,
             snapshot,
             ui: PaneUiState::default(),
         })
@@ -106330,6 +106447,7 @@ fn basic_no_arg_action_name_command(action_name: &str) -> Option<WindowCommand> 
         "togglepanezoom" => return Some(WindowCommand::TogglePaneZoom),
         "zoompane" => return Some(WindowCommand::ZoomPane),
         "unzoompane" => return Some(WindowCommand::UnzoomPane),
+        "restartpane" => return Some(WindowCommand::RestartPane),
         "reloadconfiguration" => return Some(WindowCommand::ReloadConfiguration),
         "activatecommandpalette" => return Some(WindowCommand::ActivateCommandPalette),
         "togglefullscreen" => return Some(WindowCommand::ToggleFullScreen),
@@ -121897,6 +122015,7 @@ enum WindowCommand {
     SendKey(WindowSendKey),
     #[allow(dead_code)]
     ScrollByCurrentEventWheelDelta,
+    RestartPane,
     ReloadConfiguration,
     ToggleFullScreen,
     StartWindowDrag,
@@ -122163,6 +122282,7 @@ impl WindowCommand {
             | Self::ResetTerminal
             | Self::CloseCurrentPane { .. }
             | Self::ClosePane
+            | Self::RestartPane
             | Self::AdjustPaneSize { .. }
             | Self::ResizePaneDown
             | Self::ResizePaneLeft
@@ -122410,6 +122530,7 @@ impl WindowCommand {
             Self::SendPaste(_) => "Send Paste",
             Self::SendKey(_) => "Send Key",
             Self::Confirmation(_) => "Confirmation",
+            Self::RestartPane => "Restart Pane",
             Self::ReloadConfiguration => "Reload Configuration",
             Self::ToggleFullScreen => "Toggle Full Screen",
             Self::Hide => "Hide",
@@ -122499,6 +122620,7 @@ impl WindowCommand {
     fn window_control_label(&self) -> Option<&'static str> {
         Some(match self {
             Self::ReloadConfiguration => "Reload Configuration",
+            Self::RestartPane => "Restart Pane",
             Self::ToggleFullScreen => "Toggle Full Screen",
             Self::StartWindowDrag => "Start Window Drag",
             Self::ActivateWindow(_) => "Activate Window",
@@ -123617,6 +123739,7 @@ const WINDOW_COMMANDS: &[WindowCommand] = &[
     WindowCommand::CopyToClipboardAndPrimarySelection,
     WindowCommand::PasteFromClipboard,
     WindowCommand::PasteFromPrimarySelection,
+    WindowCommand::RestartPane,
     WindowCommand::ReloadConfiguration,
     WindowCommand::ToggleFullScreen,
     WindowCommand::StartWindowDrag,
@@ -129637,7 +129760,15 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
             WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged => {
                 self.reload_configuration();
             }
-            WindowUserEvent::Output { pane_id, bytes, .. } => {
+            WindowUserEvent::Output {
+                pane_id,
+                runtime_generation,
+                bytes,
+                ..
+            } => {
+                if !self.pane_runtime_generation_matches(pane_id, runtime_generation) {
+                    return;
+                }
                 if let Err(error) = self.handle_pane_pty_output(pane_id, &bytes) {
                     eprintln!("PTY write error: {error}");
                     event_loop.exit();
@@ -129650,13 +129781,28 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     }
                 }
             }
-            WindowUserEvent::Exited { pane_id, .. } => {
+            WindowUserEvent::Exited {
+                pane_id,
+                runtime_generation,
+                ..
+            } => {
+                if !self.pane_runtime_generation_matches(pane_id, runtime_generation) {
+                    return;
+                }
                 let status = self.finish_pane_runtime_after_exit(pane_id);
                 if self.apply_pane_exit_behavior_after_exit(pane_id, status) {
                     event_loop.exit();
                 }
             }
-            WindowUserEvent::ReadError { pane_id, error, .. } => {
+            WindowUserEvent::ReadError {
+                pane_id,
+                runtime_generation,
+                error,
+                ..
+            } => {
+                if !self.pane_runtime_generation_matches(pane_id, runtime_generation) {
+                    return;
+                }
                 if pane_id == self.app_shell.active_pane_id() {
                     eprintln!("PTY read error: {error}");
                     self.stop_active_runtime();
@@ -137208,6 +137354,7 @@ config.colors = {
   selection_bg = triad_b,
   quick_select_match_fg = { Color = accent:lighten(0.1) },
 }
+
 config.window_background_gradient = {
   colors = { base, accent },
 }
@@ -193650,6 +193797,8 @@ return config
         let mut primary = NativeWindowApp::new(None);
         primary.runtime.resize(rssh_core::TerminalSize::new(16, 1));
         primary.handle_pty_output(b"relocated").unwrap();
+        primary.active_runtime_generation = 41;
+        primary.next_runtime_generation = 42;
         primary
             .dispatch_app_action(AppAction::SplitPane {
                 pane: rssh_core::PaneId::new(1),
@@ -193669,6 +193818,7 @@ return config
             manager.dispatch_user_event_to_owner(WindowUserEvent::Output {
                 window_id: rssh_core::WindowId::new(1),
                 pane_id: rssh_core::PaneId::new(1),
+                runtime_generation: 41,
                 bytes: b"-queued".to_vec(),
             }),
             Some(false)
@@ -193692,6 +193842,7 @@ return config
             manager.dispatch_user_event_to_owner(WindowUserEvent::Exited {
                 window_id: rssh_core::WindowId::new(1),
                 pane_id: rssh_core::PaneId::new(1),
+                runtime_generation: 41,
             }),
             Some(true)
         );
@@ -193729,6 +193880,7 @@ return config
             manager.dispatch_user_event_to_owner(WindowUserEvent::Output {
                 window_id: rssh_core::WindowId::new(1),
                 pane_id: rssh_core::PaneId::new(1),
+                runtime_generation: 0,
                 bytes: b"-owner".to_vec(),
             }),
             Some(false)
@@ -193799,6 +193951,7 @@ return config
             manager.dispatch_user_event_to_owner(WindowUserEvent::Output {
                 window_id: rssh_core::WindowId::new(1),
                 pane_id: rssh_core::PaneId::new(1),
+                runtime_generation: 0,
                 bytes: b"-queued".to_vec(),
             }),
             Some(false)
@@ -193869,6 +194022,7 @@ return config
             manager.dispatch_user_event_to_owner(WindowUserEvent::Output {
                 window_id: rssh_core::WindowId::new(1),
                 pane_id: rssh_core::PaneId::new(1),
+                runtime_generation: 0,
                 bytes: b"-from-a".to_vec(),
             }),
             Some(false)
@@ -193885,6 +194039,7 @@ return config
             manager.dispatch_user_event_to_owner(WindowUserEvent::Exited {
                 window_id: rssh_core::WindowId::new(2),
                 pane_id: rssh_core::PaneId::new(1),
+                runtime_generation: 0,
             }),
             Some(true)
         );
@@ -193918,6 +194073,7 @@ return config
             manager.dispatch_user_event_to_owner(WindowUserEvent::Output {
                 window_id: rssh_core::WindowId::new(99),
                 pane_id: rssh_core::PaneId::new(1),
+                runtime_generation: 0,
                 bytes: b"-wrong".to_vec(),
             }),
             None
@@ -242008,6 +242164,7 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_palette_action_name_queries() {
         for (query, expected) in [
+            ("restartpane", WindowCommand::RestartPane),
             ("reloadconfiguration", WindowCommand::ReloadConfiguration),
             (
                 "activatecommandpalette",
@@ -265708,3 +265865,7 @@ act.Confirmation {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "window_restart_pane_tests.rs"]
+mod window_restart_pane_tests;
