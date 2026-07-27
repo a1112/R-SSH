@@ -961,16 +961,11 @@ pub(crate) fn validate_cli_config_overrides(
         }
         parser.skip_trivia()?;
         let location = parser.location();
-        let value = if let Some(value) = bare_cli_default_workspace(field, source) {
-            value
-        } else {
-            let value = parser.parse_config_field_value(field)?;
-            parser.skip_trivia()?;
-            if !parser.is_eof() {
-                return Err(parser.dynamic("unexpected trailing tokens after static CLI value"));
-            }
-            value
-        };
+        let value = parser.parse_config_field_value(field)?;
+        parser.skip_trivia()?;
+        if !parser.is_eof() {
+            return Err(parser.dynamic("unexpected trailing tokens after static CLI value"));
+        }
         let assignment = StaticNativeConfigAssignment {
             field_path: vec![field.clone()],
             value,
@@ -985,21 +980,6 @@ pub(crate) fn validate_cli_config_overrides(
         assignments,
         default_overrides,
     })
-}
-
-fn bare_cli_default_workspace(field: &str, source: &str) -> Option<StaticLuaValue> {
-    if field != "default_workspace" {
-        return None;
-    }
-    let value = source.trim();
-    if value.is_empty()
-        || value
-            .chars()
-            .all(|character| character.is_alphanumeric() || matches!(character, '_' | '-' | '.'))
-    {
-        return Some(StaticLuaValue::String(value.to_owned()));
-    }
-    None
 }
 
 pub(crate) fn parse_native_config_document(
@@ -3329,7 +3309,7 @@ literal]=],
 
         let cli = validate_cli_config_overrides(&[(
             "default_workspace".to_owned(),
-            "cli-space".to_owned(),
+            "'cli-space'".to_owned(),
         )])
         .unwrap();
         parse_native_config_document("return { default_workspace = 'file-space' }", &cli).unwrap();
@@ -3342,9 +3322,19 @@ literal]=],
             Err(NativeConfigLoadError::UnknownField { .. })
         ));
         assert!(matches!(
-            validate_cli_config_overrides(&[("default_workspace".to_owned(), "".to_owned())]),
+            validate_cli_config_overrides(&[("default_workspace".to_owned(), "''".to_owned())]),
             Err(NativeConfigLoadError::InvalidFieldValue { .. })
         ));
+        for invalid in ["true", "nil", "123", "foo.bar"] {
+            assert!(
+                validate_cli_config_overrides(&[(
+                    "default_workspace".to_owned(),
+                    invalid.to_owned()
+                )])
+                .is_err(),
+                "{invalid:?} must remain a fatal strict-Lua type error"
+            );
+        }
     }
 
     #[test]

@@ -572,7 +572,7 @@ mod tests {
             skip_config: true,
             config_file: None,
             config_overrides: vec![
-                ("default_workspace".to_owned(), "reports".to_owned()),
+                ("default_workspace".to_owned(), "'reports'".to_owned()),
                 (
                     "default_prog".to_owned(),
                     "{ 'configured-shell', '--login' }".to_owned(),
