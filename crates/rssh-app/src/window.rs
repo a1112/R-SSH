@@ -198950,6 +198950,133 @@ return config
     }
 
     #[test]
+    fn window_app_preserves_split_ratio_with_percentage_padding() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            window_padding: Some(NativeWindowPadding {
+                left: NativeWindowPaddingDimension::Percent(10),
+                right: NativeWindowPaddingDimension::Pixels(CELL_WIDTH),
+                top: NativeWindowPaddingDimension::Percent(10),
+                bottom: NativeWindowPaddingDimension::Pixels(CELL_HEIGHT),
+            }),
+            ..NativeConfigOverrides::default()
+        });
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::ResizePane {
+            pane: rssh_core::PaneId::new(1),
+            direction: ResizeDirection::Right,
+            amount: 7,
+        })
+        .unwrap();
+        let before = app.pane_render_layout();
+        let before_source = before
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(1))
+            .expect("source pane before resize");
+        let before_other = before
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(2))
+            .expect("new pane before resize");
+        let owner_before = app.active_pane_id();
+        let mut inactive_owners_before = app
+            .pane_runtimes
+            .keys()
+            .map(|pane_id| pane_id.get())
+            .collect::<Vec<_>>();
+        inactive_owners_before.sort_unstable();
+        let next_size =
+            rssh_core::TerminalSize::new(160, app.runtime.terminal().grid().size().rows);
+
+        app.handle_window_resize(app.frame_size_for_terminal_size(next_size))
+            .unwrap();
+
+        let after = app.pane_render_layout();
+        let after_source = after
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(1))
+            .expect("source pane after resize");
+        let after_other = after
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(2))
+            .expect("new pane after resize");
+        let old_usable = u32::from(before_source.columns + before_other.columns);
+        let new_usable = u32::from(after_source.columns + after_other.columns);
+        let expected =
+            (u32::from(before_source.columns) * new_usable + old_usable / 2) / old_usable;
+        let mut inactive_owners_after = app
+            .pane_runtimes
+            .keys()
+            .map(|pane_id| pane_id.get())
+            .collect::<Vec<_>>();
+        inactive_owners_after.sort_unstable();
+
+        assert!(u32::from(after_source.columns).abs_diff(expected) <= 1);
+        assert_eq!(app.active_pane_id(), owner_before);
+        assert_eq!(inactive_owners_after, inactive_owners_before);
+    }
+
+    #[test]
+    fn window_app_preserves_down_split_ratio_when_rows_change() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: SplitDirection::Down,
+            launch: None,
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::ResizePane {
+            pane: rssh_core::PaneId::new(1),
+            direction: ResizeDirection::Down,
+            amount: 4,
+        })
+        .unwrap();
+        let before = app.pane_render_layout();
+        let before_source = before
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(1))
+            .expect("source pane before resize");
+        let before_other = before
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(2))
+            .expect("new pane before resize");
+        let owner_before = app.active_pane_id();
+        let next_size =
+            rssh_core::TerminalSize::new(app.runtime.terminal().grid().size().columns, 48);
+
+        app.handle_window_resize(app.frame_size_for_terminal_size(next_size))
+            .unwrap();
+
+        let after = app.pane_render_layout();
+        let after_source = after
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(1))
+            .expect("source pane after resize");
+        let after_other = after
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == rssh_core::PaneId::new(2))
+            .expect("new pane after resize");
+        let old_usable = u32::from(before_source.rows + before_other.rows);
+        let new_usable = u32::from(after_source.rows + after_other.rows);
+        let expected = (u32::from(before_source.rows) * new_usable + old_usable / 2) / old_usable;
+
+        assert!(u32::from(after_source.rows).abs_diff(expected) <= 1);
+        assert_eq!(app.active_pane_id(), owner_before);
+    }
+
+    #[test]
     fn window_app_failed_shell_action_restores_split_resize_pointer_state() {
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::SplitPane {

@@ -1525,8 +1525,11 @@ impl Tab {
                 split_layout_size(old_source, old_split.direction, old_split.source_size_delta);
             let old_total = split_layout_axis_size(old_source, old_split.direction);
             let new_total = split_layout_axis_size(new_source, old_split.direction);
-            let source_size_delta =
-                preserve_split_source_size_delta(old_total, old_split.source_size_delta, new_total);
+            let source_size_delta = if old_total == new_total {
+                old_split.source_size_delta
+            } else {
+                preserve_split_source_size_delta(old_total, old_split.source_size_delta, new_total)
+            };
             let new_split = PaneSplit {
                 source_size_delta,
                 ..old_split
@@ -3614,6 +3617,83 @@ mod tests {
                 .source_size_delta,
             height_delta,
             "changing columns must not alter a vertical split"
+        );
+    }
+
+    #[test]
+    fn preserve_split_layout_keeps_vertical_delta_on_width_only_resize() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::SplitPaneWithSize {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Down,
+                launch: None,
+                source_size_delta: i16::MAX,
+            })
+            .unwrap();
+
+        shell.preserve_split_layout_for_resize(80, 24, 160, 24);
+
+        assert_eq!(
+            shell.active_tab().panes()[1]
+                .split()
+                .expect("split metadata")
+                .source_size_delta,
+            i16::MAX
+        );
+    }
+
+    #[test]
+    fn preserve_split_layout_keeps_horizontal_delta_on_height_only_resize() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::SplitPaneWithSize {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+                source_size_delta: i16::MAX,
+            })
+            .unwrap();
+
+        shell.preserve_split_layout_for_resize(80, 24, 80, 48);
+
+        assert_eq!(
+            shell.active_tab().panes()[1]
+                .split()
+                .expect("split metadata")
+                .source_size_delta,
+            i16::MAX
+        );
+    }
+
+    #[test]
+    fn preserve_split_layout_rebalances_clamped_delta_when_split_axis_changes() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::SplitPaneWithSize {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+                source_size_delta: i16::MAX,
+            })
+            .unwrap();
+        let before = pane_layout_rects(shell.active_tab(), 80, 24);
+
+        shell.preserve_split_layout_for_resize(80, 24, 160, 24);
+
+        let after = pane_layout_rects(shell.active_tab(), 160, 24);
+        assert_ne!(
+            shell.active_tab().panes()[1]
+                .split()
+                .expect("split metadata")
+                .source_size_delta,
+            i16::MAX
+        );
+        assert_ratio_within_one_cell(
+            before[&PaneId::new(1)].columns,
+            before[&PaneId::new(2)].columns,
+            after[&PaneId::new(1)].columns,
+            after[&PaneId::new(2)].columns,
         );
     }
 
