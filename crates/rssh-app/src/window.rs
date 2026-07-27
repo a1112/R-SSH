@@ -81224,6 +81224,8 @@ struct NativeWindowApp {
     new_tab_button_click_handler: Box<dyn FnMut(&NativeWindowNewTabButtonClick) -> bool + Send>,
     tab_title_formatter: Box<TabTitleFormatter>,
     window_title_formatter: Box<WindowTitleFormatter>,
+    #[cfg(test)]
+    applied_window_titles: RefCell<Option<Vec<String>>>,
     update_status_handler: Box<WindowStatusUpdateHandler>,
     update_right_status_handler: Box<WindowRightStatusUpdateHandler>,
     notification_handler: Box<dyn FnMut(&TerminalNotification) -> bool + Send>,
@@ -83404,6 +83406,8 @@ impl NativeWindowApp {
             new_tab_button_click_handler: Box::new(dispatch_window_new_tab_button_click),
             tab_title_formatter: Box::new(format_tab_title),
             window_title_formatter: Box::new(format_window_title),
+            #[cfg(test)]
+            applied_window_titles: RefCell::new(None),
             update_status_handler: Box::new(dispatch_window_update_status),
             update_right_status_handler: Box::new(dispatch_window_update_right_status),
             notification_handler: Box::new(show_window_notification),
@@ -85133,6 +85137,22 @@ impl NativeWindowApp {
 
     fn new_inactive_pane_runtime(&self) -> PaneRuntime {
         let size = self.runtime.terminal().grid().size();
+        let runtime = self.configured_pane_terminal_runtime(size);
+        let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
+        PaneRuntime {
+            runtime,
+            session: None,
+            session_process_id: None,
+            session_tty_name: None,
+            writer: None,
+            reader_thread: None,
+            runtime_generation: 0,
+            snapshot,
+            ui: PaneUiState::default(),
+        }
+    }
+
+    fn configured_pane_terminal_runtime(&self, size: TerminalSize) -> TerminalRuntime {
         let mut runtime = TerminalRuntime::new(size);
         runtime.set_terminal_name(self.term.clone());
         runtime.set_enq_answerback(self.enq_answerback.clone());
@@ -85149,18 +85169,7 @@ impl NativeWindowApp {
         runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
         runtime.set_scrollback_limit(self.scrollback_lines);
         runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
-        let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
-        PaneRuntime {
-            runtime,
-            session: None,
-            session_process_id: None,
-            session_tty_name: None,
-            writer: None,
-            reader_thread: None,
-            runtime_generation: 0,
-            snapshot,
-            ui: PaneUiState::default(),
-        }
+        runtime
     }
 
     fn install_active_runtime(&mut self, mut runtime: PaneRuntime) {
@@ -98679,9 +98688,34 @@ impl NativeWindowApp {
     }
 
     fn apply_window_title(&self) {
+        #[cfg(test)]
+        if self.applied_window_titles.borrow().is_some() {
+            let title = self.effective_window_title();
+            self.applied_window_titles
+                .borrow_mut()
+                .as_mut()
+                .expect("checked title observer")
+                .push(title.clone());
+            if let Some(window) = &self.window {
+                window.set_title(&title);
+            }
+            return;
+        }
         if let Some(window) = &self.window {
             window.set_title(&self.effective_window_title());
         }
+    }
+
+    #[cfg(test)]
+    fn clear_applied_window_titles_for_test(&self) {
+        *self.applied_window_titles.borrow_mut() = Some(Vec::new());
+    }
+
+    #[cfg(test)]
+    fn applied_window_titles_for_test(&self) -> Ref<'_, Vec<String>> {
+        Ref::map(self.applied_window_titles.borrow(), |titles| {
+            titles.as_ref().expect("title observer must be enabled")
+        })
     }
 
     fn spawn_pty(&mut self) -> Result<(), Box<dyn Error>> {
@@ -98752,6 +98786,7 @@ impl NativeWindowApp {
                     "failed to reset pane runtime projection: {error:?}"
                 ))) as Box<dyn Error>
             })?;
+        self.apply_window_title();
 
         let mut runtime = spawn(self, pane_id)?;
         if runtime.runtime_generation == 0 {
@@ -98787,7 +98822,6 @@ impl NativeWindowApp {
             self.dead_key_text = None;
             self.selection = None;
             self.window_title = DEFAULT_WINDOW_TITLE.to_owned();
-            self.apply_window_title();
         }
         self.pane_bell_counts.remove(&pane_id);
         self.visual_bell_started_at.remove(&pane_id);
@@ -98860,11 +98894,7 @@ impl NativeWindowApp {
             &term_session_id,
         );
 
-        let size = self.pane_runtime_ref(pane_id).map_or_else(
-            || self.runtime.terminal().grid().size(),
-            |runtime| runtime.terminal().grid().size(),
-        );
-        let pty_size = PtySize::try_new(size.columns, size.rows)?;
+        let (pty_size, runtime) = self.prepare_pane_spawn_runtime(pane_id)?;
         self.metrics.start_spawn_timer();
         let mut session = PtySession::spawn(&command, pty_size)?;
         let session_process_id = session.process_id();
@@ -98872,23 +98902,6 @@ impl NativeWindowApp {
         let mut reader = session.take_reader()?;
         let writer = session.take_writer()?;
         let app_window_id = self.app_window_id;
-        let runtime_size = self.runtime.terminal().grid().size();
-        let mut runtime = TerminalRuntime::new(runtime_size);
-        runtime.set_terminal_name(self.term.clone());
-        runtime.set_enq_answerback(self.enq_answerback.clone());
-        runtime.set_enable_kitty_graphics(self.enable_kitty_graphics);
-        runtime.set_enable_checksum_rectangular_area(self.enable_checksum_rectangular_area);
-        runtime.set_enable_title_reporting(self.enable_title_reporting);
-        runtime.set_enable_kitty_keyboard(self.enable_kitty_keyboard);
-        runtime.set_allow_win32_input_mode(self.allow_win32_input_mode);
-        runtime.set_treat_east_asian_ambiguous_width_as_wide(
-            self.treat_east_asian_ambiguous_width_as_wide,
-        );
-        runtime.set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
-        runtime.set_unicode_version(self.unicode_version);
-        runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
-        runtime.set_scrollback_limit(self.scrollback_lines);
-        runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
         let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
 
         let reader_thread = thread::spawn(move || {
@@ -98942,6 +98955,31 @@ impl NativeWindowApp {
             snapshot,
             ui: PaneUiState::default(),
         })
+    }
+
+    fn prepare_pane_spawn_runtime(
+        &self,
+        pane_id: rssh_core::PaneId,
+    ) -> Result<(PtySize, TerminalRuntime), Box<dyn Error>> {
+        let size = self
+            .pane_runtime_ref(pane_id)
+            .map(|runtime| runtime.terminal().grid().size())
+            .ok_or_else(|| {
+                Box::new(io::Error::other(format!(
+                    "pane {} has no runtime owner",
+                    pane_id.get()
+                ))) as Box<dyn Error>
+            })?;
+        let pty_size = PtySize::try_new(size.columns, size.rows)?;
+        Ok((pty_size, self.configured_pane_terminal_runtime(size)))
+    }
+
+    #[cfg(test)]
+    fn prepare_pane_spawn_runtime_for_test(
+        &self,
+        pane_id: rssh_core::PaneId,
+    ) -> Result<(PtySize, TerminalRuntime), Box<dyn Error>> {
+        self.prepare_pane_spawn_runtime(pane_id)
     }
 
     fn write_pty_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {

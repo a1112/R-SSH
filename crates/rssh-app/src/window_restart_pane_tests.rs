@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::Duration;
@@ -641,12 +641,21 @@ fn pane_runtime_close_drops_writer_before_joining_reader() {
     runtime.writer = Some(Box::new(DropTrackingWriter(Arc::clone(&writer_dropped))));
     let observed_writer = Arc::clone(&writer_dropped);
     let observed_order = Arc::clone(&reader_saw_writer_drop);
+    let (started_sender, started_receiver) = std::sync::mpsc::channel();
     runtime.reader_thread = Some(std::thread::spawn(move || {
-        observed_order.store(
-            observed_writer.load(Ordering::Acquire) == 1,
-            Ordering::Release,
-        );
+        started_sender.send(()).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while std::time::Instant::now() < deadline {
+            if observed_writer.load(Ordering::Acquire) == 1 {
+                observed_order.store(true, Ordering::Release);
+                return;
+            }
+            std::thread::yield_now();
+        }
     }));
+    started_receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("reader close observer did not start");
 
     runtime.close();
 
@@ -686,6 +695,112 @@ fn real_pty_close_lifecycle_finishes_within_timeout() {
     receiver
         .recv_timeout(Duration::from_secs(5))
         .expect("real PTY close lifecycle timed out");
+}
+
+fn assert_restart_applies_title_after_target_projection_reset(restart_inactive: bool) {
+    let mut app = NativeWindowApp::new(None);
+    app.dispatch_app_action(AppAction::SplitPane {
+        pane: app.active_pane_id(),
+        direction: SplitDirection::Right,
+        launch: Some(PaneLaunch::local("active")),
+    })
+    .unwrap();
+    let target = if restart_inactive {
+        rssh_core::PaneId::new(1)
+    } else {
+        app.active_pane_id()
+    };
+    app.dispatch_app_action(AppAction::SetPaneUserVar {
+        pane: target,
+        name: "STALE".to_owned(),
+        value: "yes".to_owned(),
+    })
+    .unwrap();
+    app.dispatch_app_action(AppAction::SetPaneBadgeFormat {
+        pane: target,
+        badge_format: Some("stale badge".to_owned()),
+    })
+    .unwrap();
+    app.dispatch_app_action(AppAction::SetPaneProgress {
+        pane: target,
+        progress: PaneProgress::Percentage(87),
+    })
+    .unwrap();
+    app.dispatch_app_action(AppAction::SetPaneHasUnseenOutput {
+        pane: target,
+        has_unseen_output: true,
+    })
+    .unwrap();
+    let formatter_observations = Arc::new(Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&formatter_observations);
+    app.window_title_formatter = Box::new(move |event| {
+        let pane = event
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == target)
+            .expect("target pane must be present in formatter event");
+        let clean = pane.user_vars.is_empty()
+            && pane.progress == PaneProgress::None
+            && !pane.has_unseen_output;
+        recorded.lock().unwrap().push(clean);
+        Some(if clean { "clean" } else { "stale" }.to_owned())
+    });
+    app.clear_applied_window_titles_for_test();
+
+    app.restart_pane_runtime_with(target, |app, _| {
+        Ok::<_, Box<dyn std::error::Error>>(app.new_inactive_pane_runtime())
+    })
+    .unwrap();
+
+    assert_eq!(
+        formatter_observations.lock().unwrap().last().copied(),
+        Some(true)
+    );
+    assert_eq!(
+        app.applied_window_titles_for_test()
+            .last()
+            .map(String::as_str),
+        Some("clean")
+    );
+    assert_eq!(app.pane_badge_format(target), None);
+}
+
+#[test]
+fn active_restart_applies_title_after_target_projection_reset() {
+    assert_restart_applies_title_after_target_projection_reset(false);
+}
+
+#[test]
+fn inactive_restart_applies_title_after_target_projection_reset() {
+    assert_restart_applies_title_after_target_projection_reset(true);
+}
+
+#[test]
+fn pane_spawn_pty_and_terminal_runtime_use_same_target_dimensions() {
+    let mut app = NativeWindowApp::new(None);
+    app.dispatch_app_action(AppAction::SplitPane {
+        pane: app.active_pane_id(),
+        direction: SplitDirection::Right,
+        launch: Some(PaneLaunch::local("active")),
+    })
+    .unwrap();
+    let active = app.active_pane_id();
+    let inactive = rssh_core::PaneId::new(1);
+    app.runtime.resize(rssh_core::TerminalSize::new(91, 27));
+    let inactive_runtime = app.pane_runtimes.get_mut(&inactive).unwrap();
+    inactive_runtime
+        .runtime
+        .resize(rssh_core::TerminalSize::new(37, 9));
+
+    for (pane, expected) in [
+        (active, rssh_core::TerminalSize::new(91, 27)),
+        (inactive, rssh_core::TerminalSize::new(37, 9)),
+    ] {
+        let (pty_size, terminal_runtime) = app.prepare_pane_spawn_runtime_for_test(pane).unwrap();
+        assert_eq!(pty_size.columns(), expected.columns);
+        assert_eq!(pty_size.rows(), expected.rows);
+        assert_eq!(terminal_runtime.terminal().grid().size(), expected);
+    }
 }
 
 fn snapshot_char(
