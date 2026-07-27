@@ -27,12 +27,13 @@ Current `crates/rssh-app/src/window.rs` has `WindowSpawnCommandQuery` and typed 
 - the supplied `...domain_assignment_query` evidence, currently named `window_app_dispatches_palette_spawn_command_in_new_tab_domain_assignment_query`
 - the supplied `...label_table_query` evidence, currently named `window_app_dispatches_palette_spawn_command_label_table_query`
 - `window_app_dispatches_native_spawn_command_local_domain_payload`
+- `window_app_show_launcher_key_assignments_use_spawn_command_label`, which proves that the label is consumed as launcher/UI metadata
 
-Boundary: do not add the old `PaneLaunch.domain` or `PaneLaunch.label`; labels remain launcher/UI metadata.
+Boundary: do not add the old `PaneLaunch.domain` or `PaneLaunch.label`; labels remain launcher/UI metadata. The parsing tests prove field ingestion, while the launcher test above proves this label boundary.
 
 ### PaneSelect MoveToNewWindow
 
-Current `crates/rssh-core/src/app_shell.rs` has `apply_move_pane_to_new_window`. The supplied `action_move_pane_to_new_window_closes_pane` evidence is represented by the current test `action_move_pane_to_new_window_detaches_selected_pane_into_pending_window`. App-level coverage includes:
+Current `crates/rssh-core/src/app_shell.rs` has `apply_move_pane_to_new_window`. The archived close-only test `action_move_pane_to_new_window_closes_pane` is superseded by the current detach test `action_move_pane_to_new_window_detaches_selected_pane_into_pending_window`. App-level coverage includes:
 
 - `window_pane_select_move_to_new_window_detaches_selected_pane_and_requests_window`
 - `window_manager_collects_detached_app_after_move_to_new_window`
@@ -55,12 +56,12 @@ Boundary: do not restore the old CLI-only model.
 ## Ordered salvage backlog
 
 1. **Pane close button — partial.** Reuse `request_close_confirmation_or_close` and `WindowCloseTarget::Pane`.
-2. **Tab overflow — partial.** Create one shared visible-segment ledger.
+2. **Tab overflow — partial.** Create one shared visible-segment ledger from the current rendering path (`tab_bar_cells_fancy`, `tab_bar_label_for_tab`, and `tab_title_second_pass_max_width`) and reuse it in hit-testing (`handle_tab_bar_mouse_input`, `tab_for_tab_bar_column`, `close_tab_for_tab_bar_column`, and `tab_bar_new_tab_column_start`).
 3. **Tab drag — partial.** Build drag targeting on that ledger and the existing `MoveTab` path.
 4. **Split ratio — missing.** Recalibrate the current fixed `source_size_delta` when the window resizes.
 5. **Pane restart — missing.** Reuse `PaneRuntime`, synchronization, and spawn paths. Do not bind `Ctrl+Shift+R`; config reload owns it.
 6. **Pane inspect — missing.** Reuse `pane_render_layout` and the `PaneRuntime`/PTY pid.
-7. **Window state report — missing.** Add CLI `state` and `state-json`, mutually exclusive with metrics, and snapshot the current configured startup app.
+7. **Window state report — missing.** Add CLI `state` and `state-json`, mutually exclusive with metrics. Reuse the current CLI/report path through `parse_window`, `WindowOptions.metrics`/`metrics_json`, `window::run`, `NativeWindowManager::metrics_report`/`metrics_json_report`, and `WindowMetricsSnapshot::report`/`json_report`. Build the state snapshot from the configured launch path—`configured_startup_app`, `configured_startup_app_with_constructor`, `NativeWindowStartup::from_options`, and the resulting `NativeWindowApp.startup_command` plus `NativeWindowApp.app_shell` initialized by `app_shell_from_pty_command`—rather than reconstructing state from raw CLI arguments.
 
 ## Validation
 
