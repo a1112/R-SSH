@@ -1,12 +1,8 @@
-# WezTerm App Shell Salvage Implementation Plan
+# WezTerm App Shell Salvage Coverage Ledger
 
-> **For Claude:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task.
+This ledger records existing coverage evidence, migration order, and boundaries for the parity-based App Shell salvage. It is not a complete task-by-task implementation plan; each execution task must define its detailed TDD acceptance criteria for the slice it implements.
 
-**Goal:** Salvage only App Shell behavior still missing from the parity baseline, without replaying the abandoned branch.
-
-**Architecture:** Treat the parity commit as the new source of truth. Reuse current typed app-shell, pane-runtime, rendering, and window-manager paths; port behavior in small tested slices only where the coverage ledger below identifies a gap.
-
-**Tech Stack:** Rust, Cargo workspace tests, the existing `rssh-core` and `rssh-app` test modules.
+Treat the parity commit as the new source of truth. Reuse current typed app-shell, pane-runtime, rendering, and window-manager paths, and salvage only behavior that the ledger identifies as a gap.
 
 ---
 
@@ -56,7 +52,7 @@ Boundary: do not restore the old CLI-only model.
 ## Ordered salvage backlog
 
 1. **Pane close button — partial.** Reuse `request_close_confirmation_or_close` and `WindowCloseTarget::Pane`.
-2. **Tab overflow — partial.** Create one shared visible-segment ledger from the current rendering path (`tab_bar_cells_fancy`, `tab_bar_label_for_tab`, and `tab_title_second_pass_max_width`) and reuse it in hit-testing (`handle_tab_bar_mouse_input`, `tab_for_tab_bar_column`, `close_tab_for_tab_bar_column`, and `tab_bar_new_tab_column_start`).
+2. **Tab overflow — partial.** Have the actual Fancy render algorithm in `tab_bar_cells_fancy` emit one shared visible-segment ledger while it uses `formatted_tab_title_for_tab_first_pass`, `tab_bar_tab_label_segments`, and its second-pass width/title logic. Hit-testing through `handle_tab_bar_mouse_input`, `tab_for_tab_bar_column`, `close_tab_for_tab_bar_column`, and `tab_bar_new_tab_column_start` must consume that ledger. `tab_bar_label_for_tab` is currently a hit-testing/column-calculation helper; do not use it to independently recompute visible segments.
 3. **Tab drag — partial.** Build drag targeting on that ledger and the existing `MoveTab` path.
 4. **Split ratio — missing.** Recalibrate the current fixed `source_size_delta` when the window resizes.
 5. **Pane restart — missing.** Reuse `PaneRuntime`, synchronization, and spawn paths. Do not bind `Ctrl+Shift+R`; config reload owns it.
@@ -65,7 +61,7 @@ Boundary: do not restore the old CLI-only model.
 
 ## Validation
 
-For each backlog slice, add and run focused tests for that behavior before moving to the next slice. After all slices, run:
+For each backlog slice, its execution task must define and run focused TDD acceptance tests before moving to the next slice. After all slices, run:
 
 ```powershell
 cargo test --locked --workspace --all-targets
