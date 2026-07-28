@@ -456,6 +456,11 @@ The current benchmark path can promote these metrics into thresholded gates:
   or 1.4297 times the input. The control-rich work-budget fixture records
   176,128 inspections with both 512-byte and 16 KiB chunks, so its chunk-size
   work ratio is 1.0.
+  Benchmark reports automatically fail when inspected query bytes exceed four
+  times input, surviving full-screen cells are cloned, or history eviction
+  relocates surviving rows. `metadata_rebase_batches` is run-cumulative rather
+  than a `<= 1` run-wide metric; the focused batched-prune test proves the
+  one-rebase-per-batch invariant.
 - Steady idle CPU: `rssh-app bench --json --idle-ms N` now samples the current
   app process during an idle window and reports idle CPU usage; add
   `--max-idle-cpu-percent N` to fail the command when it exceeds a budget.
@@ -464,11 +469,19 @@ The current benchmark path can promote these metrics into thresholded gates:
   offscreen `PixelRenderer` p95 frame time, rendered pixels, and rendered pixel
   throughput without opening a GUI window; add `--min-throughput-bytes-per-sec`,
   `--max-chunk-p95-us`, or `--max-render-frame-p95-us` to turn those metrics
-  into release gates.
+  into local gates. Hosted pull-request CI avoids absolute timing thresholds.
+  The protected fixed release runner applies the approved throughput and
+  latency budgets to seven-sample medians after two discarded warmups. The
+  current 16 ms frame gate measures offscreen `PixelRenderer` only; it does not
+  claim GPU present timing.
 - Memory footprint: `rssh-app bench --json --idle-ms N` now reports process
-  resident memory, virtual memory, and accumulated CPU time; the remaining
-  work is to compare baseline window, active shell, and future scrollback sizes
-  before tightening `--max-process-memory-bytes`.
+  resident memory, virtual memory, and accumulated CPU time. The fixed-runner
+  gate uses at least a 1,000 ms idle sample, fails closed when resource sampling
+  is unavailable, and caps resident memory at 256 MiB.
+
+The full gate matrix, fixed command fingerprint, protected baseline variables,
+and 10% same-machine comparison rule are documented in
+`docs/performance-baseline.md`.
 
 Use stable inputs when comparing implementations. For example, capture all
 three 256 KiB workloads with the same chunk, render, idle, and terminal size:

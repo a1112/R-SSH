@@ -111,7 +111,8 @@ cargo run -p rssh-app -- self-test
 cargo run -p rssh-app -- self-test --json
 cargo run -p rssh-app -- bench --json
 cargo run -p rssh-app -- bench --bytes 4194304 --chunk-size 8192 --render-frames 120 --idle-ms 500 --cols 120 --rows 30
-cargo run -p rssh-app -- bench --json --min-throughput-bytes-per-sec 1 --max-chunk-p95-us 10000000 --max-render-frame-p95-us 10000000 --max-idle-cpu-percent 1000 --max-process-memory-bytes 4294967296
+cargo run --locked --release -p rssh-app -- bench --json --workload ansi-scroll-query --bytes 1048576 --chunk-size 8192 --render-frames 30 --idle-ms 1000 --min-throughput-bytes-per-sec 1048576 --max-chunk-p95-us 5000 --max-render-frame-p95-us 16000 --max-idle-cpu-percent 3 --max-process-memory-bytes 268435456
+cargo run --locked --release -p rssh-app -- bench --json --workload plain-scroll --bytes 1048576 --chunk-size 8192 --render-frames 30 --idle-ms 1000 --min-throughput-bytes-per-sec 5242880 --max-chunk-p95-us 5000 --max-render-frame-p95-us 16000 --max-idle-cpu-percent 3 --max-process-memory-bytes 268435456
 cargo run -p rssh-app -- local --preflight -- cmd.exe /C echo console-preflight-smoke
 cargo run -p rssh-app -- console --preflight -- cmd.exe /C echo console-alias-smoke
 cargo run -p rssh-app -- local --metrics -- cmd.exe /C echo console-metrics-smoke
@@ -317,6 +318,7 @@ sample count and `--idle-ms N` to tune the resource sampling window. Add
 `--max-render-frame-p95-us`, `--max-idle-cpu-percent`, or
 `--max-process-memory-bytes` to turn the benchmark into a non-zero-exit quality
 gate; JSON output includes `threshold_violations` when a gate fails.
+Each violation identifies `metric`, `observed`, and `expected` values.
 Add `--preflight` to `console`/`local`, `ssh`, `sftp`, or `scp` when startup
 should run the same console dependency check before spawning the PTY child
 process. Add `--metrics` to `console`/`local`, `ssh`, `sftp`, or `scp` to print
@@ -442,10 +444,14 @@ formatting, tests, clippy, release compilation, and packaged
 `rssh-app.exe version --json`, `rssh-app.exe doctor --json`, and
 `rssh-app.exe self-test --json` smoke tests, `rssh-app.exe bench --json`
 benchmark smoke with offscreen render frames, idle resource sampling, and
-wide threshold gates, bundled profile validation, a
-`window-smoke` profile `--metrics-json` check, plus `rssh-app.exe console` and
-`rssh-console.cmd` console-launcher smoke tests before upload. See
-`docs/release-console.md`.
+deterministic work checks. Before packaging, a protected fixed Windows runner
+enforces the approved absolute budgets and same-machine 10% median-regression
+rule after two warmups and seven measured samples. The current 16 ms render
+budget is an offscreen `PixelRenderer` proxy, not GPU presentation. Bundled
+profile validation, a `window-smoke` profile `--metrics-json` check, plus
+`rssh-app.exe console` and `rssh-console.cmd` console-launcher smoke tests also
+run before upload. See
+`docs/release-console.md` and `docs/performance-baseline.md`.
 
 ## MVP Status
 

@@ -30,3 +30,87 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.89.0
       - run: cargo check --locked --workspace --all-targets
+
+  deterministic-performance:
+    name: Deterministic performance
+    runs-on: windows-2025
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89.0
+      - name: Verify one metadata rebase per batched prune
+        run: cargo test --locked -p rssh-terminal batched_scroll_prune_matches_incremental_prune
+      - name: Verify deterministic work and chunk-size ratio
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          function Invoke-QueryBench([int] $chunkSize) {
+            $PSNativeCommandUseErrorActionPreference = $false
+            $json = cargo run --locked --release -p rssh-app -- bench --json --workload ansi-scroll-query --bytes 1048576 --chunk-size $chunkSize --render-frames 1 --idle-ms 1
+            if ($LASTEXITCODE -ne 0) {
+              throw "benchmark process failed with exit code $LASTEXITCODE; output: $json"
+            }
+            return $json | ConvertFrom-Json
+          }
+
+          $smallChunk = Invoke-QueryBench 512
+          $largeChunk = Invoke-QueryBench 16384
+          $violations = [System.Collections.Generic.List[object]]::new()
+
+          foreach ($report in @($smallChunk, $largeChunk)) {
+            if ($report.inspected_query_bytes -gt ($report.bytes * 4)) {
+              $violations.Add([pscustomobject]@{
+                metric = "inspected_query_bytes"
+                observed = $report.inspected_query_bytes
+                expected = "<= $($report.bytes * 4)"
+              })
+            }
+            if ($report.scrolled_survivor_cell_clones -ne 0) {
+              $violations.Add([pscustomobject]@{
+                metric = "scrolled_survivor_cell_clones"
+                observed = $report.scrolled_survivor_cell_clones
+                expected = "== 0"
+              })
+            }
+            if ($report.history_row_relocations -ne 0) {
+              $violations.Add([pscustomobject]@{
+                metric = "history_row_relocations"
+                observed = $report.history_row_relocations
+                expected = "== 0"
+              })
+            }
+            if ($null -eq $report.metadata_rebase_batches) {
+              $violations.Add([pscustomobject]@{
+                metric = "metadata_rebase_batches"
+                observed = "missing"
+                expected = "reported; exact per-batch bound is covered by the focused terminal test"
+              })
+            }
+          }
+
+          if ($smallChunk.throughput_bytes_per_sec -le 0) {
+            $violations.Add([pscustomobject]@{
+              metric = "query_chunk_throughput_ratio_16k_over_512"
+              observed = "undefined: 512-byte throughput is $($smallChunk.throughput_bytes_per_sec)"
+              expected = "512-byte throughput > 0"
+            })
+          } else {
+            $ratio = [double]$largeChunk.throughput_bytes_per_sec / [double]$smallChunk.throughput_bytes_per_sec
+            if ($ratio -lt 0.70) {
+              $violations.Add([pscustomobject]@{
+                metric = "query_chunk_throughput_ratio_16k_over_512"
+                observed = $ratio
+                expected = ">= 0.70"
+              })
+            }
+          }
+
+          if ($violations.Count -gt 0) {
+            @{
+              ok = $false
+              threshold_violations = $violations
+            } | ConvertTo-Json -Depth 4 -Compress
+            exit 1
+          }

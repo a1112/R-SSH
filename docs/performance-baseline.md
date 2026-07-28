@@ -1,0 +1,91 @@
+# Performance Baseline and Gates
+
+This document is the source of truth for the terminal benchmark budgets enforced
+by CI and release workflows.
+
+## Approved Budgets
+
+| Metric | Budget |
+| --- | ---: |
+| Query scanner inspected bytes | at most `4 * input bytes` |
+| Query throughput ratio, 16 KiB chunks / 512 B chunks | at least `0.70` |
+| Surviving cells cloned by full-screen scrolling | `0` |
+| Surviving history rows relocated by eviction | `0` |
+| Metadata rebases for one batched prune | at most `1` |
+| Query-heavy parser throughput | at least `1,048,576` bytes/s |
+| Plain scrolling throughput | at least `5,242,880` bytes/s |
+| 8 KiB parser chunk p95 | at most `5,000` us |
+| Offscreen `PixelRenderer` frame p95 | at most `16,000` us |
+| Idle CPU | at most `3.0` percent |
+| Resident memory | at most `268,435,456` bytes |
+
+The 16 ms render budget is currently an offscreen `PixelRenderer` proxy. It is
+not a GPU present or input-to-present measurement. The direct GPU presentation
+tasks replace this proxy with the final render/present gate.
+
+`metadata_rebase_batches` is cumulative across a benchmark run, so it must not
+be compared with `1` as a run-wide threshold. Hosted CI runs
+`batched_scroll_prune_matches_incremental_prune`, which proves that one batched
+prune performs one rebase, and verifies that benchmark JSON keeps the cumulative
+field observable.
+
+## Hosted Pull-Request Gate
+
+The `deterministic-performance` job runs on `windows-2025`. It enforces only
+deterministic work and the relative 16 KiB/512 B throughput ratio. It does not
+enforce absolute elapsed time, CPU, or memory budgets on shared hosted runners.
+
+Each benchmark process exit code is checked before its JSON is parsed. A failed
+gate emits `threshold_violations` entries with `metric`, `observed`, and
+`expected` fields.
+
+## Fixed Release Gate
+
+The release workflow uses a protected runner labeled
+`self-hosted`, `Windows`, `X64`, and `rssh-performance`. Tag and manually
+dispatched releases cannot package or publish until this job succeeds. The job
+is serialized per machine class.
+
+For both `ansi-scroll-query` and `plain-scroll`, the runner executes the
+workloads in interleaved query/plain rounds to reduce thermal drift:
+
+- two discarded warmups;
+- seven measured samples;
+- the sorted sample at index `3` as the median.
+
+The fixed command fingerprint is:
+
+```text
+v1|bytes=1048576|chunk=8192|frames=30|idle=1000|query=ansi-scroll-query|plain=plain-scroll
+```
+
+Absolute budgets are applied to the medians. Throughput may not fall below 90%
+of the protected same-machine baseline. Latency, idle CPU, and RSS may not rise
+above 110% of that baseline. Missing, non-positive, non-finite, or mismatched
+baseline metadata fails closed.
+
+The protected `performance` environment supplies:
+
+- `RSSH_PERF_BASELINE_MACHINE_CLASS` (exact `RUNNER_NAME`);
+- `RSSH_PERF_BASELINE_OS` (exact `RUNNER_OS`);
+- `RSSH_PERF_BASELINE_ARCH` (exact `RUNNER_ARCH`);
+- `RSSH_PERF_BASELINE_CPU` (processor name, core count, and logical count);
+- `RSSH_PERF_BASELINE_TOOLCHAIN` (exact `rustc --version`);
+- `RSSH_PERF_BASELINE_COMMAND_FINGERPRINT`;
+- `RSSH_PERF_BASELINE_QUERY_BPS`;
+- `RSSH_PERF_BASELINE_PLAIN_BPS`;
+- `RSSH_PERF_BASELINE_CHUNK_P95_US`;
+- `RSSH_PERF_BASELINE_RENDER_P95_US`;
+- `RSSH_PERF_BASELINE_IDLE_CPU_PERCENT`;
+- `RSSH_PERF_BASELINE_RSS_BYTES`.
+
+Upper-bound baseline values use the worse of the query and plain medians.
+Baseline variables must be captured with the exact runner and command above.
+The first baseline is established by an authorized runner operator after two
+warmups and seven samples; until all protected values are installed, release
+certification intentionally fails.
+
+When an intentional optimization changes a median, retain the previous baseline
+for the validating release. After that release passes, replace the protected
+value with the accepted median from the workflow JSON. Never refresh a baseline
+to make an unexplained regression pass.

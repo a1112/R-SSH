@@ -10,9 +10,297 @@ permissions:
   contents: write
 
 jobs:
+  fixed-performance:
+    name: Fixed-runner performance budgets
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: [self-hosted, Windows, X64, rssh-performance]
+    environment: performance
+    concurrency:
+      group: fixed-performance-${{ vars.RSSH_PERF_BASELINE_MACHINE_CLASS }}
+      cancel-in-progress: false
+    env:
+      RSSH_PERF_BASELINE_MACHINE_CLASS: ${{ vars.RSSH_PERF_BASELINE_MACHINE_CLASS }}
+      RSSH_PERF_BASELINE_OS: ${{ vars.RSSH_PERF_BASELINE_OS }}
+      RSSH_PERF_BASELINE_ARCH: ${{ vars.RSSH_PERF_BASELINE_ARCH }}
+      RSSH_PERF_BASELINE_CPU: ${{ vars.RSSH_PERF_BASELINE_CPU }}
+      RSSH_PERF_BASELINE_TOOLCHAIN: ${{ vars.RSSH_PERF_BASELINE_TOOLCHAIN }}
+      RSSH_PERF_BASELINE_COMMAND_FINGERPRINT: ${{ vars.RSSH_PERF_BASELINE_COMMAND_FINGERPRINT }}
+      RSSH_PERF_BASELINE_QUERY_BPS: ${{ vars.RSSH_PERF_BASELINE_QUERY_BPS }}
+      RSSH_PERF_BASELINE_PLAIN_BPS: ${{ vars.RSSH_PERF_BASELINE_PLAIN_BPS }}
+      RSSH_PERF_BASELINE_CHUNK_P95_US: ${{ vars.RSSH_PERF_BASELINE_CHUNK_P95_US }}
+      RSSH_PERF_BASELINE_RENDER_P95_US: ${{ vars.RSSH_PERF_BASELINE_RENDER_P95_US }}
+      RSSH_PERF_BASELINE_IDLE_CPU_PERCENT: ${{ vars.RSSH_PERF_BASELINE_IDLE_CPU_PERCENT }}
+      RSSH_PERF_BASELINE_RSS_BYTES: ${{ vars.RSSH_PERF_BASELINE_RSS_BYTES }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Build release benchmark
+        run: cargo build --locked --release -p rssh-app
+
+      - name: Enforce absolute and same-machine median budgets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $warmupCount = 2
+          $sampleCount = 7
+          $regressionTolerance = 0.10
+          $commandFingerprint = "v1|bytes=1048576|chunk=8192|frames=30|idle=1000|query=ansi-scroll-query|plain=plain-scroll"
+          $toolchainFingerprint = (rustc --version).Trim()
+          if ($LASTEXITCODE -ne 0) {
+            throw "rustc fingerprint failed with exit code $LASTEXITCODE"
+          }
+          $cpuFingerprint = @(
+            Get-CimInstance Win32_Processor |
+              Sort-Object DeviceID |
+              ForEach-Object {
+                "$($_.Name.Trim())|cores=$($_.NumberOfCores)|logical=$($_.NumberOfLogicalProcessors)"
+              }
+          ) -join ";"
+          $violations = [System.Collections.Generic.List[object]]::new()
+
+          function Add-Violation([string] $metric, $observed, [string] $expected) {
+            $violations.Add([pscustomobject]@{
+              metric = $metric
+              observed = $observed
+              expected = $expected
+            })
+          }
+
+          $baselineNames = @(
+            "RSSH_PERF_BASELINE_QUERY_BPS",
+            "RSSH_PERF_BASELINE_PLAIN_BPS",
+            "RSSH_PERF_BASELINE_CHUNK_P95_US",
+            "RSSH_PERF_BASELINE_RENDER_P95_US",
+            "RSSH_PERF_BASELINE_IDLE_CPU_PERCENT",
+            "RSSH_PERF_BASELINE_RSS_BYTES"
+          )
+          if ([string]::IsNullOrWhiteSpace($env:RSSH_PERF_BASELINE_MACHINE_CLASS)) {
+            Add-Violation "baseline_machine_class" "missing" "configured and equal to RUNNER_NAME"
+          } elseif ($env:RSSH_PERF_BASELINE_MACHINE_CLASS -ne $env:RUNNER_NAME) {
+            Add-Violation "baseline_machine_class" $env:RUNNER_NAME "== $env:RSSH_PERF_BASELINE_MACHINE_CLASS"
+          }
+          foreach ($fingerprint in @(
+            @("baseline_os", $env:RUNNER_OS, $env:RSSH_PERF_BASELINE_OS),
+            @("baseline_arch", $env:RUNNER_ARCH, $env:RSSH_PERF_BASELINE_ARCH),
+            @("baseline_cpu", $cpuFingerprint, $env:RSSH_PERF_BASELINE_CPU),
+            @("baseline_toolchain", $toolchainFingerprint, $env:RSSH_PERF_BASELINE_TOOLCHAIN),
+            @("baseline_command_fingerprint", $commandFingerprint, $env:RSSH_PERF_BASELINE_COMMAND_FINGERPRINT)
+          )) {
+            if ([string]::IsNullOrWhiteSpace($fingerprint[2])) {
+              Add-Violation $fingerprint[0] "missing baseline" "configured for this fixed runner"
+            } elseif ($fingerprint[1] -ne $fingerprint[2]) {
+              Add-Violation $fingerprint[0] $fingerprint[1] "== $($fingerprint[2])"
+            }
+          }
+          foreach ($name in $baselineNames) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            $parsed = 0.0
+            if ([string]::IsNullOrWhiteSpace($value)) {
+              Add-Violation $name "missing" "configured for this fixed runner"
+            } elseif (-not [double]::TryParse(
+              $value,
+              [Globalization.NumberStyles]::Float,
+              [Globalization.CultureInfo]::InvariantCulture,
+              [ref] $parsed
+            )) {
+              Add-Violation $name $value "finite numeric baseline"
+            } elseif (
+              $parsed -le 0 -or
+              [double]::IsNaN($parsed) -or
+              [double]::IsInfinity($parsed)
+            ) {
+              Add-Violation $name $value "finite numeric baseline > 0"
+            }
+          }
+          if ($violations.Count -gt 0) {
+            @{
+              ok = $false
+              threshold_violations = $violations
+            } | ConvertTo-Json -Depth 4 -Compress
+            exit 1
+          }
+
+          function Invoke-Benchmark([string] $workload) {
+            $PSNativeCommandUseErrorActionPreference = $false
+            $json = ./target/release/rssh-app.exe bench --json --workload $workload --bytes 1048576 --chunk-size 8192 --render-frames 30 --idle-ms 1000
+            if ($LASTEXITCODE -ne 0) {
+              throw "benchmark process failed with exit code $LASTEXITCODE; output: $json"
+            }
+            $report = $json | ConvertFrom-Json
+            if ($report.workload -ne $workload) {
+              Add-Violation "sample_workload" $report.workload "== $workload"
+            }
+            if ($report.bytes -ne 1048576) {
+              Add-Violation "sample_bytes" $report.bytes "== 1048576"
+            }
+            if ($report.chunk_size -ne 8192) {
+              Add-Violation "sample_chunk_size" $report.chunk_size "== 8192"
+            }
+            foreach ($property in @(
+              "throughput_bytes_per_sec",
+              "chunk_p95_us",
+              "render_frame_p95_us",
+              "idle_cpu_usage_percent",
+              "process_memory_bytes",
+              "process_virtual_memory_bytes",
+              "inspected_query_bytes",
+              "scrolled_survivor_cell_clones",
+              "history_row_relocations",
+              "metadata_rebase_batches",
+              "threshold_violations"
+            )) {
+              if ($report.PSObject.Properties.Name -notcontains $property -or $null -eq $report.$property) {
+                Add-Violation "sample_$property" "missing" "reported"
+              }
+            }
+            if ($null -ne $report.threshold_violations -and $report.threshold_violations.Count -ne 0) {
+              Add-Violation "sample_threshold_violations" ($report.threshold_violations | ConvertTo-Json -Compress) "empty"
+            }
+            if ($null -ne $report.process_memory_bytes -and $report.process_memory_bytes -le 0) {
+              Add-Violation "process_memory_bytes_available" $report.process_memory_bytes "> 0"
+            }
+            if ($null -ne $report.process_virtual_memory_bytes -and $report.process_virtual_memory_bytes -le 0) {
+              Add-Violation "process_virtual_memory_bytes_available" $report.process_virtual_memory_bytes "> 0"
+            }
+            return $report
+          }
+
+          function Get-SevenSampleMedian($samples, [string] $property) {
+            if ($samples.Count -ne 7) {
+              throw "median requires exactly seven measured samples"
+            }
+            $sorted = @($samples | ForEach-Object { [double]$_.$property } | Sort-Object)
+            return [double]$sorted[3]
+          }
+
+          function Test-Minimum(
+            [string] $metric,
+            [double] $observed,
+            [double] $expected
+          ) {
+            if ($observed -lt $expected) {
+              Add-Violation $metric $observed ">= $expected"
+            }
+          }
+
+          function Test-Maximum(
+            [string] $metric,
+            [double] $observed,
+            [double] $expected
+          ) {
+            if ($observed -gt $expected) {
+              Add-Violation $metric $observed "<= $expected"
+            }
+          }
+
+          function Test-Higher-Is-BetterRegression(
+            [string] $metric,
+            [double] $observed,
+            [double] $baseline
+          ) {
+            if ($observed -lt ($baseline * (1.0 - $regressionTolerance))) {
+              Add-Violation $metric $observed ">= 90% of same-machine baseline $baseline"
+            }
+          }
+
+          function Test-Lower-Is-BetterRegression(
+            [string] $metric,
+            [double] $observed,
+            [double] $baseline
+          ) {
+            if ($observed -gt ($baseline * (1.0 + $regressionTolerance))) {
+              Add-Violation $metric $observed "<= 110% of same-machine baseline $baseline"
+            }
+          }
+
+          for ($index = 0; $index -lt $warmupCount; $index++) {
+            $null = Invoke-Benchmark "ansi-scroll-query"
+            $null = Invoke-Benchmark "plain-scroll"
+          }
+          $querySamples = @()
+          $plainSamples = @()
+          for ($index = 0; $index -lt $sampleCount; $index++) {
+            $querySamples += Invoke-Benchmark "ansi-scroll-query"
+            $plainSamples += Invoke-Benchmark "plain-scroll"
+          }
+          if ($violations.Count -gt 0) {
+            @{
+              ok = $false
+              machine_class = $env:RUNNER_NAME
+              threshold_violations = $violations
+            } | ConvertTo-Json -Depth 6 -Compress
+            exit 1
+          }
+          $queryThroughput = Get-SevenSampleMedian $querySamples "throughput_bytes_per_sec"
+          $plainThroughput = Get-SevenSampleMedian $plainSamples "throughput_bytes_per_sec"
+          $chunkP95 = [Math]::Max(
+            (Get-SevenSampleMedian $querySamples "chunk_p95_us"),
+            (Get-SevenSampleMedian $plainSamples "chunk_p95_us")
+          )
+          $renderP95 = [Math]::Max(
+            (Get-SevenSampleMedian $querySamples "render_frame_p95_us"),
+            (Get-SevenSampleMedian $plainSamples "render_frame_p95_us")
+          )
+          $idleCpu = [Math]::Max(
+            (Get-SevenSampleMedian $querySamples "idle_cpu_usage_percent"),
+            (Get-SevenSampleMedian $plainSamples "idle_cpu_usage_percent")
+          )
+          $rssBytes = [Math]::Max(
+            (Get-SevenSampleMedian $querySamples "process_memory_bytes"),
+            (Get-SevenSampleMedian $plainSamples "process_memory_bytes")
+          )
+
+          Test-Minimum "query_throughput_bytes_per_sec" $queryThroughput 1048576
+          Test-Minimum "plain_throughput_bytes_per_sec" $plainThroughput 5242880
+          Test-Maximum "chunk_p95_us" $chunkP95 5000
+          Test-Maximum "render_frame_p95_us" $renderP95 16000
+          Test-Maximum "idle_cpu_usage_percent" $idleCpu 3.0
+          Test-Maximum "process_memory_bytes" $rssBytes 268435456
+
+          $queryBaseline = [double]::Parse($env:RSSH_PERF_BASELINE_QUERY_BPS, [Globalization.CultureInfo]::InvariantCulture)
+          $plainBaseline = [double]::Parse($env:RSSH_PERF_BASELINE_PLAIN_BPS, [Globalization.CultureInfo]::InvariantCulture)
+          $chunkBaseline = [double]::Parse($env:RSSH_PERF_BASELINE_CHUNK_P95_US, [Globalization.CultureInfo]::InvariantCulture)
+          $renderBaseline = [double]::Parse($env:RSSH_PERF_BASELINE_RENDER_P95_US, [Globalization.CultureInfo]::InvariantCulture)
+          $idleBaseline = [double]::Parse($env:RSSH_PERF_BASELINE_IDLE_CPU_PERCENT, [Globalization.CultureInfo]::InvariantCulture)
+          $rssBaseline = [double]::Parse($env:RSSH_PERF_BASELINE_RSS_BYTES, [Globalization.CultureInfo]::InvariantCulture)
+          Test-Higher-Is-BetterRegression "query_throughput_regression" $queryThroughput $queryBaseline
+          Test-Higher-Is-BetterRegression "plain_throughput_regression" $plainThroughput $plainBaseline
+          Test-Lower-Is-BetterRegression "chunk_p95_regression" $chunkP95 $chunkBaseline
+          Test-Lower-Is-BetterRegression "render_p95_regression" $renderP95 $renderBaseline
+          Test-Lower-Is-BetterRegression "idle_cpu_regression" $idleCpu $idleBaseline
+          Test-Lower-Is-BetterRegression "rss_regression" $rssBytes $rssBaseline
+
+          if ($violations.Count -gt 0) {
+            @{
+              ok = $false
+              machine_class = $env:RUNNER_NAME
+              threshold_violations = $violations
+            } | ConvertTo-Json -Depth 4 -Compress
+            exit 1
+          }
+
+          @{
+            ok = $true
+            machine_class = $env:RUNNER_NAME
+            warmups = $warmupCount
+            samples = $sampleCount
+            medians = @{
+              query_throughput_bytes_per_sec = $queryThroughput
+              plain_throughput_bytes_per_sec = $plainThroughput
+              chunk_p95_us = $chunkP95
+              render_frame_p95_us = $renderP95
+              idle_cpu_usage_percent = $idleCpu
+              process_memory_bytes = $rssBytes
+            }
+          } | ConvertTo-Json -Depth 4 -Compress
+
   windows-console:
     name: Windows console package
     runs-on: windows-latest
+    needs: fixed-performance
 
     steps:
       - uses: actions/checkout@v4
@@ -54,11 +342,11 @@ jobs:
           if ($selfTest.ok -ne $true) {
             throw "self-test failed"
           }
-          $bench = ./rssh-app.exe bench --json --render-frames 30 --idle-ms 200 --min-throughput-bytes-per-sec 1 --max-chunk-p95-us 10000000 --max-render-frame-p95-us 10000000 --max-idle-cpu-percent 1000 --max-process-memory-bytes 4294967296 | ConvertFrom-Json
+          $bench = ./rssh-app.exe bench --json --render-frames 3 --idle-ms 1 | ConvertFrom-Json
           if ($bench.ok -ne $true) {
             throw "bench threshold gate failed"
           }
-          if ($bench.idle_sample_ms -ne 200) {
+          if ($bench.idle_sample_ms -ne 1) {
             throw "bench idle sample did not use requested duration"
           }
           if ($bench.process_memory_bytes -le 0) {

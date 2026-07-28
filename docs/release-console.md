@@ -4,7 +4,8 @@ This document defines the first downloadable console package for R-SSH.
 
 ## Package
 
-The release workflow builds `rssh-app` on `windows-latest` and publishes
+The release workflow certifies performance on a protected fixed Windows runner,
+then builds `rssh-app` on `windows-latest` and publishes
 `R-SSH-windows-x64.zip`.
 
 The zip contains:
@@ -27,6 +28,9 @@ Manual runs upload the same zip as a workflow artifact.
 
 The release package is not uploaded until all gates pass:
 
+- protected fixed-runner performance certification with two warmups, seven
+  measured samples, approved absolute budgets, and the 10% same-machine
+  median-regression rule described in `performance-baseline.md`
 - `cargo fmt --all -- --check`
 - `cargo test --workspace`
 - `cargo clippy --workspace --all-targets -- -D warnings`
@@ -34,7 +38,7 @@ The release package is not uploaded until all gates pass:
 - `dist/R-SSH-windows-x64/rssh-app.exe version --json`
 - `dist/R-SSH-windows-x64/rssh-app.exe doctor --json`
 - `dist/R-SSH-windows-x64/rssh-app.exe self-test --json`
-- `dist/R-SSH-windows-x64/rssh-app.exe bench --json --render-frames 30 --idle-ms 200 --min-throughput-bytes-per-sec 1 --max-chunk-p95-us 10000000 --max-render-frame-p95-us 10000000 --max-idle-cpu-percent 1000 --max-process-memory-bytes 4294967296`
+- `dist/R-SSH-windows-x64/rssh-app.exe bench --json --render-frames 3 --idle-ms 1`
 - `dist/R-SSH-windows-x64/rssh-app.exe profile --check --file examples/rssh-profiles.toml`
 - `dist/R-SSH-windows-x64/rssh-app.exe profile --show window-smoke --file examples/rssh-profiles.toml`
 - `dist/R-SSH-windows-x64/rssh-app.exe console --preflight -- cmd.exe /C echo packaged-console-alias-smoke`
@@ -54,9 +58,12 @@ response count, visible output bytes, bell count, scrollback lines, and final
 cursor position as machine-readable metrics, plus offscreen renderer p95 frame
 time, rendered pixels, rendered pixel throughput, idle CPU usage, process
 resident memory, virtual memory, and accumulated CPU time. It also exercises
-the threshold gate path with intentionally wide limits and fails the package
-smoke if `threshold_violations` is non-empty. The packaged profile
-checks prove that bundled examples validate and that `window-smoke` resolves
+the deterministic algorithmic gates and fails the package smoke if
+`threshold_violations` is non-empty. Absolute timing, idle CPU, and RSS budgets
+are enforced only by the fixed-runner median job; the current 16 ms render
+budget is an offscreen `PixelRenderer` proxy rather than a GPU-present claim.
+The packaged profile checks prove that bundled examples validate and that
+`window-smoke` resolves
 `--metrics-json` for native-window automation. The packaged `console` smoke tests
 prove that both the explicit CLI alias and the Windows launcher enter the same
 console-hosted PTY path.
@@ -70,7 +77,7 @@ After extracting the zip:
 .\rssh-app.exe version --json
 .\rssh-app.exe self-test --json
 .\rssh-app.exe bench --json --render-frames 30 --idle-ms 200
-.\rssh-app.exe bench --json --render-frames 30 --idle-ms 200 --min-throughput-bytes-per-sec 1 --max-chunk-p95-us 10000000 --max-render-frame-p95-us 10000000 --max-idle-cpu-percent 1000 --max-process-memory-bytes 4294967296
+.\rssh-app.exe bench --json --workload ansi-scroll-query --bytes 1048576 --chunk-size 8192 --render-frames 30 --idle-ms 1000 --min-throughput-bytes-per-sec 1048576 --max-chunk-p95-us 5000 --max-render-frame-p95-us 16000 --max-idle-cpu-percent 3 --max-process-memory-bytes 268435456
 .\rssh-app.exe console
 .\rssh-console.cmd
 .\rssh-app.exe local
@@ -122,9 +129,9 @@ pilot:
   deterministic ANSI/CSI/OSC workload, plus offscreen render frame p95 and
   rendered pixel throughput from `PixelRenderer`, plus idle CPU usage,
   process resident memory, virtual memory, and accumulated CPU time from the
-  current process resource sampler. Wide packaged threshold gates prove the
-  non-zero-exit budget path works; tighten the limits after collecting stable
-  release-machine baselines.
+  current process resource sampler. Protected fixed-runner certification
+  enforces approved absolute budgets and rejects medians that regress by more
+  than 10% from a fingerprint-matched same-machine baseline.
 - Profile readiness: packaged profile checks validate bundled profiles and
   verify that the native-window smoke profile resolves `--metrics-json`.
 - Console coverage: explicit `console` launcher, local shell, positional

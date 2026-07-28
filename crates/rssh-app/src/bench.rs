@@ -55,8 +55,8 @@ pub struct BenchReport {
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct BenchThresholdViolation {
     pub metric: String,
-    pub actual: String,
-    pub limit: String,
+    pub observed: String,
+    pub expected: String,
 }
 
 pub fn print_bench(options: &BenchOptions) -> Result<(), Box<dyn Error>> {
@@ -140,8 +140,8 @@ pub fn bench_text_lines(report: &BenchReport) -> Vec<String> {
 
     lines.extend(report.threshold_violations.iter().map(|violation| {
         format!(
-            "fail\tthreshold\tmetric={} actual={} limit={}",
-            violation.metric, violation.actual, violation.limit
+            "fail\tthreshold\tmetric={} observed={} expected={}",
+            violation.metric, violation.observed, violation.expected
         )
     }));
 
@@ -279,6 +279,25 @@ impl BenchmarkRuntime {
 fn apply_bench_thresholds(report: &mut BenchReport, thresholds: &BenchThresholds) {
     report.threshold_violations.clear();
 
+    record_max_violation(
+        &mut report.threshold_violations,
+        "inspected_query_bytes",
+        u128::from(report.inspected_query_bytes),
+        usize_to_u128(report.bytes).saturating_mul(4),
+    );
+    record_max_violation(
+        &mut report.threshold_violations,
+        "scrolled_survivor_cell_clones",
+        u128::from(report.scrolled_survivor_cell_clones),
+        0,
+    );
+    record_max_violation(
+        &mut report.threshold_violations,
+        "history_row_relocations",
+        u128::from(report.history_row_relocations),
+        0,
+    );
+
     if let Some(limit) = thresholds.min_throughput_bytes_per_sec {
         record_min_violation(
             &mut report.threshold_violations,
@@ -330,51 +349,51 @@ fn apply_bench_thresholds(report: &mut BenchReport, thresholds: &BenchThresholds
 fn record_min_violation(
     violations: &mut Vec<BenchThresholdViolation>,
     metric: &str,
-    actual: u128,
+    observed: u128,
     limit: u128,
 ) {
-    if actual >= limit {
+    if observed >= limit {
         return;
     }
 
     violations.push(BenchThresholdViolation {
         metric: metric.to_owned(),
-        actual: actual.to_string(),
-        limit: format!(">={limit}"),
+        observed: observed.to_string(),
+        expected: format!(">={limit}"),
     });
 }
 
 fn record_max_violation(
     violations: &mut Vec<BenchThresholdViolation>,
     metric: &str,
-    actual: u128,
+    observed: u128,
     limit: u128,
 ) {
-    if actual <= limit {
+    if observed <= limit {
         return;
     }
 
     violations.push(BenchThresholdViolation {
         metric: metric.to_owned(),
-        actual: actual.to_string(),
-        limit: format!("<={limit}"),
+        observed: observed.to_string(),
+        expected: format!("<={limit}"),
     });
 }
 
 fn record_max_float_violation(
     violations: &mut Vec<BenchThresholdViolation>,
     metric: &str,
-    actual: f32,
+    observed: f32,
     limit: f32,
 ) {
-    if actual <= limit {
+    if observed <= limit {
         return;
     }
 
     violations.push(BenchThresholdViolation {
         metric: metric.to_owned(),
-        actual: format!("{actual:.2}"),
-        limit: format!("<={limit:.2}"),
+        observed: format!("{observed:.2}"),
+        expected: format!("<={limit:.2}"),
     });
 }
 
@@ -799,10 +818,10 @@ mod tests {
             responses: 4,
             bells: 1,
             scrollback_lines: 2,
-            inspected_query_bytes: 10_240,
-            scrolled_survivor_cell_clones: 800,
-            history_row_relocations: 12,
-            metadata_rebase_batches: 3,
+            inspected_query_bytes: 4_096,
+            scrolled_survivor_cell_clones: 0,
+            history_row_relocations: 0,
+            metadata_rebase_batches: 9_999,
             cursor_row: 3,
             cursor_column: 7,
         };
@@ -881,5 +900,224 @@ mod tests {
         assert!(query.responses > 0);
         assert_eq!(plain.responses, 0);
         assert_eq!(ansi.responses, 0);
+    }
+
+    #[test]
+    fn approved_algorithmic_performance_budgets_report_observed_and_expected_values() {
+        let mut report = super::BenchReport {
+            ok: true,
+            workload: "ansi-scroll-query".to_owned(),
+            bytes: 1_024,
+            chunk_size: 512,
+            chunks: 2,
+            columns: 80,
+            rows: 24,
+            elapsed_ms: 1,
+            throughput_bytes_per_sec: 1_048_576,
+            chunk_p95_us: 5_000,
+            render_frames: 1,
+            render_frame_p95_us: 16_000,
+            rendered_pixels: 245_760,
+            render_pixels_per_sec: 15_360_000,
+            idle_sample_ms: 200,
+            idle_cpu_usage_percent: 3.0,
+            process_memory_bytes: 268_435_456,
+            process_virtual_memory_bytes: 536_870_912,
+            process_accumulated_cpu_ms: 1,
+            threshold_violations: Vec::new(),
+            display_bytes: 1_024,
+            responses: 1,
+            bells: 0,
+            scrollback_lines: 1,
+            inspected_query_bytes: 4_097,
+            scrolled_survivor_cell_clones: 1,
+            history_row_relocations: 1,
+            metadata_rebase_batches: 3,
+            cursor_row: 0,
+            cursor_column: 0,
+        };
+
+        super::apply_bench_thresholds(&mut report, &crate::cli::BenchThresholds::default());
+
+        assert!(!report.ok);
+        let json = super::bench_json(&report).expect("serialize performance budget failures");
+        let value: serde_json::Value =
+            serde_json::from_str(&json).expect("parse performance budget failures");
+        let violations = value["threshold_violations"]
+            .as_array()
+            .expect("threshold violations are an array");
+        assert_eq!(violations.len(), 3);
+        for metric in [
+            "inspected_query_bytes",
+            "scrolled_survivor_cell_clones",
+            "history_row_relocations",
+        ] {
+            let violation = violations
+                .iter()
+                .find(|violation| violation["metric"] == metric)
+                .unwrap_or_else(|| panic!("missing {metric} violation"));
+            assert!(violation.get("observed").is_some());
+            assert!(violation.get("expected").is_some());
+            assert!(violation.get("actual").is_none());
+            assert!(violation.get("limit").is_none());
+        }
+    }
+
+    #[test]
+    fn algorithmic_performance_budget_boundaries_are_accepted() {
+        let mut report = super::BenchReport {
+            ok: true,
+            workload: "ansi-scroll-query".to_owned(),
+            bytes: 1_024,
+            chunk_size: 512,
+            chunks: 2,
+            columns: 80,
+            rows: 24,
+            elapsed_ms: 1,
+            throughput_bytes_per_sec: 1_048_576,
+            chunk_p95_us: 5_000,
+            render_frames: 1,
+            render_frame_p95_us: 16_000,
+            rendered_pixels: 245_760,
+            render_pixels_per_sec: 15_360_000,
+            idle_sample_ms: 200,
+            idle_cpu_usage_percent: 3.0,
+            process_memory_bytes: 268_435_456,
+            process_virtual_memory_bytes: 536_870_912,
+            process_accumulated_cpu_ms: 1,
+            threshold_violations: Vec::new(),
+            display_bytes: 1_024,
+            responses: 1,
+            bells: 0,
+            scrollback_lines: 1,
+            inspected_query_bytes: 4_096,
+            scrolled_survivor_cell_clones: 0,
+            history_row_relocations: 0,
+            metadata_rebase_batches: 9_999,
+            cursor_row: 0,
+            cursor_column: 0,
+        };
+
+        super::apply_bench_thresholds(&mut report, &crate::cli::BenchThresholds::default());
+
+        assert!(report.ok);
+        assert!(report.threshold_violations.is_empty());
+    }
+
+    #[test]
+    fn hosted_workflow_encodes_deterministic_performance_contract() {
+        let ci = include_str!("../../../.github/workflows/ci.yml");
+        for required in [
+            "Invoke-QueryBench 512",
+            "Invoke-QueryBench 16384",
+            "inspected_query_bytes",
+            "scrolled_survivor_cell_clones",
+            "history_row_relocations",
+            "metadata_rebase_batches",
+            "batched_scroll_prune_matches_incremental_prune",
+            "$smallChunk.throughput_bytes_per_sec -le 0",
+            "$ratio = [double]$largeChunk.throughput_bytes_per_sec / [double]$smallChunk.throughput_bytes_per_sec",
+            "$ratio -lt 0.70",
+        ] {
+            assert!(
+                ci.contains(required),
+                "hosted CI performance gate is missing {required:?}"
+            );
+        }
+        for forbidden in [
+            "--min-throughput-bytes-per-sec",
+            "--max-chunk-p95-us",
+            "--max-render-frame-p95-us",
+            "--max-idle-cpu-percent",
+            "--max-process-memory-bytes",
+        ] {
+            assert!(
+                !ci.contains(forbidden),
+                "hosted PR performance gate must not enforce flaky absolute timing {forbidden:?}"
+            );
+        }
+        assert_raw_exit_checked_before_json("hosted CI", ci);
+    }
+
+    #[test]
+    fn release_workflow_encodes_fixed_runner_performance_contract() {
+        let release = include_str!("../../../.github/workflows/release.yml");
+        for required in [
+            "runs-on: [self-hosted, Windows, X64, rssh-performance]",
+            "environment: performance",
+            "cancel-in-progress: false",
+            "$warmupCount = 2",
+            "$sampleCount = 7",
+            "$regressionTolerance = 0.10",
+            "$null = Invoke-Benchmark \"ansi-scroll-query\"",
+            "$null = Invoke-Benchmark \"plain-scroll\"",
+            "$querySamples += Invoke-Benchmark \"ansi-scroll-query\"",
+            "$plainSamples += Invoke-Benchmark \"plain-scroll\"",
+            "$sorted[3]",
+            "$observed -lt ($baseline * (1.0 - $regressionTolerance))",
+            "$observed -gt ($baseline * (1.0 + $regressionTolerance))",
+            "RSSH_PERF_BASELINE_MACHINE_CLASS",
+            "RSSH_PERF_BASELINE_OS",
+            "RSSH_PERF_BASELINE_ARCH",
+            "RSSH_PERF_BASELINE_CPU",
+            "RSSH_PERF_BASELINE_TOOLCHAIN",
+            "RSSH_PERF_BASELINE_COMMAND_FINGERPRINT",
+            "Get-CimInstance Win32_Processor",
+            "$report.workload -ne $workload",
+            "$report.bytes -ne 1048576",
+            "$report.chunk_size -ne 8192",
+            "$report.threshold_violations.Count -ne 0",
+            "idle=1000",
+            "--idle-ms 1000",
+            "process_memory_bytes_available",
+            "process_virtual_memory_bytes_available",
+            "1048576",
+            "5242880",
+            "5000",
+            "16000",
+            "3.0",
+            "268435456",
+            "observed",
+            "expected",
+        ] {
+            assert!(
+                release.contains(required),
+                "release performance gate is missing {required:?}"
+            );
+        }
+        let warm_query = release
+            .find("$null = Invoke-Benchmark \"ansi-scroll-query\"")
+            .expect("query warmup");
+        let warm_plain = release
+            .find("$null = Invoke-Benchmark \"plain-scroll\"")
+            .expect("plain warmup");
+        let sample_query = release
+            .find("$querySamples += Invoke-Benchmark \"ansi-scroll-query\"")
+            .expect("query sample");
+        let sample_plain = release
+            .find("$plainSamples += Invoke-Benchmark \"plain-scroll\"")
+            .expect("plain sample");
+        assert!(
+            warm_query < warm_plain && warm_plain < sample_query && sample_query < sample_plain,
+            "warmups and samples must be interleaved query/plain, with warmups fully discarded"
+        );
+        assert!(
+            !release.contains("idle_cpu_usage_percent_available"),
+            "a real zero-percent idle sample must not be mistaken for unavailable resource data"
+        );
+        assert_raw_exit_checked_before_json("release", release);
+    }
+
+    fn assert_raw_exit_checked_before_json(name: &str, workflow: &str) {
+        let exit_check = workflow
+            .find("if ($LASTEXITCODE -ne 0)")
+            .unwrap_or_else(|| panic!("{name} benchmark must inspect the raw exit code"));
+        let json_parse = workflow
+            .find("ConvertFrom-Json")
+            .unwrap_or_else(|| panic!("{name} benchmark must parse JSON"));
+        assert!(
+            exit_check < json_parse,
+            "{name} benchmark must inspect the raw exit code before parsing JSON"
+        );
     }
 }
