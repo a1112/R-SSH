@@ -4133,23 +4133,23 @@ impl Terminal {
                 self.set_grid_cell(row, column + offset, self.blank_cell());
             }
         }
-        if visible_width < sequence_width {
+        let overflow = if visible_width < sequence_width {
             let mut continuation = previous_cell;
-            self.grid.set_reflow_overflow(
-                row,
-                (visible_width..sequence_width)
-                    .map(|offset| {
-                        continuation.set_continuation(saturating_u8(offset));
-                        continuation.clone()
-                    })
-                    .collect(),
-            );
-        }
+            (visible_width..sequence_width)
+                .map(|offset| {
+                    continuation.set_continuation(saturating_u8(offset));
+                    continuation.clone()
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.grid.set_reflow_overflow(row, overflow);
 
         self.record_damage(DamageRegion::new(
             column,
             row,
-            previous_width.max(visible_width),
+            previous_width.min(available_width).max(visible_width),
             1,
         ));
         self.cursor_column = column;
@@ -5881,14 +5881,14 @@ impl Terminal {
             return;
         }
 
-        self.cursor_column = self.grapheme_leader_column(self.cursor_column);
         let right = self.character_right_boundary();
+        self.cursor_column = self.grapheme_leader_column(self.cursor_column);
         self.insert_blank_characters_with_right_boundary(count, right, true);
     }
 
     fn insert_blank_characters_for_write(&mut self, count: u16) {
-        self.cursor_column = self.grapheme_leader_column(self.cursor_column);
         let right = self.character_right_boundary();
+        self.cursor_column = self.grapheme_leader_column(self.cursor_column);
         self.insert_blank_characters_with_right_boundary(count, right, false);
     }
 
@@ -8914,6 +8914,31 @@ mod stable_row_tests {
     }
 
     #[test]
+    fn terminal_shrinking_grapheme_clears_narrow_reflow_overflow() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.set_unicode_version(14);
+        terminal.feed("⌚".as_bytes());
+        assert_eq!(terminal.grid.get(0, 0).unwrap().columns(), 2);
+        assert!(terminal.grid.cells_with_reflow_overflow(0)[1].is_continuation());
+
+        terminal.feed("\u{fe0e}".as_bytes());
+
+        assert_eq!(terminal.grid.get(0, 0).unwrap().text(), "⌚\u{fe0e}");
+        assert_eq!(terminal.grid.get(0, 0).unwrap().columns(), 1);
+        assert_eq!(terminal.grid.cells_with_reflow_overflow(0).len(), 1);
+
+        terminal.resize(TerminalSize::new(2, 1));
+
+        assert_eq!(terminal.grid.get(0, 0).unwrap().columns(), 1);
+        assert!(terminal.grid.get(0, 1).unwrap().is_blank());
+        assert!(!terminal.grid.get(0, 1).unwrap().is_continuation());
+        assert_eq!(
+            terminal.text_from_region(0, 0, 1, 0).as_deref(),
+            Some("⌚\u{fe0e}")
+        );
+    }
+
+    #[test]
     fn terminal_clamps_large_width_override_to_cell_column_capacity() {
         let mut terminal = Terminal::new(TerminalSize::new(300, 1));
         terminal.set_cell_width_overrides(vec![CellWidthOverride::new(
@@ -8963,6 +8988,31 @@ mod stable_row_tests {
             assert_eq!(terminal.grid.get(0, 2).unwrap().text(), "👍🏽");
             assert!(terminal.grid.get(0, 3).unwrap().is_continuation());
         }
+    }
+
+    #[test]
+    fn terminal_margin_insert_at_continuation_keeps_exterior_cells() {
+        for insertion in ["\x1b[@", "\x1b[4hX\x1b[4l"] {
+            let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+            terminal.feed("A界BCD".as_bytes());
+            terminal.feed(b"\x1b[?69h\x1b[3;5s\x1b[1;3H");
+            terminal.feed(insertion.as_bytes());
+
+            assert_eq!(terminal.grid.get(0, 0).unwrap().text(), "A");
+            assert_eq!(terminal.grid.get(0, 5).unwrap().text(), "D");
+        }
+    }
+
+    #[test]
+    fn terminal_narrow_grapheme_extension_damage_stays_inside_viewport() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.set_unicode_version(14);
+        terminal.feed("☁".as_bytes());
+        terminal.take_damage();
+
+        terminal.feed("\u{fe0f}".as_bytes());
+
+        assert_eq!(terminal.take_damage(), vec![DamageRegion::new(0, 0, 1, 1)]);
     }
 
     #[test]
