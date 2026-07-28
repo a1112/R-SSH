@@ -53,6 +53,7 @@ fn render_graph_orders_every_terminal_layer_independently_of_insertion_order() {
             GpuLayer::Selection,
         ]
     );
+    assert_eq!(graph.ordered_content_layers(), graph.ordered_layers());
 }
 
 #[test]
@@ -161,9 +162,8 @@ fn signed_half_open_clipping_discards_negative_pixels_before_encoding() {
 fn persistent_instance_uploads_only_the_changed_aligned_range_and_honors_budget() {
     let mut context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
-    let mut renderer =
-        GpuLayerRenderer::new(context.device(), wgpu::TextureFormat::Rgba8Unorm, 256)
-            .expect("bounded renderer");
+    let mut renderer = GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 256)
+        .expect("bounded renderer");
     let mut graph = RenderGraph::new(4, 4);
     graph.push_quad(GpuQuad::new(
         GpuLayer::PaneBackground,
@@ -176,16 +176,12 @@ fn persistent_instance_uploads_only_the_changed_aligned_range_and_honors_budget(
         rgba(40, 50, 60, 255),
     ));
 
-    renderer
-        .upload(context.queue(), &graph)
-        .expect("first upload");
+    renderer.upload(&graph).expect("first upload");
     let first = renderer.upload_metrics();
     assert!(first.bytes_written > 0);
     assert!(first.capacity_bytes <= 256);
 
-    renderer
-        .upload(context.queue(), &graph)
-        .expect("unchanged upload");
+    renderer.upload(&graph).expect("unchanged upload");
     assert_eq!(renderer.upload_metrics().bytes_written, 0);
 
     graph.replace_quad(
@@ -196,9 +192,7 @@ fn persistent_instance_uploads_only_the_changed_aligned_range_and_honors_budget(
             rgba(70, 80, 90, 255),
         ),
     );
-    renderer
-        .upload(context.queue(), &graph)
-        .expect("dirty upload");
+    renderer.upload(&graph).expect("dirty upload");
     let dirty = renderer.upload_metrics();
     assert!(dirty.bytes_written > 0);
     assert!(dirty.bytes_written < first.bytes_written);
@@ -214,7 +208,7 @@ fn persistent_instance_uploads_only_the_changed_aligned_range_and_honors_budget(
         ));
     }
     let error = renderer
-        .upload(context.queue(), &oversized)
+        .upload(&oversized)
         .expect_err("instance budget must be enforced");
     assert!(error.to_string().contains("budget"));
 
@@ -228,8 +222,7 @@ fn headless_gpu_readback_matches_cpu_layering_invariants_with_tolerance() {
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
     let mut renderer =
-        GpuLayerRenderer::new(context.device(), wgpu::TextureFormat::Rgba8Unorm, 4096)
-            .expect("renderer");
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 4096).expect("renderer");
     let mut graph = RenderGraph::new(4, 4);
     graph.push_quad(GpuQuad::new(
         GpuLayer::PaneBackground,
@@ -260,12 +253,7 @@ fn headless_gpu_readback_matches_cpu_layering_invariants_with_tolerance() {
     ));
 
     let actual = renderer
-        .render_headless_rgba8(
-            context.device(),
-            context.queue(),
-            &graph,
-            Duration::from_secs(5),
-        )
+        .render_headless_rgba8(&graph, Duration::from_secs(5))
         .expect("real wgpu render and readback");
     let expected = [
         rgba(0, 160, 0, 255),
@@ -333,20 +321,11 @@ fn decoded_fragment_textures_have_no_seams_and_are_reused_by_bounded_cache() {
 
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
-    let mut renderer = GpuLayerRenderer::new_with_budgets(
-        context.device(),
-        wgpu::TextureFormat::Rgba8Unorm,
-        4096,
-        16,
-    )
-    .expect("renderer");
+    let mut renderer =
+        GpuLayerRenderer::new_with_budgets(&context, wgpu::TextureFormat::Rgba8Unorm, 4096, 32)
+            .expect("renderer");
     let actual = renderer
-        .render_headless_rgba8(
-            context.device(),
-            context.queue(),
-            &graph,
-            Duration::from_secs(5),
-        )
+        .render_headless_rgba8(&graph, Duration::from_secs(5))
         .expect("decoded texture readback");
     assert_eq!(
         actual,
@@ -359,16 +338,11 @@ fn decoded_fragment_textures_have_no_seams_and_are_reused_by_bounded_cache() {
         .concat()
     );
     let first = renderer.texture_cache_metrics();
-    assert_eq!(first.retained_bytes, 16);
+    assert_eq!(first.retained_bytes, 32);
     assert_eq!(first.uploads, 4);
 
     renderer
-        .render_headless_rgba8(
-            context.device(),
-            context.queue(),
-            &graph,
-            Duration::from_secs(5),
-        )
+        .render_headless_rgba8(&graph, Duration::from_secs(5))
         .expect("cached decoded texture readback");
     assert_eq!(renderer.texture_cache_metrics().uploads, first.uploads);
 }
@@ -390,24 +364,15 @@ fn texture_cache_evicts_lru_entries_without_exceeding_its_byte_budget() {
     let green = one_pixel_graph(82, "AP8A");
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
-    let mut renderer = GpuLayerRenderer::new_with_budgets(
-        context.device(),
-        wgpu::TextureFormat::Rgba8Unorm,
-        64,
-        4,
-    )
-    .expect("one-pixel cache");
+    let mut renderer =
+        GpuLayerRenderer::new_with_budgets(&context, wgpu::TextureFormat::Rgba8Unorm, 64, 8)
+            .expect("one-pixel cache");
 
     for graph in [&red, &green, &red] {
         renderer
-            .render_headless_rgba8(
-                context.device(),
-                context.queue(),
-                graph,
-                Duration::from_secs(5),
-            )
+            .render_headless_rgba8(graph, Duration::from_secs(5))
             .expect("bounded cache frame");
-        assert!(renderer.texture_cache_metrics().retained_bytes <= 4);
+        assert!(renderer.texture_cache_metrics().retained_bytes <= 8);
     }
     let metrics = renderer.texture_cache_metrics();
     assert_eq!(metrics.entries, 1);
@@ -420,17 +385,14 @@ fn persistent_capacity_grows_geometrically_reuses_allocation_and_never_draws_sta
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
     let mut renderer =
-        GpuLayerRenderer::new(context.device(), wgpu::TextureFormat::Rgba8Unorm, 256)
-            .expect("renderer");
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 256).expect("renderer");
     let mut one = RenderGraph::new(2, 1);
     one.push_quad(GpuQuad::new(
         GpuLayer::PaneBackground,
         PixelRect::new(0, 0, 2, 1),
         rgba(0, 200, 0, 255),
     ));
-    renderer
-        .upload(context.queue(), &one)
-        .expect("one instance");
+    renderer.upload(&one).expect("one instance");
     let initial_capacity = renderer.upload_metrics().capacity_bytes;
 
     let mut three = RenderGraph::new(2, 1);
@@ -441,18 +403,13 @@ fn persistent_capacity_grows_geometrically_reuses_allocation_and_never_draws_sta
     ] {
         three.push_quad(GpuQuad::new(layer, PixelRect::new(1, 0, 1, 1), color));
     }
-    renderer.upload(context.queue(), &three).expect("grow");
+    renderer.upload(&three).expect("grow");
     let grown_capacity = renderer.upload_metrics().capacity_bytes;
     assert!(grown_capacity > initial_capacity);
     assert!(grown_capacity.is_power_of_two());
 
     let actual = renderer
-        .render_headless_rgba8(
-            context.device(),
-            context.queue(),
-            &one,
-            Duration::from_secs(5),
-        )
+        .render_headless_rgba8(&one, Duration::from_secs(5))
         .expect("shrunken active range");
     assert_eq!(
         actual,
@@ -467,11 +424,213 @@ fn persistent_capacity_grows_geometrically_reuses_allocation_and_never_draws_sta
 fn instance_budget_is_clamped_to_the_device_max_buffer_size() {
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
-    let renderer = GpuLayerRenderer::new(
-        context.device(),
-        wgpu::TextureFormat::Rgba8Unorm,
-        usize::MAX,
-    )
-    .expect("device-clamped budget");
+    let renderer = GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, usize::MAX)
+        .expect("device-clamped budget");
     assert!(renderer.instance_budget_bytes() as u64 <= context.device().limits().max_buffer_size);
+}
+
+#[test]
+fn inline_image_alpha_replaces_cpu_style_instead_of_blending() {
+    fn render_pixel(payload: &str) -> [u8; 4] {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(format!("\x1b_Ga=T,q=1,i=90,f=32,s=1,v=1;{payload}\x1b\\").as_bytes());
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let mut graph = RenderGraph::new(1, 1);
+        graph.push_quad(GpuQuad::new(
+            GpuLayer::PaneBackground,
+            PixelRect::new(0, 0, 1, 1),
+            rgba(200, 0, 0, 255),
+        ));
+        graph.push_snapshot_images(&snapshot, RenderGeometry::new(1, 1, 1, 1), 0, None);
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let mut renderer = GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 256)
+            .expect("renderer");
+        let bytes = renderer
+            .render_headless_rgba8(&graph, Duration::from_secs(5))
+            .expect("readback");
+        bytes.try_into().expect("one RGBA pixel")
+    }
+
+    assert_eq!(
+        render_pixel("AAD/gA=="),
+        rgba(0, 0, 255, 128),
+        "nonzero image alpha is authoritative, not source-over blended"
+    );
+    assert_eq!(
+        render_pixel("AAD/AA=="),
+        rgba(200, 0, 0, 255),
+        "fully transparent image pixels leave the lower layer unchanged"
+    );
+}
+
+#[test]
+fn whole_image_same_z_missing_kitty_id_preserves_snapshot_insertion_order() {
+    const RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+    terminal.feed(b"\x1b_Ga=T,q=1,i=91,f=24,s=1,v=1;AP8A\x1b\\");
+    terminal.feed(format!("\x1b]1337;File=inline=1;width=1px;height=1px:{RED_PNG}\x07").as_bytes());
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let mut graph = RenderGraph::new(1, 1);
+    graph.push_snapshot_images(&snapshot, RenderGeometry::new(1, 1, 1, 1), 0, None);
+    assert_eq!(graph.planned_image_draw_count(), 2);
+
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 256).expect("renderer");
+    assert_eq!(
+        renderer
+            .render_headless_rgba8(&graph, Duration::from_secs(5),)
+            .expect("same-z readback"),
+        rgba(255, 0, 0, 255),
+        "the later iTerm image must remain above the earlier Kitty image"
+    );
+}
+
+#[test]
+fn every_adjacent_layer_pair_is_submitted_in_canonical_order() {
+    fn push_layer(graph: &mut RenderGraph, layer: GpuLayer, rect: PixelRect, color: [u8; 4]) {
+        match layer {
+            GpuLayer::UltraNegativeImage => graph.push_image(GpuImage::new(
+                ImageProtocol::Kitty,
+                i32::MIN / 2 - 1,
+                rect,
+                color,
+            )),
+            GpuLayer::NegativeImage => {
+                graph.push_image(GpuImage::new(ImageProtocol::Kitty, -1, rect, color));
+            }
+            GpuLayer::PositiveImage => {
+                graph.push_image(GpuImage::new(ImageProtocol::Kitty, 0, rect, color));
+            }
+            _ => graph.push_quad(GpuQuad::new(layer, rect, color)),
+        }
+    }
+
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 4096).expect("renderer");
+    for pair in GpuLayer::canonical_order().windows(2) {
+        let lower = pair[0];
+        let upper = pair[1];
+        let mut graph = RenderGraph::new(2, 1);
+        // Reverse insertion proves the explicit graph order is authoritative.
+        push_layer(
+            &mut graph,
+            upper,
+            PixelRect::new(1, 0, 1, 1),
+            rgba(0, 0, 220, 255),
+        );
+        push_layer(
+            &mut graph,
+            lower,
+            PixelRect::new(0, 0, 2, 1),
+            rgba(220, 0, 0, 255),
+        );
+        assert_eq!(graph.ordered_content_layers(), vec![lower, upper]);
+        let actual = renderer
+            .render_headless_rgba8(&graph, Duration::from_secs(5))
+            .expect("adjacent layer readback");
+        let lower_pixel = if lower == GpuLayer::Glyph {
+            rgba(0, 0, 0, 0)
+        } else {
+            rgba(220, 0, 0, 255)
+        };
+        let upper_pixel = if upper == GpuLayer::Glyph {
+            lower_pixel
+        } else {
+            rgba(0, 0, 220, 255)
+        };
+        assert_eq!(
+            actual,
+            [lower_pixel, upper_pixel].concat(),
+            "incorrect GPU ordering for {lower:?} -> {upper:?}"
+        );
+    }
+}
+
+#[test]
+fn renderer_rejects_a_foreign_device_and_queue_before_mutating_upload_state() {
+    let context_a = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("context A");
+    let mut context_b = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("context B");
+    let mut renderer = GpuLayerRenderer::new(&context_a, wgpu::TextureFormat::Rgba8Unorm, 256)
+        .expect("renderer A");
+    let mut graph = RenderGraph::new(1, 1);
+    graph.push_quad(GpuQuad::new(
+        GpuLayer::PaneBackground,
+        PixelRect::new(0, 0, 1, 1),
+        rgba(1, 2, 3, 255),
+    ));
+    let before = renderer.upload_metrics();
+    let error = renderer
+        .upload_from(&context_b, &graph)
+        .expect_err("foreign context must be rejected");
+    assert!(error.to_string().contains("different GPU context"));
+    assert_eq!(renderer.upload_metrics(), before);
+    context_b
+        .run_headless_submission_probe(Duration::from_secs(5))
+        .expect("rejection must not poison the foreign device");
+}
+
+#[test]
+fn headless_readback_rejects_device_and_host_resource_limits_before_gpu_creation() {
+    let mut context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 256).expect("renderer");
+    let max_dimension = context.device().limits().max_texture_dimension_2d;
+    let oversized = RenderGraph::new(max_dimension.saturating_add(1), 1);
+    assert!(
+        renderer
+            .render_headless_rgba8(&oversized, Duration::from_secs(5),)
+            .expect_err("max dimension must be validated")
+            .to_string()
+            .contains("limit")
+    );
+    let budget_square = RenderGraph::new(max_dimension, max_dimension);
+    assert!(
+        renderer
+            .render_headless_rgba8(&budget_square, Duration::from_secs(5),)
+            .expect_err("host readback budget must be validated")
+            .to_string()
+            .contains("budget")
+    );
+    context
+        .run_headless_submission_probe(Duration::from_secs(5))
+        .expect("preflight rejection must not create an uncaptured GPU fault");
+}
+
+#[test]
+fn non_power_of_two_instance_budget_accepts_legal_active_bytes_at_boundary() {
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer = GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 100)
+        .expect("100-byte renderer");
+    let mut graph = RenderGraph::new(1, 1);
+    for _ in 0..3 {
+        graph.push_quad(GpuQuad::new(
+            GpuLayer::CellBackground,
+            PixelRect::new(0, 0, 1, 1),
+            rgba(0, 0, 0, 255),
+        ));
+    }
+    renderer
+        .upload(&graph)
+        .expect("96 active bytes fit a 100-byte budget");
+    graph.push_quad(GpuQuad::new(
+        GpuLayer::CellBackground,
+        PixelRect::new(0, 0, 1, 1),
+        rgba(0, 0, 0, 255),
+    ));
+    assert!(
+        renderer
+            .upload(&graph)
+            .expect_err("128 active bytes exceed a 100-byte budget")
+            .to_string()
+            .contains("budget")
+    );
 }

@@ -6,21 +6,26 @@ use std::{
     ops::Range,
     sync::Arc,
     sync::mpsc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use super::{
-    GpuImage, GpuLayer, GpuLayerError, GpuQuad, PixelRect,
+    GpuContext, GpuContextGeneration, GpuImage, GpuLayer, GpuLayerError, GpuQuad, PixelRect,
     images::image_layer,
     quads::{INSTANCE_SIZE, encode_instance},
 };
-use crate::{ImageDrawPlan, RenderGeometry, TerminalRenderSnapshot, gpu_image_draw_plan};
+use crate::{
+    ImageDrawPlan, RenderGeometry, TerminalRenderSnapshot, compare_image_draw_plans,
+    gpu_image_draw_plan,
+};
 
 const INSTANCE_STRIDE: wgpu::BufferAddress = INSTANCE_SIZE as wgpu::BufferAddress;
 const MIN_INSTANCE_CAPACITY: usize = 64;
 const INSTANCE_WRITE_ALIGNMENT: usize = 4;
 pub const DEFAULT_GPU_INSTANCE_BYTE_BUDGET: usize = 64 * 1024 * 1024;
 pub const DEFAULT_GPU_IMAGE_BYTE_BUDGET: usize = 64 * 1024 * 1024;
+pub const DEFAULT_GPU_READBACK_BYTE_BUDGET: usize = 64 * 1024 * 1024;
+const MAX_GPU_READBACK_WAIT: Duration = Duration::from_secs(5);
 
 const QUAD_SHADER: &str = r"
 struct Viewport {
@@ -118,7 +123,11 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
         vec2<i32>(input.local * vec2<f32>(dimensions)),
         vec2<i32>(dimensions) - vec2<i32>(1),
     );
-    return textureLoad(image_texture, coordinate, 0);
+    let color = textureLoad(image_texture, coordinate, 0);
+    if color.a == 0.0 {
+        discard;
+    }
+    return color;
 }
 ";
 
@@ -126,7 +135,31 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
 enum PrimitiveKind {
     Quad,
     Image,
-    TextureImage(u64),
+    TextureImage(usize),
+}
+
+#[derive(Clone, Debug)]
+struct TextureIdentity {
+    digest: u64,
+    width: u32,
+    height: u32,
+    pixels: Arc<[u8]>,
+}
+
+impl PartialEq for TextureIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        self.width == other.width && self.height == other.height && self.pixels == other.pixels
+    }
+}
+
+impl Eq for TextureIdentity {}
+
+impl Hash for TextureIdentity {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.digest.hash(state);
+        self.width.hash(state);
+        self.height.hash(state);
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -141,7 +174,7 @@ enum GraphNode {
     },
     TextureImage {
         sequence: u64,
-        texture_key: u64,
+        texture: TextureIdentity,
         plan: Arc<ImageDrawPlan>,
     },
 }
@@ -220,11 +253,11 @@ impl RenderGraph {
         animation_elapsed_ms: Option<u64>,
     ) {
         for plan in gpu_image_draw_plan(snapshot, geometry, animation_frame, animation_elapsed_ms) {
-            let texture_key = texture_key(&plan);
+            let texture = texture_identity(&plan);
             let sequence = self.allocate_sequence();
             self.nodes.push(GraphNode::TextureImage {
                 sequence,
-                texture_key,
+                texture,
                 plan: Arc::new(plan),
             });
         }
@@ -301,11 +334,30 @@ impl RenderGraph {
         sequence
     }
 
-    fn prepare(&self) -> PreparedGraph {
-        let mut nodes = self.nodes.clone();
-        nodes.sort_by(node_order);
+    fn prepare(&self, instance_budget_bytes: usize) -> Result<PreparedGraph, GpuLayerError> {
+        let maximum_instance_bytes = self
+            .nodes
+            .len()
+            .checked_mul(INSTANCE_SIZE)
+            .ok_or_else(|| GpuLayerError::message("GPU graph instance byte length overflow"))?;
+        if maximum_instance_bytes > instance_budget_bytes {
+            return Err(GpuLayerError::message(format!(
+                "GPU graph can require {maximum_instance_bytes} instance bytes, exceeding the {instance_budget_bytes}-byte budget"
+            )));
+        }
+        let mut nodes = Vec::new();
+        nodes.try_reserve_exact(self.nodes.len()).map_err(|error| {
+            GpuLayerError::message(format!("reserve bounded GPU graph ordering: {error}"))
+        })?;
+        nodes.extend(self.nodes.iter());
+        nodes.sort_by(|left, right| node_order(left, right));
 
-        let mut bytes = Vec::with_capacity(nodes.len().saturating_mul(INSTANCE_SIZE));
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(maximum_instance_bytes)
+            .map_err(|error| {
+                GpuLayerError::message(format!("reserve bounded GPU instances: {error}"))
+            })?;
         let mut batches = Vec::<DrawBatch>::new();
         let mut textures = Vec::<PlannedTexture>::new();
         let mut instance_index = 0_u32;
@@ -320,19 +372,19 @@ impl RenderGraph {
                 GraphNode::Image { image, .. } => {
                     (PrimitiveKind::Image, image.rect(), image.color())
                 }
-                GraphNode::TextureImage {
-                    texture_key, plan, ..
-                } => {
-                    if !textures.iter().any(|texture| texture.key == texture_key) {
-                        textures.push(PlannedTexture {
-                            key: texture_key,
-                            width: plan.width,
-                            height: plan.height,
-                            pixels: Arc::clone(&plan),
+                GraphNode::TextureImage { texture, plan, .. } => {
+                    let texture_index = textures
+                        .iter()
+                        .position(|planned| &planned.identity == texture)
+                        .unwrap_or_else(|| {
+                            let index = textures.len();
+                            textures.push(PlannedTexture {
+                                identity: texture.clone(),
+                            });
+                            index
                         });
-                    }
                     (
-                        PrimitiveKind::TextureImage(texture_key),
+                        PrimitiveKind::TextureImage(texture_index),
                         PixelRect::new(
                             plan.destination_x,
                             plan.destination_y,
@@ -357,20 +409,25 @@ impl RenderGraph {
             }
             instance_index = instance_index.saturating_add(1);
         }
-        PreparedGraph {
+        Ok(PreparedGraph {
             bytes,
             batches,
             textures,
-        }
+        })
     }
 }
 
-fn texture_key(plan: &ImageDrawPlan) -> u64 {
+fn texture_identity(plan: &ImageDrawPlan) -> TextureIdentity {
     let mut hasher = DefaultHasher::new();
     plan.width.hash(&mut hasher);
     plan.height.hash(&mut hasher);
     plan.pixels.hash(&mut hasher);
-    hasher.finish()
+    TextureIdentity {
+        digest: hasher.finish(),
+        width: plan.width,
+        height: plan.height,
+        pixels: Arc::clone(&plan.pixels),
+    }
 }
 
 fn image_order(
@@ -399,11 +456,7 @@ fn node_order(left: &GraphNode, right: &GraphNode) -> Ordering {
                 GraphNode::TextureImage {
                     plan: right_plan, ..
                 },
-            ) => left_plan
-                .kitty_image_id
-                .cmp(&right_plan.kitty_image_id)
-                .then_with(|| left_plan.parent_index.cmp(&right_plan.parent_index))
-                .then_with(|| left_plan.fragment_index.cmp(&right_plan.fragment_index)),
+            ) => compare_image_draw_plans(left_plan, right_plan),
             _ => match (left.kitty_id(), right.kitty_id()) {
                 (Some(left_id), Some(right_id)) => left_id.cmp(&right_id),
                 _ => Ordering::Equal,
@@ -421,10 +474,7 @@ struct PreparedGraph {
 
 #[derive(Clone, Debug)]
 struct PlannedTexture {
-    key: u64,
-    width: u32,
-    height: u32,
-    pixels: Arc<ImageDrawPlan>,
+    identity: TextureIdentity,
 }
 
 #[derive(Clone, Debug)]
@@ -483,17 +533,14 @@ impl PersistentInstances {
 
         let reallocated = bytes.len() > self.capacity_bytes;
         if reallocated {
-            let capacity = bytes
+            let geometric_capacity = bytes
                 .len()
                 .max(MIN_INSTANCE_CAPACITY)
                 .checked_next_power_of_two()
                 .ok_or_else(|| GpuLayerError::message("GPU instance capacity overflow"))?;
-            if capacity > self.budget_bytes {
-                return Err(GpuLayerError::message(format!(
-                    "GPU instance capacity {capacity} exceeds the {}-byte budget",
-                    self.budget_bytes
-                )));
-            }
+            let aligned_budget =
+                self.budget_bytes / INSTANCE_WRITE_ALIGNMENT * INSTANCE_WRITE_ALIGNMENT;
+            let capacity = geometric_capacity.min(aligned_budget);
             self.buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("rssh-terminal-layer-instances"),
                 size: capacity as wgpu::BufferAddress,
@@ -568,15 +615,13 @@ pub struct TextureCacheMetrics {
 struct CachedTexture {
     _texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
-    byte_len: usize,
-    width: u32,
-    height: u32,
+    retained_bytes: usize,
     last_used: u64,
 }
 
 #[derive(Debug)]
 struct TextureCache {
-    entries: HashMap<u64, CachedTexture>,
+    entries: HashMap<TextureIdentity, CachedTexture>,
     budget_bytes: usize,
     retained_bytes: usize,
     clock: u64,
@@ -586,9 +631,9 @@ struct TextureCache {
 
 impl TextureCache {
     fn new(budget_bytes: usize) -> Result<Self, GpuLayerError> {
-        if budget_bytes < 4 {
+        if budget_bytes < 8 {
             return Err(GpuLayerError::message(
-                "GPU image texture budget must be at least 4 bytes",
+                "GPU image texture budget must be at least 8 retained bytes",
             ));
         }
         Ok(Self {
@@ -612,22 +657,33 @@ impl TextureCache {
         layout: &wgpu::BindGroupLayout,
         textures: &[PlannedTexture],
     ) -> Result<(), GpuLayerError> {
+        let max_dimension = device.limits().max_texture_dimension_2d;
         let requested = textures
             .iter()
-            .map(|texture| texture.key)
+            .map(|texture| texture.identity.clone())
             .collect::<HashSet<_>>();
         let requested_bytes = textures.iter().try_fold(0_usize, |total, texture| {
-            let expected = texture_byte_len(texture.width, texture.height)?;
-            if expected != texture.pixels.pixels.len() {
+            if texture.identity.width == 0
+                || texture.identity.height == 0
+                || texture.identity.width > max_dimension
+                || texture.identity.height > max_dimension
+            {
+                return Err(GpuLayerError::message(format!(
+                    "GPU image texture {}x{} exceeds device limit {max_dimension}",
+                    texture.identity.width, texture.identity.height
+                )));
+            }
+            let expected = texture_byte_len(texture.identity.width, texture.identity.height)?;
+            if expected != texture.identity.pixels.len() {
                 return Err(GpuLayerError::message(format!(
                     "planned image {}x{} has {} bytes, expected {expected}",
-                    texture.width,
-                    texture.height,
-                    texture.pixels.pixels.len()
+                    texture.identity.width,
+                    texture.identity.height,
+                    texture.identity.pixels.len()
                 )));
             }
             total
-                .checked_add(expected)
+                .checked_add(texture_retained_bytes(expected)?)
                 .ok_or_else(|| GpuLayerError::message("GPU image texture budget overflow"))
         })?;
         if requested_bytes > self.budget_bytes {
@@ -639,10 +695,13 @@ impl TextureCache {
 
         let missing_bytes = textures
             .iter()
-            .filter(|texture| !self.entries.contains_key(&texture.key))
+            .filter(|texture| !self.entries.contains_key(&texture.identity))
             .try_fold(0_usize, |total, texture| {
                 total
-                    .checked_add(texture_byte_len(texture.width, texture.height)?)
+                    .checked_add(texture_retained_bytes(texture_byte_len(
+                        texture.identity.width,
+                        texture.identity.height,
+                    )?)?)
                     .ok_or_else(|| GpuLayerError::message("GPU image cache size overflow"))
             })?;
         while self.retained_bytes.saturating_add(missing_bytes) > self.budget_bytes {
@@ -651,46 +710,31 @@ impl TextureCache {
                 .iter()
                 .filter(|(key, _)| !requested.contains(key))
                 .min_by_key(|(_, texture)| texture.last_used)
-                .map(|(key, _)| *key)
+                .map(|(key, _)| key.clone())
             else {
                 return Err(GpuLayerError::message(
                     "GPU image cache cannot satisfy the frame texture budget",
                 ));
             };
             if let Some(evicted) = self.entries.remove(&eviction_key) {
-                self.retained_bytes = self.retained_bytes.saturating_sub(evicted.byte_len);
+                self.retained_bytes = self.retained_bytes.saturating_sub(evicted.retained_bytes);
                 self.evictions = self.evictions.saturating_add(1);
             }
         }
 
-        let max_dimension = device.limits().max_texture_dimension_2d;
         for planned in textures {
             self.clock = self.clock.saturating_add(1);
-            if let Some(cached) = self.entries.get_mut(&planned.key) {
-                if cached.width != planned.width || cached.height != planned.height {
-                    return Err(GpuLayerError::message(
-                        "GPU image texture hash collision changed dimensions",
-                    ));
-                }
+            if let Some(cached) = self.entries.get_mut(&planned.identity) {
                 cached.last_used = self.clock;
                 continue;
             }
-            if planned.width == 0
-                || planned.height == 0
-                || planned.width > max_dimension
-                || planned.height > max_dimension
-            {
-                return Err(GpuLayerError::message(format!(
-                    "GPU image texture {}x{} exceeds device limit {max_dimension}",
-                    planned.width, planned.height
-                )));
-            }
-            let byte_len = texture_byte_len(planned.width, planned.height)?;
+            let byte_len = texture_byte_len(planned.identity.width, planned.identity.height)?;
+            let retained_bytes = texture_retained_bytes(byte_len)?;
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("rssh-terminal-inline-image"),
                 size: wgpu::Extent3d {
-                    width: planned.width,
-                    height: planned.height,
+                    width: planned.identity.width,
+                    height: planned.identity.height,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -707,15 +751,15 @@ impl TextureCache {
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                &planned.pixels.pixels,
+                &planned.identity.pixels,
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(planned.width.saturating_mul(4)),
-                    rows_per_image: Some(planned.height),
+                    bytes_per_row: Some(planned.identity.width.saturating_mul(4)),
+                    rows_per_image: Some(planned.identity.height),
                 },
                 wgpu::Extent3d {
-                    width: planned.width,
-                    height: planned.height,
+                    width: planned.identity.width,
+                    height: planned.identity.height,
                     depth_or_array_layers: 1,
                 },
             );
@@ -729,17 +773,15 @@ impl TextureCache {
                 }],
             });
             self.entries.insert(
-                planned.key,
+                planned.identity.clone(),
                 CachedTexture {
                     _texture: texture,
                     bind_group,
-                    byte_len,
-                    width: planned.width,
-                    height: planned.height,
+                    retained_bytes,
                     last_used: self.clock,
                 },
             );
-            self.retained_bytes = self.retained_bytes.saturating_add(byte_len);
+            self.retained_bytes = self.retained_bytes.saturating_add(retained_bytes);
             self.uploads = self.uploads.saturating_add(1);
         }
         Ok(())
@@ -768,6 +810,12 @@ fn texture_byte_len(width: u32, height: u32) -> Result<usize, GpuLayerError> {
         .ok_or_else(|| GpuLayerError::message("GPU image texture byte length overflow"))
 }
 
+fn texture_retained_bytes(gpu_bytes: usize) -> Result<usize, GpuLayerError> {
+    gpu_bytes
+        .checked_mul(2)
+        .ok_or_else(|| GpuLayerError::message("GPU image retained byte length overflow"))
+}
+
 #[derive(Debug)]
 struct LayerPipeline {
     pipeline: wgpu::RenderPipeline,
@@ -779,6 +827,7 @@ impl LayerPipeline {
         format: wgpu::TextureFormat,
         layout: &wgpu::PipelineLayout,
         shader: &wgpu::ShaderModule,
+        blend: Option<wgpu::BlendState>,
         label: &'static str,
     ) -> Self {
         let attributes = [
@@ -800,7 +849,7 @@ impl LayerPipeline {
         })];
         let targets = [Some(wgpu::ColorTargetState {
             format,
-            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+            blend,
             write_mask: wgpu::ColorWrites::ALL,
         })];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -831,7 +880,9 @@ impl LayerPipeline {
 /// Persistent instanced renderer for non-text terminal layers.
 #[derive(Debug)]
 pub struct GpuLayerRenderer {
+    generation: GpuContextGeneration,
     device: wgpu::Device,
+    queue: wgpu::Queue,
     format: wgpu::TextureFormat,
     bind_group: wgpu::BindGroup,
     viewport: wgpu::Buffer,
@@ -840,8 +891,19 @@ pub struct GpuLayerRenderer {
     image_bind_group_layout: wgpu::BindGroupLayout,
     instances: PersistentInstances,
     texture_cache: TextureCache,
+    readback_budget_bytes: usize,
     prepared_batches: Vec<DrawBatch>,
+    prepared_textures: Vec<TextureIdentity>,
     prepared_size: (u32, u32),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ReadbackLayout {
+    unpadded_bytes_per_row_usize: usize,
+    padded_bytes_per_row: u32,
+    padded_bytes_per_row_usize: usize,
+    readback_size: u64,
+    output_len: usize,
 }
 
 impl GpuLayerRenderer {
@@ -851,12 +913,12 @@ impl GpuLayerRenderer {
     ///
     /// Returns an error when the budget cannot hold one instance.
     pub fn new(
-        device: &wgpu::Device,
+        context: &GpuContext,
         format: wgpu::TextureFormat,
         instance_budget_bytes: usize,
     ) -> Result<Self, GpuLayerError> {
         Self::new_with_budgets(
-            device,
+            context,
             format,
             instance_budget_bytes,
             DEFAULT_GPU_IMAGE_BYTE_BUDGET,
@@ -869,15 +931,47 @@ impl GpuLayerRenderer {
     ///
     /// Returns an error when either budget is too small.
     pub fn new_with_budgets(
-        device: &wgpu::Device,
+        context: &GpuContext,
         format: wgpu::TextureFormat,
         instance_budget_bytes: usize,
         image_budget_bytes: usize,
     ) -> Result<Self, GpuLayerError> {
+        Self::new_with_all_budgets(
+            context,
+            format,
+            instance_budget_bytes,
+            image_budget_bytes,
+            DEFAULT_GPU_READBACK_BYTE_BUDGET,
+        )
+    }
+
+    /// Creates pipelines with independent instance, image, and readback budgets.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a budget is too small for its minimum resource.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "device-bound pipeline construction keeps all resources on one audited context generation"
+    )]
+    pub fn new_with_all_budgets(
+        context: &GpuContext,
+        format: wgpu::TextureFormat,
+        instance_budget_bytes: usize,
+        image_budget_bytes: usize,
+        readback_budget_bytes: usize,
+    ) -> Result<Self, GpuLayerError> {
+        let device = context.device();
+        let queue = context.queue();
         if instance_budget_bytes < MIN_INSTANCE_CAPACITY {
             return Err(GpuLayerError::message(format!(
                 "GPU instance budget must be at least {MIN_INSTANCE_CAPACITY} bytes"
             )));
+        }
+        if readback_budget_bytes < 4 {
+            return Err(GpuLayerError::message(
+                "GPU readback budget must be at least 4 bytes",
+            ));
         }
         let device_buffer_limit =
             usize::try_from(device.limits().max_buffer_size).unwrap_or(usize::MAX);
@@ -948,7 +1042,9 @@ impl GpuLayerRenderer {
                 immediate_size: 0,
             });
         Ok(Self {
+            generation: context.generation(),
             device: device.clone(),
+            queue: queue.clone(),
             format,
             bind_group,
             viewport,
@@ -957,6 +1053,7 @@ impl GpuLayerRenderer {
                 format,
                 &quad_pipeline_layout,
                 &quad_shader,
+                Some(wgpu::BlendState::ALPHA_BLENDING),
                 "rssh-terminal-quad-pipeline",
             ),
             images: LayerPipeline::new(
@@ -964,12 +1061,15 @@ impl GpuLayerRenderer {
                 format,
                 &image_pipeline_layout,
                 &image_shader,
+                None,
                 "rssh-terminal-image-pipeline",
             ),
             image_bind_group_layout,
             instances: PersistentInstances::new(instance_budget_bytes),
             texture_cache: TextureCache::new(image_budget_bytes)?,
+            readback_budget_bytes,
             prepared_batches: Vec::new(),
+            prepared_textures: Vec::new(),
             prepared_size: (0, 0),
         })
     }
@@ -979,24 +1079,47 @@ impl GpuLayerRenderer {
     /// # Errors
     ///
     /// Returns an error if graph instances exceed the configured byte budget.
-    pub fn upload(
-        &mut self,
-        queue: &wgpu::Queue,
-        graph: &RenderGraph,
-    ) -> Result<(), GpuLayerError> {
-        let prepared = graph.prepare();
+    pub fn upload(&mut self, graph: &RenderGraph) -> Result<(), GpuLayerError> {
+        let prepared = graph.prepare(self.instances.budget_bytes)?;
         self.texture_cache.prepare(
             &self.device,
-            queue,
+            &self.queue,
             &self.image_bind_group_layout,
             &prepared.textures,
         )?;
         self.instances
-            .upload(&self.device, queue, &prepared.bytes)?;
+            .upload(&self.device, &self.queue, &prepared.bytes)?;
         self.prepared_batches = prepared.batches;
+        self.prepared_textures = prepared
+            .textures
+            .into_iter()
+            .map(|texture| texture.identity)
+            .collect();
         self.prepared_size = (graph.width, graph.height);
-        self.write_viewport(queue);
+        self.write_viewport();
         Ok(())
+    }
+
+    /// Checked compatibility entry point for callers migrating from explicit
+    /// device/queue plumbing.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a different device or queue before preparing or mutating state.
+    pub fn upload_from(
+        &mut self,
+        context: &GpuContext,
+        graph: &RenderGraph,
+    ) -> Result<(), GpuLayerError> {
+        if context.generation() != self.generation
+            || context.device() != &self.device
+            || context.queue() != &self.queue
+        {
+            return Err(GpuLayerError::message(
+                "different GPU context cannot use this layer renderer",
+            ));
+        }
+        self.upload(graph)
     }
 
     #[must_use]
@@ -1014,6 +1137,52 @@ impl GpuLayerRenderer {
         self.texture_cache.metrics()
     }
 
+    fn validate_readback(&self, width: u32, height: u32) -> Result<ReadbackLayout, GpuLayerError> {
+        let limits = self.device.limits();
+        if width > limits.max_texture_dimension_2d || height > limits.max_texture_dimension_2d {
+            return Err(GpuLayerError::message(format!(
+                "headless texture {width}x{height} exceeds device dimension limit {}",
+                limits.max_texture_dimension_2d
+            )));
+        }
+        let unpadded_bytes_per_row = width
+            .checked_mul(4)
+            .ok_or_else(|| GpuLayerError::message("readback row pitch overflow"))?;
+        let padded_bytes_per_row = unpadded_bytes_per_row
+            .div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+            .checked_mul(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+            .ok_or_else(|| GpuLayerError::message("aligned readback row pitch overflow"))?;
+        let readback_size = u64::from(padded_bytes_per_row)
+            .checked_mul(u64::from(height))
+            .ok_or_else(|| GpuLayerError::message("readback buffer size overflow"))?;
+        let output_size = u64::from(unpadded_bytes_per_row)
+            .checked_mul(u64::from(height))
+            .ok_or_else(|| GpuLayerError::message("tight readback size overflow"))?;
+        let budget = u64::try_from(self.readback_budget_bytes).unwrap_or(u64::MAX);
+        if readback_size > budget || output_size > budget {
+            return Err(GpuLayerError::message(format!(
+                "headless readback requires {readback_size} padded bytes and {output_size} output bytes, exceeding the {}-byte budget",
+                self.readback_budget_bytes
+            )));
+        }
+        if readback_size > limits.max_buffer_size {
+            return Err(GpuLayerError::message(format!(
+                "readback buffer {readback_size} exceeds device buffer limit {}",
+                limits.max_buffer_size
+            )));
+        }
+        Ok(ReadbackLayout {
+            unpadded_bytes_per_row_usize: usize::try_from(unpadded_bytes_per_row)
+                .map_err(|_| GpuLayerError::message("row pitch exceeds host address space"))?,
+            padded_bytes_per_row,
+            padded_bytes_per_row_usize: usize::try_from(padded_bytes_per_row)
+                .map_err(|_| GpuLayerError::message("padded row exceeds host address space"))?,
+            readback_size,
+            output_len: usize::try_from(output_size)
+                .map_err(|_| GpuLayerError::message("output exceeds host address space"))?,
+        })
+    }
+
     /// Renders the graph to an RGBA8 texture and returns tightly packed pixels.
     ///
     /// # Errors
@@ -1026,8 +1195,6 @@ impl GpuLayerRenderer {
     )]
     pub fn render_headless_rgba8(
         &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
         graph: &RenderGraph,
         timeout: Duration,
     ) -> Result<Vec<u8>, GpuLayerError> {
@@ -1041,19 +1208,32 @@ impl GpuLayerRenderer {
                 "headless render dimensions must be nonzero",
             ));
         }
-        let prepared = graph.prepare();
+        let layout = self.validate_readback(graph.width, graph.height)?;
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(layout.output_len)
+            .map_err(|error| {
+                GpuLayerError::message(format!("reserve bounded GPU readback output: {error}"))
+            })?;
+        let prepared = graph.prepare(self.instances.budget_bytes)?;
         self.texture_cache.prepare(
-            device,
-            queue,
+            &self.device,
+            &self.queue,
             &self.image_bind_group_layout,
             &prepared.textures,
         )?;
-        self.instances.upload(device, queue, &prepared.bytes)?;
+        self.instances
+            .upload(&self.device, &self.queue, &prepared.bytes)?;
         self.prepared_batches = prepared.batches;
+        self.prepared_textures = prepared
+            .textures
+            .into_iter()
+            .map(|texture| texture.identity)
+            .collect();
         self.prepared_size = (graph.width, graph.height);
-        self.write_viewport(queue);
+        self.write_viewport();
 
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("rssh-terminal-layer-headless-target"),
             size: wgpu::Extent3d {
                 width: graph.width,
@@ -1068,27 +1248,18 @@ impl GpuLayerRenderer {
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let unpadded_bytes_per_row = graph
-            .width
-            .checked_mul(4)
-            .ok_or_else(|| GpuLayerError::message("readback row pitch overflow"))?;
-        let padded_bytes_per_row = unpadded_bytes_per_row
-            .div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
-            .checked_mul(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
-            .ok_or_else(|| GpuLayerError::message("aligned readback row pitch overflow"))?;
-        let readback_size = u64::from(padded_bytes_per_row)
-            .checked_mul(u64::from(graph.height))
-            .ok_or_else(|| GpuLayerError::message("readback buffer size overflow"))?;
-        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("rssh-terminal-layer-readback"),
-            size: readback_size,
+            size: layout.readback_size,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("rssh-terminal-layer-headless-encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("rssh-terminal-layer-headless-encoder"),
+            });
         self.encode_render_pass(&mut encoder, &view)?;
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
@@ -1101,7 +1272,7 @@ impl GpuLayerRenderer {
                 buffer: &readback,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
+                    bytes_per_row: Some(layout.padded_bytes_per_row),
                     rows_per_image: Some(graph.height),
                 },
             },
@@ -1111,48 +1282,43 @@ impl GpuLayerRenderer {
                 depth_or_array_layers: 1,
             },
         );
-        queue.submit([encoder.finish()]);
+        let submission_index = self.queue.submit([encoder.finish()]);
 
         let (sender, receiver) = mpsc::sync_channel(1);
         readback.map_async(wgpu::MapMode::Read, .., move |result| {
             let _ = sender.send(result);
         });
-        let deadline = Instant::now()
-            .checked_add(timeout)
-            .unwrap_or_else(Instant::now);
-        let map_result = loop {
-            device
-                .poll(wgpu::PollType::Poll)
-                .map_err(|error| GpuLayerError::message(format!("GPU poll failed: {error}")))?;
-            match receiver.try_recv() {
-                Ok(result) => break result,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    return Err(GpuLayerError::message("GPU readback callback disconnected"));
-                }
-                Err(mpsc::TryRecvError::Empty) if Instant::now() < deadline => {
-                    std::thread::yield_now();
-                }
-                Err(mpsc::TryRecvError::Empty) => {
-                    return Err(GpuLayerError::message(format!(
-                        "GPU readback did not complete within {timeout:?}"
-                    )));
-                }
-            }
-        };
+        let wait_timeout = timeout.min(MAX_GPU_READBACK_WAIT);
+        self.device
+            .poll(wgpu::PollType::Wait {
+                submission_index: Some(submission_index),
+                timeout: Some(wait_timeout),
+            })
+            .map_err(|error| {
+                GpuLayerError::message(format!(
+                    "GPU readback submission did not complete within {wait_timeout:?}: {error}"
+                ))
+            })?;
+        let map_result = receiver.try_recv().map_err(|error| {
+            GpuLayerError::message(format!(
+                "GPU readback callback was not delivered after submission completion: {error}"
+            ))
+        })?;
         map_result.map_err(|error| {
             GpuLayerError::message(format!("GPU readback mapping failed: {error}"))
         })?;
 
-        let mapped = readback
-            .get_mapped_range(..)
-            .map_err(|error| GpuLayerError::message(format!("get mapped readback: {error}")))?;
-        let output_len = usize::try_from(
-            u64::from(unpadded_bytes_per_row).saturating_mul(u64::from(graph.height)),
-        )
-        .map_err(|_| GpuLayerError::message("tight readback size exceeds host address space"))?;
-        let mut output = Vec::with_capacity(output_len);
-        for row in mapped.chunks_exact(padded_bytes_per_row as usize) {
-            output.extend_from_slice(&row[..unpadded_bytes_per_row as usize]);
+        let mapped = match readback.get_mapped_range(..) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                readback.unmap();
+                return Err(GpuLayerError::message(format!(
+                    "get mapped readback: {error}"
+                )));
+            }
+        };
+        for row in mapped.chunks_exact(layout.padded_bytes_per_row_usize) {
+            output.extend_from_slice(&row[..layout.unpadded_bytes_per_row_usize]);
         }
         drop(mapped);
         readback.unmap();
@@ -1163,11 +1329,11 @@ impl GpuLayerRenderer {
         clippy::cast_precision_loss,
         reason = "wgpu viewport uniforms are f32 and validated GPU dimensions are exactly representable"
     )]
-    fn write_viewport(&self, queue: &wgpu::Queue) {
+    fn write_viewport(&self) {
         let mut bytes = Vec::with_capacity(8);
         bytes.extend_from_slice(&(self.prepared_size.0 as f32).to_ne_bytes());
         bytes.extend_from_slice(&(self.prepared_size.1 as f32).to_ne_bytes());
-        queue.write_buffer(&self.viewport, 0, &bytes);
+        self.queue.write_buffer(&self.viewport, 0, &bytes);
     }
 
     fn encode_render_pass(
@@ -1198,8 +1364,13 @@ impl GpuLayerRenderer {
                 PrimitiveKind::Quad | PrimitiveKind::Image => {
                     pass.set_pipeline(&self.quads.pipeline);
                 }
-                PrimitiveKind::TextureImage(key) => {
-                    let cached = self.texture_cache.entries.get(&key).ok_or_else(|| {
+                PrimitiveKind::TextureImage(index) => {
+                    let identity = self.prepared_textures.get(index).ok_or_else(|| {
+                        GpuLayerError::message(
+                            "prepared image texture index is absent from the frame",
+                        )
+                    })?;
+                    let cached = self.texture_cache.entries.get(identity).ok_or_else(|| {
                         GpuLayerError::message("prepared image texture is absent from cache")
                     })?;
                     pass.set_pipeline(&self.images.pipeline);
@@ -1214,7 +1385,13 @@ impl GpuLayerRenderer {
 
 #[cfg(test)]
 mod tests {
-    use super::dirty_range;
+    use std::{sync::Arc, time::Duration};
+
+    use crate::{ImageDrawPlan, ImageTiePolicy, gpu::GpuContextOptions};
+
+    use super::{
+        GpuContext, GpuLayerRenderer, GraphNode, RenderGraph, TextureIdentity, dirty_range,
+    };
 
     #[test]
     fn dirty_range_ignores_equal_prefix_and_suffix() {
@@ -1226,5 +1403,68 @@ mod tests {
     #[test]
     fn dirty_range_compares_offsets_instead_of_matching_a_shifted_shrink_tail() {
         assert_eq!(dirty_range(&[1, 9, 2], &[1, 2]), Some(1..2));
+    }
+
+    #[test]
+    fn exact_texture_identity_survives_an_artificial_digest_collision() {
+        fn plan(x: u32, pixels: [u8; 4], stable_order: usize) -> Arc<ImageDrawPlan> {
+            Arc::new(ImageDrawPlan {
+                destination_x: x,
+                destination_y: 0,
+                width: 1,
+                height: 1,
+                pixels: Arc::from(pixels),
+                z_index: 0,
+                kitty_image_id: None,
+                parent_index: stable_order,
+                fragment_index: 0,
+                tie_policy: ImageTiePolicy::Whole,
+                stable_order,
+            })
+        }
+
+        let red = plan(0, [255, 0, 0, 255], 0);
+        let green = plan(1, [0, 255, 0, 255], 1);
+        let colliding_digest = 7;
+        let graph = RenderGraph {
+            width: 2,
+            height: 1,
+            nodes: vec![
+                GraphNode::TextureImage {
+                    sequence: 0,
+                    texture: TextureIdentity {
+                        digest: colliding_digest,
+                        width: 1,
+                        height: 1,
+                        pixels: Arc::clone(&red.pixels),
+                    },
+                    plan: red,
+                },
+                GraphNode::TextureImage {
+                    sequence: 1,
+                    texture: TextureIdentity {
+                        digest: colliding_digest,
+                        width: 1,
+                        height: 1,
+                        pixels: Arc::clone(&green.pixels),
+                    },
+                    plan: green,
+                },
+            ],
+            next_sequence: 2,
+        };
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let mut renderer = GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 256)
+            .expect("renderer");
+
+        assert_eq!(
+            renderer
+                .render_headless_rgba8(&graph, Duration::from_secs(5))
+                .expect("collision readback"),
+            [255, 0, 0, 255, 0, 255, 0, 255]
+        );
+        assert_eq!(renderer.texture_cache_metrics().entries, 2);
+        assert_eq!(renderer.texture_cache_metrics().uploads, 2);
     }
 }

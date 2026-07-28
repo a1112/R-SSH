@@ -1,6 +1,8 @@
 use std::{
+    cmp::Ordering,
     collections::{HashMap, HashSet},
     io::Cursor,
+    sync::Arc,
 };
 
 use font8x8::{BASIC_FONTS, UnicodeFonts};
@@ -1486,11 +1488,68 @@ pub(crate) struct ImageDrawPlan {
     pub destination_y: u32,
     pub width: u32,
     pub height: u32,
-    pub pixels: Vec<u8>,
+    pub pixels: Arc<[u8]>,
     pub z_index: i32,
     pub kitty_image_id: Option<u32>,
     pub parent_index: usize,
     pub fragment_index: usize,
+    pub tie_policy: ImageTiePolicy,
+    pub stable_order: usize,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum ImageTiePolicy {
+    Whole,
+    Fragment,
+}
+
+pub(crate) fn compare_image_draw_plans(left: &ImageDrawPlan, right: &ImageDrawPlan) -> Ordering {
+    left.z_index
+        .cmp(&right.z_index)
+        .then_with(|| match (left.tie_policy, right.tie_policy) {
+            (ImageTiePolicy::Whole, ImageTiePolicy::Whole) => compare_whole_image_tie(
+                left.kitty_image_id,
+                left.stable_order,
+                right.kitty_image_id,
+                right.stable_order,
+            ),
+            (ImageTiePolicy::Fragment, ImageTiePolicy::Fragment) => compare_fragment_image_tie(
+                left.kitty_image_id,
+                left.parent_index,
+                right.kitty_image_id,
+                right.parent_index,
+            )
+            .then_with(|| left.fragment_index.cmp(&right.fragment_index)),
+            _ => left.stable_order.cmp(&right.stable_order),
+        })
+}
+
+fn compare_whole_image_tie(
+    left_id: Option<u32>,
+    left_order: usize,
+    right_id: Option<u32>,
+    right_order: usize,
+) -> Ordering {
+    match (left_id, right_id) {
+        (Some(left_id), Some(right_id)) => left_id.cmp(&right_id),
+        _ => Ordering::Equal,
+    }
+    .then_with(|| left_order.cmp(&right_order))
+}
+
+fn compare_fragment_image_tie(
+    left_id: Option<u32>,
+    left_parent: usize,
+    right_id: Option<u32>,
+    right_parent: usize,
+) -> Ordering {
+    left_id
+        .cmp(&right_id)
+        .then_with(|| left_parent.cmp(&right_parent))
+}
+
+const fn inline_image_pixel_is_drawn(pixel: [u8; 4]) -> bool {
+    pixel[3] != 0
 }
 
 impl Default for PixelRenderer {
@@ -2177,7 +2236,7 @@ fn render_inline_image(
         for target_x in 0..rect.width {
             let source_x = source_rect.x + target_x.saturating_mul(source_rect.width) / rect.width;
             if let Some(pixel) = rgba_pixel(&decoded, source_x, source_y) {
-                if pixel[3] == 0 {
+                if !inline_image_pixel_is_drawn(pixel) {
                     continue;
                 }
                 surface.put_pixel(rect.x + target_x, rect.y + target_y, pixel);
@@ -2261,7 +2320,7 @@ fn render_runtime_inline_image_fragment(
                 continue;
             };
             if let Some(pixel) = rgba_pixel(&decoded, source_x, source_y)
-                && pixel[3] != 0
+                && inline_image_pixel_is_drawn(pixel)
             {
                 surface.put_pixel(target_x, target_y, pixel);
             }
@@ -2390,6 +2449,8 @@ pub(crate) fn gpu_image_draw_plan(
             image,
             parent_index,
             0,
+            ImageTiePolicy::Whole,
+            parent_index,
         ) && let Some(next_retained) = retained_bytes.checked_add(draw.pixels.len())
             && next_retained <= MAX_PLANNED_IMAGE_BYTES
         {
@@ -2467,6 +2528,8 @@ pub(crate) fn gpu_image_draw_plan(
             image,
             parent_index,
             fragment_index,
+            ImageTiePolicy::Fragment,
+            fragment_index,
         ) && let Some(next_retained) = retained_bytes.checked_add(draw.pixels.len())
             && next_retained <= MAX_PLANNED_IMAGE_BYTES
         {
@@ -2493,6 +2556,8 @@ fn plan_image_pixels(
     image: &RenderInlineImage,
     parent_index: usize,
     fragment_index: usize,
+    tie_policy: ImageTiePolicy,
+    stable_order: usize,
 ) -> Option<ImageDrawPlan> {
     if destination_width == 0 || destination_height == 0 {
         return None;
@@ -2551,11 +2616,13 @@ fn plan_image_pixels(
         destination_y: y,
         width,
         height,
-        pixels,
+        pixels: pixels.into(),
         z_index: image_z_index(image),
         kitty_image_id: image.kitty_image_id,
         parent_index,
         fragment_index,
+        tie_policy,
+        stable_order,
     })
 }
 
@@ -3010,11 +3077,14 @@ fn render_inline_images_in_z_order<'a>(
     images.sort_by(|(left_index, left), (right_index, right)| {
         image_z_index(left)
             .cmp(&image_z_index(right))
-            .then_with(|| match (left.kitty_image_id, right.kitty_image_id) {
-                (Some(left_id), Some(right_id)) => left_id.cmp(&right_id),
-                _ => std::cmp::Ordering::Equal,
+            .then_with(|| {
+                compare_whole_image_tie(
+                    left.kitty_image_id,
+                    *left_index,
+                    right.kitty_image_id,
+                    *right_index,
+                )
             })
-            .then_with(|| left_index.cmp(right_index))
     });
 
     for (_, image) in images {
@@ -3299,12 +3369,13 @@ fn render_snapshot_inline_images_in_z_order(
         |(left_fragment, left_image), (right_fragment, right_image)| {
             image_z_index(left_image)
                 .cmp(&image_z_index(right_image))
-                .then_with(|| left_image.kitty_image_id.cmp(&right_image.kitty_image_id))
                 .then_with(|| {
-                    left_fragment
-                        .fragment
-                        .parent_image_index
-                        .cmp(&right_fragment.fragment.parent_image_index)
+                    compare_fragment_image_tie(
+                        left_image.kitty_image_id,
+                        left_fragment.fragment.parent_image_index,
+                        right_image.kitty_image_id,
+                        right_fragment.fragment.parent_image_index,
+                    )
                 })
         },
     );
@@ -3395,12 +3466,13 @@ fn render_damaged_snapshot_inline_images_in_z_order(
         |(left_fragment, left_image), (right_fragment, right_image)| {
             image_z_index(left_image)
                 .cmp(&image_z_index(right_image))
-                .then_with(|| left_image.kitty_image_id.cmp(&right_image.kitty_image_id))
                 .then_with(|| {
-                    left_fragment
-                        .fragment
-                        .parent_image_index
-                        .cmp(&right_fragment.fragment.parent_image_index)
+                    compare_fragment_image_tie(
+                        left_image.kitty_image_id,
+                        left_fragment.fragment.parent_image_index,
+                        right_image.kitty_image_id,
+                        right_fragment.fragment.parent_image_index,
+                    )
                 })
         },
     );

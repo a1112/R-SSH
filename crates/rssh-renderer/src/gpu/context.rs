@@ -12,6 +12,14 @@ use std::{
 use super::{GpuPresentationMetrics, SurfaceFault, SurfaceRecovery, SurfaceRecoveryState};
 
 pub const DEFAULT_CPU_FRAME_BYTE_BUDGET: usize = 256 * 1024 * 1024;
+static NEXT_GPU_CONTEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct GpuContextGeneration(u64);
+
+fn next_gpu_context_generation() -> GpuContextGeneration {
+    GpuContextGeneration(NEXT_GPU_CONTEXT_GENERATION.fetch_add(1, Ordering::Relaxed))
+}
 
 const COMPATIBILITY_SHADER: &str = r"
 @group(0) @binding(0)
@@ -259,6 +267,7 @@ impl GpuContextOptions {
 
 /// Owns the instance, selected adapter, logical device, and submission queue.
 pub struct GpuContext {
+    generation: GpuContextGeneration,
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
     device: wgpu::Device,
@@ -311,6 +320,7 @@ impl GpuContext {
         install_device_fault_handlers(&device, &runtime_faults);
 
         Ok(Self {
+            generation: next_gpu_context_generation(),
             instance,
             adapter,
             device,
@@ -367,6 +377,7 @@ impl GpuContext {
         install_device_fault_handlers(&device, &runtime_faults);
 
         let mut context = Self {
+            generation: next_gpu_context_generation(),
             instance,
             adapter,
             device,
@@ -408,6 +419,11 @@ impl GpuContext {
     #[must_use]
     pub const fn queue(&self) -> &wgpu::Queue {
         &self.queue
+    }
+
+    #[must_use]
+    pub const fn generation(&self) -> GpuContextGeneration {
+        self.generation
     }
 
     #[must_use]

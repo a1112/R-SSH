@@ -122,6 +122,11 @@ impl GpuLayer {
         Self::Selection,
     ];
 
+    #[must_use]
+    pub const fn canonical_order() -> &'static [Self] {
+        &Self::ORDERED
+    }
+
     pub(crate) const fn rank(self) -> u8 {
         match self {
             Self::PaneBackground => 0,
