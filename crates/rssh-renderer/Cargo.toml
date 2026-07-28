@@ -10,9 +10,23 @@ version.workspace = true
 colorgrad = "0.6"
 font8x8 = "0.3"
 image = { version = "0.25", default-features = false, features = ["dds", "ff", "gif", "ico", "jpeg", "png", "pnm", "tga", "tiff"] }
+raw-window-handle = { version = "0.6", features = ["std"] }
 rssh-core = { path = "../rssh-core" }
 rssh-fonts = { path = "../rssh-fonts" }
 rssh-terminal = { path = "../rssh-terminal" }
+wgpu = { version = "=30.0.0", default-features = false, features = ["std", "wgsl"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+wgpu = { version = "=30.0.0", default-features = false, features = ["dx12", "gles", "vulkan"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+wgpu = { version = "=30.0.0", default-features = false, features = ["metal"] }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+wgpu = { version = "=30.0.0", default-features = false, features = ["gles", "vulkan"] }
+
+[dev-dependencies]
+pollster = "0.4"
 
 [lints]
 workspace = true

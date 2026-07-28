@@ -11,6 +11,7 @@ use rssh_terminal::{
     TerminalGrid, UnderlineStyle, VerticalAlign,
 };
 
+pub mod gpu;
 mod text;
 
 pub use text::{

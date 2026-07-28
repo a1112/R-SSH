@@ -17,7 +17,7 @@ use std::{
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD};
-use pixels::{Pixels, SurfaceTexture};
+use pixels::Pixels;
 use rssh_core::{
     DamageRegion, TerminalSize,
     app_shell::{
@@ -26,6 +26,7 @@ use rssh_core::{
     },
 };
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySession, PtySize};
+use rssh_renderer::gpu::{GpuFrameStatus, GpuPresentationMetrics};
 use rssh_renderer::{
     PixelRenderer, RenderBackgroundGradient, RenderBackgroundGradientBlend,
     RenderBackgroundGradientHsb, RenderBackgroundGradientInterpolation,
@@ -74,6 +75,7 @@ use crate::{
         MouseReportingMode,
     },
     terminal_runtime::{TerminalNotification, TerminalProgress, TerminalRuntime},
+    window_gpu::WindowGpu,
 };
 
 const TERMINAL_COLUMNS: u16 = 80;
@@ -81487,6 +81489,7 @@ struct NativeWindowApp {
     window_focused: bool,
     mouse_click_may_focus_window: bool,
     window: Option<Arc<Window>>,
+    gpu: Option<WindowGpu>,
     pixels: Option<Pixels<'static>>,
     renderer: PixelRenderer,
     configured_dpi: Option<u32>,
@@ -81922,6 +81925,7 @@ impl NativeWindowManager {
             return app.metrics_json_report();
         }
         self.last_metrics
+            .clone()
             .unwrap_or_else(|| WindowMetrics::new().snapshot())
             .json_report()
     }
@@ -82363,7 +82367,7 @@ impl NativeWindowManager {
 
     #[cfg(test)]
     fn last_metrics_for_test(&self) -> Option<WindowMetricsSnapshot> {
-        self.last_metrics
+        self.last_metrics.clone()
     }
 
     #[cfg(test)]
@@ -82896,7 +82900,7 @@ enum FrameRenderMode {
     Damage,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct WindowMetricsSnapshot {
     first_pty_byte_ms: Option<u128>,
     first_rendered_cell_ms: Option<u128>,
@@ -82911,6 +82915,22 @@ struct WindowMetricsSnapshot {
     full_render_frames: u64,
     dirty_render_frames: u64,
     render_frame_p95_us: u128,
+    gpu_backend: String,
+    gpu_adapter_name: String,
+    gpu_adapter_type: String,
+    gpu_software_adapter: bool,
+    gpu_surface_format: Option<String>,
+    gpu_present_mode: Option<String>,
+    gpu_surface_width: Option<u32>,
+    gpu_surface_height: Option<u32>,
+    gpu_rendered_frames: u64,
+    gpu_presented_frames: u64,
+    gpu_surface_reconfigurations: u64,
+    gpu_surface_recreations: u64,
+    gpu_surface_timeouts: u64,
+    gpu_surface_occlusions: u64,
+    gpu_surface_validation_errors: u64,
+    text_backend: String,
     input_writes: u64,
     input_bytes: u64,
     input_write_p95_us: u128,
@@ -82935,6 +82955,22 @@ render_frames={}
 full_render_frames={}
 dirty_render_frames={}
 render_frame_p95_us={}
+gpu_backend={}
+gpu_adapter_name={}
+gpu_adapter_type={}
+gpu_software_adapter={}
+gpu_surface_format={}
+gpu_present_mode={}
+gpu_surface_width={}
+gpu_surface_height={}
+gpu_rendered_frames={}
+gpu_presented_frames={}
+gpu_surface_reconfigurations={}
+gpu_surface_recreations={}
+gpu_surface_timeouts={}
+gpu_surface_occlusions={}
+gpu_surface_validation_errors={}
+text_backend={}
 input_writes={}
 input_bytes={}
 input_write_p95_us={}
@@ -82953,6 +82989,22 @@ bells={}
             self.full_render_frames,
             self.dirty_render_frames,
             self.render_frame_p95_us,
+            self.gpu_backend,
+            self.gpu_adapter_name,
+            self.gpu_adapter_type,
+            self.gpu_software_adapter,
+            metric_option_string(self.gpu_surface_format.as_deref()),
+            metric_option_string(self.gpu_present_mode.as_deref()),
+            metric_option_u32(self.gpu_surface_width),
+            metric_option_u32(self.gpu_surface_height),
+            self.gpu_rendered_frames,
+            self.gpu_presented_frames,
+            self.gpu_surface_reconfigurations,
+            self.gpu_surface_recreations,
+            self.gpu_surface_timeouts,
+            self.gpu_surface_occlusions,
+            self.gpu_surface_validation_errors,
+            self.text_backend,
             self.input_writes,
             self.input_bytes,
             self.input_write_p95_us,
@@ -83081,6 +83133,14 @@ impl WindowMetrics {
     }
 
     fn snapshot(&self) -> WindowMetricsSnapshot {
+        self.snapshot_with_gpu(&GpuPresentationMetrics::uninitialized(), "bitmap-emergency")
+    }
+
+    fn snapshot_with_gpu(
+        &self,
+        gpu: &GpuPresentationMetrics,
+        text_backend: &str,
+    ) -> WindowMetricsSnapshot {
         WindowMetricsSnapshot {
             first_pty_byte_ms: self.first_pty_byte.map(|duration| duration.as_millis()),
             first_rendered_cell_ms: self
@@ -83097,6 +83157,22 @@ impl WindowMetrics {
             full_render_frames: self.full_render_frames,
             dirty_render_frames: self.dirty_render_frames,
             render_frame_p95_us: p95_us(&self.render_frame_times),
+            gpu_backend: gpu.backend.clone(),
+            gpu_adapter_name: gpu.adapter_name.clone(),
+            gpu_adapter_type: gpu.adapter_type.clone(),
+            gpu_software_adapter: gpu.software_adapter,
+            gpu_surface_format: gpu.surface_format.clone(),
+            gpu_present_mode: gpu.present_mode.clone(),
+            gpu_surface_width: gpu.surface_width,
+            gpu_surface_height: gpu.surface_height,
+            gpu_rendered_frames: gpu.rendered_frames,
+            gpu_presented_frames: gpu.presented_frames,
+            gpu_surface_reconfigurations: gpu.surface_reconfigurations,
+            gpu_surface_recreations: gpu.surface_recreations,
+            gpu_surface_timeouts: gpu.surface_timeouts,
+            gpu_surface_occlusions: gpu.surface_occlusions,
+            gpu_surface_validation_errors: gpu.surface_validation_errors,
+            text_backend: text_backend.to_owned(),
             input_writes: self.input_writes,
             input_bytes: self.input_bytes,
             input_write_p95_us: p95_us(&self.input_write_times),
@@ -83157,6 +83233,14 @@ fn padding_pixels_to_cells(pixels: u32, cell_pixels: u32) -> u16 {
 }
 
 fn metric_option(value: Option<u128>) -> String {
+    value.map_or_else(|| "NA".to_owned(), |value| value.to_string())
+}
+
+fn metric_option_string(value: Option<&str>) -> &str {
+    value.unwrap_or("NA")
+}
+
+fn metric_option_u32(value: Option<u32>) -> String {
     value.map_or_else(|| "NA".to_owned(), |value| value.to_string())
 }
 
@@ -83694,6 +83778,7 @@ impl NativeWindowApp {
                 window_focused: false,
                 mouse_click_may_focus_window: false,
                 window: None,
+                gpu: None,
                 pixels: None,
                 renderer: {
                     let mut renderer = PixelRenderer::new();
@@ -90709,11 +90794,24 @@ impl NativeWindowApp {
         let window = Arc::new(event_loop.create_window(window_attributes)?);
         self.apply_window_scale_factor(window.scale_factor());
         let size = window.inner_size();
-        let surface_texture = SurfaceTexture::new(size.width, size.height, window.clone());
-        let pixels = Pixels::new(self.frame_width, self.frame_height, surface_texture)?;
+        let high_performance = matches!(
+            self.webgpu_power_preference,
+            NativeWebGpuPowerPreference::HighPerformance
+        );
+        let force_fallback_adapter = self.webgpu_force_fallback_adapter
+            || matches!(self.front_end, NativeRenderFrontEnd::Software);
+        let gpu = pollster::block_on(WindowGpu::new(
+            event_loop,
+            Arc::clone(&window),
+            size,
+            self.frame_width,
+            self.frame_height,
+            high_performance,
+            force_fallback_adapter,
+        ))?;
 
         self.window = Some(window);
-        self.pixels = Some(pixels);
+        self.gpu = Some(gpu);
         if let Some(window) = &self.window {
             window.set_cursor_visible(self.mouse_cursor_visible);
         }
@@ -90748,33 +90846,73 @@ impl NativeWindowApp {
         if self.has_visible_split_layout() {
             self.frame_needs_full_repaint = true;
         }
-        let Some(pixels) = self.pixels.as_mut() else {
+        let started = Instant::now();
+        let mode = if let Some(gpu) = self.gpu.as_mut() {
+            render_framebuffer_with_state(
+                &self.renderer,
+                &snapshot,
+                scrollbar,
+                &mut self.pending_frame_damage,
+                &mut self.frame_needs_full_repaint,
+                gpu.frame_mut(),
+                geometry,
+                damage_row_offset,
+                placement,
+                color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
+            )
+        } else if let Some(pixels) = self.pixels.as_mut() {
+            render_framebuffer_with_state(
+                &self.renderer,
+                &snapshot,
+                scrollbar,
+                &mut self.pending_frame_damage,
+                &mut self.frame_needs_full_repaint,
+                pixels.frame_mut(),
+                geometry,
+                damage_row_offset,
+                placement,
+                color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
+            )
+        } else {
             return;
         };
-
-        let started = Instant::now();
-        let mode = render_framebuffer_with_state(
-            &self.renderer,
-            &snapshot,
-            scrollbar,
-            &mut self.pending_frame_damage,
-            &mut self.frame_needs_full_repaint,
-            pixels.frame_mut(),
-            geometry,
-            damage_row_offset,
-            placement,
-            color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
-        );
         self.metrics.record_frame_render_mode(mode);
 
-        if let Err(error) = pixels.render() {
-            eprintln!("render error: {error}");
-            event_loop.exit();
+        let presented = if let (Some(gpu), Some(window)) = (self.gpu.as_mut(), self.window.as_ref())
+        {
+            match gpu.present(window) {
+                Ok(GpuFrameStatus::Presented) => true,
+                Ok(GpuFrameStatus::Skipped) => false,
+                Err(error) => {
+                    eprintln!("render error: {error}");
+                    event_loop.exit();
+                    return;
+                }
+            }
+        } else if let Some(pixels) = self.pixels.as_mut() {
+            if let Err(error) = pixels.render() {
+                eprintln!("render error: {error}");
+                event_loop.exit();
+                return;
+            }
+            true
+        } else {
+            false
+        };
+
+        self.metrics.record_render_frame(started.elapsed());
+        if !presented {
+            self.frame_needs_full_repaint = true;
             return;
         }
-
         self.rendered_frames = self.rendered_frames.saturating_add(1);
-        self.metrics.record_render_frame(started.elapsed());
+        if self.rendered_frames == 1
+            && let Some(size) = test_resize_after_first_present()
+            && let Some(window) = self.window.as_ref()
+        {
+            let _ = window.request_inner_size(size);
+            window.request_redraw();
+        }
         if self
             .frame_limit
             .is_some_and(|limit| self.rendered_frames >= limit)
@@ -100087,7 +100225,17 @@ impl NativeWindowApp {
     }
 
     fn metrics_snapshot(&self) -> WindowMetricsSnapshot {
-        self.metrics.snapshot()
+        let gpu = self
+            .gpu
+            .as_ref()
+            .map(WindowGpu::metrics)
+            .cloned()
+            .unwrap_or_else(GpuPresentationMetrics::uninitialized);
+        let text_backend = match self.renderer.text_backend() {
+            rssh_renderer::TextBackend::BitmapEmergency => "bitmap-emergency",
+            rssh_renderer::TextBackend::Shaped => "shaped",
+        };
+        self.metrics.snapshot_with_gpu(&gpu, text_backend)
     }
 
     fn metrics_report(&self) -> String {
@@ -103605,9 +103753,7 @@ impl NativeWindowApp {
     }
 
     fn handle_window_resize(&mut self, size: PhysicalSize<u32>) -> Result<(), Box<dyn Error>> {
-        if let Some(pixels) = self.pixels.as_mut() {
-            pixels.resize_surface(size.width, size.height)?;
-        }
+        self.resize_presentation_surface(size)?;
 
         if self.window.is_some() {
             self.refresh_window_frame_from_window();
@@ -103651,9 +103797,7 @@ impl NativeWindowApp {
                 u32::from(terminal_size.rows.saturating_add(TAB_BAR_ROWS)) * cell_height;
         }
 
-        if let Some(pixels) = self.pixels.as_mut() {
-            pixels.resize_buffer(self.frame_width, self.frame_height)?;
-        }
+        self.resize_presentation_frame()?;
 
         let pty_size = PtySize::try_new(terminal_size.columns, terminal_size.rows)?;
         if let Some((old_columns, old_rows, new_columns, new_rows)) = split_resize {
@@ -103712,6 +103856,29 @@ impl NativeWindowApp {
         let resize = self.native_window_resize_event(size.width, size.height, terminal_size);
         self.dispatch_resize(&resize);
 
+        Ok(())
+    }
+
+    fn resize_presentation_surface(
+        &mut self,
+        size: PhysicalSize<u32>,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.resize_surface(size)?;
+        }
+        if let Some(pixels) = self.pixels.as_mut() {
+            pixels.resize_surface(size.width, size.height)?;
+        }
+        Ok(())
+    }
+
+    fn resize_presentation_frame(&mut self) -> Result<(), Box<dyn Error>> {
+        if let Some(pixels) = self.pixels.as_mut() {
+            pixels.resize_buffer(self.frame_width, self.frame_height)?;
+        }
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.resize_frame(self.frame_width, self.frame_height)?;
+        }
         Ok(())
     }
 
@@ -131083,6 +131250,26 @@ fn window_dpi_from_scale_factor(scale_factor: f64) -> u32 {
     (scale_factor * f64::from(DEFAULT_WINDOW_DPI))
         .round()
         .clamp(1.0, f64::from(u32::MAX)) as u32
+}
+
+#[cfg(debug_assertions)]
+fn test_resize_after_first_present() -> Option<PhysicalSize<u32>> {
+    const MAX_TEST_WINDOW_DIMENSION: u32 = 16_384;
+
+    let value = std::env::var("RSSH_TEST_RESIZE_AFTER_FIRST_PRESENT").ok()?;
+    let (width, height) = value.split_once('x')?;
+    let width = width.parse().ok()?;
+    let height = height.parse().ok()?;
+    (width > 0
+        && height > 0
+        && width <= MAX_TEST_WINDOW_DIMENSION
+        && height <= MAX_TEST_WINDOW_DIMENSION)
+        .then_some(PhysicalSize::new(width, height))
+}
+
+#[cfg(not(debug_assertions))]
+const fn test_resize_after_first_present() -> Option<PhysicalSize<u32>> {
+    None
 }
 
 impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
@@ -171756,6 +171943,17 @@ return config
         assert_eq!(value["damaged_cells"], 4);
         assert_eq!(value["full_render_frames"], 0);
         assert_eq!(value["dirty_render_frames"], 0);
+        assert_eq!(value["gpu_backend"], "uninitialized");
+        assert_eq!(value["gpu_adapter_name"], "uninitialized");
+        assert_eq!(value["gpu_adapter_type"], "unknown");
+        assert_eq!(value["gpu_software_adapter"], false);
+        assert!(value["gpu_surface_format"].is_null());
+        assert!(value["gpu_present_mode"].is_null());
+        assert!(value["gpu_surface_width"].is_null());
+        assert!(value["gpu_surface_height"].is_null());
+        assert_eq!(value["gpu_rendered_frames"], 0);
+        assert_eq!(value["gpu_presented_frames"], 0);
+        assert_eq!(value["text_backend"], "bitmap-emergency");
         assert!(value["first_pty_byte_ms"].is_number());
         assert!(value["first_rendered_cell_ms"].is_number());
     }

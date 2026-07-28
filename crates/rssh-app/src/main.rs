@@ -24,6 +24,7 @@ mod terminal_runtime;
 mod version;
 mod visible_output;
 mod window;
+mod window_gpu;
 
 use std::{env, process::ExitCode};
 
