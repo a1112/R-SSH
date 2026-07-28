@@ -195,21 +195,49 @@ impl TerminalGrid {
         blank: &Cell,
         seqno: SequenceNo,
     ) -> Vec<GridRow> {
+        let capacity = usize::from(count).min(self.rows.len());
+        let mut exiting = Vec::with_capacity(capacity);
+        self.rotate_up_rows(top, bottom, count, blank, seqno, |row| exiting.push(row));
+        exiting
+    }
+
+    pub(crate) fn scroll_up_rows_discarding(
+        &mut self,
+        top: u16,
+        bottom: u16,
+        count: u16,
+        blank: &Cell,
+        seqno: SequenceNo,
+    ) {
+        self.rotate_up_rows(top, bottom, count, blank, seqno, drop);
+    }
+
+    fn rotate_up_rows(
+        &mut self,
+        top: u16,
+        bottom: u16,
+        count: u16,
+        blank: &Cell,
+        seqno: SequenceNo,
+        mut consume_exiting: impl FnMut(GridRow),
+    ) {
         let columns = self.size.columns;
         let Some(rows) = self.row_region_mut(top, bottom) else {
-            return Vec::new();
+            return;
         };
         let count = usize::from(count).min(rows.len());
         if count == 0 {
-            return Vec::new();
+            return;
         }
 
         rows.rotate_left(count);
         let first_exiting = rows.len() - count;
-        rows[first_exiting..]
-            .iter_mut()
-            .map(|row| std::mem::replace(row, GridRow::blank(columns, blank, seqno)))
-            .collect()
+        for row in &mut rows[first_exiting..] {
+            consume_exiting(std::mem::replace(
+                row,
+                GridRow::blank(columns, blank, seqno),
+            ));
+        }
     }
 
     pub(crate) fn scroll_down_rows(
@@ -246,6 +274,48 @@ impl TerminalGrid {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Color;
+
+    fn tagged_grid() -> TerminalGrid {
+        let mut grid = TerminalGrid::new_with_seqno(TerminalSize::new(2, 5), 1);
+        for row in 0..5 {
+            assert!(grid.set(
+                row,
+                0,
+                Cell {
+                    ch: char::from(b'A' + u8::try_from(row).unwrap()),
+                    foreground: Color::Indexed(u8::try_from(row).unwrap()),
+                    ..Cell::default()
+                }
+            ));
+            grid.set_reflow_overflow(
+                row,
+                vec![Cell {
+                    ch: char::from(b'a' + u8::try_from(row).unwrap()),
+                    ..Cell::default()
+                }],
+            );
+            grid.set_row_wrapped(row, row % 2 == 1);
+            assert!(grid.set_row_last_change_seqno(row, 10 + usize::from(row)));
+        }
+        grid
+    }
+
+    fn row_snapshot(grid: &TerminalGrid, row: u16) -> (Vec<Cell>, bool, SequenceNo) {
+        (
+            grid.cells_with_reflow_overflow(row),
+            grid.row_wrapped(row),
+            grid.row_last_change_seqno(row).unwrap(),
+        )
+    }
+
+    fn styled_blank() -> Cell {
+        Cell {
+            background: Color::Indexed(9),
+            bold: true,
+            ..Cell::default()
+        }
+    }
 
     #[test]
     fn row_rotation_moves_complete_rows_without_copying_owned_cells() {
@@ -286,5 +356,70 @@ mod tests {
             allocation
         );
         assert_eq!(exiting[0].reflow_overflow[0].ch, '界');
+    }
+
+    #[test]
+    fn scroll_down_row_rotation_covers_partial_full_overcount_and_noop_regions() {
+        let blank = styled_blank();
+
+        let mut partial = tagged_grid();
+        let original = (0..5)
+            .map(|row| row_snapshot(&partial, row))
+            .collect::<Vec<_>>();
+        partial.scroll_down_rows(1, 3, 1, &blank, 99);
+        assert_eq!(row_snapshot(&partial, 0), original[0]);
+        assert_eq!(row_snapshot(&partial, 2), original[1]);
+        assert_eq!(row_snapshot(&partial, 3), original[2]);
+        assert_eq!(row_snapshot(&partial, 4), original[4]);
+        assert_eq!(
+            row_snapshot(&partial, 1),
+            (vec![blank.clone(), blank.clone()], false, 99)
+        );
+
+        for count in [3, 9] {
+            let mut full_or_overcount = tagged_grid();
+            full_or_overcount.scroll_down_rows(1, 3, count, &blank, 99);
+            for row in 1..=3 {
+                assert_eq!(
+                    row_snapshot(&full_or_overcount, row),
+                    (vec![blank.clone(), blank.clone()], false, 99),
+                    "count={count}, row={row}"
+                );
+            }
+            assert_eq!(row_snapshot(&full_or_overcount, 0), original[0]);
+            assert_eq!(row_snapshot(&full_or_overcount, 4), original[4]);
+        }
+
+        for (top, bottom, count) in [(1, 3, 0), (3, 1, 1), (1, 5, 1)] {
+            let mut noop = tagged_grid();
+            noop.scroll_down_rows(top, bottom, count, &blank, 99);
+            assert_eq!(
+                (0..5)
+                    .map(|row| row_snapshot(&noop, row))
+                    .collect::<Vec<_>>(),
+                original,
+                "top={top}, bottom={bottom}, count={count}"
+            );
+        }
+    }
+
+    #[test]
+    fn discard_scroll_up_rotates_rows_without_returning_an_exiting_vec() {
+        let mut grid = tagged_grid();
+        let blank = styled_blank();
+        let original = (0..5)
+            .map(|row| row_snapshot(&grid, row))
+            .collect::<Vec<_>>();
+
+        let (): () = grid.scroll_up_rows_discarding(1, 3, 1, &blank, 99);
+
+        assert_eq!(row_snapshot(&grid, 0), original[0]);
+        assert_eq!(row_snapshot(&grid, 1), original[2]);
+        assert_eq!(row_snapshot(&grid, 2), original[3]);
+        assert_eq!(row_snapshot(&grid, 4), original[4]);
+        assert_eq!(
+            row_snapshot(&grid, 3),
+            (vec![blank.clone(), blank], false, 99)
+        );
     }
 }

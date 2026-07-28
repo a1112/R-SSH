@@ -5745,14 +5745,17 @@ impl Terminal {
         }
 
         let blank = self.blank_cell();
-        let exiting_rows = self
-            .grid
-            .scroll_up_rows(top, bottom, count, &blank, self.seqno);
         if records_scrollback {
+            let exiting_rows = self
+                .grid
+                .scroll_up_rows(top, bottom, count, &blank, self.seqno);
             for row in exiting_rows {
                 self.scrollback.push(ScrollbackLine::from_grid_row(row));
             }
             self.trim_scrollback_to_limit();
+        } else {
+            self.grid
+                .scroll_up_rows_discarding(top, bottom, count, &blank, self.seqno);
         }
 
         if records_scrollback {
