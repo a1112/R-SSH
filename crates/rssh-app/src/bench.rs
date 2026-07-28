@@ -1156,6 +1156,9 @@ mod tests {
             "github.event.repository.default_branch",
             "publish-release:",
             "contents: write",
+            "RELEASE_TAG: ${{ github.ref_name }}",
+            "gh release create \"$RELEASE_TAG\"",
+            "--title \"R-SSH $RELEASE_TAG\"",
             "$warmupCount = 2",
             "$sampleCount = 7",
             "$regressionTolerance = 0.10",
@@ -1226,6 +1229,11 @@ mod tests {
             !release.contains("$baseline * (1.0 + $regressionTolerance)")
                 && !release.contains("$baseline * (1.0 - $regressionTolerance)"),
             "baseline comparisons must not overflow by multiplying attacker-controlled baselines"
+        );
+        assert_eq!(
+            release.matches("${{ github.ref_name }}").count(),
+            1,
+            "the tag expression must appear only in RELEASE_TAG env, never directly in bash"
         );
         assert_raw_exit_checked_before_json("release", release);
     }
