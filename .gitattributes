@@ -1,5 +1,7 @@
 tests/fixtures/fonts/*.ttf binary
 tests/fixtures/fonts/*.md text eol=lf
 tests/fixtures/fonts/*.tsv text eol=lf
+tests/fixtures/fonts/*.py text eol=lf
 tests/fixtures/fonts/SHA256SUMS text eol=lf
+tests/fixtures/fonts/FONTTOOLS_VERSION text eol=lf
 tests/fixtures/fonts/LICENSES/*.txt text eol=lf whitespace=-trailing-space

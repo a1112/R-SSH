@@ -8,7 +8,7 @@ use std::{
 use sha2::{Digest, Sha256};
 use ttf_parser::{Face, Tag, name_id};
 
-const MANIFEST_HEADER: &str = "role\tfile\tlicense\tlicense_file\tcodepoints\tsequences\tgsub_features\tcolor\tsource\tversion\tsubset_command";
+const MANIFEST_HEADER: &str = "role\tfile\tlicense\tlicense_file\tlicense_source\tlicense_sha256\tcodepoints\tsequences\tgsub_features\tcolor\tsource\tversion\tsubset_command";
 
 #[derive(Debug)]
 struct Fixture<'a> {
@@ -16,6 +16,8 @@ struct Fixture<'a> {
     file: &'a str,
     license: &'a str,
     license_file: &'a str,
+    license_source: &'a str,
+    license_sha256: &'a str,
     codepoints: &'a str,
     sequences: &'a str,
     gsub_features: &'a str,
@@ -38,6 +40,19 @@ fn shaping_font_fixtures_are_licensed_pinned_and_cover_the_manifest() {
     let manifest = read_utf8(&root.join("MANIFEST.tsv"));
     let checksums = parse_checksums(&root.join("SHA256SUMS"));
     let fixtures = parse_manifest(&manifest);
+    assert_eq!(
+        read_utf8(&root.join("FONTTOOLS_VERSION")).trim(),
+        "4.61.1",
+        "fixture rebuilds must use the pinned fonttools version"
+    );
+    let rebuild_script = read_utf8(&root.join("rebuild_check.py"));
+    assert!(
+        rebuild_script.contains("FONTTOOLS_VERSION")
+            && rebuild_script.contains("MANIFEST.tsv")
+            && rebuild_script.contains("SHA256SUMS")
+            && readme.contains("rebuild_check.py"),
+        "the documented rebuild/check script must consume all pinned fixture metadata"
+    );
 
     assert!(
         !fixtures.is_empty(),
@@ -85,6 +100,15 @@ fn shaping_font_fixtures_are_licensed_pinned_and_cover_the_manifest() {
         manifest_files,
         "SHA256SUMS must list every and only fixture font"
     );
+    let manifest_licenses = fixtures
+        .iter()
+        .map(|fixture| fixture.license_file.to_owned())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        manifest_licenses,
+        fixture_license_files(&root),
+        "LICENSES must contain every and only license referenced by MANIFEST.tsv"
+    );
 
     for fixture in fixtures {
         let bytes = validate_fixture_metadata(&root, &readme, &checksums, &fixture);
@@ -111,32 +135,48 @@ fn validate_fixture_metadata(
     checksums: &BTreeMap<String, String>,
     fixture: &Fixture<'_>,
 ) -> Vec<u8> {
+    let expected_license = expected_license(fixture.role);
     assert_portable_relative_path(fixture.file);
     assert_portable_relative_path(fixture.license_file);
     assert_eq!(
-        fixture.license, "OFL-1.1",
-        "{} uses a license outside the fixture allow-list",
+        fixture.license, expected_license.identifier,
+        "{} has an unexpected license identifier",
         fixture.file
     );
-    assert!(
-        matches!(
-            fixture.license_file,
-            "LICENSES/Noto-OFL-1.1.txt" | "LICENSES/Noto-Emoji-OFL-1.1.txt"
-        ),
-        "{} must retain its exact upstream OFL-1.1 text",
+    assert_eq!(
+        fixture.license_file, expected_license.file,
+        "{} is mapped to the wrong upstream license file",
+        fixture.file
+    );
+    assert_eq!(
+        fixture.license_source, expected_license.source,
+        "{} is mapped to the wrong upstream license URL",
+        fixture.file
+    );
+    assert_eq!(
+        fixture.license_sha256, expected_license.sha256,
+        "{} has an unexpected license SHA-256",
+        fixture.file
+    );
+    assert_eq!(
+        fixture.source, expected_license.font_source,
+        "{} has an unexpected upstream font URL",
         fixture.file
     );
 
-    let normalized_license = read_utf8(&root.join(fixture.license_file)).to_ascii_lowercase();
-    assert!(
-        normalized_license.contains("sil open font license")
-            && normalized_license.contains("version 1.1"),
-        "{} does not contain the retained OFL-1.1 text",
+    let license = fs::read(root.join(fixture.license_file))
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", fixture.license_file));
+    assert_eq!(
+        sha256_hex(&license),
+        expected_license.sha256,
+        "{} differs from the exact pinned upstream license",
         fixture.license_file
     );
     assert!(
-        official_immutable_source(fixture.source),
-        "{} must have an immutable official raw GitHub source URL",
+        official_immutable_source(fixture.source)
+            && official_immutable_source(fixture.license_source)
+            && github_commit(fixture.source) == github_commit(fixture.license_source),
+        "{} font and license sources must be official raw paths at the same immutable commit",
         fixture.file
     );
     assert!(
@@ -155,8 +195,11 @@ fn validate_fixture_metadata(
         readme.contains(fixture.file)
             && readme.contains(fixture.source)
             && readme.contains(fixture.version)
-            && readme.contains(fixture.subset_command),
-        "README.md must document file, source, version, and subset command for {}",
+            && readme.contains(fixture.subset_command)
+            && readme.contains(fixture.license_file)
+            && readme.contains(fixture.license_source)
+            && readme.contains(fixture.license_sha256),
+        "README.md must document source, version, subset, and exact license for {}",
         fixture.file
     );
 
@@ -210,6 +253,7 @@ fn validate_font_coverage(fixture: &Fixture<'_>, bytes: &[u8]) {
     }
     validate_sequences(fixture, &face, expected_color);
     validate_gsub_features(fixture, &face);
+    validate_reserved_font_names(fixture, &face);
 
     let has_color = face.tables().colr.is_some()
         || face.tables().cbdt.is_some()
@@ -310,6 +354,27 @@ fn validate_gsub_features(fixture: &Fixture<'_>, face: &Face<'_>) {
     }
 }
 
+fn validate_reserved_font_names(fixture: &Fixture<'_>, face: &Face<'_>) {
+    if fixture.role != "cjk" {
+        return;
+    }
+    for name in face.names().into_iter().filter(|name| {
+        matches!(
+            name.name_id,
+            name_id::FAMILY | name_id::FULL_NAME | name_id::POST_SCRIPT_NAME
+        )
+    }) {
+        if let Some(value) = name.to_string() {
+            assert!(
+                !value.to_ascii_lowercase().contains("source"),
+                "{} uses CJK Reserved Font Name 'Source' in name ID {}",
+                fixture.file,
+                name.name_id
+            );
+        }
+    }
+}
+
 fn fixture_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -334,21 +399,23 @@ fn parse_manifest(contents: &str) -> Vec<Fixture<'_>> {
             let columns = line.split('\t').collect::<Vec<_>>();
             assert_eq!(
                 columns.len(),
-                11,
-                "manifest row must contain exactly eleven tab-separated columns: {line:?}"
+                13,
+                "manifest row must contain exactly thirteen tab-separated columns: {line:?}"
             );
             Fixture {
                 role: columns[0],
                 file: columns[1],
                 license: columns[2],
                 license_file: columns[3],
-                codepoints: columns[4],
-                sequences: columns[5],
-                gsub_features: columns[6],
-                color: columns[7],
-                source: columns[8],
-                version: columns[9],
-                subset_command: columns[10],
+                license_source: columns[4],
+                license_sha256: columns[5],
+                codepoints: columns[6],
+                sequences: columns[7],
+                gsub_features: columns[8],
+                color: columns[9],
+                source: columns[10],
+                version: columns[11],
+                subset_command: columns[12],
             }
         })
         .collect()
@@ -399,6 +466,15 @@ fn fixture_font_files(root: &Path) -> BTreeSet<String> {
         .collect()
 }
 
+fn fixture_license_files(root: &Path) -> BTreeSet<String> {
+    fs::read_dir(root.join("LICENSES"))
+        .unwrap_or_else(|error| panic!("failed to list fixture licenses: {error}"))
+        .map(|entry| entry.expect("license directory entry must be readable"))
+        .filter(|entry| entry.path().is_file())
+        .map(|entry| format!("LICENSES/{}", entry.file_name().to_string_lossy()))
+        .collect()
+}
+
 fn comma_separated(value: &str) -> impl Iterator<Item = &str> {
     value.split(',').filter(|item| !item.is_empty())
 }
@@ -424,16 +500,39 @@ fn assert_portable_relative_path(value: &str) {
     let path = Path::new(value);
     assert!(
         !value.contains('\\')
+            && !value.contains(':')
             && !path.is_absolute()
-            && path
-                .components()
-                .all(|component| matches!(component, Component::Normal(_))),
+            && path.components().all(|component| match component {
+                Component::Normal(name) => !is_windows_reserved_name(&name.to_string_lossy()),
+                _ => false,
+            }),
         "fixture path must be a portable, normalized relative path: {value:?}"
     );
 }
 
+fn is_windows_reserved_name(value: &str) -> bool {
+    let stem = value
+        .split('.')
+        .next()
+        .unwrap_or(value)
+        .to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || stem
+            .strip_prefix("COM")
+            .or_else(|| stem.strip_prefix("LPT"))
+            .is_some_and(|suffix| {
+                suffix
+                    .parse::<u8>()
+                    .is_ok_and(|number| (1..=9).contains(&number))
+            })
+}
+
 fn immutable_github_source(source: &str) -> bool {
-    source.split('/').any(|segment| {
+    github_commit(source).is_some()
+}
+
+fn github_commit(source: &str) -> Option<&str> {
+    source.split('/').find(|segment| {
         segment.len() == 40
             && segment
                 .bytes()
@@ -445,4 +544,115 @@ fn official_immutable_source(source: &str) -> bool {
     (source.starts_with("https://raw.githubusercontent.com/google/fonts/")
         || source.starts_with("https://raw.githubusercontent.com/googlefonts/noto-emoji/"))
         && immutable_github_source(source)
+}
+
+struct ExpectedLicense {
+    identifier: &'static str,
+    file: &'static str,
+    font_source: &'static str,
+    source: &'static str,
+    sha256: &'static str,
+}
+
+fn expected_license(role: &str) -> ExpectedLicense {
+    match role {
+        "latin-ligature" => ExpectedLicense {
+            identifier: "OFL-1.1",
+            file: "LICENSES/NotoSans-OFL-1.1.txt",
+            font_source: concat!(
+                "https://raw.githubusercontent.com/google/fonts/",
+                "7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/",
+                "ofl/notosans/NotoSans%5Bwdth,wght%5D.ttf"
+            ),
+            source: concat!(
+                "https://raw.githubusercontent.com/google/fonts/",
+                "7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/ofl/notosans/OFL.txt"
+            ),
+            sha256: "cee9892f9f0cc8fe882c9e9537ee6a89621d86ee7ceaf70b02e2b2b1c25c061a",
+        },
+        "cjk" => ExpectedLicense {
+            identifier: "OFL-1.1",
+            file: "LICENSES/NotoSansSC-OFL-1.1.txt",
+            font_source: concat!(
+                "https://raw.githubusercontent.com/google/fonts/",
+                "7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/",
+                "ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf"
+            ),
+            source: concat!(
+                "https://raw.githubusercontent.com/google/fonts/",
+                "7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/ofl/notosanssc/OFL.txt"
+            ),
+            sha256: "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
+        },
+        "arabic" => ExpectedLicense {
+            identifier: "OFL-1.1",
+            file: "LICENSES/NotoSansArabic-OFL-1.1.txt",
+            font_source: concat!(
+                "https://raw.githubusercontent.com/google/fonts/",
+                "7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/",
+                "ofl/notosansarabic/NotoSansArabic%5Bwdth,wght%5D.ttf"
+            ),
+            source: concat!(
+                "https://raw.githubusercontent.com/google/fonts/",
+                "7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/ofl/notosansarabic/OFL.txt"
+            ),
+            sha256: "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96",
+        },
+        "devanagari" => ExpectedLicense {
+            identifier: "OFL-1.1",
+            file: "LICENSES/NotoSansDevanagari-OFL-1.1.txt",
+            font_source: concat!(
+                "https://raw.githubusercontent.com/google/fonts/",
+                "7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/",
+                "ofl/notosansdevanagari/NotoSansDevanagari%5Bwdth,wght%5D.ttf"
+            ),
+            source: concat!(
+                "https://raw.githubusercontent.com/google/fonts/",
+                "7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/ofl/notosansdevanagari/OFL.txt"
+            ),
+            sha256: "a216f6f8d85c7228093e0ee5e258d9d377e6671f68acb4db1930b29583d0f331",
+        },
+        "hebrew" => ExpectedLicense {
+            identifier: "OFL-1.1",
+            file: "LICENSES/NotoSansHebrew-OFL-1.1.txt",
+            font_source: concat!(
+                "https://raw.githubusercontent.com/google/fonts/",
+                "7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/",
+                "ofl/notosanshebrew/NotoSansHebrew%5Bwdth,wght%5D.ttf"
+            ),
+            source: concat!(
+                "https://raw.githubusercontent.com/google/fonts/",
+                "7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/ofl/notosanshebrew/OFL.txt"
+            ),
+            sha256: "9b9fe028b5ba74d231659a1bbaf0ed09b11e759d1ca6a070999e16d151616b47",
+        },
+        "symbols-text" => ExpectedLicense {
+            identifier: "OFL-1.1",
+            file: "LICENSES/NotoSansSymbols2-OFL-1.1.txt",
+            font_source: concat!(
+                "https://raw.githubusercontent.com/google/fonts/",
+                "7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/",
+                "ofl/notosanssymbols2/NotoSansSymbols2-Regular.ttf"
+            ),
+            source: concat!(
+                "https://raw.githubusercontent.com/google/fonts/",
+                "7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/ofl/notosanssymbols2/OFL.txt"
+            ),
+            sha256: "b118dd41337806a5d4797052c77caf3bd096aed783e5eb21b4d11154351e1ac0",
+        },
+        "color-emoji" => ExpectedLicense {
+            identifier: "OFL-1.1",
+            file: "LICENSES/NotoColorEmoji-OFL-1.1.txt",
+            font_source: concat!(
+                "https://raw.githubusercontent.com/googlefonts/noto-emoji/",
+                "8998f5dd683424a73e2314a8c1f1e359c19e8742/fonts/NotoColorEmoji.ttf"
+            ),
+            source: concat!(
+                "https://raw.githubusercontent.com/googlefonts/noto-emoji/",
+                "8998f5dd683424a73e2314a8c1f1e359c19e8742/fonts/LICENSE"
+            ),
+            sha256: "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+        },
+        _ => panic!("fixture role has no allow-listed license mapping: {role}"),
+    }
 }
