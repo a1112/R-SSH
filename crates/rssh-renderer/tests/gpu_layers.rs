@@ -146,6 +146,43 @@ fn same_z_kitty_ids_use_cpu_tie_break_and_missing_ids_retain_insertion_order() {
 }
 
 #[test]
+fn ordered_images_is_total_for_some_missing_some_id_permutations() {
+    let permutations = [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ];
+    for permutation in permutations {
+        let mut graph = RenderGraph::new(1, 1);
+        for index in permutation {
+            let (id, red) = match index {
+                0 => (Some(100), 100),
+                1 => (None, 200),
+                _ => (Some(1), 1),
+            };
+            let image = GpuImage::new(
+                ImageProtocol::Kitty,
+                0,
+                PixelRect::new(0, 0, 1, 1),
+                rgba(red, 0, 0, 255),
+            );
+            graph.push_image(id.map_or(image, |id| image.with_kitty_id(id)));
+        }
+        assert_eq!(
+            graph
+                .ordered_images()
+                .iter()
+                .map(|image| image.color()[0])
+                .collect::<Vec<_>>(),
+            vec![1, 100, 200]
+        );
+    }
+}
+
+#[test]
 fn signed_half_open_clipping_discards_negative_pixels_before_encoding() {
     let image = GpuImage::new_signed(
         ImageProtocol::Sixel,
@@ -605,6 +642,20 @@ fn gpu_image_materialization_budget_errors_before_mutating_renderer_state() {
     let mut renderer =
         GpuLayerRenderer::new_with_budgets(&context, wgpu::TextureFormat::Rgba8Unorm, 256, 40)
             .expect("renderer");
+
+    let mut repeated_terminal = Terminal::new(TerminalSize::new(1, 1));
+    repeated_terminal
+        .feed(format!("\x1b]1337;File=inline=1;width=2px;height=2px:{RED_PNG}\x07").as_bytes());
+    let repeated_snapshot = TerminalRenderSnapshot::from_terminal(&repeated_terminal);
+    let mut repeated = RenderGraph::new(2, 2);
+    repeated.push_snapshot_images(&repeated_snapshot, RenderGeometry::new(2, 2, 2, 2), 0, None);
+    repeated.push_snapshot_images(&repeated_snapshot, RenderGeometry::new(2, 2, 2, 2), 0, None);
+    renderer
+        .upload(&repeated)
+        .expect("two exact placements share one 32-byte retained texture");
+    assert_eq!(renderer.texture_cache_metrics().entries, 1);
+    assert_eq!(renderer.texture_cache_metrics().retained_bytes, 32);
+
     let upload_before = renderer.upload_metrics();
     let cache_before = renderer.texture_cache_metrics();
     let error = renderer

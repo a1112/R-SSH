@@ -323,13 +323,16 @@ impl RenderGraph {
         let mut images = self
             .nodes
             .iter()
+            .filter(|node| matches!(node, GraphNode::Image { .. }))
+            .collect::<Vec<_>>();
+        images.sort_by(|left, right| node_order(left, right));
+        images
+            .into_iter()
             .filter_map(|node| match node {
-                GraphNode::Image { image, sequence } => Some((*image, *sequence)),
+                GraphNode::Image { image, .. } => Some(*image),
                 GraphNode::Quad { .. } | GraphNode::TextureImage { .. } => None,
             })
-            .collect::<Vec<_>>();
-        images.sort_by(image_order);
-        images.into_iter().map(|(image, _)| image).collect()
+            .collect()
     }
 
     #[must_use]
@@ -375,21 +378,48 @@ impl RenderGraph {
                 "GPU graph can require {maximum_instance_bytes} instance bytes, exceeding the {instance_budget_bytes}-byte budget"
             )));
         }
-        let maximum_image_bytes = nodes.iter().try_fold(0_usize, |total, (node, _)| {
-            let GraphNode::TextureImage { plan, .. } = node else {
-                return Ok(total);
+        let mut textures = Vec::<PlannedTexture>::new();
+        let mut texture_indices = HashMap::<u64, usize>::new();
+        let mut unique_image_bytes = 0_usize;
+        for (node, _) in &nodes {
+            let GraphNode::TextureImage {
+                sequence,
+                texture,
+                plan,
+            } = node
+            else {
+                continue;
             };
-            total
-                .checked_add(texture_retained_bytes(texture_byte_len(
-                    plan.width,
-                    plan.height,
-                )?)?)
-                .ok_or_else(|| GpuLayerError::message("GPU image frame byte length overflow"))
-        })?;
-        if maximum_image_bytes > image_budget_bytes {
-            return Err(GpuLayerError::message(format!(
-                "GPU image draws require {maximum_image_bytes} retained bytes, exceeding the {image_budget_bytes}-byte budget"
-            )));
+            let retained_bytes =
+                texture_retained_bytes(texture_byte_len(plan.width, plan.height)?)?;
+            if retained_bytes > image_budget_bytes {
+                return Err(GpuLayerError::message(format!(
+                    "GPU image draw requires {retained_bytes} retained bytes, exceeding the {image_budget_bytes}-byte budget"
+                )));
+            }
+            let identity = texture.clone().map_or_else(|| texture_identity(plan), Ok)?;
+            let texture_index = if let Some(index) = textures
+                .iter()
+                .position(|planned| planned.identity == identity)
+            {
+                index
+            } else {
+                unique_image_bytes =
+                    unique_image_bytes
+                        .checked_add(retained_bytes)
+                        .ok_or_else(|| {
+                            GpuLayerError::message("GPU image frame byte length overflow")
+                        })?;
+                if unique_image_bytes > image_budget_bytes {
+                    return Err(GpuLayerError::message(format!(
+                        "unique GPU image draws require {unique_image_bytes} retained bytes, exceeding the {image_budget_bytes}-byte budget"
+                    )));
+                }
+                let index = textures.len();
+                textures.push(PlannedTexture { identity });
+                index
+            };
+            texture_indices.insert(*sequence, texture_index);
         }
 
         let mut bytes = Vec::new();
@@ -399,22 +429,15 @@ impl RenderGraph {
                 GpuLayerError::message(format!("reserve bounded GPU instances: {error}"))
             })?;
         let mut batches = Vec::<DrawBatch>::new();
-        let mut textures = Vec::<PlannedTexture>::new();
         let mut instance_index = 0_u32;
         for (node, rect) in nodes {
             let (kind, color) = match node {
                 GraphNode::Quad { quad, .. } => (PrimitiveKind::Quad, quad.color()),
                 GraphNode::Image { image, .. } => (PrimitiveKind::Image, image.color()),
-                GraphNode::TextureImage { texture, plan, .. } => {
-                    let texture = texture.clone().map_or_else(|| texture_identity(plan), Ok)?;
-                    let texture_index = textures
-                        .iter()
-                        .position(|planned| planned.identity == texture)
-                        .unwrap_or_else(|| {
-                            let index = textures.len();
-                            textures.push(PlannedTexture { identity: texture });
-                            index
-                        });
+                GraphNode::TextureImage { sequence, .. } => {
+                    let texture_index = *texture_indices.get(sequence).ok_or_else(|| {
+                        GpuLayerError::message("missing prepared GPU image texture index")
+                    })?;
                     (PrimitiveKind::TextureImage(texture_index), [u8::MAX; 4])
                 }
             };
@@ -461,19 +484,6 @@ fn texture_identity(plan: &ImageDrawPlan) -> Result<TextureIdentity, GpuLayerErr
         height: plan.height,
         pixels,
     })
-}
-
-fn image_order(
-    (left, left_sequence): &(GpuImage, u64),
-    (right, right_sequence): &(GpuImage, u64),
-) -> Ordering {
-    left.z_index()
-        .cmp(&right.z_index())
-        .then_with(|| match (left.kitty_id(), right.kitty_id()) {
-            (Some(left_id), Some(right_id)) => left_id.cmp(&right_id),
-            _ => Ordering::Equal,
-        })
-        .then_with(|| left_sequence.cmp(right_sequence))
 }
 
 fn node_order(left: &GraphNode, right: &GraphNode) -> Ordering {

@@ -2318,10 +2318,6 @@ pub(crate) fn gpu_image_draw_plan(
     )
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "whole images and attachment fragments share one immutable normalization pass"
-)]
 fn image_draw_plan(
     snapshot: &TerminalRenderSnapshot,
     geometry: RenderGeometry,
@@ -2329,6 +2325,33 @@ fn image_draw_plan(
     animation_elapsed_ms: Option<u64>,
     selected_layer: Option<ImageDrawLayer>,
 ) -> Vec<ImageDrawPlan> {
+    build_image_draw_plan(
+        snapshot,
+        geometry,
+        animation_frame,
+        animation_elapsed_ms,
+        selected_layer,
+    )
+    .0
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct ImageDrawPlanMetrics {
+    decode_count: usize,
+    unique_decoded_bytes: usize,
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "whole images and attachment fragments share one immutable normalization pass"
+)]
+fn build_image_draw_plan(
+    snapshot: &TerminalRenderSnapshot,
+    geometry: RenderGeometry,
+    animation_frame: usize,
+    animation_elapsed_ms: Option<u64>,
+    selected_layer: Option<ImageDrawLayer>,
+) -> (Vec<ImageDrawPlan>, ImageDrawPlanMetrics) {
     let fragments =
         runtime_inline_image_fragments(snapshot, geometry.cell_width, geometry.cell_height);
     let fragmented_parents = fragments
@@ -2336,6 +2359,8 @@ fn image_draw_plan(
         .map(|fragment| fragment.fragment.parent_image_index)
         .collect::<HashSet<_>>();
     let mut plan = Vec::new();
+    let mut decoded_parents = HashMap::<usize, Option<Arc<DecodedImage>>>::new();
+    let mut metrics = ImageDrawPlanMetrics::default();
 
     for (parent_index, image) in snapshot.inline_images.iter().enumerate() {
         if fragmented_parents.contains(&parent_index)
@@ -2346,9 +2371,14 @@ fn image_draw_plan(
         {
             continue;
         }
-        let Some(decoded) =
-            decode_inline_image(image, animation_frame, animation_elapsed_ms).map(Arc::new)
-        else {
+        let Some(decoded) = cached_decoded_image(
+            &mut decoded_parents,
+            &mut metrics,
+            parent_index,
+            image,
+            animation_frame,
+            animation_elapsed_ms,
+        ) else {
             continue;
         };
         let destination = inline_image_rect(image, geometry.cell_width, geometry.cell_height);
@@ -2389,9 +2419,14 @@ fn image_draw_plan(
         if selected_layer.is_some_and(|layer| layer != image_draw_layer(image_z_index(image))) {
             continue;
         }
-        let Some(decoded) =
-            decode_inline_image(image, animation_frame, animation_elapsed_ms).map(Arc::new)
-        else {
+        let Some(decoded) = cached_decoded_image(
+            &mut decoded_parents,
+            &mut metrics,
+            parent_index,
+            image,
+            animation_frame,
+            animation_elapsed_ms,
+        ) else {
             continue;
         };
         let Some(fragment) = resolve_runtime_inline_image_attachment_source(
@@ -2451,7 +2486,30 @@ fn image_draw_plan(
         }
     }
     plan.sort_by(compare_image_draw_plans);
-    plan
+    (plan, metrics)
+}
+
+fn cached_decoded_image(
+    cache: &mut HashMap<usize, Option<Arc<DecodedImage>>>,
+    metrics: &mut ImageDrawPlanMetrics,
+    parent_index: usize,
+    image: &RenderInlineImage,
+    animation_frame: usize,
+    animation_elapsed_ms: Option<u64>,
+) -> Option<Arc<DecodedImage>> {
+    cache
+        .entry(parent_index)
+        .or_insert_with(|| {
+            metrics.decode_count = metrics.decode_count.saturating_add(1);
+            decode_inline_image(image, animation_frame, animation_elapsed_ms).map(|decoded| {
+                metrics.unique_decoded_bytes = metrics
+                    .unique_decoded_bytes
+                    .checked_add(decoded.pixels.len())
+                    .expect("live decoded image allocations cannot exceed host address space");
+                Arc::new(decoded)
+            })
+        })
+        .clone()
 }
 
 #[expect(
@@ -5664,8 +5722,8 @@ mod tests {
         RenderBackgroundImageVerticalAlign, RenderBoldBrightensAnsiColors, RenderCell,
         RenderGeometry, RenderInlineImage, RenderInlineImageFragment, SCROLLBAR_THUMB_COLOR,
         SCROLLBAR_TRACK_COLOR, ScrollbackScrollbar, TerminalRenderSnapshot,
-        background_image_axis_coordinate, background_image_layout, compare_image_draw_plans,
-        render_image_draw_plan, render_inline_images_from_terminal,
+        background_image_axis_coordinate, background_image_layout, build_image_draw_plan,
+        compare_image_draw_plans, render_image_draw_plan, render_inline_images_from_terminal,
     };
 
     fn ordering_plan(
@@ -5810,7 +5868,25 @@ mod tests {
     }
 
     #[test]
-    fn cpu_renderer_does_not_drop_the_second_draw_when_scaled_pixels_exceed_64_mib() {
+    fn fragmented_parent_is_decoded_once_and_shares_one_source_allocation() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 2));
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=77,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let (draws, metrics) =
+            build_image_draw_plan(&snapshot, RenderGeometry::new(2, 2, 1, 1), 0, None, None);
+
+        assert_eq!(draws.len(), 4);
+        assert_eq!(metrics.decode_count, 1);
+        assert_eq!(metrics.unique_decoded_bytes, 16);
+        assert!(
+            draws
+                .windows(2)
+                .all(|pair| Arc::ptr_eq(&pair[0].decoded, &pair[1].decoded))
+        );
+    }
+
+    #[test]
+    fn lightweight_planner_keeps_two_draws_whose_scaled_pixels_exceed_64_mib() {
         const RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
         let mut terminal = Terminal::new(TerminalSize::new(1, 1));
         terminal.feed(
@@ -5818,14 +5894,28 @@ mod tests {
         );
         terminal.feed(b"\x1b[H");
         terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=1,f=24,s=1,v=1,c=1,r=1;AAD/\x1b\\");
-        terminal.feed(b"\x1b[?25l");
         let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
-        let mut target = vec![0; 3_000 * 3_000 * 4];
+        let (draws, metrics) = build_image_draw_plan(
+            &snapshot,
+            RenderGeometry::new(3_000, 3_000, 3_000, 3_000),
+            0,
+            None,
+            None,
+        );
 
-        PixelRenderer::new().render(&snapshot, &mut target, 3_000, 3_000, 3_000, 3_000);
-
-        assert_eq!(&target[..4], &[0, 0, 255, 255]);
-        assert_eq!(&target[target.len() - 4..], &[0, 0, 255, 255]);
+        assert_eq!(draws.len(), 2);
+        assert!(
+            draws
+                .iter()
+                .map(|draw| u64::from(draw.width) * u64::from(draw.height) * 4)
+                .sum::<u64>()
+                > 64 * 1024 * 1024
+        );
+        assert!(metrics.unique_decoded_bytes < 1024);
+        assert_eq!(
+            super::image_draw_pixel(&draws[1], 2_999, 2_999),
+            [0, 0, 255, 255]
+        );
     }
 
     #[test]
