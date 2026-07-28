@@ -68,6 +68,25 @@ fn configured_primary_and_ordered_whole_cluster_fallback() {
 }
 
 #[test]
+fn catalog_faces_outside_the_configured_chain_cannot_leak_into_glyphs() {
+    let mut catalog = catalog(&[LATIN, CJK]);
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));
+
+    let row = shaper
+        .shape_row(&mut catalog, "中")
+        .expect("shape uncovered cluster");
+
+    assert!(row.clusters[0].is_tofu);
+    assert_eq!(row.clusters[0].font_family, "Noto Sans");
+    assert!(
+        row.glyphs[row.clusters[0].glyph_range.clone()]
+            .iter()
+            .all(|glyph| glyph.font_id == row.clusters[0].font_id && glyph.is_tofu),
+        "cosmic-text fallback must not render an unconfigured catalog face"
+    );
+}
+
+#[test]
 fn fallback_order_is_observable_when_multiple_families_cover_a_cluster() {
     let mut catalog = catalog(&[LATIN, SYMBOLS, EMOJI]);
     let mut text_first = TerminalShaper::new(
@@ -138,6 +157,34 @@ fn complex_script_glyphs_keep_logical_byte_cluster_and_cell_ranges() {
 }
 
 #[test]
+fn multi_glyph_graphemes_preserve_relative_cosmic_positions_and_widths() {
+    let mut catalog = catalog(&[DEVANAGARI]);
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans Devanagari"));
+
+    let row = shaper
+        .shape_clusters(&mut catalog, &[TerminalCluster::new("क्षि", 0..1)])
+        .expect("shape complex grapheme");
+    assert!(row.glyphs.len() >= 2);
+    assert!(
+        row.glyphs
+            .windows(2)
+            .any(|pair| (pair[0].shaping_x - pair[1].shaping_x).abs() > f32::EPSILON)
+    );
+    assert!(
+        row.glyphs
+            .windows(2)
+            .any(|pair| (pair[0].x - pair[1].x).abs() > f32::EPSILON),
+        "terminal snapping must preserve intra-cluster offsets"
+    );
+    assert!(
+        row.glyphs
+            .iter()
+            .any(|glyph| glyph.width < row.metrics.cell_width),
+        "each glyph width must come from its scaled layout width, not the whole EGC"
+    );
+}
+
+#[test]
 fn bidi_visual_order_retains_logical_cell_mapping() {
     let mut catalog = catalog(&[LATIN, HEBREW, ARABIC]);
     let config =
@@ -164,6 +211,20 @@ fn bidi_visual_order_retains_logical_cell_mapping() {
             assert!(row.clusters[logical_index].cell_span.end <= row.cell_count);
         }
     }
+}
+
+#[test]
+fn pure_rtl_visual_order_follows_layout_positions_not_logical_vec_order() {
+    let mut catalog = catalog(&[ARABIC]);
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans Arabic"));
+
+    let row = shaper.shape_row(&mut catalog, "لا").expect("shape RTL row");
+
+    assert_eq!(row.visual_clusters, [1, 0]);
+    assert_eq!(row.clusters[0].cell_span, 0..1);
+    assert_eq!(row.clusters[1].cell_span, 1..2);
+    assert!(row.clusters[1].visual_index < row.clusters[0].visual_index);
+    assert!(row.glyphs[0].x <= row.glyphs[1].x);
 }
 
 #[test]
@@ -241,13 +302,42 @@ fn emoji_variations_and_sequences_select_one_expected_font_per_cluster() {
             .iter()
             .all(|glyph| glyph.is_color)
     }));
-    for cluster in non_space {
-        assert!(
-            row.glyphs[cluster.glyph_range.clone()]
-                .iter()
-                .all(|glyph| glyph.font_id == cluster.font_id)
+    for cluster in &non_space {
+        let actual = &row.glyphs[cluster.glyph_range.clone()];
+        assert!(!actual.is_empty());
+        assert!(actual.iter().all(|glyph| glyph.font_id == cluster.font_id
+            && glyph.glyph_id != 0
+            && !glyph.is_tofu));
+    }
+    for sequence in ["👍🏽", "👨‍👩‍👧‍👦", "🇺🇸"] {
+        let cluster = non_space
+            .iter()
+            .find(|cluster| &text[cluster.byte_range.clone()] == sequence)
+            .expect("sequence cluster");
+        assert_eq!(
+            row.glyphs[cluster.glyph_range.clone()].len(),
+            1,
+            "fixture GSUB must resolve {sequence} as one actual glyph"
         );
     }
+}
+
+#[test]
+fn default_ignorable_only_cluster_is_not_reported_as_missing() {
+    let mut catalog = catalog(&[LATIN]);
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));
+
+    let row = shaper
+        .shape_clusters(&mut catalog, &[TerminalCluster::new("\u{200d}", 0..1)])
+        .expect("shape default ignorable");
+
+    assert!(!row.clusters[0].is_tofu);
+    assert!(row.glyphs.iter().all(|glyph| !glyph.is_tofu));
+    assert!(
+        row.diagnostics
+            .iter()
+            .all(|item| item.kind != DiagnosticKind::MissingCluster)
+    );
 }
 
 #[test]
@@ -296,6 +386,7 @@ fn catalog_generation_invalidates_the_shape_cache() {
     let mut shaper = TerminalShaper::new(fixture_config());
 
     let first = shaper.shape_row(&mut catalog, "abc").expect("shape row");
+    let first_font = first.clusters[0].font_id;
     let second = shaper.shape_row(&mut catalog, "abc").expect("shape row");
     assert_eq!(first, second);
     assert_eq!(shaper.cache_stats().misses, 1);
@@ -309,6 +400,33 @@ fn catalog_generation_invalidates_the_shape_cache() {
 
     let third = shaper.shape_row(&mut catalog, "abc").expect("shape row");
     assert_eq!(third.catalog_generation, catalog.generation());
+    assert_ne!(third.clusters[0].font_id, first_font);
+    assert_eq!(
+        third.clusters[0].font_id.catalog_incarnation(),
+        catalog.incarnation()
+    );
+    assert_eq!(
+        third.clusters[0].font_id.catalog_generation(),
+        catalog.generation()
+    );
+    assert_eq!(shaper.cache_stats().misses, 2);
+}
+
+#[test]
+fn equal_generations_from_different_catalog_contents_do_not_share_cache_entries() {
+    let mut latin_only = catalog(&[LATIN]);
+    let mut latin_and_cjk = catalog(&[LATIN, CJK]);
+    assert_eq!(latin_only.generation(), latin_and_cjk.generation());
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));
+
+    shaper
+        .shape_row(&mut latin_only, "A")
+        .expect("shape first catalog");
+    shaper
+        .shape_row(&mut latin_and_cjk, "A")
+        .expect("shape second catalog");
+
+    assert_eq!(shaper.cache_stats().hits, 0);
     assert_eq!(shaper.cache_stats().misses, 2);
 }
 
@@ -330,7 +448,31 @@ fn diagnostic_deduplication_is_scoped_to_catalog_generation() {
         .filter(|item| item.kind == DiagnosticKind::MissingCluster)
         .map(|item| item.catalog_generation)
         .collect();
-    assert_eq!(generations, [first_generation, catalog.generation()]);
+    assert_ne!(catalog.generation(), first_generation);
+    assert_eq!(generations, [catalog.generation()]);
+}
+
+#[test]
+fn diagnostics_are_bounded_and_only_describe_the_current_row() {
+    let mut catalog = catalog(&[LATIN]);
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));
+    let missing: String = (0x1000..0x1200).filter_map(char::from_u32).collect();
+
+    let noisy = shaper
+        .shape_row(&mut catalog, &missing)
+        .expect("shape many missing clusters");
+    assert!(noisy.diagnostics.len() <= 128);
+    assert!(
+        noisy
+            .diagnostics
+            .iter()
+            .all(|item| item.catalog_generation == catalog.generation())
+    );
+
+    let clean = shaper
+        .shape_row(&mut catalog, "A")
+        .expect("shape clean next row");
+    assert!(clean.diagnostics.is_empty());
 }
 
 #[test]
@@ -419,6 +561,11 @@ fn invalid_inputs_fail_before_entering_cosmic_text() {
         shaper.shape_row(&mut normal, "A"),
         Err(ShapeError::InvalidMetrics)
     );
+    shaper.set_config(FontConfig::new("Noto Sans").with_font_size(f32::MAX));
+    assert_eq!(
+        shaper.shape_row(&mut normal, "A"),
+        Err(ShapeError::InvalidMetrics)
+    );
 }
 
 #[test]
@@ -436,4 +583,9 @@ fn empty_and_extremely_long_rows_remain_one_unwrapped_layout_line() {
         .expect("shape long row");
     assert_eq!(row.layout_line_count, 1);
     assert_eq!(row.cell_count, 20_000);
+    assert!(
+        row.mapping_steps <= 12 * (row.text.len() + row.glyphs.len() + row.clusters.len()),
+        "mapping work must stay linear: {} steps",
+        row.mapping_steps
+    );
 }

@@ -1,6 +1,6 @@
 //! Terminal-oriented row shaping and logical/visual mapping.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::ops::Range;
 
@@ -10,7 +10,7 @@ use cosmic_text::{
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::catalog::{FontCatalog, FontId};
+use crate::catalog::{FontCatalog, FontId, is_default_ignorable};
 use crate::config::{FontConfig, FontStretch, FontStyle};
 use crate::diagnostics::{DiagnosticKind, Diagnostics, FontDiagnostic};
 
@@ -172,6 +172,8 @@ pub struct ShapedRow {
     pub catalog_generation: u64,
     /// Primary-face geometry used by the row.
     pub metrics: TerminalFontMetrics,
+    /// Mapping operations used to construct byte/cluster/cell indexes.
+    pub mapping_steps: usize,
     /// Deduplicated diagnostics known when this row was shaped.
     pub diagnostics: Vec<FontDiagnostic>,
 }
@@ -188,7 +190,9 @@ pub struct ShapeCacheStats {
 #[derive(Clone, Debug, PartialEq)]
 struct ShapeCacheKey {
     clusters: Vec<TerminalCluster>,
+    catalog_incarnation: u64,
     catalog_generation: u64,
+    catalog_fingerprint: [u8; 32],
     config: FontConfig,
 }
 
@@ -205,6 +209,7 @@ struct ClusterPlan {
 struct LayoutOutput {
     glyphs: Vec<ShapedGlyph>,
     line_count: usize,
+    mapping_steps: usize,
 }
 
 /// Shapes logical terminal rows using an isolated [`FontCatalog`].
@@ -286,7 +291,9 @@ impl TerminalShaper {
         self.validate(catalog, clusters)?;
         let key = ShapeCacheKey {
             clusters: clusters.to_vec(),
+            catalog_incarnation: catalog.incarnation(),
             catalog_generation: catalog.generation(),
+            catalog_fingerprint: catalog.fingerprint(),
             config: self.config.clone(),
         };
         if let Some((cached_key, row)) = &self.cache
@@ -296,13 +303,14 @@ impl TerminalShaper {
             return Ok(row.clone());
         }
         self.stats.misses = self.stats.misses.saturating_add(1);
+        self.diagnostics.begin_row();
 
         let text: String = clusters
             .iter()
             .map(|cluster| cluster.text.as_str())
             .collect();
         let plans = self.plan_clusters(catalog, clusters);
-        let row = self.shape_plans(catalog, text, plans);
+        let row = self.shape_plans(catalog, text, plans)?;
         self.cache = Some((key, row.clone()));
         Ok(row)
     }
@@ -358,8 +366,20 @@ impl TerminalShaper {
                     });
                     return None;
                 };
+                if catalog
+                    .face_metrics(record, self.config.font_size)
+                    .is_none()
+                {
+                    self.diagnostics.record(FontDiagnostic {
+                        kind: DiagnosticKind::CorruptFont,
+                        family: Some(family.to_owned()),
+                        cluster: None,
+                        catalog_generation: catalog.generation(),
+                    });
+                    return None;
+                }
                 catalog.supports_cluster(record, cluster).then_some((
-                    FontId::from_cosmic(record.id),
+                    catalog.font_id(record.id),
                     record.family.clone(),
                     record.is_color,
                 ))
@@ -380,13 +400,16 @@ impl TerminalShaper {
                         .families()
                         .find_map(|family| catalog.record_for_family(family))
                         .or_else(|| catalog.first_record())
-                        .map_or((FontId::MISSING, "<missing>".to_owned(), false), |record| {
-                            (
-                                FontId::from_cosmic(record.id),
-                                record.family.clone(),
-                                record.is_color,
-                            )
-                        });
+                        .map_or(
+                            (catalog.missing_font_id(), "<missing>".to_owned(), false),
+                            |record| {
+                                (
+                                    catalog.font_id(record.id),
+                                    record.family.clone(),
+                                    record.is_color,
+                                )
+                            },
+                        );
                     self.diagnostics.record(FontDiagnostic {
                         kind: DiagnosticKind::VisibleTofu,
                         family: Some(tofu.1.clone()),
@@ -409,15 +432,15 @@ impl TerminalShaper {
     }
 
     fn shape_plans(
-        &self,
+        &mut self,
         catalog: &mut FontCatalog,
         text: String,
-        plans: Vec<ClusterPlan>,
-    ) -> ShapedRow {
-        let metrics = self.resolve_metrics(catalog);
+        mut plans: Vec<ClusterPlan>,
+    ) -> Result<ShapedRow, ShapeError> {
+        let metrics = self.resolve_metrics(catalog)?;
         let cell_count = plans.last().map_or(0, |plan| plan.cell_span.end);
         if plans.is_empty() {
-            return ShapedRow {
+            return Ok(ShapedRow {
                 text,
                 glyphs: Vec::new(),
                 clusters: Vec::new(),
@@ -426,49 +449,84 @@ impl TerminalShaper {
                 layout_line_count: 1,
                 catalog_generation: catalog.generation(),
                 metrics,
+                mapping_steps: 0,
                 diagnostics: self.diagnostics.snapshot(),
-            };
+            });
         }
 
-        let layout = self.layout_glyphs(catalog, &text, &plans, metrics);
-        self.finish_row(catalog, text, plans, layout, cell_count, metrics)
+        let layout = self.layout_glyphs(catalog, &text, &mut plans, metrics);
+        Ok(self.finish_row(catalog, text, plans, layout, cell_count, metrics))
     }
 
-    fn resolve_metrics(&self, catalog: &FontCatalog) -> TerminalFontMetrics {
-        let record = self
+    fn resolve_metrics(&self, catalog: &FontCatalog) -> Result<TerminalFontMetrics, ShapeError> {
+        let face = self
             .config
             .families()
-            .find_map(|family| catalog.record_for_family(family))
-            .or_else(|| catalog.first_record());
-        let face = record
-            .and_then(|record| catalog.face_metrics(record, self.config.font_size))
-            .unwrap_or(crate::catalog::FaceMetrics {
-                cell_width: self.config.font_size * 0.6,
-                ascent: self.config.font_size * 0.8,
-                descent: self.config.font_size * 0.2,
-                line_gap: 0.0,
-            });
+            .filter_map(|family| catalog.record_for_family(family))
+            .find_map(|record| catalog.face_metrics(record, self.config.font_size))
+            .or_else(|| {
+                catalog
+                    .first_record()
+                    .and_then(|record| catalog.face_metrics(record, self.config.font_size))
+            })
+            .ok_or(ShapeError::InvalidMetrics)?;
         let natural_line_height =
             (face.ascent + face.descent + face.line_gap).max(self.config.font_size);
         let line_height = natural_line_height * self.config.line_height;
         let baseline = face.ascent + (line_height - natural_line_height) / 2.0;
-        TerminalFontMetrics {
+        let metrics = TerminalFontMetrics {
             font_size: self.config.font_size,
             cell_width: face.cell_width * self.config.cell_width,
             line_height,
             baseline,
             ascent: face.ascent,
             descent: face.descent,
+        };
+        if !metrics.cell_width.is_finite()
+            || metrics.cell_width <= 0.0
+            || !metrics.line_height.is_finite()
+            || metrics.line_height <= 0.0
+            || !metrics.baseline.is_finite()
+            || metrics.baseline <= 0.0
+        {
+            return Err(ShapeError::InvalidMetrics);
         }
+        Ok(metrics)
     }
 
     fn layout_glyphs(
+        &mut self,
+        catalog: &mut FontCatalog,
+        text: &str,
+        plans: &mut [ClusterPlan],
+        metrics: TerminalFontMetrics,
+    ) -> LayoutOutput {
+        let buffer = self.build_buffer(catalog, text, plans, metrics);
+        let mut mapping_steps = 0;
+        let mut byte_to_cluster = vec![0; text.len()];
+        for (logical_index, plan) in plans.iter().enumerate() {
+            for slot in &mut byte_to_cluster[plan.byte_range.clone()] {
+                *slot = logical_index;
+                mapping_steps += 1;
+            }
+        }
+
+        let (glyphs, line_count, glyph_steps) =
+            self.collect_backend_glyphs(catalog, text, plans, &buffer, &byte_to_cluster, metrics);
+        LayoutOutput {
+            glyphs,
+            line_count,
+            mapping_steps: mapping_steps + glyph_steps,
+        }
+    }
+
+    fn build_buffer(
         &self,
         catalog: &mut FontCatalog,
         text: &str,
         plans: &[ClusterPlan],
         metrics: TerminalFontMetrics,
-    ) -> LayoutOutput {
+    ) -> Buffer {
         let mut features = FontFeatures::new();
         if !self.config.ligatures {
             features.disable(FeatureTag::STANDARD_LIGATURES);
@@ -489,18 +547,18 @@ impl TerminalShaper {
             FontStretch::Normal => Stretch::Normal,
             FontStretch::Expanded => Stretch::Expanded,
         };
+        let families: Vec<_> = plans.iter().map(|plan| plan.font_family.clone()).collect();
         let spans: Vec<_> = plans
             .iter()
-            .map(|plan| {
-                (
-                    &text[plan.byte_range.clone()],
-                    Attrs::new()
-                        .family(Family::Name(&plan.font_family))
-                        .weight(weight)
-                        .style(style)
-                        .stretch(stretch)
-                        .font_features(features.clone()),
-                )
+            .zip(&families)
+            .map(|(plan, family)| {
+                let attrs = Attrs::new()
+                    .family(Family::Name(family))
+                    .weight(weight)
+                    .style(style)
+                    .stretch(stretch)
+                    .font_features(features.clone());
+                (&text[plan.byte_range.clone()], attrs)
             })
             .collect();
         let default_attrs = Attrs::new()
@@ -513,28 +571,64 @@ impl TerminalShaper {
         buffer.set_size(None, None);
         buffer.set_rich_text(spans, &default_attrs, Shaping::Advanced, None);
         buffer.shape_until_scroll(catalog.font_system_mut(), false);
+        buffer
+    }
 
+    fn collect_backend_glyphs(
+        &mut self,
+        catalog: &FontCatalog,
+        text: &str,
+        plans: &mut [ClusterPlan],
+        buffer: &Buffer,
+        byte_to_cluster: &[usize],
+        metrics: TerminalFontMetrics,
+    ) -> (Vec<ShapedGlyph>, usize, usize) {
+        let mut mapping_steps = 0;
         let mut glyphs = Vec::new();
+        let mut plan_has_glyph = vec![false; plans.len()];
         let mut layout_line_count = 0;
         for run in buffer.layout_runs() {
             layout_line_count += 1;
-            glyphs.extend(run.glyphs.iter().enumerate().map(|(run_order, glyph)| {
-                let cluster_range = overlapping_clusters(plans, glyph.start..glyph.end);
+            for glyph in run.glyphs {
+                let cluster_range =
+                    indexed_cluster_range(byte_to_cluster, glyph.start..glyph.end, plans.len());
                 let cell_span = cells_for_clusters(plans, cluster_range.clone());
-                let is_tofu = plans[cluster_range.clone()].iter().any(|plan| plan.is_tofu);
+                mapping_steps += 1;
+                let planned_id = plans[cluster_range.start].font_id;
+                let actual_id = catalog.font_id(glyph.font_id);
+                let same_planned_face = plans[cluster_range.clone()]
+                    .iter()
+                    .all(|plan| plan.font_id == planned_id);
+                mapping_steps += cluster_range.end - cluster_range.start;
+                for logical_index in cluster_range.clone() {
+                    plan_has_glyph[logical_index] = true;
+                }
+                let mut is_tofu = plans[cluster_range.clone()].iter().any(|plan| plan.is_tofu);
+                let actual_is_valid =
+                    same_planned_face && actual_id == planned_id && glyph.glyph_id != 0 && !is_tofu;
+                if !actual_is_valid {
+                    for plan in &mut plans[cluster_range.clone()] {
+                        mark_plan_tofu(&mut self.diagnostics, plan, text, catalog.generation());
+                    }
+                    is_tofu = true;
+                }
                 let is_color = plans[cluster_range.clone()]
                     .iter()
                     .all(|plan| plan.is_color);
-                ShapedGlyph {
-                    font_id: FontId::from_cosmic(glyph.font_id),
-                    glyph_id: glyph.glyph_id,
+                glyphs.push(ShapedGlyph {
+                    font_id: if actual_is_valid {
+                        actual_id
+                    } else {
+                        planned_id
+                    },
+                    glyph_id: if actual_is_valid { glyph.glyph_id } else { 0 },
                     byte_range: glyph.start..glyph.end,
                     cluster_range,
                     cell_span: cell_span.clone(),
-                    visual_order: run_order,
+                    visual_order: glyphs.len(),
                     x: glyph.x,
                     y: glyph.y,
-                    width: cell_pixels(cell_span.end - cell_span.start, metrics.cell_width),
+                    width: glyph.w,
                     shaping_x: glyph.x,
                     shaping_width: glyph.w,
                     x_offset: glyph.x_offset,
@@ -542,13 +636,39 @@ impl TerminalShaper {
                     bidi_level: glyph.level.number(),
                     is_color,
                     is_tofu,
-                }
-            }));
+                });
+            }
         }
-        LayoutOutput {
-            glyphs,
-            line_count: layout_line_count,
+        for (logical_index, plan) in plans.iter_mut().enumerate() {
+            let cluster = &text[plan.byte_range.clone()];
+            let has_visible_scalar = cluster
+                .chars()
+                .any(|character| !is_default_ignorable(character) && !character.is_whitespace());
+            if !plan_has_glyph[logical_index] && has_visible_scalar {
+                mark_plan_tofu(&mut self.diagnostics, plan, text, catalog.generation());
+                let shaping_x = cell_pixels(plan.cell_span.start, metrics.cell_width);
+                glyphs.push(ShapedGlyph {
+                    font_id: plan.font_id,
+                    glyph_id: 0,
+                    byte_range: plan.byte_range.clone(),
+                    cluster_range: logical_index..logical_index.saturating_add(1),
+                    cell_span: plan.cell_span.clone(),
+                    visual_order: glyphs.len(),
+                    x: shaping_x,
+                    y: 0.0,
+                    width: metrics.cell_width,
+                    shaping_x,
+                    shaping_width: metrics.cell_width,
+                    x_offset: 0.0,
+                    y_offset: 0.0,
+                    bidi_level: 0,
+                    is_color: plan.is_color,
+                    is_tofu: true,
+                });
+                mapping_steps += 1;
+            }
         }
+        (glyphs, layout_line_count, mapping_steps)
     }
 
     fn finish_row(
@@ -561,43 +681,80 @@ impl TerminalShaper {
         metrics: TerminalFontMetrics,
     ) -> ShapedRow {
         let mut glyphs = layout.glyphs;
+        glyphs.sort_by(|left, right| {
+            left.shaping_x
+                .total_cmp(&right.shaping_x)
+                .then_with(|| left.visual_order.cmp(&right.visual_order))
+        });
         let visual_clusters = visual_cluster_order(&glyphs, plans.len());
         let mut visual_indexes = vec![0; plans.len()];
         let mut visual_x = vec![0.0; plans.len()];
+        let mut mapping_steps = layout.mapping_steps;
         let mut next_x = 0.0;
         for (visual_index, logical_index) in visual_clusters.iter().copied().enumerate() {
             visual_indexes[logical_index] = visual_index;
             visual_x[logical_index] = next_x;
             let cells = plans[logical_index].cell_span.end - plans[logical_index].cell_span.start;
             next_x += cell_pixels(cells, metrics.cell_width);
+            mapping_steps += 1;
+        }
+
+        let mut group_bounds: HashMap<(usize, usize), (f32, f32)> = HashMap::new();
+        for glyph in &glyphs {
+            let key = (glyph.cluster_range.start, glyph.cluster_range.end);
+            let bounds = group_bounds
+                .entry(key)
+                .or_insert((glyph.shaping_x, glyph.shaping_x + glyph.shaping_width));
+            bounds.0 = bounds.0.min(glyph.shaping_x);
+            bounds.1 = bounds.1.max(glyph.shaping_x + glyph.shaping_width);
+            mapping_steps += 1;
         }
         for (visual_order, glyph) in glyphs.iter_mut().enumerate() {
             glyph.visual_order = visual_order;
-            glyph.x = glyph
+            let target_x = glyph
                 .cluster_range
                 .clone()
                 .map(|logical_index| visual_x[logical_index])
                 .min_by(f32::total_cmp)
                 .unwrap_or(0.0);
+            let target_width = cell_pixels(
+                glyph.cell_span.end - glyph.cell_span.start,
+                metrics.cell_width,
+            );
+            let bounds = group_bounds
+                .get(&(glyph.cluster_range.start, glyph.cluster_range.end))
+                .copied()
+                .unwrap_or((glyph.shaping_x, glyph.shaping_x + glyph.shaping_width));
+            let shaping_width = bounds.1 - bounds.0;
+            let scale = if shaping_width.is_finite() && shaping_width > 0.0 {
+                target_width / shaping_width
+            } else {
+                1.0
+            };
+            glyph.x = target_x + (glyph.shaping_x - bounds.0) * scale;
+            glyph.width = glyph.shaping_width * scale;
+            glyph.x_offset *= scale;
+            mapping_steps += 1;
         }
 
+        let mut first_glyph = vec![None; plans.len()];
+        let mut last_glyph = vec![None; plans.len()];
+        for (glyph_index, glyph) in glyphs.iter().enumerate() {
+            for logical_index in glyph.cluster_range.clone() {
+                first_glyph[logical_index].get_or_insert(glyph_index);
+                last_glyph[logical_index] = Some(glyph_index);
+                mapping_steps += 1;
+            }
+        }
         let clusters = plans
             .into_iter()
             .enumerate()
             .map(|(logical_index, plan)| {
-                let touching: Vec<_> = glyphs
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, glyph)| glyph.cluster_range.contains(&logical_index))
-                    .map(|(index, _)| index)
-                    .collect();
-                let glyph_range = touching
-                    .first()
-                    .zip(touching.last())
-                    .map_or(0..0, |(first, last)| *first..last.saturating_add(1));
-                let bidi_level = touching
-                    .first()
-                    .map_or(0, |index| glyphs[*index].bidi_level);
+                let glyph_range = first_glyph[logical_index]
+                    .zip(last_glyph[logical_index])
+                    .map_or(0..0, |(first, last)| first..last.saturating_add(1));
+                let bidi_level =
+                    first_glyph[logical_index].map_or(0, |index| glyphs[index].bidi_level);
                 ShapedCluster {
                     byte_range: plan.byte_range,
                     cell_span: plan.cell_span,
@@ -621,21 +778,51 @@ impl TerminalShaper {
             layout_line_count: layout.line_count,
             catalog_generation: catalog.generation(),
             metrics,
+            mapping_steps,
             diagnostics: self.diagnostics.snapshot(),
         }
     }
 }
 
-fn overlapping_clusters(plans: &[ClusterPlan], bytes: Range<usize>) -> Range<usize> {
-    let first = plans
-        .iter()
-        .position(|plan| ranges_overlap(&plan.byte_range, &bytes))
-        .unwrap_or(0);
-    let last = plans
-        .iter()
-        .rposition(|plan| ranges_overlap(&plan.byte_range, &bytes))
-        .unwrap_or(first);
-    first..last.saturating_add(1)
+fn mark_plan_tofu(
+    diagnostics: &mut Diagnostics,
+    plan: &mut ClusterPlan,
+    text: &str,
+    catalog_generation: u64,
+) {
+    if !plan.is_tofu {
+        let cluster = &text[plan.byte_range.clone()];
+        diagnostics.record(FontDiagnostic {
+            kind: DiagnosticKind::MissingCluster,
+            family: Some(plan.font_family.clone()),
+            cluster: Some(cluster.to_owned()),
+            catalog_generation,
+        });
+        diagnostics.record(FontDiagnostic {
+            kind: DiagnosticKind::VisibleTofu,
+            family: Some(plan.font_family.clone()),
+            cluster: Some(cluster.to_owned()),
+            catalog_generation,
+        });
+    }
+    plan.is_tofu = true;
+}
+
+fn indexed_cluster_range(
+    byte_to_cluster: &[usize],
+    bytes: Range<usize>,
+    cluster_count: usize,
+) -> Range<usize> {
+    if cluster_count == 0 {
+        return 0..0;
+    }
+    let first = byte_to_cluster
+        .get(bytes.start)
+        .copied()
+        .unwrap_or(cluster_count - 1);
+    let last_byte = bytes.end.saturating_sub(1);
+    let last = byte_to_cluster.get(last_byte).copied().unwrap_or(first);
+    first.min(last)..first.max(last).saturating_add(1)
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -649,10 +836,6 @@ fn cells_for_clusters(plans: &[ClusterPlan], clusters: Range<usize>) -> Range<us
     };
     let last = &plans[clusters.end - 1];
     first.cell_span.start..last.cell_span.end
-}
-
-fn ranges_overlap(left: &Range<usize>, right: &Range<usize>) -> bool {
-    left.start < right.end && right.start < left.end
 }
 
 fn visual_cluster_order(glyphs: &[ShapedGlyph], cluster_count: usize) -> Vec<usize> {

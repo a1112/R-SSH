@@ -2,6 +2,8 @@
 
 use std::collections::HashSet;
 
+const MAX_ROW_DIAGNOSTICS: usize = 128;
+
 /// Kind of actionable terminal font diagnostic.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum DiagnosticKind {
@@ -11,6 +13,8 @@ pub enum DiagnosticKind {
     MissingCluster,
     /// The missing cluster is represented by the selected face's visible notdef glyph.
     VisibleTofu,
+    /// A parseable face has unusable or unsafe terminal metrics.
+    CorruptFont,
 }
 
 /// A stable, renderer-independent font diagnostic.
@@ -34,8 +38,13 @@ pub(crate) struct Diagnostics {
 }
 
 impl Diagnostics {
+    pub(crate) fn begin_row(&mut self) {
+        self.seen.clear();
+        self.items.clear();
+    }
+
     pub(crate) fn record(&mut self, diagnostic: FontDiagnostic) {
-        if self.seen.insert(diagnostic.clone()) {
+        if self.items.len() < MAX_ROW_DIAGNOSTICS && self.seen.insert(diagnostic.clone()) {
             self.items.push(diagnostic);
         }
     }

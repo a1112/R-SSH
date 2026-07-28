@@ -4,19 +4,32 @@ use std::fmt;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use cosmic_text::{FontSystem, fontdb};
+use sha2::{Digest, Sha256};
+
+static NEXT_CATALOG_INCARNATION: AtomicU64 = AtomicU64::new(1);
 
 /// Font identifier scoped to one [`FontCatalog::generation`].
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct FontId(Option<fontdb::ID>);
+pub struct FontId {
+    raw: Option<fontdb::ID>,
+    catalog_incarnation: u64,
+    catalog_generation: u64,
+}
 
 impl FontId {
-    /// Identifier used when no catalog face is available.
-    pub const MISSING: Self = Self(None);
+    /// Catalog instance that owns the underlying database identifier.
+    #[must_use]
+    pub const fn catalog_incarnation(self) -> u64 {
+        self.catalog_incarnation
+    }
 
-    pub(crate) const fn from_cosmic(id: fontdb::ID) -> Self {
-        Self(Some(id))
+    /// Catalog generation that owns the underlying database identifier.
+    #[must_use]
+    pub const fn catalog_generation(self) -> u64 {
+        self.catalog_generation
     }
 }
 
@@ -133,7 +146,9 @@ pub struct FontCatalog {
     sources: Vec<FontSource>,
     records: Vec<FontRecord>,
     font_system: FontSystem,
+    incarnation: u64,
     generation: u64,
+    fingerprint: [u8; 32],
 }
 
 impl fmt::Debug for FontCatalog {
@@ -144,6 +159,8 @@ impl fmt::Debug for FontCatalog {
             .field("sources", &self.sources)
             .field("records", &self.records)
             .field("generation", &self.generation)
+            .field("incarnation", &self.incarnation)
+            .field("fingerprint", &self.fingerprint)
             .finish_non_exhaustive()
     }
 }
@@ -153,14 +170,18 @@ impl FontCatalog {
     #[must_use]
     pub fn new(locale: impl Into<String>) -> Self {
         let locale = locale.into();
+        let sources = Vec::new();
+        let fingerprint = content_fingerprint(&locale, &sources);
         Self {
             font_system: FontSystem::new_with_locale_and_db(
                 locale.clone(),
                 fontdb::Database::new(),
             ),
             locale,
-            sources: Vec::new(),
+            fingerprint,
+            sources,
             records: Vec::new(),
+            incarnation: next_catalog_incarnation(),
             generation: 0,
         }
     }
@@ -176,12 +197,15 @@ impl FontCatalog {
     {
         let locale = locale.into();
         let sources: Vec<_> = sources.into_iter().collect();
+        let fingerprint = content_fingerprint(&locale, &sources);
         let (font_system, records) = Self::build(&locale, &sources)?;
         Ok(Self {
             locale,
+            fingerprint,
             sources,
             records,
             font_system,
+            incarnation: next_catalog_incarnation(),
             generation: 1,
         })
     }
@@ -200,6 +224,7 @@ impl FontCatalog {
         self.records = records;
         self.font_system = font_system;
         self.generation = self.generation.wrapping_add(1);
+        self.fingerprint = content_fingerprint(&self.locale, &self.sources);
         Ok(self.generation)
     }
 
@@ -216,6 +241,32 @@ impl FontCatalog {
     #[must_use]
     pub const fn generation(&self) -> u64 {
         self.generation
+    }
+
+    /// Process-unique identity of this catalog instance.
+    #[must_use]
+    pub const fn incarnation(&self) -> u64 {
+        self.incarnation
+    }
+
+    pub(crate) const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    pub(crate) const fn font_id(&self, raw: fontdb::ID) -> FontId {
+        FontId {
+            raw: Some(raw),
+            catalog_incarnation: self.incarnation,
+            catalog_generation: self.generation,
+        }
+    }
+
+    pub(crate) const fn missing_font_id(&self) -> FontId {
+        FontId {
+            raw: None,
+            catalog_incarnation: self.incarnation,
+            catalog_generation: self.generation,
+        }
     }
 
     /// Number of faces available to this isolated catalog.
@@ -288,7 +339,7 @@ impl FontCatalog {
             return false;
         }
         let covered = cluster.chars().all(|character| {
-            is_variation_selector(character) || face.glyph_index(character).is_some()
+            is_default_ignorable(character) || face.glyph_index(character).is_some()
         });
         if !covered {
             return false;
@@ -322,17 +373,68 @@ impl FontCatalog {
         let advance = cell_glyph
             .and_then(|glyph| face.glyph_hor_advance(glyph))
             .map_or(font_size * 0.6, |advance| f32::from(advance) * scale);
-        Some(FaceMetrics {
+        let metrics = FaceMetrics {
             cell_width: advance,
             ascent: f32::from(face.ascender()) * scale,
             descent: -f32::from(face.descender()) * scale,
             line_gap: f32::from(face.line_gap()) * scale,
-        })
+        };
+        let metric_limit = font_size * 10.0;
+        (metrics.cell_width.is_finite()
+            && metrics.cell_width > 0.0
+            && metrics.cell_width <= metric_limit
+            && metrics.ascent.is_finite()
+            && metrics.ascent > 0.0
+            && metrics.ascent <= metric_limit
+            && metrics.descent.is_finite()
+            && metrics.descent >= 0.0
+            && metrics.descent <= metric_limit
+            && metrics.line_gap.is_finite()
+            && metrics.line_gap.abs() <= metric_limit)
+            .then_some(metrics)
     }
+}
+
+fn next_catalog_incarnation() -> u64 {
+    NEXT_CATALOG_INCARNATION.fetch_add(1, Ordering::Relaxed)
+}
+
+fn content_fingerprint(locale: &str, sources: &[FontSource]) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(locale.len().to_le_bytes());
+    digest.update(locale.as_bytes());
+    digest.update(sources.len().to_le_bytes());
+    for source in sources {
+        digest.update(source.bytes.len().to_le_bytes());
+        digest.update(source.bytes());
+    }
+    digest.finalize().into()
 }
 
 fn is_variation_selector(character: char) -> bool {
     matches!(character, '\u{fe00}'..='\u{fe0f}' | '\u{e0100}'..='\u{e01ef}')
+}
+
+pub(crate) fn is_default_ignorable(character: char) -> bool {
+    is_variation_selector(character)
+        || matches!(
+            character,
+            '\u{00ad}'
+                | '\u{034f}'
+                | '\u{061c}'
+                | '\u{115f}'..='\u{1160}'
+                | '\u{17b4}'..='\u{17b5}'
+                | '\u{180b}'..='\u{180f}'
+                | '\u{200b}'..='\u{200f}'
+                | '\u{202a}'..='\u{202e}'
+                | '\u{2060}'..='\u{206f}'
+                | '\u{3164}'
+                | '\u{feff}'
+                | '\u{ffa0}'
+                | '\u{1bca0}'..='\u{1bca3}'
+                | '\u{1d173}'..='\u{1d17a}'
+                | '\u{e0000}'..='\u{e0fff}'
+        )
 }
 
 fn has_color_tables(bytes: &[u8], face_index: u32) -> bool {
