@@ -60,6 +60,8 @@ pub struct RasterRequest {
     pub y: f32,
     weight: u16,
     flags: RasterFlags,
+    x_offset: f32,
+    y_offset: f32,
     expected_visible: bool,
     is_tofu: bool,
 }
@@ -81,6 +83,8 @@ impl RasterRequest {
             y,
             weight: glyph.raster_weight,
             flags: glyph.raster_flags,
+            x_offset: glyph.x_offset,
+            y_offset: glyph.y_offset,
             expected_visible,
             is_tofu: glyph.is_tofu,
         }
@@ -268,13 +272,14 @@ impl RasterCache {
         {
             return None;
         }
+        let (physical_x, physical_y) = physical_position(request, dpi_scale, zoom)?;
 
         let raw_font = request.font_id.raw()?;
         let (cosmic, _, _) = CacheKey::new(
             raw_font,
             request.glyph_id,
             effective_size,
-            (request.x, request.y),
+            (physical_x, physical_y),
             fontdb::Weight(request.weight),
             request.flags.cosmic(),
         );
@@ -329,6 +334,22 @@ impl RasterCache {
 
 fn valid_scale(dpi_scale: f32, zoom: f32) -> Option<()> {
     (dpi_scale.is_finite() && dpi_scale > 0.0 && zoom.is_finite() && zoom > 0.0).then_some(())
+}
+
+fn physical_position(request: RasterRequest, dpi_scale: f32, zoom: f32) -> Option<(f32, f32)> {
+    let scale = dpi_scale.checked_mul(zoom)?;
+    let logical_x = request.x_offset.mul_add(request.font_size, request.x);
+    let logical_y = request.y - request.font_size.checked_mul(request.y_offset)?;
+    let physical_x = logical_x.checked_mul(scale)?;
+    let physical_y = logical_y.checked_mul(scale)?;
+    (subpixel_coordinate_is_safe(physical_x) && subpixel_coordinate_is_safe(physical_y))
+        .then_some((physical_x, physical_y))
+}
+
+fn subpixel_coordinate_is_safe(coordinate: f32) -> bool {
+    const I32_MIN_AS_F32: f32 = -2_147_483_648.0;
+    const I32_MAX_ROUNDED_UP_AS_F32: f32 = 2_147_483_648.0;
+    coordinate.is_finite() && coordinate > I32_MIN_AS_F32 && coordinate < I32_MAX_ROUNDED_UP_AS_F32
 }
 
 impl RasterContent {

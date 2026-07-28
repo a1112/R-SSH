@@ -239,6 +239,72 @@ fn changing_raster_scale_invalidates_entries_and_invalid_values_never_panic() {
 }
 
 #[test]
+fn raster_positions_are_rejected_before_subpixel_quantization_can_overflow() {
+    let mut catalog = catalog(&[LATIN]);
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));
+    let row = shaper.shape_row(&mut catalog, "A").expect("shape");
+    let glyph = &row.glyphs[0];
+    let mut cache = RasterCache::new(RasterCacheConfig::new(1 << 20));
+    let positive_boundary = 2_147_483_648.0_f32;
+    let negative_boundary = -2_147_483_648.0_f32;
+    let positive_safe = f32::from_bits(positive_boundary.to_bits() - 1);
+    let negative_safe = f32::from_bits(negative_boundary.to_bits() - 1);
+
+    for coordinate in [
+        f32::MAX,
+        -f32::MAX,
+        f32::NAN,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        positive_boundary,
+        f32::from_bits(positive_boundary.to_bits() + 1),
+        negative_boundary,
+        f32::from_bits(negative_boundary.to_bits() + 1),
+    ] {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            cache.rasterize(
+                &mut catalog,
+                RasterRequest::for_shaped_glyph(&row, glyph, coordinate, coordinate),
+            )
+        }));
+        assert!(result.is_ok(), "coordinate {coordinate:?} panicked");
+        assert!(
+            result.expect("checked above").is_none(),
+            "coordinate {coordinate:?} was accepted"
+        );
+    }
+
+    for coordinate in [
+        positive_safe,
+        negative_safe,
+        2_000_000_000.0,
+        -2_000_000_000.0,
+    ] {
+        assert!(
+            cache
+                .rasterize(
+                    &mut catalog,
+                    RasterRequest::for_shaped_glyph(&row, glyph, coordinate, coordinate),
+                )
+                .is_some(),
+            "safe coordinate {coordinate:?} was rejected"
+        );
+    }
+
+    let mut dangerous_offset = glyph.clone();
+    dangerous_offset.x_offset = f32::MAX;
+    dangerous_offset.y_offset = -f32::MAX;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        cache.rasterize(
+            &mut catalog,
+            RasterRequest::for_shaped_glyph(&row, &dangerous_offset, 0.0, 0.0),
+        )
+    }));
+    assert!(result.is_ok());
+    assert!(result.expect("checked above").is_none());
+}
+
+#[test]
 fn visible_tofu_gets_a_bounded_fallback_but_blank_glyphs_do_not() {
     let mut catalog = catalog(&[LATIN]);
     let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));
