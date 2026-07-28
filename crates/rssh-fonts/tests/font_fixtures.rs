@@ -46,12 +46,16 @@ fn shaping_font_fixtures_are_licensed_pinned_and_cover_the_manifest() {
         "fixture rebuilds must use the pinned fonttools version"
     );
     let rebuild_script = read_utf8(&root.join("rebuild_check.py"));
+    let rebuild_tests = read_utf8(&root.join("test_rebuild_check.py"));
     assert!(
         rebuild_script.contains("FONTTOOLS_VERSION")
             && rebuild_script.contains("MANIFEST.tsv")
             && rebuild_script.contains("SHA256SUMS")
-            && readme.contains("rebuild_check.py"),
-        "the documented rebuild/check script must consume all pinned fixture metadata"
+            && rebuild_tests.contains("test_rejects_six_of_seven_outputs")
+            && rebuild_tests.contains("test_rejects_traversal_and_absolute_paths")
+            && readme.contains("rebuild_check.py")
+            && readme.contains("test_rebuild_check.py"),
+        "the documented rebuild/check tooling must consume metadata and cover fail-closed paths"
     );
 
     assert!(
@@ -127,6 +131,48 @@ fn shaping_font_fixtures_are_licensed_pinned_and_cover_the_manifest() {
         total_size <= 2 * 1024 * 1024,
         "font fixtures exceed the 2 MiB repository budget: {total_size} bytes"
     );
+}
+
+#[test]
+fn portable_fixture_paths_reject_windows_aliases_and_illegal_components() {
+    for invalid in [
+        "LICENSES/COM\u{00B9}.txt",
+        "LICENSES/LPT\u{00B2}.txt",
+        "LICENSES/CONIN$.txt",
+        "LICENSES/CONOUT$.txt",
+        "LICENSES/trailing.",
+        "LICENSES/trailing ",
+        "LICENSES/illegal<name>.txt",
+    ] {
+        assert!(
+            std::panic::catch_unwind(|| assert_portable_relative_path(invalid)).is_err(),
+            "portable path validator accepted {invalid:?}"
+        );
+    }
+}
+
+#[test]
+fn license_enumeration_includes_nested_extra_files() {
+    let unique = format!(
+        "rssh-font-license-enumeration-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time must follow the Unix epoch")
+            .as_nanos()
+    );
+    let root = std::env::temp_dir().join(unique);
+    let nested = root.join("LICENSES/nested");
+    fs::create_dir_all(&nested).expect("nested test license directory must be created");
+    fs::write(nested.join("extra.txt"), b"extra")
+        .expect("nested test license file must be created");
+
+    assert_eq!(
+        fixture_license_files(&root),
+        BTreeSet::from(["LICENSES/nested/extra.txt".to_owned()])
+    );
+
+    fs::remove_dir_all(root).expect("test license directory must be removed");
 }
 
 fn validate_fixture_metadata(
@@ -361,17 +407,31 @@ fn validate_reserved_font_names(fixture: &Fixture<'_>, face: &Face<'_>) {
     for name in face.names().into_iter().filter(|name| {
         matches!(
             name.name_id,
-            name_id::FAMILY | name_id::FULL_NAME | name_id::POST_SCRIPT_NAME
+            name_id::FAMILY
+                | name_id::FULL_NAME
+                | name_id::POST_SCRIPT_NAME
+                | name_id::TYPOGRAPHIC_FAMILY
+                | name_id::TYPOGRAPHIC_SUBFAMILY
+                | name_id::COMPATIBLE_FULL
+                | name_id::POST_SCRIPT_CID
+                | name_id::WWS_FAMILY
+                | name_id::WWS_SUBFAMILY
+                | name_id::VARIATIONS_POST_SCRIPT_NAME_PREFIX
         )
     }) {
-        if let Some(value) = name.to_string() {
-            assert!(
-                !value.to_ascii_lowercase().contains("source"),
-                "{} uses CJK Reserved Font Name 'Source' in name ID {}",
-                fixture.file,
-                name.name_id
-            );
-        }
+        let decoded_uses_source = name
+            .to_string()
+            .is_some_and(|value| value.to_ascii_lowercase().contains("source"));
+        let raw_uses_source = name
+            .name
+            .windows(b"source".len())
+            .any(|window| window.eq_ignore_ascii_case(b"source"));
+        assert!(
+            !decoded_uses_source && !raw_uses_source,
+            "{} uses CJK Reserved Font Name 'Source' in name ID {}",
+            fixture.file,
+            name.name_id
+        );
     }
 }
 
@@ -467,12 +527,47 @@ fn fixture_font_files(root: &Path) -> BTreeSet<String> {
 }
 
 fn fixture_license_files(root: &Path) -> BTreeSet<String> {
-    fs::read_dir(root.join("LICENSES"))
-        .unwrap_or_else(|error| panic!("failed to list fixture licenses: {error}"))
-        .map(|entry| entry.expect("license directory entry must be readable"))
-        .filter(|entry| entry.path().is_file())
-        .map(|entry| format!("LICENSES/{}", entry.file_name().to_string_lossy()))
-        .collect()
+    let license_root = root.join("LICENSES");
+    let mut files = BTreeSet::new();
+    collect_license_files(&license_root, &license_root, &mut files);
+    files
+}
+
+fn collect_license_files(root: &Path, directory: &Path, files: &mut BTreeSet<String>) {
+    for entry in fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("failed to list {}: {error}", directory.display()))
+    {
+        let entry = entry.expect("license directory entry must be readable");
+        let file_type = entry
+            .file_type()
+            .expect("license directory entry type must be readable");
+        assert!(
+            !file_type.is_symlink(),
+            "license fixture must not be a symlink: {}",
+            entry.path().display()
+        );
+        if file_type.is_dir() {
+            collect_license_files(root, &entry.path(), files);
+        } else {
+            assert!(
+                file_type.is_file(),
+                "license fixture must be a regular file: {}",
+                entry.path().display()
+            );
+            let relative = entry
+                .path()
+                .strip_prefix(root)
+                .expect("license file must remain under LICENSES")
+                .components()
+                .map(|component| component.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
+            assert!(
+                files.insert(format!("LICENSES/{relative}")),
+                "duplicate license fixture path: {relative}"
+            );
+        }
+    }
 }
 
 fn comma_separated(value: &str) -> impl Iterator<Item = &str> {
@@ -502,12 +597,25 @@ fn assert_portable_relative_path(value: &str) {
         !value.contains('\\')
             && !value.contains(':')
             && !path.is_absolute()
-            && path.components().all(|component| match component {
-                Component::Normal(name) => !is_windows_reserved_name(&name.to_string_lossy()),
-                _ => false,
-            }),
+            && value.split('/').all(|component| {
+                !component.is_empty()
+                    && component != "."
+                    && component != ".."
+                    && is_portable_windows_component(component)
+            })
+            && path
+                .components()
+                .all(|component| matches!(component, Component::Normal(_))),
         "fixture path must be a portable, normalized relative path: {value:?}"
     );
+}
+
+fn is_portable_windows_component(value: &str) -> bool {
+    !value.ends_with([' ', '.'])
+        && !value
+            .chars()
+            .any(|character| character.is_control() || r#"<>:"/\|?*"#.contains(character))
+        && !is_windows_reserved_name(value)
 }
 
 fn is_windows_reserved_name(value: &str) -> bool {
@@ -516,15 +624,18 @@ fn is_windows_reserved_name(value: &str) -> bool {
         .next()
         .unwrap_or(value)
         .to_ascii_uppercase();
-    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || stem
-            .strip_prefix("COM")
-            .or_else(|| stem.strip_prefix("LPT"))
-            .is_some_and(|suffix| {
-                suffix
-                    .parse::<u8>()
-                    .is_ok_and(|number| (1..=9).contains(&number))
-            })
+    matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || stem
+        .strip_prefix("COM")
+        .or_else(|| stem.strip_prefix("LPT"))
+        .is_some_and(|suffix| match suffix {
+            "\u{00B9}" | "\u{00B2}" | "\u{00B3}" => true,
+            _ => suffix
+                .parse::<u8>()
+                .is_ok_and(|number| (1..=9).contains(&number)),
+        })
 }
 
 fn immutable_github_source(source: &str) -> bool {

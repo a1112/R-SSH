@@ -63,6 +63,17 @@ python tests/fixtures/fonts/rebuild_check.py --upstream upstream
 
 The driver rebuilds into a temporary directory and fails if any SHA differs.
 Pass `--write` only when intentionally replacing the committed fixtures.
+Before reading an upstream font or creating an output, it validates the entire
+manifest, exact seven-role/file set, checksum set, and portable containment of
+all local paths. Traversal, absolute paths, alternate separators, Windows
+device aliases, trailing dots/spaces, illegal characters, duplicate roles or
+files, and missing or extra outputs fail closed.
+Run the fail-closed path, manifest, and output-set regression tests with:
+
+```text
+python tests/fixtures/fonts/test_rebuild_check.py -v
+```
+
 These are the exact commands consumed from `MANIFEST.tsv`:
 
 ```text
