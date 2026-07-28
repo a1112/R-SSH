@@ -1475,6 +1475,24 @@ struct DecodedImage {
     pixels: Vec<u8>,
 }
 
+/// Backend-neutral, fully normalized inline-image draw.
+///
+/// The CPU and GPU backends derive these draws from the same private snapshot
+/// metadata so fragmented parents, cell attachments, viewport transforms, and
+/// animation frame selection cannot diverge.
+#[derive(Debug, Clone)]
+pub(crate) struct ImageDrawPlan {
+    pub destination_x: u32,
+    pub destination_y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u8>,
+    pub z_index: i32,
+    pub kitty_image_id: Option<u32>,
+    pub parent_index: usize,
+    pub fragment_index: usize,
+}
+
 impl Default for PixelRenderer {
     fn default() -> Self {
         Self::new()
@@ -2312,6 +2330,233 @@ fn resolve_runtime_inline_image_attachment_source(
     resolved.sampling_source_width = source_width;
     resolved.sampling_source_height = source_height;
     Some(resolved)
+}
+
+const MAX_PLANNED_IMAGE_BYTES: usize = 64 * 1024 * 1024;
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "whole images and attachment fragments share one immutable normalization pass"
+)]
+pub(crate) fn gpu_image_draw_plan(
+    snapshot: &TerminalRenderSnapshot,
+    geometry: RenderGeometry,
+    animation_frame: usize,
+    animation_elapsed_ms: Option<u64>,
+) -> Vec<ImageDrawPlan> {
+    let fragments =
+        runtime_inline_image_fragments(snapshot, geometry.cell_width, geometry.cell_height);
+    let fragmented_parents = fragments
+        .iter()
+        .map(|fragment| fragment.fragment.parent_image_index)
+        .collect::<HashSet<_>>();
+    let mut plan = Vec::new();
+    let mut retained_bytes = 0_usize;
+
+    for (parent_index, image) in snapshot.inline_images.iter().enumerate() {
+        if fragmented_parents.contains(&parent_index)
+            || snapshot
+                .empty_inline_image_attachment_parents
+                .contains(&parent_index)
+        {
+            continue;
+        }
+        let Some(decoded) = decode_inline_image(image, animation_frame, animation_elapsed_ms)
+        else {
+            continue;
+        };
+        let destination = inline_image_rect(image, geometry.cell_width, geometry.cell_height);
+        let Some(source) = inline_image_source_rect(image, decoded.width, decoded.height) else {
+            continue;
+        };
+        if let Some(draw) = plan_image_pixels(
+            &decoded,
+            i64::from(destination.x),
+            i64::from(destination.y),
+            destination.width,
+            destination.height,
+            None,
+            geometry,
+            |target_x, target_y| {
+                (
+                    source
+                        .x
+                        .saturating_add(target_x.saturating_mul(source.width) / destination.width),
+                    source.y.saturating_add(
+                        target_y.saturating_mul(source.height) / destination.height,
+                    ),
+                )
+            },
+            image,
+            parent_index,
+            0,
+        ) && let Some(next_retained) = retained_bytes.checked_add(draw.pixels.len())
+            && next_retained <= MAX_PLANNED_IMAGE_BYTES
+        {
+            retained_bytes = next_retained;
+            plan.push(draw);
+        }
+    }
+
+    for (fragment_index, runtime) in fragments.iter().enumerate() {
+        let parent_index = runtime.fragment.parent_image_index;
+        let Some(image) = snapshot.inline_images.get(parent_index) else {
+            continue;
+        };
+        let Some(decoded) = decode_inline_image(image, animation_frame, animation_elapsed_ms)
+        else {
+            continue;
+        };
+        let Some(fragment) = resolve_runtime_inline_image_attachment_source(
+            &runtime.fragment,
+            image,
+            decoded.width,
+            decoded.height,
+        ) else {
+            continue;
+        };
+        if fragment.destination_width == 0
+            || fragment.destination_height == 0
+            || fragment.sampling_source_width == 0
+            || fragment.sampling_source_height == 0
+            || fragment.source_destination_width == 0
+            || fragment.source_destination_height == 0
+        {
+            continue;
+        }
+        let origin_x = (i64::from(fragment.column) + runtime.column_offset)
+            .saturating_mul(i64::from(geometry.cell_width))
+            .saturating_add(i64::from(fragment.destination_x));
+        let origin_y = (i64::from(fragment.row) + runtime.row_offset)
+            .saturating_mul(i64::from(geometry.cell_height))
+            .saturating_add(i64::from(fragment.destination_y));
+        let clip = runtime.clip.map(|clip| {
+            (
+                clip.left.saturating_mul(i64::from(geometry.cell_width)),
+                clip.top.saturating_mul(i64::from(geometry.cell_height)),
+                clip.right.saturating_mul(i64::from(geometry.cell_width)),
+                clip.bottom.saturating_mul(i64::from(geometry.cell_height)),
+            )
+        });
+        if let Some(draw) = plan_image_pixels(
+            &decoded,
+            origin_x,
+            origin_y,
+            fragment.destination_width,
+            fragment.destination_height,
+            clip,
+            geometry,
+            |target_x, target_y| {
+                (
+                    fragment.sampling_source_x.saturating_add(
+                        fragment
+                            .source_destination_x
+                            .saturating_add(target_x)
+                            .saturating_mul(fragment.sampling_source_width)
+                            / fragment.source_destination_width,
+                    ),
+                    fragment.sampling_source_y.saturating_add(
+                        fragment
+                            .source_destination_y
+                            .saturating_add(target_y)
+                            .saturating_mul(fragment.sampling_source_height)
+                            / fragment.source_destination_height,
+                    ),
+                )
+            },
+            image,
+            parent_index,
+            fragment_index,
+        ) && let Some(next_retained) = retained_bytes.checked_add(draw.pixels.len())
+            && next_retained <= MAX_PLANNED_IMAGE_BYTES
+        {
+            retained_bytes = next_retained;
+            plan.push(draw);
+        }
+    }
+    plan
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the immutable draw plan keeps placement, clipping, sampling, and stable ordering explicit"
+)]
+fn plan_image_pixels(
+    decoded: &DecodedImage,
+    origin_x: i64,
+    origin_y: i64,
+    destination_width: u32,
+    destination_height: u32,
+    clip: Option<(i64, i64, i64, i64)>,
+    geometry: RenderGeometry,
+    sample: impl Fn(u32, u32) -> (u32, u32),
+    image: &RenderInlineImage,
+    parent_index: usize,
+    fragment_index: usize,
+) -> Option<ImageDrawPlan> {
+    if destination_width == 0 || destination_height == 0 {
+        return None;
+    }
+    let destination_right = origin_x.saturating_add(i64::from(destination_width));
+    let destination_bottom = origin_y.saturating_add(i64::from(destination_height));
+    let mut left = origin_x.max(0);
+    let mut top = origin_y.max(0);
+    let mut right = destination_right.min(i64::from(geometry.target_width));
+    let mut bottom = destination_bottom.min(i64::from(geometry.target_height));
+    if let Some((clip_left, clip_top, clip_right, clip_bottom)) = clip {
+        left = left.max(clip_left);
+        top = top.max(clip_top);
+        right = right.min(clip_right);
+        bottom = bottom.min(clip_bottom);
+    }
+    if right <= left || bottom <= top {
+        return None;
+    }
+    let x = u32::try_from(left).ok()?;
+    let y = u32::try_from(top).ok()?;
+    let width = u32::try_from(right - left).ok()?;
+    let height = u32::try_from(bottom - top).ok()?;
+    let byte_len = usize::try_from(width)
+        .ok()?
+        .checked_mul(usize::try_from(height).ok()?)?
+        .checked_mul(4)?;
+    if byte_len > MAX_PLANNED_IMAGE_BYTES {
+        return None;
+    }
+    let mut pixels = vec![0; byte_len];
+    for output_y in 0..height {
+        for output_x in 0..width {
+            let target_x = u32::try_from(
+                i64::from(x)
+                    .saturating_add(i64::from(output_x))
+                    .saturating_sub(origin_x),
+            )
+            .ok()?;
+            let target_y = u32::try_from(
+                i64::from(y)
+                    .saturating_add(i64::from(output_y))
+                    .saturating_sub(origin_y),
+            )
+            .ok()?;
+            let (source_x, source_y) = sample(target_x, target_y);
+            let pixel = rgba_pixel(decoded, source_x, source_y).unwrap_or([0; 4]);
+            let output_index =
+                usize::try_from((u64::from(output_y) * u64::from(width) + u64::from(output_x)) * 4)
+                    .ok()?;
+            pixels[output_index..output_index + 4].copy_from_slice(&pixel);
+        }
+    }
+    Some(ImageDrawPlan {
+        destination_x: x,
+        destination_y: y,
+        width,
+        height,
+        pixels,
+        z_index: image_z_index(image),
+        kitty_image_id: image.kitty_image_id,
+        parent_index,
+        fragment_index,
+    })
 }
 
 #[expect(

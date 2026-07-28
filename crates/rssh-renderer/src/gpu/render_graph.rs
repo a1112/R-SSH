@@ -1,0 +1,1230 @@
+use std::{
+    borrow::Cow,
+    cmp::Ordering,
+    collections::{HashMap, HashSet, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
+    ops::Range,
+    sync::Arc,
+    sync::mpsc,
+    time::{Duration, Instant},
+};
+
+use super::{
+    GpuImage, GpuLayer, GpuLayerError, GpuQuad, PixelRect,
+    images::image_layer,
+    quads::{INSTANCE_SIZE, encode_instance},
+};
+use crate::{ImageDrawPlan, RenderGeometry, TerminalRenderSnapshot, gpu_image_draw_plan};
+
+const INSTANCE_STRIDE: wgpu::BufferAddress = INSTANCE_SIZE as wgpu::BufferAddress;
+const MIN_INSTANCE_CAPACITY: usize = 64;
+const INSTANCE_WRITE_ALIGNMENT: usize = 4;
+pub const DEFAULT_GPU_INSTANCE_BYTE_BUDGET: usize = 64 * 1024 * 1024;
+pub const DEFAULT_GPU_IMAGE_BYTE_BUDGET: usize = 64 * 1024 * 1024;
+
+const QUAD_SHADER: &str = r"
+struct Viewport {
+    size: vec2<f32>,
+};
+@group(0) @binding(0)
+var<uniform> viewport: Viewport;
+
+struct VertexInput {
+    @location(0) rect: vec4<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+};
+
+@vertex
+fn vertex_main(input: VertexInput, @builtin(vertex_index) vertex_index: u32) -> VertexOutput {
+    let corners = array(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(1.0, 1.0),
+    );
+    let pixel = input.rect.xy + corners[vertex_index] * input.rect.zw;
+    let normalized = pixel / viewport.size;
+    var output: VertexOutput;
+    output.position = vec4<f32>(
+        normalized.x * 2.0 - 1.0,
+        1.0 - normalized.y * 2.0,
+        0.0,
+        1.0,
+    );
+    output.color = input.color;
+    return output;
+}
+
+@fragment
+fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    return input.color;
+}
+";
+
+const IMAGE_SHADER: &str = r"
+struct Viewport {
+    size: vec2<f32>,
+};
+@group(0) @binding(0)
+var<uniform> viewport: Viewport;
+@group(1) @binding(0)
+var image_texture: texture_2d<f32>;
+
+struct VertexInput {
+    @location(0) rect: vec4<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) local: vec2<f32>,
+};
+
+@vertex
+fn vertex_main(input: VertexInput, @builtin(vertex_index) vertex_index: u32) -> VertexOutput {
+    let corners = array(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(1.0, 1.0),
+    );
+    let corner = corners[vertex_index];
+    let pixel = input.rect.xy + corner * input.rect.zw;
+    let normalized = pixel / viewport.size;
+    var output: VertexOutput;
+    output.position = vec4<f32>(
+        normalized.x * 2.0 - 1.0,
+        1.0 - normalized.y * 2.0,
+        0.0,
+        1.0,
+    );
+    output.local = corner;
+    return output;
+}
+
+@fragment
+fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    let dimensions = textureDimensions(image_texture);
+    let coordinate = min(
+        vec2<i32>(input.local * vec2<f32>(dimensions)),
+        vec2<i32>(dimensions) - vec2<i32>(1),
+    );
+    return textureLoad(image_texture, coordinate, 0);
+}
+";
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum PrimitiveKind {
+    Quad,
+    Image,
+    TextureImage(u64),
+}
+
+#[derive(Clone, Debug)]
+enum GraphNode {
+    Quad {
+        sequence: u64,
+        quad: GpuQuad,
+    },
+    Image {
+        sequence: u64,
+        image: GpuImage,
+    },
+    TextureImage {
+        sequence: u64,
+        texture_key: u64,
+        plan: Arc<ImageDrawPlan>,
+    },
+}
+
+impl GraphNode {
+    fn layer(&self) -> GpuLayer {
+        match self {
+            Self::Quad { quad, .. } => quad.layer(),
+            Self::Image { image, .. } => image.layer(),
+            Self::TextureImage { plan, .. } => image_layer(plan.z_index),
+        }
+    }
+
+    const fn sequence(&self) -> u64 {
+        match self {
+            Self::Quad { sequence, .. }
+            | Self::Image { sequence, .. }
+            | Self::TextureImage { sequence, .. } => *sequence,
+        }
+    }
+
+    fn z_index(&self) -> i32 {
+        match self {
+            Self::Image { image, .. } => image.z_index(),
+            Self::TextureImage { plan, .. } => plan.z_index,
+            Self::Quad { .. } => 0,
+        }
+    }
+
+    fn kitty_id(&self) -> Option<u32> {
+        match self {
+            Self::Image { image, .. } => image.kitty_id(),
+            Self::TextureImage { plan, .. } => plan.kitty_image_id,
+            Self::Quad { .. } => None,
+        }
+    }
+}
+
+/// CPU-side display list for the native GPU terminal passes.
+#[derive(Clone, Debug)]
+pub struct RenderGraph {
+    width: u32,
+    height: u32,
+    nodes: Vec<GraphNode>,
+    next_sequence: u64,
+}
+
+impl RenderGraph {
+    #[must_use]
+    pub const fn new(width: u32, height: u32) -> Self {
+        Self {
+            width,
+            height,
+            nodes: Vec::new(),
+            next_sequence: 0,
+        }
+    }
+
+    pub fn push_quad(&mut self, quad: GpuQuad) {
+        let sequence = self.allocate_sequence();
+        self.nodes.push(GraphNode::Quad { sequence, quad });
+    }
+
+    pub fn push_image(&mut self, image: GpuImage) {
+        let sequence = self.allocate_sequence();
+        self.nodes.push(GraphNode::Image { sequence, image });
+    }
+
+    /// Adds normalized image draws from the terminal snapshot. This deliberately
+    /// calls the same attachment/fragment planner as the CPU reference backend.
+    pub fn push_snapshot_images(
+        &mut self,
+        snapshot: &TerminalRenderSnapshot,
+        geometry: RenderGeometry,
+        animation_frame: usize,
+        animation_elapsed_ms: Option<u64>,
+    ) {
+        for plan in gpu_image_draw_plan(snapshot, geometry, animation_frame, animation_elapsed_ms) {
+            let texture_key = texture_key(&plan);
+            let sequence = self.allocate_sequence();
+            self.nodes.push(GraphNode::TextureImage {
+                sequence,
+                texture_key,
+                plan: Arc::new(plan),
+            });
+        }
+    }
+
+    #[must_use]
+    pub fn planned_image_draw_count(&self) -> usize {
+        self.nodes
+            .iter()
+            .filter(|node| matches!(node, GraphNode::TextureImage { .. }))
+            .count()
+    }
+
+    #[must_use]
+    pub fn planned_image_destinations(&self) -> Vec<PixelRect> {
+        self.nodes
+            .iter()
+            .filter_map(|node| match node {
+                GraphNode::TextureImage { plan, .. } => Some(PixelRect::new(
+                    plan.destination_x,
+                    plan.destination_y,
+                    plan.width,
+                    plan.height,
+                )),
+                GraphNode::Quad { .. } | GraphNode::Image { .. } => None,
+            })
+            .collect()
+    }
+
+    pub fn replace_quad(&mut self, quad_index: usize, replacement: GpuQuad) {
+        if let Some(GraphNode::Quad { quad, .. }) = self
+            .nodes
+            .iter_mut()
+            .filter(|node| matches!(node, GraphNode::Quad { .. }))
+            .nth(quad_index)
+        {
+            *quad = replacement;
+        }
+    }
+
+    #[must_use]
+    pub const fn ordered_layers(&self) -> &'static [GpuLayer] {
+        &GpuLayer::ORDERED
+    }
+
+    #[must_use]
+    pub fn ordered_images(&self) -> Vec<GpuImage> {
+        let mut images = self
+            .nodes
+            .iter()
+            .filter_map(|node| match node {
+                GraphNode::Image { image, sequence } => Some((*image, *sequence)),
+                GraphNode::Quad { .. } | GraphNode::TextureImage { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        images.sort_by(image_order);
+        images.into_iter().map(|(image, _)| image).collect()
+    }
+
+    #[must_use]
+    pub fn ordered_content_layers(&self) -> Vec<GpuLayer> {
+        let mut nodes = self.nodes.clone();
+        nodes.sort_by(node_order);
+        nodes.iter().map(GraphNode::layer).collect()
+    }
+
+    const fn viewport(&self) -> PixelRect {
+        PixelRect::new(0, 0, self.width, self.height)
+    }
+
+    fn allocate_sequence(&mut self) -> u64 {
+        let sequence = self.next_sequence;
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        sequence
+    }
+
+    fn prepare(&self) -> PreparedGraph {
+        let mut nodes = self.nodes.clone();
+        nodes.sort_by(node_order);
+
+        let mut bytes = Vec::with_capacity(nodes.len().saturating_mul(INSTANCE_SIZE));
+        let mut batches = Vec::<DrawBatch>::new();
+        let mut textures = Vec::<PlannedTexture>::new();
+        let mut instance_index = 0_u32;
+        for node in nodes {
+            // Task 17 owns glyph rasterization. Keep the stable slot but submit
+            // no fake glyph pixels in this task.
+            if node.layer() == GpuLayer::Glyph {
+                continue;
+            }
+            let (kind, rect, color) = match node {
+                GraphNode::Quad { quad, .. } => (PrimitiveKind::Quad, quad.rect(), quad.color()),
+                GraphNode::Image { image, .. } => {
+                    (PrimitiveKind::Image, image.rect(), image.color())
+                }
+                GraphNode::TextureImage {
+                    texture_key, plan, ..
+                } => {
+                    if !textures.iter().any(|texture| texture.key == texture_key) {
+                        textures.push(PlannedTexture {
+                            key: texture_key,
+                            width: plan.width,
+                            height: plan.height,
+                            pixels: Arc::clone(&plan),
+                        });
+                    }
+                    (
+                        PrimitiveKind::TextureImage(texture_key),
+                        PixelRect::new(
+                            plan.destination_x,
+                            plan.destination_y,
+                            plan.width,
+                            plan.height,
+                        ),
+                        [u8::MAX; 4],
+                    )
+                }
+            };
+            let Some(rect) = rect.intersection(self.viewport()) else {
+                continue;
+            };
+            encode_instance(rect, color, &mut bytes);
+            if let Some(batch) = batches.last_mut().filter(|batch| batch.kind == kind) {
+                batch.instances.end = batch.instances.end.saturating_add(1);
+            } else {
+                batches.push(DrawBatch {
+                    kind,
+                    instances: instance_index..instance_index.saturating_add(1),
+                });
+            }
+            instance_index = instance_index.saturating_add(1);
+        }
+        PreparedGraph {
+            bytes,
+            batches,
+            textures,
+        }
+    }
+}
+
+fn texture_key(plan: &ImageDrawPlan) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    plan.width.hash(&mut hasher);
+    plan.height.hash(&mut hasher);
+    plan.pixels.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn image_order(
+    (left, left_sequence): &(GpuImage, u64),
+    (right, right_sequence): &(GpuImage, u64),
+) -> Ordering {
+    left.z_index()
+        .cmp(&right.z_index())
+        .then_with(|| match (left.kitty_id(), right.kitty_id()) {
+            (Some(left_id), Some(right_id)) => left_id.cmp(&right_id),
+            _ => Ordering::Equal,
+        })
+        .then_with(|| left_sequence.cmp(right_sequence))
+}
+
+fn node_order(left: &GraphNode, right: &GraphNode) -> Ordering {
+    left.layer()
+        .rank()
+        .cmp(&right.layer().rank())
+        .then_with(|| left.z_index().cmp(&right.z_index()))
+        .then_with(|| match (left, right) {
+            (
+                GraphNode::TextureImage {
+                    plan: left_plan, ..
+                },
+                GraphNode::TextureImage {
+                    plan: right_plan, ..
+                },
+            ) => left_plan
+                .kitty_image_id
+                .cmp(&right_plan.kitty_image_id)
+                .then_with(|| left_plan.parent_index.cmp(&right_plan.parent_index))
+                .then_with(|| left_plan.fragment_index.cmp(&right_plan.fragment_index)),
+            _ => match (left.kitty_id(), right.kitty_id()) {
+                (Some(left_id), Some(right_id)) => left_id.cmp(&right_id),
+                _ => Ordering::Equal,
+            },
+        })
+        .then_with(|| left.sequence().cmp(&right.sequence()))
+}
+
+#[derive(Clone, Debug)]
+struct PreparedGraph {
+    bytes: Vec<u8>,
+    batches: Vec<DrawBatch>,
+    textures: Vec<PlannedTexture>,
+}
+
+#[derive(Clone, Debug)]
+struct PlannedTexture {
+    key: u64,
+    width: u32,
+    height: u32,
+    pixels: Arc<ImageDrawPlan>,
+}
+
+#[derive(Clone, Debug)]
+struct DrawBatch {
+    kind: PrimitiveKind,
+    instances: Range<u32>,
+}
+
+/// Most recent persistent-instance upload.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct InstanceUploadMetrics {
+    pub bytes_written: usize,
+    pub dirty_offset: u64,
+    pub capacity_bytes: usize,
+    pub reallocated: bool,
+}
+
+#[derive(Debug)]
+struct PersistentInstances {
+    buffer: Option<wgpu::Buffer>,
+    shadow: Vec<u8>,
+    capacity_bytes: usize,
+    budget_bytes: usize,
+    metrics: InstanceUploadMetrics,
+}
+
+impl PersistentInstances {
+    const fn new(budget_bytes: usize) -> Self {
+        Self {
+            buffer: None,
+            shadow: Vec::new(),
+            capacity_bytes: 0,
+            budget_bytes,
+            metrics: InstanceUploadMetrics {
+                bytes_written: 0,
+                dirty_offset: 0,
+                capacity_bytes: 0,
+                reallocated: false,
+            },
+        }
+    }
+
+    fn upload(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bytes: &[u8],
+    ) -> Result<(), GpuLayerError> {
+        if bytes.len() > self.budget_bytes {
+            return Err(GpuLayerError::message(format!(
+                "GPU instance data requires {} bytes, exceeding the {}-byte budget",
+                bytes.len(),
+                self.budget_bytes
+            )));
+        }
+
+        let reallocated = bytes.len() > self.capacity_bytes;
+        if reallocated {
+            let capacity = bytes
+                .len()
+                .max(MIN_INSTANCE_CAPACITY)
+                .checked_next_power_of_two()
+                .ok_or_else(|| GpuLayerError::message("GPU instance capacity overflow"))?;
+            if capacity > self.budget_bytes {
+                return Err(GpuLayerError::message(format!(
+                    "GPU instance capacity {capacity} exceeds the {}-byte budget",
+                    self.budget_bytes
+                )));
+            }
+            self.buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("rssh-terminal-layer-instances"),
+                size: capacity as wgpu::BufferAddress,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+            self.capacity_bytes = capacity;
+        }
+
+        let dirty = if reallocated {
+            (!bytes.is_empty()).then_some(0..bytes.len())
+        } else {
+            dirty_range(&self.shadow, bytes)
+        };
+        debug_assert_eq!(wgpu::COPY_BUFFER_ALIGNMENT, 4_u64);
+        let aligned = dirty.map(|range| {
+            let start = range.start / INSTANCE_WRITE_ALIGNMENT * INSTANCE_WRITE_ALIGNMENT;
+            let end = range
+                .end
+                .div_ceil(INSTANCE_WRITE_ALIGNMENT)
+                .saturating_mul(INSTANCE_WRITE_ALIGNMENT)
+                .min(bytes.len());
+            start..end
+        });
+        if let Some(range) = aligned.as_ref().filter(|range| !range.is_empty()) {
+            let buffer = self.buffer.as_ref().ok_or_else(|| {
+                GpuLayerError::message("persistent instance buffer was not allocated")
+            })?;
+            queue.write_buffer(buffer, range.start as u64, &bytes[range.clone()]);
+        }
+        self.shadow.clear();
+        self.shadow.extend_from_slice(bytes);
+        self.metrics = InstanceUploadMetrics {
+            bytes_written: aligned.as_ref().map_or(0, Range::len),
+            dirty_offset: aligned.as_ref().map_or(0, |range| range.start as u64),
+            capacity_bytes: self.capacity_bytes,
+            reallocated,
+        };
+        Ok(())
+    }
+}
+
+fn dirty_range(previous: &[u8], next: &[u8]) -> Option<Range<usize>> {
+    let common = previous.len().min(next.len());
+    let first_difference = previous
+        .iter()
+        .zip(next)
+        .position(|(left, right)| left != right);
+    let first = first_difference.or_else(|| (previous.len() != next.len()).then_some(common))?;
+    let last_changed_in_common = (first..common)
+        .rev()
+        .find(|index| previous[*index] != next[*index])
+        .map_or(first, |index| index.saturating_add(1));
+    let end = if next.len() > previous.len() {
+        next.len()
+    } else {
+        last_changed_in_common
+    };
+    Some(first..end)
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TextureCacheMetrics {
+    pub entries: usize,
+    pub retained_bytes: usize,
+    pub budget_bytes: usize,
+    pub uploads: u64,
+    pub evictions: u64,
+}
+
+#[derive(Debug)]
+struct CachedTexture {
+    _texture: wgpu::Texture,
+    bind_group: wgpu::BindGroup,
+    byte_len: usize,
+    width: u32,
+    height: u32,
+    last_used: u64,
+}
+
+#[derive(Debug)]
+struct TextureCache {
+    entries: HashMap<u64, CachedTexture>,
+    budget_bytes: usize,
+    retained_bytes: usize,
+    clock: u64,
+    uploads: u64,
+    evictions: u64,
+}
+
+impl TextureCache {
+    fn new(budget_bytes: usize) -> Result<Self, GpuLayerError> {
+        if budget_bytes < 4 {
+            return Err(GpuLayerError::message(
+                "GPU image texture budget must be at least 4 bytes",
+            ));
+        }
+        Ok(Self {
+            entries: HashMap::new(),
+            budget_bytes,
+            retained_bytes: 0,
+            clock: 0,
+            uploads: 0,
+            evictions: 0,
+        })
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "cache admission, LRU eviction, device validation, upload, and accounting remain one audited transaction"
+    )]
+    fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        textures: &[PlannedTexture],
+    ) -> Result<(), GpuLayerError> {
+        let requested = textures
+            .iter()
+            .map(|texture| texture.key)
+            .collect::<HashSet<_>>();
+        let requested_bytes = textures.iter().try_fold(0_usize, |total, texture| {
+            let expected = texture_byte_len(texture.width, texture.height)?;
+            if expected != texture.pixels.pixels.len() {
+                return Err(GpuLayerError::message(format!(
+                    "planned image {}x{} has {} bytes, expected {expected}",
+                    texture.width,
+                    texture.height,
+                    texture.pixels.pixels.len()
+                )));
+            }
+            total
+                .checked_add(expected)
+                .ok_or_else(|| GpuLayerError::message("GPU image texture budget overflow"))
+        })?;
+        if requested_bytes > self.budget_bytes {
+            return Err(GpuLayerError::message(format!(
+                "frame image textures require {requested_bytes} bytes, exceeding the {}-byte budget",
+                self.budget_bytes
+            )));
+        }
+
+        let missing_bytes = textures
+            .iter()
+            .filter(|texture| !self.entries.contains_key(&texture.key))
+            .try_fold(0_usize, |total, texture| {
+                total
+                    .checked_add(texture_byte_len(texture.width, texture.height)?)
+                    .ok_or_else(|| GpuLayerError::message("GPU image cache size overflow"))
+            })?;
+        while self.retained_bytes.saturating_add(missing_bytes) > self.budget_bytes {
+            let Some(eviction_key) = self
+                .entries
+                .iter()
+                .filter(|(key, _)| !requested.contains(key))
+                .min_by_key(|(_, texture)| texture.last_used)
+                .map(|(key, _)| *key)
+            else {
+                return Err(GpuLayerError::message(
+                    "GPU image cache cannot satisfy the frame texture budget",
+                ));
+            };
+            if let Some(evicted) = self.entries.remove(&eviction_key) {
+                self.retained_bytes = self.retained_bytes.saturating_sub(evicted.byte_len);
+                self.evictions = self.evictions.saturating_add(1);
+            }
+        }
+
+        let max_dimension = device.limits().max_texture_dimension_2d;
+        for planned in textures {
+            self.clock = self.clock.saturating_add(1);
+            if let Some(cached) = self.entries.get_mut(&planned.key) {
+                if cached.width != planned.width || cached.height != planned.height {
+                    return Err(GpuLayerError::message(
+                        "GPU image texture hash collision changed dimensions",
+                    ));
+                }
+                cached.last_used = self.clock;
+                continue;
+            }
+            if planned.width == 0
+                || planned.height == 0
+                || planned.width > max_dimension
+                || planned.height > max_dimension
+            {
+                return Err(GpuLayerError::message(format!(
+                    "GPU image texture {}x{} exceeds device limit {max_dimension}",
+                    planned.width, planned.height
+                )));
+            }
+            let byte_len = texture_byte_len(planned.width, planned.height)?;
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("rssh-terminal-inline-image"),
+                size: wgpu::Extent3d {
+                    width: planned.width,
+                    height: planned.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &planned.pixels.pixels,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(planned.width.saturating_mul(4)),
+                    rows_per_image: Some(planned.height),
+                },
+                wgpu::Extent3d {
+                    width: planned.width,
+                    height: planned.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("rssh-terminal-inline-image-bind-group"),
+                layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                }],
+            });
+            self.entries.insert(
+                planned.key,
+                CachedTexture {
+                    _texture: texture,
+                    bind_group,
+                    byte_len,
+                    width: planned.width,
+                    height: planned.height,
+                    last_used: self.clock,
+                },
+            );
+            self.retained_bytes = self.retained_bytes.saturating_add(byte_len);
+            self.uploads = self.uploads.saturating_add(1);
+        }
+        Ok(())
+    }
+
+    fn metrics(&self) -> TextureCacheMetrics {
+        TextureCacheMetrics {
+            entries: self.entries.len(),
+            retained_bytes: self.retained_bytes,
+            budget_bytes: self.budget_bytes,
+            uploads: self.uploads,
+            evictions: self.evictions,
+        }
+    }
+}
+
+fn texture_byte_len(width: u32, height: u32) -> Result<usize, GpuLayerError> {
+    usize::try_from(width)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| GpuLayerError::message("GPU image texture byte length overflow"))
+}
+
+#[derive(Debug)]
+struct LayerPipeline {
+    pipeline: wgpu::RenderPipeline,
+}
+
+impl LayerPipeline {
+    fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        layout: &wgpu::PipelineLayout,
+        shader: &wgpu::ShaderModule,
+        label: &'static str,
+    ) -> Self {
+        let attributes = [
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x4,
+                offset: 0,
+                shader_location: 0,
+            },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x4,
+                offset: 16,
+                shader_location: 1,
+            },
+        ];
+        let buffers = [Some(wgpu::VertexBufferLayout {
+            array_stride: INSTANCE_STRIDE,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &attributes,
+        })];
+        let targets = [Some(wgpu::ColorTargetState {
+            format,
+            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+            write_mask: wgpu::ColorWrites::ALL,
+        })];
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(layout),
+            vertex: wgpu::VertexState {
+                module: shader,
+                entry_point: Some("vertex_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &buffers,
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: shader,
+                entry_point: Some("fragment_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &targets,
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        Self { pipeline }
+    }
+}
+
+/// Persistent instanced renderer for non-text terminal layers.
+#[derive(Debug)]
+pub struct GpuLayerRenderer {
+    device: wgpu::Device,
+    format: wgpu::TextureFormat,
+    bind_group: wgpu::BindGroup,
+    viewport: wgpu::Buffer,
+    quads: LayerPipeline,
+    images: LayerPipeline,
+    image_bind_group_layout: wgpu::BindGroupLayout,
+    instances: PersistentInstances,
+    texture_cache: TextureCache,
+    prepared_batches: Vec<DrawBatch>,
+    prepared_size: (u32, u32),
+}
+
+impl GpuLayerRenderer {
+    /// Creates pipelines with a strict upper bound for retained instance bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the budget cannot hold one instance.
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        instance_budget_bytes: usize,
+    ) -> Result<Self, GpuLayerError> {
+        Self::new_with_budgets(
+            device,
+            format,
+            instance_budget_bytes,
+            DEFAULT_GPU_IMAGE_BYTE_BUDGET,
+        )
+    }
+
+    /// Creates pipelines with independent retained instance and image budgets.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either budget is too small.
+    pub fn new_with_budgets(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        instance_budget_bytes: usize,
+        image_budget_bytes: usize,
+    ) -> Result<Self, GpuLayerError> {
+        if instance_budget_bytes < MIN_INSTANCE_CAPACITY {
+            return Err(GpuLayerError::message(format!(
+                "GPU instance budget must be at least {MIN_INSTANCE_CAPACITY} bytes"
+            )));
+        }
+        let device_buffer_limit =
+            usize::try_from(device.limits().max_buffer_size).unwrap_or(usize::MAX);
+        let instance_budget_bytes = instance_budget_bytes.min(device_buffer_limit);
+        if instance_budget_bytes < MIN_INSTANCE_CAPACITY {
+            return Err(GpuLayerError::message(
+                "GPU device cannot allocate the minimum instance buffer",
+            ));
+        }
+        let viewport = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("rssh-terminal-layer-viewport"),
+            size: 8,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("rssh-terminal-layer-bind-group-layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(8),
+                },
+                count: None,
+            }],
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("rssh-terminal-layer-bind-group"),
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: viewport.as_entire_binding(),
+            }],
+        });
+        let quad_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("rssh-terminal-quad-shader"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(QUAD_SHADER)),
+        });
+        let image_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("rssh-terminal-image-shader"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(IMAGE_SHADER)),
+        });
+        let image_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("rssh-terminal-image-bind-group-layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+        let quad_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("rssh-terminal-quad-pipeline-layout"),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+        let image_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("rssh-terminal-image-pipeline-layout"),
+                bind_group_layouts: &[Some(&bind_group_layout), Some(&image_bind_group_layout)],
+                immediate_size: 0,
+            });
+        Ok(Self {
+            device: device.clone(),
+            format,
+            bind_group,
+            viewport,
+            quads: LayerPipeline::new(
+                device,
+                format,
+                &quad_pipeline_layout,
+                &quad_shader,
+                "rssh-terminal-quad-pipeline",
+            ),
+            images: LayerPipeline::new(
+                device,
+                format,
+                &image_pipeline_layout,
+                &image_shader,
+                "rssh-terminal-image-pipeline",
+            ),
+            image_bind_group_layout,
+            instances: PersistentInstances::new(instance_budget_bytes),
+            texture_cache: TextureCache::new(image_budget_bytes)?,
+            prepared_batches: Vec::new(),
+            prepared_size: (0, 0),
+        })
+    }
+
+    /// Updates the persistent instance buffer, writing only its dirty range.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if graph instances exceed the configured byte budget.
+    pub fn upload(
+        &mut self,
+        queue: &wgpu::Queue,
+        graph: &RenderGraph,
+    ) -> Result<(), GpuLayerError> {
+        let prepared = graph.prepare();
+        self.texture_cache.prepare(
+            &self.device,
+            queue,
+            &self.image_bind_group_layout,
+            &prepared.textures,
+        )?;
+        self.instances
+            .upload(&self.device, queue, &prepared.bytes)?;
+        self.prepared_batches = prepared.batches;
+        self.prepared_size = (graph.width, graph.height);
+        self.write_viewport(queue);
+        Ok(())
+    }
+
+    #[must_use]
+    pub const fn upload_metrics(&self) -> InstanceUploadMetrics {
+        self.instances.metrics
+    }
+
+    #[must_use]
+    pub const fn instance_budget_bytes(&self) -> usize {
+        self.instances.budget_bytes
+    }
+
+    #[must_use]
+    pub fn texture_cache_metrics(&self) -> TextureCacheMetrics {
+        self.texture_cache.metrics()
+    }
+
+    /// Renders the graph to an RGBA8 texture and returns tightly packed pixels.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid geometry, budget exhaustion, mapping
+    /// failure, device polling failure, or a readback timeout.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the headless oracle keeps render, padded copy, bounded polling, and unpadding in one auditable operation"
+    )]
+    pub fn render_headless_rgba8(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        graph: &RenderGraph,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, GpuLayerError> {
+        if self.format != wgpu::TextureFormat::Rgba8Unorm {
+            return Err(GpuLayerError::message(
+                "headless RGBA8 readback requires Rgba8Unorm format",
+            ));
+        }
+        if graph.width == 0 || graph.height == 0 {
+            return Err(GpuLayerError::message(
+                "headless render dimensions must be nonzero",
+            ));
+        }
+        let prepared = graph.prepare();
+        self.texture_cache.prepare(
+            device,
+            queue,
+            &self.image_bind_group_layout,
+            &prepared.textures,
+        )?;
+        self.instances.upload(device, queue, &prepared.bytes)?;
+        self.prepared_batches = prepared.batches;
+        self.prepared_size = (graph.width, graph.height);
+        self.write_viewport(queue);
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("rssh-terminal-layer-headless-target"),
+            size: wgpu::Extent3d {
+                width: graph.width,
+                height: graph.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let unpadded_bytes_per_row = graph
+            .width
+            .checked_mul(4)
+            .ok_or_else(|| GpuLayerError::message("readback row pitch overflow"))?;
+        let padded_bytes_per_row = unpadded_bytes_per_row
+            .div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+            .checked_mul(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+            .ok_or_else(|| GpuLayerError::message("aligned readback row pitch overflow"))?;
+        let readback_size = u64::from(padded_bytes_per_row)
+            .checked_mul(u64::from(graph.height))
+            .ok_or_else(|| GpuLayerError::message("readback buffer size overflow"))?;
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("rssh-terminal-layer-readback"),
+            size: readback_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("rssh-terminal-layer-headless-encoder"),
+        });
+        self.encode_render_pass(&mut encoder, &view)?;
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &readback,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(graph.height),
+                },
+            },
+            wgpu::Extent3d {
+                width: graph.width,
+                height: graph.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit([encoder.finish()]);
+
+        let (sender, receiver) = mpsc::sync_channel(1);
+        readback.map_async(wgpu::MapMode::Read, .., move |result| {
+            let _ = sender.send(result);
+        });
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .unwrap_or_else(Instant::now);
+        let map_result = loop {
+            device
+                .poll(wgpu::PollType::Poll)
+                .map_err(|error| GpuLayerError::message(format!("GPU poll failed: {error}")))?;
+            match receiver.try_recv() {
+                Ok(result) => break result,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    return Err(GpuLayerError::message("GPU readback callback disconnected"));
+                }
+                Err(mpsc::TryRecvError::Empty) if Instant::now() < deadline => {
+                    std::thread::yield_now();
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    return Err(GpuLayerError::message(format!(
+                        "GPU readback did not complete within {timeout:?}"
+                    )));
+                }
+            }
+        };
+        map_result.map_err(|error| {
+            GpuLayerError::message(format!("GPU readback mapping failed: {error}"))
+        })?;
+
+        let mapped = readback
+            .get_mapped_range(..)
+            .map_err(|error| GpuLayerError::message(format!("get mapped readback: {error}")))?;
+        let output_len = usize::try_from(
+            u64::from(unpadded_bytes_per_row).saturating_mul(u64::from(graph.height)),
+        )
+        .map_err(|_| GpuLayerError::message("tight readback size exceeds host address space"))?;
+        let mut output = Vec::with_capacity(output_len);
+        for row in mapped.chunks_exact(padded_bytes_per_row as usize) {
+            output.extend_from_slice(&row[..unpadded_bytes_per_row as usize]);
+        }
+        drop(mapped);
+        readback.unmap();
+        Ok(output)
+    }
+
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "wgpu viewport uniforms are f32 and validated GPU dimensions are exactly representable"
+    )]
+    fn write_viewport(&self, queue: &wgpu::Queue) {
+        let mut bytes = Vec::with_capacity(8);
+        bytes.extend_from_slice(&(self.prepared_size.0 as f32).to_ne_bytes());
+        bytes.extend_from_slice(&(self.prepared_size.1 as f32).to_ne_bytes());
+        queue.write_buffer(&self.viewport, 0, &bytes);
+    }
+
+    fn encode_render_pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+    ) -> Result<(), GpuLayerError> {
+        let attachments = [Some(wgpu::RenderPassColorAttachment {
+            view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                store: wgpu::StoreOp::Store,
+            },
+        })];
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("rssh-terminal-layer-render-pass"),
+            color_attachments: &attachments,
+            ..wgpu::RenderPassDescriptor::default()
+        });
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        if let Some(buffer) = self.instances.buffer.as_ref() {
+            pass.set_vertex_buffer(0, buffer.slice(..));
+        }
+        for batch in &self.prepared_batches {
+            match batch.kind {
+                PrimitiveKind::Quad | PrimitiveKind::Image => {
+                    pass.set_pipeline(&self.quads.pipeline);
+                }
+                PrimitiveKind::TextureImage(key) => {
+                    let cached = self.texture_cache.entries.get(&key).ok_or_else(|| {
+                        GpuLayerError::message("prepared image texture is absent from cache")
+                    })?;
+                    pass.set_pipeline(&self.images.pipeline);
+                    pass.set_bind_group(1, &cached.bind_group, &[]);
+                }
+            }
+            pass.draw(0..6, batch.instances.clone());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dirty_range;
+
+    #[test]
+    fn dirty_range_ignores_equal_prefix_and_suffix() {
+        assert_eq!(dirty_range(&[1, 2, 3, 4], &[1, 8, 9, 4]), Some(1..3));
+        assert_eq!(dirty_range(&[1, 2], &[1, 2]), None);
+        assert_eq!(dirty_range(&[1], &[1, 2]), Some(1..2));
+    }
+
+    #[test]
+    fn dirty_range_compares_offsets_instead_of_matching_a_shifted_shrink_tail() {
+        assert_eq!(dirty_range(&[1, 9, 2], &[1, 2]), Some(1..2));
+    }
+}
