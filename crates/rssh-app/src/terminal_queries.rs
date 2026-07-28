@@ -1,3 +1,5 @@
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ControlFamily {
     Csi,
@@ -7,12 +9,465 @@ pub(crate) enum ControlFamily {
     Other,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FixedQuery {
+    CursorPosition,
+    PrimaryDeviceAttributes,
+    SecondaryDeviceAttributes,
+    TertiaryDeviceAttributes,
+    TerminalParameters0,
+    TerminalParameters1,
+    XtVersion,
+    OperatingStatus,
+    WindowPixelSize,
+    CharacterCellSize,
+    TextAreaSize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WindowReportRequest {
+    WindowPixelSize,
+    CharacterCellSize,
+    TextAreaSize,
+    WindowTitle,
+    Ignored,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StringTerminator {
+    Bel,
+    St,
+    C1St,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OscColorKind {
+    DefaultForeground,
+    DefaultBackground,
+    Cursor,
+    Palette(u8),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OscColorRequest {
+    pub(crate) kinds: Vec<OscColorKind>,
+    pub(crate) terminator: StringTerminator,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DecrqcraRequest {
+    pub(crate) request_id: i64,
+    pub(crate) top: u16,
+    pub(crate) left: u16,
+    pub(crate) bottom: u16,
+    pub(crate) right: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct XtSmGraphicsRequest {
+    pub(crate) item: u64,
+    pub(crate) action: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ClipboardCommand {
+    Write(String),
+    Query(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProgressCommand {
+    None,
+    Percentage(u8),
+    Error(u8),
+    Indeterminate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NotificationCommand {
+    Notify { title: Option<String>, body: String },
+    Progress(ProgressCommand),
+    Ignored,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SemanticControl {
+    Fixed(FixedQuery),
+    WindowReport(WindowReportRequest),
+    PrivateModeStatus(u16),
+    AnsiModeStatus(u16),
+    OscColor(OscColorRequest),
+    ItermReportCellSize,
+    Decrqcra(DecrqcraRequest),
+    Decrqss(crate::terminal_query_dcs::DecrqssRequest),
+    XtGetTcap(crate::terminal_query_dcs::XtGetTcapRequest),
+    XtSmGraphics(XtSmGraphicsRequest),
+    KittyKeyboardFlags,
+    KeyModifierOptionsQuery(u16),
+    SynchronizedOutputMode { enabled: bool },
+    KittyKeyboardMode,
+    KeyModifierOptionsSequence,
+    Osc52(ClipboardCommand),
+    Osc8Hyperlink,
+    Notification(NotificationCommand),
+    DeviceAttributesResponse,
+    Ignored,
+    Enq,
+    StandaloneSt,
+    Cancelled,
+    Unknown,
+}
+
+fn csi_body(bytes: &[u8]) -> Option<&[u8]> {
+    bytes
+        .strip_prefix(b"\x1b[")
+        .or_else(|| bytes.strip_prefix(b"\x9b"))
+        .or_else(|| bytes.strip_prefix(b"\xc2\x9b"))
+}
+
+fn string_body_with_terminator<'a>(
+    bytes: &'a [u8],
+    esc: &[u8],
+    raw: u8,
+) -> Option<(&'a [u8], StringTerminator)> {
+    let body = bytes
+        .strip_prefix(esc)
+        .or_else(|| bytes.strip_prefix(&[raw]))
+        .or_else(|| bytes.strip_prefix(&[0xc2, raw]))?;
+    if let Some(body) = body.strip_suffix(b"\x07") {
+        Some((body, StringTerminator::Bel))
+    } else if let Some(body) = body.strip_suffix(b"\x1b\\") {
+        Some((body, StringTerminator::St))
+    } else {
+        body.strip_suffix(b"\xc2\x9c")
+            .or_else(|| body.strip_suffix(b"\x9c"))
+            .map(|body| (body, StringTerminator::C1St))
+    }
+}
+
+fn parse_u16(bytes: &[u8]) -> Option<u16> {
+    if bytes.is_empty() {
+        return None;
+    }
+    bytes.iter().try_fold(0_u16, |value, byte| {
+        let digit = byte.checked_sub(b'0')?;
+        (digit <= 9)
+            .then_some(value)?
+            .checked_mul(10)?
+            .checked_add(u16::from(digit))
+    })
+}
+
+fn parse_i64(bytes: &[u8]) -> Option<i64> {
+    if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    bytes.iter().try_fold(0_i64, |value, byte| {
+        value.checked_mul(10)?.checked_add(i64::from(byte - b'0'))
+    })
+}
+
+fn parse_u64(bytes: &[u8]) -> Option<u64> {
+    if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    bytes.iter().try_fold(0_u64, |value, byte| {
+        value.checked_mul(10)?.checked_add(u64::from(byte - b'0'))
+    })
+}
+
+fn parse_window_report(body: &[u8]) -> WindowReportRequest {
+    let Some(params) = body.strip_suffix(b"t") else {
+        return WindowReportRequest::Ignored;
+    };
+    let mut parts = params.split(|byte| *byte == b';');
+    let Some(first) = parts.next().and_then(parse_i64) else {
+        return WindowReportRequest::Ignored;
+    };
+    let second = match parts.next() {
+        Some([]) | None => None,
+        Some(part) => match parse_i64(part) {
+            Some(value) => Some(value),
+            None => return WindowReportRequest::Ignored,
+        },
+    };
+    if parts.any(|part| !part.is_empty() && parse_i64(part).is_none()) {
+        return WindowReportRequest::Ignored;
+    }
+    match first {
+        14 if second.is_none() => WindowReportRequest::WindowPixelSize,
+        16 => WindowReportRequest::CharacterCellSize,
+        18 => WindowReportRequest::TextAreaSize,
+        21 if second.is_none() => WindowReportRequest::WindowTitle,
+        _ => WindowReportRequest::Ignored,
+    }
+}
+
+fn decrqcra_axis(part: Option<&[u8]>, default: i64) -> Option<u16> {
+    let value = match part {
+        Some([]) | None => default,
+        Some(part) => parse_i64(part)?,
+    };
+    if value <= 0 {
+        Some(0)
+    } else {
+        u16::try_from(value.saturating_sub(1).min(i64::from(u16::MAX))).ok()
+    }
+}
+
+fn parse_decrqcra(body: &[u8]) -> Option<DecrqcraRequest> {
+    let params = body.strip_suffix(b"*y")?;
+    let mut parts = params.split(|byte| *byte == b';');
+    let request_id = parts.next().and_then(parse_i64)?;
+    let _page_number = parts.next().and_then(parse_i64)?;
+    let top = decrqcra_axis(parts.next(), 0)?;
+    let left = decrqcra_axis(parts.next(), 0)?;
+    let bottom = decrqcra_axis(parts.next(), i64::from(u16::MAX))?;
+    let right = decrqcra_axis(parts.next(), i64::from(u16::MAX))?;
+    (parts.next().is_none()).then_some(DecrqcraRequest {
+        request_id,
+        top,
+        left,
+        bottom,
+        right,
+    })
+}
+
+fn parse_xtsmgraphics(body: &[u8]) -> Option<XtSmGraphicsRequest> {
+    let content = body.strip_prefix(b"?")?.strip_suffix(b"S")?;
+    let mut parameters = content.split(|byte| *byte == b';');
+    let item = parse_u64(parameters.next()?)?;
+    let action = parse_u64(parameters.next()?)?;
+    parameters.try_for_each(|parameter| parse_u64(parameter).map(|_| ()))?;
+    Some(XtSmGraphicsRequest { item, action })
+}
+
+fn parse_osc_color(body: &[u8], terminator: StringTerminator) -> Option<OscColorRequest> {
+    let kinds = match body {
+        b"10;?" => vec![OscColorKind::DefaultForeground],
+        b"11;?" => vec![OscColorKind::DefaultBackground],
+        b"12;?" => vec![OscColorKind::Cursor],
+        _ => {
+            let mut parts = body.strip_prefix(b"4;")?.split(|byte| *byte == b';');
+            let mut kinds = Vec::new();
+            while let Some(index) = parts.next() {
+                if parts.next()? != b"?" {
+                    return None;
+                }
+                kinds.push(OscColorKind::Palette(u8::try_from(parse_u16(index)?).ok()?));
+            }
+            if kinds.is_empty() {
+                return None;
+            }
+            kinds
+        }
+    };
+    Some(OscColorRequest { kinds, terminator })
+}
+
+fn parse_clipboard(body: &[u8]) -> Option<ClipboardCommand> {
+    if let Some(content) = body.strip_prefix(b"52;") {
+        let separator = content.iter().position(|byte| *byte == b';')?;
+        let selection = String::from_utf8(content[..separator].to_vec()).ok()?;
+        let payload = &content[separator + 1..];
+        if payload == b"?" {
+            return Some(ClipboardCommand::Query(selection));
+        }
+        let text = String::from_utf8(STANDARD.decode(payload).ok()?).ok()?;
+        Some(ClipboardCommand::Write(text))
+    } else {
+        let payload = body
+            .strip_prefix(b"1337;Copy=;")
+            .or_else(|| body.strip_prefix(b"1337;CopyToClipboard=;"))?;
+        Some(ClipboardCommand::Write(
+            String::from_utf8(STANDARD.decode(payload).ok()?).ok()?,
+        ))
+    }
+}
+
+fn parse_u8_decimal(bytes: &[u8]) -> Option<u8> {
+    u8::try_from(parse_u16(bytes)?).ok()
+}
+
+fn parse_progress_value(bytes: &[u8]) -> Option<u8> {
+    let value = parse_u8_decimal(bytes)?;
+    (value <= 100).then_some(value)
+}
+
+fn parse_notification(body: &[u8]) -> NotificationCommand {
+    if let Some(content) = body.strip_prefix(b"9;") {
+        if let Some(progress) = content.strip_prefix(b"4;") {
+            let mut parts = progress.split(|byte| *byte == b';');
+            let command = match parts.next().and_then(parse_u8_decimal) {
+                Some(0) => Some(ProgressCommand::None),
+                Some(1) => parts
+                    .next()
+                    .and_then(parse_progress_value)
+                    .map(ProgressCommand::Percentage),
+                Some(2) => Some(ProgressCommand::Error(
+                    parts.next().and_then(parse_progress_value).unwrap_or(0),
+                )),
+                Some(3) => Some(ProgressCommand::Indeterminate),
+                _ => None,
+            };
+            return command.map_or(NotificationCommand::Ignored, NotificationCommand::Progress);
+        }
+        return String::from_utf8(content.to_vec()).map_or(NotificationCommand::Ignored, |body| {
+            NotificationCommand::Notify { title: None, body }
+        });
+    }
+
+    let Some(content) = body.strip_prefix(b"777;notify;") else {
+        return NotificationCommand::Ignored;
+    };
+    let Some(separator) = content.iter().position(|byte| *byte == b';') else {
+        return NotificationCommand::Ignored;
+    };
+    let (title, body) = (&content[..separator], &content[separator + 1..]);
+    match (
+        String::from_utf8(title.to_vec()),
+        String::from_utf8(body.to_vec()),
+    ) {
+        (Ok(title), Ok(body)) => NotificationCommand::Notify {
+            title: Some(title),
+            body,
+        },
+        _ => NotificationCommand::Ignored,
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn classify_control(family: ControlFamily, bytes: &[u8]) -> SemanticControl {
+    match family {
+        ControlFamily::Csi => {
+            let Some(body) = csi_body(bytes) else {
+                return SemanticControl::Unknown;
+            };
+            let fixed = match body {
+                b"6n" => Some(FixedQuery::CursorPosition),
+                b"c" | b"0c" => Some(FixedQuery::PrimaryDeviceAttributes),
+                b">c" | b">0c" => Some(FixedQuery::SecondaryDeviceAttributes),
+                b"=c" | b"=0c" => Some(FixedQuery::TertiaryDeviceAttributes),
+                b"x" | b"0x" => Some(FixedQuery::TerminalParameters0),
+                b"1x" => Some(FixedQuery::TerminalParameters1),
+                b">q" | b">0q" => Some(FixedQuery::XtVersion),
+                b"5n" => Some(FixedQuery::OperatingStatus),
+                b"14t" => Some(FixedQuery::WindowPixelSize),
+                b"16t" => Some(FixedQuery::CharacterCellSize),
+                b"18t" => Some(FixedQuery::TextAreaSize),
+                _ => None,
+            };
+            if let Some(fixed) = fixed {
+                return SemanticControl::Fixed(fixed);
+            }
+            if body.ends_with(b"t") {
+                return SemanticControl::WindowReport(parse_window_report(body));
+            }
+            if let Some(mode) = body
+                .strip_prefix(b"?")
+                .and_then(|body| body.strip_suffix(b"$p"))
+                .and_then(parse_u16)
+            {
+                return SemanticControl::PrivateModeStatus(mode);
+            }
+            if let Some(mode) = body.strip_suffix(b"$p").and_then(parse_u16) {
+                return SemanticControl::AnsiModeStatus(mode);
+            }
+            if let Some(request) = parse_decrqcra(body) {
+                return SemanticControl::Decrqcra(request);
+            }
+            if let Some(request) = parse_xtsmgraphics(body) {
+                return SemanticControl::XtSmGraphics(request);
+            }
+            if body == b"?u" {
+                return SemanticControl::KittyKeyboardFlags;
+            }
+            if let Some(resource) = body
+                .strip_prefix(b">")
+                .or_else(|| body.strip_prefix(b"?"))
+                .and_then(|body| body.strip_suffix(b"m"))
+                .and_then(parse_u16)
+            {
+                return SemanticControl::KeyModifierOptionsQuery(resource);
+            }
+            if body.starts_with(b"?")
+                && matches!(body.last(), Some(b'h' | b'l'))
+                && body[1..body.len() - 1]
+                    .split(|byte| *byte == b';')
+                    .any(|mode| mode == b"2026")
+            {
+                return SemanticControl::SynchronizedOutputMode {
+                    enabled: body.ends_with(b"h"),
+                };
+            }
+            if (body.starts_with(b">") || body.starts_with(b"<") || body.starts_with(b"="))
+                && body.ends_with(b"u")
+            {
+                return SemanticControl::KittyKeyboardMode;
+            }
+            if body.starts_with(b">") && body.ends_with(b"m") {
+                return SemanticControl::KeyModifierOptionsSequence;
+            }
+            if body == b"?6n" {
+                return SemanticControl::Ignored;
+            }
+            if matches!(body.first(), Some(b'?' | b'>' | b'='))
+                && body.ends_with(b"c")
+                && body[1..body.len() - 1]
+                    .iter()
+                    .all(|byte| byte.is_ascii_digit() || *byte == b';')
+            {
+                return SemanticControl::DeviceAttributesResponse;
+            }
+            SemanticControl::Unknown
+        }
+        ControlFamily::Osc => {
+            let Some((body, terminator)) = string_body_with_terminator(bytes, b"\x1b]", 0x9d)
+            else {
+                return SemanticControl::Unknown;
+            };
+            if let Some(query) = parse_osc_color(body, terminator) {
+                SemanticControl::OscColor(query)
+            } else if body == b"1337;ReportCellSize" {
+                SemanticControl::ItermReportCellSize
+            } else if body.starts_with(b"52;")
+                || body.starts_with(b"1337;Copy=")
+                || body.starts_with(b"1337;CopyToClipboard=")
+            {
+                parse_clipboard(body).map_or(SemanticControl::Unknown, SemanticControl::Osc52)
+            } else if body.starts_with(b"8;") {
+                SemanticControl::Osc8Hyperlink
+            } else if body.starts_with(b"9;") || body.starts_with(b"777;") {
+                SemanticControl::Notification(parse_notification(body))
+            } else {
+                SemanticControl::Unknown
+            }
+        }
+        ControlFamily::Dcs => {
+            if let Some(request) = crate::terminal_query_dcs::parse_decrqss_request(bytes) {
+                SemanticControl::Decrqss(request)
+            } else if let Some(request) = crate::terminal_query_dcs::parse_xtgettcap_request(bytes)
+            {
+                SemanticControl::XtGetTcap(request)
+            } else {
+                SemanticControl::Unknown
+            }
+        }
+        ControlFamily::Enq => SemanticControl::Enq,
+        ControlFamily::Other if matches!(bytes, b"\x1b\\" | b"\x9c" | b"\xc2\x9c") => {
+            SemanticControl::StandaloneSt
+        }
+        ControlFamily::Other => SemanticControl::Unknown,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ScannedSegment {
     Bytes(Vec<u8>),
     Control {
         family: ControlFamily,
         bytes: Vec<u8>,
+        semantic: SemanticControl,
     },
 }
 
@@ -32,8 +487,13 @@ enum ScanState {
     Ground,
     Escape,
     Utf8C1,
-    Utf8Text(u8),
+    Utf8Text {
+        remaining: u8,
+        next_min: u8,
+        next_max: u8,
+    },
     Csi,
+    CsiUtf8C1,
     Osc,
     OscEscape,
     OscUtf8C1,
@@ -53,9 +513,12 @@ pub(crate) struct TerminalQueryScanner {
     state: ScanState,
     inspected_bytes: u64,
     record_work: bool,
+    discarding: bool,
 }
 
 impl TerminalQueryScanner {
+    pub(crate) const MAX_PENDING: usize = 1024 * 1024;
+
     #[must_use]
     pub(crate) fn new() -> Self {
         Self::default()
@@ -79,14 +542,24 @@ impl TerminalQueryScanner {
         self.cursor = 0;
         self.candidate_start = None;
         self.state = ScanState::Ground;
+        self.discarding = false;
     }
 
     pub(crate) fn process(&mut self, bytes: &[u8]) -> Vec<ScannedSegment> {
-        if self.record_work {
-            self.process_inner::<true>(bytes)
-        } else {
-            self.process_inner::<false>(bytes)
+        let mut segments = Vec::new();
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let available = Self::MAX_PENDING.saturating_sub(self.pending.len()).max(1);
+            let chunk_len = (bytes.len() - offset).min(8 * 1024).min(available);
+            let chunk = &bytes[offset..offset + chunk_len];
+            if self.record_work {
+                segments.extend(self.process_inner::<true>(chunk));
+            } else {
+                segments.extend(self.process_inner::<false>(chunk));
+            }
+            offset += chunk_len;
         }
+        segments
     }
 
     #[expect(
@@ -102,6 +575,136 @@ impl TerminalQueryScanner {
             let byte = self.pending[self.cursor];
             if RECORD_WORK {
                 self.inspected_bytes = self.inspected_bytes.saturating_add(1);
+            }
+
+            if self.discarding {
+                match self.state {
+                    ScanState::Csi => match byte {
+                        0x18 | 0x1a | 0x40..=0x7e => {
+                            self.cursor += 1;
+                            emitted_end = self.cursor;
+                            self.state = ScanState::Ground;
+                            self.discarding = false;
+                        }
+                        0x1b => {
+                            emitted_end = self.cursor;
+                            self.candidate_start = Some(self.cursor);
+                            self.state = ScanState::Escape;
+                            self.discarding = false;
+                            self.cursor += 1;
+                        }
+                        0x9b | 0x9d | 0x90 | 0x98 | 0x9e | 0x9f | 0x9c => {
+                            emitted_end = self.cursor;
+                            self.candidate_start = Some(self.cursor);
+                            self.state = match byte {
+                                0x9b => ScanState::Csi,
+                                0x9d => ScanState::Osc,
+                                0x90 => ScanState::Dcs,
+                                0x98 | 0x9e | 0x9f => ScanState::String,
+                                0x9c => ScanState::Ground,
+                                _ => unreachable!(),
+                            };
+                            self.discarding = false;
+                            self.cursor += 1;
+                            if byte == 0x9c {
+                                emitted_end = self.finish_control::<RECORD_WORK>(
+                                    &mut segments,
+                                    self.cursor,
+                                    ControlFamily::Other,
+                                );
+                            }
+                        }
+                        0xc2 => {
+                            emitted_end = self.cursor;
+                            self.candidate_start = Some(self.cursor);
+                            self.state = ScanState::Utf8C1;
+                            self.discarding = false;
+                            self.cursor += 1;
+                        }
+                        _ => self.cursor += 1,
+                    },
+                    ScanState::Osc | ScanState::Dcs | ScanState::String => match byte {
+                        0x18 | 0x1a | 0x9c => {
+                            self.cursor += 1;
+                            emitted_end = self.cursor;
+                            self.state = ScanState::Ground;
+                            self.discarding = false;
+                        }
+                        0x07 if self.state == ScanState::Osc => {
+                            self.cursor += 1;
+                            emitted_end = self.cursor;
+                            self.state = ScanState::Ground;
+                            self.discarding = false;
+                        }
+                        0x1b => {
+                            self.state = match self.state {
+                                ScanState::Osc => ScanState::OscEscape,
+                                ScanState::Dcs => ScanState::DcsEscape,
+                                ScanState::String => ScanState::StringEscape,
+                                _ => unreachable!(),
+                            };
+                            self.cursor += 1;
+                        }
+                        0xc2 => {
+                            self.state = match self.state {
+                                ScanState::Osc => ScanState::OscUtf8C1,
+                                ScanState::Dcs => ScanState::DcsUtf8C1,
+                                ScanState::String => ScanState::StringUtf8C1,
+                                _ => unreachable!(),
+                            };
+                            self.cursor += 1;
+                        }
+                        _ => self.cursor += 1,
+                    },
+                    ScanState::OscEscape | ScanState::DcsEscape | ScanState::StringEscape => {
+                        if byte == b'\\' {
+                            self.cursor += 1;
+                            emitted_end = self.cursor;
+                            self.state = ScanState::Ground;
+                            self.discarding = false;
+                        } else {
+                            let start = if byte == 0x1b {
+                                self.cursor
+                            } else {
+                                self.cursor - 1
+                            };
+                            emitted_end = start;
+                            self.candidate_start = Some(start);
+                            self.state = ScanState::Escape;
+                            self.discarding = false;
+                            if byte == 0x1b {
+                                self.cursor += 1;
+                            }
+                        }
+                    }
+                    ScanState::OscUtf8C1 | ScanState::DcsUtf8C1 | ScanState::StringUtf8C1 => {
+                        let parent = match self.state {
+                            ScanState::OscUtf8C1 => ScanState::Osc,
+                            ScanState::DcsUtf8C1 => ScanState::Dcs,
+                            ScanState::StringUtf8C1 => ScanState::String,
+                            _ => unreachable!(),
+                        };
+                        if !(0x80..=0xbf).contains(&byte) {
+                            self.state = parent;
+                            continue;
+                        }
+                        self.cursor += 1;
+                        if byte == 0x9c {
+                            emitted_end = self.cursor;
+                            self.state = ScanState::Ground;
+                            self.discarding = false;
+                        } else {
+                            self.state = parent;
+                        }
+                    }
+                    _ => {
+                        self.cursor += 1;
+                        emitted_end = self.cursor;
+                        self.state = ScanState::Ground;
+                        self.discarding = false;
+                    }
+                }
+                continue;
             }
 
             match self.state {
@@ -121,30 +724,35 @@ impl TerminalQueryScanner {
                     }
                     0x1b => {
                         Self::push_bytes(&self.pending, &mut segments, emitted_end, self.cursor);
+                        emitted_end = self.cursor;
                         self.candidate_start = Some(self.cursor);
                         self.state = ScanState::Escape;
                         self.cursor += 1;
                     }
                     0x9b => {
                         Self::push_bytes(&self.pending, &mut segments, emitted_end, self.cursor);
+                        emitted_end = self.cursor;
                         self.candidate_start = Some(self.cursor);
                         self.state = ScanState::Csi;
                         self.cursor += 1;
                     }
                     0x9d => {
                         Self::push_bytes(&self.pending, &mut segments, emitted_end, self.cursor);
+                        emitted_end = self.cursor;
                         self.candidate_start = Some(self.cursor);
                         self.state = ScanState::Osc;
                         self.cursor += 1;
                     }
                     0x90 => {
                         Self::push_bytes(&self.pending, &mut segments, emitted_end, self.cursor);
+                        emitted_end = self.cursor;
                         self.candidate_start = Some(self.cursor);
                         self.state = ScanState::Dcs;
                         self.cursor += 1;
                     }
                     0x98 | 0x9e | 0x9f => {
                         Self::push_bytes(&self.pending, &mut segments, emitted_end, self.cursor);
+                        emitted_end = self.cursor;
                         self.candidate_start = Some(self.cursor);
                         self.state = ScanState::String;
                         self.cursor += 1;
@@ -164,20 +772,86 @@ impl TerminalQueryScanner {
                     }
                     0xc2 => {
                         Self::push_bytes(&self.pending, &mut segments, emitted_end, self.cursor);
+                        emitted_end = self.cursor;
                         self.candidate_start = Some(self.cursor);
                         self.state = ScanState::Utf8C1;
                         self.cursor += 1;
                     }
                     0xc3..=0xdf => {
-                        self.state = ScanState::Utf8Text(1);
+                        Self::push_bytes(&self.pending, &mut segments, emitted_end, self.cursor);
+                        emitted_end = self.cursor;
+                        self.candidate_start = Some(self.cursor);
+                        self.state = ScanState::Utf8Text {
+                            remaining: 1,
+                            next_min: 0x80,
+                            next_max: 0xbf,
+                        };
                         self.cursor += 1;
                     }
-                    0xe0..=0xef => {
-                        self.state = ScanState::Utf8Text(2);
+                    0xe0 => {
+                        Self::push_bytes(&self.pending, &mut segments, emitted_end, self.cursor);
+                        emitted_end = self.cursor;
+                        self.candidate_start = Some(self.cursor);
+                        self.state = ScanState::Utf8Text {
+                            remaining: 2,
+                            next_min: 0xa0,
+                            next_max: 0xbf,
+                        };
                         self.cursor += 1;
                     }
-                    0xf0..=0xf7 => {
-                        self.state = ScanState::Utf8Text(3);
+                    0xe1..=0xec | 0xee..=0xef => {
+                        Self::push_bytes(&self.pending, &mut segments, emitted_end, self.cursor);
+                        emitted_end = self.cursor;
+                        self.candidate_start = Some(self.cursor);
+                        self.state = ScanState::Utf8Text {
+                            remaining: 2,
+                            next_min: 0x80,
+                            next_max: 0xbf,
+                        };
+                        self.cursor += 1;
+                    }
+                    0xed => {
+                        Self::push_bytes(&self.pending, &mut segments, emitted_end, self.cursor);
+                        emitted_end = self.cursor;
+                        self.candidate_start = Some(self.cursor);
+                        self.state = ScanState::Utf8Text {
+                            remaining: 2,
+                            next_min: 0x80,
+                            next_max: 0x9f,
+                        };
+                        self.cursor += 1;
+                    }
+                    0xf0 => {
+                        Self::push_bytes(&self.pending, &mut segments, emitted_end, self.cursor);
+                        emitted_end = self.cursor;
+                        self.candidate_start = Some(self.cursor);
+                        self.state = ScanState::Utf8Text {
+                            remaining: 3,
+                            next_min: 0x90,
+                            next_max: 0xbf,
+                        };
+                        self.cursor += 1;
+                    }
+                    0xf1..=0xf3 => {
+                        Self::push_bytes(&self.pending, &mut segments, emitted_end, self.cursor);
+                        emitted_end = self.cursor;
+                        self.candidate_start = Some(self.cursor);
+                        self.state = ScanState::Utf8Text {
+                            remaining: 3,
+                            next_min: 0x80,
+                            next_max: 0xbf,
+                        };
+                        self.cursor += 1;
+                    }
+                    0xf4 => {
+                        Self::push_bytes(&self.pending, &mut segments, emitted_end, self.cursor);
+                        emitted_end = self.cursor;
+                        self.candidate_start = Some(self.cursor);
+                        self.state = ScanState::Utf8Text {
+                            remaining: 3,
+                            next_min: 0x80,
+                            next_max: 0x8f,
+                        };
                         self.cursor += 1;
                     }
                     _ => self.cursor += 1,
@@ -185,12 +859,15 @@ impl TerminalQueryScanner {
                 ScanState::Escape => {
                     self.cursor += 1;
                     match byte {
+                        0x18 | 0x1a => {
+                            emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                        }
                         b'[' => self.state = ScanState::Csi,
                         b']' => self.state = ScanState::Osc,
                         b'P' => self.state = ScanState::Dcs,
                         b'X' | b'^' | b'_' => self.state = ScanState::String,
                         _ => {
-                            emitted_end = self.finish_control(
+                            emitted_end = self.finish_control::<RECORD_WORK>(
                                 &mut segments,
                                 self.cursor,
                                 ControlFamily::Other,
@@ -199,6 +876,16 @@ impl TerminalQueryScanner {
                     }
                 }
                 ScanState::Utf8C1 => {
+                    if !(0x80..=0xbf).contains(&byte) {
+                        let start = self
+                            .candidate_start
+                            .take()
+                            .expect("UTF-8 candidate must have a start");
+                        Self::push_bytes(&self.pending, &mut segments, start, self.cursor);
+                        emitted_end = self.cursor;
+                        self.state = ScanState::Ground;
+                        continue;
+                    }
                     self.cursor += 1;
                     match byte {
                         0x9b => self.state = ScanState::Csi,
@@ -206,7 +893,7 @@ impl TerminalQueryScanner {
                         0x90 => self.state = ScanState::Dcs,
                         0x98 | 0x9e | 0x9f => self.state = ScanState::String,
                         0x9c => {
-                            emitted_end = self.finish_control(
+                            emitted_end = self.finish_control::<RECORD_WORK>(
                                 &mut segments,
                                 self.cursor,
                                 ControlFamily::Other,
@@ -218,47 +905,146 @@ impl TerminalQueryScanner {
                         }
                     }
                 }
-                ScanState::Utf8Text(remaining) => {
+                ScanState::Utf8Text {
+                    remaining,
+                    next_min,
+                    next_max,
+                } => {
+                    if !(next_min..=next_max).contains(&byte) {
+                        let start = self
+                            .candidate_start
+                            .take()
+                            .expect("UTF-8 candidate must have a start");
+                        Self::push_bytes(&self.pending, &mut segments, start, self.cursor);
+                        emitted_end = self.cursor;
+                        self.state = ScanState::Ground;
+                        continue;
+                    }
                     self.cursor += 1;
                     self.state = if remaining == 1 {
+                        self.candidate_start = None;
                         ScanState::Ground
                     } else {
-                        ScanState::Utf8Text(remaining - 1)
+                        ScanState::Utf8Text {
+                            remaining: remaining - 1,
+                            next_min: 0x80,
+                            next_max: 0xbf,
+                        }
                     };
                 }
-                ScanState::Csi => {
-                    self.cursor += 1;
-                    if (0x40..=0x7e).contains(&byte) {
-                        emitted_end =
-                            self.finish_control(&mut segments, self.cursor, ControlFamily::Csi);
+                ScanState::Csi => match byte {
+                    0x18 | 0x1a => {
+                        self.cursor += 1;
+                        emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                    }
+                    0x1b => {
+                        emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                        self.candidate_start = Some(self.cursor);
+                        self.state = ScanState::Escape;
+                        self.cursor += 1;
+                    }
+                    0x9b | 0x9d | 0x90 | 0x98 | 0x9e | 0x9f | 0x9c => {
+                        emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                        self.candidate_start = Some(self.cursor);
+                        self.state = match byte {
+                            0x9b => ScanState::Csi,
+                            0x9d => ScanState::Osc,
+                            0x90 => ScanState::Dcs,
+                            0x98 | 0x9e | 0x9f => ScanState::String,
+                            0x9c => ScanState::Ground,
+                            _ => unreachable!(),
+                        };
+                        self.cursor += 1;
+                        if byte == 0x9c {
+                            emitted_end = self.finish_control::<RECORD_WORK>(
+                                &mut segments,
+                                self.cursor,
+                                ControlFamily::Other,
+                            );
+                        }
+                    }
+                    0xc2 => {
+                        emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                        self.candidate_start = Some(self.cursor);
+                        self.state = ScanState::CsiUtf8C1;
+                        self.cursor += 1;
+                    }
+                    _ => {
+                        self.cursor += 1;
+                        if (0x40..=0x7e).contains(&byte) {
+                            emitted_end = self.finish_control::<RECORD_WORK>(
+                                &mut segments,
+                                self.cursor,
+                                ControlFamily::Csi,
+                            );
+                        }
+                    }
+                },
+                ScanState::CsiUtf8C1 => {
+                    if byte == 0x9b {
+                        self.cursor += 1;
+                        self.state = ScanState::Csi;
+                    } else {
+                        self.state = ScanState::Utf8C1;
+                        continue;
                     }
                 }
                 ScanState::Osc => {
                     self.cursor += 1;
                     match byte {
+                        0x18 | 0x1a => {
+                            emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                        }
                         0x07 | 0x9c => {
-                            emitted_end =
-                                self.finish_control(&mut segments, self.cursor, ControlFamily::Osc);
+                            emitted_end = self.finish_control::<RECORD_WORK>(
+                                &mut segments,
+                                self.cursor,
+                                ControlFamily::Osc,
+                            );
                         }
                         0x1b => self.state = ScanState::OscEscape,
                         0xc2 => self.state = ScanState::OscUtf8C1,
                         _ => {}
                     }
                 }
-                ScanState::OscEscape => {
-                    self.cursor += 1;
-                    if byte == b'\\' {
-                        emitted_end =
-                            self.finish_control(&mut segments, self.cursor, ControlFamily::Osc);
-                    } else {
-                        self.state = ScanState::Osc;
+                ScanState::OscEscape => match byte {
+                    b'\\' => {
+                        self.cursor += 1;
+                        emitted_end = self.finish_control::<RECORD_WORK>(
+                            &mut segments,
+                            self.cursor,
+                            ControlFamily::Osc,
+                        );
                     }
-                }
+                    0x18 | 0x1a => {
+                        self.cursor += 1;
+                        emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                    }
+                    0x1b => {
+                        emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                        self.candidate_start = Some(self.cursor);
+                        self.state = ScanState::Escape;
+                        self.cursor += 1;
+                    }
+                    _ => {
+                        let escape = self.cursor - 1;
+                        emitted_end = self.finish_cancelled(&mut segments, escape);
+                        self.candidate_start = Some(escape);
+                        self.state = ScanState::Escape;
+                    }
+                },
                 ScanState::OscUtf8C1 => {
+                    if !(0x80..=0xbf).contains(&byte) {
+                        self.state = ScanState::Osc;
+                        continue;
+                    }
                     self.cursor += 1;
                     if byte == 0x9c {
-                        emitted_end =
-                            self.finish_control(&mut segments, self.cursor, ControlFamily::Osc);
+                        emitted_end = self.finish_control::<RECORD_WORK>(
+                            &mut segments,
+                            self.cursor,
+                            ControlFamily::Osc,
+                        );
                     } else {
                         self.state = ScanState::Osc;
                     }
@@ -266,29 +1052,59 @@ impl TerminalQueryScanner {
                 ScanState::Dcs => {
                     self.cursor += 1;
                     match byte {
+                        0x18 | 0x1a => {
+                            emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                        }
                         0x9c => {
-                            emitted_end =
-                                self.finish_control(&mut segments, self.cursor, ControlFamily::Dcs);
+                            emitted_end = self.finish_control::<RECORD_WORK>(
+                                &mut segments,
+                                self.cursor,
+                                ControlFamily::Dcs,
+                            );
                         }
                         0x1b => self.state = ScanState::DcsEscape,
                         0xc2 => self.state = ScanState::DcsUtf8C1,
                         _ => {}
                     }
                 }
-                ScanState::DcsEscape => {
-                    self.cursor += 1;
-                    if byte == b'\\' {
-                        emitted_end =
-                            self.finish_control(&mut segments, self.cursor, ControlFamily::Dcs);
-                    } else {
-                        self.state = ScanState::Dcs;
+                ScanState::DcsEscape => match byte {
+                    b'\\' => {
+                        self.cursor += 1;
+                        emitted_end = self.finish_control::<RECORD_WORK>(
+                            &mut segments,
+                            self.cursor,
+                            ControlFamily::Dcs,
+                        );
                     }
-                }
+                    0x18 | 0x1a => {
+                        self.cursor += 1;
+                        emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                    }
+                    0x1b => {
+                        emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                        self.candidate_start = Some(self.cursor);
+                        self.state = ScanState::Escape;
+                        self.cursor += 1;
+                    }
+                    _ => {
+                        let escape = self.cursor - 1;
+                        emitted_end = self.finish_cancelled(&mut segments, escape);
+                        self.candidate_start = Some(escape);
+                        self.state = ScanState::Escape;
+                    }
+                },
                 ScanState::DcsUtf8C1 => {
+                    if !(0x80..=0xbf).contains(&byte) {
+                        self.state = ScanState::Dcs;
+                        continue;
+                    }
                     self.cursor += 1;
                     if byte == 0x9c {
-                        emitted_end =
-                            self.finish_control(&mut segments, self.cursor, ControlFamily::Dcs);
+                        emitted_end = self.finish_control::<RECORD_WORK>(
+                            &mut segments,
+                            self.cursor,
+                            ControlFamily::Dcs,
+                        );
                     } else {
                         self.state = ScanState::Dcs;
                     }
@@ -296,8 +1112,11 @@ impl TerminalQueryScanner {
                 ScanState::String => {
                     self.cursor += 1;
                     match byte {
+                        0x18 | 0x1a => {
+                            emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                        }
                         0x9c => {
-                            emitted_end = self.finish_control(
+                            emitted_end = self.finish_control::<RECORD_WORK>(
                                 &mut segments,
                                 self.cursor,
                                 ControlFamily::Other,
@@ -308,24 +1127,58 @@ impl TerminalQueryScanner {
                         _ => {}
                     }
                 }
-                ScanState::StringEscape => {
-                    self.cursor += 1;
-                    if byte == b'\\' {
-                        emitted_end =
-                            self.finish_control(&mut segments, self.cursor, ControlFamily::Other);
-                    } else {
-                        self.state = ScanState::String;
+                ScanState::StringEscape => match byte {
+                    b'\\' => {
+                        self.cursor += 1;
+                        emitted_end = self.finish_control::<RECORD_WORK>(
+                            &mut segments,
+                            self.cursor,
+                            ControlFamily::Other,
+                        );
                     }
-                }
+                    0x18 | 0x1a => {
+                        self.cursor += 1;
+                        emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                    }
+                    0x1b => {
+                        emitted_end = self.finish_cancelled(&mut segments, self.cursor);
+                        self.candidate_start = Some(self.cursor);
+                        self.state = ScanState::Escape;
+                        self.cursor += 1;
+                    }
+                    _ => {
+                        let escape = self.cursor - 1;
+                        emitted_end = self.finish_cancelled(&mut segments, escape);
+                        self.candidate_start = Some(escape);
+                        self.state = ScanState::Escape;
+                    }
+                },
                 ScanState::StringUtf8C1 => {
+                    if !(0x80..=0xbf).contains(&byte) {
+                        self.state = ScanState::String;
+                        continue;
+                    }
                     self.cursor += 1;
                     if byte == 0x9c {
-                        emitted_end =
-                            self.finish_control(&mut segments, self.cursor, ControlFamily::Other);
+                        emitted_end = self.finish_control::<RECORD_WORK>(
+                            &mut segments,
+                            self.cursor,
+                            ControlFamily::Other,
+                        );
                     } else {
                         self.state = ScanState::String;
                     }
                 }
+            }
+
+            if let Some(start) = self.candidate_start
+                && self.cursor.saturating_sub(start) >= Self::MAX_PENDING
+            {
+                self.pending.drain(..self.cursor);
+                emitted_end = 0;
+                self.cursor = 0;
+                self.candidate_start = None;
+                self.discarding = true;
             }
         }
 
@@ -347,10 +1200,15 @@ impl TerminalQueryScanner {
                 .map(|start| start.saturating_sub(emitted_end));
         }
 
+        if self.discarding && self.cursor > 0 {
+            self.pending.drain(..self.cursor);
+            self.cursor = 0;
+        }
+
         segments
     }
 
-    fn finish_control(
+    fn finish_control<const RECORD_WORK: bool>(
         &mut self,
         segments: &mut Vec<ScannedSegment>,
         end: usize,
@@ -360,7 +1218,28 @@ impl TerminalQueryScanner {
             .candidate_start
             .take()
             .expect("control sequence must have a start");
+        if RECORD_WORK {
+            self.inspected_bytes = self
+                .inspected_bytes
+                .saturating_add(u64::try_from(end.saturating_sub(start)).unwrap_or(u64::MAX));
+        }
         Self::push_control(&self.pending, segments, start, end, family);
+        self.state = ScanState::Ground;
+        end
+    }
+
+    fn finish_cancelled(&mut self, segments: &mut Vec<ScannedSegment>, end: usize) -> usize {
+        let start = self
+            .candidate_start
+            .take()
+            .expect("cancelled control sequence must have a start");
+        if start < end {
+            segments.push(ScannedSegment::Control {
+                family: ControlFamily::Other,
+                bytes: self.pending[start..end].to_vec(),
+                semantic: SemanticControl::Cancelled,
+            });
+        }
         self.state = ScanState::Ground;
         end
     }
@@ -381,13 +1260,14 @@ impl TerminalQueryScanner {
         segments.push(ScannedSegment::Control {
             family,
             bytes: pending[start..end].to_vec(),
+            semantic: classify_control(family, &pending[start..end]),
         });
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ControlFamily, ScannedSegment, TerminalQueryScanner};
+    use super::{ControlFamily, FixedQuery, ScannedSegment, SemanticControl, TerminalQueryScanner};
 
     fn scan_in_chunks(input: &[u8], chunk_size: usize) -> (Vec<ScannedSegment>, u64) {
         let mut scanner = TerminalQueryScanner::new_with_work_counter();
@@ -409,7 +1289,17 @@ mod tests {
         segments
             .iter()
             .filter_map(|segment| match segment {
-                ScannedSegment::Control { family, bytes } => Some((*family, bytes.clone())),
+                ScannedSegment::Control { family, bytes, .. } => Some((*family, bytes.clone())),
+                ScannedSegment::Bytes(_) => None,
+            })
+            .collect()
+    }
+
+    fn semantics(segments: &[ScannedSegment]) -> Vec<&SemanticControl> {
+        segments
+            .iter()
+            .filter_map(|segment| match segment {
+                ScannedSegment::Control { semantic, .. } => Some(semantic),
                 ScannedSegment::Bytes(_) => None,
             })
             .collect()
@@ -519,6 +1409,288 @@ mod tests {
     }
 
     #[test]
+    fn terminal_queries_semantically_classifies_all_48_fixed_queries() {
+        let fixed: &[(&[u8], FixedQuery)] = &[
+            (b"\x1b[6n", FixedQuery::CursorPosition),
+            (b"\x9b6n", FixedQuery::CursorPosition),
+            (b"\xc2\x9b6n", FixedQuery::CursorPosition),
+            (b"\x1b[c", FixedQuery::PrimaryDeviceAttributes),
+            (b"\x1b[0c", FixedQuery::PrimaryDeviceAttributes),
+            (b"\x9bc", FixedQuery::PrimaryDeviceAttributes),
+            (b"\xc2\x9bc", FixedQuery::PrimaryDeviceAttributes),
+            (b"\x9b0c", FixedQuery::PrimaryDeviceAttributes),
+            (b"\xc2\x9b0c", FixedQuery::PrimaryDeviceAttributes),
+            (b"\x1b[>c", FixedQuery::SecondaryDeviceAttributes),
+            (b"\x1b[>0c", FixedQuery::SecondaryDeviceAttributes),
+            (b"\x9b>c", FixedQuery::SecondaryDeviceAttributes),
+            (b"\x9b>0c", FixedQuery::SecondaryDeviceAttributes),
+            (b"\xc2\x9b>c", FixedQuery::SecondaryDeviceAttributes),
+            (b"\xc2\x9b>0c", FixedQuery::SecondaryDeviceAttributes),
+            (b"\x1b[=c", FixedQuery::TertiaryDeviceAttributes),
+            (b"\x1b[=0c", FixedQuery::TertiaryDeviceAttributes),
+            (b"\x9b=c", FixedQuery::TertiaryDeviceAttributes),
+            (b"\x9b=0c", FixedQuery::TertiaryDeviceAttributes),
+            (b"\xc2\x9b=c", FixedQuery::TertiaryDeviceAttributes),
+            (b"\xc2\x9b=0c", FixedQuery::TertiaryDeviceAttributes),
+            (b"\x1b[x", FixedQuery::TerminalParameters0),
+            (b"\x1b[0x", FixedQuery::TerminalParameters0),
+            (b"\x1b[1x", FixedQuery::TerminalParameters1),
+            (b"\x9bx", FixedQuery::TerminalParameters0),
+            (b"\x9b0x", FixedQuery::TerminalParameters0),
+            (b"\x9b1x", FixedQuery::TerminalParameters1),
+            (b"\xc2\x9bx", FixedQuery::TerminalParameters0),
+            (b"\xc2\x9b0x", FixedQuery::TerminalParameters0),
+            (b"\xc2\x9b1x", FixedQuery::TerminalParameters1),
+            (b"\x1b[>q", FixedQuery::XtVersion),
+            (b"\x1b[>0q", FixedQuery::XtVersion),
+            (b"\x9b>q", FixedQuery::XtVersion),
+            (b"\xc2\x9b>q", FixedQuery::XtVersion),
+            (b"\x9b>0q", FixedQuery::XtVersion),
+            (b"\xc2\x9b>0q", FixedQuery::XtVersion),
+            (b"\x1b[5n", FixedQuery::OperatingStatus),
+            (b"\x9b5n", FixedQuery::OperatingStatus),
+            (b"\xc2\x9b5n", FixedQuery::OperatingStatus),
+            (b"\x1b[14t", FixedQuery::WindowPixelSize),
+            (b"\x9b14t", FixedQuery::WindowPixelSize),
+            (b"\xc2\x9b14t", FixedQuery::WindowPixelSize),
+            (b"\x1b[16t", FixedQuery::CharacterCellSize),
+            (b"\x9b16t", FixedQuery::CharacterCellSize),
+            (b"\xc2\x9b16t", FixedQuery::CharacterCellSize),
+            (b"\x1b[18t", FixedQuery::TextAreaSize),
+            (b"\x9b18t", FixedQuery::TextAreaSize),
+            (b"\xc2\x9b18t", FixedQuery::TextAreaSize),
+        ];
+        assert_eq!(fixed.len(), 48);
+        for &(query, expected) in fixed {
+            let (segments, _) = scan_in_chunks(query, 1);
+            assert_eq!(
+                semantics(&segments),
+                vec![&SemanticControl::Fixed(expected)],
+                "query {query:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_queries_semantically_classifies_every_dynamic_query_family() {
+        type SemanticPredicate = fn(&SemanticControl) -> bool;
+        let cases: &[(&[u8], SemanticPredicate)] = &[
+            (b"\x1b[21t", |value| {
+                matches!(value, SemanticControl::WindowReport(_))
+            }),
+            (b"\x1b[?25$p", |value| {
+                matches!(value, SemanticControl::PrivateModeStatus(25))
+            }),
+            (b"\x1b[4$p", |value| {
+                matches!(value, SemanticControl::AnsiModeStatus(4))
+            }),
+            (b"\x1b]4;1;?\x07", |value| {
+                matches!(value, SemanticControl::OscColor(_))
+            }),
+            (b"\x1b]1337;ReportCellSize\x1b\\", |value| {
+                matches!(value, SemanticControl::ItermReportCellSize)
+            }),
+            (b"\x1b[1;1;1;1;1;1*y", |value| {
+                matches!(value, SemanticControl::Decrqcra(_))
+            }),
+            (b"\x1bP$qm\x1b\\", |value| {
+                matches!(value, SemanticControl::Decrqss(_))
+            }),
+            (b"\x1bP+q544e\x1b\\", |value| {
+                matches!(value, SemanticControl::XtGetTcap(_))
+            }),
+            (b"\x1b[?1;1S", |value| {
+                matches!(value, SemanticControl::XtSmGraphics(_))
+            }),
+            (b"\x1b[?u", |value| {
+                matches!(value, SemanticControl::KittyKeyboardFlags)
+            }),
+            (b"\x1b[?4m", |value| {
+                matches!(value, SemanticControl::KeyModifierOptionsQuery(4))
+            }),
+            (b"\x1b[?2026h", |value| {
+                matches!(
+                    value,
+                    SemanticControl::SynchronizedOutputMode { enabled: true }
+                )
+            }),
+            (b"\x1b[>1u", |value| {
+                matches!(value, SemanticControl::KittyKeyboardMode)
+            }),
+            (b"\x1b[>4;2m", |value| {
+                matches!(value, SemanticControl::KeyModifierOptionsSequence)
+            }),
+            (b"\x1b]52;c;?\x07", |value| {
+                matches!(value, SemanticControl::Osc52(_))
+            }),
+            (b"\x1b]8;;https://example.test\x1b\\", |value| {
+                matches!(value, SemanticControl::Osc8Hyperlink)
+            }),
+            (b"\x1b]9;hello\x07", |value| {
+                matches!(value, SemanticControl::Notification(_))
+            }),
+        ];
+        for &(query, predicate) in cases {
+            let (segments, _) = scan_in_chunks(query, 1);
+            let semantic = semantics(&segments);
+            assert_eq!(semantic.len(), 1, "query {query:?}");
+            assert!(predicate(semantic[0]), "query {query:?}: {:?}", semantic[0]);
+        }
+    }
+
+    #[test]
+    fn terminal_queries_resynchronizes_new_controls_inside_incomplete_csi() {
+        for input in [
+            b"\x1b[123\x1b[6n".as_slice(),
+            b"\x1b[123\x9b6n".as_slice(),
+            b"\x1b[123\xc2\x9b6n".as_slice(),
+        ] {
+            let (segments, _) = scan_in_chunks(input, 1);
+            assert!(matches!(
+                semantics(&segments).as_slice(),
+                [
+                    SemanticControl::Cancelled,
+                    SemanticControl::Fixed(FixedQuery::CursorPosition)
+                ]
+            ));
+        }
+    }
+
+    #[test]
+    fn terminal_queries_can_and_sub_cancel_all_control_strings_before_following_queries() {
+        let prefixes: &[&[u8]] = &[
+            b"\x1b[123",
+            b"\x1b]52;c;secret",
+            b"\x1bPpayload",
+            b"\x1bXpayload",
+            b"\x1b^payload",
+            b"\x1b_payload",
+        ];
+        for &prefix in prefixes {
+            for cancel in [0x18, 0x1a] {
+                let mut input = prefix.to_vec();
+                input.push(cancel);
+                input.extend_from_slice(b"\x1b]52;c;?\x07\x1b[6n");
+                let (segments, _) = scan_in_chunks(&input, 3);
+                assert!(matches!(
+                    semantics(&segments).as_slice(),
+                    [
+                        SemanticControl::Cancelled,
+                        SemanticControl::Osc52(_),
+                        SemanticControl::Fixed(FixedQuery::CursorPosition)
+                    ]
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn terminal_queries_uses_the_second_escape_for_overlapping_st() {
+        let input = b"\x1b]777;payload\x1b\x1b\\after";
+        let (segments, _) = scan_in_chunks(input, 1);
+        assert_eq!(flattened(&segments), input);
+        assert!(matches!(
+            semantics(&segments).as_slice(),
+            [SemanticControl::Cancelled, SemanticControl::StandaloneSt]
+        ));
+    }
+
+    #[test]
+    fn terminal_queries_reprocesses_invalid_utf8_successors_as_controls() {
+        for input in [
+            b"\xc2\x1b]52;c;?\x07".as_slice(),
+            b"\xe2x\x1b[6n".as_slice(),
+            b"\xf0\x9b\x1b[6n".as_slice(),
+        ] {
+            let (segments, _) = scan_in_chunks(input, 1);
+            assert_eq!(flattened(&segments), input);
+            assert!(
+                semantics(&segments).iter().any(|semantic| matches!(
+                    semantic,
+                    SemanticControl::Osc52(_) | SemanticControl::Fixed(FixedQuery::CursorPosition)
+                )),
+                "input {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_queries_reprocesses_strict_utf8_range_violations_as_controls() {
+        for input in [
+            b"\xe0\x80\x9b6n".as_slice(),
+            b"\xed\xa0\x9b6n".as_slice(),
+            b"\xf0\x80\x80\x9b6n".as_slice(),
+            b"\xf4\xbf\x80\x9b6n".as_slice(),
+        ] {
+            let (segments, _) = scan_in_chunks(input, 1);
+            assert!(
+                semantics(&segments).iter().any(|semantic| matches!(
+                    semantic,
+                    SemanticControl::Fixed(FixedQuery::CursorPosition)
+                )),
+                "input {input:?}, segments {segments:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_queries_holds_only_a_genuine_incomplete_utf8_suffix() {
+        let mut scanner = TerminalQueryScanner::new_with_work_counter();
+        let first = scanner.process(b"before\xe2\x82");
+        assert_eq!(flattened(&first), b"before");
+        let second = scanner.process(b"\xacafter");
+        assert_eq!(flattened(&second), b"\xe2\x82\xacafter");
+    }
+
+    #[test]
+    fn terminal_queries_discards_oversized_controls_and_recovers() {
+        for (prefix, filler, terminator) in [
+            (b"\x1b[".as_slice(), b'1', b"m".as_slice()),
+            (b"\x1b]52;c;".as_slice(), b'a', b"\x07".as_slice()),
+            (b"\x1bP".as_slice(), b'a', b"\x1b\\".as_slice()),
+            (b"\x1bX".as_slice(), b'a', b"\x1b\\".as_slice()),
+            (b"\x1b^".as_slice(), b'a', b"\x1b\\".as_slice()),
+            (b"\x1b_".as_slice(), b'a', b"\x1b\\".as_slice()),
+        ] {
+            let mut input = prefix.to_vec();
+            input.extend(std::iter::repeat_n(
+                filler,
+                TerminalQueryScanner::MAX_PENDING + 1,
+            ));
+            input.extend_from_slice(terminator);
+            input.extend_from_slice(b"\x1b[6n");
+            let (segments, _) = scan_in_chunks(&input, 8192);
+            assert!(matches!(
+                semantics(&segments).as_slice(),
+                [SemanticControl::Fixed(FixedQuery::CursorPosition)]
+            ));
+        }
+    }
+
+    #[test]
+    fn terminal_queries_reprocesses_escape_after_invalid_utf8_c1_in_discard_mode() {
+        for prefix in [
+            b"\x1b]".as_slice(),
+            b"\x1bP".as_slice(),
+            b"\x1bX".as_slice(),
+            b"\x1b^".as_slice(),
+            b"\x1b_".as_slice(),
+        ] {
+            let mut input = prefix.to_vec();
+            input.extend(std::iter::repeat_n(
+                b'a',
+                TerminalQueryScanner::MAX_PENDING + 1,
+            ));
+            input.extend_from_slice(b"\xc2\x1b[6n");
+            let (segments, _) = scan_in_chunks(&input, 8192);
+            assert!(semantics(&segments).iter().any(|semantic| matches!(
+                semantic,
+                SemanticControl::Fixed(FixedQuery::CursorPosition)
+            )));
+        }
+    }
+
+    #[test]
     fn terminal_queries_preserves_every_byte_boundary_split() {
         let queries: &[&[u8]] = &[
             b"\x1b[?25$p",
@@ -578,7 +1750,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_queries_keeps_embedded_queries_inside_control_strings() {
+    fn terminal_queries_cancels_strings_when_escape_does_not_form_st() {
         let strings: &[&[u8]] = &[
             b"\x1b]777;\x1b[6n\x07",
             b"\x1bPpayload\x1b[6n\x1b\\",
@@ -591,14 +1763,16 @@ mod tests {
         ];
         for &control_string in strings {
             let (segments, _) = scan_in_chunks(control_string, 1);
-            let framed = controls(&segments);
             assert_eq!(flattened(&segments), control_string);
-            assert_eq!(
-                framed.len(),
-                1,
-                "embedded query escaped its control string {control_string:?}"
+            assert!(
+                semantics(&segments)
+                    .iter()
+                    .any(|semantic| matches!(semantic, SemanticControl::Cancelled))
             );
-            assert_ne!(framed[0].0, ControlFamily::Csi);
+            assert!(semantics(&segments).iter().any(|semantic| matches!(
+                semantic,
+                SemanticControl::Fixed(FixedQuery::CursorPosition)
+            )));
         }
     }
 

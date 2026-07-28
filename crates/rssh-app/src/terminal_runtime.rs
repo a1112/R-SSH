@@ -1,4 +1,3 @@
-use base64::{Engine, engine::general_purpose::STANDARD};
 use rssh_core::{DamageRegion, TerminalSize};
 use rssh_terminal::{
     Cell, CellWidthOverride, Color, CursorShape, CursorStyle, Terminal, TerminalResizeOutcome,
@@ -6,14 +5,18 @@ use rssh_terminal::{
 };
 
 use crate::{
-    terminal_modes::{
-        KeyModifierOptionsQuery, KeyModifierOptionsSequence, KittyKeyboardFlagsQuery,
-        KittyKeyboardModeSequence, MouseInputMode, SynchronizedOutputModeSequence,
-        TerminalModeTracker, find_key_modifier_options_query, find_key_modifier_options_sequence,
-        find_kitty_keyboard_flags_query, find_kitty_keyboard_mode_sequence,
-        find_synchronized_output_mode_sequence,
+    terminal_modes::{MouseInputMode, TerminalModeTracker},
+    terminal_queries::{
+        ClipboardCommand, DecrqcraRequest as SharedDecrqcraRequest, FixedQuery,
+        NotificationCommand, OscColorKind as SharedOscColorKind,
+        OscColorRequest as SharedOscColorRequest, ProgressCommand, ScannedSegment, SemanticControl,
+        StringTerminator, TerminalQueryScanner, WindowReportRequest,
+        XtSmGraphicsRequest as SharedXtSmGraphicsRequest,
     },
-    terminal_queries::{ControlFamily, ScannedSegment, TerminalQueryScanner},
+    terminal_query_dcs::{
+        DcsTerminator, DecrqssKind as SharedDecrqssKind, DecrqssRequest as SharedDecrqssRequest,
+        XtGetTcapRequest as SharedXtGetTcapRequest,
+    },
     visible_output::TerminalVisibleOutputFilter,
 };
 
@@ -33,8 +36,10 @@ pub struct TerminalRuntime {
     enable_title_reporting: bool,
     enq_answerback: String,
     allow_win32_input_mode: bool,
-    clipboard_tracker: TerminalClipboardTracker,
-    notification_tracker: TerminalNotificationTracker,
+    clipboard_texts: Vec<String>,
+    clipboard_queries: Vec<String>,
+    notifications: Vec<TerminalNotification>,
+    progress: TerminalProgress,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,8 +79,10 @@ impl TerminalRuntime {
             enable_title_reporting: false,
             enq_answerback: String::new(),
             allow_win32_input_mode: true,
-            clipboard_tracker: TerminalClipboardTracker::default(),
-            notification_tracker: TerminalNotificationTracker::default(),
+            clipboard_texts: Vec::new(),
+            clipboard_queries: Vec::new(),
+            notifications: Vec::new(),
+            progress: TerminalProgress::None,
         }
     }
 
@@ -96,8 +103,6 @@ impl TerminalRuntime {
 
     pub(crate) fn feed_pty_output_with_display(&mut self, bytes: &[u8]) -> TerminalRuntimeOutput {
         let screen_identity_generation = self.terminal.screen_identity_generation();
-        self.clipboard_tracker.process(bytes);
-        self.notification_tracker.process(bytes);
         let output = self.output_filter.process(bytes);
 
         let mut responses = Vec::new();
@@ -162,6 +167,27 @@ impl TerminalRuntime {
                 FilteredOutputEvent::KeyModifierOptions { bytes } => {
                     self.mode_tracker.process_without_emitting(&bytes);
                 }
+                FilteredOutputEvent::Clipboard(command) => match command {
+                    ClipboardCommand::Write(text) => self.clipboard_texts.push(text),
+                    ClipboardCommand::Query(selection) => self.clipboard_queries.push(selection),
+                },
+                FilteredOutputEvent::Notification(command) => match command {
+                    NotificationCommand::Notify { title, body } => {
+                        self.notifications
+                            .push(TerminalNotification { title, body });
+                    }
+                    NotificationCommand::Progress(progress) => {
+                        self.progress = match progress {
+                            ProgressCommand::None => TerminalProgress::None,
+                            ProgressCommand::Percentage(value) => {
+                                TerminalProgress::Percentage(value)
+                            }
+                            ProgressCommand::Error(value) => TerminalProgress::Error(value),
+                            ProgressCommand::Indeterminate => TerminalProgress::Indeterminate,
+                        };
+                    }
+                    NotificationCommand::Ignored => {}
+                },
             }
         }
 
@@ -186,20 +212,20 @@ impl TerminalRuntime {
     }
 
     pub fn take_clipboard_texts(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.clipboard_tracker.texts)
+        std::mem::take(&mut self.clipboard_texts)
     }
 
     pub fn take_clipboard_queries(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.clipboard_tracker.queries)
+        std::mem::take(&mut self.clipboard_queries)
     }
 
     pub(crate) fn take_notifications(&mut self) -> Vec<TerminalNotification> {
-        std::mem::take(&mut self.notification_tracker.notifications)
+        std::mem::take(&mut self.notifications)
     }
 
     #[must_use]
     pub(crate) const fn progress(&self) -> TerminalProgress {
-        self.notification_tracker.progress
+        self.progress
     }
 
     pub fn resize(&mut self, size: TerminalSize) -> TerminalResizeOutcome {
@@ -340,7 +366,6 @@ impl TerminalRuntime {
 }
 
 struct TerminalOutputFilter {
-    pending: Vec<u8>,
     query_scanner: TerminalQueryScanner,
     size: TerminalSize,
     terminal_name: String,
@@ -369,6 +394,8 @@ enum FilteredOutputEvent {
     KeyModifierOptions {
         bytes: Vec<u8>,
     },
+    Clipboard(ClipboardCommand),
+    Notification(NotificationCommand),
 }
 
 impl TerminalOutputFilter {
@@ -379,209 +406,8 @@ impl TerminalOutputFilter {
     const TERTIARY_DEVICE_ATTRIBUTES: &'static [u8] = b"\x1bP!|00000000\x1b\\";
     const TERMINAL_PARAMETERS_0: &'static [u8] = b"\x1b[2;1;1;128;128;1;0x";
     const TERMINAL_PARAMETERS_1: &'static [u8] = b"\x1b[3;1;1;128;128;1;0x";
-    const RESPONSES: &'static [TerminalQueryResponse] = &[
-        TerminalQueryResponse {
-            query: b"\x1b[6n",
-            response: TerminalResponse::CursorPosition { private: false },
-        },
-        TerminalQueryResponse {
-            query: b"\x9b6n",
-            response: TerminalResponse::CursorPosition { private: false },
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b6n",
-            response: TerminalResponse::CursorPosition { private: false },
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[c",
-            response: TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[0c",
-            response: TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\x9bc",
-            response: TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9bc",
-            response: TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\x9b0c",
-            response: TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b0c",
-            response: TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[>c",
-            response: TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[>0c",
-            response: TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\x9b>c",
-            response: TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\x9b>0c",
-            response: TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b>c",
-            response: TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b>0c",
-            response: TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[=c",
-            response: TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[=0c",
-            response: TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\x9b=c",
-            response: TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\x9b=0c",
-            response: TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b=c",
-            response: TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b=0c",
-            response: TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES),
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[x",
-            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0),
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[0x",
-            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0),
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[1x",
-            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_1),
-        },
-        TerminalQueryResponse {
-            query: b"\x9bx",
-            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0),
-        },
-        TerminalQueryResponse {
-            query: b"\x9b0x",
-            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0),
-        },
-        TerminalQueryResponse {
-            query: b"\x9b1x",
-            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_1),
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9bx",
-            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0),
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b0x",
-            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0),
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b1x",
-            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_1),
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[>q",
-            response: TerminalResponse::XtVersion,
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[>0q",
-            response: TerminalResponse::XtVersion,
-        },
-        TerminalQueryResponse {
-            query: b"\x9b>q",
-            response: TerminalResponse::XtVersion,
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b>q",
-            response: TerminalResponse::XtVersion,
-        },
-        TerminalQueryResponse {
-            query: b"\x9b>0q",
-            response: TerminalResponse::XtVersion,
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b>0q",
-            response: TerminalResponse::XtVersion,
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[5n",
-            response: TerminalResponse::Static(b"\x1b[0n"),
-        },
-        TerminalQueryResponse {
-            query: b"\x9b5n",
-            response: TerminalResponse::Static(b"\x1b[0n"),
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b5n",
-            response: TerminalResponse::Static(b"\x1b[0n"),
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[14t",
-            response: TerminalResponse::WindowPixelSize,
-        },
-        TerminalQueryResponse {
-            query: b"\x9b14t",
-            response: TerminalResponse::WindowPixelSize,
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b14t",
-            response: TerminalResponse::WindowPixelSize,
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[16t",
-            response: TerminalResponse::CharacterCellSize,
-        },
-        TerminalQueryResponse {
-            query: b"\x9b16t",
-            response: TerminalResponse::CharacterCellSize,
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b16t",
-            response: TerminalResponse::CharacterCellSize,
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[18t",
-            response: TerminalResponse::TextAreaSize,
-        },
-        TerminalQueryResponse {
-            query: b"\x9b18t",
-            response: TerminalResponse::TextAreaSize,
-        },
-        TerminalQueryResponse {
-            query: b"\xc2\x9b18t",
-            response: TerminalResponse::TextAreaSize,
-        },
-    ];
-    const IGNORED_QUERIES: &'static [&'static [u8]] = &[
-        b"\x1b[?6n".as_slice(),
-        b"\x9b?6n".as_slice(),
-        b"\xc2\x9b?6n".as_slice(),
-    ];
-
     fn new(size: TerminalSize) -> Self {
         Self {
-            pending: Vec::new(),
             query_scanner: TerminalQueryScanner::new(),
             size,
             terminal_name: DEFAULT_TERMINAL_NAME.to_owned(),
@@ -608,43 +434,76 @@ impl TerminalOutputFilter {
                 ScannedSegment::Bytes(display) => {
                     self.push_display(&mut events, display);
                 }
-                ScannedSegment::Control { family, bytes } => {
-                    self.pending = bytes;
-                    let event = self.find_next_event(family).filter(|(index, event)| {
-                        *index == 0 && event.consumed == self.pending.len()
-                    });
-                    if let Some((_, event)) = event {
-                        let output_event = match event.event {
-                            MatchedTerminalEventKind::Response(response) => {
-                                Some(self.filtered_response(response))
-                            }
-                            MatchedTerminalEventKind::Enq => Some(FilteredOutputEvent::Enq),
-                            MatchedTerminalEventKind::SynchronizedOutputMode { enabled } => {
-                                Some(FilteredOutputEvent::SynchronizedOutputMode {
-                                    bytes: std::mem::take(&mut self.pending),
-                                    enabled,
-                                })
-                            }
-                            MatchedTerminalEventKind::KittyKeyboardMode => {
-                                Some(FilteredOutputEvent::KittyKeyboardMode {
-                                    bytes: std::mem::take(&mut self.pending),
-                                })
-                            }
-                            MatchedTerminalEventKind::KeyModifierOptions => {
-                                Some(FilteredOutputEvent::KeyModifierOptions {
-                                    bytes: std::mem::take(&mut self.pending),
-                                })
-                            }
-                            MatchedTerminalEventKind::IgnoredControl => None,
-                        };
-                        if let Some(output_event) = output_event {
-                            events.push(output_event);
+                ScannedSegment::Control {
+                    bytes, semantic, ..
+                } => {
+                    let response = match &semantic {
+                        SemanticControl::Fixed(query) => Some(Self::fixed_response(*query)),
+                        SemanticControl::WindowReport(query) => Self::window_response(*query),
+                        SemanticControl::PrivateModeStatus(mode) => {
+                            Some(TerminalResponse::PrivateModeStatus(*mode))
                         }
+                        SemanticControl::AnsiModeStatus(mode) => {
+                            Some(TerminalResponse::AnsiModeStatus(*mode))
+                        }
+                        SemanticControl::OscColor(query) => Some(TerminalResponse::OscColor(
+                            Self::osc_color_response(query.clone()),
+                        )),
+                        SemanticControl::ItermReportCellSize => {
+                            Some(TerminalResponse::ItermReportCellSize)
+                        }
+                        SemanticControl::Decrqcra(request) => {
+                            Some(TerminalResponse::ChecksumRectangularArea(
+                                Self::decrqcra_request(*request),
+                            ))
+                        }
+                        SemanticControl::Decrqss(request) => {
+                            Some(TerminalResponse::Decrqss(Self::decrqss_response(*request)))
+                        }
+                        SemanticControl::XtGetTcap(request) => Some(TerminalResponse::XtGetTcap(
+                            self.xtgettcap_response(request),
+                        )),
+                        SemanticControl::XtSmGraphics(request) => Some(
+                            TerminalResponse::XtSmGraphics(Self::xtsmgraphics_request(*request)),
+                        ),
+                        SemanticControl::KittyKeyboardFlags => {
+                            Some(TerminalResponse::KittyKeyboardFlags)
+                        }
+                        SemanticControl::KeyModifierOptionsQuery(resource) => {
+                            Some(TerminalResponse::KeyModifierOptions(*resource))
+                        }
+                        _ => None,
+                    };
+                    if let Some(response) = response {
+                        events.push(self.filtered_response(response));
                     } else {
-                        let display = std::mem::take(&mut self.pending);
-                        self.push_display(&mut events, display);
+                        match semantic {
+                            SemanticControl::Enq => events.push(FilteredOutputEvent::Enq),
+                            SemanticControl::SynchronizedOutputMode { enabled } => {
+                                events.push(FilteredOutputEvent::SynchronizedOutputMode {
+                                    bytes,
+                                    enabled,
+                                });
+                            }
+                            SemanticControl::KittyKeyboardMode => {
+                                events.push(FilteredOutputEvent::KittyKeyboardMode { bytes });
+                            }
+                            SemanticControl::KeyModifierOptionsSequence => {
+                                events.push(FilteredOutputEvent::KeyModifierOptions { bytes });
+                            }
+                            SemanticControl::Osc52(command) => {
+                                events.push(FilteredOutputEvent::Clipboard(command));
+                            }
+                            SemanticControl::Notification(command) => {
+                                events.push(FilteredOutputEvent::Notification(command));
+                            }
+                            SemanticControl::StandaloneSt
+                            | SemanticControl::Cancelled
+                            | SemanticControl::Ignored
+                            | SemanticControl::WindowReport(_) => {}
+                            _ => self.push_display(&mut events, bytes),
+                        }
                     }
-                    self.pending.clear();
                 }
             }
         }
@@ -672,337 +531,110 @@ impl TerminalOutputFilter {
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "explicit family-gated event precedence keeps terminal compatibility auditable"
-    )]
-    fn find_next_event(&mut self, family: ControlFamily) -> Option<(usize, MatchedTerminalEvent)> {
-        let response = self
-            .find_next_response(family)
-            .map(|(index, response)| (index, response.into()));
-        let enq = (family == ControlFamily::Enq)
-            .then(|| find_enq_control(&self.pending))
-            .flatten()
-            .map(|control| {
-                (
-                    control.index,
-                    MatchedTerminalEvent {
-                        consumed: control.consumed,
-                        event: MatchedTerminalEventKind::Enq,
-                    },
-                )
-            });
-        let synchronized_output = (family == ControlFamily::Csi)
-            .then(|| find_synchronized_output_mode_sequence(&self.pending))
-            .flatten()
-            .map(
-                |SynchronizedOutputModeSequence {
-                     index,
-                     consumed,
-                     enabled,
-                 }| {
-                    (
-                        index,
-                        MatchedTerminalEvent {
-                            consumed,
-                            event: MatchedTerminalEventKind::SynchronizedOutputMode { enabled },
-                        },
-                    )
-                },
-            );
-        let kitty_keyboard_mode = (family == ControlFamily::Csi)
-            .then(|| find_kitty_keyboard_mode_sequence(&self.pending))
-            .flatten()
-            .map(|KittyKeyboardModeSequence { index, consumed }| {
-                (
-                    index,
-                    MatchedTerminalEvent {
-                        consumed,
-                        event: MatchedTerminalEventKind::KittyKeyboardMode,
-                    },
-                )
-            });
-        let key_modifier_options = (family == ControlFamily::Csi)
-            .then(|| find_key_modifier_options_sequence(&self.pending))
-            .flatten()
-            .map(|KeyModifierOptionsSequence { index, consumed }| {
-                (
-                    index,
-                    MatchedTerminalEvent {
-                        consumed,
-                        event: MatchedTerminalEventKind::KeyModifierOptions,
-                    },
-                )
-            });
-        let ignored_window_query = (family == ControlFamily::Csi)
-            .then(|| find_ignored_wezterm_window_query(&self.pending))
-            .flatten()
-            .filter(|control| !is_inside_osc_or_st_control_string(&self.pending, control.index))
-            .map(|control| {
-                (
-                    control.index,
-                    MatchedTerminalEvent {
-                        consumed: control.consumed,
-                        event: MatchedTerminalEventKind::IgnoredControl,
-                    },
-                )
-            });
-        let ignored_static_query = (family == ControlFamily::Csi)
-            .then(|| find_ignored_static_query(&self.pending, Self::IGNORED_QUERIES))
-            .flatten()
-            .filter(|control| !is_inside_osc_or_st_control_string(&self.pending, control.index))
-            .map(|control| {
-                (
-                    control.index,
-                    MatchedTerminalEvent {
-                        consumed: control.consumed,
-                        event: MatchedTerminalEventKind::IgnoredControl,
-                    },
-                )
-            });
-        let st_control = (family == ControlFamily::Other)
-            .then(|| find_st_control(&self.pending))
-            .flatten()
-            .filter(|control| !is_inside_osc_or_st_control_string(&self.pending, control.index))
-            .map(|control| {
-                (
-                    control.index,
-                    MatchedTerminalEvent {
-                        consumed: control.consumed,
-                        event: MatchedTerminalEventKind::IgnoredControl,
-                    },
-                )
-            });
-
-        response
-            .into_iter()
-            .chain(enq)
-            .chain(synchronized_output)
-            .chain(kitty_keyboard_mode)
-            .chain(key_modifier_options)
-            .chain(ignored_window_query)
-            .chain(ignored_static_query)
-            .chain(st_control)
-            .min_by_key(|(index, _)| *index)
+    fn fixed_response(query: FixedQuery) -> TerminalResponse {
+        match query {
+            FixedQuery::CursorPosition => TerminalResponse::CursorPosition { private: false },
+            FixedQuery::PrimaryDeviceAttributes => {
+                TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES)
+            }
+            FixedQuery::SecondaryDeviceAttributes => {
+                TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES)
+            }
+            FixedQuery::TertiaryDeviceAttributes => {
+                TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES)
+            }
+            FixedQuery::TerminalParameters0 => {
+                TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0)
+            }
+            FixedQuery::TerminalParameters1 => {
+                TerminalResponse::Static(Self::TERMINAL_PARAMETERS_1)
+            }
+            FixedQuery::XtVersion => TerminalResponse::XtVersion,
+            FixedQuery::OperatingStatus => TerminalResponse::Static(b"\x1b[0n"),
+            FixedQuery::WindowPixelSize => TerminalResponse::WindowPixelSize,
+            FixedQuery::CharacterCellSize => TerminalResponse::CharacterCellSize,
+            FixedQuery::TextAreaSize => TerminalResponse::TextAreaSize,
+        }
     }
 
-    #[allow(clippy::too_many_lines)]
-    fn find_next_response(
-        &mut self,
-        family: ControlFamily,
-    ) -> Option<(usize, MatchedTerminalResponse)> {
-        let static_response = (family == ControlFamily::Csi)
-            .then(|| {
-                Self::RESPONSES
-                    .iter()
-                    .filter_map(|response| {
-                        find_subslice(&self.pending, response.query).map(|index| {
-                            (
-                                index,
-                                MatchedTerminalResponse {
-                                    consumed: response.query.len(),
-                                    response: response.response.clone(),
-                                },
-                            )
-                        })
-                    })
-                    .min_by_key(|(index, _)| *index)
-            })
-            .flatten();
-        let window_report_response = (family == ControlFamily::Csi)
-            .then(|| find_wezterm_window_report_query(&self.pending))
-            .flatten()
-            .map(
-                |WindowReportQuery {
-                     index,
-                     consumed,
-                     response,
-                 }| { (index, MatchedTerminalResponse { consumed, response }) },
-            );
-        let mode_response = (family == ControlFamily::Csi)
-            .then(|| find_private_mode_status_query(&self.pending))
-            .flatten()
-            .map(
-                |PrivateModeStatusQuery {
-                     index,
-                     consumed,
-                     mode,
-                 }| {
-                    (
-                        index,
-                        MatchedTerminalResponse {
-                            consumed,
-                            response: TerminalResponse::PrivateModeStatus(mode),
-                        },
-                    )
-                },
-            );
-        let ansi_mode_response = (family == ControlFamily::Csi)
-            .then(|| find_ansi_mode_status_query(&self.pending))
-            .flatten()
-            .map(
-                |AnsiModeStatusQuery {
-                     index,
-                     consumed,
-                     mode,
-                 }| {
-                    (
-                        index,
-                        MatchedTerminalResponse {
-                            consumed,
-                            response: TerminalResponse::AnsiModeStatus(mode),
-                        },
-                    )
-                },
-            );
-        let osc_color_response = (family == ControlFamily::Osc)
-            .then(|| find_osc_color_query(&self.pending))
-            .flatten()
-            .map(
-                |OscColorQuery {
-                     index,
-                     consumed,
-                     query,
-                 }| {
-                    (
-                        index,
-                        MatchedTerminalResponse {
-                            consumed,
-                            response: TerminalResponse::OscColor(query),
-                        },
-                    )
-                },
-            );
-        let iterm_report_cell_size_response = (family == ControlFamily::Osc)
-            .then(|| find_iterm_report_cell_size_query(&self.pending))
-            .flatten()
-            .map(|ItermReportCellSizeQuery { index, consumed }| {
-                (
-                    index,
-                    MatchedTerminalResponse {
-                        consumed,
-                        response: TerminalResponse::ItermReportCellSize,
-                    },
-                )
-            });
-        let checksum_rectangular_area_response = (family == ControlFamily::Csi)
-            .then(|| find_decrqcra_query(&self.pending))
-            .flatten()
-            .map(
-                |DecrqcraQuery {
-                     index,
-                     consumed,
-                     request,
-                 }| {
-                    (
-                        index,
-                        MatchedTerminalResponse {
-                            consumed,
-                            response: TerminalResponse::ChecksumRectangularArea(request),
-                        },
-                    )
-                },
-            );
-        let decrqss_response = (family == ControlFamily::Dcs)
-            .then(|| find_decrqss_query(&self.pending))
-            .flatten()
-            .map(
-                |DecrqssQuery {
-                     index,
-                     consumed,
-                     response,
-                 }| {
-                    (
-                        index,
-                        MatchedTerminalResponse {
-                            consumed,
-                            response: TerminalResponse::Decrqss(response),
-                        },
-                    )
-                },
-            );
-        let xtgettcap_response = (family == ControlFamily::Dcs)
-            .then(|| find_xtgettcap_query(&self.pending, self.size, &self.terminal_name))
-            .flatten()
-            .map(
-                |XtGetTcapQuery {
-                     index,
-                     consumed,
-                     response,
-                 }| {
-                    (
-                        index,
-                        MatchedTerminalResponse {
-                            consumed,
-                            response: TerminalResponse::XtGetTcap(response),
-                        },
-                    )
-                },
-            );
-        let xtsmgraphics_response = (family == ControlFamily::Csi)
-            .then(|| find_xtsmgraphics_query(&self.pending))
-            .flatten()
-            .map(
-                |XtSmGraphicsQuery {
-                     index,
-                     consumed,
-                     request,
-                 }| {
-                    (
-                        index,
-                        MatchedTerminalResponse {
-                            consumed,
-                            response: TerminalResponse::XtSmGraphics(request),
-                        },
-                    )
-                },
-            );
-        let kitty_keyboard_flags_response = (family == ControlFamily::Csi)
-            .then(|| find_kitty_keyboard_flags_query(&self.pending))
-            .flatten()
-            .map(|KittyKeyboardFlagsQuery { index, consumed }| {
-                (
-                    index,
-                    MatchedTerminalResponse {
-                        consumed,
-                        response: TerminalResponse::KittyKeyboardFlags,
-                    },
-                )
-            });
-        let key_modifier_options_response = (family == ControlFamily::Csi)
-            .then(|| find_key_modifier_options_query(&self.pending))
-            .flatten()
-            .map(
-                |KeyModifierOptionsQuery {
-                     index,
-                     consumed,
-                     resource,
-                 }| {
-                    (
-                        index,
-                        MatchedTerminalResponse {
-                            consumed,
-                            response: TerminalResponse::KeyModifierOptions(resource),
-                        },
-                    )
-                },
-            );
+    fn window_response(query: WindowReportRequest) -> Option<TerminalResponse> {
+        match query {
+            WindowReportRequest::WindowPixelSize => Some(TerminalResponse::WindowPixelSize),
+            WindowReportRequest::CharacterCellSize => Some(TerminalResponse::CharacterCellSize),
+            WindowReportRequest::TextAreaSize => Some(TerminalResponse::TextAreaSize),
+            WindowReportRequest::WindowTitle => Some(TerminalResponse::WindowTitle),
+            WindowReportRequest::Ignored => None,
+        }
+    }
 
-        static_response
-            .into_iter()
-            .chain(window_report_response)
-            .chain(mode_response)
-            .chain(ansi_mode_response)
-            .chain(osc_color_response)
-            .chain(iterm_report_cell_size_response)
-            .chain(checksum_rectangular_area_response)
-            .chain(decrqss_response)
-            .chain(xtgettcap_response)
-            .chain(xtsmgraphics_response)
-            .chain(kitty_keyboard_flags_response)
-            .chain(key_modifier_options_response)
-            .filter(|(index, _)| !is_inside_osc_or_st_control_string(&self.pending, *index))
-            .min_by_key(|(index, _)| *index)
+    fn osc_color_response(query: SharedOscColorRequest) -> OscColorResponse {
+        OscColorResponse {
+            kinds: query
+                .kinds
+                .into_iter()
+                .map(|kind| match kind {
+                    SharedOscColorKind::DefaultForeground => OscColorKind::DefaultForeground,
+                    SharedOscColorKind::DefaultBackground => OscColorKind::DefaultBackground,
+                    SharedOscColorKind::Cursor => OscColorKind::Cursor,
+                    SharedOscColorKind::Palette(index) => OscColorKind::Palette(index),
+                })
+                .collect(),
+            terminator: match query.terminator {
+                StringTerminator::Bel => OscResponseTerminator::Bel,
+                StringTerminator::St => OscResponseTerminator::St,
+                StringTerminator::C1St => OscResponseTerminator::C1St,
+            },
+        }
+    }
+
+    fn decrqcra_request(request: SharedDecrqcraRequest) -> DecrqcraRequest {
+        DecrqcraRequest {
+            request_id: request.request_id,
+            top: request.top,
+            left: request.left,
+            bottom: request.bottom,
+            right: request.right,
+        }
+    }
+
+    fn xtsmgraphics_request(request: SharedXtSmGraphicsRequest) -> XtSmGraphicsRequest {
+        XtSmGraphicsRequest {
+            item: request.item,
+            action: request.action,
+        }
+    }
+
+    fn decrqss_response(request: SharedDecrqssRequest) -> DecrqssResponse {
+        DecrqssResponse {
+            kind: match request.kind {
+                SharedDecrqssKind::Sgr => Some(DecrqssKind::Sgr),
+                SharedDecrqssKind::CursorShape => Some(DecrqssKind::CursorShape),
+                SharedDecrqssKind::ScrollRegion => Some(DecrqssKind::ScrollRegion),
+                SharedDecrqssKind::ConformanceLevel => Some(DecrqssKind::ConformanceLevel),
+                SharedDecrqssKind::LeftRightMargins => Some(DecrqssKind::LeftRightMargins),
+                SharedDecrqssKind::Unknown => None,
+            },
+            terminator: match request.terminator {
+                DcsTerminator::SevenBit => OscResponseTerminator::St,
+                DcsTerminator::EightBit => OscResponseTerminator::C1St,
+            },
+        }
+    }
+
+    fn xtgettcap_response(&self, request: &SharedXtGetTcapRequest) -> XtGetTcapResponse {
+        let entries = request
+            .names
+            .iter()
+            .map(|requested| {
+                let name = requested.decoded.as_deref().unwrap_or(&requested.encoded);
+                let name = String::from_utf8_lossy(name).into_owned().into_bytes();
+                XtGetTcapEntry {
+                    name_hex: encode_ascii_hex(&name),
+                    value_hex: xtgettcap_value_hex(&name, self.size, &self.terminal_name),
+                }
+            })
+            .collect();
+        XtGetTcapResponse { entries }
     }
 
     fn response_bytes(
@@ -1018,45 +650,6 @@ impl TerminalOutputFilter {
         self.color_state
             .cursor_override()
             .map(DynamicColor::to_color)
-    }
-}
-
-struct TerminalQueryResponse {
-    query: &'static [u8],
-    response: TerminalResponse,
-}
-
-struct MatchedTerminalResponse {
-    consumed: usize,
-    response: TerminalResponse,
-}
-
-struct WindowReportQuery {
-    index: usize,
-    consumed: usize,
-    response: TerminalResponse,
-}
-
-struct MatchedTerminalEvent {
-    consumed: usize,
-    event: MatchedTerminalEventKind,
-}
-
-enum MatchedTerminalEventKind {
-    Response(TerminalResponse),
-    Enq,
-    SynchronizedOutputMode { enabled: bool },
-    KittyKeyboardMode,
-    KeyModifierOptions,
-    IgnoredControl,
-}
-
-impl From<MatchedTerminalResponse> for MatchedTerminalEvent {
-    fn from(response: MatchedTerminalResponse) -> Self {
-        Self {
-            consumed: response.consumed,
-            event: MatchedTerminalEventKind::Response(response.response),
-        }
     }
 }
 
@@ -1242,118 +835,6 @@ fn is_utf8_continuation(byte: u8) -> bool {
     byte & 0b1100_0000 == 0b1000_0000
 }
 
-fn dcs_start_prefixes() -> [(&'static [u8], usize); 3] {
-    [
-        (b"\x1bP".as_slice(), 2),
-        (UTF8_C1_DCS, UTF8_C1_DCS.len()),
-        (b"\x90".as_slice(), 1),
-    ]
-}
-
-fn csi_start_prefixes() -> [(&'static [u8], usize); 3] {
-    [
-        (b"\x1b[".as_slice(), 2),
-        (b"\x9b".as_slice(), 1),
-        (UTF8_C1_CSI, UTF8_C1_CSI.len()),
-    ]
-}
-
-fn find_ignored_static_query(bytes: &[u8], queries: &[&[u8]]) -> Option<StControl> {
-    queries
-        .iter()
-        .filter_map(|query| {
-            find_subslice(bytes, query).map(|index| StControl {
-                index,
-                consumed: query.len(),
-            })
-        })
-        .min_by_key(|control| control.index)
-}
-
-fn find_wezterm_window_report_query(bytes: &[u8]) -> Option<WindowReportQuery> {
-    csi_start_prefixes()
-        .into_iter()
-        .filter_map(|(prefix, prefix_len)| {
-            let index = find_subslice(bytes, prefix)?;
-            let body_start = index + prefix_len;
-            let body = &bytes[body_start..];
-            let final_index = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
-            if body[final_index] != b't' {
-                return None;
-            }
-            let response = wezterm_window_report_response(&body[..final_index])?;
-            Some(WindowReportQuery {
-                index,
-                consumed: prefix_len + final_index + 1,
-                response,
-            })
-        })
-        .min_by_key(|query| query.index)
-}
-
-fn wezterm_window_report_response(params: &[u8]) -> Option<TerminalResponse> {
-    let (first, second) = parse_wezterm_window_params(params)?;
-    match first {
-        14 if second.is_none() => Some(TerminalResponse::WindowPixelSize),
-        16 => Some(TerminalResponse::CharacterCellSize),
-        18 => Some(TerminalResponse::TextAreaSize),
-        21 if second.is_none() => Some(TerminalResponse::WindowTitle),
-        _ => None,
-    }
-}
-
-fn find_ignored_wezterm_window_query(bytes: &[u8]) -> Option<StControl> {
-    csi_start_prefixes()
-        .into_iter()
-        .filter_map(|(prefix, prefix_len)| {
-            let index = find_subslice(bytes, prefix)?;
-            let body_start = index + prefix_len;
-            let body = &bytes[body_start..];
-            let final_index = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
-            if body[final_index] != b't' {
-                return None;
-            }
-            if !is_wezterm_ignored_window_query(&body[..final_index]) {
-                return None;
-            }
-            Some(StControl {
-                index,
-                consumed: prefix_len + final_index + 1,
-            })
-        })
-        .min_by_key(|control| control.index)
-}
-
-fn is_wezterm_ignored_window_query(params: &[u8]) -> bool {
-    wezterm_window_report_response(params).is_none()
-}
-
-fn parse_wezterm_window_params(params: &[u8]) -> Option<(i64, Option<i64>)> {
-    let mut parts = params.split(|byte| *byte == b';');
-    let first = parts.next().and_then(parse_ascii_i64)?;
-    let second = match parts.next() {
-        Some([]) | None => None,
-        Some(part) => Some(parse_ascii_i64(part)?),
-    };
-    if parts.any(|part| !part.is_empty() && parse_ascii_i64(part).is_none()) {
-        return None;
-    }
-    Some((first, second))
-}
-
-fn parse_ascii_i64(bytes: &[u8]) -> Option<i64> {
-    if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
-        return None;
-    }
-    std::str::from_utf8(bytes).ok()?.parse().ok()
-}
-
-struct DecrqcraQuery {
-    index: usize,
-    consumed: usize,
-    request: DecrqcraRequest,
-}
-
 #[derive(Clone)]
 struct DecrqcraRequest {
     request_id: i64,
@@ -1363,71 +844,7 @@ struct DecrqcraRequest {
     right: u16,
 }
 
-fn find_decrqcra_query(bytes: &[u8]) -> Option<DecrqcraQuery> {
-    csi_start_prefixes()
-        .into_iter()
-        .filter_map(|(prefix, prefix_len)| {
-            let index = find_subslice(bytes, prefix)?;
-            let body_start = index + prefix_len;
-            let body = &bytes[body_start..];
-            let final_index = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
-            if body[final_index] != b'y' {
-                return None;
-            }
-            let request = parse_decrqcra_request(&body[..final_index])?;
-            Some(DecrqcraQuery {
-                index,
-                consumed: prefix_len + final_index + 1,
-                request,
-            })
-        })
-        .min_by_key(|query| query.index)
-}
-
-fn parse_decrqcra_request(params: &[u8]) -> Option<DecrqcraRequest> {
-    let params = params.strip_suffix(b"*")?;
-    let mut parts = params.split(|byte| *byte == b';');
-    let request_id = parts.next().and_then(parse_ascii_i64)?;
-    let page_number = parts.next().and_then(parse_ascii_i64)?;
-    if request_id < 0 || page_number < 0 {
-        return None;
-    }
-
-    let top = decrqcra_zero_based_axis(parts.next(), 0)?;
-    let left = decrqcra_zero_based_axis(parts.next(), 0)?;
-    let bottom = decrqcra_zero_based_axis(parts.next(), i64::from(u16::MAX))?;
-    let right = decrqcra_zero_based_axis(parts.next(), i64::from(u16::MAX))?;
-    if parts.next().is_some() {
-        return None;
-    }
-
-    Some(DecrqcraRequest {
-        request_id,
-        top,
-        left,
-        bottom,
-        right,
-    })
-}
-
-fn decrqcra_zero_based_axis(part: Option<&[u8]>, default: i64) -> Option<u16> {
-    let value = match part {
-        Some([]) | None => default,
-        Some(part) => parse_ascii_i64(part)?,
-    };
-    if value <= 0 {
-        Some(0)
-    } else {
-        Some(
-            u16::try_from(value.saturating_sub(1).min(i64::from(u16::MAX)))
-                .expect("positive DECRQCRA axis is clamped to u16"),
-        )
-    }
-}
-
 const UTF8_C1_OSC: &[u8] = b"\xc2\x9d";
-const UTF8_C1_CSI: &[u8] = b"\xc2\x9b";
-const UTF8_C1_PRIVATE_CSI: &[u8] = b"\xc2\x9b?";
 const UTF8_C1_DCS: &[u8] = b"\xc2\x90";
 const UTF8_C1_ST: &[u8] = b"\xc2\x9c";
 const OSC_START_PREFIXES: &[(&[u8], usize)] = &[
@@ -1436,45 +853,18 @@ const OSC_START_PREFIXES: &[(&[u8], usize)] = &[
     (UTF8_C1_OSC, UTF8_C1_OSC.len()),
 ];
 
-struct StControl {
-    index: usize,
-    consumed: usize,
-}
-
-fn find_enq_control(bytes: &[u8]) -> Option<StControl> {
-    bytes
-        .iter()
-        .enumerate()
-        .find_map(|(index, byte)| {
-            (*byte == 0x05 && !is_inside_osc_or_st_control_string(bytes, index)).then_some(index)
-        })
-        .map(|index| StControl { index, consumed: 1 })
-}
-
-fn find_st_control(bytes: &[u8]) -> Option<StControl> {
-    st_control_sequences()
-        .into_iter()
-        .filter_map(|sequence| {
-            find_subslice(bytes, sequence).map(|index| StControl {
-                index,
-                consumed: sequence.len(),
-            })
-        })
-        .min_by_key(|control| control.index)
-}
-
-fn st_control_sequences() -> [&'static [u8]; 3] {
-    [b"\x1b\\".as_slice(), b"\x9c".as_slice(), UTF8_C1_ST]
-}
-
 fn is_inside_osc_or_st_control_string(bytes: &[u8], index: usize) -> bool {
-    is_inside_control_string(bytes, index, find_next_osc_start, find_osc_color_terminator)
-        || is_inside_control_string(
-            bytes,
-            index,
-            find_next_st_control_string_start,
-            find_xtgettcap_terminator,
-        )
+    is_inside_control_string(
+        bytes,
+        index,
+        find_next_osc_start,
+        find_osc_or_bel_terminator,
+    ) || is_inside_control_string(
+        bytes,
+        index,
+        find_next_st_control_string_start,
+        find_st_terminator,
+    )
 }
 
 fn is_inside_control_string(
@@ -1508,7 +898,7 @@ fn is_inside_control_string(
 }
 
 fn incomplete_osc_control_sequence_suffix_len(bytes: &[u8]) -> usize {
-    find_incomplete_control_sequence_start(bytes, find_next_osc_start, find_osc_color_terminator)
+    find_incomplete_control_sequence_start(bytes, find_next_osc_start, find_osc_or_bel_terminator)
         .map_or(0, |start| bytes.len() - start)
         .max(suffix_prefix_len(bytes, b"\x1b]"))
         .max(suffix_prefix_len(bytes, UTF8_C1_OSC))
@@ -1518,7 +908,7 @@ fn incomplete_st_control_sequence_suffix_len(bytes: &[u8]) -> usize {
     find_incomplete_control_sequence_start(
         bytes,
         find_next_st_control_string_start,
-        find_xtgettcap_terminator,
+        find_st_terminator,
     )
     .map_or(0, |start| bytes.len() - start)
     .max(
@@ -1554,12 +944,6 @@ fn find_incomplete_control_sequence_start(
     }
 
     None
-}
-
-struct DecrqssQuery {
-    index: usize,
-    consumed: usize,
-    response: DecrqssResponse,
 }
 
 #[derive(Clone)]
@@ -1600,56 +984,6 @@ impl DecrqssResponse {
         };
         response.extend_from_slice(self.terminator.bytes());
         response
-    }
-}
-
-fn find_decrqss_query(bytes: &[u8]) -> Option<DecrqssQuery> {
-    let mut match_query = None;
-    for (prefix, prefix_len) in dcs_start_prefixes() {
-        let mut offset = 0;
-        while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
-                break;
-            };
-            let index = offset + relative_index;
-            if let Some(query) = parse_decrqss_query(bytes, index, prefix_len)
-                && match_query
-                    .as_ref()
-                    .is_none_or(|current: &DecrqssQuery| query.index < current.index)
-            {
-                match_query = Some(query);
-            }
-            offset = index.saturating_add(1);
-        }
-    }
-    match_query
-}
-
-fn parse_decrqss_query(bytes: &[u8], index: usize, prefix_len: usize) -> Option<DecrqssQuery> {
-    let content_start = index + prefix_len;
-    let rest = bytes.get(content_start..)?;
-    let body = rest.strip_prefix(b"$q")?;
-    let terminator = find_xtgettcap_terminator(body)?;
-    let content = &body[..terminator.index];
-
-    Some(DecrqssQuery {
-        index,
-        consumed: prefix_len + b"$q".len() + terminator.index + terminator.length,
-        response: DecrqssResponse {
-            kind: parse_decrqss_kind(content),
-            terminator: terminator.response_terminator,
-        },
-    })
-}
-
-fn parse_decrqss_kind(content: &[u8]) -> Option<DecrqssKind> {
-    match content {
-        b"m" => Some(DecrqssKind::Sgr),
-        b" q" => Some(DecrqssKind::CursorShape),
-        b"r" => Some(DecrqssKind::ScrollRegion),
-        b"\"p" => Some(DecrqssKind::ConformanceLevel),
-        b"s" => Some(DecrqssKind::LeftRightMargins),
-        _ => None,
     }
 }
 
@@ -1763,12 +1097,6 @@ fn append_left_right_margin_state((left, right): (u16, u16), bytes: &mut Vec<u8>
     bytes.push(b's');
 }
 
-struct XtGetTcapQuery {
-    index: usize,
-    consumed: usize,
-    response: XtGetTcapResponse,
-}
-
 #[derive(Clone)]
 struct XtGetTcapResponse {
     entries: Vec<XtGetTcapEntry>,
@@ -1804,75 +1132,15 @@ impl XtGetTcapResponse {
     }
 }
 
-fn find_xtgettcap_query(
-    bytes: &[u8],
-    size: TerminalSize,
-    terminal_name: &str,
-) -> Option<XtGetTcapQuery> {
-    let mut match_query = None;
-    for (prefix, prefix_len) in dcs_start_prefixes() {
-        let mut offset = 0;
-        while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
-                break;
-            };
-            let index = offset + relative_index;
-            if let Some(query) =
-                parse_xtgettcap_query(bytes, index, prefix_len, size, terminal_name)
-                && match_query
-                    .as_ref()
-                    .is_none_or(|current: &XtGetTcapQuery| query.index < current.index)
-            {
-                match_query = Some(query);
-            }
-            offset = index.saturating_add(1);
-        }
-    }
-    match_query
-}
-
-fn parse_xtgettcap_query(
-    bytes: &[u8],
-    index: usize,
-    prefix_len: usize,
-    size: TerminalSize,
-    terminal_name: &str,
-) -> Option<XtGetTcapQuery> {
-    let content_start = index + prefix_len;
-    let rest = bytes.get(content_start..)?;
-    let body = rest.strip_prefix(b"+q")?;
-    let terminator = find_xtgettcap_terminator(body)?;
-    let content = &body[..terminator.index];
-    let entries = content
-        .split(|byte| *byte == b';')
-        .map(|entry| parse_xtgettcap_entry(entry, size, terminal_name))
-        .collect();
-
-    Some(XtGetTcapQuery {
-        index,
-        consumed: prefix_len + b"+q".len() + terminator.index + terminator.length,
-        response: XtGetTcapResponse { entries },
-    })
-}
-
-fn find_xtgettcap_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
-    let st = find_subslice(bytes, b"\x1b\\").map(|index| OscColorTerminator {
-        index,
-        length: 2,
-        response_terminator: OscResponseTerminator::St,
-    });
+fn find_st_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
+    let st = find_subslice(bytes, b"\x1b\\").map(|index| OscColorTerminator { index, length: 2 });
     let c1_st = bytes
         .iter()
         .position(|byte| *byte == 0x9c)
-        .map(|index| OscColorTerminator {
-            index,
-            length: 1,
-            response_terminator: OscResponseTerminator::C1St,
-        });
+        .map(|index| OscColorTerminator { index, length: 1 });
     let utf8_c1_st = find_subslice(bytes, UTF8_C1_ST).map(|index| OscColorTerminator {
         index,
         length: UTF8_C1_ST.len(),
-        response_terminator: OscResponseTerminator::C1St,
     });
 
     [st, c1_st, utf8_c1_st]
@@ -1881,21 +1149,6 @@ fn find_xtgettcap_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
         .min_by_key(|terminator| terminator.index)
 }
 
-fn parse_xtgettcap_entry(
-    name_hex: &[u8],
-    size: TerminalSize,
-    terminal_name: &str,
-) -> XtGetTcapEntry {
-    let name = decode_ascii_hex(name_hex).map_or_else(
-        || String::from_utf8_lossy(name_hex).into_owned().into_bytes(),
-        |bytes| String::from_utf8_lossy(&bytes).into_owned().into_bytes(),
-    );
-    let value_hex = xtgettcap_value_hex(&name, size, terminal_name);
-    XtGetTcapEntry {
-        name_hex: encode_ascii_hex(&name),
-        value_hex,
-    }
-}
 #[allow(clippy::match_same_arms, clippy::too_many_lines)]
 fn xtgettcap_value_hex(name: &[u8], size: TerminalSize, terminal_name: &str) -> Option<Vec<u8>> {
     match name {
@@ -2124,21 +1377,6 @@ fn parse_ascii_decimal_u8(bytes: &[u8]) -> Option<u8> {
     Some(value)
 }
 
-fn parse_ascii_decimal_u64(bytes: &[u8]) -> Option<u64> {
-    if bytes.is_empty() {
-        return None;
-    }
-
-    let mut value = 0u64;
-    for &byte in bytes {
-        if !byte.is_ascii_digit() {
-            return None;
-        }
-        value = value.checked_mul(10)?.checked_add(u64::from(byte - b'0'))?;
-    }
-    Some(value)
-}
-
 fn decimal_value_hex(value: u16) -> Vec<u8> {
     encode_ascii_hex(value.to_string().as_bytes())
 }
@@ -2155,22 +1393,6 @@ fn encode_ascii_hex(bytes: &[u8]) -> Vec<u8> {
 
 fn extend_ascii_hex_uppercase(output: &mut Vec<u8>, hex: &[u8]) {
     output.extend(hex.iter().map(u8::to_ascii_uppercase));
-}
-
-fn decode_ascii_hex(bytes: &[u8]) -> Option<Vec<u8>> {
-    if bytes.is_empty() || bytes.len() % 2 != 0 {
-        return None;
-    }
-    bytes
-        .chunks_exact(2)
-        .map(|pair| Some(parse_hex_digit(pair[0])? * 16 + parse_hex_digit(pair[1])?))
-        .collect()
-}
-
-struct XtSmGraphicsQuery {
-    index: usize,
-    consumed: usize,
-    request: XtSmGraphicsRequest,
 }
 
 #[derive(Clone, Copy)]
@@ -2232,57 +1454,6 @@ impl XtSmGraphicsRequest {
     }
 }
 
-fn find_xtsmgraphics_query(bytes: &[u8]) -> Option<XtSmGraphicsQuery> {
-    let mut match_query = None;
-    for (prefix, prefix_len) in csi_start_prefixes() {
-        let mut offset = 0;
-        while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
-                break;
-            };
-            let index = offset + relative_index;
-            if let Some(query) = parse_xtsmgraphics_query(bytes, index, prefix_len)
-                && match_query
-                    .as_ref()
-                    .is_none_or(|current: &XtSmGraphicsQuery| query.index < current.index)
-            {
-                match_query = Some(query);
-            }
-            offset = index.saturating_add(1);
-        }
-    }
-    match_query
-}
-
-fn parse_xtsmgraphics_query(
-    bytes: &[u8],
-    index: usize,
-    prefix_len: usize,
-) -> Option<XtSmGraphicsQuery> {
-    let content_start = index + prefix_len;
-    let body = bytes.get(content_start..)?.strip_prefix(b"?")?;
-    let final_index = body.iter().position(|byte| *byte == b'S')?;
-    let content = &body[..final_index];
-    let mut parameters = content.split(|byte| *byte == b';');
-    let item = parse_ascii_decimal_u64(parameters.next()?)?;
-    let action = parse_ascii_decimal_u64(parameters.next()?)?;
-    for parameter in parameters {
-        parse_ascii_decimal_u64(parameter)?;
-    }
-
-    Some(XtSmGraphicsQuery {
-        index,
-        consumed: prefix_len + b"?".len() + final_index + b"S".len(),
-        request: XtSmGraphicsRequest { item, action },
-    })
-}
-
-struct OscColorQuery {
-    index: usize,
-    consumed: usize,
-    query: OscColorResponse,
-}
-
 #[derive(Clone)]
 struct OscColorResponse {
     kinds: Vec<OscColorKind>,
@@ -2307,104 +1478,27 @@ enum OscResponseTerminator {
 struct OscColorTerminator {
     index: usize,
     length: usize,
-    response_terminator: OscResponseTerminator,
 }
 
-fn find_osc_color_query(bytes: &[u8]) -> Option<OscColorQuery> {
-    let mut match_query = None;
-    for &(prefix, prefix_len) in OSC_START_PREFIXES {
-        let mut offset = 0;
-        while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
-                break;
-            };
-            let index = offset + relative_index;
-            if let Some(query) = parse_osc_color_query(bytes, index, prefix_len)
-                && match_query
-                    .as_ref()
-                    .is_none_or(|current: &OscColorQuery| query.index < current.index)
-            {
-                match_query = Some(query);
-            }
-            offset = index.saturating_add(1);
-        }
-    }
-    match_query
-}
-
-fn parse_osc_color_query(bytes: &[u8], index: usize, prefix_len: usize) -> Option<OscColorQuery> {
-    let content_start = index + prefix_len;
-    let terminator = find_osc_color_terminator(&bytes[content_start..])?;
-    let content_end = content_start + terminator.index;
-    let kinds = parse_osc_color_query_content(&bytes[content_start..content_end])?;
-
-    Some(OscColorQuery {
-        index,
-        consumed: content_end + terminator.length - index,
-        query: OscColorResponse {
-            kinds,
-            terminator: terminator.response_terminator,
-        },
-    })
-}
-
-fn find_osc_color_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
+fn find_osc_or_bel_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
     let bel = bytes
         .iter()
         .position(|byte| *byte == b'\x07')
-        .map(|index| OscColorTerminator {
-            index,
-            length: 1,
-            response_terminator: OscResponseTerminator::Bel,
-        });
-    let st = find_subslice(bytes, b"\x1b\\").map(|index| OscColorTerminator {
-        index,
-        length: 2,
-        response_terminator: OscResponseTerminator::St,
-    });
+        .map(|index| OscColorTerminator { index, length: 1 });
+    let st = find_subslice(bytes, b"\x1b\\").map(|index| OscColorTerminator { index, length: 2 });
     let c1_st = bytes
         .iter()
         .position(|byte| *byte == 0x9c)
-        .map(|index| OscColorTerminator {
-            index,
-            length: 1,
-            response_terminator: OscResponseTerminator::C1St,
-        });
+        .map(|index| OscColorTerminator { index, length: 1 });
     let utf8_c1_st = find_subslice(bytes, UTF8_C1_ST).map(|index| OscColorTerminator {
         index,
         length: UTF8_C1_ST.len(),
-        response_terminator: OscResponseTerminator::C1St,
     });
 
     [bel, st, c1_st, utf8_c1_st]
         .into_iter()
         .flatten()
         .min_by_key(|terminator| terminator.index)
-}
-
-fn parse_osc_color_query_content(content: &[u8]) -> Option<Vec<OscColorKind>> {
-    match content {
-        b"10;?" => Some(vec![OscColorKind::DefaultForeground]),
-        b"11;?" => Some(vec![OscColorKind::DefaultBackground]),
-        b"12;?" => Some(vec![OscColorKind::Cursor]),
-        _ => parse_palette_color_query(content),
-    }
-}
-
-fn parse_palette_color_query(content: &[u8]) -> Option<Vec<OscColorKind>> {
-    let rest = content.strip_prefix(b"4;")?;
-    let mut parts = rest.split(|byte| *byte == b';');
-    let mut kinds = Vec::new();
-
-    while let Some(index) = parts.next() {
-        let marker = parts.next()?;
-        if marker != b"?" {
-            return None;
-        }
-        kinds.push(OscColorKind::Palette(parse_u8_decimal(index)?));
-    }
-
-    (!kinds.is_empty()).then_some(kinds)
 }
 
 fn parse_u8_decimal(bytes: &[u8]) -> Option<u8> {
@@ -2421,51 +1515,6 @@ fn parse_u8_decimal(bytes: &[u8]) -> Option<u8> {
             .saturating_add(u16::from(*byte - b'0'));
     }
     u8::try_from(value).ok()
-}
-
-struct ItermReportCellSizeQuery {
-    index: usize,
-    consumed: usize,
-}
-
-fn find_iterm_report_cell_size_query(bytes: &[u8]) -> Option<ItermReportCellSizeQuery> {
-    let mut match_query = None;
-    for &(prefix, prefix_len) in OSC_START_PREFIXES {
-        let mut offset = 0;
-        while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
-                break;
-            };
-            let index = offset + relative_index;
-            if let Some(query) = parse_iterm_report_cell_size_query(bytes, index, prefix_len)
-                && match_query
-                    .as_ref()
-                    .is_none_or(|current: &ItermReportCellSizeQuery| query.index < current.index)
-            {
-                match_query = Some(query);
-            }
-            offset = index.saturating_add(1);
-        }
-    }
-    match_query
-}
-
-fn parse_iterm_report_cell_size_query(
-    bytes: &[u8],
-    index: usize,
-    prefix_len: usize,
-) -> Option<ItermReportCellSizeQuery> {
-    let content_start = index + prefix_len;
-    let terminator = find_osc_terminator(&bytes[content_start..])?;
-    let content_end = content_start + terminator.index;
-    if &bytes[content_start..content_end] != b"1337;ReportCellSize" {
-        return None;
-    }
-
-    Some(ItermReportCellSizeQuery {
-        index,
-        consumed: content_end + terminator.length - index,
-    })
 }
 
 struct TerminalColorState {
@@ -2513,7 +1562,8 @@ impl TerminalColorState {
             }
 
             let content_start = prefix_len;
-            let Some(terminator) = find_osc_color_terminator(&self.pending[content_start..]) else {
+            let Some(terminator) = find_osc_or_bel_terminator(&self.pending[content_start..])
+            else {
                 return changed;
             };
             let content_end = content_start + terminator.index;
@@ -3004,126 +2054,6 @@ const fn xterm_color_cube_intensity(value: u8) -> u8 {
     if value == 0 { 0 } else { 55 + value * 40 }
 }
 
-struct PrivateModeStatusQuery {
-    index: usize,
-    consumed: usize,
-    mode: u16,
-}
-
-struct AnsiModeStatusQuery {
-    index: usize,
-    consumed: usize,
-    mode: u16,
-}
-
-fn find_private_mode_status_query(bytes: &[u8]) -> Option<PrivateModeStatusQuery> {
-    let mut match_query = None;
-    for (prefix, prefix_len) in [
-        (b"\x1b[?".as_slice(), b"\x1b[?".len()),
-        (b"\x9b?".as_slice(), b"\x9b?".len()),
-        (UTF8_C1_PRIVATE_CSI, UTF8_C1_PRIVATE_CSI.len()),
-    ] {
-        let mut offset = 0;
-        while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
-                break;
-            };
-            let index = offset + relative_index;
-            if let Some(query) = parse_private_mode_status_query(bytes, index, prefix_len)
-                && match_query
-                    .as_ref()
-                    .is_none_or(|current: &PrivateModeStatusQuery| query.index < current.index)
-            {
-                match_query = Some(query);
-            }
-            offset = index.saturating_add(1);
-        }
-    }
-    match_query
-}
-
-fn find_ansi_mode_status_query(bytes: &[u8]) -> Option<AnsiModeStatusQuery> {
-    let mut match_query = None;
-    for (prefix, prefix_len) in [
-        (b"\x1b[".as_slice(), b"\x1b[".len()),
-        (b"\x9b".as_slice(), b"\x9b".len()),
-        (UTF8_C1_CSI, UTF8_C1_CSI.len()),
-    ] {
-        let mut offset = 0;
-        while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
-                break;
-            };
-            let index = offset + relative_index;
-            if let Some(query) = parse_ansi_mode_status_query(bytes, index, prefix_len)
-                && match_query
-                    .as_ref()
-                    .is_none_or(|current: &AnsiModeStatusQuery| query.index < current.index)
-            {
-                match_query = Some(query);
-            }
-            offset = index.saturating_add(1);
-        }
-    }
-    match_query
-}
-
-fn parse_private_mode_status_query(
-    bytes: &[u8],
-    index: usize,
-    prefix_len: usize,
-) -> Option<PrivateModeStatusQuery> {
-    let mut cursor = index + prefix_len;
-    let start = cursor;
-    let mut mode = 0u16;
-    while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
-        mode = mode
-            .saturating_mul(10)
-            .saturating_add(u16::from(bytes[cursor] - b'0'));
-        cursor += 1;
-    }
-    if cursor == start {
-        return None;
-    }
-    let tail = bytes.get(cursor..cursor + 2)?;
-    if tail != b"$p" {
-        return None;
-    }
-    Some(PrivateModeStatusQuery {
-        index,
-        consumed: cursor + 2 - index,
-        mode,
-    })
-}
-
-fn parse_ansi_mode_status_query(
-    bytes: &[u8],
-    index: usize,
-    prefix_len: usize,
-) -> Option<AnsiModeStatusQuery> {
-    let mut cursor = index + prefix_len;
-    let start = cursor;
-    let mut mode = 0u16;
-    while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
-        mode = mode
-            .saturating_mul(10)
-            .saturating_add(u16::from(bytes[cursor] - b'0'));
-        cursor += 1;
-    }
-    if cursor == start {
-        return None;
-    }
-    let tail = bytes.get(cursor..cursor + 2)?;
-    if tail != b"$p" {
-        return None;
-    }
-    Some(AnsiModeStatusQuery {
-        index,
-        consumed: cursor + 2 - index,
-        mode,
-    })
-}
-
 fn suffix_prefix_len(bytes: &[u8], prefix: &[u8]) -> usize {
     let max_len = bytes.len().min(prefix.len().saturating_sub(1));
 
@@ -3135,330 +2065,6 @@ fn suffix_prefix_len(bytes: &[u8], prefix: &[u8]) -> usize {
                 && !raw_c1_prefix_is_utf8_continuation(bytes, suffix_start, &prefix[..length])
         })
         .unwrap_or(0)
-}
-
-#[derive(Default)]
-struct TerminalClipboardTracker {
-    pending: Vec<u8>,
-    texts: Vec<String>,
-    queries: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ClipboardStartKind {
-    Osc52,
-    ITermCopy,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ClipboardStart {
-    index: usize,
-    prefix_len: usize,
-    kind: ClipboardStartKind,
-}
-
-impl TerminalClipboardTracker {
-    const OSC52_PREFIXES: &'static [&'static [u8]] = &[b"\x1b]52;", b"\x9d52;", b"\xc2\x9d52;"];
-    const ITERM_COPY_PREFIXES: &'static [&'static [u8]] = &[
-        b"\x1b]1337;Copy=;",
-        b"\x9d1337;Copy=;",
-        b"\xc2\x9d1337;Copy=;",
-    ];
-    const ST_TERMINATOR: &'static [u8] = b"\x1b\\";
-    const MAX_PENDING: usize = 1024 * 1024;
-
-    fn process(&mut self, bytes: &[u8]) {
-        self.pending.extend_from_slice(bytes);
-        if self.pending.len() > Self::MAX_PENDING {
-            self.pending.clear();
-            return;
-        }
-
-        loop {
-            let Some(start) = find_next_clipboard_start(&self.pending) else {
-                self.retain_possible_prefix();
-                return;
-            };
-            if is_inside_osc_or_st_control_string(&self.pending, start.index) {
-                self.pending.drain(..start.index.saturating_add(1));
-                continue;
-            }
-            if start.index > 0 {
-                self.pending.drain(..start.index);
-            }
-
-            let content_start = start.prefix_len;
-            let Some(terminator) = find_osc_terminator(&self.pending[content_start..]) else {
-                return;
-            };
-            let content_end = content_start + terminator.index;
-            match start.kind {
-                ClipboardStartKind::Osc52 => {
-                    match parse_osc52_clipboard_content(&self.pending[content_start..content_end]) {
-                        Some(ClipboardSequence::Write(text)) => self.texts.push(text),
-                        Some(ClipboardSequence::Query(selection)) => self.queries.push(selection),
-                        None => {}
-                    }
-                }
-                ClipboardStartKind::ITermCopy => {
-                    if let Some(text) = parse_iterm_copy_clipboard_content(
-                        &self.pending[content_start..content_end],
-                    ) {
-                        self.texts.push(text);
-                    }
-                }
-            }
-
-            self.pending.drain(..content_end + terminator.length);
-        }
-    }
-
-    fn retain_possible_prefix(&mut self) {
-        let retained = Self::OSC52_PREFIXES
-            .iter()
-            .chain(Self::ITERM_COPY_PREFIXES.iter())
-            .map(|prefix| suffix_prefix_len(&self.pending, prefix))
-            .max()
-            .unwrap_or(0);
-        let retained = retained
-            .max(incomplete_osc_control_sequence_suffix_len(&self.pending))
-            .max(incomplete_st_control_sequence_suffix_len(&self.pending));
-        let writable = self.pending.len().saturating_sub(retained);
-        if writable > 0 {
-            self.pending.drain(..writable);
-        }
-    }
-}
-
-fn find_next_clipboard_start(bytes: &[u8]) -> Option<ClipboardStart> {
-    TerminalClipboardTracker::OSC52_PREFIXES
-        .iter()
-        .filter_map(|prefix| {
-            find_subslice(bytes, prefix).map(|index| ClipboardStart {
-                index,
-                prefix_len: prefix.len(),
-                kind: ClipboardStartKind::Osc52,
-            })
-        })
-        .chain(
-            TerminalClipboardTracker::ITERM_COPY_PREFIXES
-                .iter()
-                .filter_map(|prefix| {
-                    find_subslice(bytes, prefix).map(|index| ClipboardStart {
-                        index,
-                        prefix_len: prefix.len(),
-                        kind: ClipboardStartKind::ITermCopy,
-                    })
-                }),
-        )
-        .min_by_key(|start| start.index)
-}
-
-struct OscTerminator {
-    index: usize,
-    length: usize,
-}
-
-fn find_osc_terminator(bytes: &[u8]) -> Option<OscTerminator> {
-    [
-        bytes
-            .iter()
-            .position(|byte| *byte == b'\x07')
-            .map(|index| OscTerminator { index, length: 1 }),
-        find_subslice(bytes, TerminalClipboardTracker::ST_TERMINATOR).map(|index| OscTerminator {
-            index,
-            length: TerminalClipboardTracker::ST_TERMINATOR.len(),
-        }),
-        bytes
-            .iter()
-            .position(|byte| *byte == 0x9c)
-            .map(|index| OscTerminator { index, length: 1 }),
-        find_subslice(bytes, UTF8_C1_ST).map(|index| OscTerminator {
-            index,
-            length: UTF8_C1_ST.len(),
-        }),
-    ]
-    .into_iter()
-    .flatten()
-    .min_by_key(|terminator| terminator.index)
-}
-
-enum ClipboardSequence {
-    Write(String),
-    Query(String),
-}
-
-fn parse_osc52_clipboard_content(content: &[u8]) -> Option<ClipboardSequence> {
-    let separator = content.iter().position(|byte| *byte == b';')?;
-    let selection = String::from_utf8(content[..separator].to_vec()).ok()?;
-    let payload = &content[separator + 1..];
-    if payload == b"?" {
-        return Some(ClipboardSequence::Query(selection));
-    }
-
-    let decoded = STANDARD.decode(payload).ok()?;
-    let text = String::from_utf8(decoded).ok()?;
-
-    Some(ClipboardSequence::Write(text))
-}
-
-fn parse_iterm_copy_clipboard_content(content: &[u8]) -> Option<String> {
-    let decoded = STANDARD.decode(content).ok()?;
-    String::from_utf8(decoded).ok()
-}
-
-#[derive(Default)]
-struct TerminalNotificationTracker {
-    pending: Vec<u8>,
-    notifications: Vec<TerminalNotification>,
-    progress: TerminalProgress,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NotificationStartKind {
-    Osc9,
-    RxvtNotify,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct NotificationStart {
-    index: usize,
-    prefix_len: usize,
-    kind: NotificationStartKind,
-}
-
-impl TerminalNotificationTracker {
-    const OSC9_PREFIXES: &'static [&'static [u8]] = &[b"\x1b]9;", b"\x9d9;", b"\xc2\x9d9;"];
-    const RXVT_NOTIFY_PREFIXES: &'static [&'static [u8]] = &[
-        b"\x1b]777;notify;",
-        b"\x9d777;notify;",
-        b"\xc2\x9d777;notify;",
-    ];
-    const MAX_PENDING: usize = 1024 * 1024;
-
-    fn process(&mut self, bytes: &[u8]) {
-        self.pending.extend_from_slice(bytes);
-        if self.pending.len() > Self::MAX_PENDING {
-            self.pending.clear();
-            return;
-        }
-
-        loop {
-            let Some(start) = find_next_notification_start(&self.pending) else {
-                self.retain_possible_prefix();
-                return;
-            };
-            if is_inside_osc_or_st_control_string(&self.pending, start.index) {
-                self.pending.drain(..start.index.saturating_add(1));
-                continue;
-            }
-            if start.index > 0 {
-                self.pending.drain(..start.index);
-            }
-
-            let content_start = start.prefix_len;
-            let Some(terminator) = find_osc_terminator(&self.pending[content_start..]) else {
-                return;
-            };
-            let content_end = content_start + terminator.index;
-            let content = &self.pending[content_start..content_end];
-            match start.kind {
-                NotificationStartKind::Osc9 => {
-                    if content.starts_with(b"4;") {
-                        if let Some(progress) = parse_osc9_progress_content(content) {
-                            self.progress = progress;
-                        }
-                    } else if let Some(body) = parse_osc9_notification_content(content) {
-                        self.notifications
-                            .push(TerminalNotification { title: None, body });
-                    }
-                }
-                NotificationStartKind::RxvtNotify => {
-                    if let Some(notification) = parse_rxvt_notify_content(content) {
-                        self.notifications.push(notification);
-                    }
-                }
-            }
-
-            self.pending.drain(..content_end + terminator.length);
-        }
-    }
-
-    fn retain_possible_prefix(&mut self) {
-        let retained = Self::OSC9_PREFIXES
-            .iter()
-            .chain(Self::RXVT_NOTIFY_PREFIXES.iter())
-            .map(|prefix| suffix_prefix_len(&self.pending, prefix))
-            .max()
-            .unwrap_or(0);
-        let retained = retained
-            .max(incomplete_osc_control_sequence_suffix_len(&self.pending))
-            .max(incomplete_st_control_sequence_suffix_len(&self.pending));
-        let writable = self.pending.len().saturating_sub(retained);
-        if writable > 0 {
-            self.pending.drain(..writable);
-        }
-    }
-}
-
-fn find_next_notification_start(bytes: &[u8]) -> Option<NotificationStart> {
-    TerminalNotificationTracker::OSC9_PREFIXES
-        .iter()
-        .filter_map(|prefix| {
-            find_subslice(bytes, prefix).map(|index| NotificationStart {
-                index,
-                prefix_len: prefix.len(),
-                kind: NotificationStartKind::Osc9,
-            })
-        })
-        .chain(
-            TerminalNotificationTracker::RXVT_NOTIFY_PREFIXES
-                .iter()
-                .filter_map(|prefix| {
-                    find_subslice(bytes, prefix).map(|index| NotificationStart {
-                        index,
-                        prefix_len: prefix.len(),
-                        kind: NotificationStartKind::RxvtNotify,
-                    })
-                }),
-        )
-        .min_by_key(|start| start.index)
-}
-
-fn parse_osc9_notification_content(content: &[u8]) -> Option<String> {
-    String::from_utf8(content.to_vec()).ok()
-}
-
-fn parse_osc9_progress_content(content: &[u8]) -> Option<TerminalProgress> {
-    let rest = content.strip_prefix(b"4;")?;
-    let mut parts = rest.split(|byte| *byte == b';');
-    let state = parse_u8_decimal(parts.next()?)?;
-    match state {
-        0 => Some(TerminalProgress::None),
-        1 => Some(TerminalProgress::Percentage(parse_progress_value(
-            parts.next()?,
-        )?)),
-        2 => Some(TerminalProgress::Error(
-            parts.next().and_then(parse_progress_value).unwrap_or(0),
-        )),
-        3 => Some(TerminalProgress::Indeterminate),
-        _ => None,
-    }
-}
-
-fn parse_progress_value(value: &[u8]) -> Option<u8> {
-    let value = parse_u8_decimal(value)?;
-    (value <= 100).then_some(value)
-}
-
-fn parse_rxvt_notify_content(content: &[u8]) -> Option<TerminalNotification> {
-    let separator = content.iter().position(|byte| *byte == b';')?;
-    let title = String::from_utf8(content[..separator].to_vec()).ok()?;
-    let body = String::from_utf8(content[separator + 1..].to_vec()).ok()?;
-    Some(TerminalNotification {
-        title: Some(title),
-        body,
-    })
 }
 
 #[cfg(test)]
@@ -3742,17 +2348,17 @@ mod tests {
     }
 
     #[test]
-    fn ignores_queries_inside_osc_control_strings() {
+    fn resynchronizes_queries_after_escape_inside_osc_control_strings() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
         let output = runtime.feed_pty_output_with_display(b"before\x1b]0;title \x1b[6n\x07after");
 
-        assert!(output.responses.is_empty());
+        assert_eq!(output.responses, vec![b"\x1b[1;7R".to_vec()]);
         assert_eq!(output.display, b"beforeafter");
     }
 
     #[test]
-    fn holds_split_queries_inside_osc_control_strings() {
+    fn resynchronizes_split_queries_after_escape_inside_osc_control_strings() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
         let first = runtime.feed_pty_output_with_display(b"before\x1b]0;title \x1b[");
@@ -3760,12 +2366,12 @@ mod tests {
 
         assert!(first.responses.is_empty());
         assert_eq!(first.display, b"before");
-        assert!(second.responses.is_empty());
+        assert_eq!(second.responses, vec![b"\x1b[1;7R".to_vec()]);
         assert_eq!(second.display, b"after");
     }
 
     #[test]
-    fn holds_split_queries_inside_st_control_strings() {
+    fn resynchronizes_split_queries_after_escape_inside_dcs_control_strings() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
         let first = runtime.feed_pty_output_with_display(b"before\x1bPpayload \x1b[");
@@ -3773,7 +2379,7 @@ mod tests {
 
         assert!(first.responses.is_empty());
         assert_eq!(first.display, b"before");
-        assert!(second.responses.is_empty());
+        assert_eq!(second.responses, vec![b"\x1b[1;7R".to_vec()]);
         assert_eq!(second.display, b"after");
     }
 
@@ -5115,7 +3721,7 @@ mod tests {
     }
 
     #[test]
-    fn ignores_osc_color_changes_inside_st_control_strings() {
+    fn resynchronizes_osc_color_changes_after_escape_inside_dcs_control_strings() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
 
         let output = runtime.feed_pty_output_with_display(
@@ -5124,13 +3730,13 @@ mod tests {
 
         assert_eq!(
             output.responses,
-            vec![b"\x1b]10;rgb:e5e5/e5e5/e5e5\x07".to_vec()]
+            vec![b"\x1b]10;rgb:1111/2222/3333\x07".to_vec()]
         );
         assert_eq!(output.display, b" after");
     }
 
     #[test]
-    fn ignores_split_osc_color_changes_inside_st_control_strings() {
+    fn resynchronizes_split_osc_color_changes_after_escape_inside_dcs_control_strings() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
 
         let first = runtime.feed_pty_output_with_display(b"\x1bPpayload ");
@@ -5141,7 +3747,7 @@ mod tests {
         assert!(first.display.is_empty());
         assert_eq!(
             second.responses,
-            vec![b"\x1b]10;rgb:e5e5/e5e5/e5e5\x07".to_vec()]
+            vec![b"\x1b]10;rgb:1111/2222/3333\x07".to_vec()]
         );
         assert_eq!(second.display, b" after");
     }
@@ -6019,7 +4625,7 @@ mod tests {
     }
 
     #[test]
-    fn ignores_queries_inside_utf8_c1_dcs_payload() {
+    fn resynchronizes_queries_after_escape_inside_utf8_c1_dcs_payload() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
         let dcs = '\u{90}';
         let st = '\u{9c}';
@@ -6027,7 +4633,7 @@ mod tests {
 
         let output = runtime.feed_pty_output_with_display(input.as_bytes());
 
-        assert!(output.responses.is_empty());
+        assert_eq!(output.responses, vec![b"\x1b[1;7R".to_vec()]);
         assert_eq!(output.display, b"beforeafter");
     }
 
@@ -6229,16 +4835,16 @@ mod tests {
     }
 
     #[test]
-    fn ignores_private_input_modes_inside_control_strings() {
+    fn resynchronizes_private_input_modes_after_escape_inside_control_strings() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
         runtime.feed_pty_output(b"\x1b]0;title \x1b[?1004h\x07\x1bPpayload \x1b[?2004h\x1b\\");
 
-        assert!(!runtime.focus_reporting());
-        assert!(!runtime.bracketed_paste());
+        assert!(runtime.focus_reporting());
+        assert!(runtime.bracketed_paste());
         assert_eq!(
             runtime.feed_pty_output(b"\x1b[?1004$p\x1b[?2004$p"),
-            vec![b"\x1b[?1004;2$y".to_vec(), b"\x1b[?2004;2$y".to_vec()]
+            vec![b"\x1b[?1004;1$y".to_vec(), b"\x1b[?2004;1$y".to_vec()]
         );
     }
 
@@ -6385,34 +4991,46 @@ mod tests {
     }
 
     #[test]
-    fn ignores_osc52_clipboard_text_inside_osc_control_strings() {
+    fn resynchronizes_osc52_clipboard_text_after_escape_inside_osc_control_strings() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
         runtime.feed_pty_output(b"\x1b]0;title \x1b]52;c;Y29weQ==\x07");
 
-        assert!(runtime.take_clipboard_texts().is_empty());
+        assert_eq!(runtime.take_clipboard_texts(), vec!["copy".to_owned()]);
         assert!(runtime.take_clipboard_queries().is_empty());
     }
 
     #[test]
-    fn ignores_osc52_clipboard_text_inside_st_control_strings() {
+    fn resynchronizes_osc52_clipboard_text_after_escape_inside_st_control_strings() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
         runtime.feed_pty_output(b"\x1bPpayload \x1b]52;c;Y29weQ==\x1b\\");
 
-        assert!(runtime.take_clipboard_texts().is_empty());
+        assert_eq!(runtime.take_clipboard_texts(), vec!["copy".to_owned()]);
         assert!(runtime.take_clipboard_queries().is_empty());
     }
 
     #[test]
-    fn ignores_split_osc52_clipboard_text_inside_st_control_strings() {
+    fn resynchronizes_split_osc52_clipboard_text_after_escape_inside_st_control_strings() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
         runtime.feed_pty_output(b"\x1bPpayload ");
         runtime.feed_pty_output(b"\x1b]52;c;Y29weQ==\x1b\\");
 
+        assert_eq!(runtime.take_clipboard_texts(), vec!["copy".to_owned()]);
+        assert!(runtime.take_clipboard_queries().is_empty());
+    }
+
+    #[test]
+    fn cancelled_osc_clipboard_and_notification_have_no_side_effects() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1b]52;c;Y29weQ==\x18\x07\x1b]9;should not notify\x1a\x07");
+
         assert!(runtime.take_clipboard_texts().is_empty());
         assert!(runtime.take_clipboard_queries().is_empty());
+        assert!(runtime.take_notifications().is_empty());
+        assert_eq!(runtime.progress(), TerminalProgress::None);
     }
 
     #[test]

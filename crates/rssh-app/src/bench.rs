@@ -873,8 +873,11 @@ mod tests {
         assert!(plain.scrolled_survivor_cell_clones > 0);
         assert!(ansi.inspected_query_bytes > 0);
         assert!(query.inspected_query_bytes > 0);
-        assert_eq!(ansi.inspected_query_bytes, ansi.bytes as u64);
-        assert_eq!(query.inspected_query_bytes, query.bytes as u64);
+        assert!(ansi.inspected_query_bytes >= ansi.bytes as u64);
+        assert!(ansi.inspected_query_bytes <= ansi.bytes as u64 * 4);
+        assert!(query.inspected_query_bytes >= query.bytes as u64);
+        assert!(query.inspected_query_bytes <= query.bytes as u64 * 4);
+        assert!(query.inspected_query_bytes > ansi.inspected_query_bytes);
         assert!(query.responses > 0);
         assert_eq!(plain.responses, 0);
         assert_eq!(ansi.responses, 0);

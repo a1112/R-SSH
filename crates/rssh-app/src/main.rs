@@ -19,6 +19,7 @@ mod ssh;
 mod terminal_input;
 mod terminal_modes;
 mod terminal_queries;
+mod terminal_query_dcs;
 mod terminal_runtime;
 mod version;
 mod visible_output;
