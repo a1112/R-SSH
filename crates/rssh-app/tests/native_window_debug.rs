@@ -5,6 +5,7 @@ use std::{process::Command, time::Duration};
 use rssh_test_support::{ChildGuard, ChildOutput};
 
 const PROCESS_DEADLINE: Duration = Duration::from_secs(30);
+const RSSH_APP_EXECUTABLE: &str = env!("CARGO_BIN_EXE_rssh-app");
 const STACK_OVERFLOW_MESSAGE: &str = "overflowed its stack";
 const CDB_FRAME_EVIDENCE: &str = "\
 CDB frame evidence for the existing Windows debug failure:
@@ -19,8 +20,9 @@ on the test worker thread.";
 #[test]
 fn state_json_control_exits_successfully() {
     const COMMAND_INTENT: &str = "rssh-app -n window --state-json";
-    let output = run_rssh_app(COMMAND_INTENT, &["-n", "window", "--state-json"]);
-    let diagnostics = diagnostics(COMMAND_INTENT, &output);
+    const ARGUMENTS: &[&str] = &["-n", "window", "--state-json"];
+    let output = run_rssh_app(COMMAND_INTENT, ARGUMENTS);
+    let diagnostics = diagnostics(COMMAND_INTENT, ARGUMENTS, &output);
 
     assert!(
         output.status.success(),
@@ -34,8 +36,9 @@ fn state_json_control_exits_successfully() {
 #[test]
 fn one_frame_native_window_does_not_overflow_the_debug_stack() {
     const COMMAND_INTENT: &str = "rssh-app -n window --frames 1";
-    let output = run_rssh_app(COMMAND_INTENT, &["-n", "window", "--frames", "1"]);
-    let diagnostics = diagnostics(COMMAND_INTENT, &output);
+    const ARGUMENTS: &[&str] = &["-n", "window", "--frames", "1"];
+    let output = run_rssh_app(COMMAND_INTENT, ARGUMENTS);
+    let diagnostics = diagnostics(COMMAND_INTENT, ARGUMENTS, &output);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
@@ -51,26 +54,34 @@ fn one_frame_native_window_does_not_overflow_the_debug_stack() {
 }
 
 fn run_rssh_app(command_intent: &str, args: &[&str]) -> ChildOutput {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_rssh-app"));
+    let mut command = Command::new(RSSH_APP_EXECUTABLE);
     command.args(args);
 
     let guard = ChildGuard::spawn(command, PROCESS_DEADLINE).unwrap_or_else(|error| {
         panic!(
-            "failed to launch `{command_intent}` with a {PROCESS_DEADLINE:?} deadline: \
-             {error}\n{CDB_FRAME_EVIDENCE}"
+            "failed to launch `{command_intent}` with a {PROCESS_DEADLINE:?} deadline\n\
+             executable: {RSSH_APP_EXECUTABLE:?}\n\
+             arguments: {args:?}\n\
+             error: {error}\n\
+             {CDB_FRAME_EVIDENCE}"
         )
     });
     guard.wait().unwrap_or_else(|error| {
         panic!(
-            "`{command_intent}` did not complete within its bounded subprocess harness: \
-             {error}\n{CDB_FRAME_EVIDENCE}"
+            "`{command_intent}` did not complete within its bounded subprocess harness\n\
+             executable: {RSSH_APP_EXECUTABLE:?}\n\
+             arguments: {args:?}\n\
+             error: {error}\n\
+             {CDB_FRAME_EVIDENCE}"
         )
     })
 }
 
-fn diagnostics(command_intent: &str, output: &ChildOutput) -> String {
+fn diagnostics(command_intent: &str, args: &[&str], output: &ChildOutput) -> String {
     format!(
         "command intent: `{command_intent}`\n\
+         executable: {RSSH_APP_EXECUTABLE:?}\n\
+         arguments: {args:?}\n\
          exit status: {:?} (code: {:?})\n\
          bounded stdout: {:?}\n\
          bounded stderr: {:?}\n\
