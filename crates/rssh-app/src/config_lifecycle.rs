@@ -333,7 +333,7 @@ impl DerivedConfigEnvironment {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct EffectiveNativeConfig {
     pub(crate) source: Option<PathBuf>,
-    pub(crate) overrides: NativeConfigOverrides,
+    pub(crate) overrides: Arc<NativeConfigOverrides>,
     pub(crate) generation: u64,
     pub(crate) publication: DerivedConfigEnvironment,
 }
@@ -366,7 +366,7 @@ impl NativeConfigLifecycle {
             cli,
             effective: EffectiveNativeConfig {
                 source: None,
-                overrides: NativeConfigOverrides::default(),
+                overrides: Arc::new(NativeConfigOverrides::default()),
                 generation: 0,
                 publication: DerivedConfigEnvironment::default(),
             },
@@ -451,7 +451,7 @@ impl NativeConfigLifecycle {
                         ResolvedConfigSource::File(source) => Some(source.path.clone()),
                         ResolvedConfigSource::Disabled | ResolvedConfigSource::Defaults => None,
                     },
-                    overrides,
+                    overrides: Arc::new(overrides),
                     generation: 1,
                     publication: attempt.publication,
                 };
@@ -473,7 +473,7 @@ impl NativeConfigLifecycle {
                         ResolvedConfigSource::File(source) => Some(source.path.clone()),
                         ResolvedConfigSource::Disabled | ResolvedConfigSource::Defaults => None,
                     },
-                    overrides,
+                    overrides: Arc::new(overrides),
                     generation: self
                         .effective
                         .generation
@@ -2350,7 +2350,7 @@ mod tests {
         });
         lifecycle.effective.source = Some(relative.clone());
         lifecycle.effective.generation = 1;
-        lifecycle.effective.overrides.automatically_reload_config = Some(true);
+        Arc::make_mut(&mut lifecycle.effective.overrides).automatically_reload_config = Some(true);
 
         lifecycle
             .install_watcher_sink_for_test(Duration::from_millis(1), Arc::new(|| true), None)
@@ -2394,7 +2394,7 @@ mod tests {
             required: true,
         });
         lifecycle.effective.generation = 1;
-        lifecycle.effective.overrides.automatically_reload_config = Some(true);
+        Arc::make_mut(&mut lifecycle.effective.overrides).automatically_reload_config = Some(true);
         let (event_sender, event_receiver) = mpsc::channel();
         lifecycle
             .install_watcher_sink_for_test(

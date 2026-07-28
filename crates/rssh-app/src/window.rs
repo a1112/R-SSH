@@ -2943,8 +2943,8 @@ pub(crate) struct NativeUserKeyAssignment {
 }
 
 struct ConfiguredStartupApp {
-    app: NativeWindowApp,
-    lifecycle: NativeConfigLifecycle,
+    app: Box<NativeWindowApp>,
+    lifecycle: Box<NativeConfigLifecycle>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2980,7 +2980,7 @@ fn configured_startup_app_for_test(
 fn configured_startup_app_with_constructor(
     options: &WindowOptions,
     discovery: ConfigDiscoveryInputs,
-    constructor: impl FnOnce(NativeWindowStartup) -> NativeWindowApp,
+    constructor: impl FnOnce(NativeWindowStartup) -> Box<NativeWindowApp>,
 ) -> Result<ConfiguredStartupApp, NativeConfigLoadError> {
     let cli = validate_cli_config_overrides(&options.config.config_overrides)?;
     let mut lifecycle = NativeConfigLifecycle::new(
@@ -2995,7 +2995,10 @@ fn configured_startup_app_with_constructor(
     let startup = NativeWindowStartup::from_options(options);
     let mut app = constructor(startup);
     app.set_base_config(lifecycle.effective(), ReloadDisposition::SilentStartup);
-    Ok(ConfiguredStartupApp { app, lifecycle })
+    Ok(ConfiguredStartupApp {
+        app,
+        lifecycle: Box::new(lifecycle),
+    })
 }
 
 #[cfg(test)]
@@ -4144,7 +4147,7 @@ struct NativeEffectiveConfig {
     enq_answerback: String,
     audible_bell: NativeAudibleBell,
     visual_bell: NativeVisualBell,
-    colors: Option<NativePalette>,
+    colors: Option<Box<NativePalette>>,
     color_scheme: Option<String>,
     color_scheme_dirs: Vec<String>,
     color_schemes: HashMap<String, NativeResolvedPalette>,
@@ -4408,7 +4411,7 @@ pub(crate) struct NativeConfigOverrides {
     enq_answerback: Option<String>,
     audible_bell: Option<NativeAudibleBell>,
     visual_bell: Option<NativeVisualBell>,
-    pub(crate) colors: Option<NativePalette>,
+    pub(crate) colors: Option<Box<NativePalette>>,
     pub(crate) color_scheme: Option<String>,
     color_scheme_dirs: Option<Vec<String>>,
     color_schemes: Option<HashMap<String, NativeResolvedPalette>>,
@@ -5219,7 +5222,10 @@ pub(crate) fn native_config_overrides_from_wezterm_lua_config(
             config.len(),
             &mut colors_overrides,
         )?;
-        overrides.colors = Some(native_palette_from_overrides(&colors_overrides));
+        overrides.colors = Some(Box::write(
+            Box::new_uninit(),
+            native_palette_from_overrides(&colors_overrides),
+        ));
     }
     if let Some(notification_handling) =
         lua_config_string_assignment_from_query(config, "notification_handling")
@@ -78654,7 +78660,7 @@ struct NativeLuaWindowConfigOverrides {
     visual_bell: Option<NativeVisualBell>,
     visual_bell_color: Option<Color>,
     notification_handling: Option<NativeNotificationHandling>,
-    colors: Option<NativePalette>,
+    colors: Option<Box<NativePalette>>,
     color_scheme: Option<String>,
     color_scheme_dirs: Option<Vec<String>>,
     color_schemes: Option<HashMap<String, NativeResolvedPalette>>,
@@ -81367,7 +81373,7 @@ fn apply_focus_transitions<Id: Copy + Eq>(
 
 fn dispatch_window_focus_changed<Id: Copy + Eq + std::hash::Hash>(
     focus: &mut WindowFocusCoordinator<Id>,
-    apps: &mut HashMap<Id, NativeWindowApp>,
+    apps: &mut HashMap<Id, Box<NativeWindowApp>>,
     id: Id,
     focused: bool,
 ) -> io::Result<()> {
@@ -81609,7 +81615,7 @@ struct NativeWindowApp {
     enq_answerback: String,
     audible_bell: NativeAudibleBell,
     visual_bell: NativeVisualBell,
-    colors: Option<NativePalette>,
+    colors: Option<Box<NativePalette>>,
     color_scheme: Option<String>,
     color_scheme_dirs: Vec<String>,
     color_schemes: HashMap<String, NativeResolvedPalette>,
@@ -81741,7 +81747,7 @@ struct NativeWindowApp {
     show_new_tab_button_in_tab_bar: bool,
     show_tab_index_in_tab_bar: bool,
     show_tabs_in_tab_bar: bool,
-    base_config_overrides: NativeConfigOverrides,
+    base_config_overrides: Arc<NativeConfigOverrides>,
     base_config_generation: u64,
     base_config_source: Option<PathBuf>,
     window_config_overrides: Option<NativeLuaWindowConfigOverrides>,
@@ -81750,7 +81756,7 @@ struct NativeWindowApp {
     #[cfg(test)]
     pty_spawn_observer: Option<Arc<std::sync::atomic::AtomicUsize>>,
     #[allow(dead_code)]
-    config_overrides: NativeConfigOverrides,
+    config_overrides: Arc<NativeConfigOverrides>,
     latest_notification: Option<TerminalNotification>,
     left_status: String,
     right_status: String,
@@ -81858,11 +81864,11 @@ fn hide_native_application(event_loop: &ActiveEventLoop) {
 fn hide_native_application(_event_loop: &ActiveEventLoop) {}
 
 struct NativeWindowManager {
-    startup_app: Option<NativeWindowApp>,
+    startup_app: Option<Box<NativeWindowApp>>,
     #[allow(dead_code)]
-    config_lifecycle: Option<NativeConfigLifecycle>,
-    windows: HashMap<winit::window::WindowId, NativeWindowApp>,
-    pending_apps: Vec<NativeWindowApp>,
+    config_lifecycle: Option<Box<NativeConfigLifecycle>>,
+    windows: HashMap<winit::window::WindowId, Box<NativeWindowApp>>,
+    pending_apps: Vec<Box<NativeWindowApp>>,
     pane_event_routes: HashMap<(rssh_core::WindowId, rssh_core::PaneId), rssh_core::WindowId>,
     focus: WindowFocusCoordinator<winit::window::WindowId>,
     last_metrics: Option<WindowMetricsSnapshot>,
@@ -81877,7 +81883,8 @@ enum ManagedWindowAppLocation {
 }
 
 impl NativeWindowManager {
-    fn new(startup_app: NativeWindowApp) -> Self {
+    fn new(startup_app: impl Into<Box<NativeWindowApp>>) -> Self {
+        let startup_app = startup_app.into();
         let quit_when_all_windows_are_closed = startup_app.quit_when_all_windows_are_closed;
         Self {
             startup_app: Some(startup_app),
@@ -81891,7 +81898,7 @@ impl NativeWindowManager {
         }
     }
 
-    fn with_config_lifecycle(mut self, lifecycle: NativeConfigLifecycle) -> Self {
+    fn with_config_lifecycle(mut self, lifecycle: Box<NativeConfigLifecycle>) -> Self {
         self.config_lifecycle = Some(lifecycle);
         self
     }
@@ -81902,6 +81909,7 @@ impl NativeWindowManager {
             .next()
             .or(self.startup_app.as_ref())
             .or_else(|| self.pending_apps.first())
+            .map(Box::as_ref)
     }
 
     fn metrics_report(&self) -> String {
@@ -81957,7 +81965,7 @@ impl NativeWindowManager {
     fn materialize_app(
         &mut self,
         event_loop: &ActiveEventLoop,
-        mut app: NativeWindowApp,
+        mut app: Box<NativeWindowApp>,
     ) -> Result<winit::window::WindowId, Box<dyn Error>> {
         self.refresh_app_to_current_base(&mut app);
         app.create_window(event_loop)?;
@@ -82120,16 +82128,20 @@ impl NativeWindowManager {
 
     fn app_at_location(&self, location: ManagedWindowAppLocation) -> Option<&NativeWindowApp> {
         match location {
-            ManagedWindowAppLocation::Startup => self.startup_app.as_ref(),
-            ManagedWindowAppLocation::Window(window_id) => self.windows.get(&window_id),
-            ManagedWindowAppLocation::Pending(index) => self.pending_apps.get(index),
+            ManagedWindowAppLocation::Startup => self.startup_app.as_deref(),
+            ManagedWindowAppLocation::Window(window_id) => {
+                self.windows.get(&window_id).map(Box::as_ref)
+            }
+            ManagedWindowAppLocation::Pending(index) => {
+                self.pending_apps.get(index).map(Box::as_ref)
+            }
         }
     }
 
     fn take_app_at_location(
         &mut self,
         location: ManagedWindowAppLocation,
-    ) -> Option<NativeWindowApp> {
+    ) -> Option<Box<NativeWindowApp>> {
         match location {
             ManagedWindowAppLocation::Startup => self.startup_app.take(),
             ManagedWindowAppLocation::Window(window_id) => self.windows.remove(&window_id),
@@ -82142,7 +82154,7 @@ impl NativeWindowManager {
     fn restore_app_at_location(
         &mut self,
         location: ManagedWindowAppLocation,
-        app: NativeWindowApp,
+        app: Box<NativeWindowApp>,
     ) {
         match location {
             ManagedWindowAppLocation::Startup => self.startup_app = Some(app),
@@ -82301,7 +82313,7 @@ impl NativeWindowManager {
         self.should_exit_when_idle()
     }
 
-    fn quit_application_from_app(&mut self, app: NativeWindowApp) {
+    fn quit_application_from_app(&mut self, app: Box<NativeWindowApp>) {
         self.last_metrics = Some(app.metrics_snapshot());
         drop(app);
         self.windows.clear();
@@ -82319,7 +82331,7 @@ impl NativeWindowManager {
     }
 
     #[cfg(test)]
-    fn new_for_test(startup_app: NativeWindowApp) -> Self {
+    fn new_for_test(startup_app: impl Into<Box<NativeWindowApp>>) -> Self {
         Self::new(startup_app)
     }
 
@@ -82378,7 +82390,7 @@ impl NativeWindowManager {
 
     #[cfg(test)]
     fn pending_app_for_test(&self, index: usize) -> Option<&NativeWindowApp> {
-        self.pending_apps.get(index)
+        self.pending_apps.get(index).map(Box::as_ref)
     }
 
     #[cfg(test)]
@@ -82387,6 +82399,7 @@ impl NativeWindowManager {
             .iter()
             .chain(self.pending_apps.iter())
             .chain(self.windows.values())
+            .map(Box::as_ref)
             .collect()
     }
 
@@ -82396,6 +82409,7 @@ impl NativeWindowManager {
             .iter_mut()
             .chain(self.pending_apps.iter_mut())
             .chain(self.windows.values_mut())
+            .map(Box::as_mut)
             .collect()
     }
 
@@ -83510,7 +83524,7 @@ impl NativeWindowApp {
 
     #[cfg(test)]
     fn new_with_osc52_policy(frame_limit: Option<u64>, osc52_policy: Osc52Policy) -> Self {
-        Self::new_with_command_and_osc52_policy(
+        *Self::new_with_command_and_osc52_policy(
             frame_limit,
             osc52_policy,
             PtyCommand::default_shell(),
@@ -83519,7 +83533,7 @@ impl NativeWindowApp {
 
     #[cfg(test)]
     fn new_with_command(frame_limit: Option<u64>, startup_command: PtyCommand) -> Self {
-        Self::new_with_command_and_osc52_policy(
+        *Self::new_with_command_and_osc52_policy(
             frame_limit,
             Osc52Policy::default(),
             startup_command,
@@ -83531,8 +83545,15 @@ impl NativeWindowApp {
         frame_limit: Option<u64>,
         osc52_policy: Osc52Policy,
         startup_command: PtyCommand,
-    ) -> Self {
-        Self::new_with_workspace_and_osc52_policy(frame_limit, osc52_policy, startup_command, None)
+    ) -> Box<Self> {
+        Self::new_with_workspace_class_position_and_osc52_policy(
+            frame_limit,
+            osc52_policy,
+            startup_command,
+            None,
+            None,
+            None,
+        )
     }
 
     #[cfg(test)]
@@ -83555,7 +83576,7 @@ impl NativeWindowApp {
         startup_command: PtyCommand,
         initial_window_position: Option<WindowPosition>,
     ) -> Self {
-        Self::new_with_workspace_class_position_and_osc52_policy(
+        *Self::new_with_workspace_class_position_and_osc52_policy(
             frame_limit,
             Osc52Policy::default(),
             startup_command,
@@ -83571,7 +83592,7 @@ impl NativeWindowApp {
         startup_command: PtyCommand,
         initial_window_class: Option<String>,
     ) -> Self {
-        Self::new_with_workspace_class_position_and_osc52_policy(
+        *Self::new_with_workspace_class_position_and_osc52_policy(
             frame_limit,
             Osc52Policy::default(),
             startup_command,
@@ -83582,13 +83603,14 @@ impl NativeWindowApp {
     }
 
     #[allow(clippy::too_many_lines)]
+    #[cfg(test)]
     fn new_with_workspace_and_osc52_policy(
         frame_limit: Option<u64>,
         osc52_policy: Osc52Policy,
         startup_command: PtyCommand,
         startup_workspace: Option<&str>,
     ) -> Self {
-        Self::new_with_workspace_class_position_and_osc52_policy(
+        *Self::new_with_workspace_class_position_and_osc52_policy(
             frame_limit,
             osc52_policy,
             startup_command,
@@ -83606,443 +83628,449 @@ impl NativeWindowApp {
         startup_workspace: Option<&str>,
         initial_window_class: Option<String>,
         initial_window_position: Option<WindowPosition>,
-    ) -> Self {
+    ) -> Box<Self> {
         let runtime = TerminalRuntime::new(TerminalSize::new(TERMINAL_COLUMNS, TERMINAL_ROWS));
         let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
         let startup_uses_default_shell = pty_command_matches_default_shell(&startup_command);
         let startup_workspace_was_explicit = startup_workspace.is_some();
         let app_shell = app_shell_from_pty_command(&startup_command, startup_workspace);
 
-        Self {
-            app_window_id: rssh_core::WindowId::new(1),
-            window_close_requested: false,
-            window_drag_requested: false,
-            activate_window_request: None,
-            window_hide_requested: false,
-            application_hide_requested: false,
-            application_quit_requested: false,
-            window_level: NativeWindowLevel::Normal,
-            full_screen: false,
-            window_maximized: false,
-            font: None,
-            font_fallbacks: Vec::new(),
-            font_attributes: NativeFontAttributes::default(),
-            font_rules: Vec::new(),
-            font_size: DEFAULT_FONT_SIZE,
-            cell_width: DEFAULT_CELL_WIDTH,
-            cell_widths: Vec::new(),
-            line_height: DEFAULT_LINE_HEIGHT,
-            font_antialias: DEFAULT_FONT_ANTIALIAS,
-            font_hinting: DEFAULT_FONT_HINTING,
-            font_rasterizer: DEFAULT_FONT_RASTERIZER,
-            font_colr_rasterizer: DEFAULT_FONT_COLR_RASTERIZER,
-            font_shaper: DEFAULT_FONT_SHAPER,
-            harfbuzz_features: Vec::new(),
-            font_dirs: Vec::new(),
-            font_locator: DEFAULT_FONT_LOCATOR,
-            use_cap_height_to_scale_fallback_fonts: DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
-            ignore_svg_fonts: DEFAULT_IGNORE_SVG_FONTS,
-            sort_fallback_fonts_by_coverage: DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE,
-            search_font_dirs_for_fallback: DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK,
-            custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
-            anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
-            allow_square_glyphs_to_overflow_width: DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH,
-            freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
-            freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
-            freetype_load_flags: None,
-            freetype_interpreter_version: None,
-            freetype_pcf_long_family_names: DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
-            display_pixel_geometry: DEFAULT_DISPLAY_PIXEL_GEOMETRY,
-            font_size_scale: DEFAULT_FONT_SIZE_SCALE,
-            adjust_window_size_when_changing_font_size:
-                DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
-            debug_overlay_active: false,
-            debug_key_event_logs: Vec::new(),
-            unknown_escape_sequence_warnings: Vec::new(),
-            missing_glyph_warnings: Vec::new(),
-            missing_glyph_warning_codepoints: HashSet::new(),
-            char_select: None,
-            char_select_recently_used: Vec::new(),
-            char_select_recently_used_sequence: 0,
-            char_select_recently_used_path: None,
-            window_focused: false,
-            mouse_click_may_focus_window: false,
-            window: None,
-            pixels: None,
-            renderer: {
-                let mut renderer = PixelRenderer::new();
-                renderer.set_reverse_video_cursor_min_contrast(Some(
-                    DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST.as_f64(),
-                ));
-                renderer
+        Box::write(
+            Box::new_uninit(),
+            Self {
+                app_window_id: rssh_core::WindowId::new(1),
+                window_close_requested: false,
+                window_drag_requested: false,
+                activate_window_request: None,
+                window_hide_requested: false,
+                application_hide_requested: false,
+                application_quit_requested: false,
+                window_level: NativeWindowLevel::Normal,
+                full_screen: false,
+                window_maximized: false,
+                font: None,
+                font_fallbacks: Vec::new(),
+                font_attributes: NativeFontAttributes::default(),
+                font_rules: Vec::new(),
+                font_size: DEFAULT_FONT_SIZE,
+                cell_width: DEFAULT_CELL_WIDTH,
+                cell_widths: Vec::new(),
+                line_height: DEFAULT_LINE_HEIGHT,
+                font_antialias: DEFAULT_FONT_ANTIALIAS,
+                font_hinting: DEFAULT_FONT_HINTING,
+                font_rasterizer: DEFAULT_FONT_RASTERIZER,
+                font_colr_rasterizer: DEFAULT_FONT_COLR_RASTERIZER,
+                font_shaper: DEFAULT_FONT_SHAPER,
+                harfbuzz_features: Vec::new(),
+                font_dirs: Vec::new(),
+                font_locator: DEFAULT_FONT_LOCATOR,
+                use_cap_height_to_scale_fallback_fonts:
+                    DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
+                ignore_svg_fonts: DEFAULT_IGNORE_SVG_FONTS,
+                sort_fallback_fonts_by_coverage: DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE,
+                search_font_dirs_for_fallback: DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK,
+                custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
+                anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
+                allow_square_glyphs_to_overflow_width:
+                    DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH,
+                freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
+                freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
+                freetype_load_flags: None,
+                freetype_interpreter_version: None,
+                freetype_pcf_long_family_names: DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
+                display_pixel_geometry: DEFAULT_DISPLAY_PIXEL_GEOMETRY,
+                font_size_scale: DEFAULT_FONT_SIZE_SCALE,
+                adjust_window_size_when_changing_font_size:
+                    DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
+                debug_overlay_active: false,
+                debug_key_event_logs: Vec::new(),
+                unknown_escape_sequence_warnings: Vec::new(),
+                missing_glyph_warnings: Vec::new(),
+                missing_glyph_warning_codepoints: HashSet::new(),
+                char_select: None,
+                char_select_recently_used: Vec::new(),
+                char_select_recently_used_sequence: 0,
+                char_select_recently_used_path: None,
+                window_focused: false,
+                mouse_click_may_focus_window: false,
+                window: None,
+                pixels: None,
+                renderer: {
+                    let mut renderer = PixelRenderer::new();
+                    renderer.set_reverse_video_cursor_min_contrast(Some(
+                        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST.as_f64(),
+                    ));
+                    renderer
+                },
+                configured_dpi: None,
+                dpi_by_screen: BTreeMap::new(),
+                detected_window_dpi: DEFAULT_WINDOW_DPI,
+                window_dpi: DEFAULT_WINDOW_DPI,
+                runtime,
+                snapshot,
+                window_title: DEFAULT_WINDOW_TITLE.to_owned(),
+                frame_width: FRAME_WIDTH,
+                frame_height: FRAME_HEIGHT,
+                window_frame: NativeWindowFrame::initial(),
+                frame_limit,
+                initial_window_class,
+                initial_window_position,
+                startup_command,
+                startup_uses_default_shell,
+                startup_workspace_was_explicit,
+                rendered_frames: 0,
+                animation_started_at: Instant::now(),
+                event_proxy: None,
+                reload_request_sender: None,
+                session: None,
+                session_process_id: None,
+                session_tty_name: None,
+                writer: None,
+                session_log: None,
+                reader_thread: None,
+                active_runtime_generation: 0,
+                modifiers: ModifiersState::empty(),
+                left_alt_pressed: false,
+                right_alt_pressed: false,
+                active_ui: PaneUiState::default(),
+                mouse_pixel_position: None,
+                rendered_tab_bar_layout: RefCell::new(None),
+                rendered_tab_bar_generation: Cell::new(0),
+                mouse_position: None,
+                current_mouse_wheel_delta: None,
+                mouse_cursor_visible: true,
+                mouse_cursor_icon: CursorIcon::Default,
+                active_mouse_button: None,
+                last_mouse_info: None,
+                selection: None,
+                selecting: false,
+                scrollbar_dragging: false,
+                split_resize_dragging: None,
+                tab_bar_drag: None,
+                ui_left_release_pending: false,
+                pressed_pane_close_button: None,
+                pane_inspection: None,
+                ui_key_release_pending: None,
+                last_mouse_assignment_click: None,
+                last_left_click: None,
+                command_palette: None,
+                command_palette_frecency: HashMap::new(),
+                command_palette_frecency_sequence: 0,
+                command_palette_frecency_path: None,
+                pane_select: None,
+                pending_window_positions: HashMap::new(),
+                tab_navigator: None,
+                prompt_input_line: None,
+                input_selector: None,
+                confirmation: None,
+                deferred_wheel_context: None,
+                close_confirmation: None,
+                key_table_stack: Vec::new(),
+                visual_bell_started_at: HashMap::new(),
+                initial_cols: DEFAULT_INITIAL_COLS,
+                initial_rows: DEFAULT_INITIAL_ROWS,
+                foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
+                bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
+                text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
+                window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+                background: Vec::new(),
+                window_background_image: None,
+                window_background_image_hsb: None,
+                window_background_gradient: None,
+                window_background_images: Vec::new(),
+                window_background_layers: Vec::new(),
+                kde_window_background_blur: DEFAULT_KDE_WINDOW_BACKGROUND_BLUR,
+                macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
+                win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
+                win32_acrylic_accent_color: None,
+                window_decorations: DEFAULT_WINDOW_DECORATIONS,
+                window_frame_appearance: NativeWindowFrameAppearance::default(),
+                integrated_title_buttons: default_integrated_title_buttons(),
+                integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
+                integrated_title_button_color: DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
+                integrated_title_button_style: DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
+                inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
+                tab_max_width: DEFAULT_TAB_MAX_WIDTH,
+                command_palette_rows: None,
+                command_palette_font: None,
+                command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
+                command_palette_bg_color: Some(DEFAULT_COMMAND_PALETTE_BG_COLOR),
+                command_palette_fg_color: Some(DEFAULT_COMMAND_PALETTE_FG_COLOR),
+                char_select_font: None,
+                char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
+                char_select_bg_color: Some(DEFAULT_CHAR_SELECT_BG_COLOR),
+                char_select_fg_color: Some(DEFAULT_CHAR_SELECT_FG_COLOR),
+                pane_select_font: None,
+                pane_select_font_size: DEFAULT_PANE_SELECT_FONT_SIZE,
+                pane_select_bg_color: Some(DEFAULT_PANE_SELECT_BG_COLOR),
+                pane_select_fg_color: Some(DEFAULT_PANE_SELECT_FG_COLOR),
+                launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
+                quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
+                quick_select_patterns: Vec::new(),
+                disable_default_quick_select_patterns: false,
+                quick_select_remove_styling: false,
+                hyperlink_rules: default_hyperlink_rules(),
+                copy_mode_active_highlight_bg: None,
+                copy_mode_active_highlight_fg: None,
+                copy_mode_inactive_highlight_bg: None,
+                copy_mode_inactive_highlight_fg: None,
+                quick_select_label_bg: None,
+                quick_select_label_fg: None,
+                quick_select_match_bg: None,
+                quick_select_match_fg: None,
+                input_selector_label_bg: None,
+                input_selector_label_fg: None,
+                launcher_label_bg: None,
+                launcher_label_fg: None,
+                selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
+                term: DEFAULT_TERM.to_owned(),
+                enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
+                audible_bell: DEFAULT_AUDIBLE_BELL,
+                visual_bell: NativeVisualBell::default(),
+                colors: None,
+                color_scheme: None,
+                color_scheme_dirs: Vec::new(),
+                color_schemes: HashMap::new(),
+                foreground_color: DEFAULT_FOREGROUND_COLOR,
+                background_color: DEFAULT_BACKGROUND_COLOR,
+                ansi_palette: None,
+                indexed_palette: None,
+                selection_fg_color: None,
+                selection_bg_color: None,
+                cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
+                cursor_border_color: None,
+                cursor_fg_color: None,
+                compose_cursor_color: None,
+                split_color: None,
+                scrollbar_thumb_color: None,
+                tab_bar_background_color: None,
+                tab_bar_inactive_tab_edge_color: None,
+                tab_bar_active_tab_colors: NativeTabBarItemColors::default(),
+                tab_bar_inactive_tab_colors: NativeTabBarItemColors::default(),
+                tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors::default(),
+                tab_bar_new_tab_colors: NativeTabBarItemColors::default(),
+                tab_bar_new_tab_hover_colors: NativeTabBarItemColors::default(),
+                tab_bar_style: NativeTabBarStyle::default(),
+                visual_bell_color: None,
+                notification_handling: DEFAULT_NOTIFICATION_HANDLING,
+                default_prog: None,
+                default_gui_startup_args: default_gui_startup_args(),
+                default_domain: DEFAULT_DOMAIN_NAME.to_owned(),
+                default_workspace: DEFAULT_WORKSPACE_NAME.to_owned(),
+                prefer_to_spawn_tabs: DEFAULT_PREFER_TO_SPAWN_TABS,
+                automatically_reload_config: DEFAULT_AUTOMATICALLY_RELOAD_CONFIG,
+                check_for_updates: DEFAULT_CHECK_FOR_UPDATES,
+                check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
+                show_update_window: DEFAULT_SHOW_UPDATE_WINDOW,
+                native_macos_fullscreen_mode: DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
+                macos_fullscreen_extend_behind_notch: DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
+                use_resize_increments: DEFAULT_USE_RESIZE_INCREMENTS,
+                debug_key_events: DEFAULT_DEBUG_KEY_EVENTS,
+                log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
+                warn_about_missing_glyphs: DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
+                default_cwd: None,
+                default_ssh_auth_sock: None,
+                default_mux_server_domain: None,
+                daemon_options: NativeDaemonOptions::default(),
+                exec_domains: Vec::new(),
+                wsl_domains: Vec::new(),
+                unix_domains: default_native_unix_domains(),
+                ssh_domains: Vec::new(),
+                tls_servers: Vec::new(),
+                tls_clients: Vec::new(),
+                serial_ports: Vec::new(),
+                mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
+                ssh_backend: NativeSshBackend::LibSsh,
+                ratelimit_mux_line_prefetches_per_second:
+                    DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND,
+                mux_output_parser_buffer_size: DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE,
+                mux_output_parser_coalesce_delay_ms: DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS,
+                periodic_stat_logging: DEFAULT_PERIODIC_STAT_LOGGING,
+                ulimit_nofile: DEFAULT_ULIMIT_NOFILE,
+                ulimit_nproc: DEFAULT_ULIMIT_NPROC,
+                mux_env_remove: default_mux_env_remove(),
+                tiling_desktop_environments: default_tiling_desktop_environments(),
+                derived_config_environment: BTreeMap::new(),
+                set_environment_variables: BTreeMap::new(),
+                launch_menu: Vec::new(),
+                key_map_preference: NativeKeyMapPreference::Mapped,
+                ui_key_cap_rendering: DEFAULT_UI_KEY_CAP_RENDERING,
+                swap_backspace_and_delete: false,
+                enable_kitty_graphics: DEFAULT_ENABLE_KITTY_GRAPHICS,
+                enable_checksum_rectangular_area: DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA,
+                enable_title_reporting: DEFAULT_ENABLE_TITLE_REPORTING,
+                enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
+                enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
+                allow_download_protocols: DEFAULT_ALLOW_DOWNLOAD_PROTOCOLS,
+                xcursor_theme: None,
+                xcursor_size: None,
+                palette_max_key_assigments_for_action:
+                    DEFAULT_PALETTE_MAX_KEY_ASSIGMENTS_FOR_ACTION,
+                allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
+                treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
+                send_composed_key_when_left_alt_is_pressed:
+                    DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+                send_composed_key_when_right_alt_is_pressed:
+                    DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED,
+                treat_east_asian_ambiguous_width_as_wide:
+                    DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
+                normalize_output_to_unicode_nfc: DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
+                unicode_version: DEFAULT_UNICODE_VERSION,
+                bidi_enabled: DEFAULT_BIDI_ENABLED,
+                bidi_direction: DEFAULT_BIDI_DIRECTION,
+                use_ime: DEFAULT_USE_IME,
+                use_dead_keys: DEFAULT_USE_DEAD_KEYS,
+                ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
+                macos_forward_to_ime_modifier_mask: DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
+                ime_preedit: None,
+                dead_key_active: false,
+                dead_key_text: None,
+                xim_im_name: None,
+                detect_password_input: DEFAULT_DETECT_PASSWORD_INPUT,
+                leader: None,
+                key_assignments: Vec::new(),
+                key_tables: BTreeMap::new(),
+                mouse_assignments: Vec::new(),
+                leader_active_since: None,
+                scroll_to_bottom_on_input: DEFAULT_SCROLL_TO_BOTTOM_ON_INPUT,
+                canonicalize_pasted_newlines: DEFAULT_CANONICALIZE_PASTED_NEWLINES,
+                quote_dropped_files: DEFAULT_QUOTE_DROPPED_FILES,
+                disable_default_key_bindings: DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
+                disable_default_mouse_bindings: DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS,
+                hide_mouse_cursor_when_typing: DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING,
+                alternate_buffer_wheel_scroll_speed: DEFAULT_ALTERNATE_BUFFER_WHEEL_SCROLL_SPEED,
+                pane_focus_follows_mouse: DEFAULT_PANE_FOCUS_FOLLOWS_MOUSE,
+                swallow_mouse_click_on_pane_focus: DEFAULT_SWALLOW_MOUSE_CLICK_ON_PANE_FOCUS,
+                swallow_mouse_click_on_window_focus: DEFAULT_SWALLOW_MOUSE_CLICK_ON_WINDOW_FOCUS,
+                bypass_mouse_reporting_modifiers: DEFAULT_BYPASS_MOUSE_REPORTING_MODIFIERS,
+                enable_scroll_bar: DEFAULT_ENABLE_SCROLL_BAR,
+                scrollback_lines: DEFAULT_SCROLLBACK_LIMIT,
+                min_scroll_bar_height: DEFAULT_MIN_SCROLL_BAR_HEIGHT,
+                enable_tab_bar: DEFAULT_ENABLE_TAB_BAR,
+                hide_tab_bar_if_only_one_tab: DEFAULT_HIDE_TAB_BAR_IF_ONLY_ONE_TAB,
+                use_fancy_tab_bar: DEFAULT_USE_FANCY_TAB_BAR,
+                unzoom_on_switch_pane: DEFAULT_UNZOOM_ON_SWITCH_PANE,
+                tab_bar_at_bottom: DEFAULT_TAB_BAR_AT_BOTTOM,
+                tab_and_split_indices_are_zero_based: DEFAULT_TAB_AND_SPLIT_INDICES_ARE_ZERO_BASED,
+                mouse_wheel_scrolls_tabs: DEFAULT_MOUSE_WHEEL_SCROLLS_TABS,
+                switch_to_last_active_tab_when_closing_tab:
+                    DEFAULT_SWITCH_TO_LAST_ACTIVE_TAB_WHEN_CLOSING_TAB,
+                quit_when_all_windows_are_closed: DEFAULT_QUIT_WHEN_ALL_WINDOWS_ARE_CLOSED,
+                window_close_confirmation: DEFAULT_WINDOW_CLOSE_CONFIRMATION,
+                exit_behavior: DEFAULT_EXIT_BEHAVIOR,
+                clean_exit_codes: DEFAULT_CLEAN_EXIT_CODES.to_vec(),
+                exit_behavior_messaging: DEFAULT_EXIT_BEHAVIOR_MESSAGING,
+                skip_close_confirmation_for_processes_named:
+                    default_skip_close_confirmation_for_processes_named(),
+                show_close_tab_button_in_tabs: DEFAULT_SHOW_CLOSE_TAB_BUTTON_IN_TABS,
+                show_new_tab_button_in_tab_bar: DEFAULT_SHOW_NEW_TAB_BUTTON_IN_TAB_BAR,
+                show_tab_index_in_tab_bar: DEFAULT_SHOW_TAB_INDEX_IN_TAB_BAR,
+                show_tabs_in_tab_bar: DEFAULT_SHOW_TABS_IN_TAB_BAR,
+                base_config_overrides: Arc::new(NativeConfigOverrides::default()),
+                base_config_generation: 0,
+                base_config_source: None,
+                window_config_overrides: None,
+                #[cfg(test)]
+                base_config_apply_observer: None,
+                #[cfg(test)]
+                pty_spawn_observer: None,
+                config_overrides: Arc::new(NativeConfigOverrides::default()),
+                latest_notification: None,
+                left_status: String::new(),
+                right_status: String::new(),
+                lua_tab_title: None,
+                lua_window_title: None,
+                lua_update_status: None,
+                lua_update_status_config_overrides: None,
+                lua_bell: None,
+                lua_focus_changed: None,
+                lua_resized: None,
+                lua_config_reloaded: None,
+                lua_user_var_changed: None,
+                lua_open_uri: None,
+                lua_new_tab_button_click: None,
+                lua_command_palette_entries: Vec::new(),
+                lua_emit_event_handlers: BTreeMap::new(),
+                status_update_interval: DEFAULT_STATUS_UPDATE_INTERVAL,
+                max_fps: DEFAULT_MAX_FPS,
+                animation_fps: DEFAULT_ANIMATION_FPS,
+                last_redraw_request_at: None,
+                last_animation_redraw_request_at: None,
+                front_end: DEFAULT_RENDER_FRONT_END,
+                webgpu_power_preference: DEFAULT_WEBGPU_POWER_PREFERENCE,
+                webgpu_force_fallback_adapter: DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
+                webgpu_preferred_adapter: None,
+                prefer_egl: DEFAULT_PREFER_EGL,
+                enable_wayland: DEFAULT_ENABLE_WAYLAND,
+                enable_zwlr_output_manager: DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER,
+                use_box_model_render: DEFAULT_USE_BOX_MODEL_RENDER,
+                experimental_pixel_positioning: DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING,
+                shape_cache_size: DEFAULT_SHAPE_CACHE_SIZE,
+                line_state_cache_size: DEFAULT_LINE_STATE_CACHE_SIZE,
+                line_quad_cache_size: DEFAULT_LINE_QUAD_CACHE_SIZE,
+                line_to_ele_shape_cache_size: DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE,
+                glyph_cache_image_cache_size: DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE,
+                last_status_update_at: None,
+                cursor_blink_rate: DEFAULT_CURSOR_BLINK_RATE,
+                cursor_blink_ease_in: DEFAULT_CURSOR_BLINK_EASE_IN,
+                cursor_blink_ease_out: DEFAULT_CURSOR_BLINK_EASE_OUT,
+                text_blink_rate: DEFAULT_TEXT_BLINK_RATE,
+                text_blink_rate_rapid: DEFAULT_TEXT_BLINK_RATE_RAPID,
+                text_blink_ease_in: DEFAULT_TEXT_BLINK_EASE_IN,
+                text_blink_ease_out: DEFAULT_TEXT_BLINK_EASE_OUT,
+                text_blink_rapid_ease_in: DEFAULT_TEXT_BLINK_RAPID_EASE_IN,
+                text_blink_rapid_ease_out: DEFAULT_TEXT_BLINK_RAPID_EASE_OUT,
+                default_cursor_style: DEFAULT_CURSOR_STYLE,
+                cursor_thickness: DEFAULT_CURSOR_THICKNESS,
+                underline_thickness: DEFAULT_UNDERLINE_THICKNESS,
+                underline_position: DEFAULT_UNDERLINE_POSITION,
+                strikethrough_position: DEFAULT_STRIKETHROUGH_POSITION,
+                force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
+                reverse_video_cursor_min_contrast: DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
+                text_min_contrast_ratio: None,
+                window_padding: DEFAULT_WINDOW_PADDING,
+                window_content_alignment: DEFAULT_WINDOW_CONTENT_ALIGNMENT,
+                cursor_blink_visible: true,
+                cursor_blink_opacity_alpha: u8::MAX,
+                last_cursor_blink_at: None,
+                text_blink_opacity_alpha: u8::MAX,
+                rapid_text_blink_opacity_alpha: u8::MAX,
+                last_text_blink_at: None,
+                last_rapid_text_blink_at: None,
+                osc52_policy,
+                clipboard_writer: Box::new(write_window_clipboard_text),
+                clipboard_reader: Box::new(read_window_clipboard_text),
+                primary_selection_writer: Box::new(write_window_primary_selection_text),
+                primary_selection_reader: Box::new(read_window_primary_selection_text),
+                hyperlink_opener: Box::new(open_window_hyperlink),
+                open_uri_handler: Box::new(dispatch_window_open_uri),
+                new_tab_button_click_handler: Box::new(dispatch_window_new_tab_button_click),
+                tab_title_formatter: Box::new(format_tab_title),
+                window_title_formatter: Box::new(format_window_title),
+                #[cfg(test)]
+                applied_window_titles: RefCell::new(None),
+                update_status_handler: Box::new(dispatch_window_update_status),
+                update_right_status_handler: Box::new(dispatch_window_update_right_status),
+                notification_handler: Box::new(show_window_notification),
+                audible_bell_handler: Box::new(ring_window_audible_bell),
+                bell_handler: Box::new(dispatch_window_bell),
+                focus_change_handler: Box::new(dispatch_window_focus_change),
+                resize_handler: Box::new(dispatch_window_resize),
+                user_var_change_handler: Box::new(dispatch_window_user_var_change),
+                config_reloaded_handler: Box::new(dispatch_window_config_reloaded),
+                command_palette_augmenter: Box::new(dispatch_command_palette_augment),
+                prompt_input_line_handler: Box::new(dispatch_prompt_input_line),
+                input_selector_handler: Box::new(dispatch_input_selector),
+                confirmation_handler: Box::new(dispatch_confirmation),
+                emit_event_handler: Box::new(dispatch_emit_event),
+                metrics: WindowMetrics::new(),
+                pending_frame_damage: Vec::new(),
+                frame_needs_full_repaint: true,
+                app_shell,
+                pane_runtimes: HashMap::new(),
+                pane_bell_counts: HashMap::new(),
             },
-            configured_dpi: None,
-            dpi_by_screen: BTreeMap::new(),
-            detected_window_dpi: DEFAULT_WINDOW_DPI,
-            window_dpi: DEFAULT_WINDOW_DPI,
-            runtime,
-            snapshot,
-            window_title: DEFAULT_WINDOW_TITLE.to_owned(),
-            frame_width: FRAME_WIDTH,
-            frame_height: FRAME_HEIGHT,
-            window_frame: NativeWindowFrame::initial(),
-            frame_limit,
-            initial_window_class,
-            initial_window_position,
-            startup_command,
-            startup_uses_default_shell,
-            startup_workspace_was_explicit,
-            rendered_frames: 0,
-            animation_started_at: Instant::now(),
-            event_proxy: None,
-            reload_request_sender: None,
-            session: None,
-            session_process_id: None,
-            session_tty_name: None,
-            writer: None,
-            session_log: None,
-            reader_thread: None,
-            active_runtime_generation: 0,
-            modifiers: ModifiersState::empty(),
-            left_alt_pressed: false,
-            right_alt_pressed: false,
-            active_ui: PaneUiState::default(),
-            mouse_pixel_position: None,
-            rendered_tab_bar_layout: RefCell::new(None),
-            rendered_tab_bar_generation: Cell::new(0),
-            mouse_position: None,
-            current_mouse_wheel_delta: None,
-            mouse_cursor_visible: true,
-            mouse_cursor_icon: CursorIcon::Default,
-            active_mouse_button: None,
-            last_mouse_info: None,
-            selection: None,
-            selecting: false,
-            scrollbar_dragging: false,
-            split_resize_dragging: None,
-            tab_bar_drag: None,
-            ui_left_release_pending: false,
-            pressed_pane_close_button: None,
-            pane_inspection: None,
-            ui_key_release_pending: None,
-            last_mouse_assignment_click: None,
-            last_left_click: None,
-            command_palette: None,
-            command_palette_frecency: HashMap::new(),
-            command_palette_frecency_sequence: 0,
-            command_palette_frecency_path: None,
-            pane_select: None,
-            pending_window_positions: HashMap::new(),
-            tab_navigator: None,
-            prompt_input_line: None,
-            input_selector: None,
-            confirmation: None,
-            deferred_wheel_context: None,
-            close_confirmation: None,
-            key_table_stack: Vec::new(),
-            visual_bell_started_at: HashMap::new(),
-            initial_cols: DEFAULT_INITIAL_COLS,
-            initial_rows: DEFAULT_INITIAL_ROWS,
-            foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
-            bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
-            text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
-            window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
-            background: Vec::new(),
-            window_background_image: None,
-            window_background_image_hsb: None,
-            window_background_gradient: None,
-            window_background_images: Vec::new(),
-            window_background_layers: Vec::new(),
-            kde_window_background_blur: DEFAULT_KDE_WINDOW_BACKGROUND_BLUR,
-            macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
-            win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
-            win32_acrylic_accent_color: None,
-            window_decorations: DEFAULT_WINDOW_DECORATIONS,
-            window_frame_appearance: NativeWindowFrameAppearance::default(),
-            integrated_title_buttons: default_integrated_title_buttons(),
-            integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
-            integrated_title_button_color: DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
-            integrated_title_button_style: DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
-            inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
-            tab_max_width: DEFAULT_TAB_MAX_WIDTH,
-            command_palette_rows: None,
-            command_palette_font: None,
-            command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
-            command_palette_bg_color: Some(DEFAULT_COMMAND_PALETTE_BG_COLOR),
-            command_palette_fg_color: Some(DEFAULT_COMMAND_PALETTE_FG_COLOR),
-            char_select_font: None,
-            char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
-            char_select_bg_color: Some(DEFAULT_CHAR_SELECT_BG_COLOR),
-            char_select_fg_color: Some(DEFAULT_CHAR_SELECT_FG_COLOR),
-            pane_select_font: None,
-            pane_select_font_size: DEFAULT_PANE_SELECT_FONT_SIZE,
-            pane_select_bg_color: Some(DEFAULT_PANE_SELECT_BG_COLOR),
-            pane_select_fg_color: Some(DEFAULT_PANE_SELECT_FG_COLOR),
-            launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
-            quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
-            quick_select_patterns: Vec::new(),
-            disable_default_quick_select_patterns: false,
-            quick_select_remove_styling: false,
-            hyperlink_rules: default_hyperlink_rules(),
-            copy_mode_active_highlight_bg: None,
-            copy_mode_active_highlight_fg: None,
-            copy_mode_inactive_highlight_bg: None,
-            copy_mode_inactive_highlight_fg: None,
-            quick_select_label_bg: None,
-            quick_select_label_fg: None,
-            quick_select_match_bg: None,
-            quick_select_match_fg: None,
-            input_selector_label_bg: None,
-            input_selector_label_fg: None,
-            launcher_label_bg: None,
-            launcher_label_fg: None,
-            selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
-            term: DEFAULT_TERM.to_owned(),
-            enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
-            audible_bell: DEFAULT_AUDIBLE_BELL,
-            visual_bell: NativeVisualBell::default(),
-            colors: None,
-            color_scheme: None,
-            color_scheme_dirs: Vec::new(),
-            color_schemes: HashMap::new(),
-            foreground_color: DEFAULT_FOREGROUND_COLOR,
-            background_color: DEFAULT_BACKGROUND_COLOR,
-            ansi_palette: None,
-            indexed_palette: None,
-            selection_fg_color: None,
-            selection_bg_color: None,
-            cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
-            cursor_border_color: None,
-            cursor_fg_color: None,
-            compose_cursor_color: None,
-            split_color: None,
-            scrollbar_thumb_color: None,
-            tab_bar_background_color: None,
-            tab_bar_inactive_tab_edge_color: None,
-            tab_bar_active_tab_colors: NativeTabBarItemColors::default(),
-            tab_bar_inactive_tab_colors: NativeTabBarItemColors::default(),
-            tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors::default(),
-            tab_bar_new_tab_colors: NativeTabBarItemColors::default(),
-            tab_bar_new_tab_hover_colors: NativeTabBarItemColors::default(),
-            tab_bar_style: NativeTabBarStyle::default(),
-            visual_bell_color: None,
-            notification_handling: DEFAULT_NOTIFICATION_HANDLING,
-            default_prog: None,
-            default_gui_startup_args: default_gui_startup_args(),
-            default_domain: DEFAULT_DOMAIN_NAME.to_owned(),
-            default_workspace: DEFAULT_WORKSPACE_NAME.to_owned(),
-            prefer_to_spawn_tabs: DEFAULT_PREFER_TO_SPAWN_TABS,
-            automatically_reload_config: DEFAULT_AUTOMATICALLY_RELOAD_CONFIG,
-            check_for_updates: DEFAULT_CHECK_FOR_UPDATES,
-            check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
-            show_update_window: DEFAULT_SHOW_UPDATE_WINDOW,
-            native_macos_fullscreen_mode: DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
-            macos_fullscreen_extend_behind_notch: DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
-            use_resize_increments: DEFAULT_USE_RESIZE_INCREMENTS,
-            debug_key_events: DEFAULT_DEBUG_KEY_EVENTS,
-            log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
-            warn_about_missing_glyphs: DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
-            default_cwd: None,
-            default_ssh_auth_sock: None,
-            default_mux_server_domain: None,
-            daemon_options: NativeDaemonOptions::default(),
-            exec_domains: Vec::new(),
-            wsl_domains: Vec::new(),
-            unix_domains: default_native_unix_domains(),
-            ssh_domains: Vec::new(),
-            tls_servers: Vec::new(),
-            tls_clients: Vec::new(),
-            serial_ports: Vec::new(),
-            mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
-            ssh_backend: NativeSshBackend::LibSsh,
-            ratelimit_mux_line_prefetches_per_second:
-                DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND,
-            mux_output_parser_buffer_size: DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE,
-            mux_output_parser_coalesce_delay_ms: DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS,
-            periodic_stat_logging: DEFAULT_PERIODIC_STAT_LOGGING,
-            ulimit_nofile: DEFAULT_ULIMIT_NOFILE,
-            ulimit_nproc: DEFAULT_ULIMIT_NPROC,
-            mux_env_remove: default_mux_env_remove(),
-            tiling_desktop_environments: default_tiling_desktop_environments(),
-            derived_config_environment: BTreeMap::new(),
-            set_environment_variables: BTreeMap::new(),
-            launch_menu: Vec::new(),
-            key_map_preference: NativeKeyMapPreference::Mapped,
-            ui_key_cap_rendering: DEFAULT_UI_KEY_CAP_RENDERING,
-            swap_backspace_and_delete: false,
-            enable_kitty_graphics: DEFAULT_ENABLE_KITTY_GRAPHICS,
-            enable_checksum_rectangular_area: DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA,
-            enable_title_reporting: DEFAULT_ENABLE_TITLE_REPORTING,
-            enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
-            enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
-            allow_download_protocols: DEFAULT_ALLOW_DOWNLOAD_PROTOCOLS,
-            xcursor_theme: None,
-            xcursor_size: None,
-            palette_max_key_assigments_for_action: DEFAULT_PALETTE_MAX_KEY_ASSIGMENTS_FOR_ACTION,
-            allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
-            treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
-            send_composed_key_when_left_alt_is_pressed:
-                DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
-            send_composed_key_when_right_alt_is_pressed:
-                DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED,
-            treat_east_asian_ambiguous_width_as_wide:
-                DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
-            normalize_output_to_unicode_nfc: DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
-            unicode_version: DEFAULT_UNICODE_VERSION,
-            bidi_enabled: DEFAULT_BIDI_ENABLED,
-            bidi_direction: DEFAULT_BIDI_DIRECTION,
-            use_ime: DEFAULT_USE_IME,
-            use_dead_keys: DEFAULT_USE_DEAD_KEYS,
-            ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
-            macos_forward_to_ime_modifier_mask: DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
-            ime_preedit: None,
-            dead_key_active: false,
-            dead_key_text: None,
-            xim_im_name: None,
-            detect_password_input: DEFAULT_DETECT_PASSWORD_INPUT,
-            leader: None,
-            key_assignments: Vec::new(),
-            key_tables: BTreeMap::new(),
-            mouse_assignments: Vec::new(),
-            leader_active_since: None,
-            scroll_to_bottom_on_input: DEFAULT_SCROLL_TO_BOTTOM_ON_INPUT,
-            canonicalize_pasted_newlines: DEFAULT_CANONICALIZE_PASTED_NEWLINES,
-            quote_dropped_files: DEFAULT_QUOTE_DROPPED_FILES,
-            disable_default_key_bindings: DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
-            disable_default_mouse_bindings: DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS,
-            hide_mouse_cursor_when_typing: DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING,
-            alternate_buffer_wheel_scroll_speed: DEFAULT_ALTERNATE_BUFFER_WHEEL_SCROLL_SPEED,
-            pane_focus_follows_mouse: DEFAULT_PANE_FOCUS_FOLLOWS_MOUSE,
-            swallow_mouse_click_on_pane_focus: DEFAULT_SWALLOW_MOUSE_CLICK_ON_PANE_FOCUS,
-            swallow_mouse_click_on_window_focus: DEFAULT_SWALLOW_MOUSE_CLICK_ON_WINDOW_FOCUS,
-            bypass_mouse_reporting_modifiers: DEFAULT_BYPASS_MOUSE_REPORTING_MODIFIERS,
-            enable_scroll_bar: DEFAULT_ENABLE_SCROLL_BAR,
-            scrollback_lines: DEFAULT_SCROLLBACK_LIMIT,
-            min_scroll_bar_height: DEFAULT_MIN_SCROLL_BAR_HEIGHT,
-            enable_tab_bar: DEFAULT_ENABLE_TAB_BAR,
-            hide_tab_bar_if_only_one_tab: DEFAULT_HIDE_TAB_BAR_IF_ONLY_ONE_TAB,
-            use_fancy_tab_bar: DEFAULT_USE_FANCY_TAB_BAR,
-            unzoom_on_switch_pane: DEFAULT_UNZOOM_ON_SWITCH_PANE,
-            tab_bar_at_bottom: DEFAULT_TAB_BAR_AT_BOTTOM,
-            tab_and_split_indices_are_zero_based: DEFAULT_TAB_AND_SPLIT_INDICES_ARE_ZERO_BASED,
-            mouse_wheel_scrolls_tabs: DEFAULT_MOUSE_WHEEL_SCROLLS_TABS,
-            switch_to_last_active_tab_when_closing_tab:
-                DEFAULT_SWITCH_TO_LAST_ACTIVE_TAB_WHEN_CLOSING_TAB,
-            quit_when_all_windows_are_closed: DEFAULT_QUIT_WHEN_ALL_WINDOWS_ARE_CLOSED,
-            window_close_confirmation: DEFAULT_WINDOW_CLOSE_CONFIRMATION,
-            exit_behavior: DEFAULT_EXIT_BEHAVIOR,
-            clean_exit_codes: DEFAULT_CLEAN_EXIT_CODES.to_vec(),
-            exit_behavior_messaging: DEFAULT_EXIT_BEHAVIOR_MESSAGING,
-            skip_close_confirmation_for_processes_named:
-                default_skip_close_confirmation_for_processes_named(),
-            show_close_tab_button_in_tabs: DEFAULT_SHOW_CLOSE_TAB_BUTTON_IN_TABS,
-            show_new_tab_button_in_tab_bar: DEFAULT_SHOW_NEW_TAB_BUTTON_IN_TAB_BAR,
-            show_tab_index_in_tab_bar: DEFAULT_SHOW_TAB_INDEX_IN_TAB_BAR,
-            show_tabs_in_tab_bar: DEFAULT_SHOW_TABS_IN_TAB_BAR,
-            base_config_overrides: NativeConfigOverrides::default(),
-            base_config_generation: 0,
-            base_config_source: None,
-            window_config_overrides: None,
-            #[cfg(test)]
-            base_config_apply_observer: None,
-            #[cfg(test)]
-            pty_spawn_observer: None,
-            config_overrides: NativeConfigOverrides::default(),
-            latest_notification: None,
-            left_status: String::new(),
-            right_status: String::new(),
-            lua_tab_title: None,
-            lua_window_title: None,
-            lua_update_status: None,
-            lua_update_status_config_overrides: None,
-            lua_bell: None,
-            lua_focus_changed: None,
-            lua_resized: None,
-            lua_config_reloaded: None,
-            lua_user_var_changed: None,
-            lua_open_uri: None,
-            lua_new_tab_button_click: None,
-            lua_command_palette_entries: Vec::new(),
-            lua_emit_event_handlers: BTreeMap::new(),
-            status_update_interval: DEFAULT_STATUS_UPDATE_INTERVAL,
-            max_fps: DEFAULT_MAX_FPS,
-            animation_fps: DEFAULT_ANIMATION_FPS,
-            last_redraw_request_at: None,
-            last_animation_redraw_request_at: None,
-            front_end: DEFAULT_RENDER_FRONT_END,
-            webgpu_power_preference: DEFAULT_WEBGPU_POWER_PREFERENCE,
-            webgpu_force_fallback_adapter: DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
-            webgpu_preferred_adapter: None,
-            prefer_egl: DEFAULT_PREFER_EGL,
-            enable_wayland: DEFAULT_ENABLE_WAYLAND,
-            enable_zwlr_output_manager: DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER,
-            use_box_model_render: DEFAULT_USE_BOX_MODEL_RENDER,
-            experimental_pixel_positioning: DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING,
-            shape_cache_size: DEFAULT_SHAPE_CACHE_SIZE,
-            line_state_cache_size: DEFAULT_LINE_STATE_CACHE_SIZE,
-            line_quad_cache_size: DEFAULT_LINE_QUAD_CACHE_SIZE,
-            line_to_ele_shape_cache_size: DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE,
-            glyph_cache_image_cache_size: DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE,
-            last_status_update_at: None,
-            cursor_blink_rate: DEFAULT_CURSOR_BLINK_RATE,
-            cursor_blink_ease_in: DEFAULT_CURSOR_BLINK_EASE_IN,
-            cursor_blink_ease_out: DEFAULT_CURSOR_BLINK_EASE_OUT,
-            text_blink_rate: DEFAULT_TEXT_BLINK_RATE,
-            text_blink_rate_rapid: DEFAULT_TEXT_BLINK_RATE_RAPID,
-            text_blink_ease_in: DEFAULT_TEXT_BLINK_EASE_IN,
-            text_blink_ease_out: DEFAULT_TEXT_BLINK_EASE_OUT,
-            text_blink_rapid_ease_in: DEFAULT_TEXT_BLINK_RAPID_EASE_IN,
-            text_blink_rapid_ease_out: DEFAULT_TEXT_BLINK_RAPID_EASE_OUT,
-            default_cursor_style: DEFAULT_CURSOR_STYLE,
-            cursor_thickness: DEFAULT_CURSOR_THICKNESS,
-            underline_thickness: DEFAULT_UNDERLINE_THICKNESS,
-            underline_position: DEFAULT_UNDERLINE_POSITION,
-            strikethrough_position: DEFAULT_STRIKETHROUGH_POSITION,
-            force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
-            reverse_video_cursor_min_contrast: DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-            text_min_contrast_ratio: None,
-            window_padding: DEFAULT_WINDOW_PADDING,
-            window_content_alignment: DEFAULT_WINDOW_CONTENT_ALIGNMENT,
-            cursor_blink_visible: true,
-            cursor_blink_opacity_alpha: u8::MAX,
-            last_cursor_blink_at: None,
-            text_blink_opacity_alpha: u8::MAX,
-            rapid_text_blink_opacity_alpha: u8::MAX,
-            last_text_blink_at: None,
-            last_rapid_text_blink_at: None,
-            osc52_policy,
-            clipboard_writer: Box::new(write_window_clipboard_text),
-            clipboard_reader: Box::new(read_window_clipboard_text),
-            primary_selection_writer: Box::new(write_window_primary_selection_text),
-            primary_selection_reader: Box::new(read_window_primary_selection_text),
-            hyperlink_opener: Box::new(open_window_hyperlink),
-            open_uri_handler: Box::new(dispatch_window_open_uri),
-            new_tab_button_click_handler: Box::new(dispatch_window_new_tab_button_click),
-            tab_title_formatter: Box::new(format_tab_title),
-            window_title_formatter: Box::new(format_window_title),
-            #[cfg(test)]
-            applied_window_titles: RefCell::new(None),
-            update_status_handler: Box::new(dispatch_window_update_status),
-            update_right_status_handler: Box::new(dispatch_window_update_right_status),
-            notification_handler: Box::new(show_window_notification),
-            audible_bell_handler: Box::new(ring_window_audible_bell),
-            bell_handler: Box::new(dispatch_window_bell),
-            focus_change_handler: Box::new(dispatch_window_focus_change),
-            resize_handler: Box::new(dispatch_window_resize),
-            user_var_change_handler: Box::new(dispatch_window_user_var_change),
-            config_reloaded_handler: Box::new(dispatch_window_config_reloaded),
-            command_palette_augmenter: Box::new(dispatch_command_palette_augment),
-            prompt_input_line_handler: Box::new(dispatch_prompt_input_line),
-            input_selector_handler: Box::new(dispatch_input_selector),
-            confirmation_handler: Box::new(dispatch_confirmation),
-            emit_event_handler: Box::new(dispatch_emit_event),
-            metrics: WindowMetrics::new(),
-            pending_frame_damage: Vec::new(),
-            frame_needs_full_repaint: true,
-            app_shell,
-            pane_runtimes: HashMap::new(),
-            pane_bell_counts: HashMap::new(),
-        }
+        )
     }
 
     #[cfg(test)]
@@ -84904,7 +84932,7 @@ impl NativeWindowApp {
         reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
     )]
     #[allow(dead_code)]
-    fn take_next_pending_window_app(&mut self) -> Option<Self> {
+    fn take_next_pending_window_app(&mut self) -> Option<Box<Self>> {
         let pending_window = self.app_shell.take_next_pending_window()?;
         let app_window_id = pending_window.id();
         let initial_window_position = self.pending_window_positions.remove(&app_window_id);
@@ -97513,7 +97541,7 @@ impl NativeWindowApp {
 
     #[allow(dead_code)]
     fn get_config_overrides(&self) -> NativeConfigOverrides {
-        self.config_overrides.clone()
+        self.config_overrides.as_ref().clone()
     }
 
     #[cfg(test)]
@@ -97523,18 +97551,18 @@ impl NativeWindowApp {
 
     #[allow(dead_code)]
     fn set_config_overrides(&mut self, overrides: NativeConfigOverrides) {
-        self.base_config_overrides = overrides;
+        self.base_config_overrides = Arc::new(overrides);
         self.apply_effective_config(ReloadDisposition::ReloadAttempt);
     }
 
     #[cfg(test)]
     fn apply_config_overrides_silently(&mut self, overrides: NativeConfigOverrides) {
-        self.base_config_overrides = overrides;
+        self.base_config_overrides = Arc::new(overrides);
         self.apply_effective_config(ReloadDisposition::SilentStartup);
     }
 
     fn set_base_config(&mut self, config: &EffectiveNativeConfig, disposition: ReloadDisposition) {
-        self.base_config_overrides = config.overrides.clone();
+        self.base_config_overrides = Arc::clone(&config.overrides);
         self.base_config_generation = config.generation;
         self.base_config_source.clone_from(&config.source);
         self.derived_config_environment = config.publication.variables().clone();
@@ -97555,7 +97583,7 @@ impl NativeWindowApp {
     }
 
     fn apply_effective_config(&mut self, disposition: ReloadDisposition) {
-        let mut overrides = self.base_config_overrides.clone();
+        let mut overrides = self.base_config_overrides.as_ref().clone();
         if let Some(window_overrides) = self.window_config_overrides.clone() {
             window_overrides.apply_to_native_config_overrides(&mut overrides);
         }
@@ -97573,7 +97601,7 @@ impl NativeWindowApp {
     ) {
         let previous_palette = self.native_resolved_palette();
         let previous_terminal_line_palette = previous_palette.terminal_line_palette();
-        self.config_overrides = overrides.clone();
+        self.config_overrides = Arc::new(overrides.clone());
         self.configured_dpi = overrides.dpi;
         self.dpi_by_screen = overrides.dpi_by_screen.clone().unwrap_or_default();
         self.apply_effective_window_dpi();
@@ -132093,6 +132121,33 @@ mod tests {
     }
 
     #[test]
+    fn configured_startup_app_stays_within_stack_budget() {
+        let actual = std::mem::size_of::<super::ConfiguredStartupApp>();
+        assert!(
+            actual <= 16 * 1024,
+            "ConfiguredStartupApp is {actual} bytes; startup ownership must stay within the 16 KiB stack budget"
+        );
+    }
+
+    #[test]
+    fn native_config_overrides_stays_within_stack_budget() {
+        let actual = std::mem::size_of::<NativeConfigOverrides>();
+        assert!(
+            actual <= 16 * 1024,
+            "NativeConfigOverrides is {actual} bytes; config parsing and reload values must stay within the 16 KiB stack budget"
+        );
+    }
+
+    #[test]
+    fn window_manager_stays_within_stack_budget() {
+        let actual = std::mem::size_of::<NativeWindowManager>();
+        assert!(
+            actual <= 16 * 1024,
+            "NativeWindowManager is {actual} bytes; event-loop ownership must stay within the 16 KiB stack budget"
+        );
+    }
+
+    #[test]
     fn initial_invalid_source_uses_generation_zero_defaults_and_diagnostic() {
         let root = startup_test_dir("invalid-source");
         let path = root.0.join("wezterm.lua");
@@ -132280,7 +132335,7 @@ mod tests {
         materialized.set_base_config(&current_base, super::ReloadDisposition::SilentStartup);
         manager
             .windows
-            .insert(winit::window::WindowId::dummy(), materialized);
+            .insert(winit::window::WindowId::dummy(), Box::new(materialized));
 
         let (applied, callbacks) = install_reload_transaction_observers(&mut manager);
 
@@ -132472,7 +132527,7 @@ mod tests {
         materialized.set_base_config(&current_base, super::ReloadDisposition::SilentStartup);
         manager
             .windows
-            .insert(winit::window::WindowId::dummy(), materialized);
+            .insert(winit::window::WindowId::dummy(), Box::new(materialized));
         let (applied, callbacks) = install_reload_transaction_observers(&mut manager);
 
         std::fs::write(&path, "return { unknown_runtime_field = true }").unwrap();
@@ -132892,7 +132947,7 @@ mod tests {
         );
     }
 
-    fn assert_reloaded_detached_input_and_renderer(mut detached: NativeWindowApp) {
+    fn assert_reloaded_detached_input_and_renderer(mut detached: Box<NativeWindowApp>) {
         let written = Arc::new(Mutex::new(Vec::new()));
         detached.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         detached.modifiers = ModifiersState::CONTROL;
@@ -133084,7 +133139,7 @@ mod tests {
         materialized.set_base_config(&current_base, super::ReloadDisposition::SilentStartup);
         manager
             .windows
-            .insert(winit::window::WindowId::dummy(), materialized);
+            .insert(winit::window::WindowId::dummy(), Box::new(materialized));
         let (_, callbacks) = install_reload_transaction_observers(&mut manager);
         std::fs::write(
             &path,
@@ -195120,10 +195175,7 @@ return config
             Some("relocated-queued".to_owned())
         );
         assert_eq!(
-            manager
-                .startup_app
-                .as_ref()
-                .map(NativeWindowApp::active_pane_id),
+            manager.startup_app.as_ref().map(|app| app.active_pane_id()),
             Some(rssh_core::PaneId::new(2))
         );
 
@@ -195143,10 +195195,7 @@ return config
                 .all(|(_, pane_id)| *pane_id != rssh_core::PaneId::new(1))
         );
         assert_eq!(
-            manager
-                .startup_app
-                .as_ref()
-                .map(NativeWindowApp::active_pane_id),
+            manager.startup_app.as_ref().map(|app| app.active_pane_id()),
             Some(rssh_core::PaneId::new(2))
         );
     }
@@ -195159,7 +195208,7 @@ return config
         collision.app_window_id = rssh_core::WindowId::new(2);
         collision.handle_pty_output(b"collision").unwrap();
         let mut manager = NativeWindowManager::new_for_test(declared);
-        manager.pending_apps.push(collision);
+        manager.pending_apps.push(Box::new(collision));
         manager.pane_event_routes.insert(
             (rssh_core::WindowId::new(1), rssh_core::PaneId::new(1)),
             rssh_core::WindowId::new(2),
@@ -195294,7 +195343,7 @@ return config
         let mut collision = NativeWindowApp::new(None);
         collision.app_window_id = rssh_core::WindowId::new(4);
         collision.handle_pty_output(b"collision").unwrap();
-        manager.pending_apps.push(collision);
+        manager.pending_apps.push(Box::new(collision));
 
         let source = manager.startup_app.take().expect("source window");
         drop(source);
@@ -207865,7 +207914,7 @@ return config
                 .push((change.window_id, change.focused));
             true
         });
-        apps.insert(first, first_app);
+        apps.insert(first, Box::new(first_app));
 
         let mut second_app = NativeWindowApp::new(None);
         second_app.app_window_id = second;
@@ -207877,7 +207926,7 @@ return config
                 .push((change.window_id, change.focused));
             true
         });
-        apps.insert(second, second_app);
+        apps.insert(second, Box::new(second_app));
 
         for (window_id, focused) in [
             (first, true),
@@ -207899,10 +207948,6 @@ return config
         );
     }
 
-    #[expect(
-        clippy::large_stack_arrays,
-        reason = "bounded compatibility fixtures avoid unrelated allocation and ownership changes"
-    )]
     #[test]
     fn window_manager_focus_ignores_unknown_and_removed_window_ids() {
         let known = rssh_core::WindowId::new(1);
@@ -207918,7 +207963,7 @@ return config
                 .push((change.window_id, change.focused));
             true
         });
-        let mut apps = HashMap::from([(known, app)]);
+        let mut apps = HashMap::from([(known, Box::new(app))]);
 
         dispatch_window_focus_changed(&mut focus, &mut apps, known, true).unwrap();
         dispatch_window_focus_changed(&mut focus, &mut apps, unknown, true).unwrap();
@@ -247516,7 +247561,7 @@ act.Confirmation {
                 fade_out_function: NativeEasingFunction::EaseOut,
                 target: NativeVisualBellTarget::BackgroundColor,
             }),
-            colors: Some(sample_palette()),
+            colors: Some(Box::new(sample_palette())),
             color_scheme: Some("Project Scheme".to_owned()),
             color_scheme_dirs: Some(vec!["colors".to_owned(), "more-colors".to_owned()]),
             color_schemes: Some(sample_color_schemes()),
@@ -248019,7 +248064,7 @@ act.Confirmation {
                 fade_out_function: NativeEasingFunction::EaseOut,
                 target: NativeVisualBellTarget::BackgroundColor,
             },
-            colors: Some(sample_palette()),
+            colors: Some(Box::new(sample_palette())),
             color_scheme: Some("Project Scheme".to_owned()),
             color_scheme_dirs: vec!["colors".to_owned(), "more-colors".to_owned()],
             color_schemes: sample_color_schemes(),
