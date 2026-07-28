@@ -6,6 +6,7 @@ members = [
     "crates/rssh-renderer",
     "crates/rssh-ssh",
     "crates/rssh-pty",
+    "crates/rssh-test-support",
 ]
 resolver = "3"
 

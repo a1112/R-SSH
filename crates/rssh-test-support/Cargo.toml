@@ -1,0 +1,13 @@
+[package]
+name = "rssh-test-support"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
