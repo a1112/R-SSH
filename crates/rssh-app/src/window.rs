@@ -127417,12 +127417,18 @@ fn inline_image_may_animate(image: &RenderInlineImage) -> bool {
         && (image.data.starts_with(b"GIF87a") || image.data.starts_with(b"GIF89a"))
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "visual-bell configuration and timing are millisecond-based, so whole-millisecond quantization is deliberate"
+)]
 fn duration_progress(elapsed: Duration, duration: Duration) -> f64 {
-    if duration.is_zero() {
+    let duration_ms = duration.as_millis();
+    if duration_ms == 0 {
         return 1.0;
     }
 
-    elapsed.min(duration).as_secs_f64() / duration.as_secs_f64()
+    let elapsed_ms = elapsed.as_millis().min(duration_ms);
+    elapsed_ms as f64 / duration_ms as f64
 }
 
 fn blend_visual_bell_color(
