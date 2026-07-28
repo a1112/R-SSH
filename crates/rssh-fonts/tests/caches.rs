@@ -1,0 +1,319 @@
+use std::path::{Path, PathBuf};
+
+use rssh_fonts::{
+    FontCatalog, FontConfig, FontSource, RasterCache, RasterCacheConfig, RasterContent,
+    RasterFallback, RasterFlags, RasterRequest, ShapedGlyph, ShapedRow, TerminalShaper,
+};
+
+const LATIN: &str = "NotoSans-Latin.fixture.ttf";
+const EMOJI: &str = "NotoColorEmoji.fixture.ttf";
+const CJK: &str = "NotoSansSC-CJK.fixture.ttf";
+const ARABIC: &str = "NotoSansArabic.fixture.ttf";
+const DEVANAGARI: &str = "NotoSansDevanagari.fixture.ttf";
+
+fn fixture_path(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/fonts")
+        .join(name)
+}
+
+fn source(name: &str) -> FontSource {
+    FontSource::new(
+        name,
+        std::fs::read(fixture_path(name)).expect("read fixture"),
+    )
+}
+
+fn catalog(names: &[&str]) -> FontCatalog {
+    FontCatalog::from_sources("en-US", names.iter().map(|name| source(name)))
+        .expect("fixture catalog")
+}
+
+#[test]
+fn shape_cache_is_lru_and_strictly_byte_bounded() {
+    let mut catalog = catalog(&[LATIN]);
+    let mut shaper = TerminalShaper::with_cache_budget(FontConfig::new("Noto Sans"), 1 << 20);
+    shaper.shape_row(&mut catalog, "aaaa").expect("measure");
+    let one_entry = shaper.cache_metrics().current_bytes;
+    assert!(one_entry > 0);
+    shaper.set_cache_budget(0);
+    shaper.set_cache_budget(one_entry * 2);
+
+    shaper.shape_row(&mut catalog, "aaaa").expect("a");
+    shaper.shape_row(&mut catalog, "bbbb").expect("b");
+    shaper.shape_row(&mut catalog, "aaaa").expect("a hit");
+    shaper.shape_row(&mut catalog, "cccc").expect("c evicts b");
+    shaper.shape_row(&mut catalog, "aaaa").expect("a retained");
+    let misses_before_b = shaper.cache_stats().misses;
+    shaper
+        .shape_row(&mut catalog, "bbbb")
+        .expect("b was evicted");
+    assert_eq!(shaper.cache_stats().misses, misses_before_b + 1);
+
+    let metrics = shaper.cache_metrics();
+    assert_eq!(metrics.hits, 2);
+    assert_eq!(metrics.evictions, 3);
+    assert!(metrics.current_bytes <= metrics.budget_bytes);
+    assert!(metrics.peak_bytes <= metrics.budget_bytes);
+    assert!(metrics.current_entries > 0);
+}
+
+#[test]
+fn zero_and_oversize_shape_budgets_bypass_without_retaining_rows() {
+    let mut catalog = catalog(&[LATIN]);
+    let mut zero = TerminalShaper::with_cache_budget(FontConfig::new("Noto Sans"), 0);
+    zero.shape_row(&mut catalog, "small").expect("shape");
+    zero.shape_row(&mut catalog, "small").expect("shape again");
+    assert_eq!(zero.cache_metrics().current_entries, 0);
+    assert_eq!(zero.cache_metrics().oversize_bypasses, 2);
+    assert_eq!(zero.cache_stats().hits, 0);
+
+    let mut tiny = TerminalShaper::with_cache_budget(FontConfig::new("Noto Sans"), 1);
+    let long = "long terminal row ".repeat(1_024);
+    tiny.shape_row(&mut catalog, &long).expect("long shape");
+    tiny.shape_row(&mut catalog, &long)
+        .expect("long shape again");
+    assert_eq!(tiny.cache_metrics().current_bytes, 0);
+    assert_eq!(tiny.cache_metrics().oversize_bypasses, 2);
+    assert_eq!(tiny.cache_stats().hits, 0);
+}
+
+#[test]
+fn shape_cache_key_covers_catalog_identity_configuration_and_spans() {
+    let mut first_catalog = catalog(&[LATIN]);
+    let mut second_catalog = catalog(&[LATIN]);
+    let mut shaper = TerminalShaper::with_cache_budget(FontConfig::new("Noto Sans"), 1 << 20);
+
+    shaper
+        .shape_row(&mut first_catalog, "fi")
+        .expect("first catalog");
+    shaper
+        .shape_row(&mut second_catalog, "fi")
+        .expect("second catalog");
+    shaper.set_config(FontConfig::new("Noto Sans").with_ligatures(false));
+    shaper
+        .shape_row(&mut second_catalog, "fi")
+        .expect("new config");
+
+    assert_eq!(shaper.cache_stats().hits, 0);
+    assert_eq!(shaper.cache_stats().misses, 3);
+}
+
+fn raster_request(row: &ShapedRow, glyph: &ShapedGlyph) -> RasterRequest {
+    RasterRequest::for_shaped_glyph(row, glyph, glyph.x, glyph.y)
+}
+
+#[test]
+fn raster_cache_returns_headless_masks_and_color_pixels() {
+    let mut catalog = catalog(&[LATIN, EMOJI]);
+    let config = FontConfig::new("Noto Sans").with_fallbacks(["Noto Color Emoji"]);
+    let mut shaper = TerminalShaper::new(config);
+    let latin = shaper.shape_row(&mut catalog, "A").expect("latin");
+    let emoji = shaper.shape_row(&mut catalog, "😀").expect("emoji");
+    let mut cache = RasterCache::new(RasterCacheConfig::new(1 << 20));
+
+    let mask = cache
+        .rasterize(&mut catalog, raster_request(&latin, &latin.glyphs[0]))
+        .expect("latin raster");
+    assert!(mask.width > 0 && mask.height > 0);
+    assert!(matches!(mask.content, RasterContent::Mask(_)));
+    assert_eq!(
+        mask.content.bytes().len(),
+        mask.width as usize * mask.height as usize
+    );
+
+    let color = cache
+        .rasterize(&mut catalog, raster_request(&emoji, &emoji.glyphs[0]))
+        .expect("emoji raster");
+    assert!(matches!(color.content, RasterContent::Rgba(_)));
+    assert_eq!(
+        color.content.bytes().len(),
+        color.width as usize * color.height as usize * 4
+    );
+    assert!(
+        color
+            .content
+            .bytes()
+            .chunks_exact(4)
+            .any(|pixel| pixel[3] != 0)
+    );
+    assert!(
+        color
+            .content
+            .bytes()
+            .chunks_exact(4)
+            .any(|pixel| pixel[0] != pixel[1] || pixel[1] != pixel[2])
+    );
+    let repeated = cache
+        .rasterize(&mut catalog, raster_request(&emoji, &emoji.glyphs[0]))
+        .expect("repeat emoji");
+    assert_eq!(color, repeated);
+}
+
+#[test]
+fn raster_cache_key_covers_scale_subpixel_flags_and_strong_font_scope() {
+    let mut catalog = catalog(&[LATIN]);
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));
+    let row = shaper.shape_row(&mut catalog, "A").expect("shape");
+    let base = raster_request(&row, &row.glyphs[0]);
+    let mut cache = RasterCache::new(RasterCacheConfig::new(1 << 20));
+
+    cache.rasterize(&mut catalog, base).expect("base miss");
+    cache.rasterize(&mut catalog, base).expect("base hit");
+    cache
+        .rasterize(
+            &mut catalog,
+            RasterRequest::for_shaped_glyph(&row, &row.glyphs[0], 0.5, row.glyphs[0].y),
+        )
+        .expect("subpixel miss");
+    cache
+        .rasterize(
+            &mut catalog,
+            RasterRequest::for_shaped_glyph(&row, &row.glyphs[0], 10.5, row.glyphs[0].y),
+        )
+        .expect("integral position shares bitmap");
+    cache.set_scale(2.0, 1.0);
+    cache.rasterize(&mut catalog, base).expect("dpi miss");
+    cache.set_scale(2.0, 1.25);
+    cache.rasterize(&mut catalog, base).expect("zoom miss");
+    let mut flagged = row.glyphs[0].clone();
+    flagged.raster_flags |= RasterFlags::DISABLE_HINTING;
+    cache
+        .rasterize(&mut catalog, raster_request(&row, &flagged))
+        .expect("flags miss");
+
+    assert_eq!(cache.metrics().hits, 2);
+    assert_eq!(cache.metrics().misses, 5);
+}
+
+#[test]
+fn raster_cache_eviction_zero_budget_oversize_and_stale_ids_are_safe() {
+    let mut catalog = catalog(&[LATIN]);
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));
+    let row = shaper.shape_row(&mut catalog, "ABC").expect("shape");
+
+    let mut zero = RasterCache::new(RasterCacheConfig::new(0));
+    let request = raster_request(&row, &row.glyphs[0]);
+    assert!(zero.rasterize(&mut catalog, request).is_some());
+    assert!(zero.rasterize(&mut catalog, request).is_some());
+    assert_eq!(zero.metrics().current_entries, 0);
+    assert_eq!(zero.metrics().oversize_bypasses, 2);
+
+    let mut bounded = RasterCache::new(RasterCacheConfig::new(1_024));
+    for glyph in &row.glyphs {
+        bounded.set_scale(4.0, 1.0);
+        let request = raster_request(&row, glyph);
+        let _ = bounded.rasterize(&mut catalog, request);
+    }
+    let metrics = bounded.metrics();
+    assert!(metrics.current_bytes <= 1_024);
+    assert!(metrics.peak_bytes <= 1_024);
+    assert!(metrics.evictions > 0 || metrics.oversize_bypasses > 0);
+
+    let stale = request;
+    catalog
+        .load_source(source(EMOJI))
+        .expect("advance generation");
+    assert!(bounded.rasterize(&mut catalog, stale).is_none());
+    assert_eq!(bounded.metrics().current_entries, 0);
+    assert!(bounded.metrics().invalidations > 0);
+}
+
+#[test]
+fn changing_raster_scale_invalidates_entries_and_invalid_values_never_panic() {
+    let mut catalog = catalog(&[LATIN]);
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));
+    let row = shaper.shape_row(&mut catalog, "A").expect("shape");
+    let request = raster_request(&row, &row.glyphs[0]);
+    let mut cache = RasterCache::new(RasterCacheConfig::new(1 << 20));
+
+    cache.rasterize(&mut catalog, request).expect("first");
+    cache.set_scale(2.0, 1.5);
+    assert_eq!(cache.metrics().current_entries, 0);
+    cache.rasterize(&mut catalog, request).expect("scaled");
+
+    cache.set_scale(f32::INFINITY, 1.0);
+    assert!(cache.rasterize(&mut catalog, request).is_none());
+    cache.set_scale(1.0, -1.0);
+    assert!(cache.rasterize(&mut catalog, request).is_none());
+}
+
+#[test]
+fn visible_tofu_gets_a_bounded_fallback_but_blank_glyphs_do_not() {
+    let mut catalog = catalog(&[LATIN]);
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));
+    let tofu = shaper.shape_row(&mut catalog, "Ω").expect("tofu row");
+    assert!(tofu.glyphs[0].is_tofu);
+    let blank = shaper.shape_row(&mut catalog, " ").expect("blank row");
+    let mut cache = RasterCache::new(RasterCacheConfig::new(64 * 1024));
+
+    let fallback = cache
+        .rasterize(&mut catalog, raster_request(&tofu, &tofu.glyphs[0]))
+        .expect("visible tofu fallback");
+    assert_eq!(fallback.fallback, Some(RasterFallback::MissingGlyph));
+    assert!(matches!(fallback.content, RasterContent::Mask(_)));
+    assert!(cache.metrics().current_bytes <= cache.metrics().budget_bytes);
+
+    if let Some(blank_glyph) = blank.glyphs.first() {
+        assert!(
+            cache
+                .rasterize(&mut catalog, raster_request(&blank, blank_glyph))
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn corrupt_visible_color_bitmap_falls_back_without_panicking() {
+    let mut bytes = std::fs::read(fixture_path(EMOJI)).expect("read emoji");
+    let idat_offsets: Vec<_> = bytes
+        .windows(4)
+        .enumerate()
+        .filter_map(|(offset, chunk)| (chunk == b"IDAT").then_some(offset + 4))
+        .collect();
+    assert!(!idat_offsets.is_empty(), "embedded PNG IDAT");
+    for offset in idat_offsets {
+        bytes[offset] ^= 0xff;
+    }
+    let mut catalog = FontCatalog::from_sources("en-US", [FontSource::new("corrupt emoji", bytes)])
+        .expect("sfnt remains parseable");
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Color Emoji"));
+    let row = shaper.shape_row(&mut catalog, "😀").expect("shape emoji");
+    let mut cache = RasterCache::new(RasterCacheConfig::new(64 * 1024));
+
+    let fallback = cache
+        .rasterize(&mut catalog, raster_request(&row, &row.glyphs[0]))
+        .expect("visible raster fallback");
+    assert_eq!(fallback.fallback, Some(RasterFallback::RasterFailure));
+    assert!(matches!(fallback.content, RasterContent::Mask(_)));
+    assert_eq!(cache.metrics().raster_failures, 1);
+}
+
+#[test]
+fn headless_multiscript_specimen_rasterizes_without_system_fonts() {
+    let mut catalog = catalog(&[LATIN, CJK, ARABIC, DEVANAGARI, EMOJI]);
+    let config = FontConfig::new("Noto Sans").with_fallbacks([
+        "Noto Sans SC",
+        "Noto Sans Arabic",
+        "Noto Sans Devanagari",
+        "Noto Color Emoji",
+    ]);
+    let mut shaper = TerminalShaper::new(config);
+    let mut cache = RasterCache::new(RasterCacheConfig::new(2 * 1024 * 1024));
+
+    for specimen in ["A", "中", "مرحبا", "नमस्ते", "😀"] {
+        let row = shaper
+            .shape_row(&mut catalog, specimen)
+            .expect("shape specimen");
+        assert!(!row.glyphs.is_empty(), "{specimen:?} shaped no glyphs");
+        assert!(
+            row.glyphs.iter().any(|glyph| {
+                cache
+                    .rasterize(&mut catalog, raster_request(&row, glyph))
+                    .is_some()
+            }),
+            "{specimen:?} produced no raster"
+        );
+    }
+    assert!(cache.metrics().current_bytes <= cache.metrics().budget_bytes);
+}

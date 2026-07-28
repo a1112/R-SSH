@@ -7,7 +7,7 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-cosmic-text = { version = "=0.19.0", default-features = false, features = ["std"] }
+cosmic-text = { version = "=0.19.0", default-features = false, features = ["std", "swash"] }
 sha2 = "0.11"
 ttf-parser = "0.25"
 unicode-segmentation = "1.12"

@@ -33,6 +33,10 @@ impl FontId {
     pub const fn catalog_generation(self) -> u64 {
         self.catalog_generation
     }
+
+    pub(crate) const fn raw(self) -> Option<fontdb::ID> {
+        self.raw
+    }
 }
 
 /// Caller-provided font bytes and a diagnostic label.
@@ -384,6 +388,14 @@ impl FontCatalog {
 
     pub(crate) fn font_system_mut(&mut self) -> &mut FontSystem {
         &mut self.font_system
+    }
+
+    pub(crate) fn owns(&self, id: FontId) -> bool {
+        id.catalog_incarnation == self.incarnation
+            && id.catalog_generation == self.generation
+            && id
+                .raw
+                .is_some_and(|raw| self.records.iter().any(|record| record.id == raw))
     }
 
     pub(crate) fn first_record(&self) -> Option<&FontRecord> {

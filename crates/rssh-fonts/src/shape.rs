@@ -7,12 +7,15 @@ use std::ops::Range;
 use cosmic_text::{
     Attrs, Buffer, Family, FeatureTag, FontFeatures, Metrics, Shaping, Stretch, Style, Weight, Wrap,
 };
+use sha2::{Digest, Sha256};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+use crate::cache::{BoundedCache, CacheMetrics};
 use crate::catalog::{FontCatalog, FontId, is_default_ignorable};
 use crate::config::{FontConfig, FontStretch, FontStyle};
 use crate::diagnostics::{DiagnosticKind, Diagnostics, FontDiagnostic};
+use crate::raster::RasterFlags;
 
 /// Logical terminal cell range.
 pub type CellSpan = Range<usize>;
@@ -100,6 +103,12 @@ pub struct ShapedGlyph {
     pub font_id: FontId,
     /// Glyph identifier within the face.
     pub glyph_id: u16,
+    /// Backend font size required to reproduce this glyph's raster key.
+    pub raster_font_size: f32,
+    /// Backend font weight required to reproduce this glyph's raster key.
+    pub raster_weight: u16,
+    /// Backend raster flags required to reproduce this glyph's raster key.
+    pub raster_flags: RasterFlags,
     /// UTF-8 source range covered by the shaping cluster.
     pub byte_range: Range<usize>,
     /// Logical grapheme clusters covered by this glyph.
@@ -189,13 +198,12 @@ pub struct ShapeCacheStats {
     pub misses: u64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct ShapeCacheKey {
-    clusters: Vec<TerminalCluster>,
     catalog_incarnation: u64,
     catalog_generation: u64,
     catalog_fingerprint: [u8; 32],
-    config: FontConfig,
+    request_fingerprint: [u8; 32],
 }
 
 #[derive(Clone, Debug)]
@@ -235,18 +243,28 @@ struct CollapsedLayout {
 pub struct TerminalShaper {
     config: FontConfig,
     diagnostics: Diagnostics,
-    cache: Option<(ShapeCacheKey, ShapedRow)>,
+    cache: BoundedCache<ShapeCacheKey, ShapedRow>,
+    cache_scope: Option<(u64, u64, [u8; 32])>,
     stats: ShapeCacheStats,
 }
 
 impl TerminalShaper {
+    const DEFAULT_CACHE_BUDGET: usize = 8 * 1024 * 1024;
+
     /// Creates a shaper for one effective terminal font configuration.
     #[must_use]
     pub fn new(config: FontConfig) -> Self {
+        Self::with_cache_budget(config, Self::DEFAULT_CACHE_BUDGET)
+    }
+
+    /// Creates a shaper with an explicit maximum number of retained cache bytes.
+    #[must_use]
+    pub fn with_cache_budget(config: FontConfig, budget_bytes: usize) -> Self {
         Self {
             config,
             diagnostics: Diagnostics::default(),
-            cache: None,
+            cache: BoundedCache::new(budget_bytes),
+            cache_scope: None,
             stats: ShapeCacheStats::default(),
         }
     }
@@ -255,7 +273,7 @@ impl TerminalShaper {
     pub fn set_config(&mut self, config: FontConfig) {
         if self.config != config {
             self.config = config;
-            self.cache = None;
+            self.cache.invalidate();
         }
     }
 
@@ -263,6 +281,17 @@ impl TerminalShaper {
     #[must_use]
     pub const fn cache_stats(&self) -> ShapeCacheStats {
         self.stats
+    }
+
+    /// Detailed bounded-cache instrumentation.
+    #[must_use]
+    pub const fn cache_metrics(&self) -> CacheMetrics {
+        self.cache.metrics()
+    }
+
+    /// Changes the retained-byte budget, evicting least-recently-used rows if needed.
+    pub fn set_cache_budget(&mut self, budget_bytes: usize) {
+        self.cache.set_budget(budget_bytes);
     }
 
     /// Shapes one unwrapped terminal row.
@@ -308,18 +337,26 @@ impl TerminalShaper {
         clusters: &[TerminalCluster],
     ) -> Result<ShapedRow, ShapeError> {
         self.validate(catalog, clusters)?;
+        let scope = (
+            catalog.incarnation(),
+            catalog.generation(),
+            catalog.fingerprint(),
+        );
+        if self.cache_scope != Some(scope) {
+            if self.cache_scope.is_some() {
+                self.cache.invalidate();
+            }
+            self.cache_scope = Some(scope);
+        }
         let key = ShapeCacheKey {
-            clusters: clusters.to_vec(),
             catalog_incarnation: catalog.incarnation(),
             catalog_generation: catalog.generation(),
             catalog_fingerprint: catalog.fingerprint(),
-            config: self.config.clone(),
+            request_fingerprint: shape_request_fingerprint(clusters, &self.config),
         };
-        if let Some((cached_key, row)) = &self.cache
-            && cached_key == &key
-        {
+        if let Some(row) = self.cache.get(&key) {
             self.stats.hits = self.stats.hits.saturating_add(1);
-            return Ok(row.clone());
+            return Ok(row);
         }
         self.stats.misses = self.stats.misses.saturating_add(1);
         self.diagnostics.begin_row();
@@ -330,7 +367,12 @@ impl TerminalShaper {
             .collect();
         let plans = self.plan_clusters(catalog, clusters);
         let row = self.shape_plans(catalog, text, plans)?;
-        self.cache = Some((key, row.clone()));
+        let entry_bytes = estimate_shape_entry_bytes(&row);
+        if self.cache.can_retain(entry_bytes) {
+            self.cache.insert(key, row.clone(), entry_bytes);
+        } else {
+            self.cache.record_oversize_bypass();
+        }
         Ok(row)
     }
 
@@ -721,28 +763,14 @@ impl TerminalShaper {
                 let is_color = plans[cluster_range.clone()]
                     .iter()
                     .all(|plan| plan.is_color);
-                glyphs.push(ShapedGlyph {
-                    font_id: if actual_is_valid {
-                        actual_id
-                    } else {
-                        planned_id
-                    },
-                    glyph_id: if actual_is_valid { glyph.glyph_id } else { 0 },
-                    byte_range: glyph.start..glyph.end,
+                glyphs.push(shaped_backend_glyph(
+                    glyph,
+                    actual_id,
                     cluster_range,
-                    cell_span: cell_span.clone(),
-                    visual_order: glyphs.len(),
-                    x: glyph.x,
-                    y: glyph.y,
-                    width: glyph.w,
-                    shaping_x: glyph.x,
-                    shaping_width: glyph.w,
-                    x_offset: glyph.x_offset,
-                    y_offset: glyph.y_offset,
-                    bidi_level: glyph.level.number(),
+                    cell_span,
+                    glyphs.len(),
                     is_color,
-                    is_tofu: false,
-                });
+                ));
             }
         }
         for (logical_index, plan) in plans.iter_mut().enumerate() {
@@ -758,6 +786,7 @@ impl TerminalShaper {
                     logical_index,
                     collapsed_layouts[logical_index],
                     metrics,
+                    self.config.weight,
                     visual_order,
                 ));
                 linear_index_steps += 1;
@@ -877,11 +906,43 @@ impl TerminalShaper {
     }
 }
 
+fn shaped_backend_glyph(
+    glyph: &cosmic_text::LayoutGlyph,
+    font_id: FontId,
+    cluster_range: Range<usize>,
+    cell_span: Range<usize>,
+    visual_order: usize,
+    is_color: bool,
+) -> ShapedGlyph {
+    ShapedGlyph {
+        font_id,
+        glyph_id: glyph.glyph_id,
+        raster_font_size: glyph.font_size,
+        raster_weight: glyph.font_weight.0,
+        raster_flags: RasterFlags::from_cosmic(glyph.cache_key_flags),
+        byte_range: glyph.start..glyph.end,
+        cluster_range,
+        cell_span,
+        visual_order,
+        x: glyph.x,
+        y: glyph.y,
+        width: glyph.w,
+        shaping_x: glyph.x,
+        shaping_width: glyph.w,
+        x_offset: glyph.x_offset,
+        y_offset: glyph.y_offset,
+        bidi_level: glyph.level.number(),
+        is_color,
+        is_tofu: false,
+    }
+}
+
 fn synthetic_tofu_glyph(
     plan: &ClusterPlan,
     logical_index: usize,
     collapsed: Option<CollapsedLayout>,
     metrics: TerminalFontMetrics,
+    weight: u16,
     visual_order: usize,
 ) -> ShapedGlyph {
     let logical_x = cell_pixels(plan.cell_span.start, metrics.cell_width);
@@ -893,6 +954,9 @@ fn synthetic_tofu_glyph(
     ShapedGlyph {
         font_id: plan.font_id,
         glyph_id: 0,
+        raster_font_size: metrics.font_size,
+        raster_weight: weight,
+        raster_flags: RasterFlags::default(),
         byte_range: plan.byte_range.clone(),
         cluster_range: logical_index..logical_index.saturating_add(1),
         cell_span: plan.cell_span.clone(),
@@ -1034,6 +1098,71 @@ fn mark_plan_tofu(
         });
     }
     plan.is_tofu = true;
+}
+
+fn estimate_shape_entry_bytes(row: &ShapedRow) -> usize {
+    let mut bytes = std::mem::size_of::<ShapeCacheKey>()
+        .saturating_add(std::mem::size_of::<ShapedRow>())
+        .saturating_add(std::mem::size_of::<(u64, ShapeCacheKey)>())
+        .saturating_add(std::mem::size_of::<usize>() * 4);
+    bytes = bytes
+        .saturating_add(row.text.capacity())
+        .saturating_add(
+            row.glyphs
+                .capacity()
+                .saturating_mul(std::mem::size_of::<ShapedGlyph>()),
+        )
+        .saturating_add(
+            row.clusters
+                .capacity()
+                .saturating_mul(std::mem::size_of::<ShapedCluster>()),
+        )
+        .saturating_add(
+            row.visual_clusters
+                .capacity()
+                .saturating_mul(std::mem::size_of::<usize>()),
+        );
+    for cluster in &row.clusters {
+        bytes = bytes.saturating_add(cluster.font_family.capacity());
+    }
+    for diagnostic in &row.diagnostics {
+        bytes = bytes
+            .saturating_add(std::mem::size_of::<FontDiagnostic>())
+            .saturating_add(diagnostic.family.as_ref().map_or(0, String::capacity))
+            .saturating_add(diagnostic.cluster.as_ref().map_or(0, String::capacity));
+    }
+    bytes
+}
+
+fn shape_request_fingerprint(clusters: &[TerminalCluster], config: &FontConfig) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(b"rssh-shape-cache-v1");
+    digest.update(clusters.len().to_le_bytes());
+    for cluster in clusters {
+        digest.update(cluster.text.len().to_le_bytes());
+        digest.update(cluster.text.as_bytes());
+        digest.update(cluster.cell_span.start.to_le_bytes());
+        digest.update(cluster.cell_span.end.to_le_bytes());
+    }
+    digest.update(config.primary.len().to_le_bytes());
+    digest.update(config.primary.as_bytes());
+    digest.update(config.fallbacks.len().to_le_bytes());
+    for fallback in &config.fallbacks {
+        digest.update(fallback.len().to_le_bytes());
+        digest.update(fallback.as_bytes());
+    }
+    digest.update(config.font_size.to_bits().to_le_bytes());
+    digest.update(config.line_height.to_bits().to_le_bytes());
+    digest.update(config.cell_width.to_bits().to_le_bytes());
+    digest.update(config.weight.to_le_bytes());
+    digest.update([config.style as u8, config.stretch as u8]);
+    digest.update([u8::from(config.ligatures), config.bidi as u8]);
+    digest.update(config.features.len().to_le_bytes());
+    for (tag, value) in &config.features {
+        digest.update(tag);
+        digest.update(value.to_le_bytes());
+    }
+    digest.finalize().into()
 }
 
 fn indexed_cluster_range(
