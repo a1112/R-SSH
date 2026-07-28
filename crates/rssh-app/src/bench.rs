@@ -235,7 +235,7 @@ impl BenchmarkRuntime {
         match workload {
             BenchWorkload::PlainScroll => Self::Plain(Box::new(Terminal::new(size))),
             BenchWorkload::AnsiScroll | BenchWorkload::AnsiScrollQuery => {
-                Self::Filtered(Box::new(TerminalRuntime::new(size)))
+                Self::Filtered(Box::new(TerminalRuntime::new_with_query_scan_work(size)))
             }
         }
     }

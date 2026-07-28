@@ -1,69 +1,61 @@
 use std::cell::Cell;
 
-thread_local! {
-    static ACTIVE_CANDIDATE_BYTES: Cell<Option<u64>> = const { Cell::new(None) };
+pub(crate) trait QueryScanRecorder: Copy {
+    /// Records the complete candidate slice received by a concrete query
+    /// search or prefix-match primitive.
+    fn record_candidate(self, candidate: &[u8]);
 }
 
-/// Exact sum of candidate-slice lengths passed to legacy byte-search and
-/// prefix-match primitives while a terminal-output filter scan is active.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct QueryScanWork {
-    pub(crate) candidate_bytes: u64,
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct QueryScanNoop;
+
+impl QueryScanRecorder for QueryScanNoop {
+    #[inline]
+    fn record_candidate(self, _candidate: &[u8]) {}
 }
 
-pub(crate) fn measure_query_scan_work<T>(scan: impl FnOnce() -> T) -> (T, QueryScanWork) {
-    ACTIVE_CANDIDATE_BYTES.with(|active| {
-        assert!(
-            active.replace(Some(0)).is_none(),
-            "query scan work measurement must not be nested"
-        );
-    });
-    let mut guard = QueryScanGuard { completed: false };
-    let result = scan();
-    let candidate_bytes = ACTIVE_CANDIDATE_BYTES.with(|active| {
-        active
-            .replace(None)
-            .expect("query scan work measurement must remain active")
-    });
-    guard.completed = true;
-    (result, QueryScanWork { candidate_bytes })
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct QueryScanWork<'a> {
+    candidate_bytes: &'a Cell<u64>,
 }
 
-pub(crate) fn record_query_scan_candidate(candidate: &[u8]) {
-    let bytes = u64::try_from(candidate.len()).unwrap_or(u64::MAX);
-    record_query_scan_candidate_bytes(bytes);
+impl<'a> QueryScanWork<'a> {
+    pub(crate) const fn new(candidate_bytes: &'a Cell<u64>) -> Self {
+        Self { candidate_bytes }
+    }
 }
 
-fn record_query_scan_candidate_bytes(bytes: u64) {
-    ACTIVE_CANDIDATE_BYTES.with(|active| {
-        if let Some(current) = active.get() {
-            active.set(Some(current.saturating_add(bytes)));
-        }
-    });
-}
-
-struct QueryScanGuard {
-    completed: bool,
-}
-
-impl Drop for QueryScanGuard {
-    fn drop(&mut self) {
-        if !self.completed {
-            ACTIVE_CANDIDATE_BYTES.with(|active| active.set(None));
-        }
+impl QueryScanRecorder for QueryScanWork<'_> {
+    #[inline]
+    fn record_candidate(self, candidate: &[u8]) {
+        let bytes = u64::try_from(candidate.len()).unwrap_or(u64::MAX);
+        self.candidate_bytes
+            .set(self.candidate_bytes.get().saturating_add(bytes));
     }
 }
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn measurement_counts_candidates_and_saturates_additions() {
-        let ((), work) = super::measure_query_scan_work(|| {
-            super::record_query_scan_candidate(b"abc");
-            super::record_query_scan_candidate(b"defgh");
-            super::record_query_scan_candidate_bytes(u64::MAX);
-        });
+    use std::cell::Cell;
 
-        assert_eq!(work.candidate_bytes, u64::MAX);
+    use super::{QueryScanNoop, QueryScanRecorder, QueryScanWork};
+
+    fn record_two_candidates<R: QueryScanRecorder>(recorder: R) {
+        recorder.record_candidate(b"abc");
+        recorder.record_candidate(b"defgh");
+    }
+
+    #[test]
+    fn work_recorder_counts_candidates_while_noop_has_no_state() {
+        record_two_candidates(QueryScanNoop);
+
+        let candidate_bytes = Cell::new(0);
+        record_two_candidates(QueryScanWork::new(&candidate_bytes));
+
+        assert_eq!(candidate_bytes.get(), 8);
+
+        candidate_bytes.set(u64::MAX - 1);
+        QueryScanWork::new(&candidate_bytes).record_candidate(b"abc");
+        assert_eq!(candidate_bytes.get(), u64::MAX);
     }
 }

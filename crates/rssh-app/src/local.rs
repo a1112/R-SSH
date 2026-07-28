@@ -32,6 +32,7 @@ use serde::Serialize;
 use crate::{
     cli::{LocalOptions, Osc52Policy},
     diagnostics,
+    query_scan_work::QueryScanNoop,
     terminal_input::{TerminalKey, encode_terminal_key},
     terminal_modes::{
         KITTY_KEYBOARD_ALTERNATE_KEYS, KITTY_KEYBOARD_ASSOCIATED_TEXT, KITTY_KEYBOARD_DISAMBIGUATE,
@@ -1263,23 +1264,24 @@ impl TerminalOutputFilter {
         let response = self
             .find_next_response()
             .map(|(index, response)| (index, response.into()));
-        let synchronized_output = find_synchronized_output_mode_sequence(&self.pending).map(
-            |SynchronizedOutputModeSequence {
-                 index,
-                 consumed,
-                 enabled,
-             }| {
-                (
-                    index,
-                    MatchedTerminalEvent {
-                        consumed,
-                        event: MatchedTerminalEventKind::SynchronizedOutputMode { enabled },
-                    },
-                )
-            },
-        );
-        let kitty_keyboard_mode = find_kitty_keyboard_mode_sequence(&self.pending).map(
-            |KittyKeyboardModeSequence { index, consumed }| {
+        let synchronized_output =
+            find_synchronized_output_mode_sequence(&self.pending, QueryScanNoop).map(
+                |SynchronizedOutputModeSequence {
+                     index,
+                     consumed,
+                     enabled,
+                 }| {
+                    (
+                        index,
+                        MatchedTerminalEvent {
+                            consumed,
+                            event: MatchedTerminalEventKind::SynchronizedOutputMode { enabled },
+                        },
+                    )
+                },
+            );
+        let kitty_keyboard_mode = find_kitty_keyboard_mode_sequence(&self.pending, QueryScanNoop)
+            .map(|KittyKeyboardModeSequence { index, consumed }| {
                 (
                     index,
                     MatchedTerminalEvent {
@@ -1287,10 +1289,9 @@ impl TerminalOutputFilter {
                         event: MatchedTerminalEventKind::KittyKeyboardMode,
                     },
                 )
-            },
-        );
-        let key_modifier_options = find_key_modifier_options_sequence(&self.pending).map(
-            |KeyModifierOptionsSequence { index, consumed }| {
+            });
+        let key_modifier_options = find_key_modifier_options_sequence(&self.pending, QueryScanNoop)
+            .map(|KeyModifierOptionsSequence { index, consumed }| {
                 (
                     index,
                     MatchedTerminalEvent {
@@ -1298,8 +1299,7 @@ impl TerminalOutputFilter {
                         event: MatchedTerminalEventKind::KeyModifierOptions,
                     },
                 )
-            },
-        );
+            });
         let ignored_window_query = ignored_control_event(
             &self.pending,
             find_ignored_wezterm_window_query(&self.pending),
@@ -1447,32 +1447,34 @@ impl TerminalOutputFilter {
                 )
             },
         );
-        let kitty_keyboard_flags_response = find_kitty_keyboard_flags_query(&self.pending).map(
-            |KittyKeyboardFlagsQuery { index, consumed }| {
-                (
-                    index,
-                    MatchedTerminalResponse {
-                        consumed,
-                        response: TerminalResponse::KittyKeyboardFlags,
-                    },
-                )
-            },
-        );
-        let key_modifier_options_response = find_key_modifier_options_query(&self.pending).map(
-            |KeyModifierOptionsQuery {
-                 index,
-                 consumed,
-                 resource,
-             }| {
-                (
-                    index,
-                    MatchedTerminalResponse {
-                        consumed,
-                        response: TerminalResponse::KeyModifierOptions(resource),
-                    },
-                )
-            },
-        );
+        let kitty_keyboard_flags_response =
+            find_kitty_keyboard_flags_query(&self.pending, QueryScanNoop).map(
+                |KittyKeyboardFlagsQuery { index, consumed }| {
+                    (
+                        index,
+                        MatchedTerminalResponse {
+                            consumed,
+                            response: TerminalResponse::KittyKeyboardFlags,
+                        },
+                    )
+                },
+            );
+        let key_modifier_options_response =
+            find_key_modifier_options_query(&self.pending, QueryScanNoop).map(
+                |KeyModifierOptionsQuery {
+                     index,
+                     consumed,
+                     resource,
+                 }| {
+                    (
+                        index,
+                        MatchedTerminalResponse {
+                            consumed,
+                            response: TerminalResponse::KeyModifierOptions(resource),
+                        },
+                    )
+                },
+            );
 
         static_response
             .into_iter()
@@ -1560,7 +1562,10 @@ impl TerminalOutputFilter {
         static_query_suffix
             .max(private_mode_status_query_suffix_len(pending))
             .max(ansi_mode_status_query_suffix_len(pending))
-            .max(synchronized_output_mode_sequence_suffix_len(pending))
+            .max(synchronized_output_mode_sequence_suffix_len(
+                pending,
+                QueryScanNoop,
+            ))
             .max(osc_color_query_suffix_len(pending))
             .max(decrqss_query_suffix_len(pending))
             .max(xtgettcap_query_suffix_len(pending))
@@ -1568,10 +1573,22 @@ impl TerminalOutputFilter {
             .max(clipboard_sequence_suffix_len(pending))
             .max(osc8_hyperlink_sequence_suffix_len(pending))
             .max(osc_notification_sequence_suffix_len(pending))
-            .max(kitty_keyboard_flags_query_suffix_len(pending))
-            .max(kitty_keyboard_mode_sequence_suffix_len(pending))
-            .max(key_modifier_options_query_suffix_len(pending))
-            .max(key_modifier_options_sequence_suffix_len(pending))
+            .max(kitty_keyboard_flags_query_suffix_len(
+                pending,
+                QueryScanNoop,
+            ))
+            .max(kitty_keyboard_mode_sequence_suffix_len(
+                pending,
+                QueryScanNoop,
+            ))
+            .max(key_modifier_options_query_suffix_len(
+                pending,
+                QueryScanNoop,
+            ))
+            .max(key_modifier_options_sequence_suffix_len(
+                pending,
+                QueryScanNoop,
+            ))
             .max(st_control_suffix_len(pending))
             .max(incomplete_osc_control_sequence_suffix_len(pending))
             .max(incomplete_st_control_sequence_suffix_len(pending))
