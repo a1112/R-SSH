@@ -7,7 +7,7 @@ use std::{
 use rssh_core::TerminalSize;
 use rssh_renderer::{PixelRenderer, TerminalRenderSnapshot};
 use rssh_terminal::Terminal;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
 use crate::{
@@ -18,7 +18,7 @@ use crate::{
 const BENCH_CELL_WIDTH: u32 = 8;
 const BENCH_CELL_HEIGHT: u32 = 16;
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct BenchReport {
     pub ok: bool,
     pub workload: String,
@@ -52,7 +52,7 @@ pub struct BenchReport {
     pub cursor_column: u16,
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct BenchThresholdViolation {
     pub metric: String,
     pub actual: String,
@@ -157,6 +157,8 @@ fn run_benchmark_workload(
     size: TerminalSize,
 ) -> BenchReport {
     let mut runtime = BenchmarkRuntime::new(workload_kind, size);
+    let inspected_query_bytes_start = runtime.inspected_query_bytes();
+    let terminal_work_start = runtime.terminal().work_counters();
     let mut chunk_timings = Vec::new();
     let mut responses = 0_usize;
     let mut display_bytes = 0_usize;
@@ -173,7 +175,10 @@ fn run_benchmark_workload(
     }
     let elapsed = started.elapsed();
     let (cursor_row, cursor_column) = runtime.terminal().cursor();
-    let work = runtime.terminal().work_counters();
+    let work = runtime
+        .terminal()
+        .work_counters()
+        .saturating_delta_since(terminal_work_start);
     let render_report = benchmark_rendering(runtime.terminal(), render_frames, size);
     let resource_report = sample_process_resources(idle_ms);
 
@@ -202,7 +207,10 @@ fn run_benchmark_workload(
         responses,
         bells,
         scrollback_lines: runtime.terminal().scrollback().len(),
-        inspected_query_bytes: runtime.inspected_query_bytes(),
+        inspected_query_bytes: saturating_counter_delta(
+            runtime.inspected_query_bytes(),
+            inspected_query_bytes_start,
+        ),
         scrolled_survivor_cell_clones: work.scrolled_survivor_cell_clones,
         history_row_relocations: work.history_row_relocations,
         metadata_rebase_batches: work.metadata_rebase_batches,
@@ -543,11 +551,21 @@ fn u128_to_u64(value: u128) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
 }
 
+const fn saturating_counter_delta(current: u64, earlier: u64) -> u64 {
+    current.saturating_sub(earlier)
+}
+
 #[cfg(test)]
 mod tests {
     use rssh_core::TerminalSize;
 
     use crate::cli::BenchOptions;
+
+    #[test]
+    fn counter_delta_excludes_prior_query_work_and_saturates() {
+        assert_eq!(super::saturating_counter_delta(125, 100), 25);
+        assert_eq!(super::saturating_counter_delta(35, 40), 0);
+    }
 
     #[test]
     fn builds_exact_sized_benchmark_workload() {
@@ -814,22 +832,10 @@ mod tests {
             (&query, "ansi-scroll-query"),
         ] {
             let json = super::bench_json(report).expect("serialize benchmark report");
-            let value: serde_json::Value =
-                serde_json::from_str(&json).expect("parse benchmark report");
-            assert_eq!(value["workload"], expected_name);
-            assert_eq!(value["inspected_query_bytes"], report.inspected_query_bytes);
-            assert_eq!(
-                value["scrolled_survivor_cell_clones"],
-                report.scrolled_survivor_cell_clones
-            );
-            assert_eq!(
-                value["history_row_relocations"],
-                report.history_row_relocations
-            );
-            assert_eq!(
-                value["metadata_rebase_batches"],
-                report.metadata_rebase_batches
-            );
+            let decoded: super::BenchReport =
+                serde_json::from_str(&json).expect("deserialize benchmark report");
+            assert_eq!(decoded.workload, expected_name);
+            assert_eq!(&decoded, report);
         }
 
         assert_eq!(plain.inspected_query_bytes, 0);

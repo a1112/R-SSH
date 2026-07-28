@@ -439,6 +439,25 @@ pub struct TerminalWorkCounters {
     pub metadata_rebase_batches: u64,
 }
 
+impl TerminalWorkCounters {
+    /// Returns work performed since `earlier`, saturating if snapshots are not
+    /// ordered (for example, after replacing an observed terminal).
+    #[must_use]
+    pub const fn saturating_delta_since(self, earlier: Self) -> Self {
+        Self {
+            scrolled_survivor_cell_clones: self
+                .scrolled_survivor_cell_clones
+                .saturating_sub(earlier.scrolled_survivor_cell_clones),
+            history_row_relocations: self
+                .history_row_relocations
+                .saturating_sub(earlier.history_row_relocations),
+            metadata_rebase_batches: self
+                .metadata_rebase_batches
+                .saturating_sub(earlier.metadata_rebase_batches),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 #[expect(
     clippy::struct_excessive_bools,
@@ -8746,6 +8765,29 @@ mod stable_row_tests {
                 scrolled_survivor_cell_clones: 8,
                 history_row_relocations: 1,
                 metadata_rebase_batches: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn terminal_work_counter_delta_excludes_prior_work_and_saturates() {
+        let earlier = TerminalWorkCounters {
+            scrolled_survivor_cell_clones: 100,
+            history_row_relocations: 40,
+            metadata_rebase_batches: 7,
+        };
+        let later = TerminalWorkCounters {
+            scrolled_survivor_cell_clones: 125,
+            history_row_relocations: 35,
+            metadata_rebase_batches: 9,
+        };
+
+        assert_eq!(
+            later.saturating_delta_since(earlier),
+            TerminalWorkCounters {
+                scrolled_survivor_cell_clones: 25,
+                history_row_relocations: 0,
+                metadata_rebase_batches: 2,
             }
         );
     }
