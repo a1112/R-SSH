@@ -7,15 +7,15 @@ use rssh_terminal::{
 use crate::{
     terminal_modes::{MouseInputMode, TerminalModeTracker},
     terminal_queries::{
-        ClipboardCommand, DecrqcraRequest as SharedDecrqcraRequest, FixedQuery,
-        NotificationCommand, OscColorKind as SharedOscColorKind,
-        OscColorRequest as SharedOscColorRequest, ProgressCommand, ScannedSegment, SemanticControl,
-        StringTerminator, TerminalQueryScanner, WindowReportRequest,
-        XtSmGraphicsRequest as SharedXtSmGraphicsRequest,
+        ClipboardCommand, DecrqcraRequest as SharedDecrqcraRequest, FixedQuery, KeyModifierOptions,
+        KittyKeyboardMode, NotificationCommand, OscColorKind as SharedOscColorKind,
+        OscColorRequest as SharedOscColorRequest, PrivateModeSequence, ProgressCommand,
+        ScannedSegment, SemanticControl, StringTerminator, TerminalQueryScanner,
+        WindowReportRequest, XtSmGraphicsRequest as SharedXtSmGraphicsRequest,
     },
     terminal_query_dcs::{
         DcsTerminator, DecrqssKind as SharedDecrqssKind, DecrqssRequest as SharedDecrqssRequest,
-        XtGetTcapRequest as SharedXtGetTcapRequest,
+        MAX_XTGETTCAP_RESPONSE_BYTES, XtGetTcapRequest as SharedXtGetTcapRequest,
     },
     visible_output::TerminalVisibleOutputFilter,
 };
@@ -153,19 +153,23 @@ impl TerminalRuntime {
                         responses.push(self.enq_answerback.as_bytes().to_vec());
                     }
                 }
-                FilteredOutputEvent::SynchronizedOutputMode { bytes, enabled } => {
-                    self.mode_tracker.process_without_emitting(&bytes);
+                FilteredOutputEvent::SynchronizedOutputMode(sequence) => {
+                    let enabled = sequence.enabled;
+                    self.mode_tracker
+                        .apply_private_mode_sequence(&sequence, |_| {});
                     if !enabled {
                         damage.extend(self.terminal.take_damage());
                     }
                 }
-                FilteredOutputEvent::KittyKeyboardMode { bytes } => {
+                FilteredOutputEvent::KittyKeyboardMode(sequence) => {
                     if self.enable_kitty_keyboard {
-                        self.mode_tracker.process_without_emitting(&bytes);
+                        self.mode_tracker
+                            .apply_kitty_keyboard_sequence(sequence, |_| {});
                     }
                 }
-                FilteredOutputEvent::KeyModifierOptions { bytes } => {
-                    self.mode_tracker.process_without_emitting(&bytes);
+                FilteredOutputEvent::KeyModifierOptions(sequence) => {
+                    self.mode_tracker
+                        .apply_key_modifier_options_sequence(sequence, |_| {});
                 }
                 FilteredOutputEvent::Clipboard(command) => match command {
                     ClipboardCommand::Write(text) => self.clipboard_texts.push(text),
@@ -384,16 +388,9 @@ enum FilteredOutputEvent {
     Response(TerminalResponse),
     ResponseBytes(Vec<u8>),
     Enq,
-    SynchronizedOutputMode {
-        bytes: Vec<u8>,
-        enabled: bool,
-    },
-    KittyKeyboardMode {
-        bytes: Vec<u8>,
-    },
-    KeyModifierOptions {
-        bytes: Vec<u8>,
-    },
+    SynchronizedOutputMode(PrivateModeSequence),
+    KittyKeyboardMode(KittyKeyboardMode),
+    KeyModifierOptions(KeyModifierOptions),
     Clipboard(ClipboardCommand),
     Notification(NotificationCommand),
 }
@@ -479,17 +476,14 @@ impl TerminalOutputFilter {
                     } else {
                         match semantic {
                             SemanticControl::Enq => events.push(FilteredOutputEvent::Enq),
-                            SemanticControl::SynchronizedOutputMode { enabled } => {
-                                events.push(FilteredOutputEvent::SynchronizedOutputMode {
-                                    bytes,
-                                    enabled,
-                                });
+                            SemanticControl::SynchronizedOutputMode(sequence) => {
+                                events.push(FilteredOutputEvent::SynchronizedOutputMode(sequence));
                             }
-                            SemanticControl::KittyKeyboardMode => {
-                                events.push(FilteredOutputEvent::KittyKeyboardMode { bytes });
+                            SemanticControl::KittyKeyboardMode(sequence) => {
+                                events.push(FilteredOutputEvent::KittyKeyboardMode(sequence));
                             }
-                            SemanticControl::KeyModifierOptionsSequence => {
-                                events.push(FilteredOutputEvent::KeyModifierOptions { bytes });
+                            SemanticControl::KeyModifierOptionsSequence(sequence) => {
+                                events.push(FilteredOutputEvent::KeyModifierOptions(sequence));
                             }
                             SemanticControl::Osc52(command) => {
                                 events.push(FilteredOutputEvent::Clipboard(command));
@@ -1117,6 +1111,7 @@ impl XtGetTcapResponse {
         }
 
         for entry in &self.entries {
+            let entry_start = response.len();
             if let Some(value_hex) = &entry.value_hex {
                 response.extend_from_slice(b"\x1bP1+r");
                 extend_ascii_hex_uppercase(&mut response, &entry.name_hex);
@@ -1127,6 +1122,10 @@ impl XtGetTcapResponse {
                 extend_ascii_hex_uppercase(&mut response, &entry.name_hex);
             }
             response.extend_from_slice(b"\x1b\\");
+            if response.len() > MAX_XTGETTCAP_RESPONSE_BYTES {
+                response.truncate(entry_start);
+                break;
+            }
         }
         response
     }
@@ -2083,7 +2082,10 @@ mod tests {
         terminal_queries::TerminalQueryScanner,
     };
 
-    use super::{TerminalNotification, TerminalProgress, TerminalRuntime};
+    use super::{
+        FilteredOutputEvent, TerminalNotification, TerminalOutputFilter, TerminalProgress,
+        TerminalRuntime,
+    };
 
     #[test]
     fn normal_runtime_keeps_query_scan_counter_disabled() {
@@ -2099,6 +2101,27 @@ mod tests {
         runtime.feed_pty_output(b"plain output\x1b[6n");
 
         assert!(runtime.inspected_query_bytes() > 0);
+    }
+
+    #[test]
+    fn gui_filter_passes_malformed_modes_and_fail_closes_reserved_clipboard() {
+        let malformed = b"\x1b[?2026;badh\x1b[?2026;;l\x1b[>badu\x1b[=1;4u\x1b[>badm";
+        let mut filter = TerminalOutputFilter::new(TerminalSize::new(20, 2));
+        let output = filter.process(malformed);
+        let displayed = output
+            .events
+            .into_iter()
+            .flat_map(|event| match event {
+                FilteredOutputEvent::Display { bytes, .. } => bytes,
+                _ => Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(displayed, malformed);
+
+        let reserved = filter.process(
+            b"\x1b]052;c;not-base64!\x07\x9d00052;c;not-base64!\x9c\xc2\x9d052;c;not-base64!\xc2\x9c\x1b]001337;Copy=;not-base64!\x07",
+        );
+        assert!(reserved.events.is_empty());
     }
 
     #[test]

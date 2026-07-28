@@ -1,5 +1,8 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
+const MAX_OSC_COLOR_QUERY_KINDS: usize = 256;
+const MAX_OSC_COLOR_QUERY_BYTES: usize = 16 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ControlFamily {
     Csi,
@@ -91,6 +94,39 @@ pub(crate) enum NotificationCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PrivateModeSequence {
+    pub(crate) modes: Vec<u16>,
+    pub(crate) enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum KittyKeyboardOperation {
+    Push,
+    Pop,
+    Apply,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum KittyKeyboardApplyMode {
+    Replace,
+    Set,
+    Reset,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct KittyKeyboardMode {
+    pub(crate) operation: KittyKeyboardOperation,
+    pub(crate) value: u16,
+    pub(crate) apply_mode: KittyKeyboardApplyMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct KeyModifierOptions {
+    pub(crate) resource: Option<u16>,
+    pub(crate) value: Option<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SemanticControl {
     Fixed(FixedQuery),
     WindowReport(WindowReportRequest),
@@ -104,9 +140,9 @@ pub(crate) enum SemanticControl {
     XtSmGraphics(XtSmGraphicsRequest),
     KittyKeyboardFlags,
     KeyModifierOptionsQuery(u16),
-    SynchronizedOutputMode { enabled: bool },
-    KittyKeyboardMode,
-    KeyModifierOptionsSequence,
+    SynchronizedOutputMode(PrivateModeSequence),
+    KittyKeyboardMode(KittyKeyboardMode),
+    KeyModifierOptionsSequence(KeyModifierOptions),
     Osc52(ClipboardCommand),
     Osc8Hyperlink,
     Notification(NotificationCommand),
@@ -156,6 +192,17 @@ fn parse_u16(bytes: &[u8]) -> Option<u16> {
             .checked_mul(10)?
             .checked_add(u16::from(digit))
     })
+}
+
+fn parse_u16_saturating(bytes: &[u8]) -> Option<u16> {
+    if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    Some(bytes.iter().fold(0_u16, |value, byte| {
+        value
+            .saturating_mul(10)
+            .saturating_add(u16::from(byte - b'0'))
+    }))
 }
 
 fn parse_i64(bytes: &[u8]) -> Option<i64> {
@@ -243,30 +290,79 @@ fn parse_xtsmgraphics(body: &[u8]) -> Option<XtSmGraphicsRequest> {
 }
 
 fn parse_osc_color(body: &[u8], terminator: StringTerminator) -> Option<OscColorRequest> {
-    let kinds = match body {
-        b"10;?" => vec![OscColorKind::DefaultForeground],
-        b"11;?" => vec![OscColorKind::DefaultBackground],
-        b"12;?" => vec![OscColorKind::Cursor],
-        _ => {
-            let mut parts = body.strip_prefix(b"4;")?.split(|byte| *byte == b';');
-            let mut kinds = Vec::new();
-            while let Some(index) = parts.next() {
-                if parts.next()? != b"?" {
-                    return None;
-                }
-                kinds.push(OscColorKind::Palette(u8::try_from(parse_u16(index)?).ok()?));
-            }
-            if kinds.is_empty() {
+    let (selector, content) = split_osc_selector(body)?;
+    let kinds = if osc_selector_is(selector, b"10") && content == b"?" {
+        vec![OscColorKind::DefaultForeground]
+    } else if osc_selector_is(selector, b"11") && content == b"?" {
+        vec![OscColorKind::DefaultBackground]
+    } else if osc_selector_is(selector, b"12") && content == b"?" {
+        vec![OscColorKind::Cursor]
+    } else {
+        if body.len() > MAX_OSC_COLOR_QUERY_BYTES || !osc_selector_is(selector, b"4") {
+            return None;
+        }
+        let mut parts = content.split(|byte| *byte == b';');
+        let mut kinds = Vec::new();
+        while let Some(index) = parts.next() {
+            if parts.next()? != b"?" {
                 return None;
             }
-            kinds
+            if kinds.len() == MAX_OSC_COLOR_QUERY_KINDS {
+                return None;
+            }
+            kinds.push(OscColorKind::Palette(u8::try_from(parse_u16(index)?).ok()?));
         }
+        if kinds.is_empty() {
+            return None;
+        }
+        kinds
     };
     Some(OscColorRequest { kinds, terminator })
 }
 
+fn is_reserved_osc_color_query(body: &[u8]) -> bool {
+    split_osc_selector(body).is_some_and(|(selector, content)| {
+        ((osc_selector_is(selector, b"10")
+            || osc_selector_is(selector, b"11")
+            || osc_selector_is(selector, b"12"))
+            && content.contains(&b'?'))
+            || (osc_selector_is(selector, b"4")
+                && content
+                    .split(|byte| *byte == b';')
+                    .any(|field| field == b"?"))
+    })
+}
+
+fn split_osc_selector(body: &[u8]) -> Option<(&[u8], &[u8])> {
+    let separator = body.iter().position(|byte| *byte == b';')?;
+    Some((&body[..separator], &body[separator + 1..]))
+}
+
+fn osc_selector_is(selector: &[u8], expected: &[u8]) -> bool {
+    if selector.is_empty() || !selector.iter().all(u8::is_ascii_digit) {
+        return false;
+    }
+    let selector = selector
+        .iter()
+        .position(|byte| *byte != b'0')
+        .map_or(b"0".as_slice(), |start| &selector[start..]);
+    selector == expected
+}
+
+fn is_reserved_clipboard_control(body: &[u8]) -> bool {
+    split_osc_selector(body).map_or_else(
+        || osc_selector_is(body, b"52"),
+        |(selector, content)| {
+            osc_selector_is(selector, b"52")
+                || (osc_selector_is(selector, b"1337")
+                    && (content.starts_with(b"Copy=") || content.starts_with(b"CopyToClipboard=")))
+        },
+    )
+}
+
 fn parse_clipboard(body: &[u8]) -> Option<ClipboardCommand> {
-    if let Some(content) = body.strip_prefix(b"52;") {
+    let (selector, content) = split_osc_selector(body)?;
+    if osc_selector_is(selector, b"52") {
         let separator = content.iter().position(|byte| *byte == b';')?;
         let selection = String::from_utf8(content[..separator].to_vec()).ok()?;
         let payload = &content[separator + 1..];
@@ -275,14 +371,86 @@ fn parse_clipboard(body: &[u8]) -> Option<ClipboardCommand> {
         }
         let text = String::from_utf8(STANDARD.decode(payload).ok()?).ok()?;
         Some(ClipboardCommand::Write(text))
-    } else {
-        let payload = body
-            .strip_prefix(b"1337;Copy=;")
-            .or_else(|| body.strip_prefix(b"1337;CopyToClipboard=;"))?;
+    } else if osc_selector_is(selector, b"1337") {
+        let payload = content
+            .strip_prefix(b"Copy=;")
+            .or_else(|| content.strip_prefix(b"CopyToClipboard=;"))?;
         Some(ClipboardCommand::Write(
             String::from_utf8(STANDARD.decode(payload).ok()?).ok()?,
         ))
+    } else {
+        None
     }
+}
+
+fn parse_private_mode_sequence(body: &[u8]) -> Option<PrivateModeSequence> {
+    let (body, enabled) = match body.last()? {
+        b'h' => (&body[..body.len() - 1], true),
+        b'l' => (&body[..body.len() - 1], false),
+        _ => return None,
+    };
+    let parameters = body.strip_prefix(b"?")?;
+    let modes = parameters
+        .split(|byte| *byte == b';')
+        .map(parse_u16_saturating)
+        .collect::<Option<Vec<_>>>()?;
+    (!modes.is_empty()).then_some(PrivateModeSequence { modes, enabled })
+}
+
+fn parse_kitty_keyboard_mode(body: &[u8]) -> Option<KittyKeyboardMode> {
+    let (operation, body) = match body.first()? {
+        b'>' => (KittyKeyboardOperation::Push, &body[1..]),
+        b'<' => (KittyKeyboardOperation::Pop, &body[1..]),
+        b'=' => (KittyKeyboardOperation::Apply, &body[1..]),
+        _ => return None,
+    };
+    let parameters = body.strip_suffix(b"u")?;
+    let (value, apply_mode) = if operation == KittyKeyboardOperation::Apply {
+        let mut parts = parameters.split(|byte| *byte == b';');
+        let value = parse_u16_saturating(parts.next()?)?;
+        let apply_mode = match parts.next() {
+            None => KittyKeyboardApplyMode::Replace,
+            Some(mode) => match parse_u16_saturating(mode)? {
+                1 => KittyKeyboardApplyMode::Replace,
+                2 => KittyKeyboardApplyMode::Set,
+                3 => KittyKeyboardApplyMode::Reset,
+                _ => return None,
+            },
+        };
+        (parts.next().is_none()).then_some((value, apply_mode))?
+    } else {
+        let value = if parameters.is_empty() {
+            0
+        } else {
+            parse_u16_saturating(parameters)?
+        };
+        (value, KittyKeyboardApplyMode::Replace)
+    };
+    Some(KittyKeyboardMode {
+        operation,
+        value,
+        apply_mode,
+    })
+}
+
+fn parse_key_modifier_options(body: &[u8]) -> Option<KeyModifierOptions> {
+    let parameters = body.strip_prefix(b">")?.strip_suffix(b"m")?;
+    if parameters.is_empty() {
+        return Some(KeyModifierOptions {
+            resource: None,
+            value: None,
+        });
+    }
+    let mut parts = parameters.split(|byte| *byte == b';');
+    let resource = parse_u16_saturating(parts.next()?)?;
+    let value = match parts.next() {
+        Some(value) => Some(parse_u16_saturating(value)?),
+        None => None,
+    };
+    (parts.next().is_none()).then_some(KeyModifierOptions {
+        resource: Some(resource),
+        value,
+    })
 }
 
 fn parse_u8_decimal(bytes: &[u8]) -> Option<u8> {
@@ -295,7 +463,10 @@ fn parse_progress_value(bytes: &[u8]) -> Option<u8> {
 }
 
 fn parse_notification(body: &[u8]) -> NotificationCommand {
-    if let Some(content) = body.strip_prefix(b"9;") {
+    let Some((selector, content)) = split_osc_selector(body) else {
+        return NotificationCommand::Ignored;
+    };
+    if osc_selector_is(selector, b"9") {
         if let Some(progress) = content.strip_prefix(b"4;") {
             let mut parts = progress.split(|byte| *byte == b';');
             let command = match parts.next().and_then(parse_u8_decimal) {
@@ -317,7 +488,10 @@ fn parse_notification(body: &[u8]) -> NotificationCommand {
         });
     }
 
-    let Some(content) = body.strip_prefix(b"777;notify;") else {
+    if !osc_selector_is(selector, b"777") {
+        return NotificationCommand::Ignored;
+    }
+    let Some(content) = content.strip_prefix(b"notify;") else {
         return NotificationCommand::Ignored;
     };
     let Some(separator) = content.iter().position(|byte| *byte == b';') else {
@@ -383,30 +557,22 @@ fn classify_control(family: ControlFamily, bytes: &[u8]) -> SemanticControl {
                 return SemanticControl::KittyKeyboardFlags;
             }
             if let Some(resource) = body
-                .strip_prefix(b">")
-                .or_else(|| body.strip_prefix(b"?"))
+                .strip_prefix(b"?")
                 .and_then(|body| body.strip_suffix(b"m"))
                 .and_then(parse_u16)
             {
                 return SemanticControl::KeyModifierOptionsQuery(resource);
             }
-            if body.starts_with(b"?")
-                && matches!(body.last(), Some(b'h' | b'l'))
-                && body[1..body.len() - 1]
-                    .split(|byte| *byte == b';')
-                    .any(|mode| mode == b"2026")
+            if let Some(sequence) = parse_private_mode_sequence(body)
+                && sequence.modes.contains(&2026)
             {
-                return SemanticControl::SynchronizedOutputMode {
-                    enabled: body.ends_with(b"h"),
-                };
+                return SemanticControl::SynchronizedOutputMode(sequence);
             }
-            if (body.starts_with(b">") || body.starts_with(b"<") || body.starts_with(b"="))
-                && body.ends_with(b"u")
-            {
-                return SemanticControl::KittyKeyboardMode;
+            if let Some(sequence) = parse_kitty_keyboard_mode(body) {
+                return SemanticControl::KittyKeyboardMode(sequence);
             }
-            if body.starts_with(b">") && body.ends_with(b"m") {
-                return SemanticControl::KeyModifierOptionsSequence;
+            if let Some(sequence) = parse_key_modifier_options(body) {
+                return SemanticControl::KeyModifierOptionsSequence(sequence);
             }
             if body == b"?6n" {
                 return SemanticControl::Ignored;
@@ -426,18 +592,24 @@ fn classify_control(family: ControlFamily, bytes: &[u8]) -> SemanticControl {
             else {
                 return SemanticControl::Unknown;
             };
+            let selector_and_content = split_osc_selector(body);
             if let Some(query) = parse_osc_color(body, terminator) {
                 SemanticControl::OscColor(query)
-            } else if body == b"1337;ReportCellSize" {
+            } else if is_reserved_osc_color_query(body) {
+                SemanticControl::Ignored
+            } else if selector_and_content.is_some_and(|(selector, content)| {
+                osc_selector_is(selector, b"1337") && content == b"ReportCellSize"
+            }) {
                 SemanticControl::ItermReportCellSize
-            } else if body.starts_with(b"52;")
-                || body.starts_with(b"1337;Copy=")
-                || body.starts_with(b"1337;CopyToClipboard=")
+            } else if is_reserved_clipboard_control(body) {
+                parse_clipboard(body).map_or(SemanticControl::Ignored, SemanticControl::Osc52)
+            } else if selector_and_content
+                .is_some_and(|(selector, _)| osc_selector_is(selector, b"8"))
             {
-                parse_clipboard(body).map_or(SemanticControl::Unknown, SemanticControl::Osc52)
-            } else if body.starts_with(b"8;") {
                 SemanticControl::Osc8Hyperlink
-            } else if body.starts_with(b"9;") || body.starts_with(b"777;") {
+            } else if selector_and_content.is_some_and(|(selector, _)| {
+                osc_selector_is(selector, b"9") || osc_selector_is(selector, b"777")
+            }) {
                 SemanticControl::Notification(parse_notification(body))
             } else {
                 SemanticControl::Unknown
@@ -449,6 +621,8 @@ fn classify_control(family: ControlFamily, bytes: &[u8]) -> SemanticControl {
             } else if let Some(request) = crate::terminal_query_dcs::parse_xtgettcap_request(bytes)
             {
                 SemanticControl::XtGetTcap(request)
+            } else if crate::terminal_query_dcs::is_reserved_query(bytes) {
+                SemanticControl::Ignored
             } else {
                 SemanticControl::Unknown
             }
@@ -615,14 +789,40 @@ impl TerminalQueryScanner {
                             }
                         }
                         0xc2 => {
-                            emitted_end = self.cursor;
                             self.candidate_start = Some(self.cursor);
-                            self.state = ScanState::Utf8C1;
-                            self.discarding = false;
+                            self.state = ScanState::CsiUtf8C1;
                             self.cursor += 1;
                         }
                         _ => self.cursor += 1,
                     },
+                    ScanState::CsiUtf8C1 => {
+                        if matches!(byte, 0x9b | 0x9d | 0x90 | 0x98 | 0x9e | 0x9f | 0x9c) {
+                            self.state = match byte {
+                                0x9b => ScanState::Csi,
+                                0x9d => ScanState::Osc,
+                                0x90 => ScanState::Dcs,
+                                0x98 | 0x9e | 0x9f => ScanState::String,
+                                0x9c => ScanState::Ground,
+                                _ => unreachable!(),
+                            };
+                            self.discarding = false;
+                            self.cursor += 1;
+                            if byte == 0x9c {
+                                emitted_end = self.finish_control::<RECORD_WORK>(
+                                    &mut segments,
+                                    self.cursor,
+                                    ControlFamily::Other,
+                                );
+                            }
+                        } else if (0x80..=0xbf).contains(&byte) {
+                            self.candidate_start = None;
+                            self.state = ScanState::Csi;
+                            self.cursor += 1;
+                        } else {
+                            self.candidate_start = None;
+                            self.state = ScanState::Csi;
+                        }
+                    }
                     ScanState::Osc | ScanState::Dcs | ScanState::String => match byte {
                         0x18 | 0x1a | 0x9c => {
                             self.cursor += 1;
@@ -1267,7 +1467,11 @@ impl TerminalQueryScanner {
 
 #[cfg(test)]
 mod tests {
-    use super::{ControlFamily, FixedQuery, ScannedSegment, SemanticControl, TerminalQueryScanner};
+    use super::{
+        ClipboardCommand, ControlFamily, FixedQuery, KeyModifierOptions, KittyKeyboardApplyMode,
+        KittyKeyboardMode, KittyKeyboardOperation, MAX_OSC_COLOR_QUERY_KINDS, PrivateModeSequence,
+        ScannedSegment, SemanticControl, TerminalQueryScanner,
+    };
 
     fn scan_in_chunks(input: &[u8], chunk_size: usize) -> (Vec<ScannedSegment>, u64) {
         let mut scanner = TerminalQueryScanner::new_with_work_counter();
@@ -1511,14 +1715,30 @@ mod tests {
             (b"\x1b[?2026h", |value| {
                 matches!(
                     value,
-                    SemanticControl::SynchronizedOutputMode { enabled: true }
+                    SemanticControl::SynchronizedOutputMode(PrivateModeSequence {
+                        modes,
+                        enabled: true,
+                    }) if modes == &[2026]
                 )
             }),
             (b"\x1b[>1u", |value| {
-                matches!(value, SemanticControl::KittyKeyboardMode)
+                matches!(
+                    value,
+                    SemanticControl::KittyKeyboardMode(KittyKeyboardMode {
+                        operation: KittyKeyboardOperation::Push,
+                        value: 1,
+                        apply_mode: KittyKeyboardApplyMode::Replace,
+                    })
+                )
             }),
             (b"\x1b[>4;2m", |value| {
-                matches!(value, SemanticControl::KeyModifierOptionsSequence)
+                matches!(
+                    value,
+                    SemanticControl::KeyModifierOptionsSequence(KeyModifierOptions {
+                        resource: Some(4),
+                        value: Some(2),
+                    })
+                )
             }),
             (b"\x1b]52;c;?\x07", |value| {
                 matches!(value, SemanticControl::Osc52(_))
@@ -1536,6 +1756,130 @@ mod tests {
             assert_eq!(semantic.len(), 1, "query {query:?}");
             assert!(predicate(semantic[0]), "query {query:?}: {:?}", semantic[0]);
         }
+    }
+
+    #[test]
+    fn terminal_queries_rejects_malformed_mode_sequences_and_reserves_clipboard_controls() {
+        for malformed in [
+            b"\x1b[?2026;badh".as_slice(),
+            b"\x1b[?;2026h".as_slice(),
+            b"\x1b[?2026;;1h".as_slice(),
+            b"\x1b[>badu".as_slice(),
+            b"\x1b[=u".as_slice(),
+            b"\x1b[=1;4u".as_slice(),
+            b"\x1b[>badm".as_slice(),
+            b"\x1b[>4;badm".as_slice(),
+        ] {
+            let (segments, _) = scan_in_chunks(malformed, 1);
+            assert!(matches!(
+                semantics(&segments).as_slice(),
+                [SemanticControl::Unknown]
+            ));
+            assert_eq!(flattened(&segments), malformed);
+        }
+
+        for reserved in [
+            b"\x1b]52;c;not-base64!\x07".as_slice(),
+            b"\x1b]52;missing-separator\x07".as_slice(),
+            b"\x1b]1337;Copy=;not-base64!\x07".as_slice(),
+            b"\x1b]1337;CopyToClipboard=clipboard;not-base64!\x07".as_slice(),
+            b"\x1b]052;c;not-base64!\x07".as_slice(),
+            b"\x1b]00052\x07".as_slice(),
+            b"\x9d00052;c;not-base64!\x9c".as_slice(),
+            b"\xc2\x9d052;c;not-base64!\xc2\x9c".as_slice(),
+            b"\x1b]001337;Copy=;not-base64!\x07".as_slice(),
+        ] {
+            let (segments, _) = scan_in_chunks(reserved, 1);
+            assert!(matches!(
+                semantics(&segments).as_slice(),
+                [SemanticControl::Ignored]
+            ));
+        }
+
+        let (clipboard, _) = scan_in_chunks(b"\x1b]00052;c;Y29weQ==\x07", 1);
+        assert!(matches!(
+            semantics(&clipboard).as_slice(),
+            [SemanticControl::Osc52(ClipboardCommand::Write(text))] if text == "copy"
+        ));
+
+        for query in [
+            b"\x1b]04;1;?\x07".as_slice(),
+            b"\x9d010;?\x9c".as_slice(),
+            b"\xc2\x9d0012;?\xc2\x9c".as_slice(),
+        ] {
+            let (segments, _) = scan_in_chunks(query, 1);
+            assert!(matches!(
+                semantics(&segments).as_slice(),
+                [SemanticControl::OscColor(_)]
+            ));
+        }
+    }
+
+    #[test]
+    fn terminal_queries_distinguishes_key_modifier_query_from_reset_sequence() {
+        let (query, _) = scan_in_chunks(b"\x1b[?4m", 1);
+        assert!(matches!(
+            semantics(&query).as_slice(),
+            [SemanticControl::KeyModifierOptionsQuery(4)]
+        ));
+
+        let (reset, _) = scan_in_chunks(b"\x1b[>4m", 1);
+        assert!(matches!(
+            semantics(&reset).as_slice(),
+            [SemanticControl::KeyModifierOptionsSequence(
+                KeyModifierOptions {
+                    resource: Some(4),
+                    value: None,
+                }
+            )]
+        ));
+
+        let (combined, _) = scan_in_chunks(b"\xc2\x9b?1000;02026h", 1);
+        assert!(matches!(
+            semantics(&combined).as_slice(),
+            [SemanticControl::SynchronizedOutputMode(PrivateModeSequence {
+                modes,
+                enabled: true,
+            })] if modes == &[1000, 2026]
+        ));
+    }
+
+    #[test]
+    fn terminal_queries_fail_closed_on_oversized_reserved_queries_and_recovers() {
+        let mut palette = b"\x1b]4;".to_vec();
+        for index in 0..=MAX_OSC_COLOR_QUERY_KINDS {
+            if index > 0 {
+                palette.push(b';');
+            }
+            palette.extend_from_slice(format!("{};?", index % 256).as_bytes());
+        }
+        palette.push(b'\x07');
+        palette.extend_from_slice(b"\x1b[6n");
+        let (segments, _) = scan_in_chunks(&palette, 512);
+        assert!(matches!(
+            semantics(&segments).as_slice(),
+            [
+                SemanticControl::Ignored,
+                SemanticControl::Fixed(FixedQuery::CursorPosition)
+            ]
+        ));
+
+        let mut xtgettcap = b"\x1bP+q".to_vec();
+        for index in 0..=crate::terminal_query_dcs::MAX_XTGETTCAP_NAMES {
+            if index > 0 {
+                xtgettcap.push(b';');
+            }
+            xtgettcap.extend_from_slice(b"41");
+        }
+        xtgettcap.extend_from_slice(b"\x1b\\\x1b[6n");
+        let (segments, _) = scan_in_chunks(&xtgettcap, 512);
+        assert!(matches!(
+            semantics(&segments).as_slice(),
+            [
+                SemanticControl::Ignored,
+                SemanticControl::Fixed(FixedQuery::CursorPosition)
+            ]
+        ));
     }
 
     #[test]
@@ -1688,6 +2032,34 @@ mod tests {
                 SemanticControl::Fixed(FixedQuery::CursorPosition)
             )));
         }
+    }
+
+    #[test]
+    fn terminal_queries_keeps_discarding_csi_after_ordinary_utf8_c2_sequence() {
+        let mut input = b"\x1b[".to_vec();
+        input.extend(std::iter::repeat_n(
+            b'1',
+            TerminalQueryScanner::MAX_PENDING + 1,
+        ));
+        input.extend_from_slice(b"\xc2\xa9123;456\x1b[6n");
+        let (segments, _) = scan_in_chunks(&input, 8192);
+        assert!(matches!(
+            semantics(&segments).as_slice(),
+            [SemanticControl::Fixed(FixedQuery::CursorPosition)]
+        ));
+        assert_eq!(flattened(&segments), b"\x1b[6n");
+
+        let mut utf8_c1 = b"\x1b[".to_vec();
+        utf8_c1.extend(std::iter::repeat_n(
+            b'1',
+            TerminalQueryScanner::MAX_PENDING + 1,
+        ));
+        utf8_c1.extend_from_slice(b"\xc2\x9b6n");
+        let (segments, _) = scan_in_chunks(&utf8_c1, 8192);
+        assert!(matches!(
+            semantics(&segments).as_slice(),
+            [SemanticControl::Fixed(FixedQuery::CursorPosition)]
+        ));
     }
 
     #[test]

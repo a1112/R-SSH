@@ -34,9 +34,18 @@ pub(crate) struct XtGetTcapRequest {
     pub(crate) terminator: DcsTerminator,
 }
 
+pub(crate) const MAX_DECRQSS_CONTENT_BYTES: usize = 256;
+pub(crate) const MAX_XTGETTCAP_NAMES: usize = 64;
+pub(crate) const MAX_XTGETTCAP_ENCODED_BYTES: usize = 64 * 1024;
+pub(crate) const MAX_XTGETTCAP_DECODED_BYTES: usize = 64 * 1024;
+pub(crate) const MAX_XTGETTCAP_RESPONSE_BYTES: usize = 64 * 1024;
+
 pub(crate) fn parse_decrqss_request(bytes: &[u8]) -> Option<DecrqssRequest> {
     let (body, terminator) = parse_exact_dcs_frame(bytes)?;
     let content = body.strip_prefix(b"$q")?;
+    if content.len() > MAX_DECRQSS_CONTENT_BYTES {
+        return None;
+    }
     let kind = match content {
         b"m" => DecrqssKind::Sgr,
         b" q" => DecrqssKind::CursorShape,
@@ -51,14 +60,31 @@ pub(crate) fn parse_decrqss_request(bytes: &[u8]) -> Option<DecrqssRequest> {
 pub(crate) fn parse_xtgettcap_request(bytes: &[u8]) -> Option<XtGetTcapRequest> {
     let (body, terminator) = parse_exact_dcs_frame(bytes)?;
     let content = body.strip_prefix(b"+q")?;
-    let names = content
-        .split(|byte| *byte == b';')
-        .map(|encoded| XtGetTcapName {
+    if content.len() > MAX_XTGETTCAP_ENCODED_BYTES {
+        return None;
+    }
+    let mut names = Vec::new();
+    let mut decoded_bytes = 0_usize;
+    for encoded in content.split(|byte| *byte == b';') {
+        if names.len() == MAX_XTGETTCAP_NAMES {
+            return None;
+        }
+        let decoded = decode_ascii_hex(encoded);
+        decoded_bytes = decoded_bytes.saturating_add(decoded.as_ref().map_or(0, Vec::len));
+        if decoded_bytes > MAX_XTGETTCAP_DECODED_BYTES {
+            return None;
+        }
+        names.push(XtGetTcapName {
             encoded: encoded.to_vec(),
-            decoded: decode_ascii_hex(encoded),
-        })
-        .collect();
+            decoded,
+        });
+    }
     Some(XtGetTcapRequest { names, terminator })
+}
+
+pub(crate) fn is_reserved_query(bytes: &[u8]) -> bool {
+    parse_exact_dcs_frame(bytes)
+        .is_some_and(|(body, _)| body.starts_with(b"$q") || body.starts_with(b"+q"))
 }
 
 fn parse_exact_dcs_frame(bytes: &[u8]) -> Option<(&[u8], DcsTerminator)> {
@@ -245,5 +271,50 @@ mod tests {
             None
         );
         assert_eq!(parse_decrqss_request(b"\x1bP$qm\x9cignored"), None);
+    }
+
+    #[test]
+    fn bounds_xtgettcap_entries_and_aggregate_bytes() {
+        // Separate the fixed-width names without exceeding the entry limit.
+        let mut framed = b"\x1bP+q".to_vec();
+        framed.extend(
+            std::iter::repeat_n(b"41".as_slice(), MAX_XTGETTCAP_NAMES)
+                .enumerate()
+                .flat_map(|(index, name)| {
+                    let mut field = Vec::from(name);
+                    if index + 1 != MAX_XTGETTCAP_NAMES {
+                        field.push(b';');
+                    }
+                    field
+                }),
+        );
+        framed.extend_from_slice(b"\x1b\\");
+        assert_eq!(
+            parse_xtgettcap_request(&framed)
+                .expect("entry limit is accepted")
+                .names
+                .len(),
+            MAX_XTGETTCAP_NAMES
+        );
+
+        let mut too_many = framed[..framed.len() - 2].to_vec();
+        too_many.extend_from_slice(b";41\x1b\\");
+        assert_eq!(parse_xtgettcap_request(&too_many), None);
+        assert!(is_reserved_query(&too_many));
+
+        let mut too_large = b"\x1bP+q".to_vec();
+        too_large.extend(std::iter::repeat_n(b'4', MAX_XTGETTCAP_ENCODED_BYTES + 1));
+        too_large.extend_from_slice(b"\x1b\\");
+        assert_eq!(parse_xtgettcap_request(&too_large), None);
+        assert!(is_reserved_query(&too_large));
+    }
+
+    #[test]
+    fn bounds_decrqss_content_and_keeps_it_reserved() {
+        let mut oversized = b"\x1bP$q".to_vec();
+        oversized.extend(std::iter::repeat_n(b'm', MAX_DECRQSS_CONTENT_BYTES + 1));
+        oversized.extend_from_slice(b"\x1b\\");
+        assert_eq!(parse_decrqss_request(&oversized), None);
+        assert!(is_reserved_query(&oversized));
     }
 }

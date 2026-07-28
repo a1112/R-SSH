@@ -46,7 +46,7 @@ use crate::{
     },
     terminal_query_dcs::{
         DcsTerminator, DecrqssKind as SharedDecrqssKind, DecrqssRequest as SharedDecrqssRequest,
-        XtGetTcapRequest as SharedXtGetTcapRequest,
+        MAX_XTGETTCAP_RESPONSE_BYTES, XtGetTcapRequest as SharedXtGetTcapRequest,
     },
     visible_output::TerminalVisibleOutputFilter,
 };
@@ -699,8 +699,6 @@ fn copy_pty_output(
     let mut buffer = [0; 8192];
     let mut output_filter = TerminalOutputFilter::with_shared_size(output_state.terminal_size);
     output_filter.set_terminal_name(output_state.terminal_name);
-    let mut mode_tracker = TerminalModeTracker::default();
-
     loop {
         match reader.read(&mut buffer) {
             Ok(0) => {
@@ -710,7 +708,19 @@ fn copy_pty_output(
             }
             Ok(count) => {
                 metrics.add_pty_output(count as u64);
-                mode_tracker.process(&buffer[..count], |change| {
+                output_filter.write_with_clipboard(
+                    &buffer[..count],
+                    &mut output,
+                    |response| {
+                        pty_input_sender.send(response.to_vec()).map_err(|_| {
+                            io::Error::new(io::ErrorKind::BrokenPipe, "PTY input closed")
+                        })
+                    },
+                    write_local_clipboard_text,
+                    read_local_clipboard_text,
+                    osc52_policy,
+                )?;
+                for change in output_filter.take_mode_changes() {
                     let Some(event) = (match change {
                         TerminalModeChange::ApplicationCursorKeys(enabled) => {
                             Some(LocalControlEvent::SetApplicationCursorKeys(enabled))
@@ -738,22 +748,10 @@ fn copy_pty_output(
                         }
                         TerminalModeChange::SynchronizedOutput(_) => None,
                     }) else {
-                        return;
+                        continue;
                     };
                     let _ = control_sender.send(event);
-                });
-                output_filter.write_with_clipboard(
-                    &buffer[..count],
-                    &mut output,
-                    |response| {
-                        pty_input_sender.send(response.to_vec()).map_err(|_| {
-                            io::Error::new(io::ErrorKind::BrokenPipe, "PTY input closed")
-                        })
-                    },
-                    write_local_clipboard_text,
-                    read_local_clipboard_text,
-                    osc52_policy,
-                )?;
+                }
                 output.flush()?;
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
@@ -915,6 +913,7 @@ struct TerminalOutputFilter {
     mirror: Terminal,
     mirror_size: PtySize,
     mode_tracker: TerminalModeTracker,
+    mode_changes: Vec<TerminalModeChange>,
     color_state: TerminalColorState,
     terminal_name: String,
 }
@@ -942,6 +941,7 @@ impl TerminalOutputFilter {
             mirror: Terminal::new(terminal_size_from_pty(mirror_size)),
             mirror_size,
             mode_tracker: TerminalModeTracker::default(),
+            mode_changes: Vec::new(),
             color_state: TerminalColorState::default(),
             terminal_name: DEFAULT_TERMINAL_NAME.to_owned(),
         }
@@ -1041,34 +1041,54 @@ impl TerminalOutputFilter {
                             response => respond(&self.response_bytes(response))?,
                         }
                     } else {
-                        match semantic {
-                            SemanticControl::SynchronizedOutputMode { enabled } => {
-                                self.mode_tracker.process_without_emitting(&sequence);
-                                self.feed_mirror_bytes(&sequence);
-                                if !enabled {
-                                    self.flush_synchronized_output_buffer(output)?;
-                                }
-                            }
-                            SemanticControl::KittyKeyboardMode
-                            | SemanticControl::KeyModifierOptionsSequence => {
-                                self.mode_tracker.process_without_emitting(&sequence);
-                            }
-                            SemanticControl::Decrqcra(_)
-                            | SemanticControl::WindowReport(_)
-                            | SemanticControl::Notification(_)
-                            | SemanticControl::DeviceAttributesResponse
-                            | SemanticControl::StandaloneSt
-                            | SemanticControl::Cancelled
-                            | SemanticControl::Ignored => {}
-                            _ => {
-                                self.write_visible_bytes_and_update_state(&sequence, output)?;
-                            }
-                        }
+                        self.write_unanswered_control(semantic, &sequence, output)?;
                     }
                 }
             }
         }
 
+        Ok(())
+    }
+
+    fn write_unanswered_control(
+        &mut self,
+        semantic: SemanticControl,
+        sequence: &[u8],
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        match semantic {
+            SemanticControl::SynchronizedOutputMode(mode_sequence) => {
+                let enabled = mode_sequence.enabled;
+                self.mode_tracker
+                    .apply_private_mode_sequence(&mode_sequence, |change| {
+                        self.mode_changes.push(change);
+                    });
+                self.feed_mirror_bytes(sequence);
+                if !enabled {
+                    self.flush_synchronized_output_buffer(output)?;
+                }
+            }
+            SemanticControl::KittyKeyboardMode(mode_sequence) => {
+                self.mode_tracker
+                    .apply_kitty_keyboard_sequence(mode_sequence, |change| {
+                        self.mode_changes.push(change);
+                    });
+            }
+            SemanticControl::KeyModifierOptionsSequence(mode_sequence) => {
+                self.mode_tracker
+                    .apply_key_modifier_options_sequence(mode_sequence, |change| {
+                        self.mode_changes.push(change);
+                    });
+            }
+            SemanticControl::Decrqcra(_)
+            | SemanticControl::WindowReport(_)
+            | SemanticControl::Notification(_)
+            | SemanticControl::DeviceAttributesResponse
+            | SemanticControl::StandaloneSt
+            | SemanticControl::Cancelled
+            | SemanticControl::Ignored => {}
+            _ => self.write_visible_bytes_and_update_state(sequence, output)?,
+        }
         Ok(())
     }
 
@@ -1177,6 +1197,10 @@ impl TerminalOutputFilter {
         Ok(())
     }
 
+    fn take_mode_changes(&mut self) -> Vec<TerminalModeChange> {
+        std::mem::take(&mut self.mode_changes)
+    }
+
     fn flush_synchronized_output_buffer(&mut self, output: &mut dyn Write) -> io::Result<()> {
         if self.synchronized_output_buffer.is_empty() {
             return Ok(());
@@ -1195,7 +1219,8 @@ impl TerminalOutputFilter {
         let was_synchronized = self.mode_tracker.synchronized_output();
         self.write_visible_bytes(bytes, output)?;
         self.color_state.process(bytes);
-        self.mode_tracker.process_without_emitting(bytes);
+        self.mode_tracker
+            .process(bytes, |change| self.mode_changes.push(change));
         if was_synchronized && !self.mode_tracker.synchronized_output() {
             self.flush_synchronized_output_buffer(output)?;
         }
@@ -1724,6 +1749,7 @@ impl XtGetTcapResponse {
         }
 
         for entry in &self.entries {
+            let entry_start = response.len();
             if let Some(value_hex) = &entry.value_hex {
                 response.extend_from_slice(b"\x1bP1+r");
                 extend_ascii_hex_uppercase(&mut response, &entry.name_hex);
@@ -1734,6 +1760,10 @@ impl XtGetTcapResponse {
                 extend_ascii_hex_uppercase(&mut response, &entry.name_hex);
             }
             response.extend_from_slice(b"\x1b\\");
+            if response.len() > MAX_XTGETTCAP_RESPONSE_BYTES {
+                response.truncate(entry_start);
+                break;
+            }
         }
         response
     }
@@ -3698,6 +3728,9 @@ mod tests {
         MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalModeChange,
         TerminalModeTracker,
     };
+    use crate::terminal_queries::{
+        KeyModifierOptions, KittyKeyboardApplyMode, KittyKeyboardMode, KittyKeyboardOperation,
+    };
 
     use super::{
         InputModes, InputReporting, Osc52Policy, TerminalOutputFilter, encode_input_event,
@@ -5300,8 +5333,13 @@ mod tests {
         let mut tracker = TerminalModeTracker::default();
         let mut changes = Vec::new();
 
-        tracker.process(
-            b"\x1b[?1;1004;2004;2026h\x1b[?1002;1006h\x1b=\x1b[>1u",
+        tracker.process(b"\x1b[?1;1004;2004;2026h\x1b[?1002;1006h\x1b=", |_| {});
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Push,
+                value: 1,
+                apply_mode: KittyKeyboardApplyMode::Replace,
+            },
             |_| {},
         );
         tracker.process(b"\x1bc", |change| changes.push(change));
@@ -5351,7 +5389,14 @@ mod tests {
         let mut tracker = TerminalModeTracker::default();
         let mut changes = Vec::new();
 
-        tracker.process(b"\x1b[?1h\x1b=\x1b[>4;2m", |_| {});
+        tracker.process(b"\x1b[?1h\x1b=", |_| {});
+        tracker.apply_key_modifier_options_sequence(
+            KeyModifierOptions {
+                resource: Some(4),
+                value: Some(2),
+            },
+            |_| {},
+        );
         assert!(tracker.application_cursor_keys());
         assert!(tracker.application_keypad());
         assert_eq!(tracker.modify_other_keys(), 2);
@@ -5620,6 +5665,67 @@ mod tests {
         assert_eq!(output, b"beforemidafter done");
         assert_eq!(responses, b"\x1b[?2026;1$y");
         assert!(!filter.mode_tracker.synchronized_output());
+    }
+
+    #[test]
+    fn terminal_output_filter_passes_malformed_mode_controls_through_unchanged() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let malformed = b"\x1b[?2026;badh\x1b[?2026;;l\x1b[>badu\x1b[=1;4u\x1b[>badm";
+
+        filter
+            .write(malformed, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(output, malformed);
+        assert!(responses.is_empty());
+        assert!(!filter.mode_tracker.synchronized_output());
+        assert_eq!(filter.mode_tracker.kitty_keyboard_flags(), 0);
+        assert_eq!(filter.mode_tracker.modify_other_keys(), 0);
+    }
+
+    #[test]
+    fn terminal_output_filter_fail_closes_malformed_reserved_clipboard_controls() {
+        for policy in [Osc52Policy::Off, Osc52Policy::ReadWrite] {
+            let mut filter = TerminalOutputFilter::default();
+            let mut output = Vec::new();
+            let mut responses = Vec::new();
+
+            filter
+                .write_with_clipboard(
+                    b"\x1b]052;c;not-base64!\x07\x1b]00052\x07\x9d00052;c;not-base64!\x9c\xc2\x9d052;c;not-base64!\xc2\x9c\x1b]001337;Copy=;not-base64!\x07",
+                    &mut output,
+                    |response| {
+                        responses.extend_from_slice(response);
+                        Ok(())
+                    },
+                    |_| panic!("malformed clipboard control must not reach the host"),
+                    || panic!("malformed clipboard query must not reach the host"),
+                    policy,
+                )
+                .unwrap();
+
+            assert!(output.is_empty());
+            assert!(responses.is_empty());
+        }
+
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        filter
+            .write_with_clipboard(
+                b"\x1b]00052;c;Y29weQ==\x07",
+                &mut output,
+                |_| panic!("clipboard write must not produce a response"),
+                |_| panic!("OSC52 Off must block a valid leading-zero selector"),
+                || panic!("clipboard query callback must not run"),
+                Osc52Policy::Off,
+            )
+            .unwrap();
+        assert!(output.is_empty());
     }
 
     #[test]

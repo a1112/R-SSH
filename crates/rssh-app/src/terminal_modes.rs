@@ -1,5 +1,10 @@
 use crossterm::event::MouseEventKind;
 
+use crate::terminal_queries::{
+    KeyModifierOptions, KittyKeyboardApplyMode, KittyKeyboardMode, KittyKeyboardOperation,
+    PrivateModeSequence,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalModeChange {
     ApplicationCursorKeys(bool),
@@ -178,19 +183,10 @@ impl TerminalModeTracker {
     const APPLICATION_KEYPAD_PREFIX: &'static [u8] = b"\x1b=";
     const CSI_MODE_PREFIX: &'static [u8] = b"\x1b[";
     const CSI_PRIVATE_MODE_PREFIX: &'static [u8] = b"\x1b[?";
-    const CSI_KITTY_KEYBOARD_PUSH_PREFIX: &'static [u8] = b"\x1b[>";
-    const CSI_KITTY_KEYBOARD_POP_PREFIX: &'static [u8] = b"\x1b[<";
-    const CSI_KITTY_KEYBOARD_SET_PREFIX: &'static [u8] = b"\x1b[=";
     const C1_CSI_MODE_PREFIX: &'static [u8] = b"\x9b";
     const C1_CSI_PRIVATE_MODE_PREFIX: &'static [u8] = b"\x9b?";
-    const C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX: &'static [u8] = b"\x9b>";
-    const C1_CSI_KITTY_KEYBOARD_POP_PREFIX: &'static [u8] = b"\x9b<";
-    const C1_CSI_KITTY_KEYBOARD_SET_PREFIX: &'static [u8] = b"\x9b=";
     const UTF8_C1_CSI_MODE_PREFIX: &'static [u8] = b"\xc2\x9b";
     const UTF8_C1_CSI_PRIVATE_MODE_PREFIX: &'static [u8] = b"\xc2\x9b?";
-    const UTF8_C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX: &'static [u8] = b"\xc2\x9b>";
-    const UTF8_C1_CSI_KITTY_KEYBOARD_POP_PREFIX: &'static [u8] = b"\xc2\x9b<";
-    const UTF8_C1_CSI_KITTY_KEYBOARD_SET_PREFIX: &'static [u8] = b"\xc2\x9b=";
     const NUMERIC_KEYPAD_PREFIX: &'static [u8] = b"\x1b>";
     const RESET_PREFIX: &'static [u8] = b"\x1bc";
     const SOFT_RESET_PREFIX: &'static [u8] = b"\x1b[!p";
@@ -227,75 +223,6 @@ impl TerminalModeTracker {
                     self.soft_reset(&mut emit);
                     self.pending.drain(..prefix_len);
                 }
-                ModeSequence::KittyKeyboard {
-                    prefix_len,
-                    operation,
-                } => match Self::parse_kitty_keyboard_mode_sequence(
-                    &self.pending,
-                    prefix_len,
-                    operation,
-                ) {
-                    ModeParse::KittyKeyboard {
-                        value,
-                        apply_mode,
-                        consumed,
-                    } => {
-                        self.apply_kitty_keyboard_mode(operation, value, apply_mode, &mut emit);
-                        self.pending.drain(..consumed);
-                    }
-                    ModeParse::Incomplete => return,
-                    ModeParse::Invalid => {
-                        self.pending.drain(..1);
-                    }
-                    ModeParse::Complete { .. } | ModeParse::KeyModifierOptions { .. } => {
-                        unreachable!()
-                    }
-                },
-                ModeSequence::KeyModifierOptions { prefix_len } => {
-                    match Self::parse_kitty_keyboard_mode_sequence(
-                        &self.pending,
-                        prefix_len,
-                        KittyKeyboardOperation::Push,
-                    ) {
-                        ModeParse::KittyKeyboard {
-                            value,
-                            apply_mode,
-                            consumed,
-                        } => {
-                            self.apply_kitty_keyboard_mode(
-                                KittyKeyboardOperation::Push,
-                                value,
-                                apply_mode,
-                                &mut emit,
-                            );
-                            self.pending.drain(..consumed);
-                        }
-                        ModeParse::Incomplete => return,
-                        ModeParse::Invalid => match Self::parse_key_modifier_options_sequence(
-                            &self.pending,
-                            prefix_len,
-                        ) {
-                            ModeParse::KeyModifierOptions {
-                                resource,
-                                value,
-                                consumed,
-                            } => {
-                                self.apply_key_modifier_options(resource, value, &mut emit);
-                                self.pending.drain(..consumed);
-                            }
-                            ModeParse::Incomplete => return,
-                            ModeParse::Invalid => {
-                                self.pending.drain(..1);
-                            }
-                            ModeParse::Complete { .. } | ModeParse::KittyKeyboard { .. } => {
-                                unreachable!()
-                            }
-                        },
-                        ModeParse::Complete { .. } | ModeParse::KeyModifierOptions { .. } => {
-                            unreachable!()
-                        }
-                    }
-                }
                 ModeSequence::CsiMode { prefix_len } => {
                     match Self::parse_mode_sequence(&self.pending, prefix_len) {
                         ModeParse::Complete {
@@ -311,9 +238,6 @@ impl TerminalModeTracker {
                         ModeParse::Incomplete => return,
                         ModeParse::Invalid => {
                             self.pending.drain(..1);
-                        }
-                        ModeParse::KittyKeyboard { .. } | ModeParse::KeyModifierOptions { .. } => {
-                            unreachable!()
                         }
                     }
                 }
@@ -342,9 +266,6 @@ impl TerminalModeTracker {
                         ModeParse::Invalid => {
                             self.pending.drain(..1);
                         }
-                        ModeParse::KittyKeyboard { .. } | ModeParse::KeyModifierOptions { .. } => {
-                            unreachable!()
-                        }
                     }
                 }
             }
@@ -352,6 +273,46 @@ impl TerminalModeTracker {
     }
     pub(crate) fn process_without_emitting(&mut self, bytes: &[u8]) {
         self.process(bytes, |_| {});
+    }
+
+    pub(crate) fn apply_private_mode_sequence(
+        &mut self,
+        sequence: &PrivateModeSequence,
+        mut emit: impl FnMut(TerminalModeChange),
+    ) {
+        let before_mouse = self.mouse_input_mode();
+        let mut saw_mouse_mode = false;
+        for &mode in &sequence.modes {
+            if self.mouse_modes.set(mode, sequence.enabled) {
+                saw_mouse_mode = true;
+            } else {
+                self.apply_mode(mode, sequence.enabled, &mut emit);
+            }
+        }
+        if saw_mouse_mode {
+            self.emit_mouse_change(before_mouse, &mut emit);
+        }
+    }
+
+    pub(crate) fn apply_kitty_keyboard_sequence(
+        &mut self,
+        sequence: KittyKeyboardMode,
+        mut emit: impl FnMut(TerminalModeChange),
+    ) {
+        self.apply_kitty_keyboard_mode(
+            sequence.operation,
+            sequence.value,
+            sequence.apply_mode,
+            &mut emit,
+        );
+    }
+
+    pub(crate) fn apply_key_modifier_options_sequence(
+        &mut self,
+        sequence: KeyModifierOptions,
+        mut emit: impl FnMut(TerminalModeChange),
+    ) {
+        self.apply_key_modifier_options(sequence.resource, sequence.value, &mut emit);
     }
 
     pub(crate) fn clear_kitty_keyboard_flags(&mut self) {
@@ -369,8 +330,6 @@ impl TerminalModeTracker {
     fn find_next_mode_start(bytes: &[u8]) -> Option<ModeSequenceStart> {
         [
             Self::find_csi_private_mode_start(bytes),
-            Self::find_key_modifier_options_start(bytes),
-            Self::find_kitty_keyboard_start(bytes),
             Self::find_soft_reset_start(bytes),
             Self::find_csi_mode_start(bytes),
             Self::find_simple_escape_start(bytes),
@@ -400,82 +359,6 @@ impl TerminalModeTracker {
                     Self::UTF8_C1_CSI_PRIVATE_MODE_PREFIX,
                     ModeSequence::CsiPrivateMode {
                         prefix_len: Self::UTF8_C1_CSI_PRIVATE_MODE_PREFIX.len(),
-                    },
-                ),
-            ],
-        )
-    }
-
-    fn find_key_modifier_options_start(bytes: &[u8]) -> Option<ModeSequenceStart> {
-        Self::find_mode_start_with_prefixes(
-            bytes,
-            [
-                (
-                    Self::CSI_KITTY_KEYBOARD_PUSH_PREFIX,
-                    ModeSequence::KeyModifierOptions {
-                        prefix_len: Self::CSI_KITTY_KEYBOARD_PUSH_PREFIX.len(),
-                    },
-                ),
-                (
-                    Self::C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX,
-                    ModeSequence::KeyModifierOptions {
-                        prefix_len: Self::C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX.len(),
-                    },
-                ),
-                (
-                    Self::UTF8_C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX,
-                    ModeSequence::KeyModifierOptions {
-                        prefix_len: Self::UTF8_C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX.len(),
-                    },
-                ),
-            ],
-        )
-    }
-
-    fn find_kitty_keyboard_start(bytes: &[u8]) -> Option<ModeSequenceStart> {
-        Self::find_mode_start_with_prefixes(
-            bytes,
-            [
-                (
-                    Self::CSI_KITTY_KEYBOARD_POP_PREFIX,
-                    ModeSequence::KittyKeyboard {
-                        prefix_len: Self::CSI_KITTY_KEYBOARD_POP_PREFIX.len(),
-                        operation: KittyKeyboardOperation::Pop,
-                    },
-                ),
-                (
-                    Self::CSI_KITTY_KEYBOARD_SET_PREFIX,
-                    ModeSequence::KittyKeyboard {
-                        prefix_len: Self::CSI_KITTY_KEYBOARD_SET_PREFIX.len(),
-                        operation: KittyKeyboardOperation::Apply,
-                    },
-                ),
-                (
-                    Self::C1_CSI_KITTY_KEYBOARD_POP_PREFIX,
-                    ModeSequence::KittyKeyboard {
-                        prefix_len: Self::C1_CSI_KITTY_KEYBOARD_POP_PREFIX.len(),
-                        operation: KittyKeyboardOperation::Pop,
-                    },
-                ),
-                (
-                    Self::C1_CSI_KITTY_KEYBOARD_SET_PREFIX,
-                    ModeSequence::KittyKeyboard {
-                        prefix_len: Self::C1_CSI_KITTY_KEYBOARD_SET_PREFIX.len(),
-                        operation: KittyKeyboardOperation::Apply,
-                    },
-                ),
-                (
-                    Self::UTF8_C1_CSI_KITTY_KEYBOARD_POP_PREFIX,
-                    ModeSequence::KittyKeyboard {
-                        prefix_len: Self::UTF8_C1_CSI_KITTY_KEYBOARD_POP_PREFIX.len(),
-                        operation: KittyKeyboardOperation::Pop,
-                    },
-                ),
-                (
-                    Self::UTF8_C1_CSI_KITTY_KEYBOARD_SET_PREFIX,
-                    ModeSequence::KittyKeyboard {
-                        prefix_len: Self::UTF8_C1_CSI_KITTY_KEYBOARD_SET_PREFIX.len(),
-                        operation: KittyKeyboardOperation::Apply,
                     },
                 ),
             ],
@@ -601,134 +484,6 @@ impl TerminalModeTracker {
                 }
                 _ => return ModeParse::Invalid,
             }
-        }
-    }
-
-    fn parse_kitty_keyboard_mode_sequence(
-        bytes: &[u8],
-        prefix_len: usize,
-        operation: KittyKeyboardOperation,
-    ) -> ModeParse {
-        let mut cursor = prefix_len;
-        let mut value = 0u16;
-        let value_start = cursor;
-
-        while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
-            value = value
-                .saturating_mul(10)
-                .saturating_add(u16::from(bytes[cursor] - b'0'));
-            cursor += 1;
-        }
-
-        if cursor >= bytes.len() {
-            return ModeParse::Incomplete;
-        }
-
-        if matches!(operation, KittyKeyboardOperation::Apply) && cursor == value_start {
-            return ModeParse::Invalid;
-        }
-
-        let apply_mode =
-            if matches!(operation, KittyKeyboardOperation::Apply) && bytes[cursor] == b';' {
-                cursor += 1;
-                if cursor >= bytes.len() {
-                    return ModeParse::Incomplete;
-                }
-                let mode_start = cursor;
-                let mut mode = 0u16;
-                while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
-                    mode = mode
-                        .saturating_mul(10)
-                        .saturating_add(u16::from(bytes[cursor] - b'0'));
-                    cursor += 1;
-                }
-                if cursor == mode_start {
-                    return ModeParse::Invalid;
-                }
-                match mode {
-                    1 => KittyKeyboardApplyMode::Replace,
-                    2 => KittyKeyboardApplyMode::Set,
-                    3 => KittyKeyboardApplyMode::Reset,
-                    _ => return ModeParse::Invalid,
-                }
-            } else {
-                KittyKeyboardApplyMode::Replace
-            };
-
-        if bytes[cursor] != b'u' {
-            return ModeParse::Invalid;
-        }
-
-        ModeParse::KittyKeyboard {
-            value,
-            apply_mode,
-            consumed: cursor + 1,
-        }
-    }
-
-    fn parse_key_modifier_options_sequence(bytes: &[u8], prefix_len: usize) -> ModeParse {
-        let mut cursor = prefix_len;
-        if cursor >= bytes.len() {
-            return ModeParse::Incomplete;
-        }
-
-        if bytes[cursor] == b'm' {
-            return ModeParse::KeyModifierOptions {
-                resource: None,
-                value: None,
-                consumed: cursor + 1,
-            };
-        }
-
-        let resource_start = cursor;
-        let mut resource = 0u16;
-        while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
-            resource = resource
-                .saturating_mul(10)
-                .saturating_add(u16::from(bytes[cursor] - b'0'));
-            cursor += 1;
-        }
-
-        if cursor == resource_start {
-            return ModeParse::Invalid;
-        }
-        if cursor >= bytes.len() {
-            return ModeParse::Incomplete;
-        }
-
-        let value = match bytes[cursor] {
-            b'm' => None,
-            b';' => {
-                cursor += 1;
-                if cursor >= bytes.len() {
-                    return ModeParse::Incomplete;
-                }
-                let value_start = cursor;
-                let mut value = 0u16;
-                while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
-                    value = value
-                        .saturating_mul(10)
-                        .saturating_add(u16::from(bytes[cursor] - b'0'));
-                    cursor += 1;
-                }
-                if cursor == value_start {
-                    return ModeParse::Invalid;
-                }
-                if cursor >= bytes.len() {
-                    return ModeParse::Incomplete;
-                }
-                if bytes[cursor] != b'm' {
-                    return ModeParse::Invalid;
-                }
-                Some(value)
-            }
-            _ => return ModeParse::Invalid,
-        };
-
-        ModeParse::KeyModifierOptions {
-            resource: Some(resource),
-            value,
-            consumed: cursor + 1,
         }
     }
 
@@ -1053,19 +808,10 @@ impl TerminalModeTracker {
         let retained = [
             Self::CSI_MODE_PREFIX,
             Self::CSI_PRIVATE_MODE_PREFIX,
-            Self::CSI_KITTY_KEYBOARD_PUSH_PREFIX,
-            Self::CSI_KITTY_KEYBOARD_POP_PREFIX,
-            Self::CSI_KITTY_KEYBOARD_SET_PREFIX,
             Self::C1_CSI_MODE_PREFIX,
             Self::C1_CSI_PRIVATE_MODE_PREFIX,
-            Self::C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX,
-            Self::C1_CSI_KITTY_KEYBOARD_POP_PREFIX,
-            Self::C1_CSI_KITTY_KEYBOARD_SET_PREFIX,
             Self::UTF8_C1_CSI_MODE_PREFIX,
             Self::UTF8_C1_CSI_PRIVATE_MODE_PREFIX,
-            Self::UTF8_C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX,
-            Self::UTF8_C1_CSI_KITTY_KEYBOARD_POP_PREFIX,
-            Self::UTF8_C1_CSI_KITTY_KEYBOARD_SET_PREFIX,
             Self::APPLICATION_KEYPAD_PREFIX,
             Self::NUMERIC_KEYPAD_PREFIX,
             Self::RESET_PREFIX,
@@ -1085,20 +831,6 @@ impl TerminalModeTracker {
             self.pending.drain(..writable);
         }
     }
-}
-
-#[derive(Clone, Copy)]
-enum KittyKeyboardOperation {
-    Push,
-    Pop,
-    Apply,
-}
-
-#[derive(Clone, Copy)]
-enum KittyKeyboardApplyMode {
-    Replace,
-    Set,
-    Reset,
 }
 
 #[derive(Default)]
@@ -1305,16 +1037,6 @@ enum ModeParse {
         enabled: bool,
         consumed: usize,
     },
-    KittyKeyboard {
-        value: u16,
-        apply_mode: KittyKeyboardApplyMode,
-        consumed: usize,
-    },
-    KeyModifierOptions {
-        resource: Option<u16>,
-        value: Option<u16>,
-        consumed: usize,
-    },
     Incomplete,
     Invalid,
 }
@@ -1327,24 +1049,11 @@ struct ModeSequenceStart {
 
 #[derive(Clone, Copy)]
 enum ModeSequence {
-    CsiPrivateMode {
-        prefix_len: usize,
-    },
-    CsiMode {
-        prefix_len: usize,
-    },
-    KittyKeyboard {
-        prefix_len: usize,
-        operation: KittyKeyboardOperation,
-    },
-    KeyModifierOptions {
-        prefix_len: usize,
-    },
+    CsiPrivateMode { prefix_len: usize },
+    CsiMode { prefix_len: usize },
     ApplicationKeypad(bool),
     Reset,
-    SoftReset {
-        prefix_len: usize,
-    },
+    SoftReset { prefix_len: usize },
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -1559,6 +1268,10 @@ fn suffix_len_matching_prefix(haystack: &[u8], needle: &[u8]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{TerminalModeChange, TerminalModeTracker};
+    use crate::terminal_queries::{
+        KeyModifierOptions, KittyKeyboardApplyMode, KittyKeyboardMode, KittyKeyboardOperation,
+        PrivateModeSequence,
+    };
 
     #[test]
     fn tracks_kitty_keyboard_protocol_push_pop_flags() {
@@ -1567,16 +1280,44 @@ mod tests {
 
         assert_eq!(tracker.kitty_keyboard_flags(), 0);
 
-        tracker.process(b"\x1b[>1u", |change| changes.push(change));
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Push,
+                value: 1,
+                apply_mode: KittyKeyboardApplyMode::Replace,
+            },
+            |change| changes.push(change),
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 1);
 
-        tracker.process(b"\x1b[>9u", |change| changes.push(change));
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Push,
+                value: 9,
+                apply_mode: KittyKeyboardApplyMode::Replace,
+            },
+            |change| changes.push(change),
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 9);
 
-        tracker.process(b"\x1b[<u", |change| changes.push(change));
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Pop,
+                value: 0,
+                apply_mode: KittyKeyboardApplyMode::Replace,
+            },
+            |change| changes.push(change),
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 1);
 
-        tracker.process(b"\x1b[<1u", |change| changes.push(change));
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Pop,
+                value: 1,
+                apply_mode: KittyKeyboardApplyMode::Replace,
+            },
+            |change| changes.push(change),
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 0);
         assert_eq!(
             changes,
@@ -1594,19 +1335,54 @@ mod tests {
         let mut tracker = TerminalModeTracker::default();
         let mut changes = Vec::new();
 
-        tracker.process(b"\x1b[=1u", |change| changes.push(change));
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Apply,
+                value: 1,
+                apply_mode: KittyKeyboardApplyMode::Replace,
+            },
+            |change| changes.push(change),
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 1);
 
-        tracker.process(b"\x1b[=8;2u", |change| changes.push(change));
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Apply,
+                value: 8,
+                apply_mode: KittyKeyboardApplyMode::Set,
+            },
+            |change| changes.push(change),
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 9);
 
-        tracker.process(b"\x1b[=1;3u", |change| changes.push(change));
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Apply,
+                value: 1,
+                apply_mode: KittyKeyboardApplyMode::Reset,
+            },
+            |change| changes.push(change),
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 8);
 
-        tracker.process(b"\x1b[=8;1u", |change| changes.push(change));
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Apply,
+                value: 8,
+                apply_mode: KittyKeyboardApplyMode::Replace,
+            },
+            |change| changes.push(change),
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 8);
 
-        tracker.process(b"\x1b[=0u", |change| changes.push(change));
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Apply,
+                value: 0,
+                apply_mode: KittyKeyboardApplyMode::Replace,
+            },
+            |change| changes.push(change),
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 0);
         assert_eq!(
             changes,
@@ -1620,34 +1396,90 @@ mod tests {
     }
 
     #[test]
-    fn tracks_split_and_c1_kitty_keyboard_protocol_flags() {
+    fn applies_kitty_keyboard_protocol_push_pop_dtos() {
         let mut tracker = TerminalModeTracker::default();
 
-        tracker.process(b"\x1b[>", |_| {});
-        assert_eq!(tracker.kitty_keyboard_flags(), 0);
-
-        tracker.process(b"17u", |_| {});
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Push,
+                value: 17,
+                apply_mode: KittyKeyboardApplyMode::Replace,
+            },
+            |_| {},
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 17);
 
-        tracker.process(b"\x9b>3u", |_| {});
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Push,
+                value: 3,
+                apply_mode: KittyKeyboardApplyMode::Replace,
+            },
+            |_| {},
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 3);
 
-        tracker.process(b"\x9b<2u", |_| {});
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Pop,
+                value: 2,
+                apply_mode: KittyKeyboardApplyMode::Replace,
+            },
+            |_| {},
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 0);
     }
 
     #[test]
-    fn tracks_split_and_c1_kitty_keyboard_protocol_set_flags() {
+    fn applies_kitty_keyboard_protocol_set_reset_dtos() {
         let mut tracker = TerminalModeTracker::default();
 
-        tracker.process(b"\x1b[=", |_| {});
-        assert_eq!(tracker.kitty_keyboard_flags(), 0);
-
-        tracker.process(b"17u", |_| {});
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Apply,
+                value: 17,
+                apply_mode: KittyKeyboardApplyMode::Replace,
+            },
+            |_| {},
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 17);
 
-        tracker.process(b"\x9b=1;3u", |_| {});
+        tracker.apply_kitty_keyboard_sequence(
+            KittyKeyboardMode {
+                operation: KittyKeyboardOperation::Apply,
+                value: 1,
+                apply_mode: KittyKeyboardApplyMode::Reset,
+            },
+            |_| {},
+        );
         assert_eq!(tracker.kitty_keyboard_flags(), 16);
+    }
+
+    #[test]
+    fn applies_combined_private_mode_dto_without_losing_mouse_state() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.apply_private_mode_sequence(
+            &PrivateModeSequence {
+                modes: vec![1000, 2026],
+                enabled: true,
+            },
+            |change| changes.push(change),
+        );
+
+        assert!(tracker.synchronized_output());
+        assert!(tracker.mouse_input_mode().reporting_enabled());
+        assert!(
+            changes
+                .iter()
+                .any(|change| matches!(change, TerminalModeChange::SynchronizedOutput(true)))
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|change| matches!(change, TerminalModeChange::Mouse(_)))
+        );
     }
 
     #[test]
@@ -1738,13 +1570,31 @@ mod tests {
 
         assert_eq!(tracker.modify_other_keys(), 0);
 
-        tracker.process(b"\x1b[>4;2m", |change| changes.push(change));
+        tracker.apply_key_modifier_options_sequence(
+            KeyModifierOptions {
+                resource: Some(4),
+                value: Some(2),
+            },
+            |change| changes.push(change),
+        );
         assert_eq!(tracker.modify_other_keys(), 2);
 
-        tracker.process(b"\x9b>4;1m", |change| changes.push(change));
+        tracker.apply_key_modifier_options_sequence(
+            KeyModifierOptions {
+                resource: Some(4),
+                value: Some(1),
+            },
+            |change| changes.push(change),
+        );
         assert_eq!(tracker.modify_other_keys(), 1);
 
-        tracker.process(b"\x1b[>4;0m", |change| changes.push(change));
+        tracker.apply_key_modifier_options_sequence(
+            KeyModifierOptions {
+                resource: Some(4),
+                value: Some(0),
+            },
+            |change| changes.push(change),
+        );
         assert_eq!(tracker.modify_other_keys(), 0);
         assert_eq!(
             changes,
