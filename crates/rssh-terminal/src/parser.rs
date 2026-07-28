@@ -12,11 +12,11 @@ use unicode_normalization::char::canonical_combining_class;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    Cell, CellAttachment, Color, CursorShape, CursorStyle, InlineImageFormat, InlineImageFragment,
-    ItermInlineImage, ScrollbackLine, SemanticCommandExit, SemanticType, SemanticZone, SequenceNo,
-    StableRowIndex, StableSelectionRange, StableSemanticCommandExit, StableSemanticZone,
-    TerminalGrid, TerminalResizeOutcome, TerminalScreenDomain, TerminalStableDimensions,
-    UnderlineStyle,
+    Cell, CellAttachment, Color, CursorShape, CursorStyle, HistoryBuffer, InlineImageFormat,
+    InlineImageFragment, ItermInlineImage, ScrollbackLine, SemanticCommandExit, SemanticType,
+    SemanticZone, SequenceNo, StableRowIndex, StableSelectionRange, StableSemanticCommandExit,
+    StableSemanticZone, TerminalGrid, TerminalResizeOutcome, TerminalScreenDomain,
+    TerminalStableDimensions, UnderlineStyle,
 };
 
 pub const DEFAULT_SCROLLBACK_LIMIT: usize = 3_500;
@@ -433,7 +433,10 @@ impl TabStops {
 pub struct TerminalWorkCounters {
     /// Individual surviving grid cells cloned while a scroll moves rows.
     pub scrolled_survivor_cell_clones: u64,
-    /// Surviving history rows relocated by prefix pruning the `Vec` scrollback.
+    /// Surviving history rows physically relocated by prefix pruning.
+    ///
+    /// Logical deque front eviction records zero because survivors retain their
+    /// ring-buffer slots.
     pub history_row_relocations: u64,
     /// Non-empty history prune operations that run the metadata rebase pass.
     pub metadata_rebase_batches: u64,
@@ -465,7 +468,7 @@ impl TerminalWorkCounters {
 )]
 pub struct Terminal {
     grid: TerminalGrid,
-    scrollback: Vec<ScrollbackLine>,
+    scrollback: HistoryBuffer<ScrollbackLine>,
     scrollback_limit: usize,
     seqno: SequenceNo,
     screen_identity_generation: SequenceNo,
@@ -723,7 +726,7 @@ impl Terminal {
     ) -> Self {
         Self {
             grid: TerminalGrid::new_with_seqno(size, INITIAL_SEQUENCE_NO),
-            scrollback: Vec::new(),
+            scrollback: HistoryBuffer::new(),
             scrollback_limit: DEFAULT_SCROLLBACK_LIMIT,
             seqno: INITIAL_SEQUENCE_NO,
             screen_identity_generation: 0,
@@ -2781,7 +2784,7 @@ impl Terminal {
     }
 
     #[must_use]
-    pub fn scrollback(&self) -> &[ScrollbackLine] {
+    pub const fn scrollback(&self) -> &HistoryBuffer<ScrollbackLine> {
         &self.scrollback
     }
 
@@ -3938,7 +3941,6 @@ impl Terminal {
                 wrapped,
                 sequence,
             ));
-        self.trim_scrollback_to_limit();
     }
 
     fn trim_scrollback_to_limit(&mut self) {
@@ -3949,17 +3951,11 @@ impl Terminal {
     }
 
     fn prune_scrollback_rows(&mut self, rows: usize) {
-        let rows = rows.min(self.scrollback.len());
+        let rows = self.scrollback.evict_front(rows);
         if rows == 0 {
             return;
         }
 
-        let surviving_rows = self.scrollback.len().saturating_sub(rows);
-        self.scrollback.drain(..rows);
-        self.work_counters.history_row_relocations = self
-            .work_counters
-            .history_row_relocations
-            .saturating_add(u64::try_from(surviving_rows).unwrap_or(u64::MAX));
         let stable_rows =
             StableRowIndex::try_from(rows).expect("pruned row count must fit a stable row index");
         self.main_stable_row_offset = self
@@ -5777,6 +5773,7 @@ impl Terminal {
             for row in top..top.saturating_add(count) {
                 self.record_scrollback_line(row);
             }
+            self.trim_scrollback_to_limit();
         } else {
             self.scroll_inline_images_up_region(top, bottom, count);
             self.scroll_kitty_placeholder_cells_up_region(top, bottom, count);
@@ -6395,7 +6392,7 @@ fn default_tab_stops(size: TerminalSize) -> Vec<u16> {
     reason = "reflow atomically coordinates buffers, cursor state, and configuration inputs"
 )]
 fn reflow_main_screen(
-    scrollback: &mut Vec<ScrollbackLine>,
+    scrollback: &mut HistoryBuffer<ScrollbackLine>,
     grid: &mut TerminalGrid,
     size: TerminalSize,
     seqno: SequenceNo,
@@ -6520,7 +6517,7 @@ fn reflow_main_screen(
 
     let grid_rows = usize::from(size.rows);
     let scrollback_rows = rows.len().saturating_sub(grid_rows);
-    let mut reflowed_scrollback = rows
+    let reflowed_scrollback = rows
         .drain(..scrollback_rows)
         .map(|(mut row, wrapped)| {
             row.cells.resize(usize::from(size.columns), Cell::default());
@@ -6552,7 +6549,7 @@ fn reflow_main_screen(
         reflowed_grid.set_row_last_change_seqno(row, seqno);
     }
 
-    *scrollback = std::mem::take(&mut reflowed_scrollback);
+    scrollback.rebuild(reflowed_scrollback);
     *grid = reflowed_grid;
     if let Some((row, column)) = reflowed_cursor {
         let grid_row = row.saturating_sub(scrollback_rows);
@@ -8759,10 +8756,177 @@ mod stable_row_tests {
             terminal.work_counters(),
             TerminalWorkCounters {
                 scrolled_survivor_cell_clones: 8,
-                history_row_relocations: 1,
+                history_row_relocations: 0,
                 metadata_rebase_batches: 1,
             }
         );
+    }
+
+    #[test]
+    fn bounded_history_eviction_does_not_relocate_survivors() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"line-00\r\nline-01\r\nline-02\r\nline-03\r\nline-04\r\nline-05");
+        let before = terminal.work_counters();
+
+        terminal.set_scrollback_limit(2);
+
+        let work = terminal.work_counters().saturating_delta_since(before);
+        assert_eq!(terminal.scrollback.len(), 2);
+        assert_eq!(
+            terminal
+                .scrollback
+                .iter()
+                .map(|line| line.cells().iter().map(|cell| cell.ch).collect::<String>())
+                .collect::<Vec<_>>(),
+            ["line-02 ", "line-03 "]
+        );
+        assert_eq!(work.history_row_relocations, 0);
+        assert_eq!(work.metadata_rebase_batches, 1);
+    }
+
+    #[test]
+    fn history_prune_preserves_cell_attachment_source_and_stable_selection() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"old-line\r\nkeep-one\r\nkeep-two\r\nvisible!");
+        assert_eq!(terminal.scrollback.len(), 2);
+        terminal.push_inline_image(attachment_test_image(1, 2, 2, 1, "survivor"));
+        let selection = stable_selection(
+            stable_coordinate(&terminal, 1, 0),
+            stable_coordinate(&terminal, 1, 7),
+            false,
+        );
+        let sources = terminal
+            .inline_image_attachments
+            .iter()
+            .map(|attachment| (attachment.source_row, attachment.source_column))
+            .collect::<Vec<_>>();
+
+        terminal.set_scrollback_limit(1);
+
+        assert_eq!(
+            terminal.text_from_stable_selection(selection),
+            Some("keep-one".to_owned())
+        );
+        assert_eq!(
+            terminal
+                .inline_image_attachments
+                .iter()
+                .map(|attachment| (attachment.source_row, attachment.source_column))
+                .collect::<Vec<_>>(),
+            sources
+        );
+        assert_eq!(
+            attachment_locations(&terminal),
+            vec![(1, 0, 0, 0, 2), (1, 0, 1, 0, 3)]
+        );
+    }
+
+    #[test]
+    fn batched_scroll_prune_matches_incremental_prune() {
+        let mut seed = Terminal::new(TerminalSize::new(8, 4));
+        seed.set_scrollback_limit(2);
+        seed.feed(b"line-00\r\nline-01\r\nline-02\r\nline-03\r\nline-04\r\nline-05");
+        assert_eq!(seed.scrollback.len(), 2);
+        seed.push_inline_image(attachment_test_image(4, 2, 2, 1, "survivor"));
+
+        let mut batched = seed.clone();
+        let mut incremental = seed;
+        let batched_before = batched.work_counters();
+        let incremental_before = incremental.work_counters();
+
+        batched.scroll_up_region_by(0, 3, 2);
+        incremental.scroll_up_region_by(0, 3, 1);
+        incremental.scroll_up_region_by(0, 3, 1);
+
+        assert_eq!(batched.scrollback, incremental.scrollback);
+        assert_eq!(batched.stable_dimensions(), incremental.stable_dimensions());
+        assert_eq!(main_screen_rows(&batched), main_screen_rows(&incremental));
+        assert_eq!(batched.inline_images, incremental.inline_images);
+        assert_eq!(
+            batched.inline_image_attachments,
+            incremental.inline_image_attachments
+        );
+        assert_eq!(
+            batched
+                .work_counters()
+                .saturating_delta_since(batched_before)
+                .metadata_rebase_batches,
+            1
+        );
+        assert_eq!(
+            incremental
+                .work_counters()
+                .saturating_delta_since(incremental_before)
+                .metadata_rebase_batches,
+            2
+        );
+    }
+
+    #[test]
+    fn alternate_prune_rebases_active_and_dormant_attachment_destinations() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed(b"line-00\r\nline-01\r\nline-02\r\nline-03");
+        let history_rows = terminal.scrollback.len();
+        assert_eq!(history_rows, 2);
+        terminal.push_inline_image(attachment_test_image(history_rows - 1, 1, 2, 1, "main"));
+        terminal.feed(b"\x1b[?1049h");
+        terminal.push_inline_image(attachment_test_image(history_rows, 3, 2, 1, "alternate"));
+
+        terminal.prune_scrollback_rows(1);
+
+        assert_eq!(
+            attachment_locations(&terminal),
+            vec![
+                (2, 0, 0, history_rows - 1, 3),
+                (2, 0, 1, history_rows - 1, 4)
+            ]
+        );
+        let dormant_main = terminal.main_screen.as_ref().expect("dormant main screen");
+        assert_eq!(
+            dormant_main
+                .inline_image_attachments
+                .iter()
+                .map(|attachment| {
+                    (
+                        attachment.parent_identity,
+                        attachment.source_row,
+                        attachment.source_column,
+                        attachment.row,
+                        attachment.column,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![(1, 0, 0, 0, 1), (1, 0, 1, 0, 2)]
+        );
+    }
+
+    #[test]
+    fn history_container_reflow_preserves_wrapped_and_overflow_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[31m");
+        terminal.feed("界".as_bytes());
+        terminal.feed(b"x");
+        assert_eq!(terminal.scrollback.len(), 2);
+        let before = terminal
+            .scrollback
+            .iter()
+            .map(|line| (line.cells_with_reflow_overflow(), line.is_wrapped()))
+            .collect::<Vec<_>>();
+        assert_eq!(before[1].0.len(), 2);
+        assert_eq!(before[1].0[0].ch, '界');
+        assert_eq!(before[1].0[1].foreground, Color::Indexed(1));
+
+        terminal.resize(TerminalSize::new(2, 1));
+
+        let rows = main_screen_rows(&terminal);
+        assert_eq!(rows, [("界 ".to_owned(), false), ("x ".to_owned(), true)]);
+        let wide = terminal
+            .scrollback
+            .get(terminal.scrollback.len().saturating_sub(1))
+            .expect("wide row remains in history");
+        assert_eq!(wide.cells()[0].ch, '界');
+        assert_eq!(wide.cells()[1].ch, ' ');
+        assert_eq!(wide.cells()[1].foreground, Color::Indexed(1));
     }
 
     #[test]
@@ -9567,11 +9731,22 @@ mod stable_row_tests {
         terminal.feed(b"\r\ncc");
 
         assert!(!terminal.scrollback.is_empty());
-        assert_eq!(terminal.scrollback[0].last_change_seqno(), captured);
+        assert_eq!(
+            terminal.scrollback.get(0).unwrap().last_change_seqno(),
+            captured
+        );
 
         let updated = captured.checked_add(1).unwrap();
-        terminal.scrollback[0].set_last_change_seqno(updated);
-        assert_eq!(terminal.scrollback[0].last_change_seqno(), updated);
+        terminal
+            .scrollback
+            .iter_mut()
+            .next()
+            .unwrap()
+            .set_last_change_seqno(updated);
+        assert_eq!(
+            terminal.scrollback.get(0).unwrap().last_change_seqno(),
+            updated
+        );
     }
 
     #[test]
@@ -11331,8 +11506,8 @@ mod stable_row_tests {
             ]
         );
         assert_eq!(terminal.scrollback.len(), 1);
-        assert_eq!(terminal.scrollback[0].cells()[1].ch, '界');
-        assert_eq!(terminal.scrollback[0].cells()[2].ch, ' ');
+        assert_eq!(terminal.scrollback.get(0).unwrap().cells()[1].ch, '界');
+        assert_eq!(terminal.scrollback.get(0).unwrap().cells()[2].ch, ' ');
         assert_eq!(terminal.grid.get(0, 0).unwrap().ch, 'x');
         assert_eq!(terminal.grid.get(0, 1).unwrap().ch, ' ');
     }
@@ -11571,13 +11746,19 @@ mod stable_row_tests {
         terminal.feed(b"x");
 
         assert_eq!(terminal.scrollback.len(), 2);
-        let narrow_wide = terminal.scrollback.last().unwrap();
+        let narrow_wide = terminal
+            .scrollback
+            .get(terminal.scrollback.len().saturating_sub(1))
+            .unwrap();
         assert_eq!(narrow_wide.cells().len(), 1);
         assert_eq!(narrow_wide.cells()[0].ch, '界');
 
         terminal.resize(TerminalSize::new(2, 1));
 
-        let wide = terminal.scrollback.last().unwrap();
+        let wide = terminal
+            .scrollback
+            .get(terminal.scrollback.len().saturating_sub(1))
+            .unwrap();
         assert_eq!(wide.cells().len(), 2);
         assert_eq!(wide.cells()[1].ch, ' ');
         assert_eq!(wide.cells()[1].foreground, Color::Indexed(1));

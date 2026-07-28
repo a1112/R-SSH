@@ -412,17 +412,18 @@ The current benchmark path can promote these metrics into thresholded gates:
   semantic matcher;
   `scrolled_survivor_cell_clones`, the number of individual surviving grid
   cells cloned while scroll operations move rows;
-  `history_row_relocations`, the number of surviving `Vec` scrollback rows
-  relocated by prefix pruning; and `metadata_rebase_batches`, the number of
-  non-empty history prunes that run the metadata rebase pass. All four counters
-  are cumulative for one benchmark run and saturate at `u64::MAX`. They measure
-  executed current implementation work, not elapsed-time estimates. Normal
-  runtime scanners compile out this accounting; benchmark scanners enable it
-  explicitly. The pinned 1 MiB `ansi-scroll-query` workload at an 8192-byte
-  chunk records 1,499,241 inspected bytes: 1,048,576 framing inspections plus
-  450,665 bytes of semantic matching, or 1.4297 times the input. The
-  control-rich work-budget fixture records 176,128 inspections with both
-  512-byte and 16 KiB chunks, so its chunk-size work ratio is 1.0.
+  `history_row_relocations`, the number of surviving scrollback rows physically
+  relocated by prefix pruning (zero for logical deque front eviction); and
+  `metadata_rebase_batches`, the number of non-empty history prunes that run the
+  metadata rebase pass. All four counters are cumulative for one benchmark run
+  and saturate at `u64::MAX`. They measure executed current implementation
+  work, not elapsed-time estimates. Normal runtime scanners compile out this
+  accounting; benchmark scanners enable it explicitly. The pinned 1 MiB
+  `ansi-scroll-query` workload at an 8192-byte chunk records 1,499,241 inspected
+  bytes: 1,048,576 framing inspections plus 450,665 bytes of semantic matching,
+  or 1.4297 times the input. The control-rich work-budget fixture records
+  176,128 inspections with both 512-byte and 16 KiB chunks, so its chunk-size
+  work ratio is 1.0.
 - Steady idle CPU: `rssh-app bench --json --idle-ms N` now samples the current
   app process during an idle window and reports idle CPU usage; add
   `--max-idle-cpu-percent N` to fail the command when it exceeds a budget.

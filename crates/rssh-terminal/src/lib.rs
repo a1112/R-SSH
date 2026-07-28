@@ -1,7 +1,9 @@
 use rssh_core::TerminalSize;
 
+mod history;
 mod parser;
 
+pub use history::HistoryBuffer;
 pub use parser::{
     CellWidthOverride, DEFAULT_SCROLLBACK_LIMIT, Terminal, TerminalUnknownEscapeSequence,
     TerminalWorkCounters,
@@ -5500,7 +5502,10 @@ mod tests {
     }
 
     fn scrollback_text(terminal: &Terminal, index: usize) -> String {
-        terminal.scrollback()[index]
+        terminal
+            .scrollback()
+            .get(index)
+            .expect("scrollback test row")
             .cells()
             .iter()
             .map(|cell| cell.ch)

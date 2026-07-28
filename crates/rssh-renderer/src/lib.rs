@@ -4426,11 +4426,11 @@ impl TerminalRenderSnapshot {
         let mut cells = Vec::new();
         for viewport_row in 0..size.rows {
             let source_row = first_source_row + usize::from(viewport_row);
-            if source_row < scrollback.len() {
+            if let Some(line) = scrollback.get(source_row) {
                 append_render_cells(
                     &mut cells,
                     viewport_row,
-                    scrollback[source_row].cells(),
+                    line.cells(),
                     size.columns,
                     terminal.screen_reverse_video(),
                 );
