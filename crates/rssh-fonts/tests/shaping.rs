@@ -25,6 +25,64 @@ fn source(file: &str) -> FontSource {
     )
 }
 
+fn fixture_bytes(file: &str) -> Vec<u8> {
+    fs::read(fixture_dir().join(file)).expect("read fixture")
+}
+
+fn sfnt_table(bytes: &[u8], wanted: [u8; 4]) -> Option<(usize, usize)> {
+    let table_count = usize::from(u16::from_be_bytes([bytes[4], bytes[5]]));
+    (0..table_count).find_map(|index| {
+        let record = 12 + index * 16;
+        (bytes[record..record + 4] == wanted).then(|| {
+            let offset = u32::from_be_bytes(
+                bytes[record + 8..record + 12]
+                    .try_into()
+                    .expect("table offset"),
+            ) as usize;
+            let length = u32::from_be_bytes(
+                bytes[record + 12..record + 16]
+                    .try_into()
+                    .expect("table length"),
+            ) as usize;
+            (offset, length)
+        })
+    })
+}
+
+fn with_weight(mut bytes: Vec<u8>, weight: u16) -> Vec<u8> {
+    let (offset, _) = sfnt_table(&bytes, *b"OS/2").expect("OS/2 table");
+    bytes[offset + 4..offset + 6].copy_from_slice(&weight.to_be_bytes());
+    bytes
+}
+
+fn without_gsub_and_with_family(mut bytes: Vec<u8>, family: &str, replacement: &str) -> Vec<u8> {
+    assert_eq!(
+        family.encode_utf16().count(),
+        replacement.encode_utf16().count()
+    );
+    let family_utf16: Vec<_> = family.encode_utf16().flat_map(u16::to_be_bytes).collect();
+    let replacement_utf16: Vec<_> = replacement
+        .encode_utf16()
+        .flat_map(u16::to_be_bytes)
+        .collect();
+    let mut replaced = 0;
+    for offset in 0..=bytes.len() - family_utf16.len() {
+        if bytes[offset..].starts_with(&family_utf16) {
+            bytes[offset..offset + family_utf16.len()].copy_from_slice(&replacement_utf16);
+            replaced += 1;
+        }
+    }
+    assert!(replaced > 0, "fixture must contain the UTF-16 family name");
+
+    let table_count = usize::from(u16::from_be_bytes([bytes[4], bytes[5]]));
+    let gsub_record = (0..table_count)
+        .map(|index| 12 + index * 16)
+        .find(|record| &bytes[*record..*record + 4] == b"GSUB")
+        .expect("GSUB table");
+    bytes[gsub_record..gsub_record + 4].copy_from_slice(b"XSUB");
+    bytes
+}
+
 fn catalog(files: &[&str]) -> FontCatalog {
     FontCatalog::from_sources("en-US", files.iter().map(|file| source(file)))
         .expect("load deterministic fixtures")
@@ -65,6 +123,29 @@ fn configured_primary_and_ordered_whole_cluster_fallback() {
             "a grapheme cluster must never mix fonts"
         );
     }
+}
+
+#[test]
+fn configured_weight_selects_the_matching_face_within_one_family() {
+    let regular = FontSource::new("regular", fixture_bytes(LATIN));
+    let bold = FontSource::new("bold", with_weight(fixture_bytes(LATIN), 700));
+    let mut catalog =
+        FontCatalog::from_sources("en-US", [regular, bold]).expect("load two family faces");
+
+    let regular = TerminalShaper::new(FontConfig::new("Noto Sans").with_weight(400))
+        .shape_row(&mut catalog, "A")
+        .expect("shape regular");
+    let bold = TerminalShaper::new(FontConfig::new("Noto Sans").with_weight(700))
+        .shape_row(&mut catalog, "A")
+        .expect("shape bold");
+
+    assert!(!regular.clusters[0].is_tofu);
+    assert!(!bold.clusters[0].is_tofu);
+    assert_ne!(
+        regular.clusters[0].font_id, bold.clusters[0].font_id,
+        "weight must select a concrete face before whole-cluster planning"
+    );
+    assert!(bold.glyphs.iter().all(|glyph| glyph.glyph_id != 0));
 }
 
 #[test]
@@ -319,6 +400,34 @@ fn emoji_variations_and_sequences_select_one_expected_font_per_cluster() {
             1,
             "fixture GSUB must resolve {sequence} as one actual glyph"
         );
+    }
+}
+
+#[test]
+fn broken_emoji_sequence_primary_retries_the_next_configured_family() {
+    let broken =
+        without_gsub_and_with_family(fixture_bytes(EMOJI), "Noto Color Emoji", "Bad! Color Emoji");
+    let mut catalog = FontCatalog::from_sources(
+        "en-US",
+        [
+            FontSource::new("broken emoji primary", broken),
+            source(EMOJI),
+        ],
+    )
+    .expect("load broken and valid emoji faces");
+    let mut shaper = TerminalShaper::new(
+        FontConfig::new("Bad! Color Emoji").with_fallbacks(["Noto Color Emoji"]),
+    );
+
+    for sequence in ["👍🏽", "👨‍👩‍👧‍👦", "🇺🇸", "1️⃣"] {
+        let row = shaper
+            .shape_row(&mut catalog, sequence)
+            .expect("shape emoji sequence");
+        assert_eq!(row.clusters[0].font_family, "Noto Color Emoji");
+        assert!(!row.clusters[0].is_tofu);
+        let glyphs = &row.glyphs[row.clusters[0].glyph_range.clone()];
+        assert_eq!(glyphs.len(), 1, "{sequence} must resolve as one glyph");
+        assert!(glyphs.iter().all(|glyph| glyph.glyph_id != 0));
     }
 }
 
@@ -584,8 +693,8 @@ fn empty_and_extremely_long_rows_remain_one_unwrapped_layout_line() {
     assert_eq!(row.layout_line_count, 1);
     assert_eq!(row.cell_count, 20_000);
     assert!(
-        row.mapping_steps <= 12 * (row.text.len() + row.glyphs.len() + row.clusters.len()),
-        "mapping work must stay linear: {} steps",
-        row.mapping_steps
+        row.linear_index_steps <= 12 * (row.text.len() + row.glyphs.len() + row.clusters.len()),
+        "instrumented index-building passes must stay linear: {} steps",
+        row.linear_index_steps
     );
 }

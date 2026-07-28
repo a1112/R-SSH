@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use cosmic_text::{FontSystem, fontdb};
 use sha2::{Digest, Sha256};
 
+use crate::config::{FontStretch, FontStyle};
+
 static NEXT_CATALOG_INCARNATION: AtomicU64 = AtomicU64::new(1);
 
 /// Font identifier scoped to one [`FontCatalog::generation`].
@@ -322,10 +324,36 @@ impl FontCatalog {
         ))
     }
 
-    pub(crate) fn record_for_family(&self, family: &str) -> Option<&FontRecord> {
-        self.records
+    pub(crate) fn record_for_family(
+        &self,
+        family: &str,
+        weight: u16,
+        style: FontStyle,
+        stretch: FontStretch,
+    ) -> Option<&FontRecord> {
+        let canonical_family = self
+            .records
             .iter()
-            .find(|record| record.matches_family(family))
+            .find(|record| record.matches_family(family))?
+            .aliases
+            .iter()
+            .find(|alias| alias.eq_ignore_ascii_case(family))?;
+        let families = [fontdb::Family::Name(canonical_family)];
+        let id = self.font_system.db().query(&fontdb::Query {
+            families: &families,
+            weight: fontdb::Weight(weight),
+            style: match style {
+                FontStyle::Normal => fontdb::Style::Normal,
+                FontStyle::Italic => fontdb::Style::Italic,
+                FontStyle::Oblique => fontdb::Style::Oblique,
+            },
+            stretch: match stretch {
+                FontStretch::Condensed => fontdb::Stretch::Condensed,
+                FontStretch::Normal => fontdb::Stretch::Normal,
+                FontStretch::Expanded => fontdb::Stretch::Expanded,
+            },
+        })?;
+        self.records.iter().find(|record| record.id == id)
     }
 
     pub(crate) fn supports_cluster(&self, record: &FontRecord, cluster: &str) -> bool {

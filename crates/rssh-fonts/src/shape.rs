@@ -172,8 +172,10 @@ pub struct ShapedRow {
     pub catalog_generation: u64,
     /// Primary-face geometry used by the row.
     pub metrics: TerminalFontMetrics,
-    /// Mapping operations used to construct byte/cluster/cell indexes.
-    pub mapping_steps: usize,
+    /// Instrumented steps in the linear byte/cluster/cell index-building passes.
+    ///
+    /// This excludes backend shaping, visual sorting, and the cost of hash-table operations.
+    pub linear_index_steps: usize,
     /// Deduplicated diagnostics known when this row was shaped.
     pub diagnostics: Vec<FontDiagnostic>,
 }
@@ -197,6 +199,13 @@ struct ShapeCacheKey {
 }
 
 #[derive(Clone, Debug)]
+struct FaceCandidate {
+    font_id: FontId,
+    font_family: String,
+    is_color: bool,
+}
+
+#[derive(Clone, Debug)]
 struct ClusterPlan {
     byte_range: Range<usize>,
     cell_span: Range<usize>,
@@ -204,12 +213,13 @@ struct ClusterPlan {
     font_family: String,
     is_color: bool,
     is_tofu: bool,
+    fallback_candidates: Vec<FaceCandidate>,
 }
 
 struct LayoutOutput {
     glyphs: Vec<ShapedGlyph>,
     line_count: usize,
-    mapping_steps: usize,
+    linear_index_steps: usize,
 }
 
 /// Shapes logical terminal rows using an isolated [`FontCatalog`].
@@ -356,68 +366,60 @@ impl TerminalShaper {
             let byte_range = byte..byte + cluster.len();
             byte = byte_range.end;
 
-            let selected = self.config.families().find_map(|family| {
-                let Some(record) = catalog.record_for_family(family) else {
-                    self.diagnostics.record(FontDiagnostic {
-                        kind: DiagnosticKind::MissingFamily,
-                        family: Some(family.to_owned()),
-                        cluster: None,
-                        catalog_generation: catalog.generation(),
-                    });
-                    return None;
-                };
-                if catalog
-                    .face_metrics(record, self.config.font_size)
-                    .is_none()
-                {
-                    self.diagnostics.record(FontDiagnostic {
-                        kind: DiagnosticKind::CorruptFont,
-                        family: Some(family.to_owned()),
-                        cluster: None,
-                        catalog_generation: catalog.generation(),
-                    });
-                    return None;
-                }
-                catalog.supports_cluster(record, cluster).then_some((
-                    catalog.font_id(record.id),
-                    record.family.clone(),
-                    record.is_color,
-                ))
-            });
+            let config = &self.config;
+            let diagnostics = &mut self.diagnostics;
+            let mut candidates: Vec<_> = config
+                .families()
+                .filter_map(|family| {
+                    Self::face_candidate(config, diagnostics, catalog, family, cluster)
+                })
+                .collect();
+            let selected = (!candidates.is_empty()).then(|| candidates.remove(0));
 
-            let (font_id, font_family, is_color, is_tofu) =
-                if let Some((font_id, family, is_color)) = selected {
-                    (font_id, family, is_color, false)
-                } else {
-                    self.diagnostics.record(FontDiagnostic {
-                        kind: DiagnosticKind::MissingCluster,
-                        family: None,
-                        cluster: Some(cluster.to_owned()),
-                        catalog_generation: catalog.generation(),
-                    });
-                    let tofu = self
-                        .config
-                        .families()
-                        .find_map(|family| catalog.record_for_family(family))
-                        .or_else(|| catalog.first_record())
-                        .map_or(
-                            (catalog.missing_font_id(), "<missing>".to_owned(), false),
-                            |record| {
-                                (
-                                    catalog.font_id(record.id),
-                                    record.family.clone(),
-                                    record.is_color,
-                                )
-                            },
-                        );
-                    self.diagnostics.record(FontDiagnostic {
-                        kind: DiagnosticKind::VisibleTofu,
-                        family: Some(tofu.1.clone()),
-                        cluster: Some(cluster.to_owned()),
-                        catalog_generation: catalog.generation(),
-                    });
-                    (tofu.0, tofu.1, tofu.2, true)
-                };
+            let (font_id, font_family, is_color, is_tofu) = if let Some(candidate) = selected {
+                (
+                    candidate.font_id,
+                    candidate.font_family,
+                    candidate.is_color,
+                    false,
+                )
+            } else {
+                self.diagnostics.record(FontDiagnostic {
+                    kind: DiagnosticKind::MissingCluster,
+                    family: None,
+                    cluster: Some(cluster.to_owned()),
+                    catalog_generation: catalog.generation(),
+                });
+                let tofu = self
+                    .config
+                    .families()
+                    .find_map(|family| {
+                        catalog.record_for_family(
+                            family,
+                            self.config.weight,
+                            self.config.style,
+                            self.config.stretch,
+                        )
+                    })
+                    .or_else(|| catalog.first_record())
+                    .map_or(
+                        (catalog.missing_font_id(), "<missing>".to_owned(), false),
+                        |record| {
+                            (
+                                catalog.font_id(record.id),
+                                record.family.clone(),
+                                record.is_color,
+                            )
+                        },
+                    );
+                self.diagnostics.record(FontDiagnostic {
+                    kind: DiagnosticKind::VisibleTofu,
+                    family: Some(tofu.1.clone()),
+                    cluster: Some(cluster.to_owned()),
+                    catalog_generation: catalog.generation(),
+                });
+                (tofu.0, tofu.1, tofu.2, true)
+            };
 
             plans.push(ClusterPlan {
                 byte_range,
@@ -426,9 +428,46 @@ impl TerminalShaper {
                 font_family,
                 is_color,
                 is_tofu,
+                fallback_candidates: candidates,
             });
         }
         plans
+    }
+
+    fn face_candidate(
+        config: &FontConfig,
+        diagnostics: &mut Diagnostics,
+        catalog: &FontCatalog,
+        family: &str,
+        cluster: &str,
+    ) -> Option<FaceCandidate> {
+        let Some(record) =
+            catalog.record_for_family(family, config.weight, config.style, config.stretch)
+        else {
+            diagnostics.record(FontDiagnostic {
+                kind: DiagnosticKind::MissingFamily,
+                family: Some(family.to_owned()),
+                cluster: None,
+                catalog_generation: catalog.generation(),
+            });
+            return None;
+        };
+        if catalog.face_metrics(record, config.font_size).is_none() {
+            diagnostics.record(FontDiagnostic {
+                kind: DiagnosticKind::CorruptFont,
+                family: Some(family.to_owned()),
+                cluster: None,
+                catalog_generation: catalog.generation(),
+            });
+            return None;
+        }
+        catalog
+            .supports_cluster(record, cluster)
+            .then_some(FaceCandidate {
+                font_id: catalog.font_id(record.id),
+                font_family: record.family.clone(),
+                is_color: record.is_color,
+            })
     }
 
     fn shape_plans(
@@ -449,7 +488,7 @@ impl TerminalShaper {
                 layout_line_count: 1,
                 catalog_generation: catalog.generation(),
                 metrics,
-                mapping_steps: 0,
+                linear_index_steps: 0,
                 diagnostics: self.diagnostics.snapshot(),
             });
         }
@@ -462,7 +501,14 @@ impl TerminalShaper {
         let face = self
             .config
             .families()
-            .filter_map(|family| catalog.record_for_family(family))
+            .filter_map(|family| {
+                catalog.record_for_family(
+                    family,
+                    self.config.weight,
+                    self.config.style,
+                    self.config.stretch,
+                )
+            })
             .find_map(|record| catalog.face_metrics(record, self.config.font_size))
             .or_else(|| {
                 catalog
@@ -501,22 +547,48 @@ impl TerminalShaper {
         plans: &mut [ClusterPlan],
         metrics: TerminalFontMetrics,
     ) -> LayoutOutput {
-        let buffer = self.build_buffer(catalog, text, plans, metrics);
-        let mut mapping_steps = 0;
+        let mut linear_index_steps = 0;
         let mut byte_to_cluster = vec![0; text.len()];
         for (logical_index, plan) in plans.iter().enumerate() {
             for slot in &mut byte_to_cluster[plan.byte_range.clone()] {
                 *slot = logical_index;
-                mapping_steps += 1;
+                linear_index_steps += 1;
             }
         }
 
-        let (glyphs, line_count, glyph_steps) =
-            self.collect_backend_glyphs(catalog, text, plans, &buffer, &byte_to_cluster, metrics);
-        LayoutOutput {
-            glyphs,
-            line_count,
-            mapping_steps: mapping_steps + glyph_steps,
+        loop {
+            let buffer = self.build_buffer(catalog, text, plans, metrics);
+            let rejected = rejected_cluster_plans(catalog, text, plans, &buffer, &byte_to_cluster);
+            let mut retry = false;
+            for logical_index in rejected {
+                let plan = &mut plans[logical_index];
+                if let Some(candidate) = plan.fallback_candidates.first().cloned() {
+                    plan.fallback_candidates.remove(0);
+                    plan.font_id = candidate.font_id;
+                    plan.font_family = candidate.font_family;
+                    plan.is_color = candidate.is_color;
+                    retry = true;
+                } else {
+                    mark_plan_tofu(&mut self.diagnostics, plan, text, catalog.generation());
+                }
+            }
+            if retry {
+                continue;
+            }
+
+            let (glyphs, line_count, glyph_steps) = self.collect_backend_glyphs(
+                catalog,
+                text,
+                plans,
+                &buffer,
+                &byte_to_cluster,
+                metrics,
+            );
+            return LayoutOutput {
+                glyphs,
+                line_count,
+                linear_index_steps: linear_index_steps + glyph_steps,
+            };
         }
     }
 
@@ -583,7 +655,7 @@ impl TerminalShaper {
         byte_to_cluster: &[usize],
         metrics: TerminalFontMetrics,
     ) -> (Vec<ShapedGlyph>, usize, usize) {
-        let mut mapping_steps = 0;
+        let mut linear_index_steps = 0;
         let mut glyphs = Vec::new();
         let mut plan_has_glyph = vec![false; plans.len()];
         let mut layout_line_count = 0;
@@ -593,13 +665,13 @@ impl TerminalShaper {
                 let cluster_range =
                     indexed_cluster_range(byte_to_cluster, glyph.start..glyph.end, plans.len());
                 let cell_span = cells_for_clusters(plans, cluster_range.clone());
-                mapping_steps += 1;
+                linear_index_steps += 1;
                 let planned_id = plans[cluster_range.start].font_id;
                 let actual_id = catalog.font_id(glyph.font_id);
                 let same_planned_face = plans[cluster_range.clone()]
                     .iter()
                     .all(|plan| plan.font_id == planned_id);
-                mapping_steps += cluster_range.end - cluster_range.start;
+                linear_index_steps += cluster_range.end - cluster_range.start;
                 for logical_index in cluster_range.clone() {
                     plan_has_glyph[logical_index] = true;
                 }
@@ -665,10 +737,10 @@ impl TerminalShaper {
                     is_color: plan.is_color,
                     is_tofu: true,
                 });
-                mapping_steps += 1;
+                linear_index_steps += 1;
             }
         }
-        (glyphs, layout_line_count, mapping_steps)
+        (glyphs, layout_line_count, linear_index_steps)
     }
 
     fn finish_row(
@@ -689,14 +761,14 @@ impl TerminalShaper {
         let visual_clusters = visual_cluster_order(&glyphs, plans.len());
         let mut visual_indexes = vec![0; plans.len()];
         let mut visual_x = vec![0.0; plans.len()];
-        let mut mapping_steps = layout.mapping_steps;
+        let mut linear_index_steps = layout.linear_index_steps;
         let mut next_x = 0.0;
         for (visual_index, logical_index) in visual_clusters.iter().copied().enumerate() {
             visual_indexes[logical_index] = visual_index;
             visual_x[logical_index] = next_x;
             let cells = plans[logical_index].cell_span.end - plans[logical_index].cell_span.start;
             next_x += cell_pixels(cells, metrics.cell_width);
-            mapping_steps += 1;
+            linear_index_steps += 1;
         }
 
         let mut group_bounds: HashMap<(usize, usize), (f32, f32)> = HashMap::new();
@@ -707,7 +779,6 @@ impl TerminalShaper {
                 .or_insert((glyph.shaping_x, glyph.shaping_x + glyph.shaping_width));
             bounds.0 = bounds.0.min(glyph.shaping_x);
             bounds.1 = bounds.1.max(glyph.shaping_x + glyph.shaping_width);
-            mapping_steps += 1;
         }
         for (visual_order, glyph) in glyphs.iter_mut().enumerate() {
             glyph.visual_order = visual_order;
@@ -734,7 +805,6 @@ impl TerminalShaper {
             glyph.x = target_x + (glyph.shaping_x - bounds.0) * scale;
             glyph.width = glyph.shaping_width * scale;
             glyph.x_offset *= scale;
-            mapping_steps += 1;
         }
 
         let mut first_glyph = vec![None; plans.len()];
@@ -743,7 +813,7 @@ impl TerminalShaper {
             for logical_index in glyph.cluster_range.clone() {
                 first_glyph[logical_index].get_or_insert(glyph_index);
                 last_glyph[logical_index] = Some(glyph_index);
-                mapping_steps += 1;
+                linear_index_steps += 1;
             }
         }
         let clusters = plans
@@ -778,10 +848,83 @@ impl TerminalShaper {
             layout_line_count: layout.line_count,
             catalog_generation: catalog.generation(),
             metrics,
-            mapping_steps,
+            linear_index_steps,
             diagnostics: self.diagnostics.snapshot(),
         }
     }
+}
+
+fn rejected_cluster_plans(
+    catalog: &FontCatalog,
+    text: &str,
+    plans: &[ClusterPlan],
+    buffer: &Buffer,
+    byte_to_cluster: &[usize],
+) -> Vec<usize> {
+    let strict: Vec<_> = plans
+        .iter()
+        .map(|plan| requires_single_glyph_sequence(&text[plan.byte_range.clone()]))
+        .collect();
+    let mut glyph_counts = vec![0_usize; plans.len()];
+    let mut valid = vec![true; plans.len()];
+    for run in buffer.layout_runs() {
+        for glyph in run.glyphs {
+            let cluster_range =
+                indexed_cluster_range(byte_to_cluster, glyph.start..glyph.end, plans.len());
+            let same_planned_face = plans[cluster_range.clone()]
+                .iter()
+                .all(|plan| plan.font_id == plans[cluster_range.start].font_id);
+            for logical_index in cluster_range.clone() {
+                glyph_counts[logical_index] += 1;
+                valid[logical_index] &= same_planned_face
+                    && catalog.font_id(glyph.font_id) == plans[logical_index].font_id
+                    && glyph.glyph_id != 0;
+                if strict[logical_index] {
+                    valid[logical_index] &= cluster_range.start == logical_index
+                        && cluster_range.end == logical_index + 1
+                        && glyph.start <= plans[logical_index].byte_range.start
+                        && glyph.end >= plans[logical_index].byte_range.end;
+                }
+            }
+        }
+    }
+
+    plans
+        .iter()
+        .enumerate()
+        .filter_map(|(logical_index, plan)| {
+            if plan.is_tofu {
+                return None;
+            }
+            let cluster = &text[plan.byte_range.clone()];
+            let has_visible_scalar = cluster
+                .chars()
+                .any(|character| !is_default_ignorable(character) && !character.is_whitespace());
+            let wrong_glyph_count = if strict[logical_index] {
+                glyph_counts[logical_index] != 1
+            } else {
+                glyph_counts[logical_index] == 0 && has_visible_scalar
+            };
+            (wrong_glyph_count || !valid[logical_index]).then_some(logical_index)
+        })
+        .collect()
+}
+
+fn requires_single_glyph_sequence(cluster: &str) -> bool {
+    let regional_indicators = cluster
+        .chars()
+        .filter(|character| matches!(character, '\u{1f1e6}'..='\u{1f1ff}'))
+        .count();
+    cluster.chars().any(|character| {
+        matches!(
+            character,
+            '\u{1f3fb}'..='\u{1f3ff}'
+                | '\u{200d}'
+                | '\u{20e3}'
+                | '\u{fe00}'..='\u{fe0f}'
+                | '\u{e0100}'..='\u{e01ef}'
+        )
+    }) || regional_indicators >= 2
 }
 
 fn mark_plan_tofu(
