@@ -3327,21 +3327,9 @@ fn render_image_draw_plan(
         width: draw.width,
         height: draw.height,
     };
-    if let Some(damage) = damage {
-        damage
-            .iter()
-            .filter_map(|damage| rect_intersection(draw_rect, *damage))
-            .map(|rect| render_image_draw_rect(surface, draw, rect))
-            .sum()
-    } else {
-        render_image_draw_rect(surface, draw, draw_rect)
-    }
-}
-
-fn render_image_draw_rect(surface: &mut Surface<'_>, draw: &ImageDrawPlan, rect: Rect) -> usize {
     let mut sampled = 0;
-    for y in rect.y..rect.y.saturating_add(rect.height) {
-        for x in rect.x..rect.x.saturating_add(rect.width) {
+    for_each_image_draw_span(draw_rect, damage, |y, start_x, end_x| {
+        for x in start_x..end_x {
             let pixel = image_draw_pixel(
                 draw,
                 x.saturating_sub(draw.destination_x),
@@ -3352,8 +3340,62 @@ fn render_image_draw_rect(surface: &mut Surface<'_>, draw: &ImageDrawPlan, rect:
                 surface.put_pixel(x, y, pixel);
             }
         }
-    }
+    });
     sampled
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct ImageDrawSpan {
+    y: u32,
+    start_x: u32,
+    end_x: u32,
+}
+
+fn for_each_image_draw_span(
+    draw_rect: Rect,
+    damage: Option<&[Rect]>,
+    mut visit: impl FnMut(u32, u32, u32),
+) {
+    let Some(damage) = damage else {
+        let end_x = draw_rect.x.saturating_add(draw_rect.width);
+        for y in draw_rect.y..draw_rect.y.saturating_add(draw_rect.height) {
+            visit(y, draw_rect.x, end_x);
+        }
+        return;
+    };
+
+    let mut spans = Vec::new();
+    for rect in damage
+        .iter()
+        .filter_map(|damage| rect_intersection(draw_rect, *damage))
+    {
+        let end_x = rect.x.saturating_add(rect.width);
+        for y in rect.y..rect.y.saturating_add(rect.height) {
+            spans.push(ImageDrawSpan {
+                y,
+                start_x: rect.x,
+                end_x,
+            });
+        }
+    }
+    spans.sort_unstable();
+
+    let mut current = None::<ImageDrawSpan>;
+    for span in spans {
+        match current.as_mut() {
+            Some(active) if active.y == span.y && span.start_x <= active.end_x => {
+                active.end_x = active.end_x.max(span.end_x);
+            }
+            Some(active) => {
+                visit(active.y, active.start_x, active.end_x);
+                *active = span;
+            }
+            None => current = Some(span),
+        }
+    }
+    if let Some(span) = current {
+        visit(span.y, span.start_x, span.end_x);
+    }
 }
 
 fn rect_intersection(left: Rect, right: Rect) -> Option<Rect> {
@@ -5723,7 +5765,7 @@ mod tests {
         RenderGeometry, RenderInlineImage, RenderInlineImageFragment, SCROLLBAR_THUMB_COLOR,
         SCROLLBAR_TRACK_COLOR, ScrollbackScrollbar, TerminalRenderSnapshot,
         background_image_axis_coordinate, background_image_layout, build_image_draw_plan,
-        compare_image_draw_plans, render_image_draw_plan, render_inline_images_from_terminal,
+        compare_image_draw_plans, for_each_image_draw_span, render_inline_images_from_terminal,
     };
 
     fn ordering_plan(
@@ -5819,52 +5861,73 @@ mod tests {
 
     #[test]
     fn one_pixel_damage_samples_only_one_pixel_of_a_large_image_draw() {
-        let draw = ImageDrawPlan {
-            destination_x: 0,
-            destination_y: 0,
+        let draw_rect = Rect {
+            x: 0,
+            y: 0,
             width: 3_000,
             height: 3_000,
-            decoded: Arc::new(DecodedImage {
+        };
+        let mut full_pixels = 0_u64;
+        for_each_image_draw_span(draw_rect, None, |_, start_x, end_x| {
+            full_pixels += u64::from(end_x - start_x);
+        });
+        let mut damaged_pixels = 0_u64;
+        for_each_image_draw_span(
+            draw_rect,
+            Some(&[Rect {
+                x: 1_500,
+                y: 1_500,
                 width: 1,
                 height: 1,
-                pixels: vec![0, 0, 255, 255],
-            }),
-            sample_source_x: 0,
-            sample_source_y: 0,
-            sample_target_x: 0,
-            sample_target_y: 0,
-            sample_source_width: 1,
-            sample_source_height: 1,
-            sample_destination_width: 3_000,
-            sample_destination_height: 3_000,
-            z_index: 0,
-            kitty_image_id: None,
-            parent_index: 0,
-            fragment_index: 0,
-            tie_policy: ImageTiePolicy::Whole,
-            stable_order: 0,
-        };
-        let mut target = vec![0; 4];
-        let mut surface = super::Surface {
-            target: &mut target,
-            width: 1,
-            height: 1,
-        };
-        assert_eq!(
-            render_image_draw_plan(
-                &mut surface,
-                &draw,
-                Some(&[Rect {
-                    x: 0,
-                    y: 0,
-                    width: 1,
-                    height: 1,
-                }]),
-            ),
-            1
+            }]),
+            |_, start_x, end_x| damaged_pixels += u64::from(end_x - start_x),
         );
-        assert_eq!(target, [0, 0, 255, 255]);
-        assert_eq!(draw.decoded.pixels.len(), 4);
+
+        assert_eq!(full_pixels, 9_000_000);
+        assert_eq!(damaged_pixels, 1);
+    }
+
+    #[test]
+    fn overlapping_damage_samples_each_covered_pixel_once() {
+        let mut sampled_pixels = 0_u64;
+        let mut span_visits = 0;
+        let damage = [
+            Rect {
+                x: 10,
+                y: 10,
+                width: 4,
+                height: 2,
+            },
+            Rect {
+                x: 12,
+                y: 10,
+                width: 4,
+                height: 2,
+            },
+            Rect {
+                x: 10,
+                y: 10,
+                width: 4,
+                height: 2,
+            },
+        ];
+
+        for_each_image_draw_span(
+            Rect {
+                x: 0,
+                y: 0,
+                width: 3_000,
+                height: 3_000,
+            },
+            Some(&damage),
+            |_, start_x, end_x| {
+                span_visits += 1;
+                sampled_pixels += u64::from(end_x - start_x);
+            },
+        );
+
+        assert_eq!(span_visits, 2);
+        assert_eq!(sampled_pixels, 12);
     }
 
     #[test]

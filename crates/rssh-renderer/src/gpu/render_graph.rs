@@ -9,6 +9,11 @@ use std::{
     time::Duration,
 };
 
+#[cfg(test)]
+std::thread_local! {
+    static TEXTURE_IDENTITY_EQ_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 use super::{
     GpuContext, GpuContextGeneration, GpuImage, GpuLayer, GpuLayerError, GpuQuad, PixelRect,
     images::image_layer,
@@ -148,7 +153,12 @@ struct TextureIdentity {
 
 impl PartialEq for TextureIdentity {
     fn eq(&self, other: &Self) -> bool {
-        self.width == other.width && self.height == other.height && self.pixels == other.pixels
+        #[cfg(test)]
+        TEXTURE_IDENTITY_EQ_CALLS.with(|calls| calls.set(calls.get().saturating_add(1)));
+        self.digest == other.digest
+            && self.width == other.width
+            && self.height == other.height
+            && self.pixels == other.pixels
     }
 }
 
@@ -379,6 +389,7 @@ impl RenderGraph {
             )));
         }
         let mut textures = Vec::<PlannedTexture>::new();
+        let mut texture_candidates = HashMap::<TextureIdentity, usize>::new();
         let mut texture_indices = HashMap::<u64, usize>::new();
         let mut unique_image_bytes = 0_usize;
         for (node, _) in &nodes {
@@ -398,10 +409,7 @@ impl RenderGraph {
                 )));
             }
             let identity = texture.clone().map_or_else(|| texture_identity(plan), Ok)?;
-            let texture_index = if let Some(index) = textures
-                .iter()
-                .position(|planned| planned.identity == identity)
-            {
+            let texture_index = if let Some(index) = texture_candidates.get(&identity).copied() {
                 index
             } else {
                 unique_image_bytes =
@@ -416,6 +424,7 @@ impl RenderGraph {
                     )));
                 }
                 let index = textures.len();
+                texture_candidates.insert(identity.clone(), index);
                 textures.push(PlannedTexture { identity });
                 index
             };
@@ -722,7 +731,7 @@ impl TextureCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
-        textures: &[PlannedTexture],
+        textures: &mut [PlannedTexture],
     ) -> Result<(), GpuLayerError> {
         let max_dimension = device.limits().max_texture_dimension_2d;
         let requested = textures
@@ -791,8 +800,16 @@ impl TextureCache {
 
         for planned in textures {
             self.clock = self.clock.saturating_add(1);
-            if let Some(cached) = self.entries.get_mut(&planned.identity) {
+            if let Some(canonical) = self
+                .entries
+                .get_key_value(&planned.identity)
+                .map(|(identity, _)| identity.clone())
+            {
+                let cached = self.entries.get_mut(&canonical).ok_or_else(|| {
+                    GpuLayerError::message("canonical GPU texture cache key disappeared")
+                })?;
                 cached.last_used = self.clock;
+                planned.identity = canonical;
                 continue;
             }
             let byte_len = texture_byte_len(planned.identity.width, planned.identity.height)?;
@@ -1147,13 +1164,13 @@ impl GpuLayerRenderer {
     ///
     /// Returns an error if graph instances exceed the configured byte budget.
     pub fn upload(&mut self, graph: &RenderGraph) -> Result<(), GpuLayerError> {
-        let prepared =
+        let mut prepared =
             graph.prepare(self.instances.budget_bytes, self.texture_cache.budget_bytes)?;
         self.texture_cache.prepare(
             &self.device,
             &self.queue,
             &self.image_bind_group_layout,
-            &prepared.textures,
+            &mut prepared.textures,
         )?;
         self.instances
             .upload(&self.device, &self.queue, &prepared.bytes)?;
@@ -1283,13 +1300,13 @@ impl GpuLayerRenderer {
             .map_err(|error| {
                 GpuLayerError::message(format!("reserve bounded GPU readback output: {error}"))
             })?;
-        let prepared =
+        let mut prepared =
             graph.prepare(self.instances.budget_bytes, self.texture_cache.budget_bytes)?;
         self.texture_cache.prepare(
             &self.device,
             &self.queue,
             &self.image_bind_group_layout,
-            &prepared.textures,
+            &mut prepared.textures,
         )?;
         self.instances
             .upload(&self.device, &self.queue, &prepared.bytes)?;
@@ -1454,7 +1471,7 @@ impl GpuLayerRenderer {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{collections::HashSet, sync::Arc, time::Duration};
 
     use crate::{
         DecodedImage, ImageDrawPlan, ImageTiePolicy,
@@ -1462,9 +1479,37 @@ mod tests {
     };
 
     use super::{
-        GpuContext, GpuImage, GpuLayerRenderer, GraphNode, PixelRect, RenderGraph, TextureIdentity,
-        dirty_range, node_order,
+        GpuContext, GpuImage, GpuLayerRenderer, GraphNode, PixelRect, RenderGraph,
+        TEXTURE_IDENTITY_EQ_CALLS, TextureIdentity, dirty_range, node_order,
     };
+
+    fn one_pixel_plan(x: u32, pixels: [u8; 4], stable_order: usize) -> Arc<ImageDrawPlan> {
+        Arc::new(ImageDrawPlan {
+            destination_x: x,
+            destination_y: 0,
+            width: 1,
+            height: 1,
+            decoded: Arc::new(DecodedImage {
+                width: 1,
+                height: 1,
+                pixels: pixels.to_vec(),
+            }),
+            sample_source_x: 0,
+            sample_source_y: 0,
+            sample_target_x: 0,
+            sample_target_y: 0,
+            sample_source_width: 1,
+            sample_source_height: 1,
+            sample_destination_width: 1,
+            sample_destination_height: 1,
+            z_index: 0,
+            kitty_image_id: None,
+            parent_index: stable_order,
+            fragment_index: 0,
+            tie_policy: ImageTiePolicy::Whole,
+            stable_order,
+        })
+    }
 
     #[test]
     fn dirty_range_ignores_equal_prefix_and_suffix() {
@@ -1555,36 +1600,8 @@ mod tests {
 
     #[test]
     fn exact_texture_identity_survives_an_artificial_digest_collision() {
-        fn plan(x: u32, pixels: [u8; 4], stable_order: usize) -> Arc<ImageDrawPlan> {
-            Arc::new(ImageDrawPlan {
-                destination_x: x,
-                destination_y: 0,
-                width: 1,
-                height: 1,
-                decoded: Arc::new(DecodedImage {
-                    width: 1,
-                    height: 1,
-                    pixels: pixels.to_vec(),
-                }),
-                sample_source_x: 0,
-                sample_source_y: 0,
-                sample_target_x: 0,
-                sample_target_y: 0,
-                sample_source_width: 1,
-                sample_source_height: 1,
-                sample_destination_width: 1,
-                sample_destination_height: 1,
-                z_index: 0,
-                kitty_image_id: None,
-                parent_index: stable_order,
-                fragment_index: 0,
-                tie_policy: ImageTiePolicy::Whole,
-                stable_order,
-            })
-        }
-
-        let red = plan(0, [255, 0, 0, 255], 0);
-        let green = plan(1, [0, 255, 0, 255], 1);
+        let red = one_pixel_plan(0, [255, 0, 0, 255], 0);
+        let green = one_pixel_plan(1, [0, 255, 0, 255], 1);
         let colliding_digest = 7;
         let graph = RenderGraph {
             width: 2,
@@ -1626,5 +1643,97 @@ mod tests {
         );
         assert_eq!(renderer.texture_cache_metrics().entries, 2);
         assert_eq!(renderer.texture_cache_metrics().uploads, 2);
+    }
+
+    #[test]
+    fn texture_identity_hash_and_equality_share_the_digest_seam() {
+        let pixels: Arc<[u8]> = Arc::from([255, 0, 0, 255]);
+        let first = TextureIdentity {
+            digest: 1,
+            width: 1,
+            height: 1,
+            pixels: pixels.clone(),
+        };
+        let second = TextureIdentity {
+            digest: 2,
+            width: 1,
+            height: 1,
+            pixels,
+        };
+
+        assert_ne!(first, second);
+        assert_eq!(HashSet::from([first, second]).len(), 2);
+    }
+
+    #[test]
+    fn candidate_texture_dedup_has_near_linear_exact_comparisons() {
+        const CANDIDATES: usize = 256;
+        let nodes = (0..CANDIDATES)
+            .map(|index| {
+                let byte = u8::try_from(index % 251).expect("bounded byte");
+                GraphNode::TextureImage {
+                    sequence: u64::try_from(index).expect("bounded sequence"),
+                    texture: Some(TextureIdentity {
+                        digest: u64::try_from(index).expect("bounded digest"),
+                        width: 1,
+                        height: 1,
+                        pixels: Arc::from([byte, 0, 0, 255]),
+                    }),
+                    plan: one_pixel_plan(
+                        u32::try_from(index).expect("bounded x"),
+                        [byte, 0, 0, 255],
+                        index,
+                    ),
+                }
+            })
+            .collect();
+        let graph = RenderGraph {
+            width: u32::try_from(CANDIDATES).expect("bounded width"),
+            height: 1,
+            nodes,
+            next_sequence: u64::try_from(CANDIDATES).expect("bounded sequence"),
+        };
+
+        TEXTURE_IDENTITY_EQ_CALLS.with(|calls| calls.set(0));
+        let prepared = graph.prepare(64 * 1024, 64 * 1024).expect("bounded graph");
+
+        assert_eq!(prepared.textures.len(), CANDIDATES);
+        let comparisons = TEXTURE_IDENTITY_EQ_CALLS.with(std::cell::Cell::get);
+        assert!(
+            comparisons < CANDIDATES * 4,
+            "candidate dedup must not scan every prior texture payload"
+        );
+    }
+
+    #[test]
+    fn cache_hits_replace_fresh_frame_pixels_with_the_canonical_allocation() {
+        let plan = one_pixel_plan(0, [255, 0, 0, 255], 0);
+        let graph = RenderGraph {
+            width: 1,
+            height: 1,
+            nodes: vec![GraphNode::TextureImage {
+                sequence: 0,
+                texture: None,
+                plan,
+            }],
+            next_sequence: 1,
+        };
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let mut renderer = GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 256)
+            .expect("renderer");
+
+        renderer.upload(&graph).expect("first frame");
+        let canonical = renderer.prepared_textures[0].pixels.clone();
+        assert_eq!(renderer.texture_cache_metrics().retained_bytes, 8);
+        renderer.upload(&graph).expect("second frame");
+
+        assert!(Arc::ptr_eq(
+            &canonical,
+            &renderer.prepared_textures[0].pixels
+        ));
+        assert_eq!(renderer.texture_cache_metrics().entries, 1);
+        assert_eq!(renderer.texture_cache_metrics().retained_bytes, 8);
+        assert_eq!(renderer.texture_cache_metrics().uploads, 1);
     }
 }

@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    sync::{Mutex, MutexGuard},
+    time::Duration,
+};
 
 use rssh_core::TerminalSize;
 use rssh_renderer::gpu::{
@@ -7,6 +10,14 @@ use rssh_renderer::gpu::{
 };
 use rssh_renderer::{DamageRegion, PixelRenderer, RenderGeometry, TerminalRenderSnapshot};
 use rssh_terminal::Terminal;
+
+static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn gpu_test_guard() -> MutexGuard<'static, ()> {
+    GPU_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 fn rgba(red: u8, green: u8, blue: u8, alpha: u8) -> [u8; 4] {
     [red, green, blue, alpha]
@@ -197,6 +208,7 @@ fn signed_half_open_clipping_discards_negative_pixels_before_encoding() {
 
 #[test]
 fn persistent_instance_uploads_only_the_changed_aligned_range_and_honors_budget() {
+    let _gpu = gpu_test_guard();
     let mut context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
     let mut renderer = GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 256)
@@ -256,6 +268,7 @@ fn persistent_instance_uploads_only_the_changed_aligned_range_and_honors_budget(
 
 #[test]
 fn headless_gpu_readback_matches_cpu_layering_invariants_with_tolerance() {
+    let _gpu = gpu_test_guard();
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
     let mut renderer =
@@ -350,6 +363,7 @@ fn snapshot_fragment_plan_suppresses_parent_and_recomputes_cell_geometry() {
 
 #[test]
 fn decoded_fragment_textures_have_no_seams_and_are_reused_by_bounded_cache() {
+    let _gpu = gpu_test_guard();
     let mut terminal = Terminal::new(TerminalSize::new(2, 2));
     terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=78,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
@@ -397,6 +411,7 @@ fn texture_cache_evicts_lru_entries_without_exceeding_its_byte_budget() {
         graph
     }
 
+    let _gpu = gpu_test_guard();
     let red = one_pixel_graph(81, "/wAA");
     let green = one_pixel_graph(82, "AP8A");
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
@@ -419,6 +434,7 @@ fn texture_cache_evicts_lru_entries_without_exceeding_its_byte_budget() {
 
 #[test]
 fn persistent_capacity_grows_geometrically_reuses_allocation_and_never_draws_stale_tail() {
+    let _gpu = gpu_test_guard();
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
     let mut renderer =
@@ -459,6 +475,7 @@ fn persistent_capacity_grows_geometrically_reuses_allocation_and_never_draws_sta
 
 #[test]
 fn instance_budget_is_clamped_to_the_device_max_buffer_size() {
+    let _gpu = gpu_test_guard();
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
     let renderer = GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, usize::MAX)
@@ -489,6 +506,7 @@ fn inline_image_alpha_replaces_cpu_style_instead_of_blending() {
         bytes.try_into().expect("one RGBA pixel")
     }
 
+    let _gpu = gpu_test_guard();
     assert_eq!(
         render_pixel("AAD/gA=="),
         rgba(0, 0, 255, 128),
@@ -504,6 +522,7 @@ fn inline_image_alpha_replaces_cpu_style_instead_of_blending() {
 #[test]
 fn same_z_fragment_group_follows_whole_group_in_both_insertion_directions() {
     const RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    let _gpu = gpu_test_guard();
     let mut terminal = Terminal::new(TerminalSize::new(1, 1));
     terminal.feed(b"\x1b_Ga=T,q=1,i=91,f=24,s=1,v=1;AP8A\x1b\\");
     terminal.feed(format!("\x1b]1337;File=inline=1;width=1px;height=1px:{RED_PNG}\x07").as_bytes());
@@ -548,6 +567,7 @@ fn same_z_fragment_group_follows_whole_group_in_both_insertion_directions() {
 #[test]
 fn mixed_whole_and_fragment_images_match_cpu_full_and_damage_on_real_gpu() {
     const RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    let _gpu = gpu_test_guard();
     let mut terminal = Terminal::new(TerminalSize::new(1, 1));
     terminal.feed(format!("\x1b]1337;File=inline=1;width=1px;height=1px:{RED_PNG}\x07").as_bytes());
     terminal.feed(b"\x1b[H");
@@ -593,6 +613,7 @@ fn mixed_whole_and_fragment_images_match_cpu_full_and_damage_on_real_gpu() {
 #[test]
 fn mixed_texture_and_legacy_image_nodes_have_one_real_gpu_order() {
     const RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    let _gpu = gpu_test_guard();
     let geometry = RenderGeometry::new(1, 1, 1, 1);
     let mut fragment_terminal = Terminal::new(TerminalSize::new(1, 1));
     fragment_terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=1,f=24,s=1,v=1,c=1,r=1;AAD/\x1b\\");
@@ -628,6 +649,7 @@ fn mixed_texture_and_legacy_image_nodes_have_one_real_gpu_order() {
 #[test]
 fn gpu_image_materialization_budget_errors_before_mutating_renderer_state() {
     const RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    let _gpu = gpu_test_guard();
     let mut terminal = Terminal::new(TerminalSize::new(1, 1));
     terminal.feed(format!("\x1b]1337;File=inline=1;width=2px;height=2px:{RED_PNG}\x07").as_bytes());
     terminal.feed(b"\x1b[H");
@@ -686,6 +708,7 @@ fn every_adjacent_layer_pair_is_submitted_in_canonical_order() {
         }
     }
 
+    let _gpu = gpu_test_guard();
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
     let mut renderer =
@@ -731,6 +754,7 @@ fn every_adjacent_layer_pair_is_submitted_in_canonical_order() {
 
 #[test]
 fn renderer_rejects_a_foreign_device_and_queue_before_mutating_upload_state() {
+    let _gpu = gpu_test_guard();
     let context_a = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("context A");
     let mut context_b = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
@@ -756,6 +780,7 @@ fn renderer_rejects_a_foreign_device_and_queue_before_mutating_upload_state() {
 
 #[test]
 fn headless_readback_rejects_device_and_host_resource_limits_before_gpu_creation() {
+    let _gpu = gpu_test_guard();
     let mut context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
     let mut renderer =
@@ -784,6 +809,7 @@ fn headless_readback_rejects_device_and_host_resource_limits_before_gpu_creation
 
 #[test]
 fn non_power_of_two_instance_budget_accepts_legal_active_bytes_at_boundary() {
+    let _gpu = gpu_test_guard();
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
     let mut renderer = GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 100)
@@ -815,6 +841,7 @@ fn non_power_of_two_instance_budget_accepts_legal_active_bytes_at_boundary() {
 
 #[test]
 fn instance_budget_counts_only_visible_non_glyph_draws() {
+    let _gpu = gpu_test_guard();
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
     let mut renderer =
