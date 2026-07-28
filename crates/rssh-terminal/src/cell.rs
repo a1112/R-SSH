@@ -1,5 +1,4 @@
 use smol_str::SmolStr;
-use unicode_width::UnicodeWidthChar;
 
 use crate::{Color, SemanticType, UnderlineStyle, VerticalAlign};
 
@@ -39,13 +38,9 @@ impl Cell {
     #[must_use]
     pub fn with_char(ch: char) -> Self {
         let mut cell = Self::default();
-        let columns = u8::try_from(
-            UnicodeWidthChar::width(ch)
-                .unwrap_or(1)
-                .min(usize::from(u8::MAX)),
-        )
-        .unwrap_or(u8::MAX);
-        cell.set_text(ch.to_string(), columns);
+        // A standalone public cell cannot carry the continuation slots needed
+        // for a wider span. Terminal writes construct real spans internally.
+        cell.set_text(ch.to_string(), 1);
         cell
     }
 

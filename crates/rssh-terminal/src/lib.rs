@@ -409,6 +409,17 @@ mod tests {
     }
 
     #[test]
+    fn public_single_cell_constructor_never_creates_an_incomplete_span() {
+        let combining = Cell::with_char('\u{301}');
+        let wide = Cell::with_char('界');
+
+        assert_eq!(combining.columns(), 1);
+        assert!(!combining.is_continuation());
+        assert_eq!(wide.columns(), 1);
+        assert!(!wide.is_continuation());
+    }
+
+    #[test]
     fn grid_sets_and_reads_cells_by_position() {
         let mut grid = TerminalGrid::new(TerminalSize::new(3, 2));
         let mut cell = Cell::with_char('R');

@@ -3158,12 +3158,17 @@ impl Terminal {
                 continue;
             }
 
-            let first_column = if row == start_y { start_x } else { 0 };
+            let mut first_column = if row == start_y { start_x } else { 0 };
             let last_column = if row == end_y {
                 end_x.min(cells.len().saturating_sub(1))
             } else {
                 cells.len().saturating_sub(1)
             };
+            if let Some(crate::CellContent::Continuation { leader_delta }) =
+                cells.get(first_column).map(Cell::content)
+            {
+                first_column = first_column.saturating_sub(usize::from(*leader_delta));
+            }
 
             if first_column > last_column || first_column >= cells.len() {
                 if row != start_y && !self.history_row_is_wrapped(row)? {
@@ -4111,33 +4116,45 @@ impl Terminal {
             .character_right_boundary()
             .saturating_add(1)
             .saturating_sub(column);
-        let stored_width = sequence_width.min(available_width).max(1);
+        let visible_width = sequence_width.min(available_width).max(1);
 
         let mut leader = previous_cell.clone();
-        leader.set_text(grapheme.clone(), saturating_u8(stored_width));
+        leader.set_text(grapheme.clone(), saturating_u8(sequence_width));
         self.set_grid_cell(row, column, leader);
 
-        if stored_width > previous_width {
-            let mut continuation = previous_cell;
-            for offset in previous_width..stored_width {
+        if visible_width > previous_width {
+            let mut continuation = previous_cell.clone();
+            for offset in previous_width..visible_width {
                 continuation.set_continuation(saturating_u8(offset));
                 self.set_grid_cell(row, column + offset, continuation.clone());
             }
         } else {
-            for offset in stored_width..previous_width {
+            for offset in visible_width..previous_width {
                 self.set_grid_cell(row, column + offset, self.blank_cell());
             }
+        }
+        if visible_width < sequence_width {
+            let mut continuation = previous_cell;
+            self.grid.set_reflow_overflow(
+                row,
+                (visible_width..sequence_width)
+                    .map(|offset| {
+                        continuation.set_continuation(saturating_u8(offset));
+                        continuation.clone()
+                    })
+                    .collect(),
+            );
         }
 
         self.record_damage(DamageRegion::new(
             column,
             row,
-            previous_width.max(stored_width),
+            previous_width.max(visible_width),
             1,
         ));
         self.cursor_column = column;
         self.pending_wrap = false;
-        self.advance_cursor(stored_width);
+        self.advance_cursor(visible_width);
         self.last_printable = Some(grapheme.into());
         true
     }
@@ -5864,13 +5881,24 @@ impl Terminal {
             return;
         }
 
+        self.cursor_column = self.grapheme_leader_column(self.cursor_column);
         let right = self.character_right_boundary();
         self.insert_blank_characters_with_right_boundary(count, right, true);
     }
 
     fn insert_blank_characters_for_write(&mut self, count: u16) {
+        self.cursor_column = self.grapheme_leader_column(self.cursor_column);
         let right = self.character_right_boundary();
         self.insert_blank_characters_with_right_boundary(count, right, false);
+    }
+
+    fn grapheme_leader_column(&self, column: u16) -> u16 {
+        match self.grid.get(self.cursor_row, column).map(Cell::content) {
+            Some(crate::CellContent::Continuation { leader_delta }) => {
+                column.saturating_sub(u16::from(*leader_delta))
+            }
+            _ => column,
+        }
     }
 
     fn insert_blank_characters_with_right_boundary(
@@ -5934,21 +5962,42 @@ impl Terminal {
             return;
         }
 
-        let count = if let Some(crate::CellContent::Continuation { leader_delta }) = self
+        let right = self.character_right_boundary();
+        let (start, count) = self.grapheme_aligned_delete_range(count, right);
+        self.cursor_column = start;
+        self.delete_characters_with_right_boundary(count, right);
+    }
+
+    fn grapheme_aligned_delete_range(&self, count: u16, right: u16) -> (u16, u16) {
+        let requested_start = self.cursor_column;
+        let requested_end = requested_start
+            .saturating_add(count)
+            .min(right.saturating_add(1));
+        let start = match self
             .grid
-            .get(self.cursor_row, self.cursor_column)
+            .get(self.cursor_row, requested_start)
             .map(Cell::content)
         {
-            let leader_delta = u16::from(*leader_delta);
-            self.cursor_column = self.cursor_column.saturating_sub(leader_delta);
-            self.grid
-                .get(self.cursor_row, self.cursor_column)
-                .map_or(count, |cell| count.max(u16::from(cell.columns())))
-        } else {
-            count
+            Some(crate::CellContent::Continuation { leader_delta }) => {
+                requested_start.saturating_sub(u16::from(*leader_delta))
+            }
+            _ => requested_start,
         };
-        let right = self.character_right_boundary();
-        self.delete_characters_with_right_boundary(count, right);
+        let mut end = requested_end.max(start);
+        let mut column = start;
+        while column < end && column <= right {
+            let Some(cell) = self.grid.get(self.cursor_row, column) else {
+                break;
+            };
+            if let crate::CellContent::Continuation { leader_delta } = cell.content() {
+                column = column.saturating_sub(u16::from(*leader_delta));
+                continue;
+            }
+            let width = u16::from(cell.columns()).max(1);
+            end = end.max(column.saturating_add(width).min(right.saturating_add(1)));
+            column = column.saturating_add(width);
+        }
+        (start, end.saturating_sub(start))
     }
 
     fn delete_characters_with_right_boundary(&mut self, count: u16, right: u16) {
@@ -8844,7 +8893,23 @@ mod stable_row_tests {
         terminal.feed("\u{fe0f}".as_bytes());
 
         assert_eq!(terminal.grid.get(0, 0).unwrap().text(), "☁\u{fe0f}");
-        assert_eq!(terminal.grid.get(0, 0).unwrap().columns(), 1);
+        assert_eq!(terminal.grid.get(0, 0).unwrap().columns(), 2);
+        let narrow_cells = terminal.grid.cells_with_reflow_overflow(0);
+        assert_eq!(narrow_cells.len(), 2);
+        assert!(matches!(
+            narrow_cells[1].content(),
+            crate::CellContent::Continuation { leader_delta: 1 }
+        ));
+        assert_eq!(terminal.cursor(), (0, 0));
+
+        terminal.resize(TerminalSize::new(2, 1));
+
+        assert_eq!(terminal.grid.get(0, 0).unwrap().text(), "☁\u{fe0f}");
+        assert!(terminal.grid.get(0, 1).unwrap().is_continuation());
+        assert_eq!(
+            terminal.text_from_region(0, 0, 1, 0).as_deref(),
+            Some("☁\u{fe0f}")
+        );
         assert_eq!(terminal.cursor(), (0, 0));
     }
 
@@ -8866,14 +8931,59 @@ mod stable_row_tests {
 
     #[test]
     fn terminal_character_edits_do_not_leave_orphan_grapheme_cells() {
-        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
-        terminal.feed("A👍🏽B".as_bytes());
+        for (cursor, count, expected) in [(2, 1, "AB"), (3, 1, "AB"), (1, 2, "B")] {
+            let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+            terminal.feed("A👍🏽B".as_bytes());
+            terminal.feed(format!("\x1b[1;{cursor}H\x1b[{count}P").as_bytes());
 
-        terminal.feed(b"\x1b[1;3H\x1b[P");
+            assert_eq!(
+                terminal.text_from_region(0, 0, 5, 0).as_deref(),
+                Some(expected),
+                "cursor={cursor} count={count}"
+            );
+            assert!(
+                (0..6).all(|column| !terminal.grid.get(0, column).unwrap().is_continuation()),
+                "cursor={cursor} count={count}"
+            );
+        }
+    }
 
-        assert_eq!(terminal.grid.get(0, 1).unwrap().text(), "B");
-        assert!(terminal.grid.get(0, 2).unwrap().is_blank());
-        assert_eq!(terminal.text_from_region(0, 0, 5, 0).as_deref(), Some("AB"));
+    #[test]
+    fn terminal_insert_characters_moves_complete_grapheme_spans() {
+        for cursor in [2, 3] {
+            let mut terminal = Terminal::new(TerminalSize::new(7, 1));
+            terminal.feed("A👍🏽B".as_bytes());
+            terminal.feed(format!("\x1b[1;{cursor}H\x1b[@").as_bytes());
+
+            assert_eq!(
+                terminal.text_from_region(0, 0, 6, 0).as_deref(),
+                Some("A 👍🏽B"),
+                "cursor={cursor}"
+            );
+            assert_eq!(terminal.grid.get(0, 2).unwrap().text(), "👍🏽");
+            assert!(terminal.grid.get(0, 3).unwrap().is_continuation());
+        }
+    }
+
+    #[test]
+    fn terminal_selection_normalizes_continuation_boundaries_to_the_leader() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        terminal.feed("👍🏽".as_bytes());
+
+        assert_eq!(terminal.text_from_region(1, 0, 1, 0).as_deref(), Some("👍🏽"));
+        assert_eq!(terminal.text_from_region(0, 0, 1, 0).as_deref(), Some("👍🏽"));
+
+        let continuation = stable_coordinate(&terminal, 0, 1);
+        let stable = stable_selection(continuation, continuation, false);
+        let rectangular = stable_selection(continuation, continuation, true);
+        assert_eq!(
+            terminal.text_from_stable_selection(stable).as_deref(),
+            Some("👍🏽")
+        );
+        assert_eq!(
+            terminal.text_from_stable_selection(rectangular).as_deref(),
+            Some("👍🏽")
+        );
     }
 
     #[test]
