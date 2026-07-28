@@ -431,6 +431,12 @@ impl GpuContext {
         self.device.limits().max_texture_dimension_2d
     }
 
+    /// Configured native surface format, when this is a windowed context.
+    #[must_use]
+    pub fn surface_format(&self) -> Option<wgpu::TextureFormat> {
+        self.surface_config.as_ref().map(|config| config.format)
+    }
+
     /// Validates a compatibility framebuffer against the selected device and
     /// the process-wide CPU framebuffer budget.
     ///
@@ -618,6 +624,56 @@ impl GpuContext {
         pre_present();
         self.queue.present(surface_texture);
         self.check_runtime_faults("after frame presentation")?;
+        self.metrics.presented_frames = self.metrics.presented_frames.saturating_add(1);
+        if suboptimal {
+            let (width, height) = self.configured_size()?;
+            self.configure_surface(width, height)?;
+        }
+        Ok(GpuFrameStatus::Presented)
+    }
+
+    /// Presents a prepared terminal render graph directly to the native
+    /// swapchain surface.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a foreign renderer, graph preparation failure,
+    /// unrecoverable surface acquisition failure, or device fault.
+    pub fn render_graph(
+        &mut self,
+        renderer: &mut super::GpuLayerRenderer,
+        graph: &super::RenderGraph,
+        pre_present: impl FnOnce(),
+    ) -> Result<GpuFrameStatus, GpuContextError> {
+        if self.suspended {
+            return Ok(GpuFrameStatus::Skipped);
+        }
+        renderer
+            .upload_from(self, graph)
+            .map_err(|error| GpuContextError::message(error.to_string()))?;
+        let Some((surface_texture, suboptimal)) =
+            self.acquire_surface_texture(&mut SurfaceRecoveryState::new())?
+        else {
+            return Ok(GpuFrameStatus::Skipped);
+        };
+        let surface_view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("rssh-direct-terminal-frame"),
+            });
+        renderer
+            .encode_render_pass(&mut encoder, &surface_view)
+            .map_err(|error| GpuContextError::message(error.to_string()))?;
+        self.check_runtime_faults("before direct frame submission")?;
+        self.queue.submit([encoder.finish()]);
+        self.check_runtime_faults("after direct frame submission")?;
+        self.metrics.rendered_frames = self.metrics.rendered_frames.saturating_add(1);
+        pre_present();
+        self.queue.present(surface_texture);
+        self.check_runtime_faults("after direct frame presentation")?;
         self.metrics.presented_frames = self.metrics.presented_frames.saturating_add(1);
         if suboptimal {
             let (width, height) = self.configured_size()?;

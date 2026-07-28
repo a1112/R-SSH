@@ -734,16 +734,8 @@ fn every_adjacent_layer_pair_is_submitted_in_canonical_order() {
         let actual = renderer
             .render_headless_rgba8(&graph, Duration::from_secs(5))
             .expect("adjacent layer readback");
-        let lower_pixel = if lower == GpuLayer::Glyph {
-            rgba(0, 0, 0, 0)
-        } else {
-            rgba(220, 0, 0, 255)
-        };
-        let upper_pixel = if upper == GpuLayer::Glyph {
-            lower_pixel
-        } else {
-            rgba(0, 0, 220, 255)
-        };
+        let lower_pixel = rgba(220, 0, 0, 255);
+        let upper_pixel = rgba(0, 0, 220, 255);
         assert_eq!(
             actual,
             [lower_pixel, upper_pixel].concat(),
@@ -840,12 +832,12 @@ fn non_power_of_two_instance_budget_accepts_legal_active_bytes_at_boundary() {
 }
 
 #[test]
-fn instance_budget_counts_only_visible_non_glyph_draws() {
+fn instance_budget_counts_visible_glyph_blocks_but_not_clipped_draws() {
     let _gpu = gpu_test_guard();
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
     let mut renderer =
-        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 64).expect("renderer");
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 96).expect("renderer");
 
     let mut glyphs = RenderGraph::new(1, 1);
     for _ in 0..3 {
@@ -857,8 +849,8 @@ fn instance_budget_counts_only_visible_non_glyph_draws() {
     }
     renderer
         .upload(&glyphs)
-        .expect("reserved glyph slots consume no Task 16 instances");
-    assert_eq!(renderer.upload_metrics().bytes_written, 0);
+        .expect("Task 17 custom block glyphs consume bounded instances");
+    assert_eq!(renderer.upload_metrics().bytes_written, 96);
 
     let mut offscreen = RenderGraph::new(1, 1);
     for _ in 0..3 {

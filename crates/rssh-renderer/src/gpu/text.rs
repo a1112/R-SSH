@@ -1,0 +1,977 @@
+//! GPU terminal glyph preparation backed by the authoritative `rssh-fonts`
+//! shaping and raster caches.
+
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    fmt,
+    hash::Hash,
+    sync::Arc,
+};
+
+use glyphon::{
+    Buffer, Cache, Color, ContentType, CustomGlyph, Metrics, RasterizedCustomGlyph, Resolution,
+    SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
+};
+use rssh_fonts::{
+    FontCatalog, FontConfig, FontId, RasterCache, RasterCacheConfig, RasterContent, RasterFlags,
+    RasterRequest, ShapedRow, TerminalShaper,
+};
+
+use crate::{
+    DamageRegion, RenderBoldBrightensAnsiColors, RenderGeometry, TerminalRenderSnapshot,
+    effective_cell_colors, text::RowShapePlan, text::expand_damage_rows, text::row_shape_plan,
+    text::vertical_align_baseline,
+};
+
+use super::{GpuContextGeneration, GpuLayerError, PixelRect};
+
+/// GPU text cache settings. The budget covers both canonical retained glyph
+/// payloads and glyphon's physical mask/color texture allocations.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GpuTextConfig {
+    pub budget_bytes: usize,
+    pub raster_cache: RasterCacheConfig,
+    pub cursor_foreground: Option<[u8; 4]>,
+}
+
+impl GpuTextConfig {
+    #[must_use]
+    pub const fn new(budget_bytes: usize, raster_cache: RasterCacheConfig) -> Self {
+        Self {
+            budget_bytes,
+            raster_cache,
+            cursor_foreground: None,
+        }
+    }
+
+    /// Enables block-cursor foreground redraws. Callers should provide `None`
+    /// while the cursor blink phase is hidden.
+    #[must_use]
+    pub const fn with_cursor_foreground(mut self, color: [u8; 4]) -> Self {
+        self.cursor_foreground = Some(color);
+        self
+    }
+}
+
+/// Accounted retained state for the custom-glyph bridge.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct GpuTextAtlasMetrics {
+    pub budget_bytes: usize,
+    pub retained_bytes: usize,
+    pub payload_bytes: usize,
+    pub physical_texture_bytes: usize,
+    pub mask_dimension: u32,
+    pub color_dimension: u32,
+    pub entries: usize,
+    pub scope_generation: u64,
+    pub repack_attempts: u8,
+    pub uploads: u64,
+}
+
+/// Diagnostics for one terminal text preparation.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct GpuTextPrepareReport {
+    pub prepared_rows: Vec<u16>,
+    pub shaped_glyphs: usize,
+    pub mask_glyphs: usize,
+    pub color_glyphs: usize,
+    pub custom_block_glyphs: usize,
+    pub cursor_foreground_glyphs: usize,
+    pub subpixel_masks_converted: usize,
+    pub second_shape_calls: usize,
+    pub glyph_bounds: Vec<PixelRect>,
+    pub cursor_foreground_bounds: Vec<PixelRect>,
+    pub damage_bounds: Vec<PixelRect>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct BitmapIdentity {
+    catalog_incarnation: u64,
+    catalog_generation: u64,
+    font_id: FontId,
+    glyph_id: u16,
+    font_size_bits: u32,
+    weight: u16,
+    flags: RasterFlags,
+    width: u16,
+    height: u16,
+    content_type: u8,
+    dpi_bits: u32,
+    zoom_bits: u32,
+    bytes: Arc<[u8]>,
+}
+
+#[derive(Clone, Debug)]
+struct GlyphPayload {
+    bytes: Arc<[u8]>,
+    content_type: ContentType,
+    width: u16,
+    height: u16,
+}
+
+#[derive(Clone, Debug)]
+struct PreparedGlyphArea {
+    bounds: TextBounds,
+    glyph: CustomGlyph,
+}
+
+#[derive(Clone, Debug, Default)]
+struct PreparedGpuRow {
+    areas: Vec<PreparedGlyphArea>,
+    cursor_areas: Vec<PreparedGlyphArea>,
+    blocks: Vec<super::GpuQuad>,
+}
+
+struct GlyphonState {
+    viewport: Viewport,
+    atlas: TextAtlas,
+    renderer: TextRenderer,
+    cursor_renderer: TextRenderer,
+    swash_cache: SwashCache,
+    empty_buffer: Buffer,
+}
+
+impl GlyphonState {
+    fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+        budget_bytes: usize,
+    ) -> Result<Self, GpuLayerError> {
+        let cache = Cache::new(device);
+        let viewport = Viewport::new(device, &cache);
+        let mut atlas =
+            TextAtlas::with_max_bytes(device, queue, &cache, format, budget_bytes).ok_or_else(
+                || {
+                    GpuLayerError::message(format!(
+                        "glyph atlas budget of {budget_bytes} bytes cannot hold the initial mask and color textures"
+                    ))
+                },
+            )?;
+        let renderer =
+            TextRenderer::new(&mut atlas, device, wgpu::MultisampleState::default(), None);
+        let cursor_renderer =
+            TextRenderer::new(&mut atlas, device, wgpu::MultisampleState::default(), None);
+        Ok(Self {
+            viewport,
+            atlas,
+            renderer,
+            cursor_renderer,
+            swash_cache: SwashCache::new(),
+            empty_buffer: Buffer::new_empty(Metrics::new(1.0, 1.0)),
+        })
+    }
+}
+
+pub(crate) struct GpuText {
+    generation: GpuContextGeneration,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    format: wgpu::TextureFormat,
+    catalog: FontCatalog,
+    shaper: TerminalShaper,
+    raster: RasterCache,
+    config: GpuTextConfig,
+    glyphon: GlyphonState,
+    identity_to_id: HashMap<BitmapIdentity, u16>,
+    payloads: HashMap<u16, GlyphPayload>,
+    next_id: u32,
+    scope_catalog_generation: u64,
+    dpi_scale: f32,
+    zoom: f32,
+    metrics: GpuTextAtlasMetrics,
+    payload_retained_bytes: usize,
+    report: GpuTextPrepareReport,
+    block_quads: Vec<super::GpuQuad>,
+    row_cache: BTreeMap<u16, PreparedGpuRow>,
+    geometry: Option<RenderGeometry>,
+    cursor_scope: Option<(u16, u16, [u8; 4])>,
+}
+
+impl fmt::Debug for GpuText {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GpuText")
+            .field("generation", &self.generation)
+            .field("format", &self.format)
+            .field("catalog_generation", &self.catalog.generation())
+            .field("metrics", &self.metrics)
+            .field("report", &self.report)
+            .finish_non_exhaustive()
+    }
+}
+
+impl GpuText {
+    pub(crate) fn new(
+        generation: GpuContextGeneration,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        format: wgpu::TextureFormat,
+        catalog: FontCatalog,
+        font_config: FontConfig,
+        config: GpuTextConfig,
+    ) -> Result<Self, GpuLayerError> {
+        if config.budget_bytes == 0 {
+            return Err(GpuLayerError::message(
+                "glyph atlas budget must be greater than zero",
+            ));
+        }
+        let catalog_generation = catalog.generation();
+        let atlas_dimension = initial_atlas_dimension(&device);
+        let atlas_bytes = initial_atlas_bytes(&device);
+        let glyphon = GlyphonState::new(&device, &queue, format, config.budget_bytes)?;
+        Ok(Self {
+            generation,
+            glyphon,
+            device,
+            queue,
+            format,
+            catalog,
+            shaper: TerminalShaper::new(font_config),
+            raster: RasterCache::new(config.raster_cache),
+            config,
+            identity_to_id: HashMap::new(),
+            payloads: HashMap::new(),
+            next_id: 1,
+            scope_catalog_generation: catalog_generation,
+            dpi_scale: config.raster_cache.dpi_scale,
+            zoom: config.raster_cache.zoom,
+            metrics: GpuTextAtlasMetrics {
+                budget_bytes: config.budget_bytes,
+                retained_bytes: atlas_bytes,
+                physical_texture_bytes: atlas_bytes,
+                mask_dimension: atlas_dimension,
+                color_dimension: atlas_dimension,
+                scope_generation: 1,
+                ..GpuTextAtlasMetrics::default()
+            },
+            payload_retained_bytes: 0,
+            report: GpuTextPrepareReport::default(),
+            block_quads: Vec::new(),
+            row_cache: BTreeMap::new(),
+            geometry: None,
+            cursor_scope: None,
+        })
+    }
+
+    pub(crate) const fn metrics(&self) -> GpuTextAtlasMetrics {
+        self.metrics
+    }
+
+    pub(crate) fn catalog_mut(&mut self) -> &mut FontCatalog {
+        &mut self.catalog
+    }
+
+    pub(crate) fn block_quads(&self) -> &[super::GpuQuad] {
+        &self.block_quads
+    }
+
+    fn rebuild_scope(&mut self) -> Result<(), GpuLayerError> {
+        self.glyphon = GlyphonState::new(
+            &self.device,
+            &self.queue,
+            self.format,
+            self.config.budget_bytes,
+        )?;
+        self.identity_to_id.clear();
+        self.payloads.clear();
+        self.row_cache.clear();
+        self.block_quads.clear();
+        self.geometry = None;
+        self.cursor_scope = None;
+        self.next_id = 1;
+        let atlas = self.glyphon.atlas.metrics();
+        self.payload_retained_bytes = 0;
+        self.metrics.payload_bytes = 0;
+        self.metrics.physical_texture_bytes = atlas.allocated_bytes;
+        self.metrics.retained_bytes = atlas.allocated_bytes;
+        self.metrics.mask_dimension = atlas.mask_dimension;
+        self.metrics.color_dimension = atlas.color_dimension;
+        self.metrics.entries = 0;
+        self.metrics.scope_generation = self.metrics.scope_generation.saturating_add(1);
+        Ok(())
+    }
+
+    fn ensure_scope(&mut self, dpi_scale: f32, zoom: f32) -> Result<(), GpuLayerError> {
+        let changed = self.scope_catalog_generation != self.catalog.generation()
+            || self.dpi_scale.to_bits() != dpi_scale.to_bits()
+            || self.zoom.to_bits() != zoom.to_bits();
+        if changed {
+            self.rebuild_scope()?;
+            self.scope_catalog_generation = self.catalog.generation();
+            self.dpi_scale = dpi_scale;
+            self.zoom = zoom;
+        }
+        self.raster.set_scale(dpi_scale, zoom);
+        Ok(())
+    }
+
+    fn retained_cost(payload: &GlyphPayload) -> usize {
+        payload
+            .bytes
+            .len()
+            .saturating_add(std::mem::size_of::<BitmapIdentity>())
+            .saturating_add(std::mem::size_of::<GlyphPayload>())
+    }
+
+    fn intern(
+        &mut self,
+        identity: BitmapIdentity,
+        payload: GlyphPayload,
+    ) -> Result<u16, GpuLayerError> {
+        if let Some(id) = self.identity_to_id.get(&identity) {
+            return Ok(*id);
+        }
+        let retained = Self::retained_cost(&payload);
+        let next_payload = self.payload_retained_bytes.saturating_add(retained);
+        let next_total = self
+            .metrics
+            .physical_texture_bytes
+            .saturating_add(next_payload);
+        if next_total > self.config.budget_bytes {
+            return Err(GpuLayerError::message(format!(
+                "glyph atlas budget of {} bytes cannot retain the prepared frame",
+                self.config.budget_bytes
+            )));
+        }
+        let id = u16::try_from(self.next_id).map_err(|_| {
+            GpuLayerError::message("glyph atlas exhausted all 65535 custom glyph identifiers")
+        })?;
+        self.next_id = self.next_id.saturating_add(1);
+        self.identity_to_id.insert(identity, id);
+        self.payloads.insert(id, payload);
+        self.payload_retained_bytes = next_payload;
+        self.metrics.payload_bytes = next_payload;
+        self.metrics.retained_bytes = next_total;
+        self.metrics.entries = self.payloads.len();
+        self.metrics.uploads = self.metrics.uploads.saturating_add(1);
+        Ok(id)
+    }
+
+    pub(crate) fn prepare(
+        &mut self,
+        snapshot: &TerminalRenderSnapshot,
+        geometry: RenderGeometry,
+        damage: &[DamageRegion],
+        dpi_scale: f32,
+        zoom: f32,
+    ) -> Result<GpuTextPrepareReport, GpuLayerError> {
+        if !dpi_scale.is_finite() || dpi_scale <= 0.0 || !zoom.is_finite() || zoom <= 0.0 {
+            return Err(GpuLayerError::message(
+                "GPU text DPI scale and zoom must be finite and greater than zero",
+            ));
+        }
+        if geometry.cell_width == 0
+            || geometry.cell_height == 0
+            || geometry.target_width == 0
+            || geometry.target_height == 0
+        {
+            return Err(GpuLayerError::message("GPU text geometry must be nonzero"));
+        }
+        self.ensure_scope(dpi_scale, zoom)?;
+        self.metrics.repack_attempts = 0;
+
+        match self.prepare_once(snapshot, geometry, damage) {
+            Ok(report) => Ok(report),
+            Err(error) if error.to_string().contains("glyph atlas budget") => {
+                self.metrics.repack_attempts = 1;
+                self.glyphon.atlas.trim();
+                self.rebuild_scope()?;
+                self.metrics.repack_attempts = 1;
+                self.prepare_once(snapshot, geometry, damage)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        clippy::cast_precision_loss,
+        reason = "authoritative shape, raster placement, clipping, and atlas identity remain together for auditability"
+    )]
+    fn prepare_once(
+        &mut self,
+        snapshot: &TerminalRenderSnapshot,
+        geometry: RenderGeometry,
+        damage: &[DamageRegion],
+    ) -> Result<GpuTextPrepareReport, GpuLayerError> {
+        let columns_u32 = geometry.target_width / geometry.cell_width;
+        let rows_u32 = geometry.target_height / geometry.cell_height;
+        let columns = u16::try_from(columns_u32).unwrap_or(u16::MAX);
+        let rows = u16::try_from(rows_u32).unwrap_or(u16::MAX);
+        if self.geometry != Some(geometry) {
+            self.row_cache.clear();
+            self.geometry = Some(geometry);
+        }
+        let visible_rows = snapshot
+            .cells()
+            .iter()
+            .map(|cell| cell.row)
+            .filter(|row| *row < rows)
+            .collect::<BTreeSet<_>>();
+        let damaged_rows = if damage.is_empty() {
+            visible_rows.clone()
+        } else {
+            expand_damage_rows(damage, columns_u32, rows_u32)
+                .into_iter()
+                .map(|region| region.y)
+                .collect::<BTreeSet<_>>()
+        };
+        let mut row_numbers = if damage.is_empty() || self.row_cache.is_empty() {
+            if damage.is_empty() {
+                self.row_cache.clear();
+            }
+            visible_rows.clone()
+        } else {
+            damaged_rows.clone()
+        };
+        let cursor_scope = snapshot
+            .cursor()
+            .filter(|cursor| cursor.shape == rssh_terminal::CursorShape::Block)
+            .and_then(|cursor| {
+                self.config
+                    .cursor_foreground
+                    .map(|foreground| (cursor.row, cursor.column, foreground))
+            });
+        if self.cursor_scope != cursor_scope {
+            if let Some((row, _, _)) = self.cursor_scope
+                && row < rows
+            {
+                row_numbers.insert(row);
+            }
+            if let Some((row, _, _)) = cursor_scope
+                && row < rows
+            {
+                row_numbers.insert(row);
+            }
+            self.cursor_scope = cursor_scope;
+        }
+        self.row_cache
+            .retain(|row, _| *row < rows && visible_rows.contains(row));
+
+        let mut report = GpuTextPrepareReport {
+            prepared_rows: row_numbers.iter().copied().collect(),
+            damage_bounds: damaged_rows
+                .iter()
+                .map(|row| {
+                    PixelRect::new(
+                        0,
+                        u32::from(*row).saturating_mul(geometry.cell_height),
+                        geometry.target_width,
+                        geometry.cell_height,
+                    )
+                })
+                .collect(),
+            ..GpuTextPrepareReport::default()
+        };
+
+        for row in row_numbers {
+            let plan = row_shape_plan(snapshot, row, columns);
+            if plan.clusters.is_empty() {
+                self.row_cache.insert(row, PreparedGpuRow::default());
+                continue;
+            }
+            let shaped = self
+                .shaper
+                .shape_clusters(&mut self.catalog, &plan.clusters)
+                .map_err(|error| GpuLayerError::message(format!("shape GPU text row: {error}")))?;
+            report.shaped_glyphs = report.shaped_glyphs.saturating_add(shaped.glyphs.len());
+            let scale_x = geometry.cell_width as f32 / shaped.metrics.cell_width;
+            let visual_starts = crate::text::visual_cell_starts(&shaped);
+            let baseline = f32::from(row) * geometry.cell_height as f32
+                + shaped.metrics.baseline / shaped.metrics.line_height
+                    * geometry.cell_height as f32;
+            let mut prepared_row = PreparedGpuRow::default();
+            let cursor_redraw = snapshot
+                .cursor()
+                .filter(|cursor| {
+                    cursor.row == row && cursor.shape == rssh_terminal::CursorShape::Block
+                })
+                .and_then(|cursor| {
+                    let foreground = self.config.cursor_foreground?;
+                    let cluster = shaped
+                        .clusters
+                        .iter()
+                        .find(|cluster| cluster.cell_span.contains(&usize::from(cursor.column)))?;
+                    let visual_cell = visual_starts[cluster.logical_index].saturating_add(
+                        usize::from(cursor.column).saturating_sub(cluster.cell_span.start),
+                    );
+                    Some((cursor, visual_cell, foreground))
+                });
+            for glyph in &shaped.glyphs {
+                let style = &plan.styles[glyph.cluster_range.start];
+                if style.conceal {
+                    continue;
+                }
+                let (foreground, _) = effective_cell_colors(
+                    style,
+                    RenderBoldBrightensAnsiColors::BrightAndBold,
+                    [229, 229, 229, 255],
+                    [12, 12, 12, 255],
+                    None,
+                    None,
+                );
+                let alpha = if style.faint {
+                    foreground[3] / 2
+                } else {
+                    foreground[3]
+                };
+                if shaped
+                    .text
+                    .get(glyph.byte_range.clone())
+                    .is_some_and(|text| text.chars().all(|character| character == '\u{2588}'))
+                {
+                    let logical_cluster = glyph.cluster_range.start;
+                    let visual_start = visual_starts[logical_cluster];
+                    let cell_width = glyph.cell_span.end.saturating_sub(glyph.cell_span.start);
+                    prepared_row.blocks.push(super::GpuQuad::new(
+                        super::GpuLayer::Glyph,
+                        PixelRect::new(
+                            u32::try_from(visual_start)
+                                .unwrap_or(u32::MAX)
+                                .saturating_mul(geometry.cell_width),
+                            u32::from(row).saturating_mul(geometry.cell_height),
+                            u32::try_from(cell_width)
+                                .unwrap_or(u32::MAX)
+                                .saturating_mul(geometry.cell_width),
+                            geometry.cell_height,
+                        ),
+                        [foreground[0], foreground[1], foreground[2], alpha],
+                    ));
+                    report.custom_block_glyphs = report.custom_block_glyphs.saturating_add(1);
+                    if let Some((cursor, visual_cell, cursor_foreground)) = cursor_redraw
+                        && glyph.cell_span.contains(&usize::from(cursor.column))
+                    {
+                        let cursor_x = u32::try_from(visual_cell)
+                            .unwrap_or(u32::MAX)
+                            .saturating_mul(geometry.cell_width);
+                        let cursor_rect = PixelRect::new(
+                            cursor_x,
+                            u32::from(row).saturating_mul(geometry.cell_height),
+                            geometry.cell_width,
+                            geometry.cell_height,
+                        );
+                        prepared_row.blocks.push(super::GpuQuad::new(
+                            super::GpuLayer::Cursor,
+                            cursor_rect,
+                            cursor_foreground,
+                        ));
+                        report.cursor_foreground_glyphs =
+                            report.cursor_foreground_glyphs.saturating_add(1);
+                        report.cursor_foreground_bounds.push(cursor_rect);
+                    }
+                    continue;
+                }
+                let logical_x = glyph.x * scale_x;
+                let aligned_baseline =
+                    vertical_align_baseline(baseline, geometry.cell_height, style);
+                let request = RasterRequest::for_shaped_glyph_at_physical_position(
+                    &shaped,
+                    glyph,
+                    logical_x,
+                    aligned_baseline,
+                );
+                let Some(positioned) = self.raster.rasterize_positioned(&mut self.catalog, request)
+                else {
+                    continue;
+                };
+                let raster = positioned.image;
+                let width = u16::try_from(raster.width).map_err(|_| {
+                    GpuLayerError::message("GPU glyph width exceeds the u16 atlas limit")
+                })?;
+                let height = u16::try_from(raster.height).map_err(|_| {
+                    GpuLayerError::message("GPU glyph height exceeds the u16 atlas limit")
+                })?;
+                let (bytes, content_type, color) = match &raster.content {
+                    RasterContent::Mask(bytes) => {
+                        report.mask_glyphs = report.mask_glyphs.saturating_add(1);
+                        (
+                            Arc::<[u8]>::from(bytes.clone()),
+                            ContentType::Mask,
+                            Some(Color::rgba(
+                                foreground[0],
+                                foreground[1],
+                                foreground[2],
+                                alpha,
+                            )),
+                        )
+                    }
+                    RasterContent::SubpixelMask(bytes) => {
+                        report.mask_glyphs = report.mask_glyphs.saturating_add(1);
+                        report.subpixel_masks_converted =
+                            report.subpixel_masks_converted.saturating_add(1);
+                        let grayscale = bytes
+                            .chunks_exact(4)
+                            .map(|pixel| pixel[0].max(pixel[1]).max(pixel[2]).max(pixel[3]))
+                            .collect::<Vec<_>>();
+                        (
+                            Arc::<[u8]>::from(grayscale),
+                            ContentType::Mask,
+                            Some(Color::rgba(
+                                foreground[0],
+                                foreground[1],
+                                foreground[2],
+                                alpha,
+                            )),
+                        )
+                    }
+                    RasterContent::Rgba(bytes) => {
+                        report.color_glyphs = report.color_glyphs.saturating_add(1);
+                        let mut pixels = bytes.clone();
+                        if alpha != u8::MAX {
+                            for pixel in pixels.chunks_exact_mut(4) {
+                                pixel[3] =
+                                    u8::try_from((u16::from(pixel[3]) * u16::from(alpha)) / 255)
+                                        .unwrap_or(u8::MAX);
+                            }
+                        }
+                        (Arc::<[u8]>::from(pixels), ContentType::Color, None)
+                    }
+                };
+                let identity = BitmapIdentity {
+                    catalog_incarnation: self.catalog.incarnation(),
+                    catalog_generation: self.catalog.generation(),
+                    font_id: glyph.font_id,
+                    glyph_id: glyph.glyph_id,
+                    font_size_bits: glyph.raster_font_size.to_bits(),
+                    weight: glyph.raster_weight,
+                    flags: glyph.raster_flags,
+                    width,
+                    height,
+                    content_type: match content_type {
+                        ContentType::Mask => 1,
+                        ContentType::Color => 4,
+                    },
+                    dpi_bits: self.dpi_scale.to_bits(),
+                    zoom_bits: self.zoom.to_bits(),
+                    bytes: Arc::clone(&bytes),
+                };
+                let id = self.intern(
+                    identity,
+                    GlyphPayload {
+                        bytes,
+                        content_type,
+                        width,
+                        height,
+                    },
+                )?;
+                let left = i64::from(positioned.origin_x) + i64::from(raster.left);
+                let top = i64::from(positioned.origin_y) - i64::from(raster.top);
+                let (clip_x, clip_width) = shaped_run_clip(
+                    &plan,
+                    &shaped,
+                    &visual_starts,
+                    glyph.cluster_range.start,
+                    geometry,
+                );
+                let clip_y = u32::from(row).saturating_mul(geometry.cell_height);
+                let Some(bounds) = clipped_bounds(
+                    left,
+                    top,
+                    u32::from(width),
+                    u32::from(height),
+                    clip_x,
+                    clip_y,
+                    clip_width,
+                    geometry.cell_height,
+                ) else {
+                    continue;
+                };
+                report.glyph_bounds.push(bounds);
+                let custom_glyph = CustomGlyph {
+                    id,
+                    left: left as f32,
+                    top: top as f32,
+                    width: f32::from(width),
+                    height: f32::from(height),
+                    color,
+                    snap_to_physical_pixel: true,
+                    metadata: glyph.visual_order,
+                };
+                if let Some((cursor, visual_cell, foreground)) = cursor_redraw
+                    && glyph.cell_span.contains(&usize::from(cursor.column))
+                    && !style.conceal
+                {
+                    let cursor_x = u32::try_from(visual_cell)
+                        .unwrap_or(u32::MAX)
+                        .saturating_mul(geometry.cell_width);
+                    let cursor_bounds = clipped_bounds(
+                        left,
+                        top,
+                        u32::from(width),
+                        u32::from(height),
+                        cursor_x,
+                        clip_y,
+                        geometry.cell_width,
+                        geometry.cell_height,
+                    );
+                    if let Some(cursor_bounds) = cursor_bounds {
+                        report.cursor_foreground_bounds.push(cursor_bounds);
+                        report.cursor_foreground_glyphs =
+                            report.cursor_foreground_glyphs.saturating_add(1);
+                        let mut cursor_glyph = custom_glyph;
+                        if cursor_glyph.color.is_some() {
+                            cursor_glyph.color = Some(Color::rgba(
+                                foreground[0],
+                                foreground[1],
+                                foreground[2],
+                                foreground[3],
+                            ));
+                        }
+                        prepared_row.cursor_areas.push(PreparedGlyphArea {
+                            bounds: TextBounds {
+                                left: i32::try_from(cursor_x).unwrap_or(i32::MAX),
+                                top: i32::try_from(clip_y).unwrap_or(i32::MAX),
+                                right: i32::try_from(cursor_x.saturating_add(geometry.cell_width))
+                                    .unwrap_or(i32::MAX),
+                                bottom: i32::try_from(clip_y.saturating_add(geometry.cell_height))
+                                    .unwrap_or(i32::MAX),
+                            },
+                            glyph: cursor_glyph,
+                        });
+                    }
+                }
+                prepared_row.areas.push(PreparedGlyphArea {
+                    bounds: TextBounds {
+                        left: i32::try_from(clip_x).unwrap_or(i32::MAX),
+                        top: i32::try_from(clip_y).unwrap_or(i32::MAX),
+                        right: i32::try_from(clip_x.saturating_add(clip_width)).unwrap_or(i32::MAX),
+                        bottom: i32::try_from(clip_y.saturating_add(geometry.cell_height))
+                            .unwrap_or(i32::MAX),
+                    },
+                    glyph: custom_glyph,
+                });
+            }
+            self.row_cache.insert(row, prepared_row);
+        }
+
+        self.glyphon.viewport.update(
+            &self.queue,
+            Resolution {
+                width: geometry.target_width,
+                height: geometry.target_height,
+            },
+        );
+        let payloads = &self.payloads;
+        let physical_budget = self
+            .config
+            .budget_bytes
+            .saturating_sub(self.payload_retained_bytes);
+        if !self.glyphon.atlas.set_max_bytes(physical_budget) {
+            return Err(GpuLayerError::message(format!(
+                "glyph atlas budget of {} bytes is below the current physical texture allocation",
+                self.config.budget_bytes
+            )));
+        }
+        {
+            let areas = self.row_cache.values().flat_map(|row| {
+                row.areas.iter().map(|area| TextArea {
+                    buffer: &self.glyphon.empty_buffer,
+                    left: 0.0,
+                    top: 0.0,
+                    scale: 1.0,
+                    bounds: area.bounds,
+                    default_color: Color::rgb(229, 229, 229),
+                    custom_glyphs: std::slice::from_ref(&area.glyph),
+                })
+            });
+            self.glyphon
+                .renderer
+                .prepare_with_custom(
+                    &self.device,
+                    &self.queue,
+                    self.catalog.font_system_mut(),
+                    &mut self.glyphon.atlas,
+                    &self.glyphon.viewport,
+                    areas,
+                    &mut self.glyphon.swash_cache,
+                    |request| {
+                        let payload = payloads.get(&request.id)?;
+                        if payload.width != request.width || payload.height != request.height {
+                            return None;
+                        }
+                        Some(RasterizedCustomGlyph {
+                            data: payload.bytes.to_vec(),
+                            content_type: payload.content_type,
+                        })
+                    },
+                )
+                .map_err(|error| {
+                    GpuLayerError::message(format!(
+                        "glyph atlas budget exhausted while preparing physical textures: {error}"
+                    ))
+                })?;
+        }
+        {
+            let areas = self.row_cache.values().flat_map(|row| {
+                row.cursor_areas.iter().map(|area| TextArea {
+                    buffer: &self.glyphon.empty_buffer,
+                    left: 0.0,
+                    top: 0.0,
+                    scale: 1.0,
+                    bounds: area.bounds,
+                    default_color: Color::rgb(229, 229, 229),
+                    custom_glyphs: std::slice::from_ref(&area.glyph),
+                })
+            });
+            self.glyphon
+                .cursor_renderer
+                .prepare_with_custom(
+                    &self.device,
+                    &self.queue,
+                    self.catalog.font_system_mut(),
+                    &mut self.glyphon.atlas,
+                    &self.glyphon.viewport,
+                    areas,
+                    &mut self.glyphon.swash_cache,
+                    |request| {
+                        let payload = payloads.get(&request.id)?;
+                        if payload.width != request.width || payload.height != request.height {
+                            return None;
+                        }
+                        Some(RasterizedCustomGlyph {
+                            data: payload.bytes.to_vec(),
+                            content_type: payload.content_type,
+                        })
+                    },
+                )
+                .map_err(|error| {
+                    GpuLayerError::message(format!(
+                        "glyph atlas budget exhausted while preparing cursor foreground: {error}"
+                    ))
+                })?;
+        }
+        let atlas = self.glyphon.atlas.metrics();
+        self.metrics.physical_texture_bytes = atlas.allocated_bytes;
+        self.metrics.mask_dimension = atlas.mask_dimension;
+        self.metrics.color_dimension = atlas.color_dimension;
+        self.metrics.retained_bytes = atlas
+            .allocated_bytes
+            .saturating_add(self.payload_retained_bytes);
+        self.block_quads = self
+            .row_cache
+            .values()
+            .flat_map(|row| row.blocks.iter().copied())
+            .collect();
+        self.report = report.clone();
+        Ok(report)
+    }
+
+    pub(crate) fn render<'pass>(
+        &'pass self,
+        pass: &mut wgpu::RenderPass<'pass>,
+    ) -> Result<(), GpuLayerError> {
+        self.glyphon
+            .renderer
+            .render(&self.glyphon.atlas, &self.glyphon.viewport, pass)
+            .map_err(|error| GpuLayerError::message(format!("render GPU glyph atlas: {error}")))
+    }
+
+    pub(crate) fn render_cursor<'pass>(
+        &'pass self,
+        pass: &mut wgpu::RenderPass<'pass>,
+    ) -> Result<(), GpuLayerError> {
+        self.glyphon
+            .cursor_renderer
+            .render(&self.glyphon.atlas, &self.glyphon.viewport, pass)
+            .map_err(|error| {
+                GpuLayerError::message(format!("render GPU cursor foreground atlas: {error}"))
+            })
+    }
+}
+
+fn initial_atlas_dimension(device: &wgpu::Device) -> u32 {
+    256.min(device.limits().max_texture_dimension_2d)
+}
+
+fn initial_atlas_bytes(device: &wgpu::Device) -> usize {
+    let dimension = initial_atlas_dimension(device) as usize;
+    dimension.saturating_mul(dimension).saturating_mul(5)
+}
+
+fn shaped_run_clip(
+    plan: &RowShapePlan,
+    shaped: &ShapedRow,
+    visual_starts: &[usize],
+    logical_index: usize,
+    geometry: RenderGeometry,
+) -> (u32, u32) {
+    if plan.run_count <= 1 {
+        return (0, geometry.target_width);
+    }
+    let Some(cluster) = shaped.clusters.get(logical_index) else {
+        return (0, geometry.target_width);
+    };
+    let Some(input) = plan.clusters.get(logical_index) else {
+        return (0, geometry.target_width);
+    };
+    let boundary = input.shape_boundary;
+    let mut visual_start = cluster.visual_index;
+    while visual_start > 0 {
+        let previous = shaped.visual_clusters[visual_start - 1];
+        if plan.clusters[previous].shape_boundary != boundary {
+            break;
+        }
+        visual_start -= 1;
+    }
+    let mut visual_end = cluster.visual_index + 1;
+    while visual_end < shaped.visual_clusters.len() {
+        let next = shaped.visual_clusters[visual_end];
+        if plan.clusters[next].shape_boundary != boundary {
+            break;
+        }
+        visual_end += 1;
+    }
+    let first_logical = shaped.visual_clusters[visual_start];
+    let last_logical = shaped.visual_clusters[visual_end - 1];
+    let first_cell = visual_starts[first_logical];
+    let last_cluster = &shaped.clusters[last_logical];
+    let last_cell = visual_starts[last_logical].saturating_add(
+        last_cluster
+            .cell_span
+            .end
+            .saturating_sub(last_cluster.cell_span.start),
+    );
+    let x = u32::try_from(first_cell)
+        .unwrap_or(u32::MAX)
+        .saturating_mul(geometry.cell_width)
+        .min(geometry.target_width);
+    let right = u32::try_from(last_cell)
+        .unwrap_or(u32::MAX)
+        .saturating_mul(geometry.cell_width)
+        .min(geometry.target_width);
+    (x, right.saturating_sub(x))
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "signed glyph placement and half-open clip geometry are intentionally explicit"
+)]
+fn clipped_bounds(
+    x: i64,
+    y: i64,
+    width: u32,
+    height: u32,
+    clip_x: u32,
+    clip_y: u32,
+    clip_width: u32,
+    clip_height: u32,
+) -> Option<PixelRect> {
+    let left = x.max(i64::from(clip_x));
+    let top = y.max(i64::from(clip_y));
+    let right = x
+        .saturating_add(i64::from(width))
+        .min(i64::from(clip_x.saturating_add(clip_width)));
+    let bottom = y
+        .saturating_add(i64::from(height))
+        .min(i64::from(clip_y.saturating_add(clip_height)));
+    if right <= left || bottom <= top {
+        return None;
+    }
+    Some(PixelRect::new(
+        u32::try_from(left).ok()?,
+        u32::try_from(top).ok()?,
+        u32::try_from(right - left).ok()?,
+        u32::try_from(bottom - top).ok()?,
+    ))
+}

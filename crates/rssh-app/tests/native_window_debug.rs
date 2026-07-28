@@ -57,15 +57,25 @@ fn one_frame_native_window_does_not_overflow_the_debug_stack() {
 fn native_window_reports_real_gpu_presentation_for_one_and_ten_frames() {
     for frames in [1_u64, 10] {
         let frame_text = frames.to_string();
-        let arguments = [
+        let mut arguments = vec![
             "-n",
             "window",
             "--frames",
             frame_text.as_str(),
             "--metrics-json",
         ];
+        if frames == 10 {
+            arguments.extend([
+                "--",
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); [Console]::Write('office 中 مرحبا नमस्ते שלום 😀 █')",
+            ]);
+        }
         let command_intent = format!("rssh-app -n window --frames {frames} --metrics-json");
-        let output = run_rssh_app(&command_intent, &arguments);
+        let output = run_rssh_app_with_direct_gpu_text(&command_intent, &arguments);
         let diagnostics = diagnostics(&command_intent, &arguments, &output);
 
         assert!(
@@ -99,7 +109,42 @@ fn native_window_reports_real_gpu_presentation_for_one_and_ten_frames() {
         assert_eq!(metrics["gpu_presented_frames"], frames, "{diagnostics}");
         assert_eq!(metrics["gpu_uncaptured_errors"], 0, "{diagnostics}");
         assert_eq!(metrics["gpu_device_losses"], 0, "{diagnostics}");
-        assert!(metrics["text_backend"].is_string(), "{diagnostics}");
+        assert_eq!(metrics["text_backend"], "shaped-gpu-atlas", "{diagnostics}");
+        assert!(
+            metrics["gpu_text_prepared_glyphs"]
+                .as_u64()
+                .is_some_and(|count| count > 0),
+            "{diagnostics}"
+        );
+        assert!(
+            metrics["gpu_text_mask_glyphs"]
+                .as_u64()
+                .is_some_and(|count| count > 0),
+            "{diagnostics}"
+        );
+        assert!(
+            metrics["gpu_text_color_glyphs"]
+                .as_u64()
+                .is_some_and(|count| count > 0),
+            "{diagnostics}"
+        );
+        assert!(
+            metrics["gpu_text_block_glyphs"]
+                .as_u64()
+                .is_some_and(|count| count > 0),
+            "{diagnostics}"
+        );
+        assert_eq!(metrics["gpu_text_rendered_frames"], frames, "{diagnostics}");
+        if frames == 10 {
+            assert!(
+                metrics["pty_bytes"].as_u64().is_some_and(|bytes| bytes > 0),
+                "Unicode specimen produced no PTY bytes\n{diagnostics}"
+            );
+            assert!(
+                metrics["first_rendered_cell_ms"].is_number(),
+                "Unicode specimen never reached a rendered cell\n{diagnostics}"
+            );
+        }
     }
 }
 
@@ -157,6 +202,31 @@ fn run_rssh_app(command_intent: &str, args: &[&str]) -> ChildOutput {
              {CDB_FRAME_EVIDENCE}"
         )
     })
+}
+
+fn run_rssh_app_with_direct_gpu_text(command_intent: &str, args: &[&str]) -> ChildOutput {
+    let mut command = Command::new(RSSH_APP_EXECUTABLE);
+    command.args(args).env("RSSH_TEST_DIRECT_GPU_TEXT", "1");
+    ChildGuard::spawn(command, PROCESS_DEADLINE)
+        .unwrap_or_else(|error| {
+            panic!(
+                "failed to launch direct GPU text `{command_intent}` with a {PROCESS_DEADLINE:?} deadline\n\
+                 executable: {RSSH_APP_EXECUTABLE:?}\n\
+                 arguments: {args:?}\n\
+                 error: {error}\n\
+                 {CDB_FRAME_EVIDENCE}"
+            )
+        })
+        .wait()
+        .unwrap_or_else(|error| {
+            panic!(
+                "`{command_intent}` direct GPU text did not complete within its bounded subprocess harness\n\
+                 executable: {RSSH_APP_EXECUTABLE:?}\n\
+                 arguments: {args:?}\n\
+                 error: {error}\n\
+                 {CDB_FRAME_EVIDENCE}"
+            )
+        })
 }
 
 fn diagnostics(command_intent: &str, args: &[&str], output: &ChildOutput) -> String {

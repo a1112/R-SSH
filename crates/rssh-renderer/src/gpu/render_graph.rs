@@ -18,11 +18,13 @@ use super::{
     GpuContext, GpuContextGeneration, GpuImage, GpuLayer, GpuLayerError, GpuQuad, PixelRect,
     images::image_layer,
     quads::{INSTANCE_SIZE, encode_instance},
+    text::{GpuText, GpuTextAtlasMetrics, GpuTextConfig, GpuTextPrepareReport},
 };
 use crate::{
-    ImageDrawPlan, ImageTiePolicy, RenderGeometry, TerminalRenderSnapshot, gpu_image_draw_plan,
-    image_draw_pixel,
+    DamageRegion, ImageDrawPlan, ImageTiePolicy, RenderGeometry, TerminalRenderSnapshot,
+    gpu_image_draw_plan, image_draw_pixel,
 };
+use rssh_fonts::{FontCatalog, FontConfig};
 
 const INSTANCE_STRIDE: wgpu::BufferAddress = INSTANCE_SIZE as wgpu::BufferAddress;
 const MIN_INSTANCE_CAPACITY: usize = 64;
@@ -362,6 +364,10 @@ impl RenderGraph {
         sequence
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "graph ordering, clipping, bounded texture planning, and instance batching remain one audited transaction"
+    )]
     fn prepare(
         &self,
         instance_budget_bytes: usize,
@@ -372,11 +378,11 @@ impl RenderGraph {
         nodes.try_reserve_exact(self.nodes.len()).map_err(|error| {
             GpuLayerError::message(format!("reserve bounded GPU graph ordering: {error}"))
         })?;
-        nodes.extend(self.nodes.iter().filter_map(|node| {
-            (node.layer() != GpuLayer::Glyph)
-                .then(|| node.rect().intersection(viewport).map(|rect| (node, rect)))
-                .flatten()
-        }));
+        nodes.extend(
+            self.nodes
+                .iter()
+                .filter_map(|node| node.rect().intersection(viewport).map(|rect| (node, rect))),
+        );
         nodes.sort_by(|(left, _), (right, _)| node_order(left, right));
 
         let maximum_instance_bytes = nodes
@@ -451,10 +457,15 @@ impl RenderGraph {
                 }
             };
             encode_instance(rect, color, &mut bytes);
-            if let Some(batch) = batches.last_mut().filter(|batch| batch.kind == kind) {
+            let layer = node.layer();
+            if let Some(batch) = batches
+                .last_mut()
+                .filter(|batch| batch.kind == kind && batch.layer == layer)
+            {
                 batch.instances.end = batch.instances.end.saturating_add(1);
             } else {
                 batches.push(DrawBatch {
+                    layer,
                     kind,
                     instances: instance_index..instance_index.saturating_add(1),
                 });
@@ -555,6 +566,7 @@ struct PlannedTexture {
 
 #[derive(Clone, Debug)]
 struct DrawBatch {
+    layer: GpuLayer,
     kind: PrimitiveKind,
     instances: Range<u32>,
 }
@@ -979,6 +991,7 @@ pub struct GpuLayerRenderer {
     prepared_batches: Vec<DrawBatch>,
     prepared_textures: Vec<TextureIdentity>,
     prepared_size: (u32, u32),
+    text: Option<GpuText>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1155,7 +1168,63 @@ impl GpuLayerRenderer {
             prepared_batches: Vec::new(),
             prepared_textures: Vec::new(),
             prepared_size: (0, 0),
+            text: None,
         })
+    }
+
+    /// Installs the opt-in direct GPU text backend. This does not change the
+    /// application's compatibility renderer selection.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the physical atlas cannot fit its configured
+    /// minimum allocation.
+    pub fn enable_text(
+        &mut self,
+        catalog: FontCatalog,
+        font_config: FontConfig,
+        config: GpuTextConfig,
+    ) -> Result<(), GpuLayerError> {
+        self.text = Some(GpuText::new(
+            self.generation,
+            self.device.clone(),
+            self.queue.clone(),
+            self.format,
+            catalog,
+            font_config,
+            config,
+        )?);
+        Ok(())
+    }
+
+    /// Prepares terminal glyphs from the authoritative shaped row and raster
+    /// caches, without asking glyphon to shape the text a second time.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid geometry or scale, shaping failure,
+    /// identifier exhaustion, or an atlas/payload budget violation.
+    pub fn prepare_text(
+        &mut self,
+        snapshot: &TerminalRenderSnapshot,
+        geometry: RenderGeometry,
+        damage: &[DamageRegion],
+        dpi_scale: f32,
+        zoom: f32,
+    ) -> Result<GpuTextPrepareReport, GpuLayerError> {
+        self.text
+            .as_mut()
+            .ok_or_else(|| GpuLayerError::message("GPU text is not enabled"))?
+            .prepare(snapshot, geometry, damage, dpi_scale, zoom)
+    }
+
+    #[must_use]
+    pub fn text_atlas_metrics(&self) -> Option<GpuTextAtlasMetrics> {
+        self.text.as_ref().map(GpuText::metrics)
+    }
+
+    pub fn text_catalog_mut(&mut self) -> Option<&mut FontCatalog> {
+        self.text.as_mut().map(GpuText::catalog_mut)
     }
 
     /// Updates the persistent instance buffer, writing only its dirty range.
@@ -1164,6 +1233,8 @@ impl GpuLayerRenderer {
     ///
     /// Returns an error if graph instances exceed the configured byte budget.
     pub fn upload(&mut self, graph: &RenderGraph) -> Result<(), GpuLayerError> {
+        let extended = self.graph_with_text_blocks(graph);
+        let graph = extended.as_ref().unwrap_or(graph);
         let mut prepared =
             graph.prepare(self.instances.budget_bytes, self.texture_cache.budget_bytes)?;
         self.texture_cache.prepare(
@@ -1183,6 +1254,18 @@ impl GpuLayerRenderer {
         self.prepared_size = (graph.width, graph.height);
         self.write_viewport();
         Ok(())
+    }
+
+    fn graph_with_text_blocks(&self, graph: &RenderGraph) -> Option<RenderGraph> {
+        let blocks = self.text.as_ref()?.block_quads();
+        if blocks.is_empty() {
+            return None;
+        }
+        let mut extended = graph.clone();
+        for block in blocks {
+            extended.push_quad(*block);
+        }
+        Some(extended)
     }
 
     /// Checked compatibility entry point for callers migrating from explicit
@@ -1300,6 +1383,8 @@ impl GpuLayerRenderer {
             .map_err(|error| {
                 GpuLayerError::message(format!("reserve bounded GPU readback output: {error}"))
             })?;
+        let extended = self.graph_with_text_blocks(graph);
+        let graph = extended.as_ref().unwrap_or(graph);
         let mut prepared =
             graph.prepare(self.instances.budget_bytes, self.texture_cache.budget_bytes)?;
         self.texture_cache.prepare(
@@ -1422,7 +1507,7 @@ impl GpuLayerRenderer {
         self.queue.write_buffer(&self.viewport, 0, &bytes);
     }
 
-    fn encode_render_pass(
+    pub(crate) fn encode_render_pass(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
@@ -1445,26 +1530,56 @@ impl GpuLayerRenderer {
         if let Some(buffer) = self.instances.buffer.as_ref() {
             pass.set_vertex_buffer(0, buffer.slice(..));
         }
-        for batch in &self.prepared_batches {
-            match batch.kind {
-                PrimitiveKind::Quad | PrimitiveKind::Image => {
-                    pass.set_pipeline(&self.quads.pipeline);
-                }
-                PrimitiveKind::TextureImage(index) => {
-                    let identity = self.prepared_textures.get(index).ok_or_else(|| {
-                        GpuLayerError::message(
-                            "prepared image texture index is absent from the frame",
-                        )
-                    })?;
-                    let cached = self.texture_cache.entries.get(identity).ok_or_else(|| {
-                        GpuLayerError::message("prepared image texture is absent from cache")
-                    })?;
-                    pass.set_pipeline(&self.images.pipeline);
-                    pass.set_bind_group(1, &cached.bind_group, &[]);
-                }
-            }
-            pass.draw(0..6, batch.instances.clone());
+        let glyph_rank = GpuLayer::Glyph.rank();
+        let split = self
+            .prepared_batches
+            .partition_point(|batch| batch.layer.rank() <= glyph_rank);
+        let cursor_split = self
+            .prepared_batches
+            .partition_point(|batch| batch.layer.rank() <= GpuLayer::Cursor.rank());
+        for batch in &self.prepared_batches[..split] {
+            self.draw_batch(&mut pass, batch)?;
         }
+        if let Some(text) = self.text.as_ref() {
+            text.render(&mut pass)?;
+        }
+        for batch in &self.prepared_batches[split..cursor_split] {
+            self.draw_batch(&mut pass, batch)?;
+        }
+        if let Some(text) = self.text.as_ref() {
+            text.render_cursor(&mut pass)?;
+        }
+        for batch in &self.prepared_batches[cursor_split..] {
+            self.draw_batch(&mut pass, batch)?;
+        }
+        Ok(())
+    }
+
+    fn draw_batch(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        batch: &DrawBatch,
+    ) -> Result<(), GpuLayerError> {
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        if let Some(buffer) = self.instances.buffer.as_ref() {
+            pass.set_vertex_buffer(0, buffer.slice(..));
+        }
+        match batch.kind {
+            PrimitiveKind::Quad | PrimitiveKind::Image => {
+                pass.set_pipeline(&self.quads.pipeline);
+            }
+            PrimitiveKind::TextureImage(index) => {
+                let identity = self.prepared_textures.get(index).ok_or_else(|| {
+                    GpuLayerError::message("prepared image texture index is absent from the frame")
+                })?;
+                let cached = self.texture_cache.entries.get(identity).ok_or_else(|| {
+                    GpuLayerError::message("prepared image texture is absent from cache")
+                })?;
+                pass.set_pipeline(&self.images.pipeline);
+                pass.set_bind_group(1, &cached.bind_group, &[]);
+            }
+        }
+        pass.draw(0..6, batch.instances.clone());
         Ok(())
     }
 }

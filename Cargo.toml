@@ -24,3 +24,7 @@ unsafe_code = "forbid"
 [workspace.lints.clippy]
 all = "warn"
 pedantic = "warn"
+
+[patch.crates-io]
+glyphon = { path = "vendor/glyphon-0.12.0" }
+gpu-allocator = { path = "vendor/gpu-allocator-0.28.0" }

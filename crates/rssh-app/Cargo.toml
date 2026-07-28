@@ -16,6 +16,7 @@ pollster = "0.4"
 regex = "1"
 rpassword = "7"
 rssh-core = { path = "../rssh-core" }
+rssh-fonts = { path = "../rssh-fonts" }
 rssh-pty = { path = "../rssh-pty" }
 rssh-renderer = { path = "../rssh-renderer" }
 rssh-ssh = { path = "../rssh-ssh" }

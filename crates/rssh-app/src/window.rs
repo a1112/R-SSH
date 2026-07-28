@@ -82933,6 +82933,11 @@ struct WindowMetricsSnapshot {
     gpu_uncaptured_errors: u64,
     gpu_device_losses: u64,
     text_backend: String,
+    gpu_text_prepared_glyphs: usize,
+    gpu_text_mask_glyphs: usize,
+    gpu_text_color_glyphs: usize,
+    gpu_text_block_glyphs: usize,
+    gpu_text_rendered_frames: u64,
     input_writes: u64,
     input_bytes: u64,
     input_write_p95_us: u128,
@@ -82975,6 +82980,11 @@ gpu_surface_validation_errors={}
 gpu_uncaptured_errors={}
 gpu_device_losses={}
 text_backend={}
+gpu_text_prepared_glyphs={}
+gpu_text_mask_glyphs={}
+gpu_text_color_glyphs={}
+gpu_text_block_glyphs={}
+gpu_text_rendered_frames={}
 input_writes={}
 input_bytes={}
 input_write_p95_us={}
@@ -83011,6 +83021,11 @@ bells={}
             self.gpu_uncaptured_errors,
             self.gpu_device_losses,
             self.text_backend,
+            self.gpu_text_prepared_glyphs,
+            self.gpu_text_mask_glyphs,
+            self.gpu_text_color_glyphs,
+            self.gpu_text_block_glyphs,
+            self.gpu_text_rendered_frames,
             self.input_writes,
             self.input_bytes,
             self.input_write_p95_us,
@@ -83139,14 +83154,21 @@ impl WindowMetrics {
     }
 
     fn snapshot(&self) -> WindowMetricsSnapshot {
-        self.snapshot_with_gpu(&GpuPresentationMetrics::uninitialized(), "bitmap-emergency")
+        self.snapshot_with_gpu(
+            &GpuPresentationMetrics::uninitialized(),
+            "bitmap-emergency",
+            None,
+        )
     }
 
     fn snapshot_with_gpu(
         &self,
         gpu: &GpuPresentationMetrics,
         text_backend: &str,
+        direct_text: Option<(&rssh_renderer::gpu::GpuTextPrepareReport, u64)>,
     ) -> WindowMetricsSnapshot {
+        let (direct_report, direct_rendered_frames) =
+            direct_text.map_or((None, 0), |(report, frames)| (Some(report), frames));
         WindowMetricsSnapshot {
             first_pty_byte_ms: self.first_pty_byte.map(|duration| duration.as_millis()),
             first_rendered_cell_ms: self
@@ -83181,6 +83203,11 @@ impl WindowMetrics {
             gpu_uncaptured_errors: gpu.uncaptured_errors,
             gpu_device_losses: gpu.device_losses,
             text_backend: text_backend.to_owned(),
+            gpu_text_prepared_glyphs: direct_report.map_or(0, |report| report.shaped_glyphs),
+            gpu_text_mask_glyphs: direct_report.map_or(0, |report| report.mask_glyphs),
+            gpu_text_color_glyphs: direct_report.map_or(0, |report| report.color_glyphs),
+            gpu_text_block_glyphs: direct_report.map_or(0, |report| report.custom_block_glyphs),
+            gpu_text_rendered_frames: direct_rendered_frames,
             input_writes: self.input_writes,
             input_bytes: self.input_bytes,
             input_write_p95_us: p95_us(&self.input_write_times),
@@ -100233,17 +100260,24 @@ impl NativeWindowApp {
     }
 
     fn metrics_snapshot(&self) -> WindowMetricsSnapshot {
+        let direct_text = self.gpu.as_ref().and_then(|gpu| gpu.direct_text_metrics());
         let gpu = self
             .gpu
             .as_ref()
-            .map(|gpu| gpu.metrics())
-            .cloned()
-            .unwrap_or_else(GpuPresentationMetrics::uninitialized);
-        let text_backend = match self.renderer.text_backend() {
+            .map_or_else(GpuPresentationMetrics::uninitialized, |gpu| {
+                gpu.metrics().clone()
+            });
+        let compatibility_text_backend = match self.renderer.text_backend() {
             rssh_renderer::TextBackend::BitmapEmergency => "bitmap-emergency",
             rssh_renderer::TextBackend::Shaped => "shaped",
         };
-        self.metrics.snapshot_with_gpu(&gpu, text_backend)
+        let text_backend = if direct_text.is_some() {
+            "shaped-gpu-atlas"
+        } else {
+            compatibility_text_backend
+        };
+        self.metrics
+            .snapshot_with_gpu(&gpu, text_backend, direct_text)
     }
 
     fn metrics_report(&self) -> String {

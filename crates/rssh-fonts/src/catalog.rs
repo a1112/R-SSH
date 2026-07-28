@@ -386,7 +386,12 @@ impl FontCatalog {
         true
     }
 
-    pub(crate) fn font_system_mut(&mut self) -> &mut FontSystem {
+    /// Borrows the isolated shaping system for renderer integrations that must
+    /// share this catalog's exact font database.
+    ///
+    /// Callers must not add system fonts or independently shape terminal text.
+    /// Terminal shaping remains the responsibility of [`crate::TerminalShaper`].
+    pub fn font_system_mut(&mut self) -> &mut FontSystem {
         &mut self.font_system
     }
 
