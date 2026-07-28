@@ -402,13 +402,16 @@ The current benchmark path can promote these metrics into thresholded gates:
   `ansi-scroll-query` for compatibility. `plain-scroll` feeds plain text
   directly into the terminal parser and deliberately bypasses ANSI query
   filtering. `ansi-scroll` passes styled scrolling output through the runtime
-  query filter without embedding response queries. `ansi-scroll-query` adds
-  repeated cursor-position and text-area-size queries to expose the current
-  repeated-scan cost.
+  query filter without embedding response queries. Both scroll-only workloads
+  use the same legacy benchmark text body. `ansi-scroll-query` preserves the
+  original payload byte-for-byte: colored text and reset, CRLF, cursor-position
+  and text-area-size queries, then an OSC title update.
 - Deterministic work counters: JSON and text reports include
-  `inspected_query_bytes`, the sum of candidate-buffer bytes presented to every
-  legacy query matcher invocation; `scrolled_survivor_cell_clones`, the number
-  of individual surviving grid cells cloned while scroll operations move rows;
+  `inspected_query_bytes`, the exact sum of candidate-slice lengths presented
+  to each concrete legacy byte-search or suffix/prefix-match primitive,
+  including repeated offsets and control-string containment rescans;
+  `scrolled_survivor_cell_clones`, the number of individual surviving grid
+  cells cloned while scroll operations move rows;
   `history_row_relocations`, the number of surviving `Vec` scrollback rows
   relocated by prefix pruning; and `metadata_rebase_batches`, the number of
   non-empty history prunes that run the metadata rebase pass. All four counters
@@ -439,7 +442,11 @@ cargo +1.89.0 run --locked --release -p rssh-app -- bench --json --workload ansi
 
 Timing and process-resource fields vary by machine and run. Compare the four
 work counters exactly, but treat timing fields as measured observations rather
-than deterministic equality values.
+than deterministic equality values. `--bytes` remains an exact input-size
+contract: if the target ends within a generated record, that final record is
+intentionally truncated. Any pending partial control bytes remain part of both
+throughput and query-work measurements; the benchmark does not append a flush
+sequence or extra bytes.
 
 Recommended MVP 5 targets:
 

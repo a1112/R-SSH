@@ -1,5 +1,7 @@
 use crossterm::event::MouseEventKind;
 
+use crate::query_scan_work::record_query_scan_candidate;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalModeChange {
     ApplicationCursorKeys(bool),
@@ -1345,7 +1347,7 @@ pub(crate) fn find_synchronized_output_mode_sequence(
                         modes,
                         enabled,
                         consumed,
-                    } = TerminalModeTracker::parse_mode_sequence(&bytes[index..], prefix_len)
+                    } = parse_mode_sequence_for_query(&bytes[index..], prefix_len)
                     && modes.contains(&2026)
                 {
                     match_sequence = Some(SynchronizedOutputModeSequence {
@@ -1377,7 +1379,7 @@ pub(crate) fn synchronized_output_mode_sequence_suffix_len(bytes: &[u8]) -> usiz
                 let index = offset + relative_index;
                 if !is_inside_osc_or_st_control_string(bytes, index)
                     && matches!(
-                        TerminalModeTracker::parse_mode_sequence(&bytes[index..], prefix_len),
+                        parse_mode_sequence_for_query(&bytes[index..], prefix_len),
                         ModeParse::Incomplete
                     )
                 {
@@ -1406,7 +1408,7 @@ pub(crate) fn find_kitty_keyboard_mode_sequence(bytes: &[u8]) -> Option<KittyKey
                 let index = offset + relative_index;
                 if !is_inside_osc_or_st_control_string(bytes, index)
                     && let ModeParse::KittyKeyboard { consumed, .. } =
-                        TerminalModeTracker::parse_kitty_keyboard_mode_sequence(
+                        parse_kitty_keyboard_mode_sequence_for_query(
                             &bytes[index..],
                             prefix_len,
                             operation,
@@ -1437,7 +1439,7 @@ pub(crate) fn kitty_keyboard_mode_sequence_suffix_len(bytes: &[u8]) -> usize {
                 let index = offset + relative_index;
                 if !is_inside_osc_or_st_control_string(bytes, index)
                     && matches!(
-                        TerminalModeTracker::parse_kitty_keyboard_mode_sequence(
+                        parse_kitty_keyboard_mode_sequence_for_query(
                             &bytes[index..],
                             prefix_len,
                             operation,
@@ -1472,10 +1474,7 @@ pub(crate) fn find_key_modifier_options_sequence(
                 let index = offset + relative_index;
                 if !is_inside_osc_or_st_control_string(bytes, index)
                     && let ModeParse::KeyModifierOptions { consumed, .. } =
-                        TerminalModeTracker::parse_key_modifier_options_sequence(
-                            &bytes[index..],
-                            prefix_len,
-                        )
+                        parse_key_modifier_options_sequence_for_query(&bytes[index..], prefix_len)
                 {
                     match_sequence = Some(KeyModifierOptionsSequence { index, consumed });
                     break;
@@ -1502,10 +1501,7 @@ pub(crate) fn key_modifier_options_sequence_suffix_len(bytes: &[u8]) -> usize {
                 let index = offset + relative_index;
                 if !is_inside_osc_or_st_control_string(bytes, index)
                     && matches!(
-                        TerminalModeTracker::parse_key_modifier_options_sequence(
-                            &bytes[index..],
-                            prefix_len,
-                        ),
+                        parse_key_modifier_options_sequence_for_query(&bytes[index..], prefix_len,),
                         ModeParse::Incomplete
                     )
                 {
@@ -1537,6 +1533,9 @@ pub(crate) fn find_kitty_keyboard_flags_query(bytes: &[u8]) -> Option<KittyKeybo
                     if bytes.len() < index + consumed {
                         return None;
                     }
+                    record_query_scan_candidate(
+                        &bytes[index + prefix.len()..=index + prefix.len()],
+                    );
                     if bytes[index + prefix.len()] == b'u' {
                         match_query = Some(KittyKeyboardFlagsQuery { index, consumed });
                         break;
@@ -1587,6 +1586,7 @@ pub(crate) fn find_key_modifier_options_query(bytes: &[u8]) -> Option<KeyModifie
                 }
                 let resource_start = cursor;
                 let mut resource = 0u16;
+                record_query_scan_candidate(&bytes[cursor..]);
                 while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
                     resource = resource
                         .saturating_mul(10)
@@ -1600,6 +1600,7 @@ pub(crate) fn find_key_modifier_options_query(bytes: &[u8]) -> Option<KeyModifie
                 if cursor >= bytes.len() {
                     return None;
                 }
+                record_query_scan_candidate(&bytes[cursor..=cursor]);
                 if bytes[cursor] == b'm' {
                     match_query = Some(KeyModifierOptionsQuery {
                         index,
@@ -1627,6 +1628,7 @@ pub(crate) fn key_modifier_options_query_suffix_len(bytes: &[u8]) -> usize {
                     if cursor >= bytes.len() {
                         return true;
                     }
+                    record_query_scan_candidate(&bytes[cursor..]);
                     while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
                         cursor += 1;
                     }
@@ -1637,6 +1639,25 @@ pub(crate) fn key_modifier_options_query_suffix_len(bytes: &[u8]) -> usize {
         })
         .max()
         .unwrap_or(0)
+}
+
+fn parse_mode_sequence_for_query(bytes: &[u8], prefix_len: usize) -> ModeParse {
+    record_query_scan_candidate(bytes);
+    TerminalModeTracker::parse_mode_sequence(bytes, prefix_len)
+}
+
+fn parse_kitty_keyboard_mode_sequence_for_query(
+    bytes: &[u8],
+    prefix_len: usize,
+    operation: KittyKeyboardOperation,
+) -> ModeParse {
+    record_query_scan_candidate(bytes);
+    TerminalModeTracker::parse_kitty_keyboard_mode_sequence(bytes, prefix_len, operation)
+}
+
+fn parse_key_modifier_options_sequence_for_query(bytes: &[u8], prefix_len: usize) -> ModeParse {
+    record_query_scan_candidate(bytes);
+    TerminalModeTracker::parse_key_modifier_options_sequence(bytes, prefix_len)
 }
 
 fn synchronized_output_private_mode_prefixes() -> [(&'static [u8], usize); 3] {
@@ -1780,6 +1801,7 @@ enum ModeSequence {
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    record_query_scan_candidate(haystack);
     if needle.is_empty() {
         return Some(0);
     }
@@ -1977,6 +1999,7 @@ struct ControlStringTerminator {
 }
 
 fn suffix_len_matching_prefix(haystack: &[u8], needle: &[u8]) -> usize {
+    record_query_scan_candidate(haystack);
     let max = haystack.len().min(needle.len().saturating_sub(1));
     (1..=max)
         .rev()

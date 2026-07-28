@@ -12,6 +12,7 @@ mod config_lifecycle;
 mod diagnostics;
 mod local;
 mod profiles;
+mod query_scan_work;
 mod scp;
 mod self_test;
 mod sftp;

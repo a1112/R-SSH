@@ -5240,13 +5240,10 @@ impl Terminal {
 
         if count < height {
             let shift_bottom = bottom - count;
+            self.record_scrolled_survivor_cell_clones(height - count, size.columns);
             for row in (top..=shift_bottom).rev() {
                 for column in 0..size.columns {
                     let cell = self.grid.get(row, column).cloned().unwrap_or_default();
-                    self.work_counters.scrolled_survivor_cell_clones = self
-                        .work_counters
-                        .scrolled_survivor_cell_clones
-                        .saturating_add(1);
                     self.grid.set(row + count, column, cell);
                 }
                 self.grid.copy_row_wrapped(row, row + count);
@@ -5353,13 +5350,10 @@ impl Terminal {
         let height = bottom - top + 1;
         if count < height {
             let shift_bottom = bottom - count;
+            self.record_scrolled_survivor_cell_clones(height - count, right - left + 1);
             for row in (top..=shift_bottom).rev() {
                 for column in left..=right {
                     let cell = self.grid.get(row, column).cloned().unwrap_or_default();
-                    self.work_counters.scrolled_survivor_cell_clones = self
-                        .work_counters
-                        .scrolled_survivor_cell_clones
-                        .saturating_add(1);
                     self.grid.set(row + count, column, cell);
                 }
             }
@@ -5790,6 +5784,7 @@ impl Terminal {
 
         if count < height {
             let shift_bottom = bottom - count;
+            self.record_scrolled_survivor_cell_clones(height - count, size.columns);
             for row in top..=shift_bottom {
                 for column in 0..size.columns {
                     let cell = self
@@ -5797,10 +5792,6 @@ impl Terminal {
                         .get(row + count, column)
                         .cloned()
                         .unwrap_or_default();
-                    self.work_counters.scrolled_survivor_cell_clones = self
-                        .work_counters
-                        .scrolled_survivor_cell_clones
-                        .saturating_add(1);
                     self.grid.set(row, column, cell);
                 }
                 self.grid.copy_row_wrapped(row + count, row);
@@ -5848,6 +5839,7 @@ impl Terminal {
         let height = bottom - top + 1;
         if count < height {
             let shift_bottom = bottom - count;
+            self.record_scrolled_survivor_cell_clones(height - count, right - left + 1);
             for row in top..=shift_bottom {
                 for column in left..=right {
                     let cell = self
@@ -5855,10 +5847,6 @@ impl Terminal {
                         .get(row + count, column)
                         .cloned()
                         .unwrap_or_default();
-                    self.work_counters.scrolled_survivor_cell_clones = self
-                        .work_counters
-                        .scrolled_survivor_cell_clones
-                        .saturating_add(1);
                     self.grid.set(row, column, cell);
                 }
             }
@@ -5874,6 +5862,14 @@ impl Terminal {
                 self.grid.set(row, column, self.blank_cell());
             }
         }
+    }
+
+    fn record_scrolled_survivor_cell_clones(&mut self, rows: u16, columns: u16) {
+        let clones = u64::from(rows).saturating_mul(u64::from(columns));
+        self.work_counters.scrolled_survivor_cell_clones = self
+            .work_counters
+            .scrolled_survivor_cell_clones
+            .saturating_add(clones);
     }
 
     fn drop_inline_images_crossing_history_boundary(&mut self, boundary: usize) {
@@ -8789,6 +8785,23 @@ mod stable_row_tests {
                 history_row_relocations: 0,
                 metadata_rebase_batches: 2,
             }
+        );
+    }
+
+    #[test]
+    fn terminal_scroll_clone_counter_matches_full_and_bounded_copy_regions() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+
+        terminal.scroll_down_region(0, 3, 1);
+        terminal.scroll_up_region_by(0, 3, 2);
+        terminal.scroll_down_bounded_cells(0, 3, 1, 2, 5);
+        terminal.scroll_up_bounded_cells(0, 3, 3, 2, 5);
+
+        // Full down: 3*8, full up: 2*8, bounded down: 3*4,
+        // bounded up: 1*4. These are exactly the clone-loop iteration counts.
+        assert_eq!(
+            terminal.work_counters().scrolled_survivor_cell_clones,
+            24 + 16 + 12 + 4
         );
     }
 

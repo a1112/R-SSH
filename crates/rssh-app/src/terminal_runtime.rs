@@ -6,6 +6,7 @@ use rssh_terminal::{
 };
 
 use crate::{
+    query_scan_work::{measure_query_scan_work, record_query_scan_candidate},
     terminal_modes::{
         KeyModifierOptionsQuery, KeyModifierOptionsSequence, KittyKeyboardFlagsQuery,
         KittyKeyboardModeSequence, MouseInputMode, SynchronizedOutputModeSequence,
@@ -594,6 +595,14 @@ impl TerminalOutputFilter {
     }
 
     fn process(&mut self, bytes: &[u8]) -> FilteredOutput {
+        let (output, work) = measure_query_scan_work(|| self.process_inner(bytes));
+        self.inspected_query_bytes = self
+            .inspected_query_bytes
+            .saturating_add(work.candidate_bytes);
+        output
+    }
+
+    fn process_inner(&mut self, bytes: &[u8]) -> FilteredOutput {
         self.pending.extend_from_slice(bytes);
 
         let mut events = Vec::new();
@@ -662,7 +671,6 @@ impl TerminalOutputFilter {
     }
 
     fn find_next_event(&mut self) -> Option<(usize, MatchedTerminalEvent)> {
-        self.record_query_scan_passes(7);
         let response = self
             .find_next_response()
             .map(|(index, response)| (index, response.into()));
@@ -760,7 +768,6 @@ impl TerminalOutputFilter {
 
     #[allow(clippy::too_many_lines)]
     fn find_next_response(&mut self) -> Option<(usize, MatchedTerminalResponse)> {
-        self.record_query_scan_passes(Self::RESPONSES.len().saturating_add(11));
         let static_response = Self::RESPONSES
             .iter()
             .filter_map(|response| {
@@ -944,7 +951,6 @@ impl TerminalOutputFilter {
     }
 
     fn suffix_len_matching_query_prefix(&mut self) -> usize {
-        self.record_query_scan_passes(Self::RESPONSES.len().saturating_add(15));
         let pending = &self.pending;
         let static_query_suffix = Self::RESPONSES
             .iter()
@@ -967,14 +973,6 @@ impl TerminalOutputFilter {
             .max(st_control_suffix_len(pending))
             .max(incomplete_osc_control_sequence_suffix_len(pending))
             .max(incomplete_st_control_sequence_suffix_len(pending))
-    }
-
-    fn record_query_scan_passes(&mut self, passes: usize) {
-        let pending_bytes = u64::try_from(self.pending.len()).unwrap_or(u64::MAX);
-        let passes = u64::try_from(passes).unwrap_or(u64::MAX);
-        self.inspected_query_bytes = self
-            .inspected_query_bytes
-            .saturating_add(pending_bytes.saturating_mul(passes));
     }
 
     fn response_bytes(
@@ -1149,6 +1147,7 @@ fn xtversion_response() -> Vec<u8> {
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    record_query_scan_candidate(haystack);
     if needle.is_empty() {
         return Some(0);
     }
@@ -1249,6 +1248,7 @@ fn find_wezterm_window_report_query(bytes: &[u8]) -> Option<WindowReportQuery> {
             let index = find_subslice(bytes, prefix)?;
             let body_start = index + prefix_len;
             let body = &bytes[body_start..];
+            record_query_scan_candidate(body);
             let final_index = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
             if body[final_index] != b't' {
                 return None;
@@ -1281,6 +1281,7 @@ fn find_ignored_wezterm_window_query(bytes: &[u8]) -> Option<StControl> {
             let index = find_subslice(bytes, prefix)?;
             let body_start = index + prefix_len;
             let body = &bytes[body_start..];
+            record_query_scan_candidate(body);
             let final_index = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
             if body[final_index] != b't' {
                 return None;
@@ -1301,6 +1302,7 @@ fn is_wezterm_ignored_window_query(params: &[u8]) -> bool {
 }
 
 fn parse_wezterm_window_params(params: &[u8]) -> Option<(i64, Option<i64>)> {
+    record_query_scan_candidate(params);
     let mut parts = params.split(|byte| *byte == b';');
     let first = parts.next().and_then(parse_ascii_i64)?;
     let second = match parts.next() {
@@ -1314,6 +1316,7 @@ fn parse_wezterm_window_params(params: &[u8]) -> Option<(i64, Option<i64>)> {
 }
 
 fn parse_ascii_i64(bytes: &[u8]) -> Option<i64> {
+    record_query_scan_candidate(bytes);
     if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
         return None;
     }
@@ -1342,6 +1345,7 @@ fn find_decrqcra_query(bytes: &[u8]) -> Option<DecrqcraQuery> {
             let index = find_subslice(bytes, prefix)?;
             let body_start = index + prefix_len;
             let body = &bytes[body_start..];
+            record_query_scan_candidate(body);
             let final_index = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
             if body[final_index] != b'y' {
                 return None;
@@ -1357,6 +1361,7 @@ fn find_decrqcra_query(bytes: &[u8]) -> Option<DecrqcraQuery> {
 }
 
 fn parse_decrqcra_request(params: &[u8]) -> Option<DecrqcraRequest> {
+    record_query_scan_candidate(params);
     let params = params.strip_suffix(b"*")?;
     let mut parts = params.split(|byte| *byte == b';');
     let request_id = parts.next().and_then(parse_ascii_i64)?;
@@ -1441,6 +1446,7 @@ struct StControl {
 }
 
 fn find_enq_control(bytes: &[u8]) -> Option<StControl> {
+    record_query_scan_candidate(bytes);
     bytes
         .iter()
         .enumerate()
@@ -1635,6 +1641,7 @@ fn find_decrqss_query(bytes: &[u8]) -> Option<DecrqssQuery> {
 fn parse_decrqss_query(bytes: &[u8], index: usize, prefix_len: usize) -> Option<DecrqssQuery> {
     let content_start = index + prefix_len;
     let rest = bytes.get(content_start..)?;
+    record_query_scan_candidate(rest);
     let body = rest.strip_prefix(b"$q")?;
     let terminator = find_xtgettcap_terminator(body)?;
     let content = &body[..terminator.index];
@@ -1650,6 +1657,7 @@ fn parse_decrqss_query(bytes: &[u8], index: usize, prefix_len: usize) -> Option<
 }
 
 fn parse_decrqss_kind(content: &[u8]) -> Option<DecrqssKind> {
+    record_query_scan_candidate(content);
     match content {
         b"m" => Some(DecrqssKind::Sgr),
         b" q" => Some(DecrqssKind::CursorShape),
@@ -1872,9 +1880,11 @@ fn parse_xtgettcap_query(
 ) -> Option<XtGetTcapQuery> {
     let content_start = index + prefix_len;
     let rest = bytes.get(content_start..)?;
+    record_query_scan_candidate(rest);
     let body = rest.strip_prefix(b"+q")?;
     let terminator = find_xtgettcap_terminator(body)?;
     let content = &body[..terminator.index];
+    record_query_scan_candidate(content);
     let entries = content
         .split(|byte| *byte == b';')
         .map(|entry| parse_xtgettcap_entry(entry, size, terminal_name))
@@ -1893,6 +1903,7 @@ fn find_xtgettcap_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
         length: 2,
         response_terminator: OscResponseTerminator::St,
     });
+    record_query_scan_candidate(bytes);
     let c1_st = bytes
         .iter()
         .position(|byte| *byte == 0x9c)
@@ -2318,8 +2329,10 @@ fn parse_xtsmgraphics_query(
 ) -> Option<XtSmGraphicsQuery> {
     let content_start = index + prefix_len;
     let body = bytes.get(content_start..)?.strip_prefix(b"?")?;
+    record_query_scan_candidate(body);
     let final_index = body.iter().position(|byte| *byte == b'S')?;
     let content = &body[..final_index];
+    record_query_scan_candidate(content);
     let mut parameters = content.split(|byte| *byte == b';');
     let item = parse_ascii_decimal_u64(parameters.next()?)?;
     let action = parse_ascii_decimal_u64(parameters.next()?)?;
@@ -2433,6 +2446,7 @@ fn parse_osc_color_query(bytes: &[u8], index: usize, prefix_len: usize) -> Optio
 }
 
 fn find_osc_color_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
+    record_query_scan_candidate(bytes);
     let bel = bytes
         .iter()
         .position(|byte| *byte == b'\x07')
@@ -2446,6 +2460,7 @@ fn find_osc_color_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
         length: 2,
         response_terminator: OscResponseTerminator::St,
     });
+    record_query_scan_candidate(bytes);
     let c1_st = bytes
         .iter()
         .position(|byte| *byte == 0x9c)
@@ -2467,6 +2482,7 @@ fn find_osc_color_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
 }
 
 fn parse_osc_color_query_content(content: &[u8]) -> Option<Vec<OscColorKind>> {
+    record_query_scan_candidate(content);
     match content {
         b"10;?" => Some(vec![OscColorKind::DefaultForeground]),
         b"11;?" => Some(vec![OscColorKind::DefaultBackground]),
@@ -2601,6 +2617,7 @@ fn parse_iterm_report_cell_size_query(
     let terminator = find_osc_terminator(&bytes[content_start..])?;
     let content_end = content_start + terminator.index;
 
+    record_query_scan_candidate(&bytes[content_start..content_end]);
     if &bytes[content_start..content_end] != b"1337;ReportCellSize" {
         return None;
     }
@@ -3219,13 +3236,19 @@ fn parse_private_mode_status_query(
     let mut cursor = index + prefix_len;
     let start = cursor;
     let mut mode = 0u16;
+    record_query_scan_candidate(&bytes[cursor..]);
     while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
         mode = mode
             .saturating_mul(10)
             .saturating_add(u16::from(bytes[cursor] - b'0'));
         cursor += 1;
     }
-    if cursor == start || bytes.get(cursor..cursor + 2) != Some(b"$p") {
+    if cursor == start {
+        return None;
+    }
+    let tail = bytes.get(cursor..cursor + 2)?;
+    record_query_scan_candidate(tail);
+    if tail != b"$p" {
         return None;
     }
     Some(PrivateModeStatusQuery {
@@ -3243,13 +3266,19 @@ fn parse_ansi_mode_status_query(
     let mut cursor = index + prefix_len;
     let start = cursor;
     let mut mode = 0u16;
+    record_query_scan_candidate(&bytes[cursor..]);
     while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
         mode = mode
             .saturating_mul(10)
             .saturating_add(u16::from(bytes[cursor] - b'0'));
         cursor += 1;
     }
-    if cursor == start || bytes.get(cursor..cursor + 2) != Some(b"$p") {
+    if cursor == start {
+        return None;
+    }
+    let tail = bytes.get(cursor..cursor + 2)?;
+    record_query_scan_candidate(tail);
+    if tail != b"$p" {
         return None;
     }
     Some(AnsiModeStatusQuery {
@@ -3307,6 +3336,7 @@ fn is_ansi_mode_status_query_prefix(bytes: &[u8]) -> bool {
 }
 
 fn suffix_prefix_len(bytes: &[u8], prefix: &[u8]) -> usize {
+    record_query_scan_candidate(bytes);
     let max_len = bytes.len().min(prefix.len().saturating_sub(1));
 
     (1..=max_len)
@@ -3328,6 +3358,7 @@ fn suffix_len_matching_query_prefix(
         .find(|&length| {
             let suffix_start = bytes.len() - length;
             let suffix = &bytes[suffix_start..];
+            record_query_scan_candidate(suffix);
             is_query_prefix(suffix)
                 && !raw_c1_prefix_is_utf8_continuation(bytes, suffix_start, suffix)
         })
@@ -3669,23 +3700,102 @@ mod tests {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     use rssh_core::TerminalSize;
 
-    use crate::terminal_modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode};
+    use crate::{
+        query_scan_work::measure_query_scan_work,
+        terminal_modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode},
+    };
 
-    use super::{TerminalNotification, TerminalOutputFilter, TerminalProgress, TerminalRuntime};
+    use super::{
+        OscColorTerminator, OscResponseTerminator, TerminalNotification, TerminalOutputFilter,
+        TerminalProgress, TerminalRuntime, find_subslice, is_inside_control_string,
+        suffix_len_matching_query_prefix, suffix_prefix_len,
+    };
 
     #[test]
-    fn output_filter_counts_candidate_bytes_for_each_executed_matcher_pass() {
+    fn query_scan_work_counts_each_concrete_search_candidate() {
+        let ((), work) = measure_query_scan_work(|| {
+            assert_eq!(find_subslice(b"abcde", b"a"), Some(0));
+            assert_eq!(find_subslice(&b"abcde"[2..], b"d"), Some(1));
+            assert_eq!(find_subslice(b"abcde", b"z"), None);
+        });
+
+        // Candidate slices are 5, 3, and 5 bytes. Early success does not
+        // pretend the concrete search primitive received a shorter slice.
+        assert_eq!(work.candidate_bytes, 5 + 3 + 5);
+    }
+
+    #[test]
+    fn query_scan_work_counts_repeated_inside_control_rescans() {
+        let bytes = b"<a>x<b>y";
+        let ((), work) = measure_query_scan_work(|| {
+            assert!(!is_inside_control_string(
+                bytes,
+                7,
+                |candidate| find_subslice(candidate, b"<").map(|index| (index, 1)),
+                |candidate| {
+                    find_subslice(candidate, b">").map(|index| OscColorTerminator {
+                        index,
+                        length: 1,
+                        response_terminator: OscResponseTerminator::St,
+                    })
+                },
+            ));
+        });
+
+        // Start/terminator candidates are 8/7 for the first control string,
+        // 5/3 for the second, then a final 1-byte start rescan.
+        assert_eq!(work.candidate_bytes, 8 + 7 + 5 + 3 + 1);
+
+        let ((), early_return_work) = measure_query_scan_work(|| {
+            assert!(is_inside_control_string(
+                bytes,
+                5,
+                |candidate| find_subslice(candidate, b"<").map(|index| (index, 1)),
+                |candidate| {
+                    find_subslice(candidate, b">").map(|index| OscColorTerminator {
+                        index,
+                        length: 1,
+                        response_terminator: OscResponseTerminator::St,
+                    })
+                },
+            ));
+        });
+        assert_eq!(early_return_work.candidate_bytes, 8 + 7 + 5 + 3);
+    }
+
+    #[test]
+    fn query_scan_work_counts_suffix_candidates_and_split_prefixes() {
+        let ((), fixed_suffix) = measure_query_scan_work(|| {
+            assert_eq!(suffix_prefix_len(b"abc\x1b", b"\x1b["), 1);
+        });
+        assert_eq!(fixed_suffix.candidate_bytes, 4);
+
+        let ((), dynamic_suffix) = measure_query_scan_work(|| {
+            assert_eq!(
+                suffix_len_matching_query_prefix(b"xx\x1b[6", |candidate| {
+                    b"\x1b[6n".starts_with(candidate)
+                }),
+                3
+            );
+        });
+        assert_eq!(dynamic_suffix.candidate_bytes, 5 + 4 + 3);
+
         let mut filter = TerminalOutputFilter::new(TerminalSize::new(10, 2));
-        let input = b"hello";
+        let first = filter.process(b"\x1b");
+        let first_work = filter.inspected_query_bytes;
+        let second = filter.process(b"[6n");
 
-        let output = filter.process(input);
-
-        assert_eq!(output.events.len(), 1);
-        let event_passes = TerminalOutputFilter::RESPONSES.len() + 11 + 7;
-        let suffix_passes = TerminalOutputFilter::RESPONSES.len() + 15;
-        assert_eq!(
-            filter.inspected_query_bytes,
-            u64::try_from(input.len() * (event_passes + suffix_passes)).unwrap()
+        assert!(first.events.is_empty());
+        assert!(first_work > 0);
+        assert!(
+            second
+                .events
+                .iter()
+                .any(|event| matches!(event, super::FilteredOutputEvent::Response(_)))
+        );
+        assert!(
+            filter.inspected_query_bytes > first_work,
+            "the completed split query must add its concrete matcher candidates"
         );
     }
 

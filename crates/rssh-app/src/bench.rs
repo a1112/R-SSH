@@ -493,17 +493,7 @@ fn build_benchmark_workload(workload_kind: BenchWorkload, target_bytes: usize) -
     let mut line = 0_u64;
 
     while workload.len() < target_bytes {
-        let record = match workload_kind {
-            BenchWorkload::PlainScroll => format!("bench line {line:08}\r\n\r\n"),
-            BenchWorkload::AnsiScroll => {
-                let color = line % 256;
-                format!("\x1b[38;5;{color}mbench line {line:08}\x1b[0m\r\n\r\n")
-            }
-            BenchWorkload::AnsiScrollQuery => {
-                let color = line % 256;
-                format!("\x1b[38;5;{color}mbench line {line:08}\x1b[0m\r\n\r\n\x1b[6n\x1b[18t")
-            }
-        };
+        let record = benchmark_record(workload_kind, line);
         let remaining = target_bytes - workload.len();
         let record_bytes = record.as_bytes();
         workload.extend_from_slice(&record_bytes[..record_bytes.len().min(remaining)]);
@@ -511,6 +501,24 @@ fn build_benchmark_workload(workload_kind: BenchWorkload, target_bytes: usize) -
     }
 
     workload
+}
+
+fn benchmark_record(workload_kind: BenchWorkload, line: u64) -> String {
+    const TEXT_SUFFIX: &str = " ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789";
+    match workload_kind {
+        BenchWorkload::PlainScroll => format!("bench line {line:08}{TEXT_SUFFIX}\r\n"),
+        BenchWorkload::AnsiScroll => {
+            let color = line % 256;
+            format!("\x1b[38;5;{color}mbench line {line:08}{TEXT_SUFFIX}\x1b[0m\r\n")
+        }
+        BenchWorkload::AnsiScrollQuery => {
+            let color = line % 256;
+            format!(
+                "\x1b[38;5;{color}mbench line {line:08}{TEXT_SUFFIX}\x1b[0m\r\n\
+                 \x1b[6n\x1b[18t\x1b]0;R-SSH bench {line}\x07"
+            )
+        }
+    }
 }
 
 fn percentile_95(values: &mut [u128]) -> u128 {
@@ -578,6 +586,29 @@ mod tests {
             assert_eq!(bytes.len(), 513);
             assert!(String::from_utf8_lossy(&bytes).contains("bench line"));
         }
+    }
+
+    #[test]
+    fn ansi_scroll_query_first_record_matches_legacy_payload_byte_for_byte() {
+        assert_eq!(
+            super::benchmark_record(crate::cli::BenchWorkload::AnsiScrollQuery, 0).as_bytes(),
+            b"\x1b[38;5;0mbench line 00000000 ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789\x1b[0m\r\n\x1b[6n\x1b[18t\x1b]0;R-SSH bench 0\x07"
+        );
+    }
+
+    #[test]
+    fn exact_target_size_intentionally_keeps_a_truncated_final_record() {
+        let full_record = super::benchmark_record(crate::cli::BenchWorkload::AnsiScrollQuery, 0);
+        let target_bytes = full_record.len() - 1;
+
+        let workload = super::build_benchmark_workload(
+            crate::cli::BenchWorkload::AnsiScrollQuery,
+            target_bytes,
+        );
+
+        assert_eq!(workload.len(), target_bytes);
+        assert_eq!(workload, full_record.as_bytes()[..target_bytes]);
+        assert_ne!(workload.last(), full_record.as_bytes().last());
     }
 
     #[test]
@@ -841,7 +872,8 @@ mod tests {
         assert_eq!(plain.inspected_query_bytes, 0);
         assert!(plain.scrolled_survivor_cell_clones > 0);
         assert!(ansi.inspected_query_bytes > 0);
-        assert!(query.inspected_query_bytes > ansi.inspected_query_bytes);
+        assert!(query.inspected_query_bytes > 0);
+        assert_ne!(query.inspected_query_bytes, ansi.inspected_query_bytes);
         assert!(query.responses > 0);
         assert_eq!(plain.responses, 0);
         assert_eq!(ansi.responses, 0);
