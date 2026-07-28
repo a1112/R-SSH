@@ -664,6 +664,9 @@ impl TerminalShaper {
             for glyph in run.glyphs {
                 let cluster_range =
                     indexed_cluster_range(byte_to_cluster, glyph.start..glyph.end, plans.len());
+                if plans[cluster_range.clone()].iter().any(|plan| plan.is_tofu) {
+                    continue;
+                }
                 let cell_span = cells_for_clusters(plans, cluster_range.clone());
                 linear_index_steps += 1;
                 let planned_id = plans[cluster_range.start].font_id;
@@ -675,9 +678,9 @@ impl TerminalShaper {
                 for logical_index in cluster_range.clone() {
                     plan_has_glyph[logical_index] = true;
                 }
-                let mut is_tofu = plans[cluster_range.clone()].iter().any(|plan| plan.is_tofu);
+                let mut is_tofu = false;
                 let actual_is_valid =
-                    same_planned_face && actual_id == planned_id && glyph.glyph_id != 0 && !is_tofu;
+                    same_planned_face && actual_id == planned_id && glyph.glyph_id != 0;
                 if !actual_is_valid {
                     for plan in &mut plans[cluster_range.clone()] {
                         mark_plan_tofu(&mut self.diagnostics, plan, text, catalog.generation());
@@ -716,9 +719,15 @@ impl TerminalShaper {
             let has_visible_scalar = cluster
                 .chars()
                 .any(|character| !is_default_ignorable(character) && !character.is_whitespace());
-            if !plan_has_glyph[logical_index] && has_visible_scalar {
-                mark_plan_tofu(&mut self.diagnostics, plan, text, catalog.generation());
+            if plan.is_tofu || (!plan_has_glyph[logical_index] && has_visible_scalar) {
+                if !plan.is_tofu {
+                    mark_plan_tofu(&mut self.diagnostics, plan, text, catalog.generation());
+                }
                 let shaping_x = cell_pixels(plan.cell_span.start, metrics.cell_width);
+                let shaping_width = cell_pixels(
+                    plan.cell_span.end - plan.cell_span.start,
+                    metrics.cell_width,
+                );
                 glyphs.push(ShapedGlyph {
                     font_id: plan.font_id,
                     glyph_id: 0,
@@ -728,9 +737,9 @@ impl TerminalShaper {
                     visual_order: glyphs.len(),
                     x: shaping_x,
                     y: 0.0,
-                    width: metrics.cell_width,
+                    width: shaping_width,
                     shaping_x,
-                    shaping_width: metrics.cell_width,
+                    shaping_width,
                     x_offset: 0.0,
                     y_offset: 0.0,
                     bidi_level: 0,
@@ -863,7 +872,7 @@ fn rejected_cluster_plans(
 ) -> Vec<usize> {
     let strict: Vec<_> = plans
         .iter()
-        .map(|plan| requires_single_glyph_sequence(&text[plan.byte_range.clone()]))
+        .map(|plan| requires_single_glyph_sequence(&text[plan.byte_range.clone()], plan.is_color))
         .collect();
     let mut glyph_counts = vec![0_usize; plans.len()];
     let mut valid = vec![true; plans.len()];
@@ -910,21 +919,33 @@ fn rejected_cluster_plans(
         .collect()
 }
 
-fn requires_single_glyph_sequence(cluster: &str) -> bool {
+fn requires_single_glyph_sequence(cluster: &str, is_color: bool) -> bool {
     let regional_indicators = cluster
         .chars()
         .filter(|character| matches!(character, '\u{1f1e6}'..='\u{1f1ff}'))
         .count();
-    cluster.chars().any(|character| {
-        matches!(
-            character,
-            '\u{1f3fb}'..='\u{1f3ff}'
-                | '\u{200d}'
-                | '\u{20e3}'
-                | '\u{fe00}'..='\u{fe0f}'
-                | '\u{e0100}'..='\u{e01ef}'
-        )
-    }) || regional_indicators >= 2
+    let has_skin_tone = cluster
+        .chars()
+        .any(|character| matches!(character, '\u{1f3fb}'..='\u{1f3ff}'));
+    let has_keycap = cluster.contains('\u{20e3}');
+    let has_vs16 = cluster.contains('\u{fe0f}');
+    let has_zwj = cluster.contains('\u{200d}');
+    let has_emoji_base = cluster.chars().any(is_emoji_base);
+    has_skin_tone
+        || has_keycap
+        || regional_indicators >= 2
+        || (has_vs16 && (has_emoji_base || is_color))
+        || (has_zwj && has_emoji_base)
+}
+
+fn is_emoji_base(character: char) -> bool {
+    matches!(
+        character,
+        '\u{00a9}'
+            | '\u{00ae}'
+            | '\u{203c}'..='\u{3299}'
+            | '\u{1f000}'..='\u{1faff}'
+    )
 }
 
 fn mark_plan_tofu(

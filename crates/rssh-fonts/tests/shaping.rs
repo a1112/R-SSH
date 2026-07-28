@@ -266,6 +266,25 @@ fn multi_glyph_graphemes_preserve_relative_cosmic_positions_and_widths() {
 }
 
 #[test]
+fn non_emoji_devanagari_zwj_cluster_allows_multiple_valid_glyphs() {
+    let mut catalog = catalog(&[DEVANAGARI]);
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans Devanagari"));
+
+    let row = shaper
+        .shape_clusters(&mut catalog, &[TerminalCluster::new("क्‍ष", 0..1)])
+        .expect("shape Devanagari ZWJ conjunct");
+    let glyphs = &row.glyphs[row.clusters[0].glyph_range.clone()];
+
+    assert!(!row.clusters[0].is_tofu);
+    assert!(!glyphs.is_empty());
+    assert!(
+        glyphs
+            .iter()
+            .all(|glyph| glyph.glyph_id != 0 && !glyph.is_tofu)
+    );
+}
+
+#[test]
 fn bidi_visual_order_retains_logical_cell_mapping() {
     let mut catalog = catalog(&[LATIN, HEBREW, ARABIC]);
     let config =
@@ -428,6 +447,30 @@ fn broken_emoji_sequence_primary_retries_the_next_configured_family() {
         let glyphs = &row.glyphs[row.clusters[0].glyph_range.clone()];
         assert_eq!(glyphs.len(), 1, "{sequence} must resolve as one glyph");
         assert!(glyphs.iter().all(|glyph| glyph.glyph_id != 0));
+    }
+}
+
+#[test]
+fn exhausted_emoji_sequence_candidates_collapse_to_one_atomic_tofu() {
+    let broken =
+        without_gsub_and_with_family(fixture_bytes(EMOJI), "Noto Color Emoji", "Bad! Color Emoji");
+    let mut catalog = FontCatalog::from_sources("en-US", [FontSource::new("broken emoji", broken)])
+        .expect("load broken emoji face");
+    let mut shaper = TerminalShaper::new(FontConfig::new("Bad! Color Emoji"));
+
+    for sequence in ["👍🏽", "👨‍👩‍👧‍👦", "🇺🇸", "1️⃣"] {
+        let row = shaper
+            .shape_row(&mut catalog, sequence)
+            .expect("shape uncovered emoji sequence");
+        let cluster = &row.clusters[0];
+        let glyphs = &row.glyphs[cluster.glyph_range.clone()];
+        assert!(cluster.is_tofu);
+        assert_eq!(glyphs.len(), 1, "{sequence} must be one atomic tofu");
+        assert_eq!(glyphs[0].glyph_id, 0);
+        assert!(glyphs[0].is_tofu);
+        assert_eq!(glyphs[0].cluster_range, 0..1);
+        assert_eq!(glyphs[0].byte_range, cluster.byte_range);
+        assert_eq!(glyphs[0].cell_span, cluster.cell_span);
     }
 }
 
