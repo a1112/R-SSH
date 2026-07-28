@@ -6,6 +6,7 @@ use rssh_test_support::{ChildGuard, ChildOutput};
 
 const PROCESS_DEADLINE: Duration = Duration::from_secs(30);
 const RSSH_APP_EXECUTABLE: &str = env!("CARGO_BIN_EXE_rssh-app");
+const DIRECT_GPU_TEXT_SPECIMEN: &str = "office 中 مرحبا नमस्ते שלום 😀 █";
 const STACK_OVERFLOW_MESSAGE: &str = "overflowed its stack";
 const CDB_FRAME_EVIDENCE: &str = "\
 CDB frame evidence for the existing Windows debug failure:
@@ -136,16 +137,33 @@ fn native_window_reports_real_gpu_presentation_for_one_and_ten_frames() {
         );
         assert_eq!(metrics["gpu_text_rendered_frames"], frames, "{diagnostics}");
         if frames == 10 {
-            assert!(
-                metrics["pty_bytes"].as_u64().is_some_and(|bytes| bytes > 0),
-                "Unicode specimen produced no PTY bytes\n{diagnostics}"
-            );
-            assert!(
-                metrics["first_rendered_cell_ms"].is_number(),
-                "Unicode specimen never reached a rendered cell\n{diagnostics}"
-            );
+            assert_native_unicode_linkage(&metrics, &diagnostics);
         }
     }
+}
+
+fn assert_native_unicode_linkage(metrics: &serde_json::Value, diagnostics: &str) {
+    assert!(
+        metrics["pty_bytes"].as_u64().is_some_and(|bytes| bytes > 0),
+        "Unicode specimen produced no PTY bytes\n{diagnostics}"
+    );
+    assert_eq!(
+        metrics["pty_content_hash"], metrics["terminal_snapshot_content_hash"],
+        "PTY nonblank Unicode content did not reach the terminal snapshot\n{diagnostics}"
+    );
+    assert_eq!(
+        metrics["terminal_snapshot_content_hash"], metrics["gpu_text_content_hash"],
+        "terminal snapshot content did not reach the direct GPU text preparation\n{diagnostics}"
+    );
+    assert_ne!(
+        metrics["pty_content_hash"],
+        rssh_renderer::TERMINAL_TEXT_HASH_OFFSET,
+        "Unicode specimen content hash was never updated\n{diagnostics}"
+    );
+    assert!(
+        metrics["first_rendered_cell_ms"].is_number(),
+        "Unicode specimen never reached a rendered cell\n{diagnostics}"
+    );
 }
 
 #[test]
@@ -206,7 +224,10 @@ fn run_rssh_app(command_intent: &str, args: &[&str]) -> ChildOutput {
 
 fn run_rssh_app_with_direct_gpu_text(command_intent: &str, args: &[&str]) -> ChildOutput {
     let mut command = Command::new(RSSH_APP_EXECUTABLE);
-    command.args(args).env("RSSH_TEST_DIRECT_GPU_TEXT", "1");
+    command
+        .args(args)
+        .env("RSSH_TEST_DIRECT_GPU_TEXT", "1")
+        .env("RSSH_TEST_EXPECT_PTY_TEXT", DIRECT_GPU_TEXT_SPECIMEN);
     ChildGuard::spawn(command, PROCESS_DEADLINE)
         .unwrap_or_else(|error| {
             panic!(

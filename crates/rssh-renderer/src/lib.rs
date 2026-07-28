@@ -201,6 +201,48 @@ pub const SCROLLBAR_THUMB_COLOR: [u8; 4] = [172, 172, 172, 255];
 pub const SCROLLBAR_WIDTH: u32 = 4;
 const DEFAULT_DPI: u32 = 96;
 pub type RenderIndexedPalette = [Option<[u8; 4]>; 256];
+
+pub const TERMINAL_TEXT_HASH_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+
+#[must_use]
+pub fn terminal_text_hash_update(mut hash: u64, bytes: &[u8]) -> u64 {
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// Produces an order-independent fingerprint of nonblank Unicode scalars.
+///
+/// Terminal snapshots omit default blank cells and may expose bidi text in
+/// display order, so this fingerprint intentionally verifies content rather
+/// than byte order or cell placement.
+#[must_use]
+pub fn terminal_text_content_hash(text: &str) -> u64 {
+    let mut scalars = text
+        .chars()
+        .filter(|scalar| !scalar.is_whitespace())
+        .collect::<Vec<_>>();
+    scalars.sort_unstable();
+    scalars
+        .into_iter()
+        .fold(TERMINAL_TEXT_HASH_OFFSET, |hash, scalar| {
+            let mut encoded = [0_u8; 4];
+            terminal_text_hash_update(hash, scalar.encode_utf8(&mut encoded).as_bytes())
+        })
+}
+
+#[must_use]
+pub fn terminal_snapshot_text_hash(snapshot: &TerminalRenderSnapshot) -> u64 {
+    let text = snapshot
+        .cells()
+        .iter()
+        .filter(|cell| !cell.continuation)
+        .map(|cell| cell.text.as_str())
+        .collect::<String>();
+    terminal_text_content_hash(&text)
+}
 const DEFAULT_ANSI_PALETTE: [[u8; 4]; 16] = [
     [0, 0, 0, 255],
     [205, 49, 49, 255],
@@ -363,6 +405,32 @@ pub enum RenderBoldBrightensAnsiColors {
     #[default]
     BrightAndBold,
     BrightOnly,
+}
+
+/// Complete color and text-opacity state shared by CPU and GPU glyph painters.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextPaintConfig {
+    pub default_foreground: [u8; 4],
+    pub default_background: [u8; 4],
+    pub bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
+    pub ansi_palette: Option<[[u8; 4]; 16]>,
+    pub indexed_palette: Option<RenderIndexedPalette>,
+    pub text_blink_opacity_alpha: u8,
+    pub rapid_text_blink_opacity_alpha: u8,
+}
+
+impl Default for TextPaintConfig {
+    fn default() -> Self {
+        Self {
+            default_foreground: default_foreground(),
+            default_background: default_background(),
+            bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors::BrightAndBold,
+            ansi_palette: None,
+            indexed_palette: None,
+            text_blink_opacity_alpha: u8::MAX,
+            rapid_text_blink_opacity_alpha: u8::MAX,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -753,6 +821,19 @@ impl PixelRenderer {
 
     pub fn set_indexed_palette(&mut self, indexed_palette: Option<RenderIndexedPalette>) {
         self.indexed_palette = indexed_palette;
+    }
+
+    #[must_use]
+    pub fn text_paint_config(&self) -> TextPaintConfig {
+        TextPaintConfig {
+            default_foreground: self.default_foreground,
+            default_background: self.default_background,
+            bold_brightens_ansi_colors: self.bold_brightens_ansi_colors,
+            ansi_palette: self.ansi_palette,
+            indexed_palette: self.indexed_palette,
+            text_blink_opacity_alpha: self.text_blink_opacity_alpha,
+            rapid_text_blink_opacity_alpha: self.rapid_text_blink_opacity_alpha,
+        }
     }
 
     #[must_use]

@@ -5,7 +5,7 @@ use rssh_renderer::gpu::{
     GpuLayerRenderer, GpuPresentationMetrics, GpuQuad, GpuTextConfig, GpuTextPrepareReport,
     PixelRect, RenderGraph, RgbaFrameLayout,
 };
-use rssh_renderer::{RenderGeometry, TerminalRenderSnapshot};
+use rssh_renderer::{RenderGeometry, TerminalRenderSnapshot, TextPaintConfig};
 use winit::{dpi::PhysicalSize, event_loop::ActiveEventLoop, window::Window};
 
 /// App-owned compatibility bridge from the existing CPU framebuffer to the
@@ -184,7 +184,14 @@ fn direct_text_fixture(
     terminal.feed("office 中 مرحبا नमस्ते שלום 😀 █".as_bytes());
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
     let geometry = RenderGeometry::new(width, height, 16, 24);
-    let report = renderer.prepare_text(&snapshot, geometry, &[], 1.0, 1.0)?;
+    let report = renderer.prepare_text(
+        &snapshot,
+        geometry,
+        &[],
+        &TextPaintConfig::default(),
+        1.0,
+        1.0,
+    )?;
     let mut graph = RenderGraph::new(width, height);
     graph.push_quad(GpuQuad::new(
         GpuLayer::PaneBackground,

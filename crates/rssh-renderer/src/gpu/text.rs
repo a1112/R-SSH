@@ -18,9 +18,9 @@ use rssh_fonts::{
 };
 
 use crate::{
-    DamageRegion, RenderBoldBrightensAnsiColors, RenderGeometry, TerminalRenderSnapshot,
-    effective_cell_colors, text::RowShapePlan, text::expand_damage_rows, text::row_shape_plan,
-    text::vertical_align_baseline,
+    DamageRegion, RenderGeometry, TerminalRenderSnapshot, TextPaintConfig, effective_cell_colors,
+    text::RowShapePlan, text::expand_damage_rows, text::row_shape_plan,
+    text::vertical_align_baseline, text_foreground_alpha,
 };
 
 use super::{GpuContextGeneration, GpuLayerError, PixelRect};
@@ -32,6 +32,7 @@ pub struct GpuTextConfig {
     pub budget_bytes: usize,
     pub raster_cache: RasterCacheConfig,
     pub cursor_foreground: Option<[u8; 4]>,
+    identifier_limit: u32,
 }
 
 impl GpuTextConfig {
@@ -41,6 +42,7 @@ impl GpuTextConfig {
             budget_bytes,
             raster_cache,
             cursor_foreground: None,
+            identifier_limit: 65_535,
         }
     }
 
@@ -49,6 +51,13 @@ impl GpuTextConfig {
     #[must_use]
     pub const fn with_cursor_foreground(mut self, color: [u8; 4]) -> Self {
         self.cursor_foreground = Some(color);
+        self
+    }
+
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn with_identifier_limit_for_tests(mut self, identifier_limit: u16) -> Self {
+        self.identifier_limit = identifier_limit as u32;
         self
     }
 }
@@ -66,6 +75,7 @@ pub struct GpuTextAtlasMetrics {
     pub scope_generation: u64,
     pub repack_attempts: u8,
     pub uploads: u64,
+    pub trim_calls: u64,
 }
 
 /// Diagnostics for one terminal text preparation.
@@ -79,6 +89,7 @@ pub struct GpuTextPrepareReport {
     pub cursor_foreground_glyphs: usize,
     pub subpixel_masks_converted: usize,
     pub second_shape_calls: usize,
+    pub content_hash: u64,
     pub glyph_bounds: Vec<PixelRect>,
     pub cursor_foreground_bounds: Vec<PixelRect>,
     pub damage_bounds: Vec<PixelRect>,
@@ -107,6 +118,12 @@ struct GlyphPayload {
     content_type: ContentType,
     width: u16,
     height: u16,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RetryableFailure {
+    AtlasBudget,
+    IdExhausted,
 }
 
 #[derive(Clone, Debug)]
@@ -186,6 +203,9 @@ pub(crate) struct GpuText {
     row_cache: BTreeMap<u16, PreparedGpuRow>,
     geometry: Option<RenderGeometry>,
     cursor_scope: Option<(u16, u16, [u8; 4])>,
+    paint: Option<TextPaintConfig>,
+    retryable_failure: Option<RetryableFailure>,
+    force_full_rebuild_next: bool,
 }
 
 impl fmt::Debug for GpuText {
@@ -251,6 +271,9 @@ impl GpuText {
             row_cache: BTreeMap::new(),
             geometry: None,
             cursor_scope: None,
+            paint: None,
+            retryable_failure: None,
+            force_full_rebuild_next: false,
         })
     }
 
@@ -279,6 +302,9 @@ impl GpuText {
         self.block_quads.clear();
         self.geometry = None;
         self.cursor_scope = None;
+        self.paint = None;
+        self.retryable_failure = None;
+        self.report = GpuTextPrepareReport::default();
         self.next_id = 1;
         let atlas = self.glyphon.atlas.metrics();
         self.payload_retained_bytes = 0;
@@ -329,12 +355,21 @@ impl GpuText {
             .physical_texture_bytes
             .saturating_add(next_payload);
         if next_total > self.config.budget_bytes {
+            self.retryable_failure = Some(RetryableFailure::AtlasBudget);
             return Err(GpuLayerError::message(format!(
                 "glyph atlas budget of {} bytes cannot retain the prepared frame",
                 self.config.budget_bytes
             )));
         }
+        if self.next_id > self.config.identifier_limit {
+            self.retryable_failure = Some(RetryableFailure::IdExhausted);
+            return Err(GpuLayerError::message(format!(
+                "glyph atlas identifier pool exhausted its configured {} identifier limit",
+                self.config.identifier_limit
+            )));
+        }
         let id = u16::try_from(self.next_id).map_err(|_| {
+            self.retryable_failure = Some(RetryableFailure::IdExhausted);
             GpuLayerError::message("glyph atlas exhausted all 65535 custom glyph identifiers")
         })?;
         self.next_id = self.next_id.saturating_add(1);
@@ -353,6 +388,7 @@ impl GpuText {
         snapshot: &TerminalRenderSnapshot,
         geometry: RenderGeometry,
         damage: &[DamageRegion],
+        paint: &TextPaintConfig,
         dpi_scale: f32,
         zoom: f32,
     ) -> Result<GpuTextPrepareReport, GpuLayerError> {
@@ -369,19 +405,48 @@ impl GpuText {
             return Err(GpuLayerError::message("GPU text geometry must be nonzero"));
         }
         self.ensure_scope(dpi_scale, zoom)?;
+        if self.force_full_rebuild_next {
+            self.row_cache.clear();
+            self.force_full_rebuild_next = false;
+        }
+        if self.paint.as_ref() != Some(paint) {
+            self.row_cache.clear();
+            self.paint = Some(paint.clone());
+        }
         self.metrics.repack_attempts = 0;
+        self.retryable_failure = None;
+        self.glyphon.atlas.trim();
+        self.metrics.trim_calls = self.metrics.trim_calls.saturating_add(1);
 
-        match self.prepare_once(snapshot, geometry, damage) {
+        match self.prepare_once(snapshot, geometry, damage, paint) {
             Ok(report) => Ok(report),
-            Err(error) if error.to_string().contains("glyph atlas budget") => {
+            Err(error) if self.retryable_failure.is_some() => {
                 self.metrics.repack_attempts = 1;
-                self.glyphon.atlas.trim();
                 self.rebuild_scope()?;
                 self.metrics.repack_attempts = 1;
-                self.prepare_once(snapshot, geometry, damage)
+                self.paint = Some(paint.clone());
+                self.retryable_failure = None;
+                match self.prepare_once(snapshot, geometry, &[], paint) {
+                    Ok(report) => Ok(report),
+                    Err(retry_error) => {
+                        self.fail_closed_after_prepare_error()?;
+                        Err(GpuLayerError::message(format!(
+                            "{retry_error}; full-frame retry after {error} also failed"
+                        )))
+                    }
+                }
             }
-            Err(error) => Err(error),
+            Err(error) => {
+                self.fail_closed_after_prepare_error()?;
+                Err(error)
+            }
         }
+    }
+
+    fn fail_closed_after_prepare_error(&mut self) -> Result<(), GpuLayerError> {
+        self.rebuild_scope()?;
+        self.force_full_rebuild_next = true;
+        Ok(())
     }
 
     #[expect(
@@ -394,6 +459,7 @@ impl GpuText {
         snapshot: &TerminalRenderSnapshot,
         geometry: RenderGeometry,
         damage: &[DamageRegion],
+        paint: &TextPaintConfig,
     ) -> Result<GpuTextPrepareReport, GpuLayerError> {
         let columns_u32 = geometry.target_width / geometry.cell_width;
         let rows_u32 = geometry.target_height / geometry.cell_height;
@@ -451,6 +517,7 @@ impl GpuText {
 
         let mut report = GpuTextPrepareReport {
             prepared_rows: row_numbers.iter().copied().collect(),
+            content_hash: crate::terminal_snapshot_text_hash(snapshot),
             damage_bounds: damaged_rows
                 .iter()
                 .map(|row| {
@@ -505,17 +572,18 @@ impl GpuText {
                 }
                 let (foreground, _) = effective_cell_colors(
                     style,
-                    RenderBoldBrightensAnsiColors::BrightAndBold,
-                    [229, 229, 229, 255],
-                    [12, 12, 12, 255],
-                    None,
-                    None,
+                    paint.bold_brightens_ansi_colors,
+                    paint.default_foreground,
+                    paint.default_background,
+                    paint.ansi_palette.as_ref(),
+                    paint.indexed_palette.as_ref(),
                 );
-                let alpha = if style.faint {
-                    foreground[3] / 2
-                } else {
-                    foreground[3]
-                };
+                let blink_alpha = text_foreground_alpha(
+                    style,
+                    paint.text_blink_opacity_alpha,
+                    paint.rapid_text_blink_opacity_alpha,
+                );
+                let alpha = modulate_alpha(foreground[3], blink_alpha);
                 if shaped
                     .text
                     .get(glyph.byte_range.clone())
@@ -582,7 +650,7 @@ impl GpuText {
                 let height = u16::try_from(raster.height).map_err(|_| {
                     GpuLayerError::message("GPU glyph height exceeds the u16 atlas limit")
                 })?;
-                let (bytes, content_type, color) = match &raster.content {
+                let (bytes, content_type, color, canonical_cursor_bytes) = match &raster.content {
                     RasterContent::Mask(bytes) => {
                         report.mask_glyphs = report.mask_glyphs.saturating_add(1);
                         (
@@ -594,16 +662,14 @@ impl GpuText {
                                 foreground[2],
                                 alpha,
                             )),
+                            None,
                         )
                     }
                     RasterContent::SubpixelMask(bytes) => {
                         report.mask_glyphs = report.mask_glyphs.saturating_add(1);
                         report.subpixel_masks_converted =
                             report.subpixel_masks_converted.saturating_add(1);
-                        let grayscale = bytes
-                            .chunks_exact(4)
-                            .map(|pixel| pixel[0].max(pixel[1]).max(pixel[2]).max(pixel[3]))
-                            .collect::<Vec<_>>();
+                        let grayscale = subpixel_to_grayscale(bytes);
                         (
                             Arc::<[u8]>::from(grayscale),
                             ContentType::Mask,
@@ -613,19 +679,28 @@ impl GpuText {
                                 foreground[2],
                                 alpha,
                             )),
+                            None,
                         )
                     }
                     RasterContent::Rgba(bytes) => {
                         report.color_glyphs = report.color_glyphs.saturating_add(1);
                         let mut pixels = bytes.clone();
-                        if alpha != u8::MAX {
+                        if style.faint || blink_alpha != u8::MAX {
                             for pixel in pixels.chunks_exact_mut(4) {
-                                pixel[3] =
-                                    u8::try_from((u16::from(pixel[3]) * u16::from(alpha)) / 255)
-                                        .unwrap_or(u8::MAX);
+                                if style.faint {
+                                    pixel[0] /= 2;
+                                    pixel[1] /= 2;
+                                    pixel[2] /= 2;
+                                }
+                                pixel[3] = modulate_alpha(pixel[3], blink_alpha);
                             }
                         }
-                        (Arc::<[u8]>::from(pixels), ContentType::Color, None)
+                        (
+                            Arc::<[u8]>::from(pixels),
+                            ContentType::Color,
+                            None,
+                            Some(Arc::<[u8]>::from(bytes.clone())),
+                        )
                     }
                 };
                 let identity = BitmapIdentity {
@@ -647,7 +722,7 @@ impl GpuText {
                     bytes: Arc::clone(&bytes),
                 };
                 let id = self.intern(
-                    identity,
+                    identity.clone(),
                     GlyphPayload {
                         bytes,
                         content_type,
@@ -655,6 +730,27 @@ impl GpuText {
                         height,
                     },
                 )?;
+                let cursor_id = if cursor_redraw.is_some_and(|(cursor, _, _)| {
+                    glyph.cell_span.contains(&usize::from(cursor.column))
+                }) {
+                    if let Some(canonical_bytes) = canonical_cursor_bytes {
+                        let mut canonical_identity = identity;
+                        canonical_identity.bytes = Arc::clone(&canonical_bytes);
+                        self.intern(
+                            canonical_identity,
+                            GlyphPayload {
+                                bytes: canonical_bytes,
+                                content_type: ContentType::Color,
+                                width,
+                                height,
+                            },
+                        )?
+                    } else {
+                        id
+                    }
+                } else {
+                    id
+                };
                 let left = i64::from(positioned.origin_x) + i64::from(raster.left);
                 let top = i64::from(positioned.origin_y) - i64::from(raster.top);
                 let (clip_x, clip_width) = shaped_run_clip(
@@ -710,6 +806,7 @@ impl GpuText {
                         report.cursor_foreground_glyphs =
                             report.cursor_foreground_glyphs.saturating_add(1);
                         let mut cursor_glyph = custom_glyph;
+                        cursor_glyph.id = cursor_id;
                         if cursor_glyph.color.is_some() {
                             cursor_glyph.color = Some(Color::rgba(
                                 foreground[0],
@@ -758,6 +855,7 @@ impl GpuText {
             .budget_bytes
             .saturating_sub(self.payload_retained_bytes);
         if !self.glyphon.atlas.set_max_bytes(physical_budget) {
+            self.retryable_failure = Some(RetryableFailure::AtlasBudget);
             return Err(GpuLayerError::message(format!(
                 "glyph atlas budget of {} bytes is below the current physical texture allocation",
                 self.config.budget_bytes
@@ -775,32 +873,31 @@ impl GpuText {
                     custom_glyphs: std::slice::from_ref(&area.glyph),
                 })
             });
-            self.glyphon
-                .renderer
-                .prepare_with_custom(
-                    &self.device,
-                    &self.queue,
-                    self.catalog.font_system_mut(),
-                    &mut self.glyphon.atlas,
-                    &self.glyphon.viewport,
-                    areas,
-                    &mut self.glyphon.swash_cache,
-                    |request| {
-                        let payload = payloads.get(&request.id)?;
-                        if payload.width != request.width || payload.height != request.height {
-                            return None;
-                        }
-                        Some(RasterizedCustomGlyph {
-                            data: payload.bytes.to_vec(),
-                            content_type: payload.content_type,
-                        })
-                    },
-                )
-                .map_err(|error| {
-                    GpuLayerError::message(format!(
-                        "glyph atlas budget exhausted while preparing physical textures: {error}"
-                    ))
-                })?;
+            let result = self.glyphon.renderer.prepare_with_custom(
+                &self.device,
+                &self.queue,
+                self.catalog.font_system_mut(),
+                &mut self.glyphon.atlas,
+                &self.glyphon.viewport,
+                areas,
+                &mut self.glyphon.swash_cache,
+                |request| {
+                    let payload = payloads.get(&request.id)?;
+                    if payload.width != request.width || payload.height != request.height {
+                        return None;
+                    }
+                    Some(RasterizedCustomGlyph {
+                        data: payload.bytes.to_vec(),
+                        content_type: payload.content_type,
+                    })
+                },
+            );
+            if let Err(error) = result {
+                self.retryable_failure = Some(RetryableFailure::AtlasBudget);
+                return Err(GpuLayerError::message(format!(
+                    "glyph atlas budget exhausted while preparing physical textures: {error}"
+                )));
+            }
         }
         {
             let areas = self.row_cache.values().flat_map(|row| {
@@ -814,32 +911,31 @@ impl GpuText {
                     custom_glyphs: std::slice::from_ref(&area.glyph),
                 })
             });
-            self.glyphon
-                .cursor_renderer
-                .prepare_with_custom(
-                    &self.device,
-                    &self.queue,
-                    self.catalog.font_system_mut(),
-                    &mut self.glyphon.atlas,
-                    &self.glyphon.viewport,
-                    areas,
-                    &mut self.glyphon.swash_cache,
-                    |request| {
-                        let payload = payloads.get(&request.id)?;
-                        if payload.width != request.width || payload.height != request.height {
-                            return None;
-                        }
-                        Some(RasterizedCustomGlyph {
-                            data: payload.bytes.to_vec(),
-                            content_type: payload.content_type,
-                        })
-                    },
-                )
-                .map_err(|error| {
-                    GpuLayerError::message(format!(
-                        "glyph atlas budget exhausted while preparing cursor foreground: {error}"
-                    ))
-                })?;
+            let result = self.glyphon.cursor_renderer.prepare_with_custom(
+                &self.device,
+                &self.queue,
+                self.catalog.font_system_mut(),
+                &mut self.glyphon.atlas,
+                &self.glyphon.viewport,
+                areas,
+                &mut self.glyphon.swash_cache,
+                |request| {
+                    let payload = payloads.get(&request.id)?;
+                    if payload.width != request.width || payload.height != request.height {
+                        return None;
+                    }
+                    Some(RasterizedCustomGlyph {
+                        data: payload.bytes.to_vec(),
+                        content_type: payload.content_type,
+                    })
+                },
+            );
+            if let Err(error) = result {
+                self.retryable_failure = Some(RetryableFailure::AtlasBudget);
+                return Err(GpuLayerError::message(format!(
+                    "glyph atlas budget exhausted while preparing cursor foreground: {error}"
+                )));
+            }
         }
         let atlas = self.glyphon.atlas.metrics();
         self.metrics.physical_texture_bytes = atlas.allocated_bytes;
@@ -887,6 +983,17 @@ fn initial_atlas_dimension(device: &wgpu::Device) -> u32 {
 fn initial_atlas_bytes(device: &wgpu::Device) -> usize {
     let dimension = initial_atlas_dimension(device) as usize;
     dimension.saturating_mul(dimension).saturating_mul(5)
+}
+
+fn modulate_alpha(left: u8, right: u8) -> u8 {
+    u8::try_from((u16::from(left) * u16::from(right)) / 255).unwrap_or(u8::MAX)
+}
+
+fn subpixel_to_grayscale(bytes: &[u8]) -> Vec<u8> {
+    bytes
+        .chunks_exact(4)
+        .map(|pixel| pixel[0].max(pixel[1]).max(pixel[2]))
+        .collect()
 }
 
 fn shaped_run_clip(
@@ -974,4 +1081,17 @@ fn clipped_bounds(
         u32::try_from(right - left).ok()?,
         u32::try_from(bottom - top).ok()?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::subpixel_to_grayscale;
+
+    #[test]
+    fn subpixel_mask_is_compacted_to_one_grayscale_byte_per_pixel() {
+        let rgba_subpixel = [1, 7, 3, 255, 19, 11, 13, 0];
+        let grayscale = subpixel_to_grayscale(&rgba_subpixel);
+        assert_eq!(grayscale, [7, 19]);
+        assert_eq!(grayscale.len(), rgba_subpixel.len() / 4);
+    }
 }

@@ -82906,6 +82906,8 @@ struct WindowMetricsSnapshot {
     first_rendered_cell_ms: Option<u128>,
     pty_chunks: u64,
     pty_bytes: u64,
+    pty_content_hash: u64,
+    terminal_snapshot_content_hash: u64,
     pty_chunk_process_p95_us: u128,
     damage_regions: u64,
     damaged_cells: u64,
@@ -82937,6 +82939,7 @@ struct WindowMetricsSnapshot {
     gpu_text_mask_glyphs: usize,
     gpu_text_color_glyphs: usize,
     gpu_text_block_glyphs: usize,
+    gpu_text_content_hash: u64,
     gpu_text_rendered_frames: u64,
     input_writes: u64,
     input_bytes: u64,
@@ -82953,6 +82956,8 @@ first_pty_byte_ms={}
 first_rendered_cell_ms={}
 pty_chunks={}
 pty_bytes={}
+pty_content_hash={}
+terminal_snapshot_content_hash={}
 pty_chunk_process_p95_us={}
 damage_regions={}
 damaged_cells={}
@@ -82984,6 +82989,7 @@ gpu_text_prepared_glyphs={}
 gpu_text_mask_glyphs={}
 gpu_text_color_glyphs={}
 gpu_text_block_glyphs={}
+gpu_text_content_hash={}
 gpu_text_rendered_frames={}
 input_writes={}
 input_bytes={}
@@ -82994,6 +83000,8 @@ bells={}
             metric_option(self.first_rendered_cell_ms),
             self.pty_chunks,
             self.pty_bytes,
+            self.pty_content_hash,
+            self.terminal_snapshot_content_hash,
             self.pty_chunk_process_p95_us,
             self.damage_regions,
             self.damaged_cells,
@@ -83025,6 +83033,7 @@ bells={}
             self.gpu_text_mask_glyphs,
             self.gpu_text_color_glyphs,
             self.gpu_text_block_glyphs,
+            self.gpu_text_content_hash,
             self.gpu_text_rendered_frames,
             self.input_writes,
             self.input_bytes,
@@ -83045,6 +83054,9 @@ struct WindowMetrics {
     first_rendered_cell: Option<Duration>,
     pty_chunks: u64,
     pty_bytes: u64,
+    pty_content_hash: u64,
+    expected_pty_content: Option<Vec<u8>>,
+    pty_content_probe: Vec<u8>,
     pty_chunk_process_times: Vec<Duration>,
     damage_regions: u64,
     damaged_cells: u64,
@@ -83061,12 +83073,20 @@ struct WindowMetrics {
 
 impl WindowMetrics {
     fn new() -> Self {
+        #[cfg(debug_assertions)]
+        let expected_pty_content = std::env::var_os("RSSH_TEST_EXPECT_PTY_TEXT")
+            .map(|value| value.to_string_lossy().into_owned().into_bytes());
+        #[cfg(not(debug_assertions))]
+        let expected_pty_content = None;
         Self {
             spawn_started_at: Instant::now(),
             first_pty_byte: None,
             first_rendered_cell: None,
             pty_chunks: 0,
             pty_bytes: 0,
+            pty_content_hash: rssh_renderer::TERMINAL_TEXT_HASH_OFFSET,
+            expected_pty_content,
+            pty_content_probe: Vec::new(),
             pty_chunk_process_times: Vec::new(),
             damage_regions: 0,
             damaged_cells: 0,
@@ -83088,14 +83108,42 @@ impl WindowMetrics {
         self.first_rendered_cell = None;
     }
 
-    fn record_pty_chunk(&mut self, byte_count: usize) {
+    fn record_pty_chunk(&mut self, bytes: &[u8]) {
         if self.first_pty_byte.is_none() {
             self.first_pty_byte = Some(self.spawn_started_at.elapsed());
         }
         self.pty_chunks = self.pty_chunks.saturating_add(1);
         self.pty_bytes = self
             .pty_bytes
-            .saturating_add(u64::try_from(byte_count).unwrap_or(u64::MAX));
+            .saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
+    }
+
+    fn record_active_pty_content(&mut self, bytes: &[u8]) {
+        let Some(expected) = self.expected_pty_content.as_deref() else {
+            self.pty_content_hash =
+                rssh_renderer::terminal_text_hash_update(self.pty_content_hash, bytes);
+            return;
+        };
+        if expected.is_empty() {
+            return;
+        }
+        self.pty_content_probe.extend_from_slice(bytes);
+        if self
+            .pty_content_probe
+            .windows(expected.len())
+            .any(|window| window == expected)
+        {
+            let expected = std::str::from_utf8(expected)
+                .expect("debug PTY content expectation must be valid UTF-8");
+            self.pty_content_hash = rssh_renderer::terminal_text_content_hash(expected);
+            self.pty_content_probe.clear();
+            return;
+        }
+        let retained = expected.len().saturating_sub(1);
+        if self.pty_content_probe.len() > retained {
+            let discard = self.pty_content_probe.len() - retained;
+            self.pty_content_probe.drain(..discard);
+        }
     }
 
     fn record_first_rendered_cell(&mut self, snapshot_is_empty: bool) {
@@ -83158,6 +83206,7 @@ impl WindowMetrics {
             &GpuPresentationMetrics::uninitialized(),
             "bitmap-emergency",
             None,
+            rssh_renderer::TERMINAL_TEXT_HASH_OFFSET,
         )
     }
 
@@ -83166,6 +83215,7 @@ impl WindowMetrics {
         gpu: &GpuPresentationMetrics,
         text_backend: &str,
         direct_text: Option<(&rssh_renderer::gpu::GpuTextPrepareReport, u64)>,
+        terminal_snapshot_content_hash: u64,
     ) -> WindowMetricsSnapshot {
         let (direct_report, direct_rendered_frames) =
             direct_text.map_or((None, 0), |(report, frames)| (Some(report), frames));
@@ -83176,6 +83226,8 @@ impl WindowMetrics {
                 .map(|duration| duration.as_millis()),
             pty_chunks: self.pty_chunks,
             pty_bytes: self.pty_bytes,
+            pty_content_hash: self.pty_content_hash,
+            terminal_snapshot_content_hash,
             pty_chunk_process_p95_us: p95_us(&self.pty_chunk_process_times),
             damage_regions: self.damage_regions,
             damaged_cells: self.damaged_cells,
@@ -83207,6 +83259,7 @@ impl WindowMetrics {
             gpu_text_mask_glyphs: direct_report.map_or(0, |report| report.mask_glyphs),
             gpu_text_color_glyphs: direct_report.map_or(0, |report| report.color_glyphs),
             gpu_text_block_glyphs: direct_report.map_or(0, |report| report.custom_block_glyphs),
+            gpu_text_content_hash: direct_report.map_or(0, |report| report.content_hash),
             gpu_text_rendered_frames: direct_rendered_frames,
             input_writes: self.input_writes,
             input_bytes: self.input_bytes,
@@ -91163,7 +91216,8 @@ impl NativeWindowApp {
 
     fn handle_active_pane_output(&mut self, bytes: &[u8]) -> io::Result<()> {
         let started = Instant::now();
-        self.metrics.record_pty_chunk(bytes.len());
+        self.metrics.record_pty_chunk(bytes);
+        self.metrics.record_active_pty_content(bytes);
         let previous_dimensions = self.runtime.terminal().stable_dimensions();
         let runtime_output = self.runtime.feed_pty_output_with_display(bytes);
         let dimensions = self.runtime.terminal().stable_dimensions();
@@ -91353,7 +91407,7 @@ impl NativeWindowApp {
         bytes: &[u8],
     ) -> io::Result<()> {
         let started = Instant::now();
-        self.metrics.record_pty_chunk(bytes.len());
+        self.metrics.record_pty_chunk(bytes);
         let previous_dimensions = runtime.runtime.terminal().stable_dimensions();
         let runtime_output = runtime.runtime.feed_pty_output_with_display(bytes);
         let dimensions = runtime.runtime.terminal().stable_dimensions();
@@ -100276,8 +100330,12 @@ impl NativeWindowApp {
         } else {
             compatibility_text_backend
         };
-        self.metrics
-            .snapshot_with_gpu(&gpu, text_backend, direct_text)
+        self.metrics.snapshot_with_gpu(
+            &gpu,
+            text_backend,
+            direct_text,
+            rssh_renderer::terminal_snapshot_text_hash(&self.snapshot),
+        )
     }
 
     fn metrics_report(&self) -> String {

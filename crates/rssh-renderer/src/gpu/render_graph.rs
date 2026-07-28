@@ -22,7 +22,7 @@ use super::{
 };
 use crate::{
     DamageRegion, ImageDrawPlan, ImageTiePolicy, RenderGeometry, TerminalRenderSnapshot,
-    gpu_image_draw_plan, image_draw_pixel,
+    TextPaintConfig, gpu_image_draw_plan, image_draw_pixel,
 };
 use rssh_fonts::{FontCatalog, FontConfig};
 
@@ -1209,13 +1209,14 @@ impl GpuLayerRenderer {
         snapshot: &TerminalRenderSnapshot,
         geometry: RenderGeometry,
         damage: &[DamageRegion],
+        paint: &TextPaintConfig,
         dpi_scale: f32,
         zoom: f32,
     ) -> Result<GpuTextPrepareReport, GpuLayerError> {
         self.text
             .as_mut()
             .ok_or_else(|| GpuLayerError::message("GPU text is not enabled"))?
-            .prepare(snapshot, geometry, damage, dpi_scale, zoom)
+            .prepare(snapshot, geometry, damage, paint, dpi_scale, zoom)
     }
 
     #[must_use]
