@@ -6,15 +6,15 @@ use std::{
 
 use rssh_core::TerminalSize;
 use rssh_renderer::{PixelRenderer, TerminalRenderSnapshot};
+use rssh_terminal::Terminal;
 use serde::Serialize;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
 use crate::{
-    cli::{BenchOptions, BenchThresholds},
+    cli::{BenchOptions, BenchThresholds, BenchWorkload},
     terminal_runtime::TerminalRuntime,
 };
 
-const WORKLOAD_NAME: &str = "ansi-scroll-query";
 const BENCH_CELL_WIDTH: u32 = 8;
 const BENCH_CELL_HEIGHT: u32 = 16;
 
@@ -44,6 +44,10 @@ pub struct BenchReport {
     pub responses: usize,
     pub bells: u64,
     pub scrollback_lines: usize,
+    pub inspected_query_bytes: u64,
+    pub scrolled_survivor_cell_clones: u64,
+    pub history_row_relocations: u64,
+    pub metadata_rebase_batches: u64,
     pub cursor_row: u16,
     pub cursor_column: u16,
 }
@@ -74,8 +78,9 @@ pub fn print_bench(options: &BenchOptions) -> Result<(), Box<dyn Error>> {
 }
 
 pub fn run_bench(options: &BenchOptions) -> BenchReport {
-    let workload = build_benchmark_workload(options.bytes);
+    let workload = build_benchmark_workload(options.workload, options.bytes);
     let mut report = run_benchmark_workload(
+        options.workload,
         &workload,
         options.chunk_size,
         options.render_frames,
@@ -124,6 +129,13 @@ pub fn bench_text_lines(report: &BenchReport) -> Vec<String> {
             "metric\tdisplay_bytes={}\tresponses={}\tbells={}\tscrollback_lines={}",
             report.display_bytes, report.responses, report.bells, report.scrollback_lines
         ),
+        format!(
+            "work\tinspected_query_bytes={}\tscrolled_survivor_cell_clones={}\thistory_row_relocations={}\tmetadata_rebase_batches={}",
+            report.inspected_query_bytes,
+            report.scrolled_survivor_cell_clones,
+            report.history_row_relocations,
+            report.metadata_rebase_batches
+        ),
     ];
 
     lines.extend(report.threshold_violations.iter().map(|violation| {
@@ -137,13 +149,14 @@ pub fn bench_text_lines(report: &BenchReport) -> Vec<String> {
 }
 
 fn run_benchmark_workload(
+    workload_kind: BenchWorkload,
     workload: &[u8],
     chunk_size: usize,
     render_frames: usize,
     idle_ms: usize,
     size: TerminalSize,
 ) -> BenchReport {
-    let mut runtime = TerminalRuntime::new(size);
+    let mut runtime = BenchmarkRuntime::new(workload_kind, size);
     let mut chunk_timings = Vec::new();
     let mut responses = 0_usize;
     let mut display_bytes = 0_usize;
@@ -152,20 +165,21 @@ fn run_benchmark_workload(
     let started = Instant::now();
     for chunk in workload.chunks(chunk_size) {
         let chunk_started = Instant::now();
-        let output = runtime.feed_pty_output_with_display(chunk);
+        let output = runtime.feed(chunk);
         chunk_timings.push(chunk_started.elapsed().as_micros());
-        responses = responses.saturating_add(output.responses.len());
-        display_bytes = display_bytes.saturating_add(output.display.len());
+        responses = responses.saturating_add(output.responses);
+        display_bytes = display_bytes.saturating_add(output.display_bytes);
         bells = bells.saturating_add(output.bells);
     }
     let elapsed = started.elapsed();
     let (cursor_row, cursor_column) = runtime.terminal().cursor();
+    let work = runtime.terminal().work_counters();
     let render_report = benchmark_rendering(runtime.terminal(), render_frames, size);
     let resource_report = sample_process_resources(idle_ms);
 
     BenchReport {
         ok: true,
-        workload: WORKLOAD_NAME.to_owned(),
+        workload: workload_kind.as_str().to_owned(),
         bytes: workload.len(),
         chunk_size,
         chunks: chunk_timings.len(),
@@ -188,8 +202,69 @@ fn run_benchmark_workload(
         responses,
         bells,
         scrollback_lines: runtime.terminal().scrollback().len(),
+        inspected_query_bytes: runtime.inspected_query_bytes(),
+        scrolled_survivor_cell_clones: work.scrolled_survivor_cell_clones,
+        history_row_relocations: work.history_row_relocations,
+        metadata_rebase_batches: work.metadata_rebase_batches,
         cursor_row,
         cursor_column,
+    }
+}
+
+struct BenchmarkChunkOutput {
+    responses: usize,
+    display_bytes: usize,
+    bells: u64,
+}
+
+enum BenchmarkRuntime {
+    Plain(Box<Terminal>),
+    Filtered(Box<TerminalRuntime>),
+}
+
+impl BenchmarkRuntime {
+    fn new(workload: BenchWorkload, size: TerminalSize) -> Self {
+        match workload {
+            BenchWorkload::PlainScroll => Self::Plain(Box::new(Terminal::new(size))),
+            BenchWorkload::AnsiScroll | BenchWorkload::AnsiScrollQuery => {
+                Self::Filtered(Box::new(TerminalRuntime::new(size)))
+            }
+        }
+    }
+
+    fn feed(&mut self, bytes: &[u8]) -> BenchmarkChunkOutput {
+        match self {
+            Self::Plain(terminal) => {
+                terminal.feed(bytes);
+                BenchmarkChunkOutput {
+                    responses: 0,
+                    display_bytes: bytes.len(),
+                    bells: terminal.take_bell_count(),
+                }
+            }
+            Self::Filtered(runtime) => {
+                let output = runtime.feed_pty_output_with_display(bytes);
+                BenchmarkChunkOutput {
+                    responses: output.responses.len(),
+                    display_bytes: output.display.len(),
+                    bells: output.bells,
+                }
+            }
+        }
+    }
+
+    fn terminal(&self) -> &Terminal {
+        match self {
+            Self::Plain(terminal) => terminal,
+            Self::Filtered(runtime) => runtime.terminal(),
+        }
+    }
+
+    fn inspected_query_bytes(&self) -> u64 {
+        match self {
+            Self::Plain(_) => 0,
+            Self::Filtered(runtime) => runtime.inspected_query_bytes(),
+        }
     }
 }
 
@@ -405,16 +480,22 @@ fn benchmark_rendering(
     }
 }
 
-fn build_benchmark_workload(target_bytes: usize) -> Vec<u8> {
+fn build_benchmark_workload(workload_kind: BenchWorkload, target_bytes: usize) -> Vec<u8> {
     let mut workload = Vec::with_capacity(target_bytes);
     let mut line = 0_u64;
 
     while workload.len() < target_bytes {
-        let color = line % 256;
-        let record = format!(
-            "\x1b[38;5;{color}mbench line {line:08} ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789\x1b[0m\r\n\
-             \x1b[6n\x1b[18t\x1b]0;R-SSH bench {line}\x07"
-        );
+        let record = match workload_kind {
+            BenchWorkload::PlainScroll => format!("bench line {line:08}\r\n\r\n"),
+            BenchWorkload::AnsiScroll => {
+                let color = line % 256;
+                format!("\x1b[38;5;{color}mbench line {line:08}\x1b[0m\r\n\r\n")
+            }
+            BenchWorkload::AnsiScrollQuery => {
+                let color = line % 256;
+                format!("\x1b[38;5;{color}mbench line {line:08}\x1b[0m\r\n\r\n\x1b[6n\x1b[18t")
+            }
+        };
         let remaining = target_bytes - workload.len();
         let record_bytes = record.as_bytes();
         workload.extend_from_slice(&record_bytes[..record_bytes.len().min(remaining)]);
@@ -470,16 +551,22 @@ mod tests {
 
     #[test]
     fn builds_exact_sized_benchmark_workload() {
-        let workload = super::build_benchmark_workload(513);
-
-        assert_eq!(workload.len(), 513);
-        assert!(String::from_utf8_lossy(&workload).contains("bench line"));
+        for workload in [
+            crate::cli::BenchWorkload::PlainScroll,
+            crate::cli::BenchWorkload::AnsiScroll,
+            crate::cli::BenchWorkload::AnsiScrollQuery,
+        ] {
+            let bytes = super::build_benchmark_workload(workload, 513);
+            assert_eq!(bytes.len(), 513);
+            assert!(String::from_utf8_lossy(&bytes).contains("bench line"));
+        }
     }
 
     #[test]
     fn console_benchmark_report_tracks_terminal_runtime_metrics() {
         let report = super::run_bench(&BenchOptions {
             json: false,
+            workload: crate::cli::BenchWorkload::AnsiScrollQuery,
             bytes: 2048,
             chunk_size: 256,
             render_frames: 3,
@@ -507,6 +594,8 @@ mod tests {
         assert!(report.idle_cpu_usage_percent >= 0.0);
         assert!(report.display_bytes > 0);
         assert!(report.responses > 0);
+        assert!(report.inspected_query_bytes > 0);
+        assert!(report.scrolled_survivor_cell_clones > 0);
         assert!(report.cursor_row < report.rows);
         assert!(report.cursor_column < report.columns);
     }
@@ -538,6 +627,10 @@ mod tests {
             responses: 4,
             bells: 1,
             scrollback_lines: 2,
+            inspected_query_bytes: 10_240,
+            scrolled_survivor_cell_clones: 800,
+            history_row_relocations: 12,
+            metadata_rebase_batches: 3,
             cursor_row: 3,
             cursor_column: 7,
         };
@@ -557,6 +650,10 @@ mod tests {
         assert_eq!(value["process_memory_bytes"], 2_097_152);
         assert_eq!(value["process_virtual_memory_bytes"], 67_108_864);
         assert_eq!(value["process_accumulated_cpu_ms"], 123);
+        assert_eq!(value["inspected_query_bytes"], 10_240);
+        assert_eq!(value["scrolled_survivor_cell_clones"], 800);
+        assert_eq!(value["history_row_relocations"], 12);
+        assert_eq!(value["metadata_rebase_batches"], 3);
     }
 
     #[test]
@@ -586,6 +683,10 @@ mod tests {
             responses: 4,
             bells: 1,
             scrollback_lines: 2,
+            inspected_query_bytes: 10_240,
+            scrolled_survivor_cell_clones: 800,
+            history_row_relocations: 12,
+            metadata_rebase_batches: 3,
             cursor_row: 3,
             cursor_column: 7,
         };
@@ -614,6 +715,12 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("process_memory_bytes=2097152"))
         );
+        assert!(lines.iter().any(|line| {
+            line.contains("inspected_query_bytes=10240")
+                && line.contains("scrolled_survivor_cell_clones=800")
+                && line.contains("history_row_relocations=12")
+                && line.contains("metadata_rebase_batches=3")
+        }));
     }
 
     #[test]
@@ -643,6 +750,10 @@ mod tests {
             responses: 4,
             bells: 1,
             scrollback_lines: 2,
+            inspected_query_bytes: 10_240,
+            scrolled_survivor_cell_clones: 800,
+            history_row_relocations: 12,
+            metadata_rebase_batches: 3,
             cursor_row: 3,
             cursor_column: 7,
         };
@@ -678,5 +789,55 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["ok"], false);
         assert_eq!(value["threshold_violations"].as_array().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn workload_reports_separate_query_and_scroll_costs() {
+        let options = |workload| BenchOptions {
+            json: false,
+            workload,
+            bytes: 4096,
+            chunk_size: 256,
+            render_frames: 1,
+            idle_ms: 1,
+            thresholds: crate::cli::BenchThresholds::default(),
+            size: TerminalSize::new(20, 4),
+        };
+
+        let plain = super::run_bench(&options(crate::cli::BenchWorkload::PlainScroll));
+        let ansi = super::run_bench(&options(crate::cli::BenchWorkload::AnsiScroll));
+        let query = super::run_bench(&options(crate::cli::BenchWorkload::AnsiScrollQuery));
+
+        for (report, expected_name) in [
+            (&plain, "plain-scroll"),
+            (&ansi, "ansi-scroll"),
+            (&query, "ansi-scroll-query"),
+        ] {
+            let json = super::bench_json(report).expect("serialize benchmark report");
+            let value: serde_json::Value =
+                serde_json::from_str(&json).expect("parse benchmark report");
+            assert_eq!(value["workload"], expected_name);
+            assert_eq!(value["inspected_query_bytes"], report.inspected_query_bytes);
+            assert_eq!(
+                value["scrolled_survivor_cell_clones"],
+                report.scrolled_survivor_cell_clones
+            );
+            assert_eq!(
+                value["history_row_relocations"],
+                report.history_row_relocations
+            );
+            assert_eq!(
+                value["metadata_rebase_batches"],
+                report.metadata_rebase_batches
+            );
+        }
+
+        assert_eq!(plain.inspected_query_bytes, 0);
+        assert!(plain.scrolled_survivor_cell_clones > 0);
+        assert!(ansi.inspected_query_bytes > 0);
+        assert!(query.inspected_query_bytes > ansi.inspected_query_bytes);
+        assert!(query.responses > 0);
+        assert_eq!(plain.responses, 0);
+        assert_eq!(ansi.responses, 0);
     }
 }

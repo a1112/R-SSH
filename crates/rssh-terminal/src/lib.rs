@@ -4,6 +4,7 @@ mod parser;
 
 pub use parser::{
     CellWidthOverride, DEFAULT_SCROLLBACK_LIMIT, Terminal, TerminalUnknownEscapeSequence,
+    TerminalWorkCounters,
 };
 
 pub type StableRowIndex = isize;

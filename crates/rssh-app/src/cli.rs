@@ -36,12 +36,43 @@ pub enum AppCommand {
 #[derive(Debug, PartialEq, Eq)]
 pub struct BenchOptions {
     pub json: bool,
+    pub workload: BenchWorkload,
     pub bytes: usize,
     pub chunk_size: usize,
     pub render_frames: usize,
     pub idle_ms: usize,
     pub thresholds: BenchThresholds,
     pub size: TerminalSize,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BenchWorkload {
+    PlainScroll,
+    AnsiScroll,
+    #[default]
+    AnsiScrollQuery,
+}
+
+impl BenchWorkload {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PlainScroll => "plain-scroll",
+            Self::AnsiScroll => "ansi-scroll",
+            Self::AnsiScrollQuery => "ansi-scroll-query",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "plain-scroll" => Ok(Self::PlainScroll),
+            "ansi-scroll" => Ok(Self::AnsiScroll),
+            "ansi-scroll-query" => Ok(Self::AnsiScrollQuery),
+            value => Err(format!(
+                "unknown bench workload: {value} (expected plain-scroll, ansi-scroll, or ansi-scroll-query)"
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -462,7 +493,7 @@ Usage:
   rssh-app doctor [--json]
   rssh-app version [--json]
   rssh-app self-test [--json]
-  rssh-app bench [--json] [--bytes N] [--chunk-size N] [--render-frames N] [--idle-ms N] [--min-throughput-bytes-per-sec N] [--max-chunk-p95-us N] [--max-render-frame-p95-us N] [--max-idle-cpu-percent N] [--max-process-memory-bytes N] [--cols N --rows N]
+  rssh-app bench [--json] [--workload plain-scroll|ansi-scroll|ansi-scroll-query] [--bytes N] [--chunk-size N] [--render-frames N] [--idle-ms N] [--min-throughput-bytes-per-sec N] [--max-chunk-p95-us N] [--max-render-frame-p95-us N] [--max-idle-cpu-percent N] [--max-process-memory-bytes N] [--cols N --rows N]
   rssh-app window [--frames N] [--cwd CWD] [--workspace WORKSPACE] [--class CLASS] [--position POSITION] [--domain DOMAIN] [--attach] [--no-auto-connect] [--always-new-process] [--new-tab] [--osc52 off|write|read-write] [--metrics | --metrics-json | --state | --state-json] [--log PATH] [-e <program> [args...] | -- <program> [args...] | <program> [args...]]
   rssh-app start [--frames N] [--cwd CWD] [--workspace WORKSPACE] [--class CLASS] [--position POSITION] [--domain DOMAIN] [--attach] [--no-auto-connect] [--always-new-process] [--new-tab] [--osc52 off|write|read-write] [--metrics | --metrics-json | --state | --state-json] [--log PATH] [-e <program> [args...] | -- <program> [args...] | <program> [args...]]
   rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--cwd CWD] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
@@ -536,6 +567,7 @@ fn parse_self_test(args: &[String]) -> Result<AppCommand, String> {
 
 fn parse_bench(args: &[String]) -> Result<AppCommand, String> {
     let mut json = false;
+    let mut workload = BenchWorkload::default();
     let mut bytes = DEFAULT_BENCH_BYTES;
     let mut chunk_size = DEFAULT_BENCH_CHUNK_SIZE;
     let mut render_frames = DEFAULT_BENCH_RENDER_FRAMES;
@@ -548,6 +580,13 @@ fn parse_bench(args: &[String]) -> Result<AppCommand, String> {
     while index < args.len() {
         match args[index].as_str() {
             "--json" => json = true,
+            "--workload" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "missing value for --workload".to_owned())?;
+                workload = BenchWorkload::parse(value)?;
+            }
             "--bytes" => {
                 index += 1;
                 bytes = parse_nonzero_usize(args.get(index), "--bytes")?;
@@ -612,6 +651,7 @@ fn parse_bench(args: &[String]) -> Result<AppCommand, String> {
 
     Ok(AppCommand::Bench(BenchOptions {
         json,
+        workload,
         bytes,
         chunk_size,
         render_frames,
@@ -2794,6 +2834,7 @@ mod tests {
         };
 
         assert!(!options.json);
+        assert_eq!(options.workload, super::BenchWorkload::AnsiScrollQuery);
         assert_eq!(options.bytes, 1_048_576);
         assert_eq!(options.chunk_size, 8192);
         assert_eq!(options.render_frames, 30);
@@ -2808,6 +2849,8 @@ mod tests {
             "rssh-app",
             "bench",
             "--json",
+            "--workload",
+            "ansi-scroll",
             "--bytes",
             "4096",
             "--chunk-size",
@@ -2838,6 +2881,7 @@ mod tests {
         };
 
         assert!(options.json);
+        assert_eq!(options.workload, super::BenchWorkload::AnsiScroll);
         assert_eq!(options.bytes, 4096);
         assert_eq!(options.chunk_size, 512);
         assert_eq!(options.render_frames, 7);
@@ -2865,6 +2909,27 @@ mod tests {
         assert!(parse_args(["rssh-app", "bench", "--max-idle-cpu-percent", "0"]).is_err());
         assert!(parse_args(["rssh-app", "bench", "--cols", "0"]).is_err());
         assert!(parse_args(["rssh-app", "bench", "--rows", "0"]).is_err());
+        assert_eq!(
+            parse_args(["rssh-app", "bench", "--workload", "unknown"]).unwrap_err(),
+            "unknown bench workload: unknown (expected plain-scroll, ansi-scroll, or ansi-scroll-query)"
+        );
+    }
+
+    #[test]
+    fn parses_console_benchmark_workloads() {
+        for (name, expected) in [
+            ("plain-scroll", super::BenchWorkload::PlainScroll),
+            ("ansi-scroll", super::BenchWorkload::AnsiScroll),
+            ("ansi-scroll-query", super::BenchWorkload::AnsiScrollQuery),
+        ] {
+            let parsed =
+                parse_args(["rssh-app", "bench", "--workload", name]).expect("parse workload");
+            let AppCommand::Bench(options) = parsed else {
+                panic!("expected bench command");
+            };
+            assert_eq!(options.workload, expected);
+            assert_eq!(options.workload.as_str(), name);
+        }
     }
 
     #[test]

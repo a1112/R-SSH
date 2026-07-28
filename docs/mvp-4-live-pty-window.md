@@ -397,6 +397,23 @@ output. Both formats report:
 
 The current benchmark path can promote these metrics into thresholded gates:
 
+- Workload isolation: `rssh-app bench --workload NAME` accepts
+  `plain-scroll`, `ansi-scroll`, and `ansi-scroll-query`. The default remains
+  `ansi-scroll-query` for compatibility. `plain-scroll` feeds plain text
+  directly into the terminal parser and deliberately bypasses ANSI query
+  filtering. `ansi-scroll` passes styled scrolling output through the runtime
+  query filter without embedding response queries. `ansi-scroll-query` adds
+  repeated cursor-position and text-area-size queries to expose the current
+  repeated-scan cost.
+- Deterministic work counters: JSON and text reports include
+  `inspected_query_bytes`, the sum of candidate-buffer bytes presented to every
+  legacy query matcher invocation; `scrolled_survivor_cell_clones`, the number
+  of individual surviving grid cells cloned while scroll operations move rows;
+  `history_row_relocations`, the number of surviving `Vec` scrollback rows
+  relocated by prefix pruning; and `metadata_rebase_batches`, the number of
+  non-empty history prunes that run the metadata rebase pass. All four counters
+  are cumulative for one benchmark run and saturate at `u64::MAX`. They measure
+  executed current implementation work, not elapsed-time estimates.
 - Steady idle CPU: `rssh-app bench --json --idle-ms N` now samples the current
   app process during an idle window and reports idle CPU usage; add
   `--max-idle-cpu-percent N` to fail the command when it exceeds a budget.
@@ -410,6 +427,19 @@ The current benchmark path can promote these metrics into thresholded gates:
   resident memory, virtual memory, and accumulated CPU time; the remaining
   work is to compare baseline window, active shell, and future scrollback sizes
   before tightening `--max-process-memory-bytes`.
+
+Use stable inputs when comparing implementations. For example, capture all
+three 256 KiB workloads with the same chunk, render, idle, and terminal size:
+
+```powershell
+cargo +1.89.0 run --locked --release -p rssh-app -- bench --json --workload plain-scroll --bytes 262144 --chunk-size 8192 --render-frames 30 --idle-ms 200 --cols 120 --rows 30
+cargo +1.89.0 run --locked --release -p rssh-app -- bench --json --workload ansi-scroll --bytes 262144 --chunk-size 8192 --render-frames 30 --idle-ms 200 --cols 120 --rows 30
+cargo +1.89.0 run --locked --release -p rssh-app -- bench --json --workload ansi-scroll-query --bytes 262144 --chunk-size 8192 --render-frames 30 --idle-ms 200 --cols 120 --rows 30
+```
+
+Timing and process-resource fields vary by machine and run. Compare the four
+work counters exactly, but treat timing fields as measured observations rather
+than deterministic equality values.
 
 Recommended MVP 5 targets:
 

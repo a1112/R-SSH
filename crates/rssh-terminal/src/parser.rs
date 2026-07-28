@@ -425,6 +425,20 @@ impl TabStops {
     }
 }
 
+/// Cumulative deterministic work performed by the current scrollback implementation.
+///
+/// Fields saturate at `u64::MAX`, so observing them never changes terminal
+/// behavior even during a long-running session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TerminalWorkCounters {
+    /// Individual surviving grid cells cloned while a scroll moves rows.
+    pub scrolled_survivor_cell_clones: u64,
+    /// Surviving history rows relocated by prefix pruning the `Vec` scrollback.
+    pub history_row_relocations: u64,
+    /// Non-empty history prune operations that run the metadata rebase pass.
+    pub metadata_rebase_batches: u64,
+}
+
 #[derive(Debug, Clone)]
 #[expect(
     clippy::struct_excessive_bools,
@@ -489,6 +503,7 @@ pub struct Terminal {
     normalize_output_to_unicode_nfc: bool,
     unicode_version: u32,
     unicode_version_stack: Vec<UnicodeVersionStackEntry>,
+    work_counters: TerminalWorkCounters,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -746,7 +761,13 @@ impl Terminal {
             normalize_output_to_unicode_nfc: false,
             unicode_version: DEFAULT_UNICODE_VERSION,
             unicode_version_stack: Vec::new(),
+            work_counters: TerminalWorkCounters::default(),
         }
+    }
+
+    #[must_use]
+    pub const fn work_counters(&self) -> TerminalWorkCounters {
+        self.work_counters
     }
 
     pub fn set_unicode_version(&mut self, version: u32) {
@@ -3914,7 +3935,12 @@ impl Terminal {
             return;
         }
 
+        let surviving_rows = self.scrollback.len().saturating_sub(rows);
         self.scrollback.drain(..rows);
+        self.work_counters.history_row_relocations = self
+            .work_counters
+            .history_row_relocations
+            .saturating_add(u64::try_from(surviving_rows).unwrap_or(u64::MAX));
         let stable_rows =
             StableRowIndex::try_from(rows).expect("pruned row count must fit a stable row index");
         self.main_stable_row_offset = self
@@ -3941,6 +3967,8 @@ impl Terminal {
             })
             .collect();
         self.rebase_inline_images_after_history_prune(rows);
+        self.work_counters.metadata_rebase_batches =
+            self.work_counters.metadata_rebase_batches.saturating_add(1);
     }
 
     fn write_char(&mut self, ch: char) {
@@ -5196,6 +5224,10 @@ impl Terminal {
             for row in (top..=shift_bottom).rev() {
                 for column in 0..size.columns {
                     let cell = self.grid.get(row, column).cloned().unwrap_or_default();
+                    self.work_counters.scrolled_survivor_cell_clones = self
+                        .work_counters
+                        .scrolled_survivor_cell_clones
+                        .saturating_add(1);
                     self.grid.set(row + count, column, cell);
                 }
                 self.grid.copy_row_wrapped(row, row + count);
@@ -5305,6 +5337,10 @@ impl Terminal {
             for row in (top..=shift_bottom).rev() {
                 for column in left..=right {
                     let cell = self.grid.get(row, column).cloned().unwrap_or_default();
+                    self.work_counters.scrolled_survivor_cell_clones = self
+                        .work_counters
+                        .scrolled_survivor_cell_clones
+                        .saturating_add(1);
                     self.grid.set(row + count, column, cell);
                 }
             }
@@ -5742,6 +5778,10 @@ impl Terminal {
                         .get(row + count, column)
                         .cloned()
                         .unwrap_or_default();
+                    self.work_counters.scrolled_survivor_cell_clones = self
+                        .work_counters
+                        .scrolled_survivor_cell_clones
+                        .saturating_add(1);
                     self.grid.set(row, column, cell);
                 }
                 self.grid.copy_row_wrapped(row + count, row);
@@ -5796,6 +5836,10 @@ impl Terminal {
                         .get(row + count, column)
                         .cloned()
                         .unwrap_or_default();
+                    self.work_counters.scrolled_survivor_cell_clones = self
+                        .work_counters
+                        .scrolled_survivor_cell_clones
+                        .saturating_add(1);
                     self.grid.set(row, column, cell);
                 }
             }
@@ -8686,6 +8730,25 @@ mod stable_row_tests {
     use super::*;
 
     const HIGH_BYTE_KITTY_IMAGE_ID: u32 = 0x0200_001e;
+
+    #[test]
+    fn terminal_work_counters_track_executed_scroll_and_prune_operations() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.set_scrollback_limit(1);
+
+        assert_eq!(terminal.work_counters(), TerminalWorkCounters::default());
+
+        terminal.feed(b"a\r\nb\r\nc\r\n");
+
+        assert_eq!(
+            terminal.work_counters(),
+            TerminalWorkCounters {
+                scrolled_survivor_cell_clones: 8,
+                history_row_relocations: 1,
+                metadata_rebase_batches: 1,
+            }
+        );
+    }
 
     fn stable_coordinate(
         terminal: &Terminal,

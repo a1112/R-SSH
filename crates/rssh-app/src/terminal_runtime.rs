@@ -230,6 +230,15 @@ impl TerminalRuntime {
         &self.terminal
     }
 
+    /// Sum of candidate buffer bytes presented to each legacy query matcher.
+    ///
+    /// This cumulative counter saturates at `u64::MAX`. It measures the
+    /// current repeated-scan implementation without changing its control flow.
+    #[must_use]
+    pub(crate) const fn inspected_query_bytes(&self) -> u64 {
+        self.output_filter.inspected_query_bytes
+    }
+
     #[must_use]
     pub fn application_cursor_keys(&self) -> bool {
         self.mode_tracker.application_cursor_keys()
@@ -331,6 +340,7 @@ struct TerminalOutputFilter {
     size: TerminalSize,
     terminal_name: String,
     color_state: TerminalColorState,
+    inspected_query_bytes: u64,
 }
 
 struct FilteredOutput {
@@ -571,6 +581,7 @@ impl TerminalOutputFilter {
             size,
             terminal_name: DEFAULT_TERMINAL_NAME.to_owned(),
             color_state: TerminalColorState::default(),
+            inspected_query_bytes: 0,
         }
     }
 
@@ -626,7 +637,7 @@ impl TerminalOutputFilter {
             self.pending.drain(..consumed_end);
         }
 
-        let retained = Self::suffix_len_matching_query_prefix(&self.pending);
+        let retained = self.suffix_len_matching_query_prefix();
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             let display = self.pending[..writable].to_vec();
@@ -650,7 +661,8 @@ impl TerminalOutputFilter {
         }
     }
 
-    fn find_next_event(&self) -> Option<(usize, MatchedTerminalEvent)> {
+    fn find_next_event(&mut self) -> Option<(usize, MatchedTerminalEvent)> {
+        self.record_query_scan_passes(7);
         let response = self
             .find_next_response()
             .map(|(index, response)| (index, response.into()));
@@ -747,7 +759,8 @@ impl TerminalOutputFilter {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn find_next_response(&self) -> Option<(usize, MatchedTerminalResponse)> {
+    fn find_next_response(&mut self) -> Option<(usize, MatchedTerminalResponse)> {
+        self.record_query_scan_passes(Self::RESPONSES.len().saturating_add(11));
         let static_response = Self::RESPONSES
             .iter()
             .filter_map(|response| {
@@ -930,7 +943,9 @@ impl TerminalOutputFilter {
             .min_by_key(|(index, _)| *index)
     }
 
-    fn suffix_len_matching_query_prefix(pending: &[u8]) -> usize {
+    fn suffix_len_matching_query_prefix(&mut self) -> usize {
+        self.record_query_scan_passes(Self::RESPONSES.len().saturating_add(15));
+        let pending = &self.pending;
         let static_query_suffix = Self::RESPONSES
             .iter()
             .map(|response| suffix_prefix_len(pending, response.query))
@@ -952,6 +967,14 @@ impl TerminalOutputFilter {
             .max(st_control_suffix_len(pending))
             .max(incomplete_osc_control_sequence_suffix_len(pending))
             .max(incomplete_st_control_sequence_suffix_len(pending))
+    }
+
+    fn record_query_scan_passes(&mut self, passes: usize) {
+        let pending_bytes = u64::try_from(self.pending.len()).unwrap_or(u64::MAX);
+        let passes = u64::try_from(passes).unwrap_or(u64::MAX);
+        self.inspected_query_bytes = self
+            .inspected_query_bytes
+            .saturating_add(pending_bytes.saturating_mul(passes));
     }
 
     fn response_bytes(
@@ -3648,7 +3671,23 @@ mod tests {
 
     use crate::terminal_modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode};
 
-    use super::{TerminalNotification, TerminalProgress, TerminalRuntime};
+    use super::{TerminalNotification, TerminalOutputFilter, TerminalProgress, TerminalRuntime};
+
+    #[test]
+    fn output_filter_counts_candidate_bytes_for_each_executed_matcher_pass() {
+        let mut filter = TerminalOutputFilter::new(TerminalSize::new(10, 2));
+        let input = b"hello";
+
+        let output = filter.process(input);
+
+        assert_eq!(output.events.len(), 1);
+        let event_passes = TerminalOutputFilter::RESPONSES.len() + 11 + 7;
+        let suffix_passes = TerminalOutputFilter::RESPONSES.len() + 15;
+        assert_eq!(
+            filter.inspected_query_bytes,
+            u64::try_from(input.len() * (event_passes + suffix_passes)).unwrap()
+        );
+    }
 
     #[test]
     fn terminal_runtime_reports_active_main_reflow_separately_from_alternate_resize() {
