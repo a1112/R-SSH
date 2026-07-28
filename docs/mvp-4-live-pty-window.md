@@ -442,7 +442,8 @@ The current benchmark path can promote these metrics into thresholded gates:
   plus the completed control-sequence bytes presented once to the shared
   semantic matcher;
   `scrolled_survivor_cell_clones`, the number of individual surviving grid
-  cells cloned while scroll operations move rows;
+  cells cloned by bounded horizontal-margin scrolls (full-width vertical
+  scrolling rotates row ownership and records zero);
   `history_row_relocations`, the number of surviving scrollback rows physically
   relocated by prefix pruning (zero for logical deque front eviction); and
   `metadata_rebase_batches`, the number of non-empty history prunes that run the

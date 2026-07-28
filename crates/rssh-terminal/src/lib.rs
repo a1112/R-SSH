@@ -1,8 +1,8 @@
-use rssh_core::TerminalSize;
-
+mod grid;
 mod history;
 mod parser;
 
+pub use grid::{GridRow, TerminalGrid};
 pub use history::HistoryBuffer;
 pub use parser::{
     CellWidthOverride, DEFAULT_SCROLLBACK_LIMIT, Terminal, TerminalUnknownEscapeSequence,
@@ -333,196 +333,6 @@ impl Default for Cell {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct TerminalGrid {
-    size: TerminalSize,
-    cells: Vec<Cell>,
-    row_wrapped: Vec<bool>,
-    last_change_seqno: Vec<SequenceNo>,
-    reflow_overflow: Vec<Vec<Cell>>,
-}
-
-impl TerminalGrid {
-    #[must_use]
-    pub fn new(size: TerminalSize) -> Self {
-        Self::new_with_seqno(size, 1)
-    }
-
-    #[must_use]
-    pub(crate) fn new_with_seqno(size: TerminalSize, seqno: SequenceNo) -> Self {
-        Self {
-            size,
-            cells: vec![Cell::default(); size.cells()],
-            row_wrapped: vec![false; usize::from(size.rows)],
-            last_change_seqno: vec![seqno; usize::from(size.rows)],
-            reflow_overflow: vec![Vec::new(); usize::from(size.rows)],
-        }
-    }
-
-    #[must_use]
-    pub const fn size(&self) -> TerminalSize {
-        self.size
-    }
-
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.cells.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.cells.is_empty()
-    }
-
-    #[must_use]
-    pub fn get(&self, row: u16, column: u16) -> Option<&Cell> {
-        self.index(row, column)
-            .and_then(|index| self.cells.get(index))
-    }
-
-    pub fn set(&mut self, row: u16, column: u16, cell: Cell) -> bool {
-        let Some(index) = self.index(row, column) else {
-            return false;
-        };
-
-        self.cells[index] = cell;
-        self.clear_reflow_overflow(row);
-        true
-    }
-
-    #[must_use]
-    pub(crate) fn row_wrapped(&self, row: u16) -> bool {
-        self.row_wrapped
-            .get(usize::from(row))
-            .copied()
-            .unwrap_or(false)
-    }
-
-    pub(crate) fn set_row_wrapped(&mut self, row: u16, wrapped: bool) {
-        if let Some(row_wrapped) = self.row_wrapped.get_mut(usize::from(row)) {
-            *row_wrapped = wrapped;
-        }
-    }
-
-    pub(crate) fn copy_row_wrapped(&mut self, from: u16, to: u16) {
-        let wrapped = self.row_wrapped(from);
-        self.set_row_wrapped(to, wrapped);
-    }
-
-    #[must_use]
-    pub(crate) fn row_last_change_seqno(&self, row: u16) -> Option<SequenceNo> {
-        self.last_change_seqno.get(usize::from(row)).copied()
-    }
-
-    pub(crate) fn set_row_last_change_seqno(&mut self, row: u16, seqno: SequenceNo) -> bool {
-        let Some(last_change_seqno) = self.last_change_seqno.get_mut(usize::from(row)) else {
-            return false;
-        };
-        *last_change_seqno = seqno;
-        true
-    }
-
-    pub(crate) fn copy_row_last_change_seqno(&mut self, from: u16, to: u16) {
-        if let Some(seqno) = self.row_last_change_seqno(from) {
-            self.set_row_last_change_seqno(to, seqno);
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn cells_with_reflow_overflow(&self, row: u16) -> Vec<Cell> {
-        let mut cells = (0..self.size.columns)
-            .filter_map(|column| self.get(row, column).cloned())
-            .collect::<Vec<_>>();
-        if let Some(overflow) = self.reflow_overflow.get(usize::from(row)) {
-            cells.extend(overflow.iter().cloned());
-        }
-        cells
-    }
-
-    pub(crate) fn set_reflow_overflow(&mut self, row: u16, overflow: Vec<Cell>) {
-        if let Some(slot) = self.reflow_overflow.get_mut(usize::from(row)) {
-            *slot = overflow;
-        }
-    }
-
-    pub(crate) fn copy_row_reflow_overflow(&mut self, from: u16, to: u16) {
-        let overflow = self
-            .reflow_overflow
-            .get(usize::from(from))
-            .cloned()
-            .unwrap_or_default();
-        self.set_reflow_overflow(to, overflow);
-    }
-
-    pub(crate) fn clear_reflow_overflow(&mut self, row: u16) {
-        self.set_reflow_overflow(row, Vec::new());
-    }
-
-    pub fn resize(&mut self, size: TerminalSize) {
-        let new_row_seqno = self.last_change_seqno.iter().copied().max().unwrap_or(1);
-        self.resize_with_seqno(size, new_row_seqno);
-    }
-
-    pub(crate) fn resize_with_seqno(&mut self, size: TerminalSize, new_row_seqno: SequenceNo) {
-        let old_size = self.size;
-        let old_cells = std::mem::replace(&mut self.cells, vec![Cell::default(); size.cells()]);
-        let old_row_wrapped =
-            std::mem::replace(&mut self.row_wrapped, vec![false; usize::from(size.rows)]);
-        let old_last_change_seqno = std::mem::replace(
-            &mut self.last_change_seqno,
-            vec![new_row_seqno; usize::from(size.rows)],
-        );
-        let old_reflow_overflow = std::mem::replace(
-            &mut self.reflow_overflow,
-            vec![Vec::new(); usize::from(size.rows)],
-        );
-        self.size = size;
-
-        let rows = old_size.rows.min(size.rows);
-        let columns = old_size.columns.min(size.columns);
-        for row in 0..rows {
-            for column in 0..columns {
-                let old_index =
-                    usize::from(row) * usize::from(old_size.columns) + usize::from(column);
-                let new_index = usize::from(row) * usize::from(size.columns) + usize::from(column);
-                if let Some(cell) = old_cells.get(old_index) {
-                    self.cells[new_index] = cell.clone();
-                }
-            }
-            self.row_wrapped[usize::from(row)] = old_row_wrapped
-                .get(usize::from(row))
-                .copied()
-                .unwrap_or(false);
-            self.last_change_seqno[usize::from(row)] = if old_size.columns == size.columns {
-                old_last_change_seqno
-                    .get(usize::from(row))
-                    .copied()
-                    .unwrap_or(new_row_seqno)
-            } else {
-                new_row_seqno
-            };
-            if old_size.columns == size.columns {
-                self.copy_row_reflow_overflow_from(&old_reflow_overflow, row);
-            }
-        }
-    }
-
-    fn copy_row_reflow_overflow_from(&mut self, source: &[Vec<Cell>], row: u16) {
-        if let Some(overflow) = source.get(usize::from(row)) {
-            self.set_reflow_overflow(row, overflow.clone());
-        }
-    }
-
-    #[must_use]
-    fn index(&self, row: u16, column: u16) -> Option<usize> {
-        if row >= self.size.rows || column >= self.size.columns {
-            return None;
-        }
-
-        Some(usize::from(row) * usize::from(self.size.columns) + usize::from(column))
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScrollbackLine {
     cells: Vec<Cell>,
@@ -532,6 +342,17 @@ pub struct ScrollbackLine {
 }
 
 impl ScrollbackLine {
+    #[must_use]
+    pub(crate) fn from_grid_row(row: GridRow) -> Self {
+        let (cells, reflow_overflow, wrapped, sequence) = row.into_parts();
+        Self {
+            cells,
+            reflow_overflow,
+            wrapped,
+            sequence,
+        }
+    }
+
     #[must_use]
     pub(crate) const fn from_reflow_cells_wrapped(
         cells: Vec<Cell>,

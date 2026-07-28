@@ -431,7 +431,9 @@ impl TabStops {
 /// behavior even during a long-running session.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TerminalWorkCounters {
-    /// Individual surviving grid cells cloned while a scroll moves rows.
+    /// Individual surviving grid cells cloned by bounded horizontal-margin scrolls.
+    ///
+    /// Full-width vertical scrolling rotates row ownership and records zero.
     pub scrolled_survivor_cell_clones: u64,
     /// Surviving history rows physically relocated by prefix pruning.
     ///
@@ -3927,28 +3929,6 @@ impl Terminal {
             && size.columns > 0
     }
 
-    fn record_scrollback_line(&mut self, row: u16) {
-        let size = self.grid.size();
-        let cells = (0..size.columns)
-            .map(|column| self.grid.get(row, column).cloned().unwrap_or_default())
-            .collect();
-        let reflow_overflow = self
-            .grid
-            .cells_with_reflow_overflow(row)
-            .into_iter()
-            .skip(usize::from(size.columns))
-            .collect();
-        let wrapped = self.grid.row_wrapped(row);
-        let sequence = self.grid.row_last_change_seqno(row).unwrap_or(self.seqno);
-        self.scrollback
-            .push(ScrollbackLine::from_reflow_cells_wrapped(
-                cells,
-                reflow_overflow,
-                wrapped,
-                sequence,
-            ));
-    }
-
     fn trim_scrollback_to_limit(&mut self) {
         if self.scrollback.len() > self.scrollback_limit {
             let overflow = self.scrollback.len() - self.scrollback_limit;
@@ -5239,26 +5219,9 @@ impl Terminal {
         let count = count.min(height);
         self.scroll_inline_images_down_region(top, bottom, count);
         self.scroll_kitty_placeholder_cells_down_region(top, bottom, count);
-
-        if count < height {
-            let shift_bottom = bottom - count;
-            self.record_scrolled_survivor_cell_clones(height - count, size.columns);
-            for row in (top..=shift_bottom).rev() {
-                for column in 0..size.columns {
-                    let cell = self.grid.get(row, column).cloned().unwrap_or_default();
-                    self.grid.set(row + count, column, cell);
-                }
-                self.grid.copy_row_wrapped(row, row + count);
-                self.grid.copy_row_reflow_overflow(row, row + count);
-            }
-        }
-
-        for row in top..top + count {
-            for column in 0..size.columns {
-                self.grid.set(row, column, self.blank_cell());
-            }
-            self.grid.set_row_wrapped(row, false);
-        }
+        let blank = self.blank_cell();
+        self.grid
+            .scroll_down_rows(top, bottom, count, &blank, self.seqno);
         for row in top..=bottom {
             self.grid.set_row_last_change_seqno(row, self.seqno);
         }
@@ -5776,46 +5739,20 @@ impl Terminal {
                 self.drop_inline_images_crossing_history_boundary(suffix_start);
             }
             self.shift_suffix_metadata_for_recorded_rows(suffix_start, usize::from(count));
-            for row in top..top.saturating_add(count) {
-                self.record_scrollback_line(row);
-            }
-            self.trim_scrollback_to_limit();
         } else {
             self.scroll_inline_images_up_region(top, bottom, count);
             self.scroll_kitty_placeholder_cells_up_region(top, bottom, count);
         }
 
-        if count < height {
-            let shift_bottom = bottom - count;
-            self.record_scrolled_survivor_cell_clones(height - count, size.columns);
-            for row in top..=shift_bottom {
-                for column in 0..size.columns {
-                    let cell = self
-                        .grid
-                        .get(row + count, column)
-                        .cloned()
-                        .unwrap_or_default();
-                    self.grid.set(row, column, cell);
-                }
-                self.grid.copy_row_wrapped(row + count, row);
-                self.grid.copy_row_reflow_overflow(row + count, row);
-                if records_scrollback {
-                    self.grid.copy_row_last_change_seqno(row + count, row);
-                }
+        let blank = self.blank_cell();
+        let exiting_rows = self
+            .grid
+            .scroll_up_rows(top, bottom, count, &blank, self.seqno);
+        if records_scrollback {
+            for row in exiting_rows {
+                self.scrollback.push(ScrollbackLine::from_grid_row(row));
             }
-        }
-
-        let blank_start = if count == height {
-            top
-        } else {
-            bottom - count + 1
-        };
-        for row in blank_start..=bottom {
-            for column in 0..size.columns {
-                self.grid.set(row, column, self.blank_cell());
-            }
-            self.grid.set_row_wrapped(row, false);
-            self.grid.set_row_last_change_seqno(row, self.seqno);
+            self.trim_scrollback_to_limit();
         }
 
         if records_scrollback {
@@ -8761,7 +8698,7 @@ mod stable_row_tests {
         assert_eq!(
             terminal.work_counters(),
             TerminalWorkCounters {
-                scrolled_survivor_cell_clones: 8,
+                scrolled_survivor_cell_clones: 0,
                 history_row_relocations: 0,
                 metadata_rebase_batches: 1,
             }
@@ -8967,12 +8904,153 @@ mod stable_row_tests {
         terminal.scroll_down_bounded_cells(0, 3, 1, 2, 5);
         terminal.scroll_up_bounded_cells(0, 3, 3, 2, 5);
 
-        // Full down: 3*8, full up: 2*8, bounded down: 3*4,
-        // bounded up: 1*4. These are exactly the clone-loop iteration counts.
+        // Full-width row rotations clone no surviving cells. Bounded down:
+        // 3*4, bounded up: 1*4. These are exactly the remaining cell-copy
+        // loop iteration counts.
         assert_eq!(
             terminal.work_counters().scrolled_survivor_cell_clones,
-            24 + 16 + 12 + 4
+            12 + 4
         );
+    }
+
+    #[test]
+    fn full_screen_scroll_does_not_clone_surviving_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+        terminal.feed(b"row-000\r\nrow-111\r\nrow-222\r\nrow-333");
+        let before = terminal.work_counters();
+
+        terminal.scroll_up_region_by(0, 3, 1);
+
+        assert_eq!(
+            terminal
+                .work_counters()
+                .saturating_delta_since(before)
+                .scrolled_survivor_cell_clones,
+            0
+        );
+    }
+
+    #[test]
+    fn partial_region_scroll_preserves_exterior_rows() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 5));
+        for row in 0..5 {
+            for column in 0..4 {
+                let mut cell = Cell {
+                    ch: char::from(b'A' + u8::try_from(row).unwrap()),
+                    ..Cell::default()
+                };
+                cell.foreground = Color::Indexed(u8::try_from(row).unwrap());
+                assert!(terminal.grid.set(row, column, cell));
+            }
+            terminal.grid.set_row_wrapped(row, row % 2 == 0);
+            assert!(
+                terminal
+                    .grid
+                    .set_row_last_change_seqno(row, 100 + usize::from(row))
+            );
+        }
+        terminal.grid.set_reflow_overflow(
+            0,
+            vec![Cell {
+                ch: '↑',
+                ..Cell::default()
+            }],
+        );
+        terminal.grid.set_reflow_overflow(
+            4,
+            vec![Cell {
+                ch: '↓',
+                ..Cell::default()
+            }],
+        );
+        let top = terminal.grid.cells_with_reflow_overflow(0);
+        let bottom = terminal.grid.cells_with_reflow_overflow(4);
+        let top_wrapped = terminal.grid.row_wrapped(0);
+        let bottom_wrapped = terminal.grid.row_wrapped(4);
+        let top_seqno = terminal.grid.row_last_change_seqno(0);
+        let bottom_seqno = terminal.grid.row_last_change_seqno(4);
+
+        terminal.scroll_up_region_by(1, 3, 1);
+
+        assert_eq!(terminal.grid.cells_with_reflow_overflow(0), top);
+        assert_eq!(terminal.grid.cells_with_reflow_overflow(4), bottom);
+        assert_eq!(terminal.grid.row_wrapped(0), top_wrapped);
+        assert_eq!(terminal.grid.row_wrapped(4), bottom_wrapped);
+        assert_eq!(terminal.grid.row_last_change_seqno(0), top_seqno);
+        assert_eq!(terminal.grid.row_last_change_seqno(4), bottom_seqno);
+    }
+
+    #[test]
+    fn row_rotation_preserves_wrapped_overflow_and_seqno() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 3));
+        let source_seqno = 4242;
+        assert!(terminal.grid.set(
+            1,
+            0,
+            Cell {
+                ch: 'S',
+                foreground: Color::Indexed(5),
+                ..Cell::default()
+            }
+        ));
+        assert!(terminal.grid.set(
+            1,
+            1,
+            Cell {
+                ch: 'T',
+                background: Color::Indexed(6),
+                ..Cell::default()
+            }
+        ));
+        terminal.grid.set_reflow_overflow(
+            1,
+            vec![Cell {
+                ch: '界',
+                hyperlink: Some("overflow".to_owned()),
+                ..Cell::default()
+            }],
+        );
+        terminal.grid.set_row_wrapped(1, true);
+        assert!(terminal.grid.set_row_last_change_seqno(1, source_seqno));
+        let expected = terminal.grid.cells_with_reflow_overflow(1);
+
+        terminal.scroll_up_region_by(0, 2, 1);
+
+        assert_eq!(terminal.grid.cells_with_reflow_overflow(0), expected);
+        assert!(terminal.grid.row_wrapped(0));
+        assert_eq!(terminal.grid.row_last_change_seqno(0), Some(source_seqno));
+    }
+
+    #[test]
+    fn row_to_history_moves_cells_without_duplicate_clone() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 2));
+        let hyperlink = "https://example.test/owned-row-allocation".repeat(4);
+        assert!(terminal.grid.set(
+            0,
+            0,
+            Cell {
+                ch: 'x',
+                hyperlink: Some(hyperlink),
+                ..Cell::default()
+            }
+        ));
+        let allocation = terminal
+            .grid
+            .get(0, 0)
+            .and_then(|cell| cell.hyperlink.as_ref())
+            .map(|hyperlink| hyperlink.as_ptr())
+            .expect("test row has an owned allocation");
+
+        terminal.scroll_up_region_by(0, 1, 1);
+
+        let recorded_allocation = terminal
+            .scrollback
+            .last()
+            .and_then(|line| line.cells().first())
+            .and_then(|cell| cell.hyperlink.as_ref())
+            .map(|hyperlink| hyperlink.as_ptr())
+            .expect("scrolled row was recorded in history");
+        assert_eq!(recorded_allocation, allocation);
     }
 
     fn stable_coordinate(

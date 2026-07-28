@@ -644,7 +644,7 @@ mod tests {
         assert!(report.display_bytes > 0);
         assert!(report.responses > 0);
         assert!(report.inspected_query_bytes > 0);
-        assert!(report.scrolled_survivor_cell_clones > 0);
+        assert_eq!(report.scrolled_survivor_cell_clones, 0);
         assert!(report.cursor_row < report.rows);
         assert!(report.cursor_column < report.columns);
     }
@@ -870,7 +870,7 @@ mod tests {
         }
 
         assert_eq!(plain.inspected_query_bytes, 0);
-        assert!(plain.scrolled_survivor_cell_clones > 0);
+        assert_eq!(plain.scrolled_survivor_cell_clones, 0);
         assert!(ansi.inspected_query_bytes > 0);
         assert!(query.inspected_query_bytes > 0);
         assert!(ansi.inspected_query_bytes >= ansi.bytes as u64);
