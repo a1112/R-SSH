@@ -55,11 +55,11 @@ jobs:
             return $json | ConvertFrom-Json
           }
 
-          $smallChunk = Invoke-QueryBench 512
-          $largeChunk = Invoke-QueryBench 16384
+          $warmupCount = 1
+          $sampleCount = 5
           $violations = [System.Collections.Generic.List[object]]::new()
 
-          foreach ($report in @($smallChunk, $largeChunk)) {
+          function Test-DeterministicWork($report) {
             if ($report.inspected_query_bytes -gt ($report.bytes * 4)) {
               $violations.Add([pscustomobject]@{
                 metric = "inspected_query_bytes"
@@ -90,18 +90,49 @@ jobs:
             }
           }
 
-          if ($smallChunk.throughput_bytes_per_sec -le 0) {
-            $violations.Add([pscustomobject]@{
-              metric = "query_chunk_throughput_ratio_16k_over_512"
-              observed = "undefined: 512-byte throughput is $($smallChunk.throughput_bytes_per_sec)"
-              expected = "512-byte throughput > 0"
-            })
-          } else {
-            $ratio = [double]$largeChunk.throughput_bytes_per_sec / [double]$smallChunk.throughput_bytes_per_sec
-            if ($ratio -lt 0.70) {
+          for ($index = 0; $index -lt $warmupCount; $index++) {
+            $null = Invoke-QueryBench 512
+            $null = Invoke-QueryBench 16384
+          }
+
+          $ratios = @()
+          for ($index = 0; $index -lt $sampleCount; $index++) {
+            if (($index % 2) -eq 0) {
+              $smallChunk = Invoke-QueryBench 512
+              $largeChunk = Invoke-QueryBench 16384
+            } else {
+              $largeChunk = Invoke-QueryBench 16384
+              $smallChunk = Invoke-QueryBench 512
+            }
+
+            Test-DeterministicWork $smallChunk
+            Test-DeterministicWork $largeChunk
+            if ($smallChunk.throughput_bytes_per_sec -le 0) {
               $violations.Add([pscustomobject]@{
                 metric = "query_chunk_throughput_ratio_16k_over_512"
-                observed = $ratio
+                observed = "undefined: 512-byte throughput is $($smallChunk.throughput_bytes_per_sec)"
+                expected = "512-byte throughput > 0"
+              })
+            } else {
+              $ratio = [double]$largeChunk.throughput_bytes_per_sec / [double]$smallChunk.throughput_bytes_per_sec
+              $ratios += $ratio
+            }
+          }
+
+          $ratioMedian = $null
+          if ($ratios.Count -ne $sampleCount) {
+            $violations.Add([pscustomobject]@{
+              metric = "query_chunk_throughput_ratio_sample_count"
+              observed = $ratios.Count
+              expected = "== $sampleCount"
+            })
+          } else {
+            $sortedRatios = @($ratios | Sort-Object)
+            $ratioMedian = [double]$sortedRatios[2]
+            if ($ratioMedian -lt 0.70) {
+              $violations.Add([pscustomobject]@{
+                metric = "query_chunk_throughput_ratio_16k_over_512"
+                observed = $ratioMedian
                 expected = ">= 0.70"
               })
             }
@@ -110,7 +141,18 @@ jobs:
           if ($violations.Count -gt 0) {
             @{
               ok = $false
+              ratio_samples = $ratios
+              ratio_median = $ratioMedian
               threshold_violations = $violations
             } | ConvertTo-Json -Depth 4 -Compress
             exit 1
           }
+
+          @{
+            ok = $true
+            warmups = $warmupCount
+            samples = $sampleCount
+            ratio_samples = $ratios
+            ratio_median = $ratioMedian
+            threshold_violations = @()
+          } | ConvertTo-Json -Depth 4 -Compress

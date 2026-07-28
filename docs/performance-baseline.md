@@ -34,10 +34,18 @@ field observable.
 The `deterministic-performance` job runs on `windows-2025`. It enforces only
 deterministic work and the relative 16 KiB/512 B throughput ratio. It does not
 enforce absolute elapsed time, CPU, or memory budgets on shared hosted runners.
+After one discarded warmup pair, it measures five 512 B/16 KiB pairs, alternates
+which chunk size runs first, and gates the median of the five per-pair ratios.
+The workflow emits the individual ratio samples and median as JSON.
 
 Each benchmark process exit code is checked before its JSON is parsed. A failed
 gate emits `threshold_violations` entries with `metric`, `observed`, and
-`expected` fields.
+`expected` fields. CLI JSON also retains the legacy `actual` and `limit` fields;
+their values are identical to `observed` and `expected`. The public Rust
+`BenchThresholdViolation` fields remain `metric`, `actual`, and `limit` during
+this compatibility window. If the process sampler cannot report both resident
+and virtual memory, requested idle-CPU or RSS thresholds fail with
+`observed = "unavailable"` instead of treating zero as a measurement.
 
 ## Fixed Release Gate
 
@@ -45,6 +53,14 @@ The release workflow uses a protected runner labeled
 `self-hosted`, `Windows`, `X64`, and `rssh-performance`. Tag and manually
 dispatched releases cannot package or publish until this job succeeds. The job
 is serialized per machine class.
+
+The protected `performance` environment must require designated reviewers.
+Manual dispatch is accepted only from the repository default branch. Tag runs
+are accepted only for `v*` tags; the repository ruleset must restrict creation
+of those tags to authorized release maintainers and require the tag commit to
+be reachable from the protected default branch. The fixed job has read-only
+contents permission and checks out without persisted credentials. Only the
+separate publish job receives `contents: write`.
 
 For both `ansi-scroll-query` and `plain-scroll`, the runner executes the
 workloads in interleaved query/plain rounds to reduce thermal drift:
@@ -62,7 +78,10 @@ v1|bytes=1048576|chunk=8192|frames=30|idle=1000|query=ansi-scroll-query|plain=pl
 Absolute budgets are applied to the medians. Throughput may not fall below 90%
 of the protected same-machine baseline. Latency, idle CPU, and RSS may not rise
 above 110% of that baseline. Missing, non-positive, non-finite, or mismatched
-baseline metadata fails closed.
+baseline metadata fails closed. Regression comparisons divide observed values
+by the positive finite baseline, avoiding overflow near `Double.MaxValue`;
+workflow boundary checks cover zero, negative values, NaN, both infinities,
+`Double.MaxValue`, and exact 90%/110% boundaries.
 
 The protected `performance` environment supplies:
 

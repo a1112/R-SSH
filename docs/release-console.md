@@ -18,11 +18,19 @@ The zip contains:
 
 ## Release Triggers
 
-- Manual run: GitHub Actions `Release` workflow through `workflow_dispatch`.
+- Manual run: GitHub Actions `Release` workflow through `workflow_dispatch`
+  on the repository default branch.
 - Versioned release: push a tag that starts with `v`, for example `v0.1.0`.
 
 Tag releases create a GitHub Release and attach `R-SSH-windows-x64.zip`.
 Manual runs upload the same zip as a workflow artifact.
+
+The protected `performance` environment requires designated reviewers. A
+repository ruleset restricts `v*` tag creation to authorized release
+maintainers and requires the tagged commit to be reachable from the protected
+default branch. The workflow defaults to read-only contents permission;
+fixed-runner checkout does not persist credentials, and only the isolated
+tag-publishing job receives `contents: write`.
 
 ## Verification Gates
 

@@ -318,7 +318,8 @@ sample count and `--idle-ms N` to tune the resource sampling window. Add
 `--max-render-frame-p95-us`, `--max-idle-cpu-percent`, or
 `--max-process-memory-bytes` to turn the benchmark into a non-zero-exit quality
 gate; JSON output includes `threshold_violations` when a gate fails.
-Each violation identifies `metric`, `observed`, and `expected` values.
+Each violation identifies `metric`, `observed`, and `expected` values while
+retaining compatibility aliases `actual` and `limit`.
 Add `--preflight` to `console`/`local`, `ssh`, `sftp`, or `scp` when startup
 should run the same console dependency check before spawning the PTY child
 process. Add `--metrics` to `console`/`local`, `ssh`, `sftp`, or `scp` to print

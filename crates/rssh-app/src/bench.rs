@@ -7,7 +7,7 @@ use std::{
 use rssh_core::TerminalSize;
 use rssh_renderer::{PixelRenderer, TerminalRenderSnapshot};
 use rssh_terminal::Terminal;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
 use crate::{
@@ -52,11 +52,26 @@ pub struct BenchReport {
     pub cursor_column: u16,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 pub struct BenchThresholdViolation {
     pub metric: String,
-    pub observed: String,
-    pub expected: String,
+    pub actual: String,
+    pub limit: String,
+}
+
+impl Serialize for BenchThresholdViolation {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut fields = serializer.serialize_struct("BenchThresholdViolation", 5)?;
+        fields.serialize_field("metric", &self.metric)?;
+        fields.serialize_field("actual", &self.actual)?;
+        fields.serialize_field("limit", &self.limit)?;
+        fields.serialize_field("observed", &self.actual)?;
+        fields.serialize_field("expected", &self.limit)?;
+        fields.end()
+    }
 }
 
 pub fn print_bench(options: &BenchOptions) -> Result<(), Box<dyn Error>> {
@@ -141,7 +156,7 @@ pub fn bench_text_lines(report: &BenchReport) -> Vec<String> {
     lines.extend(report.threshold_violations.iter().map(|violation| {
         format!(
             "fail\tthreshold\tmetric={} observed={} expected={}",
-            violation.metric, violation.observed, violation.expected
+            violation.metric, violation.actual, violation.limit
         )
     }));
 
@@ -326,21 +341,32 @@ fn apply_bench_thresholds(report: &mut BenchReport, thresholds: &BenchThresholds
     }
 
     if let Some(limit) = thresholds.max_idle_cpu_percent {
-        record_max_float_violation(
-            &mut report.threshold_violations,
-            "idle_cpu_usage_percent",
-            report.idle_cpu_usage_percent,
-            f32::from(limit),
-        );
+        if process_resource_sampling_available(report) {
+            record_max_float_violation(
+                &mut report.threshold_violations,
+                "idle_cpu_usage_percent",
+                report.idle_cpu_usage_percent,
+                f32::from(limit),
+            );
+        } else {
+            record_unavailable_violation(
+                &mut report.threshold_violations,
+                "idle_cpu_usage_percent",
+            );
+        }
     }
 
     if let Some(limit) = thresholds.max_process_memory_bytes {
-        record_max_violation(
-            &mut report.threshold_violations,
-            "process_memory_bytes",
-            u128::from(report.process_memory_bytes),
-            usize_to_u128(limit),
-        );
+        if process_resource_sampling_available(report) {
+            record_max_violation(
+                &mut report.threshold_violations,
+                "process_memory_bytes",
+                u128::from(report.process_memory_bytes),
+                usize_to_u128(limit),
+            );
+        } else {
+            record_unavailable_violation(&mut report.threshold_violations, "process_memory_bytes");
+        }
     }
 
     report.ok = report.threshold_violations.is_empty();
@@ -358,8 +384,8 @@ fn record_min_violation(
 
     violations.push(BenchThresholdViolation {
         metric: metric.to_owned(),
-        observed: observed.to_string(),
-        expected: format!(">={limit}"),
+        actual: observed.to_string(),
+        limit: format!(">={limit}"),
     });
 }
 
@@ -375,8 +401,8 @@ fn record_max_violation(
 
     violations.push(BenchThresholdViolation {
         metric: metric.to_owned(),
-        observed: observed.to_string(),
-        expected: format!("<={limit}"),
+        actual: observed.to_string(),
+        limit: format!("<={limit}"),
     });
 }
 
@@ -392,9 +418,21 @@ fn record_max_float_violation(
 
     violations.push(BenchThresholdViolation {
         metric: metric.to_owned(),
-        observed: format!("{observed:.2}"),
-        expected: format!("<={limit:.2}"),
+        actual: format!("{observed:.2}"),
+        limit: format!("<={limit:.2}"),
     });
+}
+
+fn record_unavailable_violation(violations: &mut Vec<BenchThresholdViolation>, metric: &str) {
+    violations.push(BenchThresholdViolation {
+        metric: metric.to_owned(),
+        actual: "unavailable".to_owned(),
+        limit: "available".to_owned(),
+    });
+}
+
+const fn process_resource_sampling_available(report: &BenchReport) -> bool {
+    report.process_memory_bytes > 0 && report.process_virtual_memory_bytes > 0
 }
 
 fn bench_threshold_error(report: &BenchReport) -> Box<dyn Error> {
@@ -958,8 +996,69 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing {metric} violation"));
             assert!(violation.get("observed").is_some());
             assert!(violation.get("expected").is_some());
-            assert!(violation.get("actual").is_none());
-            assert!(violation.get("limit").is_none());
+            assert_eq!(violation["actual"], violation["observed"]);
+            assert_eq!(violation["limit"], violation["expected"]);
+        }
+    }
+
+    #[test]
+    fn unavailable_resource_sampling_fails_requested_cpu_and_rss_thresholds() {
+        let mut report = super::BenchReport {
+            ok: true,
+            workload: "plain-scroll".to_owned(),
+            bytes: 1_024,
+            chunk_size: 512,
+            chunks: 2,
+            columns: 80,
+            rows: 24,
+            elapsed_ms: 1,
+            throughput_bytes_per_sec: 5_242_880,
+            chunk_p95_us: 5_000,
+            render_frames: 1,
+            render_frame_p95_us: 16_000,
+            rendered_pixels: 245_760,
+            render_pixels_per_sec: 15_360_000,
+            idle_sample_ms: 1_000,
+            idle_cpu_usage_percent: 0.0,
+            process_memory_bytes: 0,
+            process_virtual_memory_bytes: 0,
+            process_accumulated_cpu_ms: 0,
+            threshold_violations: Vec::new(),
+            display_bytes: 1_024,
+            responses: 0,
+            bells: 0,
+            scrollback_lines: 1,
+            inspected_query_bytes: 0,
+            scrolled_survivor_cell_clones: 0,
+            history_row_relocations: 0,
+            metadata_rebase_batches: 1,
+            cursor_row: 0,
+            cursor_column: 0,
+        };
+        let thresholds = crate::cli::BenchThresholds {
+            min_throughput_bytes_per_sec: None,
+            max_chunk_p95_us: None,
+            max_render_frame_p95_us: None,
+            max_idle_cpu_percent: Some(3),
+            max_process_memory_bytes: Some(268_435_456),
+        };
+
+        for (rss, virtual_memory) in [(0, 0), (0, 1), (1, 0)] {
+            report.process_memory_bytes = rss;
+            report.process_virtual_memory_bytes = virtual_memory;
+            super::apply_bench_thresholds(&mut report, &thresholds);
+
+            assert!(!report.ok);
+            assert_eq!(report.threshold_violations.len(), 2);
+            for metric in ["idle_cpu_usage_percent", "process_memory_bytes"] {
+                let violation = report
+                    .threshold_violations
+                    .iter()
+                    .find(|violation| violation.metric == metric)
+                    .unwrap_or_else(|| panic!("missing {metric} availability violation"));
+                assert_eq!(violation.actual, "unavailable");
+                assert_eq!(violation.limit, "available");
+            }
         }
     }
 
@@ -1017,7 +1116,13 @@ mod tests {
             "batched_scroll_prune_matches_incremental_prune",
             "$smallChunk.throughput_bytes_per_sec -le 0",
             "$ratio = [double]$largeChunk.throughput_bytes_per_sec / [double]$smallChunk.throughput_bytes_per_sec",
-            "$ratio -lt 0.70",
+            "$warmupCount = 1",
+            "$sampleCount = 5",
+            "$index % 2",
+            "$ratios += $ratio",
+            "$sortedRatios[2]",
+            "ratio_samples",
+            "ratio_median",
         ] {
             assert!(
                 ci.contains(required),
@@ -1046,6 +1151,11 @@ mod tests {
             "runs-on: [self-hosted, Windows, X64, rssh-performance]",
             "environment: performance",
             "cancel-in-progress: false",
+            "contents: read",
+            "persist-credentials: false",
+            "github.event.repository.default_branch",
+            "publish-release:",
+            "contents: write",
             "$warmupCount = 2",
             "$sampleCount = 7",
             "$regressionTolerance = 0.10",
@@ -1054,8 +1164,8 @@ mod tests {
             "$querySamples += Invoke-Benchmark \"ansi-scroll-query\"",
             "$plainSamples += Invoke-Benchmark \"plain-scroll\"",
             "$sorted[3]",
-            "$observed -lt ($baseline * (1.0 - $regressionTolerance))",
-            "$observed -gt ($baseline * (1.0 + $regressionTolerance))",
+            "($observed / $baseline) -lt (1.0 - $regressionTolerance)",
+            "($observed / $baseline) -gt (1.0 + $regressionTolerance)",
             "RSSH_PERF_BASELINE_MACHINE_CLASS",
             "RSSH_PERF_BASELINE_OS",
             "RSSH_PERF_BASELINE_ARCH",
@@ -1071,6 +1181,13 @@ mod tests {
             "--idle-ms 1000",
             "process_memory_bytes_available",
             "process_virtual_memory_bytes_available",
+            "Test-ValidBaseline 0.0",
+            "Test-ValidBaseline ([double]::NaN)",
+            "Test-ValidBaseline ([double]::PositiveInfinity)",
+            "Test-ValidBaseline ([double]::NegativeInfinity)",
+            "Test-ValidBaseline ([double]::MaxValue)",
+            "Test-Higher-Is-Regression 90.0 100.0",
+            "Test-Lower-Is-Regression 110.0 100.0",
             "1048576",
             "5242880",
             "5000",
@@ -1104,6 +1221,11 @@ mod tests {
         assert!(
             !release.contains("idle_cpu_usage_percent_available"),
             "a real zero-percent idle sample must not be mistaken for unavailable resource data"
+        );
+        assert!(
+            !release.contains("$baseline * (1.0 + $regressionTolerance)")
+                && !release.contains("$baseline * (1.0 - $regressionTolerance)"),
+            "baseline comparisons must not overflow by multiplying attacker-controlled baselines"
         );
         assert_raw_exit_checked_before_json("release", release);
     }
