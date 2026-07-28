@@ -2163,9 +2163,18 @@ mod tests {
         let responses = runtime.feed_pty_output(b"abc");
 
         assert!(responses.is_empty());
-        assert_eq!(runtime.terminal().grid().get(0, 0).unwrap().ch, 'a');
-        assert_eq!(runtime.terminal().grid().get(0, 1).unwrap().ch, 'b');
-        assert_eq!(runtime.terminal().grid().get(0, 2).unwrap().ch, 'c');
+        assert_eq!(
+            runtime.terminal().grid().get(0, 0).unwrap().primary_char(),
+            'a'
+        );
+        assert_eq!(
+            runtime.terminal().grid().get(0, 1).unwrap().primary_char(),
+            'b'
+        );
+        assert_eq!(
+            runtime.terminal().grid().get(0, 2).unwrap().primary_char(),
+            'c'
+        );
     }
 
     #[test]
@@ -5451,7 +5460,7 @@ mod tests {
 
         for row in 0..size.rows {
             for column in 0..size.columns {
-                text.push(grid.get(row, column).unwrap().ch);
+                text.push_str(grid.get(row, column).unwrap().text());
             }
         }
 

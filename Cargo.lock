@@ -3130,7 +3130,9 @@ dependencies = [
  "base64",
  "flate2",
  "rssh-core",
+ "smol_str",
  "unicode-normalization",
+ "unicode-segmentation",
  "unicode-width 0.2.2",
 ]
 

@@ -7,8 +7,10 @@ use std::path::{Path, PathBuf};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use flate2::read::ZlibDecoder;
 use rssh_core::{DamageRegion, TerminalSize};
+use smol_str::SmolStr;
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::canonical_combining_class;
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
@@ -507,7 +509,7 @@ pub struct Terminal {
     clear_semantic_type_on_movement: bool,
     pending_utf8: Vec<u8>,
     pending_control: Vec<char>,
-    last_printable: Option<char>,
+    last_printable: Option<SmolStr>,
     nfc_last_printable_cell: Option<(u16, u16)>,
     saved_cursor: Option<SavedCursor>,
     main_screen: Option<ScreenState>,
@@ -569,7 +571,7 @@ struct ScreenState {
     cursor_column: u16,
     pending_wrap: bool,
     clear_semantic_type_on_movement: bool,
-    last_printable: Option<char>,
+    last_printable: Option<SmolStr>,
     nfc_last_printable_cell: Option<(u16, u16)>,
     saved_cursor: Option<SavedCursor>,
     modes: TerminalModes,
@@ -1071,31 +1073,25 @@ impl Terminal {
         let Some(previous_cell) = self.grid.get(row, column).cloned() else {
             return 0;
         };
-        if previous_cell.ch == KITTY_UNICODE_PLACEHOLDER {
+        if previous_cell.primary_char() == KITTY_UNICODE_PLACEHOLDER {
             return 0;
         }
 
-        let normalized = std::iter::once(previous_cell.ch)
-            .chain(text[..leading_end].chars())
-            .collect::<String>()
+        let normalized = format!("{}{}", previous_cell.text(), &text[..leading_end])
             .nfc()
             .collect::<String>();
-        let mut normalized_chars = normalized.chars();
-        let Some(normalized_ch) = normalized_chars.next() else {
-            return 0;
-        };
-        if normalized_chars.next().is_some() || normalized_ch == previous_cell.ch {
+        if normalized == previous_cell.text() {
             return 0;
         }
 
-        let previous_width = display_width(
-            previous_cell.ch,
+        let previous_width = grapheme_display_width(
+            previous_cell.text(),
             self.unicode_version,
             self.treat_east_asian_ambiguous_width_as_wide,
             &self.cell_width_overrides,
         );
-        let normalized_width = display_width(
-            normalized_ch,
+        let normalized_width = grapheme_display_width(
+            &normalized,
             self.unicode_version,
             self.treat_east_asian_ambiguous_width_as_wide,
             &self.cell_width_overrides,
@@ -1105,10 +1101,10 @@ impl Terminal {
         }
 
         let mut normalized_cell = previous_cell;
-        normalized_cell.ch = normalized_ch;
+        normalized_cell.set_text(normalized.clone(), saturating_u8(normalized_width));
         if self.set_grid_cell(row, column, normalized_cell) {
             self.record_damage(DamageRegion::new(column, row, previous_width, 1));
-            self.last_printable = Some(normalized_ch);
+            self.last_printable = Some(normalized.into());
             return leading_end;
         }
 
@@ -3182,11 +3178,9 @@ impl Terminal {
                 lines.push(std::mem::take(&mut logical_line));
             }
 
-            let line = cells[first_column..=last_column]
-                .iter()
-                .map(|cell| cell.ch)
-                .collect::<String>();
-            logical_line.push_str(&line);
+            for cell in &cells[first_column..=last_column] {
+                logical_line.push_str(cell.text());
+            }
         }
 
         trim_trailing_spaces(&mut logical_line);
@@ -3228,7 +3222,7 @@ impl Terminal {
                 let byte = self
                     .grid
                     .get(row, column)
-                    .map_or(b' ', |cell| cell.ch as u8);
+                    .map_or(b' ', |cell| cell.primary_char() as u8);
                 checksum = checksum.wrapping_add(u16::from(byte));
             }
         }
@@ -3710,10 +3704,7 @@ impl Terminal {
             return;
         }
 
-        let cell = Cell {
-            ch: 'E',
-            ..Cell::default()
-        };
+        let cell = Cell::with_char('E');
         for row in 0..size.rows {
             for column in 0..size.columns {
                 self.set_grid_cell(row, column, cell.clone());
@@ -3974,10 +3965,15 @@ impl Terminal {
 
     fn write_char(&mut self, ch: char) {
         let ch = self.map_graphic_character(ch);
-        if self.apply_unicode_presentation_selector(ch) {
+        if is_unicode_presentation_selector(ch)
+            && self.unicode_version < UNICODE_PRESENTATION_SELECTOR_VERSION
+        {
             return;
         }
         if self.apply_kitty_placeholder_diacritic(ch) {
+            return;
+        }
+        if self.extend_previous_grapheme(ch) {
             return;
         }
         self.finish_pending_kitty_placeholder();
@@ -3986,7 +3982,8 @@ impl Terminal {
             self.unicode_version,
             self.treat_east_asian_ambiguous_width_as_wide,
             &self.cell_width_overrides,
-        );
+        )
+        .min(u16::from(u8::MAX));
         if width == 0 {
             return;
         }
@@ -4018,31 +4015,38 @@ impl Terminal {
 
         let column = self.cursor_column;
         let row = self.cursor_row;
+        for target in column..column.saturating_add(write_width) {
+            self.clear_grapheme_span_at(row, target);
+        }
         let history_row = self.scrollback.len().saturating_add(usize::from(row));
         let mut cell = self.style.clone();
-        cell.ch = ch;
+        cell.set_text(ch.to_string(), saturating_u8(width));
 
         if self.set_grid_cell(row, column, cell) {
             self.clear_kitty_placeholder_cells(history_row, column, write_width);
             if write_width > 1 {
                 let mut continuation = self.style.clone();
-                continuation.ch = ' ';
                 for offset in 1..write_width {
+                    continuation.set_continuation(saturating_u8(offset));
                     self.set_grid_cell(row, column + offset, continuation.clone());
                 }
             }
             if write_width < width {
                 let mut continuation = self.style.clone();
-                continuation.ch = ' ';
                 self.grid.set_reflow_overflow(
                     row,
-                    (write_width..width).map(|_| continuation.clone()).collect(),
+                    (write_width..width)
+                        .map(|offset| {
+                            continuation.set_continuation(saturating_u8(offset));
+                            continuation.clone()
+                        })
+                        .collect(),
                 );
             }
 
             self.record_damage(DamageRegion::new(column, row, write_width, 1));
             self.advance_cursor(write_width);
-            self.last_printable = Some(ch);
+            self.last_printable = Some(SmolStr::new(ch.to_string()));
             self.nfc_last_printable_cell = Some((row, column));
             if ch == KITTY_UNICODE_PLACEHOLDER {
                 self.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
@@ -4064,43 +4068,42 @@ impl Terminal {
         }
     }
 
-    fn apply_unicode_presentation_selector(&mut self, selector: char) -> bool {
-        if !is_unicode_presentation_selector(selector) {
+    fn extend_previous_grapheme(&mut self, ch: char) -> bool {
+        let Some((row, column)) = self.nfc_last_printable_cell else {
+            return false;
+        };
+        let Some(previous_cell) = self.grid.get(row, column).cloned() else {
+            return false;
+        };
+        if previous_cell.primary_char() == KITTY_UNICODE_PLACEHOLDER
+            || previous_cell.is_continuation()
+            || previous_cell.is_blank()
+        {
             return false;
         }
 
-        if self.unicode_version < UNICODE_PRESENTATION_SELECTOR_VERSION {
-            return true;
+        let mut grapheme = String::with_capacity(previous_cell.text().len() + ch.len_utf8());
+        grapheme.push_str(previous_cell.text());
+        grapheme.push(ch);
+        if grapheme.graphemes(true).count() != 1 {
+            return false;
         }
 
-        let Some((row, column)) = self.nfc_last_printable_cell else {
-            return true;
-        };
-        let Some(previous_cell) = self.grid.get(row, column).cloned() else {
-            return true;
-        };
-        if previous_cell.ch == KITTY_UNICODE_PLACEHOLDER {
-            return true;
-        }
-
-        let previous_width = display_width(
-            previous_cell.ch,
+        let previous_width = u16::from(previous_cell.columns());
+        let sequence_width = grapheme_display_width(
+            &grapheme,
             self.unicode_version,
             self.treat_east_asian_ambiguous_width_as_wide,
             &self.cell_width_overrides,
         );
-        let sequence_width = presentation_sequence_width(
-            previous_cell.ch,
-            selector,
-            self.treat_east_asian_ambiguous_width_as_wide,
-            &self.cell_width_overrides,
-        );
-        if previous_width == 0 || previous_width == sequence_width {
+        if previous_width == 0 || sequence_width == 0 {
             return true;
         }
 
-        let expected_cursor = column.saturating_add(previous_width);
-        if self.cursor_row != row || self.cursor_column != expected_cursor || self.pending_wrap {
+        let expected_cursor = column
+            .saturating_add(previous_width)
+            .min(self.character_right_boundary());
+        if self.cursor_row != row || self.cursor_column != expected_cursor {
             return true;
         }
 
@@ -4108,18 +4111,20 @@ impl Terminal {
             .character_right_boundary()
             .saturating_add(1)
             .saturating_sub(column);
-        if sequence_width == 0 || sequence_width > available_width {
-            return true;
-        }
+        let stored_width = sequence_width.min(available_width).max(1);
 
-        if sequence_width > previous_width {
+        let mut leader = previous_cell.clone();
+        leader.set_text(grapheme.clone(), saturating_u8(stored_width));
+        self.set_grid_cell(row, column, leader);
+
+        if stored_width > previous_width {
             let mut continuation = previous_cell;
-            continuation.ch = ' ';
-            for offset in previous_width..sequence_width {
+            for offset in previous_width..stored_width {
+                continuation.set_continuation(saturating_u8(offset));
                 self.set_grid_cell(row, column + offset, continuation.clone());
             }
         } else {
-            for offset in sequence_width..previous_width {
+            for offset in stored_width..previous_width {
                 self.set_grid_cell(row, column + offset, self.blank_cell());
             }
         }
@@ -4127,12 +4132,13 @@ impl Terminal {
         self.record_damage(DamageRegion::new(
             column,
             row,
-            previous_width.max(sequence_width),
+            previous_width.max(stored_width),
             1,
         ));
         self.cursor_column = column;
         self.pending_wrap = false;
-        self.advance_cursor(sequence_width);
+        self.advance_cursor(stored_width);
+        self.last_printable = Some(grapheme.into());
         true
     }
 
@@ -4716,7 +4722,7 @@ impl Terminal {
             cursor_column: self.cursor_column,
             pending_wrap: self.pending_wrap,
             clear_semantic_type_on_movement: self.clear_semantic_type_on_movement,
-            last_printable: self.last_printable,
+            last_printable: self.last_printable.clone(),
             nfc_last_printable_cell: self.nfc_last_printable_cell,
             saved_cursor: self.saved_cursor.clone(),
             modes: self.modes,
@@ -5909,6 +5915,7 @@ impl Terminal {
         for column in self.cursor_column..self.cursor_column + count {
             self.set_grid_cell(self.cursor_row, column, self.blank_cell());
         }
+        self.sanitize_grapheme_spans(self.cursor_row);
 
         self.record_damage(DamageRegion::new(
             self.cursor_column,
@@ -5927,6 +5934,19 @@ impl Terminal {
             return;
         }
 
+        let count = if let Some(crate::CellContent::Continuation { leader_delta }) = self
+            .grid
+            .get(self.cursor_row, self.cursor_column)
+            .map(Cell::content)
+        {
+            let leader_delta = u16::from(*leader_delta);
+            self.cursor_column = self.cursor_column.saturating_sub(leader_delta);
+            self.grid
+                .get(self.cursor_row, self.cursor_column)
+                .map_or(count, |cell| count.max(u16::from(cell.columns())))
+        } else {
+            count
+        };
         let right = self.character_right_boundary();
         self.delete_characters_with_right_boundary(count, right);
     }
@@ -5968,6 +5988,7 @@ impl Terminal {
         for column in shift_end..=right {
             self.set_grid_cell(self.cursor_row, column, self.blank_cell());
         }
+        self.sanitize_grapheme_spans(self.cursor_row);
 
         self.record_damage(DamageRegion::new(
             self.cursor_column,
@@ -6084,6 +6105,7 @@ impl Terminal {
         for column in self.cursor_column..self.cursor_column + count {
             self.set_grid_cell(self.cursor_row, column, self.blank_cell());
         }
+        self.sanitize_grapheme_spans(self.cursor_row);
 
         self.record_damage(DamageRegion::new(
             self.cursor_column,
@@ -6094,12 +6116,15 @@ impl Terminal {
     }
 
     fn repeat_previous_character(&mut self, count: u16) {
-        let Some(ch) = self.last_printable else {
+        let Some(grapheme) = self.last_printable.clone() else {
             return;
         };
 
         for _ in 0..count {
-            self.write_char(ch);
+            self.nfc_last_printable_cell = None;
+            for ch in grapheme.chars() {
+                self.write_char(ch);
+            }
         }
     }
 
@@ -6132,6 +6157,7 @@ impl Terminal {
             }
             self.set_grid_cell(row, column, self.blank_cell());
         }
+        self.sanitize_grapheme_spans(row);
         if start_column == 0 && end_column >= columns {
             self.set_grid_row_wrapped(row, false);
         }
@@ -6146,8 +6172,61 @@ impl Terminal {
 
     fn blank_cell(&self) -> Cell {
         let mut cell = self.style.clone();
-        cell.ch = ' ';
+        cell.set_blank();
         cell
+    }
+
+    fn clear_grapheme_span_at(&mut self, row: u16, column: u16) {
+        let Some(cell) = self.grid.get(row, column).cloned() else {
+            return;
+        };
+        let leader = match cell.content() {
+            crate::CellContent::Continuation { leader_delta } => {
+                column.saturating_sub(u16::from(*leader_delta))
+            }
+            _ => column,
+        };
+        let width = self
+            .grid
+            .get(row, leader)
+            .map_or(1, |cell| u16::from(cell.columns()).max(1));
+        for offset in 0..width {
+            let target = leader.saturating_add(offset);
+            if target < self.grid.size().columns {
+                self.set_grid_cell(row, target, self.blank_cell());
+            }
+        }
+    }
+
+    fn sanitize_grapheme_spans(&mut self, row: u16) {
+        let columns = self.grid.size().columns;
+        let mut column = 0;
+        while column < columns {
+            let Some(cell) = self.grid.get(row, column).cloned() else {
+                break;
+            };
+            if cell.is_continuation() {
+                self.set_grid_cell(row, column, self.blank_cell());
+                column += 1;
+                continue;
+            }
+            let width = u16::from(cell.columns()).max(1);
+            let valid = width == 1
+                || column.saturating_add(width) <= columns
+                    && (1..width).all(|offset| {
+                        matches!(
+                            self.grid.get(row, column + offset).map(Cell::content),
+                            Some(crate::CellContent::Continuation { leader_delta })
+                                if u16::from(*leader_delta) == offset
+                        )
+                    });
+            if valid {
+                column += width;
+            } else {
+                self.clear_grapheme_span_at(row, column);
+                column += 1;
+            }
+        }
     }
 
     fn set_grid_cell(&mut self, row: u16, column: u16, cell: Cell) -> bool {
@@ -6575,9 +6654,9 @@ fn retain_kitty_character_edited_placements(
 
 fn trim_reflow_padding(
     cells: &mut Vec<Cell>,
-    unicode_version: u32,
-    treat_east_asian_ambiguous_width_as_wide: bool,
-    cell_width_overrides: &[CellWidthOverride],
+    _unicode_version: u32,
+    _treat_east_asian_ambiguous_width_as_wide: bool,
+    _cell_width_overrides: &[CellWidthOverride],
 ) {
     let padding = cells
         .iter()
@@ -6591,15 +6670,7 @@ fn trim_reflow_padding(
     let content_end = cells.len().saturating_sub(padding);
     let continuation_cells = cells
         .get(content_end.saturating_sub(1))
-        .map(|cell| {
-            display_width(
-                cell.ch,
-                unicode_version,
-                treat_east_asian_ambiguous_width_as_wide,
-                cell_width_overrides,
-            )
-            .saturating_sub(1)
-        })
+        .map(|cell| u16::from(cell.columns()).saturating_sub(1))
         .map_or(0, usize::from)
         .min(padding);
     cells.truncate(content_end.saturating_add(continuation_cells));
@@ -6608,9 +6679,9 @@ fn trim_reflow_padding(
 fn reflow_logical_line(
     cells: &[Cell],
     columns: u16,
-    unicode_version: u32,
-    treat_east_asian_ambiguous_width_as_wide: bool,
-    cell_width_overrides: &[CellWidthOverride],
+    _unicode_version: u32,
+    _treat_east_asian_ambiguous_width_as_wide: bool,
+    _cell_width_overrides: &[CellWidthOverride],
     cursor_offset: Option<usize>,
 ) -> (Vec<ReflowRow>, Option<(usize, usize)>) {
     if columns == 0 {
@@ -6643,13 +6714,7 @@ fn reflow_logical_line(
             reflowed_cursor = Some((rows.len(), row.len()));
         }
         let cell = &cells[index];
-        let cell_width = display_width(
-            cell.ch,
-            unicode_version,
-            treat_east_asian_ambiguous_width_as_wide,
-            cell_width_overrides,
-        )
-        .max(1);
+        let cell_width = u16::from(cell.columns()).max(1);
         let cell_width = usize::from(cell_width);
         let source_width = cell_width.min(cells.len() - index);
         let output_width = cell_width.min(usize::from(columns));
@@ -6674,7 +6739,9 @@ fn reflow_logical_line(
         let mut glyph_cells = cells[index..index + source_width].to_vec();
         while glyph_cells.len() < cell_width {
             let mut continuation = cell.clone();
-            continuation.ch = ' ';
+            continuation.set_continuation(saturating_u8(
+                u16::try_from(glyph_cells.len()).unwrap_or(u16::MAX),
+            ));
             glyph_cells.push(continuation);
         }
         row.extend(glyph_cells[..output_width].iter().cloned());
@@ -8233,10 +8300,10 @@ fn append_semantic_zones_for_row(
     current_zone: &mut Option<SemanticZone>,
     zones: &mut Vec<SemanticZone>,
 ) {
-    let Some(first_non_blank) = cells.iter().position(|cell| cell.ch != ' ') else {
+    let Some(first_non_blank) = cells.iter().position(|cell| !cell.is_blank()) else {
         return;
     };
-    let Some(last_non_blank) = cells.iter().rposition(|cell| cell.ch != ' ') else {
+    let Some(last_non_blank) = cells.iter().rposition(|cell| !cell.is_blank()) else {
         return;
     };
 
@@ -8248,7 +8315,7 @@ fn append_semantic_zones_for_row(
             end += 1;
         }
 
-        if cells[start..=end].iter().any(|cell| cell.ch != ' ') {
+        if cells[start..=end].iter().any(|cell| !cell.is_blank()) {
             append_semantic_zone(
                 SemanticZone::new(row, start, row, end, semantic_type),
                 current_zone,
@@ -8530,12 +8597,15 @@ fn display_width(
     }
 }
 
-fn presentation_sequence_width(
-    ch: char,
-    selector: char,
+fn grapheme_display_width(
+    grapheme: &str,
+    unicode_version: u32,
     treat_east_asian_ambiguous_width_as_wide: bool,
     cell_width_overrides: &[CellWidthOverride],
 ) -> u16 {
+    let Some(ch) = grapheme.chars().next() else {
+        return 0;
+    };
     if let Some(override_width) = cell_width_overrides
         .iter()
         .find(|override_width| override_width.contains(ch))
@@ -8544,13 +8614,14 @@ fn presentation_sequence_width(
         return override_width;
     }
 
-    let mut sequence = String::with_capacity(ch.len_utf8() + selector.len_utf8());
-    sequence.push(ch);
-    sequence.push(selector);
+    if unicode_version <= 8 && is_widened_in_unicode9(ch) {
+        return 1;
+    }
+
     let width = if treat_east_asian_ambiguous_width_as_wide {
-        sequence.as_str().width_cjk()
+        grapheme.width_cjk()
     } else {
-        sequence.as_str().width()
+        grapheme.width()
     };
     u16_display_width(width)
 }
@@ -8690,6 +8761,142 @@ mod stable_row_tests {
     const HIGH_BYTE_KITTY_IMAGE_ID: u32 = 0x0200_001e;
 
     #[test]
+    fn terminal_preserves_decomposed_grapheme_across_feed_calls() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"e");
+        terminal.feed("\u{301}".as_bytes());
+
+        assert_eq!(
+            terminal.text_from_region(0, 0, 7, 0).as_deref(),
+            Some("e\u{301}")
+        );
+        assert_eq!(terminal.cursor(), (0, 1));
+    }
+
+    #[test]
+    fn terminal_treats_family_emoji_as_one_two_column_grapheme() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        for scalar in "👨‍👩‍👧‍👦".chars() {
+            let mut encoded = [0; 4];
+            terminal.feed(scalar.encode_utf8(&mut encoded).as_bytes());
+        }
+
+        assert_eq!(terminal.text_from_region(0, 0, 7, 0).as_deref(), Some("👨‍👩‍👧‍👦"));
+        assert_eq!(terminal.cursor(), (0, 2));
+    }
+
+    #[test]
+    fn terminal_preserves_extended_grapheme_matrix_and_continuations() {
+        let cases = [
+            ("e\u{301}", 1),
+            ("ن\u{64e}", 1),
+            ("क\u{94d}ष", 2),
+            ("☁\u{fe0e}", 1),
+            ("☁\u{fe0f}", 2),
+            ("👍🏽", 2),
+            ("🇺🇸", 2),
+            ("👨‍👩‍👧‍👦", 2),
+            ("1\u{fe0f}\u{20e3}", 2),
+        ];
+
+        for (grapheme, columns) in cases {
+            let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+            terminal.set_unicode_version(14);
+            for ch in grapheme.chars() {
+                let mut encoded = [0; 4];
+                terminal.feed(ch.encode_utf8(&mut encoded).as_bytes());
+            }
+
+            let leader = terminal.grid.get(0, 0).unwrap();
+            assert_eq!(leader.text(), grapheme, "{grapheme:?}");
+            assert_eq!(leader.columns(), columns, "{grapheme:?}");
+            assert_eq!(terminal.cursor(), (0, u16::from(columns)), "{grapheme:?}");
+            if columns == 2 {
+                assert!(terminal.grid.get(0, 1).unwrap().is_continuation());
+                assert_eq!(terminal.grid.get(0, 1).unwrap().text(), "");
+            }
+        }
+    }
+
+    #[test]
+    fn terminal_rep_repeats_complete_grapheme_without_duplicate_continuation_text() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+        terminal.feed("👍🏽".as_bytes());
+        terminal.feed(b"\x1b[2b");
+
+        assert_eq!(
+            terminal.text_from_region(0, 0, 7, 0).as_deref(),
+            Some("👍🏽👍🏽👍🏽")
+        );
+        assert_eq!(terminal.cursor(), (0, 6));
+        assert!(terminal.grid.get(0, 1).unwrap().is_continuation());
+        assert!(terminal.grid.get(0, 3).unwrap().is_continuation());
+        assert!(terminal.grid.get(0, 5).unwrap().is_continuation());
+    }
+
+    #[test]
+    fn terminal_preserves_grapheme_extension_at_right_boundary() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.set_unicode_version(14);
+        terminal.feed("☁".as_bytes());
+        terminal.feed("\u{fe0f}".as_bytes());
+
+        assert_eq!(terminal.grid.get(0, 0).unwrap().text(), "☁\u{fe0f}");
+        assert_eq!(terminal.grid.get(0, 0).unwrap().columns(), 1);
+        assert_eq!(terminal.cursor(), (0, 0));
+    }
+
+    #[test]
+    fn terminal_clamps_large_width_override_to_cell_column_capacity() {
+        let mut terminal = Terminal::new(TerminalSize::new(300, 1));
+        terminal.set_cell_width_overrides(vec![CellWidthOverride::new(
+            u32::from('x'),
+            u32::from('x'),
+            300,
+        )]);
+        terminal.feed(b"x");
+
+        assert_eq!(terminal.grid.get(0, 0).unwrap().columns(), u8::MAX);
+        assert_eq!(terminal.cursor(), (0, 255));
+        assert!(terminal.grid.get(0, 254).unwrap().is_continuation());
+        assert!(terminal.grid.get(0, 255).unwrap().is_blank());
+    }
+
+    #[test]
+    fn terminal_character_edits_do_not_leave_orphan_grapheme_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+        terminal.feed("A👍🏽B".as_bytes());
+
+        terminal.feed(b"\x1b[1;3H\x1b[P");
+
+        assert_eq!(terminal.grid.get(0, 1).unwrap().text(), "B");
+        assert!(terminal.grid.get(0, 2).unwrap().is_blank());
+        assert_eq!(terminal.text_from_region(0, 0, 5, 0).as_deref(), Some("AB"));
+    }
+
+    #[test]
+    fn terminal_grapheme_survives_copy_resize_reflow_and_scrollback() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed("A👨‍👩‍👧‍👦B\r\n1234\r\n".as_bytes());
+        let family_line = terminal
+            .scrollback
+            .iter()
+            .find(|line| line.cells().iter().any(|cell| cell.text() == "👨‍👩‍👧‍👦"))
+            .expect("family grapheme reached scrollback");
+        assert_eq!(family_line.cells()[1].text(), "👨‍👩‍👧‍👦");
+        assert!(family_line.cells()[2].is_continuation());
+
+        terminal.resize(TerminalSize::new(3, 2));
+
+        assert_eq!(
+            terminal.text_from_region(0, 0, 2, 0).as_deref(),
+            Some("A👨‍👩‍👧‍👦")
+        );
+    }
+
+    #[test]
     fn terminal_work_counters_track_executed_scroll_and_prune_operations() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
         terminal.set_scrollback_limit(1);
@@ -8722,7 +8929,11 @@ mod stable_row_tests {
             terminal
                 .scrollback
                 .iter()
-                .map(|line| line.cells().iter().map(|cell| cell.ch).collect::<String>())
+                .map(|line| line
+                    .cells()
+                    .iter()
+                    .map(Cell::primary_char)
+                    .collect::<String>())
                 .collect::<Vec<_>>(),
             ["line-02 ", "line-03 "]
         );
@@ -8859,7 +9070,7 @@ mod stable_row_tests {
             .map(|line| (line.cells_with_reflow_overflow(), line.is_wrapped()))
             .collect::<Vec<_>>();
         assert_eq!(before[1].0.len(), 2);
-        assert_eq!(before[1].0[0].ch, '界');
+        assert_eq!(before[1].0[0].primary_char(), '界');
         assert_eq!(before[1].0[1].foreground, Color::Indexed(1));
 
         terminal.resize(TerminalSize::new(2, 1));
@@ -8870,8 +9081,8 @@ mod stable_row_tests {
             .scrollback
             .get(terminal.scrollback.len().saturating_sub(1))
             .expect("wide row remains in history");
-        assert_eq!(wide.cells()[0].ch, '界');
-        assert_eq!(wide.cells()[1].ch, ' ');
+        assert_eq!(wide.cells()[0].primary_char(), '界');
+        assert_eq!(wide.cells()[1].primary_char(), ' ');
         assert_eq!(wide.cells()[1].foreground, Color::Indexed(1));
     }
 
@@ -8938,10 +9149,7 @@ mod stable_row_tests {
         let mut terminal = Terminal::new(TerminalSize::new(4, 5));
         for row in 0..5 {
             for column in 0..4 {
-                let mut cell = Cell {
-                    ch: char::from(b'A' + u8::try_from(row).unwrap()),
-                    ..Cell::default()
-                };
+                let mut cell = Cell::with_char(char::from(b'A' + u8::try_from(row).unwrap()));
                 cell.foreground = Color::Indexed(u8::try_from(row).unwrap());
                 assert!(terminal.grid.set(row, column, cell));
             }
@@ -8952,20 +9160,12 @@ mod stable_row_tests {
                     .set_row_last_change_seqno(row, 100 + usize::from(row))
             );
         }
-        terminal.grid.set_reflow_overflow(
-            0,
-            vec![Cell {
-                ch: '↑',
-                ..Cell::default()
-            }],
-        );
-        terminal.grid.set_reflow_overflow(
-            4,
-            vec![Cell {
-                ch: '↓',
-                ..Cell::default()
-            }],
-        );
+        terminal
+            .grid
+            .set_reflow_overflow(0, vec![Cell::with_char('↑')]);
+        terminal
+            .grid
+            .set_reflow_overflow(4, vec![Cell::with_char('↓')]);
         let top = terminal.grid.cells_with_reflow_overflow(0);
         let bottom = terminal.grid.cells_with_reflow_overflow(4);
         let top_wrapped = terminal.grid.row_wrapped(0);
@@ -8987,32 +9187,15 @@ mod stable_row_tests {
     fn row_rotation_preserves_wrapped_overflow_and_seqno() {
         let mut terminal = Terminal::new(TerminalSize::new(2, 3));
         let source_seqno = 4242;
-        assert!(terminal.grid.set(
-            1,
-            0,
-            Cell {
-                ch: 'S',
-                foreground: Color::Indexed(5),
-                ..Cell::default()
-            }
-        ));
-        assert!(terminal.grid.set(
-            1,
-            1,
-            Cell {
-                ch: 'T',
-                background: Color::Indexed(6),
-                ..Cell::default()
-            }
-        ));
-        terminal.grid.set_reflow_overflow(
-            1,
-            vec![Cell {
-                ch: '界',
-                hyperlink: Some("overflow".to_owned()),
-                ..Cell::default()
-            }],
-        );
+        let mut first = Cell::with_char('S');
+        first.foreground = Color::Indexed(5);
+        assert!(terminal.grid.set(1, 0, first));
+        let mut second = Cell::with_char('T');
+        second.background = Color::Indexed(6);
+        assert!(terminal.grid.set(1, 1, second));
+        let mut overflow = Cell::with_char('界');
+        overflow.hyperlink = Some("overflow".to_owned());
+        terminal.grid.set_reflow_overflow(1, vec![overflow]);
         terminal.grid.set_row_wrapped(1, true);
         assert!(terminal.grid.set_row_last_change_seqno(1, source_seqno));
         let expected = terminal.grid.cells_with_reflow_overflow(1);
@@ -9028,15 +9211,9 @@ mod stable_row_tests {
     fn row_to_history_moves_cells_without_duplicate_clone() {
         let mut terminal = Terminal::new(TerminalSize::new(2, 2));
         let hyperlink = "https://example.test/owned-row-allocation".repeat(4);
-        assert!(terminal.grid.set(
-            0,
-            0,
-            Cell {
-                ch: 'x',
-                hyperlink: Some(hyperlink),
-                ..Cell::default()
-            }
-        ));
+        let mut cell = Cell::with_char('x');
+        cell.hyperlink = Some(hyperlink);
+        assert!(terminal.grid.set(0, 0, cell));
         let allocation = terminal
             .grid
             .get(0, 0)
@@ -9088,7 +9265,7 @@ mod stable_row_tests {
             terminal
                 .cells_for_history_row(history_row)?
                 .iter()
-                .map(|cell| cell.ch)
+                .map(Cell::primary_char)
                 .collect(),
         )
     }
@@ -10054,7 +10231,7 @@ mod stable_row_tests {
                     .cells_for_history_row(row)
                     .unwrap()
                     .iter()
-                    .map(|cell| cell.ch)
+                    .map(Cell::primary_char)
                     .collect::<String>()
             })
             .collect::<Vec<_>>();
@@ -11091,7 +11268,7 @@ mod stable_row_tests {
                     .cells_for_history_row(row)
                     .unwrap()
                     .iter()
-                    .map(|cell| cell.ch)
+                    .map(Cell::primary_char)
                     .collect::<String>()
             })
             .collect::<Vec<_>>();
@@ -11141,7 +11318,7 @@ mod stable_row_tests {
                     .cells_for_history_row(row)
                     .unwrap()
                     .iter()
-                    .map(|cell| cell.ch)
+                    .map(Cell::primary_char)
                     .collect::<String>()
             })
             .collect::<Vec<_>>();
@@ -11501,7 +11678,7 @@ mod stable_row_tests {
             .iter()
             .map(|line| {
                 (
-                    line.cells().iter().map(|cell| cell.ch).collect(),
+                    line.cells().iter().map(Cell::primary_char).collect(),
                     line.is_wrapped(),
                 )
             })
@@ -11509,7 +11686,7 @@ mod stable_row_tests {
         rows.extend((0..terminal.grid.size().rows).map(|row| {
             (
                 (0..terminal.grid.size().columns)
-                    .map(|column| terminal.grid.get(row, column).unwrap().ch)
+                    .map(|column| terminal.grid.get(row, column).unwrap().primary_char())
                     .collect(),
                 terminal.grid.row_wrapped(row),
             )
@@ -11593,10 +11770,16 @@ mod stable_row_tests {
             ]
         );
         assert_eq!(terminal.scrollback.len(), 1);
-        assert_eq!(terminal.scrollback.get(0).unwrap().cells()[1].ch, '界');
-        assert_eq!(terminal.scrollback.get(0).unwrap().cells()[2].ch, ' ');
-        assert_eq!(terminal.grid.get(0, 0).unwrap().ch, 'x');
-        assert_eq!(terminal.grid.get(0, 1).unwrap().ch, ' ');
+        assert_eq!(
+            terminal.scrollback.get(0).unwrap().cells()[1].primary_char(),
+            '界'
+        );
+        assert_eq!(
+            terminal.scrollback.get(0).unwrap().cells()[2].primary_char(),
+            ' '
+        );
+        assert_eq!(terminal.grid.get(0, 0).unwrap().primary_char(), 'x');
+        assert_eq!(terminal.grid.get(0, 1).unwrap().primary_char(), ' ');
     }
 
     #[test]
@@ -11689,9 +11872,9 @@ mod stable_row_tests {
         terminal.resize(TerminalSize::new(3, 1));
         terminal.feed(b"\x1b[?1049lX");
 
-        assert_eq!(terminal.grid.get(0, 0).unwrap().ch, '界');
-        assert_eq!(terminal.grid.get(0, 1).unwrap().ch, 'X');
-        assert_eq!(terminal.grid.get(0, 2).unwrap().ch, ' ');
+        assert_eq!(terminal.grid.get(0, 0).unwrap().primary_char(), ' ');
+        assert_eq!(terminal.grid.get(0, 1).unwrap().primary_char(), 'X');
+        assert_eq!(terminal.grid.get(0, 2).unwrap().primary_char(), ' ');
     }
 
     #[test]
@@ -11704,7 +11887,7 @@ mod stable_row_tests {
 
         assert_eq!(
             (0..5)
-                .map(|column| terminal.grid.get(0, column).unwrap().ch)
+                .map(|column| terminal.grid.get(0, column).unwrap().primary_char())
                 .collect::<String>(),
             "abcX "
         );
@@ -11720,11 +11903,11 @@ mod stable_row_tests {
 
         assert_eq!(
             (0..5)
-                .map(|column| terminal.grid.get(0, column).unwrap().ch)
+                .map(|column| terminal.grid.get(0, column).unwrap().primary_char())
                 .collect::<String>(),
             "abcd "
         );
-        assert_eq!(terminal.grid.get(1, 0).unwrap().ch, 'X');
+        assert_eq!(terminal.grid.get(1, 0).unwrap().primary_char(), 'X');
     }
 
     #[test]
@@ -11787,12 +11970,12 @@ mod stable_row_tests {
         terminal.resize(TerminalSize::new(1, 1));
         terminal.resize(TerminalSize::new(2, 1));
 
-        assert_eq!(terminal.grid.get(0, 0).unwrap().ch, '界');
+        assert_eq!(terminal.grid.get(0, 0).unwrap().primary_char(), '界');
         assert_eq!(
             terminal.grid.get(0, 0).unwrap().foreground,
             Color::Indexed(1)
         );
-        assert_eq!(terminal.grid.get(0, 1).unwrap().ch, ' ');
+        assert_eq!(terminal.grid.get(0, 1).unwrap().primary_char(), ' ');
         assert_eq!(
             terminal.grid.get(0, 1).unwrap().foreground,
             Color::Indexed(1)
@@ -11814,12 +11997,12 @@ mod stable_row_tests {
         terminal.resize(TerminalSize::new(1, 1));
         terminal.resize(TerminalSize::new(2, 1));
 
-        assert_eq!(terminal.grid.get(0, 0).unwrap().ch, 'x');
+        assert_eq!(terminal.grid.get(0, 0).unwrap().primary_char(), 'x');
         assert_eq!(
             terminal.grid.get(0, 0).unwrap().foreground,
             Color::Indexed(2)
         );
-        assert_eq!(terminal.grid.get(0, 1).unwrap().ch, ' ');
+        assert_eq!(terminal.grid.get(0, 1).unwrap().primary_char(), ' ');
         assert_eq!(
             terminal.grid.get(0, 1).unwrap().foreground,
             Color::Indexed(2)
@@ -11838,7 +12021,7 @@ mod stable_row_tests {
             .get(terminal.scrollback.len().saturating_sub(1))
             .unwrap();
         assert_eq!(narrow_wide.cells().len(), 1);
-        assert_eq!(narrow_wide.cells()[0].ch, '界');
+        assert_eq!(narrow_wide.cells()[0].primary_char(), '界');
 
         terminal.resize(TerminalSize::new(2, 1));
 
@@ -11847,7 +12030,7 @@ mod stable_row_tests {
             .get(terminal.scrollback.len().saturating_sub(1))
             .unwrap();
         assert_eq!(wide.cells().len(), 2);
-        assert_eq!(wide.cells()[1].ch, ' ');
+        assert_eq!(wide.cells()[1].primary_char(), ' ');
         assert_eq!(wide.cells()[1].foreground, Color::Indexed(1));
     }
 

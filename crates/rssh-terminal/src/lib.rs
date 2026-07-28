@@ -1,7 +1,9 @@
+mod cell;
 mod grid;
 mod history;
 mod parser;
 
+pub use cell::{Cell, CellContent};
 pub use grid::{GridRow, TerminalGrid};
 pub use history::HistoryBuffer;
 pub use parser::{
@@ -282,58 +284,6 @@ pub struct InlineImageFragment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(clippy::struct_excessive_bools)]
-pub struct Cell {
-    pub ch: char,
-    pub foreground: Color,
-    pub background: Color,
-    pub underline_color: Color,
-    pub underline_style: UnderlineStyle,
-    pub bold: bool,
-    pub faint: bool,
-    pub italic: bool,
-    pub blink: bool,
-    pub rapid_blink: bool,
-    pub underline: bool,
-    pub double_underline: bool,
-    pub conceal: bool,
-    pub strikethrough: bool,
-    pub overline: bool,
-    pub vertical_align: VerticalAlign,
-    pub inverse: bool,
-    pub protected: bool,
-    pub hyperlink: Option<String>,
-    pub semantic_type: SemanticType,
-}
-
-impl Default for Cell {
-    fn default() -> Self {
-        Self {
-            ch: ' ',
-            foreground: Color::Default,
-            background: Color::Default,
-            underline_color: Color::Default,
-            underline_style: UnderlineStyle::None,
-            bold: false,
-            faint: false,
-            italic: false,
-            blink: false,
-            rapid_blink: false,
-            underline: false,
-            double_underline: false,
-            conceal: false,
-            strikethrough: false,
-            overline: false,
-            vertical_align: VerticalAlign::default(),
-            inverse: false,
-            protected: false,
-            hyperlink: None,
-            semantic_type: SemanticType::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScrollbackLine {
     cells: Vec<Cell>,
     reflow_overflow: Vec<Cell>,
@@ -437,7 +387,7 @@ mod tests {
     fn default_cell_has_terminal_defaults() {
         let cell = Cell::default();
 
-        assert_eq!(cell.ch, ' ');
+        assert_eq!(cell.primary_char(), ' ');
         assert_eq!(cell.foreground, Color::Default);
         assert_eq!(cell.background, Color::Default);
         assert_eq!(cell.underline_color, Color::Default);
@@ -461,27 +411,12 @@ mod tests {
     #[test]
     fn grid_sets_and_reads_cells_by_position() {
         let mut grid = TerminalGrid::new(TerminalSize::new(3, 2));
-        let cell = Cell {
-            ch: 'R',
-            foreground: Color::Indexed(2),
-            background: Color::Rgb(1, 2, 3),
-            underline_color: Color::Default,
-            underline_style: UnderlineStyle::Single,
-            bold: true,
-            faint: false,
-            italic: false,
-            blink: false,
-            underline: true,
-            double_underline: false,
-            conceal: false,
-            strikethrough: false,
-            overline: false,
-            vertical_align: VerticalAlign::Baseline,
-            inverse: false,
-            hyperlink: None,
-            semantic_type: SemanticType::Output,
-            ..Cell::default()
-        };
+        let mut cell = Cell::with_char('R');
+        cell.foreground = Color::Indexed(2);
+        cell.background = Color::Rgb(1, 2, 3);
+        cell.underline_style = UnderlineStyle::Single;
+        cell.bold = true;
+        cell.underline = true;
 
         assert!(grid.set(1, 2, cell.clone()));
 
@@ -510,9 +445,9 @@ mod tests {
 
         terminal.feed(b"abc");
 
-        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'a');
-        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'b');
-        assert_eq!(terminal.grid().get(0, 2).unwrap().ch, 'c');
+        assert_eq!(terminal.grid().get(0, 0).unwrap().primary_char(), 'a');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().primary_char(), 'b');
+        assert_eq!(terminal.grid().get(0, 2).unwrap().primary_char(), 'c');
         assert_eq!(terminal.cursor(), (0, 3));
     }
 
@@ -522,10 +457,10 @@ mod tests {
 
         terminal.feed(b"ab\ncd");
 
-        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'a');
-        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'b');
-        assert_eq!(terminal.grid().get(1, 2).unwrap().ch, 'c');
-        assert_eq!(terminal.grid().get(1, 3).unwrap().ch, 'd');
+        assert_eq!(terminal.grid().get(0, 0).unwrap().primary_char(), 'a');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().primary_char(), 'b');
+        assert_eq!(terminal.grid().get(1, 2).unwrap().primary_char(), 'c');
+        assert_eq!(terminal.grid().get(1, 3).unwrap().primary_char(), 'd');
         assert_eq!(terminal.cursor(), (1, 4));
     }
 
@@ -535,12 +470,12 @@ mod tests {
 
         terminal.feed(b"ab\x0bcd\x0cef");
 
-        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'a');
-        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'b');
-        assert_eq!(terminal.grid().get(1, 2).unwrap().ch, 'c');
-        assert_eq!(terminal.grid().get(1, 3).unwrap().ch, 'd');
-        assert_eq!(terminal.grid().get(2, 4).unwrap().ch, 'e');
-        assert_eq!(terminal.grid().get(2, 5).unwrap().ch, 'f');
+        assert_eq!(terminal.grid().get(0, 0).unwrap().primary_char(), 'a');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().primary_char(), 'b');
+        assert_eq!(terminal.grid().get(1, 2).unwrap().primary_char(), 'c');
+        assert_eq!(terminal.grid().get(1, 3).unwrap().primary_char(), 'd');
+        assert_eq!(terminal.grid().get(2, 4).unwrap().primary_char(), 'e');
+        assert_eq!(terminal.grid().get(2, 5).unwrap().primary_char(), 'f');
         assert_eq!(terminal.cursor(), (2, 6));
     }
 
@@ -730,7 +665,7 @@ mod tests {
         assert_eq!(terminal.cursor(), (0, 2));
 
         let restored = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(restored.ch, 'q');
+        assert_eq!(restored.primary_char(), 'q');
         assert_eq!(restored.foreground, Color::Indexed(1));
         assert!(restored.bold);
     }
@@ -766,7 +701,7 @@ mod tests {
         assert_eq!(row_text(&terminal, 0), "Aq    ");
 
         let restored = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(restored.ch, 'q');
+        assert_eq!(restored.primary_char(), 'q');
         assert_eq!(restored.foreground, Color::Indexed(2));
     }
 
@@ -1117,7 +1052,7 @@ mod tests {
         assert!(terminal.cursor_visible());
 
         let reset_cell = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(reset_cell.ch, 'q');
+        assert_eq!(reset_cell.primary_char(), 'q');
         assert_eq!(reset_cell.foreground, Color::Default);
         assert!(!reset_cell.bold);
     }
@@ -1959,7 +1894,7 @@ mod tests {
         assert!(styled.bold);
 
         let reset = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(reset.ch, 'B');
+        assert_eq!(reset.primary_char(), 'B');
         assert_eq!(reset.foreground, Color::Default);
         assert!(!reset.bold);
     }
@@ -2189,12 +2124,12 @@ mod tests {
         terminal.feed(b"\x1b[1;31mR\x1b[0mD");
 
         let red = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(red.ch, 'R');
+        assert_eq!(red.primary_char(), 'R');
         assert_eq!(red.foreground, Color::Indexed(1));
         assert!(red.bold);
 
         let default = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(default.ch, 'D');
+        assert_eq!(default.primary_char(), 'D');
         assert_eq!(default.foreground, Color::Default);
         assert!(!default.bold);
     }
@@ -2206,11 +2141,11 @@ mod tests {
         terminal.feed(b"\x1b[38:5:196mF\x1b[48:2::1:2:3mB");
 
         let foreground = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(foreground.ch, 'F');
+        assert_eq!(foreground.primary_char(), 'F');
         assert_eq!(foreground.foreground, Color::Indexed(196));
 
         let background = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(background.ch, 'B');
+        assert_eq!(background.primary_char(), 'B');
         assert_eq!(background.background, Color::Rgb(1, 2, 3));
     }
 
@@ -2221,15 +2156,15 @@ mod tests {
         terminal.feed(b"\x1b[38:6::1:2:3:4mF\x1b[48:6:5:6:7:8mB\x1b[58;6;9;10;11;12mU");
 
         let foreground = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(foreground.ch, 'F');
+        assert_eq!(foreground.primary_char(), 'F');
         assert_eq!(foreground.foreground, Color::Rgba(1, 2, 3, 4));
 
         let background = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(background.ch, 'B');
+        assert_eq!(background.primary_char(), 'B');
         assert_eq!(background.background, Color::Rgba(5, 6, 7, 8));
 
         let underline = terminal.grid().get(0, 2).unwrap();
-        assert_eq!(underline.ch, 'U');
+        assert_eq!(underline.primary_char(), 'U');
         assert_eq!(underline.underline_color, Color::Rgba(9, 10, 11, 12));
     }
 
@@ -2240,7 +2175,7 @@ mod tests {
         terminal.feed(b"\x1b[38;2;1;2;3;1mA");
 
         let cell = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(cell.ch, 'A');
+        assert_eq!(cell.primary_char(), 'A');
         assert_eq!(cell.foreground, Color::Rgb(1, 2, 3));
         assert!(cell.bold);
     }
@@ -2252,11 +2187,11 @@ mod tests {
         terminal.feed(b"\x1b[7mA\x1b[27mB");
 
         let inverse = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(inverse.ch, 'A');
+        assert_eq!(inverse.primary_char(), 'A');
         assert!(inverse.inverse);
 
         let normal = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(normal.ch, 'B');
+        assert_eq!(normal.primary_char(), 'B');
         assert!(!normal.inverse);
     }
 
@@ -2267,11 +2202,11 @@ mod tests {
         terminal.feed(b"\x1b[9mA\x1b[29mB");
 
         let struck = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(struck.ch, 'A');
+        assert_eq!(struck.primary_char(), 'A');
         assert!(struck.strikethrough);
 
         let normal = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(normal.ch, 'B');
+        assert_eq!(normal.primary_char(), 'B');
         assert!(!normal.strikethrough);
     }
 
@@ -2282,11 +2217,11 @@ mod tests {
         terminal.feed(b"\x1b[2mA\x1b[22mB");
 
         let faint = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(faint.ch, 'A');
+        assert_eq!(faint.primary_char(), 'A');
         assert!(faint.faint);
 
         let normal = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(normal.ch, 'B');
+        assert_eq!(normal.primary_char(), 'B');
         assert!(!normal.faint);
     }
 
@@ -2297,11 +2232,11 @@ mod tests {
         terminal.feed(b"\x1b[8mA\x1b[28mB");
 
         let concealed = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(concealed.ch, 'A');
+        assert_eq!(concealed.primary_char(), 'A');
         assert!(concealed.conceal);
 
         let normal = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(normal.ch, 'B');
+        assert_eq!(normal.primary_char(), 'B');
         assert!(!normal.conceal);
     }
 
@@ -2312,11 +2247,11 @@ mod tests {
         terminal.feed(b"\x1b[53mA\x1b[55mB");
 
         let overlined = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(overlined.ch, 'A');
+        assert_eq!(overlined.primary_char(), 'A');
         assert!(overlined.overline);
 
         let normal = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(normal.ch, 'B');
+        assert_eq!(normal.primary_char(), 'B');
         assert!(!normal.overline);
     }
 
@@ -2327,15 +2262,15 @@ mod tests {
         terminal.feed(b"\x1b[73mS\x1b[74mD\x1b[75mB");
 
         let superscript = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(superscript.ch, 'S');
+        assert_eq!(superscript.primary_char(), 'S');
         assert_eq!(superscript.vertical_align, VerticalAlign::Superscript);
 
         let subscript = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(subscript.ch, 'D');
+        assert_eq!(subscript.primary_char(), 'D');
         assert_eq!(subscript.vertical_align, VerticalAlign::Subscript);
 
         let baseline = terminal.grid().get(0, 2).unwrap();
-        assert_eq!(baseline.ch, 'B');
+        assert_eq!(baseline.primary_char(), 'B');
         assert_eq!(baseline.vertical_align, VerticalAlign::Baseline);
     }
 
@@ -2346,11 +2281,11 @@ mod tests {
         terminal.feed(b"\x1b[5mA\x1b[25mB");
 
         let blinking = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(blinking.ch, 'A');
+        assert_eq!(blinking.primary_char(), 'A');
         assert!(blinking.blink);
 
         let normal = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(normal.ch, 'B');
+        assert_eq!(normal.primary_char(), 'B');
         assert!(!normal.blink);
     }
 
@@ -2361,11 +2296,11 @@ mod tests {
         terminal.feed(b"\x1b[6mA\x1b[25mB");
 
         let blinking = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(blinking.ch, 'A');
+        assert_eq!(blinking.primary_char(), 'A');
         assert!(blinking.blink);
 
         let normal = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(normal.ch, 'B');
+        assert_eq!(normal.primary_char(), 'B');
         assert!(!normal.blink);
     }
 
@@ -2394,17 +2329,17 @@ mod tests {
         terminal.feed(b"\x1b[4mA\x1b[21mB\x1b[24mC");
 
         let single = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(single.ch, 'A');
+        assert_eq!(single.primary_char(), 'A');
         assert!(single.underline);
         assert!(!single.double_underline);
 
         let double = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(double.ch, 'B');
+        assert_eq!(double.primary_char(), 'B');
         assert!(!double.underline);
         assert!(double.double_underline);
 
         let normal = terminal.grid().get(0, 2).unwrap();
-        assert_eq!(normal.ch, 'C');
+        assert_eq!(normal.primary_char(), 'C');
         assert!(!normal.underline);
         assert!(!normal.double_underline);
     }
@@ -2416,12 +2351,12 @@ mod tests {
         terminal.feed(b"\x1b[4;58;5;196mA\x1b[59mB");
 
         let colored = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(colored.ch, 'A');
+        assert_eq!(colored.primary_char(), 'A');
         assert!(colored.underline);
         assert_eq!(colored.underline_color, Color::Indexed(196));
 
         let default = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(default.ch, 'B');
+        assert_eq!(default.primary_char(), 'B');
         assert_eq!(default.underline_color, Color::Default);
     }
 
@@ -2432,13 +2367,13 @@ mod tests {
         terminal.feed(b"\x1b[4:2mD\x1b[4:0mN\x1b[4:3mC\x1b[4:4mO\x1b[4:5mA\x1b[4:1mS");
 
         let double = terminal.grid().get(0, 0).unwrap();
-        assert_eq!(double.ch, 'D');
+        assert_eq!(double.primary_char(), 'D');
         assert_eq!(double.underline_style, UnderlineStyle::Double);
         assert!(double.double_underline);
         assert!(!double.faint, "SGR 4:2 must not leak the 2 as faint");
 
         let none = terminal.grid().get(0, 1).unwrap();
-        assert_eq!(none.ch, 'N');
+        assert_eq!(none.primary_char(), 'N');
         assert_eq!(none.underline_style, UnderlineStyle::None);
         assert!(!none.underline);
         assert!(!none.double_underline);
@@ -2467,9 +2402,9 @@ mod tests {
 
         terminal.feed("中x".as_bytes());
 
-        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '中');
-        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, ' ');
-        assert_eq!(terminal.grid().get(0, 2).unwrap().ch, 'x');
+        assert_eq!(terminal.grid().get(0, 0).unwrap().primary_char(), '中');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().primary_char(), ' ');
+        assert_eq!(terminal.grid().get(0, 2).unwrap().primary_char(), 'x');
         assert_eq!(terminal.cursor(), (0, 3));
     }
 
@@ -2480,9 +2415,9 @@ mod tests {
 
         terminal.feed("☆x".as_bytes());
 
-        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '☆');
-        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, ' ');
-        assert_eq!(terminal.grid().get(0, 2).unwrap().ch, 'x');
+        assert_eq!(terminal.grid().get(0, 0).unwrap().primary_char(), '☆');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().primary_char(), ' ');
+        assert_eq!(terminal.grid().get(0, 2).unwrap().primary_char(), 'x');
         assert_eq!(terminal.cursor(), (0, 3));
     }
 
@@ -2498,8 +2433,8 @@ mod tests {
 
         terminal.feed("☆x".as_bytes());
 
-        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '☆');
-        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'x');
+        assert_eq!(terminal.grid().get(0, 0).unwrap().primary_char(), '☆');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().primary_char(), 'x');
         assert_eq!(terminal.cursor(), (0, 2));
     }
 
@@ -2510,8 +2445,8 @@ mod tests {
 
         terminal.feed("⌚x".as_bytes());
 
-        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '⌚');
-        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'x');
+        assert_eq!(terminal.grid().get(0, 0).unwrap().primary_char(), '⌚');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().primary_char(), 'x');
         assert_eq!(terminal.cursor(), (0, 2));
     }
 
@@ -2522,9 +2457,9 @@ mod tests {
 
         terminal.feed("☁\u{fe0f}x".as_bytes());
 
-        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '☁');
-        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, ' ');
-        assert_eq!(terminal.grid().get(0, 2).unwrap().ch, 'x');
+        assert_eq!(terminal.grid().get(0, 0).unwrap().primary_char(), '☁');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().primary_char(), ' ');
+        assert_eq!(terminal.grid().get(0, 2).unwrap().primary_char(), 'x');
         assert_eq!(terminal.cursor(), (0, 3));
     }
 
@@ -2535,8 +2470,8 @@ mod tests {
 
         terminal.feed("⌚\u{fe0e}x".as_bytes());
 
-        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '⌚');
-        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'x');
+        assert_eq!(terminal.grid().get(0, 0).unwrap().primary_char(), '⌚');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().primary_char(), 'x');
         assert_eq!(terminal.cursor(), (0, 2));
     }
 
@@ -2587,7 +2522,11 @@ mod tests {
             terminal
                 .scrollback()
                 .iter()
-                .map(|line| line.cells().iter().map(|cell| cell.ch).collect::<String>())
+                .map(|line| line
+                    .cells()
+                    .iter()
+                    .map(Cell::primary_char)
+                    .collect::<String>())
                 .collect::<Vec<_>>(),
             vec!["abc", "de ", "fgh", "ij "]
         );
@@ -2629,10 +2568,10 @@ mod tests {
 
         terminal.resize(TerminalSize::new(3, 1));
 
-        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '界');
+        assert_eq!(terminal.grid().get(0, 0).unwrap().primary_char(), '界');
         assert_eq!(terminal.cursor(), (0, 1));
         terminal.feed(b"x");
-        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'x');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().primary_char(), 'x');
     }
 
     #[test]
@@ -2648,10 +2587,10 @@ mod tests {
 
         terminal.resize(TerminalSize::new(3, 1));
 
-        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'x');
+        assert_eq!(terminal.grid().get(0, 0).unwrap().primary_char(), 'x');
         assert_eq!(terminal.cursor(), (0, 1));
         terminal.feed(b"y");
-        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'y');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().primary_char(), 'y');
     }
 
     #[test]
@@ -2679,8 +2618,8 @@ mod tests {
 
         terminal.feed(b"\x1b[2;3HZ\x1b[3;1fQ");
 
-        assert_eq!(terminal.grid().get(1, 2).unwrap().ch, 'Z');
-        assert_eq!(terminal.grid().get(2, 0).unwrap().ch, 'Q');
+        assert_eq!(terminal.grid().get(1, 2).unwrap().primary_char(), 'Z');
+        assert_eq!(terminal.grid().get(2, 0).unwrap().primary_char(), 'Q');
         assert_eq!(terminal.cursor(), (2, 1));
     }
 
@@ -2690,8 +2629,8 @@ mod tests {
 
         terminal.feed(b"ab\r\ncd\x1b[A\x1b[CX\x1b[B\x1b[DY");
 
-        assert_eq!(terminal.grid().get(0, 3).unwrap().ch, 'X');
-        assert_eq!(terminal.grid().get(1, 3).unwrap().ch, 'Y');
+        assert_eq!(terminal.grid().get(0, 3).unwrap().primary_char(), 'X');
+        assert_eq!(terminal.grid().get(1, 3).unwrap().primary_char(), 'Y');
         assert_eq!(terminal.cursor(), (1, 4));
     }
 
@@ -4126,7 +4065,7 @@ mod tests {
 
         terminal.feed(b"X");
 
-        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'X');
+        assert_eq!(terminal.grid().get(0, 0).unwrap().primary_char(), 'X');
     }
 
     #[test]
@@ -5312,7 +5251,7 @@ mod tests {
         let mut text = String::new();
 
         for column in 0..grid.size().columns {
-            text.push(grid.get(row, column).unwrap().ch);
+            text.push(grid.get(row, column).unwrap().primary_char());
         }
 
         text
@@ -5329,7 +5268,7 @@ mod tests {
             .expect("scrollback test row")
             .cells()
             .iter()
-            .map(|cell| cell.ch)
+            .map(Cell::primary_char)
             .collect()
     }
 

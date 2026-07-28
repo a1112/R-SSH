@@ -5502,7 +5502,7 @@ mod tests {
 
         for row in 0..size.rows {
             for column in 0..size.columns {
-                text.push(grid.get(row, column).unwrap().ch);
+                text.push_str(grid.get(row, column).unwrap().text());
             }
         }
 
@@ -5963,7 +5963,7 @@ mod tests {
 
         assert_eq!(output, b"a");
         assert!(responses.is_empty());
-        assert_eq!(filter.mirror.grid().get(0, 0).unwrap().ch, 'a');
+        assert_eq!(filter.mirror.grid().get(0, 0).unwrap().primary_char(), 'a');
         assert_eq!(filter.mirror.grid().get(0, 0).unwrap().hyperlink, None);
     }
 
@@ -5983,7 +5983,7 @@ mod tests {
 
         assert_eq!(output, b"a");
         assert!(responses.is_empty());
-        assert_eq!(filter.mirror.grid().get(0, 0).unwrap().ch, 'a');
+        assert_eq!(filter.mirror.grid().get(0, 0).unwrap().primary_char(), 'a');
     }
 
     #[test]

@@ -16,6 +16,12 @@ use rssh_terminal::{
 pub struct RenderCell {
     pub row: u16,
     pub column: u16,
+    /// Complete terminal grapheme. Empty for continuation cells.
+    pub text: String,
+    /// Logical width stored on a grapheme leader.
+    pub columns: u8,
+    pub continuation: bool,
+    /// Temporary first-scalar compatibility field for the bitmap renderer.
     pub ch: char,
     pub foreground: Color,
     pub background: Color,
@@ -4486,7 +4492,10 @@ impl TerminalRenderSnapshot {
                 cells.push(RenderCell {
                     row,
                     column,
-                    ch: cell.ch,
+                    text: cell.text().to_owned(),
+                    columns: cell.columns(),
+                    continuation: cell.is_continuation(),
+                    ch: cell.primary_char(),
                     foreground: cell.foreground,
                     background: cell.background,
                     underline_color: cell.underline_color,
@@ -5444,7 +5453,10 @@ fn append_render_cell(
     cells.push(RenderCell {
         row,
         column,
-        ch: cell.ch,
+        text: cell.text().to_owned(),
+        columns: cell.columns(),
+        continuation: cell.is_continuation(),
+        ch: cell.primary_char(),
         foreground: cell.foreground,
         background: cell.background,
         underline_color: cell.underline_color,
@@ -5466,7 +5478,8 @@ fn append_render_cell(
 }
 
 fn cell_has_renderable_content(cell: &Cell) -> bool {
-    cell.ch != ' '
+    cell.is_continuation()
+        || (!cell.is_blank() && cell.text() != " ")
         || cell.background != Color::Default
         || cell.inverse
         || cell.underline
@@ -5485,8 +5498,8 @@ mod tests {
 
     use rssh_core::TerminalSize;
     use rssh_terminal::{
-        Cell, Color, CursorShape, InlineImageFormat, SemanticType, Terminal, TerminalGrid,
-        UnderlineStyle, VerticalAlign,
+        Cell, Color, CursorShape, InlineImageFormat, Terminal, TerminalGrid, UnderlineStyle,
+        VerticalAlign,
     };
 
     use super::{
@@ -5694,32 +5707,12 @@ mod tests {
     #[test]
     fn render_snapshot_contains_non_blank_terminal_cells() {
         let mut grid = TerminalGrid::new(TerminalSize::new(3, 2));
-        grid.set(
-            1,
-            2,
-            Cell {
-                ch: 'R',
-                foreground: Color::Indexed(2),
-                background: Color::Rgb(1, 2, 3),
-                underline_color: Color::Default,
-                underline_style: UnderlineStyle::None,
-                bold: true,
-                faint: false,
-                italic: false,
-                blink: false,
-                rapid_blink: false,
-                underline: true,
-                double_underline: false,
-                conceal: false,
-                strikethrough: false,
-                overline: false,
-                vertical_align: VerticalAlign::Baseline,
-                inverse: false,
-                protected: false,
-                hyperlink: None,
-                semantic_type: SemanticType::Output,
-            },
-        );
+        let mut cell = Cell::with_char('R');
+        cell.foreground = Color::Indexed(2);
+        cell.background = Color::Rgb(1, 2, 3);
+        cell.bold = true;
+        cell.underline = true;
+        grid.set(1, 2, cell);
 
         let snapshot = TerminalRenderSnapshot::from_grid(&grid);
 
@@ -5735,35 +5728,34 @@ mod tests {
     }
 
     #[test]
+    fn render_snapshot_preserves_grapheme_once_on_leader() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        terminal.feed("👍🏽".as_bytes());
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let leader = snapshot
+            .cells()
+            .iter()
+            .find(|cell| cell.column == 0)
+            .unwrap();
+        let continuation = snapshot
+            .cells()
+            .iter()
+            .find(|cell| cell.column == 1)
+            .unwrap();
+        assert_eq!(leader.text, "👍🏽");
+        assert_eq!(leader.columns, 2);
+        assert!(!leader.continuation);
+        assert_eq!(continuation.text, "");
+        assert!(continuation.continuation);
+        assert_eq!(continuation.ch, ' ');
+    }
+
+    #[test]
     fn render_snapshot_reports_missing_glyph_codepoints_once() {
         let mut grid = TerminalGrid::new(TerminalSize::new(3, 1));
         for (column, ch) in [(0, 'R'), (1, '中'), (2, '中')] {
-            grid.set(
-                0,
-                column,
-                Cell {
-                    ch,
-                    foreground: Color::Default,
-                    background: Color::Default,
-                    underline_color: Color::Default,
-                    underline_style: UnderlineStyle::None,
-                    bold: false,
-                    faint: false,
-                    italic: false,
-                    blink: false,
-                    rapid_blink: false,
-                    underline: false,
-                    double_underline: false,
-                    conceal: false,
-                    strikethrough: false,
-                    overline: false,
-                    vertical_align: VerticalAlign::Baseline,
-                    inverse: false,
-                    protected: false,
-                    hyperlink: None,
-                    semantic_type: SemanticType::Output,
-                },
-            );
+            grid.set(0, column, Cell::with_char(ch));
         }
 
         let snapshot = TerminalRenderSnapshot::from_grid(&grid);
@@ -5774,32 +5766,9 @@ mod tests {
     #[test]
     fn render_snapshot_preserves_inverse_style() {
         let mut grid = TerminalGrid::new(TerminalSize::new(1, 1));
-        grid.set(
-            0,
-            0,
-            Cell {
-                ch: 'I',
-                foreground: Color::Default,
-                background: Color::Default,
-                underline_color: Color::Default,
-                underline_style: UnderlineStyle::None,
-                bold: false,
-                faint: false,
-                italic: false,
-                blink: false,
-                rapid_blink: false,
-                underline: false,
-                double_underline: false,
-                conceal: false,
-                strikethrough: false,
-                overline: false,
-                vertical_align: VerticalAlign::Baseline,
-                inverse: true,
-                protected: false,
-                hyperlink: None,
-                semantic_type: SemanticType::Output,
-            },
-        );
+        let mut cell = Cell::with_char('I');
+        cell.inverse = true;
+        grid.set(0, 0, cell);
 
         let snapshot = TerminalRenderSnapshot::from_grid(&grid);
 
@@ -6599,6 +6568,9 @@ mod tests {
             .with_overlay_cells([RenderCell {
                 row: 0,
                 column: 0,
+                text: "T".to_owned(),
+                columns: 1,
+                continuation: false,
                 ch: 'T',
                 foreground: Color::Default,
                 background: Color::Default,
@@ -6621,6 +6593,9 @@ mod tests {
             .with_overlay_cells([RenderCell {
                 row: 1,
                 column: 0,
+                text: "O".to_owned(),
+                columns: 1,
+                continuation: false,
                 ch: 'O',
                 foreground: Color::Default,
                 background: Color::Default,
@@ -6989,32 +6964,9 @@ mod tests {
     #[test]
     fn pixel_renderer_draws_glyph_foreground_pixels() {
         let mut grid = TerminalGrid::new(TerminalSize::new(1, 1));
-        grid.set(
-            0,
-            0,
-            Cell {
-                ch: 'A',
-                foreground: Color::Rgb(255, 0, 0),
-                background: Color::Default,
-                underline_color: Color::Default,
-                underline_style: UnderlineStyle::None,
-                bold: false,
-                faint: false,
-                italic: false,
-                blink: false,
-                rapid_blink: false,
-                underline: false,
-                double_underline: false,
-                conceal: false,
-                strikethrough: false,
-                overline: false,
-                vertical_align: VerticalAlign::Baseline,
-                inverse: false,
-                protected: false,
-                hyperlink: None,
-                semantic_type: SemanticType::Output,
-            },
-        );
+        let mut cell = Cell::with_char('A');
+        cell.foreground = Color::Rgb(255, 0, 0);
+        grid.set(0, 0, cell);
         let snapshot = TerminalRenderSnapshot::from_grid(&grid);
         let renderer = PixelRenderer::new();
         let mut target = vec![0; 8 * 8 * 4];
@@ -7519,58 +7471,12 @@ mod tests {
     #[test]
     fn pixel_renderer_updates_only_damage_regions() {
         let mut grid = TerminalGrid::new(TerminalSize::new(2, 1));
-        grid.set(
-            0,
-            0,
-            Cell {
-                ch: 'A',
-                foreground: Color::Default,
-                background: Color::Rgb(20, 0, 0),
-                underline_color: Color::Default,
-                underline_style: UnderlineStyle::None,
-                bold: false,
-                faint: false,
-                italic: false,
-                blink: false,
-                rapid_blink: false,
-                underline: false,
-                double_underline: false,
-                conceal: false,
-                strikethrough: false,
-                overline: false,
-                vertical_align: VerticalAlign::Baseline,
-                inverse: false,
-                protected: false,
-                hyperlink: None,
-                semantic_type: SemanticType::Output,
-            },
-        );
-        grid.set(
-            0,
-            1,
-            Cell {
-                ch: 'B',
-                foreground: Color::Default,
-                background: Color::Rgb(0, 20, 0),
-                underline_color: Color::Default,
-                underline_style: UnderlineStyle::None,
-                bold: false,
-                faint: false,
-                italic: false,
-                blink: false,
-                rapid_blink: false,
-                underline: false,
-                double_underline: false,
-                conceal: false,
-                strikethrough: false,
-                overline: false,
-                vertical_align: VerticalAlign::Baseline,
-                inverse: false,
-                protected: false,
-                hyperlink: None,
-                semantic_type: SemanticType::Output,
-            },
-        );
+        let mut first = Cell::with_char('A');
+        first.background = Color::Rgb(20, 0, 0);
+        grid.set(0, 0, first);
+        let mut second = Cell::with_char('B');
+        second.background = Color::Rgb(0, 20, 0);
+        grid.set(0, 1, second);
         let renderer = PixelRenderer::new();
         let mut target = vec![0; 16 * 8 * 4];
 
@@ -7584,32 +7490,10 @@ mod tests {
         );
         let untouched_second_cell = pixel_at(&target, 16, 8, 0);
 
-        grid.set(
-            0,
-            0,
-            Cell {
-                ch: 'Z',
-                foreground: Color::Rgb(0, 0, 20),
-                background: Color::Rgb(0, 0, 20),
-                underline_color: Color::Default,
-                underline_style: UnderlineStyle::None,
-                bold: false,
-                faint: false,
-                italic: false,
-                blink: false,
-                rapid_blink: false,
-                underline: false,
-                double_underline: false,
-                conceal: false,
-                strikethrough: false,
-                overline: false,
-                vertical_align: VerticalAlign::Baseline,
-                inverse: false,
-                protected: false,
-                hyperlink: None,
-                semantic_type: SemanticType::Output,
-            },
-        );
+        let mut cell = Cell::with_char('Z');
+        cell.foreground = Color::Rgb(0, 0, 20);
+        cell.background = Color::Rgb(0, 0, 20);
+        grid.set(0, 0, cell);
 
         renderer.render_damage(
             &TerminalRenderSnapshot::from_grid(&grid),
@@ -8132,32 +8016,11 @@ mod tests {
     #[test]
     fn pixel_renderer_swaps_foreground_and_background_for_inverse_cells() {
         let mut grid = TerminalGrid::new(TerminalSize::new(1, 1));
-        grid.set(
-            0,
-            0,
-            Cell {
-                ch: 'A',
-                foreground: Color::Rgb(255, 0, 0),
-                background: Color::Rgb(0, 0, 255),
-                underline_color: Color::Default,
-                underline_style: UnderlineStyle::None,
-                bold: false,
-                faint: false,
-                italic: false,
-                blink: false,
-                rapid_blink: false,
-                underline: false,
-                double_underline: false,
-                conceal: false,
-                strikethrough: false,
-                overline: false,
-                vertical_align: VerticalAlign::Baseline,
-                inverse: true,
-                protected: false,
-                hyperlink: None,
-                semantic_type: SemanticType::Output,
-            },
-        );
+        let mut cell = Cell::with_char('A');
+        cell.foreground = Color::Rgb(255, 0, 0);
+        cell.background = Color::Rgb(0, 0, 255);
+        cell.inverse = true;
+        grid.set(0, 0, cell);
         let snapshot = TerminalRenderSnapshot::from_grid(&grid);
         let renderer = PixelRenderer::new();
         let mut target = vec![0; 8 * 8 * 4];

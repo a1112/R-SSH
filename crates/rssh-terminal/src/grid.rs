@@ -279,21 +279,14 @@ mod tests {
     fn tagged_grid() -> TerminalGrid {
         let mut grid = TerminalGrid::new_with_seqno(TerminalSize::new(2, 5), 1);
         for row in 0..5 {
-            assert!(grid.set(
-                row,
-                0,
-                Cell {
-                    ch: char::from(b'A' + u8::try_from(row).unwrap()),
-                    foreground: Color::Indexed(u8::try_from(row).unwrap()),
-                    ..Cell::default()
-                }
-            ));
+            let mut first = Cell::with_char(char::from(b'A' + u8::try_from(row).unwrap()));
+            first.foreground = Color::Indexed(u8::try_from(row).unwrap());
+            assert!(grid.set(row, 0, first));
             grid.set_reflow_overflow(
                 row,
-                vec![Cell {
-                    ch: char::from(b'a' + u8::try_from(row).unwrap()),
-                    ..Cell::default()
-                }],
+                vec![Cell::with_char(char::from(
+                    b'a' + u8::try_from(row).unwrap(),
+                ))],
             );
             grid.set_row_wrapped(row, row % 2 == 1);
             assert!(grid.set_row_last_change_seqno(row, 10 + usize::from(row)));
@@ -321,23 +314,11 @@ mod tests {
     fn row_rotation_moves_complete_rows_without_copying_owned_cells() {
         let mut grid = TerminalGrid::new_with_seqno(TerminalSize::new(1, 3), 1);
         let hyperlink = "https://example.test/row-owned-allocation".repeat(4);
-        assert!(grid.set(
-            0,
-            0,
-            Cell {
-                ch: 'x',
-                hyperlink: Some(hyperlink),
-                ..Cell::default()
-            }
-        ));
+        let mut cell = Cell::with_char('x');
+        cell.hyperlink = Some(hyperlink);
+        assert!(grid.set(0, 0, cell));
         grid.set_row_wrapped(0, true);
-        grid.set_reflow_overflow(
-            0,
-            vec![Cell {
-                ch: '界',
-                ..Cell::default()
-            }],
-        );
+        grid.set_reflow_overflow(0, vec![Cell::with_char('界')]);
         assert!(grid.set_row_last_change_seqno(0, 99));
         let allocation = grid
             .get(0, 0)
@@ -348,14 +329,14 @@ mod tests {
         let exiting = grid.scroll_up_rows(0, 2, 1, &Cell::default(), 100);
 
         assert_eq!(exiting.len(), 1);
-        assert_eq!(exiting[0].cells()[0].ch, 'x');
+        assert_eq!(exiting[0].cells()[0].primary_char(), 'x');
         assert!(exiting[0].is_wrapped());
         assert_eq!(exiting[0].last_change_seqno(), 99);
         assert_eq!(
             exiting[0].cells()[0].hyperlink.as_ref().unwrap().as_ptr(),
             allocation
         );
-        assert_eq!(exiting[0].reflow_overflow[0].ch, '界');
+        assert_eq!(exiting[0].reflow_overflow[0].primary_char(), '界');
     }
 
     #[test]

@@ -126095,7 +126095,7 @@ fn literal_window_search_matches(
                     source_row: start.source_row,
                     start_column: start.column,
                     end_source_row: end.source_row,
-                    end_column: end.column,
+                    end_column: end.end_column,
                 })
             } else {
                 None
@@ -126138,37 +126138,10 @@ fn regex_window_search_matches(
                 source_row: start.source_row,
                 start_column: start.column,
                 end_source_row: end.source_row,
-                end_column: end.column,
+                end_column: end.end_column,
             })
         })
         .collect()
-}
-
-fn terminal_search_lines(terminal: &rssh_terminal::Terminal) -> Vec<String> {
-    let size = terminal.grid().size();
-    let mut lines = Vec::new();
-
-    if terminal.stable_dimensions().domain == TerminalScreenDomain::Main {
-        for line in terminal.scrollback() {
-            lines.push(
-                line.cells()
-                    .iter()
-                    .take(usize::from(size.columns))
-                    .map(|cell| cell.ch)
-                    .collect(),
-            );
-        }
-    }
-
-    for row in 0..size.rows {
-        let mut line = String::new();
-        for column in 0..size.columns {
-            line.push(terminal.grid().get(row, column).map_or(' ', |cell| cell.ch));
-        }
-        lines.push(line);
-    }
-
-    lines
 }
 
 #[derive(Clone, Copy)]
@@ -126177,31 +126150,58 @@ struct WindowSearchCell {
     domain: TerminalScreenDomain,
     source_row: StableRowIndex,
     column: u16,
+    end_column: u16,
 }
 
 fn terminal_search_cells(terminal: &rssh_terminal::Terminal) -> Vec<WindowSearchCell> {
     let dimensions = terminal.stable_dimensions();
-    terminal_search_lines(terminal)
-        .into_iter()
-        .enumerate()
-        .flat_map(|(source_row, line)| {
-            let source_row = dimensions.scrollback_top.saturating_add(
-                StableRowIndex::try_from(source_row).unwrap_or(StableRowIndex::MAX),
+    let size = terminal.grid().size();
+    let mut result = Vec::new();
+    let mut append_row = |source_row: StableRowIndex, cells: &[rssh_terminal::Cell]| {
+        let mut row = Vec::new();
+        for (column, cell) in cells.iter().take(usize::from(size.columns)).enumerate() {
+            if cell.is_continuation() {
+                continue;
+            }
+            let Ok(column) = u16::try_from(column) else {
+                continue;
+            };
+            row.extend(cell.text().chars().map(|character| WindowSearchCell {
+                character,
+                domain: dimensions.domain,
+                source_row,
+                column,
+                end_column: column.saturating_add(u16::from(cell.columns()).saturating_sub(1)),
+            }));
+        }
+        while row.last().is_some_and(|cell| cell.character == ' ') {
+            row.pop();
+        }
+        result.extend(row);
+    };
+
+    if dimensions.domain == TerminalScreenDomain::Main {
+        for (index, line) in terminal.scrollback().iter().enumerate() {
+            append_row(
+                dimensions
+                    .scrollback_top
+                    .saturating_add(StableRowIndex::try_from(index).unwrap_or(StableRowIndex::MAX)),
+                line.cells(),
             );
-            line.trim_end_matches(' ')
-                .chars()
-                .enumerate()
-                .filter_map(move |(column, character)| {
-                    Some(WindowSearchCell {
-                        character,
-                        domain: dimensions.domain,
-                        source_row,
-                        column: u16::try_from(column).ok()?,
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect()
+        }
+    }
+    for row in 0..size.rows {
+        let cells = (0..size.columns)
+            .filter_map(|column| terminal.grid().get(row, column).cloned())
+            .collect::<Vec<_>>();
+        append_row(
+            dimensions
+                .physical_top
+                .saturating_add(StableRowIndex::try_from(row).unwrap_or(StableRowIndex::MAX)),
+            &cells,
+        );
+    }
+    result
 }
 
 #[derive(Clone, Copy)]
@@ -126944,14 +126944,18 @@ fn apply_hyperlink_rules_to_row(
             text.push(' ');
             next_column = next_column.saturating_add(1);
         }
-        for _ in 0..cell.ch.len_utf8() {
+        if cell.continuation {
+            next_column = next_column.max(cell.column.saturating_add(1));
+            continue;
+        }
+        for _ in 0..cell.text.len() {
             byte_to_cell.push(Some((row, cell.column)));
         }
-        text.push(cell.ch);
+        text.push_str(&cell.text);
         if cell.hyperlink.is_some() {
             existing_hyperlinks.insert((row, cell.column));
         }
-        next_column = cell.column.saturating_add(1);
+        next_column = cell.column.saturating_add(u16::from(cell.columns).max(1));
     }
 
     for rule in rules {
@@ -127313,6 +127317,9 @@ fn visual_bell_background_cells(
             cells.push(RenderCell {
                 row,
                 column,
+                text: " ".to_owned(),
+                columns: 1,
+                continuation: false,
                 ch: ' ',
                 foreground: Color::Default,
                 background,
@@ -130059,6 +130066,9 @@ fn ui_render_cell(
     RenderCell {
         row,
         column,
+        text: ch.to_string(),
+        columns: 1,
+        continuation: false,
         ch,
         foreground,
         background,
@@ -212828,6 +212838,19 @@ return config
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
         assert!(rendered_active_pane_cell(&app, 0, 0).unwrap().inverse);
         assert!(app.current_scrollback_offset() > 0);
+    }
+
+    #[test]
+    fn window_search_maps_complete_grapheme_to_its_terminal_span() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(6, 1));
+        app.handle_pty_output("A👍🏽B".as_bytes()).unwrap();
+
+        assert!(app.update_search_query("👍🏽"));
+
+        assert_eq!(app.selected_text().as_deref(), Some("👍🏽"));
+        assert!(rendered_active_pane_cell(&app, 0, 1).unwrap().inverse);
+        assert!(rendered_active_pane_cell(&app, 0, 2).unwrap().inverse);
     }
 
     #[test]

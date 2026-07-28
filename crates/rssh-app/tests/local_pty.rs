@@ -150,7 +150,7 @@ fn terminal_text(terminal: &Terminal) -> String {
 
     for row in 0..size.rows {
         for column in 0..size.columns {
-            text.push(terminal.grid().get(row, column).unwrap().ch);
+            text.push_str(terminal.grid().get(row, column).unwrap().text());
         }
         text.push('\n');
     }
