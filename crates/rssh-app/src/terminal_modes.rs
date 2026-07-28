@@ -1,7 +1,5 @@
 use crossterm::event::MouseEventKind;
 
-use crate::query_scan_work::{QueryScanNoop, QueryScanRecorder};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalModeChange {
     ApplicationCursorKeys(bool),
@@ -235,7 +233,7 @@ impl TerminalModeTracker {
                 self.retain_possible_prefix();
                 return;
             };
-            if is_inside_osc_or_st_control_string(&self.pending, start.index, QueryScanNoop) {
+            if is_inside_osc_or_st_control_string(&self.pending, start.index) {
                 self.pending.drain(..start.index.saturating_add(1));
                 continue;
             }
@@ -587,8 +585,7 @@ impl TerminalModeTracker {
         prefixes
             .into_iter()
             .filter_map(|(prefix, sequence)| {
-                find_subslice(bytes, prefix, QueryScanNoop)
-                    .map(|index| ModeSequenceStart { index, sequence })
+                find_subslice(bytes, prefix).map(|index| ModeSequenceStart { index, sequence })
             })
             .min_by_key(|start| start.index)
     }
@@ -1104,18 +1101,12 @@ impl TerminalModeTracker {
             Self::UTF8_C1_SOFT_RESET_PREFIX,
         ]
         .into_iter()
-        .map(|prefix| suffix_len_matching_prefix(&self.pending, prefix, QueryScanNoop))
+        .map(|prefix| suffix_len_matching_prefix(&self.pending, prefix))
         .max()
         .unwrap_or(0);
         let retained = retained
-            .max(incomplete_osc_control_sequence_suffix_len(
-                &self.pending,
-                QueryScanNoop,
-            ))
-            .max(incomplete_st_control_sequence_suffix_len(
-                &self.pending,
-                QueryScanNoop,
-            ));
+            .max(incomplete_osc_control_sequence_suffix_len(&self.pending))
+            .max(incomplete_st_control_sequence_suffix_len(&self.pending));
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             self.pending.drain(..writable);
@@ -1335,9 +1326,8 @@ impl Default for TrackedTerminalModes {
     }
 }
 
-pub(crate) fn find_synchronized_output_mode_sequence<R: QueryScanRecorder>(
+pub(crate) fn find_synchronized_output_mode_sequence(
     bytes: &[u8],
-    recorder: R,
 ) -> Option<SynchronizedOutputModeSequence> {
     synchronized_output_private_mode_prefixes()
         .into_iter()
@@ -1346,16 +1336,16 @@ pub(crate) fn find_synchronized_output_mode_sequence<R: QueryScanRecorder>(
             let mut match_sequence = None;
 
             while offset < bytes.len() {
-                let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
+                let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                     break;
                 };
                 let index = offset + relative_index;
-                if !is_inside_osc_or_st_control_string(bytes, index, recorder)
+                if !is_inside_osc_or_st_control_string(bytes, index)
                     && let ModeParse::Complete {
                         modes,
                         enabled,
                         consumed,
-                    } = parse_mode_sequence_for_query(&bytes[index..], prefix_len, recorder)
+                    } = TerminalModeTracker::parse_mode_sequence(&bytes[index..], prefix_len)
                     && modes.contains(&2026)
                 {
                     match_sequence = Some(SynchronizedOutputModeSequence {
@@ -1373,42 +1363,7 @@ pub(crate) fn find_synchronized_output_mode_sequence<R: QueryScanRecorder>(
         .min_by_key(|sequence| sequence.index)
 }
 
-pub(crate) fn synchronized_output_mode_sequence_suffix_len<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> usize {
-    synchronized_output_private_mode_prefixes()
-        .into_iter()
-        .map(|(prefix, prefix_len)| {
-            let mut offset = 0;
-            let mut retained = suffix_len_matching_prefix(bytes, prefix, recorder);
-
-            while offset < bytes.len() {
-                let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
-                    break;
-                };
-                let index = offset + relative_index;
-                if !is_inside_osc_or_st_control_string(bytes, index, recorder)
-                    && matches!(
-                        parse_mode_sequence_for_query(&bytes[index..], prefix_len, recorder),
-                        ModeParse::Incomplete
-                    )
-                {
-                    retained = retained.max(bytes.len() - index);
-                }
-                offset = index.saturating_add(1);
-            }
-
-            retained
-        })
-        .max()
-        .unwrap_or(0)
-}
-
-pub(crate) fn find_kitty_keyboard_mode_sequence<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<KittyKeyboardModeSequence> {
+pub(crate) fn find_kitty_keyboard_mode_sequence(bytes: &[u8]) -> Option<KittyKeyboardModeSequence> {
     kitty_keyboard_mode_prefixes()
         .into_iter()
         .filter_map(|(prefix, prefix_len, operation)| {
@@ -1416,17 +1371,16 @@ pub(crate) fn find_kitty_keyboard_mode_sequence<R: QueryScanRecorder>(
             let mut match_sequence = None;
 
             while offset < bytes.len() {
-                let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
+                let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                     break;
                 };
                 let index = offset + relative_index;
-                if !is_inside_osc_or_st_control_string(bytes, index, recorder)
+                if !is_inside_osc_or_st_control_string(bytes, index)
                     && let ModeParse::KittyKeyboard { consumed, .. } =
-                        parse_kitty_keyboard_mode_sequence_for_query(
+                        TerminalModeTracker::parse_kitty_keyboard_mode_sequence(
                             &bytes[index..],
                             prefix_len,
                             operation,
-                            recorder,
                         )
                 {
                     match_sequence = Some(KittyKeyboardModeSequence { index, consumed });
@@ -1440,46 +1394,8 @@ pub(crate) fn find_kitty_keyboard_mode_sequence<R: QueryScanRecorder>(
         .min_by_key(|sequence| sequence.index)
 }
 
-pub(crate) fn kitty_keyboard_mode_sequence_suffix_len<R: QueryScanRecorder>(
+pub(crate) fn find_key_modifier_options_sequence(
     bytes: &[u8],
-    recorder: R,
-) -> usize {
-    kitty_keyboard_mode_prefixes()
-        .into_iter()
-        .map(|(prefix, prefix_len, operation)| {
-            let mut offset = 0;
-            let mut retained = suffix_len_matching_prefix(bytes, prefix, recorder);
-
-            while offset < bytes.len() {
-                let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
-                    break;
-                };
-                let index = offset + relative_index;
-                if !is_inside_osc_or_st_control_string(bytes, index, recorder)
-                    && matches!(
-                        parse_kitty_keyboard_mode_sequence_for_query(
-                            &bytes[index..],
-                            prefix_len,
-                            operation,
-                            recorder,
-                        ),
-                        ModeParse::Incomplete
-                    )
-                {
-                    retained = retained.max(bytes.len() - index);
-                }
-                offset = index.saturating_add(1);
-            }
-
-            retained
-        })
-        .max()
-        .unwrap_or(0)
-}
-
-pub(crate) fn find_key_modifier_options_sequence<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
 ) -> Option<KeyModifierOptionsSequence> {
     key_modifier_options_prefixes()
         .into_iter()
@@ -1488,16 +1404,15 @@ pub(crate) fn find_key_modifier_options_sequence<R: QueryScanRecorder>(
             let mut match_sequence = None;
 
             while offset < bytes.len() {
-                let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
+                let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                     break;
                 };
                 let index = offset + relative_index;
-                if !is_inside_osc_or_st_control_string(bytes, index, recorder)
+                if !is_inside_osc_or_st_control_string(bytes, index)
                     && let ModeParse::KeyModifierOptions { consumed, .. } =
-                        parse_key_modifier_options_sequence_for_query(
+                        TerminalModeTracker::parse_key_modifier_options_sequence(
                             &bytes[index..],
                             prefix_len,
-                            recorder,
                         )
                 {
                     match_sequence = Some(KeyModifierOptionsSequence { index, consumed });
@@ -1511,46 +1426,7 @@ pub(crate) fn find_key_modifier_options_sequence<R: QueryScanRecorder>(
         .min_by_key(|sequence| sequence.index)
 }
 
-pub(crate) fn key_modifier_options_sequence_suffix_len<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> usize {
-    key_modifier_options_prefixes()
-        .into_iter()
-        .map(|(prefix, prefix_len)| {
-            let mut offset = 0;
-            let mut retained = suffix_len_matching_prefix(bytes, prefix, recorder);
-
-            while offset < bytes.len() {
-                let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
-                    break;
-                };
-                let index = offset + relative_index;
-                if !is_inside_osc_or_st_control_string(bytes, index, recorder)
-                    && matches!(
-                        parse_key_modifier_options_sequence_for_query(
-                            &bytes[index..],
-                            prefix_len,
-                            recorder,
-                        ),
-                        ModeParse::Incomplete
-                    )
-                {
-                    retained = retained.max(bytes.len() - index);
-                }
-                offset = index.saturating_add(1);
-            }
-
-            retained
-        })
-        .max()
-        .unwrap_or(0)
-}
-
-pub(crate) fn find_kitty_keyboard_flags_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<KittyKeyboardFlagsQuery> {
+pub(crate) fn find_kitty_keyboard_flags_query(bytes: &[u8]) -> Option<KittyKeyboardFlagsQuery> {
     kitty_keyboard_flags_query_prefixes()
         .into_iter()
         .filter_map(|prefix| {
@@ -1558,16 +1434,15 @@ pub(crate) fn find_kitty_keyboard_flags_query<R: QueryScanRecorder>(
             let mut match_query = None;
 
             while offset < bytes.len() {
-                let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
+                let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                     break;
                 };
                 let index = offset + relative_index;
                 let consumed = prefix.len() + 1;
-                if !is_inside_osc_or_st_control_string(bytes, index, recorder) {
+                if !is_inside_osc_or_st_control_string(bytes, index) {
                     if bytes.len() < index + consumed {
                         return None;
                     }
-                    recorder.record_candidate(&bytes[index + prefix.len()..=index + prefix.len()]);
                     if bytes[index + prefix.len()] == b'u' {
                         match_query = Some(KittyKeyboardFlagsQuery { index, consumed });
                         break;
@@ -1581,27 +1456,7 @@ pub(crate) fn find_kitty_keyboard_flags_query<R: QueryScanRecorder>(
         .min_by_key(|query| query.index)
 }
 
-pub(crate) fn kitty_keyboard_flags_query_suffix_len<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> usize {
-    kitty_keyboard_flags_query_prefixes()
-        .into_iter()
-        .map(|prefix| {
-            let prefix_suffix = suffix_len_matching_prefix(bytes, prefix, recorder);
-            let incomplete_query = find_subslice(bytes, prefix, recorder)
-                .filter(|index| bytes.len() < index + prefix.len() + 1)
-                .map_or(0, |index| bytes.len() - index);
-            prefix_suffix.max(incomplete_query)
-        })
-        .max()
-        .unwrap_or(0)
-}
-
-pub(crate) fn find_key_modifier_options_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<KeyModifierOptionsQuery> {
+pub(crate) fn find_key_modifier_options_query(bytes: &[u8]) -> Option<KeyModifierOptionsQuery> {
     kitty_keyboard_flags_query_prefixes()
         .into_iter()
         .filter_map(|prefix| {
@@ -1609,11 +1464,11 @@ pub(crate) fn find_key_modifier_options_query<R: QueryScanRecorder>(
             let mut match_query = None;
 
             while offset < bytes.len() {
-                let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
+                let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                     break;
                 };
                 let index = offset + relative_index;
-                if is_inside_osc_or_st_control_string(bytes, index, recorder) {
+                if is_inside_osc_or_st_control_string(bytes, index) {
                     offset = index.saturating_add(1);
                     continue;
                 }
@@ -1624,7 +1479,6 @@ pub(crate) fn find_key_modifier_options_query<R: QueryScanRecorder>(
                 }
                 let resource_start = cursor;
                 let mut resource = 0u16;
-                recorder.record_candidate(&bytes[cursor..]);
                 while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
                     resource = resource
                         .saturating_mul(10)
@@ -1638,7 +1492,6 @@ pub(crate) fn find_key_modifier_options_query<R: QueryScanRecorder>(
                 if cursor >= bytes.len() {
                     return None;
                 }
-                recorder.record_candidate(&bytes[cursor..=cursor]);
                 if bytes[cursor] == b'm' {
                     match_query = Some(KeyModifierOptionsQuery {
                         index,
@@ -1653,61 +1506,6 @@ pub(crate) fn find_key_modifier_options_query<R: QueryScanRecorder>(
             match_query
         })
         .min_by_key(|query| query.index)
-}
-
-pub(crate) fn key_modifier_options_query_suffix_len<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> usize {
-    kitty_keyboard_flags_query_prefixes()
-        .into_iter()
-        .map(|prefix| {
-            let prefix_suffix = suffix_len_matching_prefix(bytes, prefix, recorder);
-            let incomplete_query = find_subslice(bytes, prefix, recorder)
-                .filter(|index| {
-                    let mut cursor = index + prefix.len();
-                    if cursor >= bytes.len() {
-                        return true;
-                    }
-                    recorder.record_candidate(&bytes[cursor..]);
-                    while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
-                        cursor += 1;
-                    }
-                    cursor >= bytes.len()
-                })
-                .map_or(0, |index| bytes.len() - index);
-            prefix_suffix.max(incomplete_query)
-        })
-        .max()
-        .unwrap_or(0)
-}
-
-fn parse_mode_sequence_for_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    prefix_len: usize,
-    recorder: R,
-) -> ModeParse {
-    recorder.record_candidate(bytes);
-    TerminalModeTracker::parse_mode_sequence(bytes, prefix_len)
-}
-
-fn parse_kitty_keyboard_mode_sequence_for_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    prefix_len: usize,
-    operation: KittyKeyboardOperation,
-    recorder: R,
-) -> ModeParse {
-    recorder.record_candidate(bytes);
-    TerminalModeTracker::parse_kitty_keyboard_mode_sequence(bytes, prefix_len, operation)
-}
-
-fn parse_key_modifier_options_sequence_for_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    prefix_len: usize,
-    recorder: R,
-) -> ModeParse {
-    recorder.record_candidate(bytes);
-    TerminalModeTracker::parse_key_modifier_options_sequence(bytes, prefix_len)
 }
 
 fn synchronized_output_private_mode_prefixes() -> [(&'static [u8], usize); 3] {
@@ -1850,12 +1648,7 @@ enum ModeSequence {
     },
 }
 
-fn find_subslice<R: QueryScanRecorder>(
-    haystack: &[u8],
-    needle: &[u8],
-    recorder: R,
-) -> Option<usize> {
-    recorder.record_candidate(haystack);
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
     }
@@ -1921,22 +1714,14 @@ fn is_utf8_continuation(byte: u8) -> bool {
     byte & 0b1100_0000 == 0b1000_0000
 }
 
-fn is_inside_osc_or_st_control_string<R: QueryScanRecorder>(
-    bytes: &[u8],
-    index: usize,
-    recorder: R,
-) -> bool {
-    is_inside_control_string(
-        bytes,
-        index,
-        |candidate| find_next_osc_start(candidate, recorder),
-        |candidate| find_osc_terminator(candidate, recorder),
-    ) || is_inside_control_string(
-        bytes,
-        index,
-        |candidate| find_next_st_control_string_start(candidate, recorder),
-        |candidate| find_st_terminator(candidate, recorder),
-    )
+fn is_inside_osc_or_st_control_string(bytes: &[u8], index: usize) -> bool {
+    is_inside_control_string(bytes, index, find_next_osc_start, find_osc_terminator)
+        || is_inside_control_string(
+            bytes,
+            index,
+            find_next_st_control_string_start,
+            find_st_terminator,
+        )
 }
 
 fn is_inside_control_string(
@@ -1969,33 +1754,23 @@ fn is_inside_control_string(
     false
 }
 
-fn incomplete_osc_control_sequence_suffix_len<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> usize {
-    find_incomplete_control_sequence_start(
-        bytes,
-        |candidate| find_next_osc_start(candidate, recorder),
-        |candidate| find_osc_terminator(candidate, recorder),
-    )
-    .map_or(0, |start| bytes.len() - start)
-    .max(suffix_len_matching_prefix(bytes, b"\x1b]", recorder))
+fn incomplete_osc_control_sequence_suffix_len(bytes: &[u8]) -> usize {
+    find_incomplete_control_sequence_start(bytes, find_next_osc_start, find_osc_terminator)
+        .map_or(0, |start| bytes.len() - start)
+        .max(suffix_len_matching_prefix(bytes, b"\x1b]"))
 }
 
-fn incomplete_st_control_sequence_suffix_len<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> usize {
+fn incomplete_st_control_sequence_suffix_len(bytes: &[u8]) -> usize {
     find_incomplete_control_sequence_start(
         bytes,
-        |candidate| find_next_st_control_string_start(candidate, recorder),
-        |candidate| find_st_terminator(candidate, recorder),
+        find_next_st_control_string_start,
+        find_st_terminator,
     )
     .map_or(0, |start| bytes.len() - start)
-    .max(suffix_len_matching_prefix(bytes, b"\x1bP", recorder))
-    .max(suffix_len_matching_prefix(bytes, b"\x1bX", recorder))
-    .max(suffix_len_matching_prefix(bytes, b"\x1b^", recorder))
-    .max(suffix_len_matching_prefix(bytes, b"\x1b_", recorder))
+    .max(suffix_len_matching_prefix(bytes, b"\x1bP"))
+    .max(suffix_len_matching_prefix(bytes, b"\x1bX"))
+    .max(suffix_len_matching_prefix(bytes, b"\x1b^"))
+    .max(suffix_len_matching_prefix(bytes, b"\x1b_"))
 }
 
 fn find_incomplete_control_sequence_start(
@@ -2017,19 +1792,16 @@ fn find_incomplete_control_sequence_start(
     None
 }
 
-fn find_next_osc_start<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> Option<(usize, usize)> {
+fn find_next_osc_start(bytes: &[u8]) -> Option<(usize, usize)> {
     [(b"\x1b]".as_slice(), 2), (b"\x9d".as_slice(), 1)]
         .into_iter()
         .filter_map(|(prefix, prefix_len)| {
-            find_subslice(bytes, prefix, recorder).map(|index| (index, prefix_len))
+            find_subslice(bytes, prefix).map(|index| (index, prefix_len))
         })
         .min_by_key(|(index, _)| *index)
 }
 
-fn find_next_st_control_string_start<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<(usize, usize)> {
+fn find_next_st_control_string_start(bytes: &[u8]) -> Option<(usize, usize)> {
     [
         (b"\x1bP".as_slice(), 2),
         (b"\x1bX".as_slice(), 2),
@@ -2042,32 +1814,26 @@ fn find_next_st_control_string_start<R: QueryScanRecorder>(
     ]
     .into_iter()
     .filter_map(|(prefix, prefix_len)| {
-        find_subslice(bytes, prefix, recorder).map(|index| (index, prefix_len))
+        find_subslice(bytes, prefix).map(|index| (index, prefix_len))
     })
     .min_by_key(|(index, _)| *index)
 }
 
-fn find_osc_terminator<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<ControlStringTerminator> {
+fn find_osc_terminator(bytes: &[u8]) -> Option<ControlStringTerminator> {
     [
-        (find_subslice(bytes, b"\x1b\\", recorder), 2),
-        (find_subslice(bytes, b"\x9c", recorder), 1),
-        (find_subslice(bytes, b"\x07", recorder), 1),
+        (find_subslice(bytes, b"\x1b\\"), 2),
+        (find_subslice(bytes, b"\x9c"), 1),
+        (find_subslice(bytes, b"\x07"), 1),
     ]
     .into_iter()
     .filter_map(|(index, length)| index.map(|index| ControlStringTerminator { index, length }))
     .min_by_key(|terminator| terminator.index)
 }
 
-fn find_st_terminator<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<ControlStringTerminator> {
+fn find_st_terminator(bytes: &[u8]) -> Option<ControlStringTerminator> {
     [
-        (find_subslice(bytes, b"\x1b\\", recorder), 2),
-        (find_subslice(bytes, b"\x9c", recorder), 1),
+        (find_subslice(bytes, b"\x1b\\"), 2),
+        (find_subslice(bytes, b"\x9c"), 1),
     ]
     .into_iter()
     .filter_map(|(index, length)| index.map(|index| ControlStringTerminator { index, length }))
@@ -2079,12 +1845,7 @@ struct ControlStringTerminator {
     length: usize,
 }
 
-fn suffix_len_matching_prefix<R: QueryScanRecorder>(
-    haystack: &[u8],
-    needle: &[u8],
-    recorder: R,
-) -> usize {
-    recorder.record_candidate(haystack);
+fn suffix_len_matching_prefix(haystack: &[u8], needle: &[u8]) -> usize {
     let max = haystack.len().min(needle.len().saturating_sub(1));
     (1..=max)
         .rev()

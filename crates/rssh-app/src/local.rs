@@ -32,7 +32,6 @@ use serde::Serialize;
 use crate::{
     cli::{LocalOptions, Osc52Policy},
     diagnostics,
-    query_scan_work::QueryScanNoop,
     terminal_input::{TerminalKey, encode_terminal_key},
     terminal_modes::{
         KITTY_KEYBOARD_ALTERNATE_KEYS, KITTY_KEYBOARD_ASSOCIATED_TEXT, KITTY_KEYBOARD_DISAMBIGUATE,
@@ -42,10 +41,8 @@ use crate::{
         TerminalModeChange, TerminalModeTracker, find_key_modifier_options_query,
         find_key_modifier_options_sequence, find_kitty_keyboard_flags_query,
         find_kitty_keyboard_mode_sequence, find_synchronized_output_mode_sequence,
-        key_modifier_options_query_suffix_len, key_modifier_options_sequence_suffix_len,
-        kitty_keyboard_flags_query_suffix_len, kitty_keyboard_mode_sequence_suffix_len,
-        synchronized_output_mode_sequence_suffix_len,
     },
+    terminal_queries::{ControlFamily, ScannedSegment, TerminalQueryScanner},
     visible_output::TerminalVisibleOutputFilter,
 };
 
@@ -908,6 +905,7 @@ fn run_input_loop(
 
 struct TerminalOutputFilter {
     pending: Vec<u8>,
+    query_scanner: TerminalQueryScanner,
     synchronized_output_buffer: Vec<u8>,
     size: SharedTerminalSize,
     mirror: Terminal,
@@ -1134,6 +1132,7 @@ impl TerminalOutputFilter {
         let mirror_size = size.snapshot();
         Self {
             pending: Vec::new(),
+            query_scanner: TerminalQueryScanner::new(),
             synchronized_output_buffer: Vec::new(),
             size,
             mirror: Terminal::new(terminal_size_from_pty(mirror_size)),
@@ -1167,59 +1166,65 @@ impl TerminalOutputFilter {
         mut read_clipboard: impl FnMut() -> Option<String>,
         osc52_policy: Osc52Policy,
     ) -> io::Result<()> {
-        self.pending.extend_from_slice(bytes);
-
-        while let Some((index, event)) = self.find_next_event() {
-            let prefix = self.pending[..index].to_vec();
-            self.write_visible_bytes_and_update_state(&prefix, output)?;
-
-            let consumed_end = index + event.consumed;
-            let sequence = self.pending[index..consumed_end].to_vec();
-            match event.event {
-                MatchedTerminalEventKind::Response(response) => match response {
-                    TerminalResponse::Osc8Hyperlink => {
-                        self.feed_mirror_bytes(&sequence);
-                    }
-                    TerminalResponse::Osc52Write(text) => {
-                        if osc52_policy.allows_write() {
-                            let _ = write_clipboard(&text);
-                        }
-                    }
-                    TerminalResponse::Osc52Query(selection) => {
-                        if osc52_policy.allows_query()
-                            && let Some(text) = read_clipboard()
-                        {
-                            let response_bytes = encode_osc52_clipboard_response(&selection, &text);
-                            respond(&response_bytes)?;
-                        }
-                    }
-                    response => {
-                        let response_bytes = self.response_bytes(response);
-                        respond(&response_bytes)?;
-                    }
-                },
-                MatchedTerminalEventKind::SynchronizedOutputMode { enabled } => {
-                    self.mode_tracker.process_without_emitting(&sequence);
-                    self.feed_mirror_bytes(&sequence);
-                    if !enabled {
-                        self.flush_synchronized_output_buffer(output)?;
-                    }
+        for segment in self.query_scanner.process(bytes) {
+            match segment {
+                ScannedSegment::Bytes(visible) => {
+                    self.write_visible_bytes_and_update_state(&visible, output)?;
                 }
-                MatchedTerminalEventKind::KittyKeyboardMode
-                | MatchedTerminalEventKind::KeyModifierOptions => {
-                    self.mode_tracker.process_without_emitting(&sequence);
+                ScannedSegment::Control {
+                    family,
+                    bytes: sequence,
+                } => {
+                    self.pending = sequence;
+                    let event = self.find_next_event(family).filter(|(index, event)| {
+                        *index == 0 && event.consumed == self.pending.len()
+                    });
+                    if let Some((_, event)) = event {
+                        let sequence = self.pending.clone();
+                        match event.event {
+                            MatchedTerminalEventKind::Response(response) => match response {
+                                TerminalResponse::Osc8Hyperlink => {
+                                    self.feed_mirror_bytes(&sequence);
+                                }
+                                TerminalResponse::Osc52Write(text) => {
+                                    if osc52_policy.allows_write() {
+                                        let _ = write_clipboard(&text);
+                                    }
+                                }
+                                TerminalResponse::Osc52Query(selection) => {
+                                    if osc52_policy.allows_query()
+                                        && let Some(text) = read_clipboard()
+                                    {
+                                        let response_bytes =
+                                            encode_osc52_clipboard_response(&selection, &text);
+                                        respond(&response_bytes)?;
+                                    }
+                                }
+                                response => {
+                                    let response_bytes = self.response_bytes(response);
+                                    respond(&response_bytes)?;
+                                }
+                            },
+                            MatchedTerminalEventKind::SynchronizedOutputMode { enabled } => {
+                                self.mode_tracker.process_without_emitting(&sequence);
+                                self.feed_mirror_bytes(&sequence);
+                                if !enabled {
+                                    self.flush_synchronized_output_buffer(output)?;
+                                }
+                            }
+                            MatchedTerminalEventKind::KittyKeyboardMode
+                            | MatchedTerminalEventKind::KeyModifierOptions => {
+                                self.mode_tracker.process_without_emitting(&sequence);
+                            }
+                            MatchedTerminalEventKind::IgnoredControl => {}
+                        }
+                    } else {
+                        let visible = self.pending.clone();
+                        self.write_visible_bytes_and_update_state(&visible, output)?;
+                    }
+                    self.pending.clear();
                 }
-                MatchedTerminalEventKind::IgnoredControl => {}
             }
-            self.pending.drain(..consumed_end);
-        }
-
-        let retained = Self::suffix_len_matching_query_prefix(&self.pending);
-        let writable = self.pending.len().saturating_sub(retained);
-        if writable > 0 {
-            let visible = self.pending[..writable].to_vec();
-            self.write_visible_bytes_and_update_state(&visible, output)?;
-            self.pending.drain(..writable);
         }
 
         Ok(())
@@ -1260,12 +1265,14 @@ impl TerminalOutputFilter {
         Ok(())
     }
 
-    fn find_next_event(&self) -> Option<(usize, MatchedTerminalEvent)> {
+    fn find_next_event(&self, family: ControlFamily) -> Option<(usize, MatchedTerminalEvent)> {
         let response = self
-            .find_next_response()
+            .find_next_response(family)
             .map(|(index, response)| (index, response.into()));
-        let synchronized_output =
-            find_synchronized_output_mode_sequence(&self.pending, QueryScanNoop).map(
+        let synchronized_output = (family == ControlFamily::Csi)
+            .then(|| find_synchronized_output_mode_sequence(&self.pending))
+            .flatten()
+            .map(
                 |SynchronizedOutputModeSequence {
                      index,
                      consumed,
@@ -1280,7 +1287,9 @@ impl TerminalOutputFilter {
                     )
                 },
             );
-        let kitty_keyboard_mode = find_kitty_keyboard_mode_sequence(&self.pending, QueryScanNoop)
+        let kitty_keyboard_mode = (family == ControlFamily::Csi)
+            .then(|| find_kitty_keyboard_mode_sequence(&self.pending))
+            .flatten()
             .map(|KittyKeyboardModeSequence { index, consumed }| {
                 (
                     index,
@@ -1290,7 +1299,9 @@ impl TerminalOutputFilter {
                     },
                 )
             });
-        let key_modifier_options = find_key_modifier_options_sequence(&self.pending, QueryScanNoop)
+        let key_modifier_options = (family == ControlFamily::Csi)
+            .then(|| find_key_modifier_options_sequence(&self.pending))
+            .flatten()
             .map(|KeyModifierOptionsSequence { index, consumed }| {
                 (
                     index,
@@ -1300,25 +1311,46 @@ impl TerminalOutputFilter {
                     },
                 )
             });
-        let ignored_window_query = ignored_control_event(
-            &self.pending,
-            find_ignored_wezterm_window_query(&self.pending),
-        );
-        let ignored_decrqcra =
-            ignored_control_event(&self.pending, find_ignored_decrqcra_query(&self.pending));
-        let ignored_device_attributes = ignored_control_event(
-            &self.pending,
-            find_ignored_wezterm_device_attribute_response(&self.pending),
-        );
-        let ignored_notification = ignored_control_event(
-            &self.pending,
-            find_ignored_wezterm_notification_sequence(&self.pending),
-        );
-        let ignored_static_query = ignored_control_event(
-            &self.pending,
-            find_ignored_static_query(&self.pending, Self::IGNORED_QUERIES),
-        );
-        let st_control = ignored_control_event(&self.pending, find_st_control(&self.pending));
+        let ignored_window_query = (family == ControlFamily::Csi)
+            .then(|| {
+                ignored_control_event(
+                    &self.pending,
+                    find_ignored_wezterm_window_query(&self.pending),
+                )
+            })
+            .flatten();
+        let ignored_decrqcra = (family == ControlFamily::Csi)
+            .then(|| {
+                ignored_control_event(&self.pending, find_ignored_decrqcra_query(&self.pending))
+            })
+            .flatten();
+        let ignored_device_attributes = (family == ControlFamily::Csi)
+            .then(|| {
+                ignored_control_event(
+                    &self.pending,
+                    find_ignored_wezterm_device_attribute_response(&self.pending),
+                )
+            })
+            .flatten();
+        let ignored_notification = (family == ControlFamily::Osc)
+            .then(|| {
+                ignored_control_event(
+                    &self.pending,
+                    find_ignored_wezterm_notification_sequence(&self.pending),
+                )
+            })
+            .flatten();
+        let ignored_static_query = (family == ControlFamily::Csi)
+            .then(|| {
+                ignored_control_event(
+                    &self.pending,
+                    find_ignored_static_query(&self.pending, Self::IGNORED_QUERIES),
+                )
+            })
+            .flatten();
+        let st_control = (family == ControlFamily::Other)
+            .then(|| ignored_control_event(&self.pending, find_st_control(&self.pending)))
+            .flatten();
 
         response
             .into_iter()
@@ -1335,22 +1367,31 @@ impl TerminalOutputFilter {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn find_next_response(&self) -> Option<(usize, MatchedTerminalResponse)> {
-        let static_response = Self::RESPONSES
-            .iter()
-            .filter_map(|response| {
-                find_subslice(&self.pending, response.query).map(|index| {
-                    (
-                        index,
-                        MatchedTerminalResponse {
-                            consumed: response.query.len(),
-                            response: response.response.clone(),
-                        },
-                    )
-                })
+    fn find_next_response(
+        &self,
+        family: ControlFamily,
+    ) -> Option<(usize, MatchedTerminalResponse)> {
+        let static_response = (family == ControlFamily::Csi)
+            .then(|| {
+                Self::RESPONSES
+                    .iter()
+                    .filter_map(|response| {
+                        find_subslice(&self.pending, response.query).map(|index| {
+                            (
+                                index,
+                                MatchedTerminalResponse {
+                                    consumed: response.query.len(),
+                                    response: response.response.clone(),
+                                },
+                            )
+                        })
+                    })
+                    .min_by_key(|(index, _)| *index)
             })
-            .min_by_key(|(index, _)| *index);
-        let window_report_response = find_wezterm_window_report_query(&self.pending)
+            .flatten();
+        let window_report_response = (family == ControlFamily::Csi)
+            .then(|| find_wezterm_window_report_query(&self.pending))
+            .flatten()
             .filter(|query| !is_inside_osc_or_st_control_string(&self.pending, query.index))
             .map(|query| {
                 (
@@ -1361,25 +1402,34 @@ impl TerminalOutputFilter {
                     },
                 )
             });
-        let mode_response = self.find_private_mode_response();
-        let ansi_mode_response = self.find_ansi_mode_response();
-        let osc_color_response = find_osc_color_query(&self.pending).map(
-            |OscColorQuery {
-                 index,
-                 consumed,
-                 query,
-             }| {
-                (
-                    index,
-                    MatchedTerminalResponse {
-                        consumed,
-                        response: TerminalResponse::OscColor(query),
-                    },
-                )
-            },
-        );
-        let iterm_report_cell_size_response = find_iterm_report_cell_size_query(&self.pending).map(
-            |ItermReportCellSizeQuery { index, consumed }| {
+        let mode_response = (family == ControlFamily::Csi)
+            .then(|| self.find_private_mode_response())
+            .flatten();
+        let ansi_mode_response = (family == ControlFamily::Csi)
+            .then(|| self.find_ansi_mode_response())
+            .flatten();
+        let osc_color_response = (family == ControlFamily::Osc)
+            .then(|| find_osc_color_query(&self.pending))
+            .flatten()
+            .map(
+                |OscColorQuery {
+                     index,
+                     consumed,
+                     query,
+                 }| {
+                    (
+                        index,
+                        MatchedTerminalResponse {
+                            consumed,
+                            response: TerminalResponse::OscColor(query),
+                        },
+                    )
+                },
+            );
+        let iterm_report_cell_size_response = (family == ControlFamily::Osc)
+            .then(|| find_iterm_report_cell_size_query(&self.pending))
+            .flatten()
+            .map(|ItermReportCellSizeQuery { index, consumed }| {
                 (
                     index,
                     MatchedTerminalResponse {
@@ -1387,25 +1437,29 @@ impl TerminalOutputFilter {
                         response: TerminalResponse::ItermReportCellSize,
                     },
                 )
-            },
-        );
-        let decrqss_response = find_decrqss_query(&self.pending).map(
-            |DecrqssQuery {
-                 index,
-                 consumed,
-                 response,
-             }| {
-                (
-                    index,
-                    MatchedTerminalResponse {
-                        consumed,
-                        response: TerminalResponse::Decrqss(response),
-                    },
-                )
-            },
-        );
-        let xtgettcap_response =
-            find_xtgettcap_query(&self.pending, self.size.snapshot(), &self.terminal_name).map(
+            });
+        let decrqss_response = (family == ControlFamily::Dcs)
+            .then(|| find_decrqss_query(&self.pending))
+            .flatten()
+            .map(
+                |DecrqssQuery {
+                     index,
+                     consumed,
+                     response,
+                 }| {
+                    (
+                        index,
+                        MatchedTerminalResponse {
+                            consumed,
+                            response: TerminalResponse::Decrqss(response),
+                        },
+                    )
+                },
+            );
+        let xtgettcap_response = (family == ControlFamily::Dcs)
+            .then(|| find_xtgettcap_query(&self.pending, self.size.snapshot(), &self.terminal_name))
+            .flatten()
+            .map(
                 |XtGetTcapQuery {
                      index,
                      consumed,
@@ -1420,24 +1474,31 @@ impl TerminalOutputFilter {
                     )
                 },
             );
-        let xtsmgraphics_response = find_xtsmgraphics_query(&self.pending).map(
-            |XtSmGraphicsQuery {
-                 index,
-                 consumed,
-                 request,
-             }| {
-                (
-                    index,
-                    MatchedTerminalResponse {
-                        consumed,
-                        response: TerminalResponse::XtSmGraphics(request),
-                    },
-                )
-            },
-        );
-        let osc52_response = self.find_osc52_response();
-        let osc8_response = find_osc8_hyperlink_sequence(&self.pending).map(
-            |Osc8HyperlinkSequence { index, consumed }| {
+        let xtsmgraphics_response = (family == ControlFamily::Csi)
+            .then(|| find_xtsmgraphics_query(&self.pending))
+            .flatten()
+            .map(
+                |XtSmGraphicsQuery {
+                     index,
+                     consumed,
+                     request,
+                 }| {
+                    (
+                        index,
+                        MatchedTerminalResponse {
+                            consumed,
+                            response: TerminalResponse::XtSmGraphics(request),
+                        },
+                    )
+                },
+            );
+        let osc52_response = (family == ControlFamily::Osc)
+            .then(|| self.find_osc52_response())
+            .flatten();
+        let osc8_response = (family == ControlFamily::Osc)
+            .then(|| find_osc8_hyperlink_sequence(&self.pending))
+            .flatten()
+            .map(|Osc8HyperlinkSequence { index, consumed }| {
                 (
                     index,
                     MatchedTerminalResponse {
@@ -1445,22 +1506,23 @@ impl TerminalOutputFilter {
                         response: TerminalResponse::Osc8Hyperlink,
                     },
                 )
-            },
-        );
-        let kitty_keyboard_flags_response =
-            find_kitty_keyboard_flags_query(&self.pending, QueryScanNoop).map(
-                |KittyKeyboardFlagsQuery { index, consumed }| {
-                    (
-                        index,
-                        MatchedTerminalResponse {
-                            consumed,
-                            response: TerminalResponse::KittyKeyboardFlags,
-                        },
-                    )
-                },
-            );
-        let key_modifier_options_response =
-            find_key_modifier_options_query(&self.pending, QueryScanNoop).map(
+            });
+        let kitty_keyboard_flags_response = (family == ControlFamily::Csi)
+            .then(|| find_kitty_keyboard_flags_query(&self.pending))
+            .flatten()
+            .map(|KittyKeyboardFlagsQuery { index, consumed }| {
+                (
+                    index,
+                    MatchedTerminalResponse {
+                        consumed,
+                        response: TerminalResponse::KittyKeyboardFlags,
+                    },
+                )
+            });
+        let key_modifier_options_response = (family == ControlFamily::Csi)
+            .then(|| find_key_modifier_options_query(&self.pending))
+            .flatten()
+            .map(
                 |KeyModifierOptionsQuery {
                      index,
                      consumed,
@@ -1553,59 +1615,8 @@ impl TerminalOutputFilter {
         )
     }
 
-    fn suffix_len_matching_query_prefix(pending: &[u8]) -> usize {
-        let static_query_suffix = Self::RESPONSES
-            .iter()
-            .map(|response| suffix_len_matching_prefix(pending, response.query))
-            .max()
-            .unwrap_or(0);
-        static_query_suffix
-            .max(private_mode_status_query_suffix_len(pending))
-            .max(ansi_mode_status_query_suffix_len(pending))
-            .max(synchronized_output_mode_sequence_suffix_len(
-                pending,
-                QueryScanNoop,
-            ))
-            .max(osc_color_query_suffix_len(pending))
-            .max(decrqss_query_suffix_len(pending))
-            .max(xtgettcap_query_suffix_len(pending))
-            .max(xtsmgraphics_query_suffix_len(pending))
-            .max(clipboard_sequence_suffix_len(pending))
-            .max(osc8_hyperlink_sequence_suffix_len(pending))
-            .max(osc_notification_sequence_suffix_len(pending))
-            .max(kitty_keyboard_flags_query_suffix_len(
-                pending,
-                QueryScanNoop,
-            ))
-            .max(kitty_keyboard_mode_sequence_suffix_len(
-                pending,
-                QueryScanNoop,
-            ))
-            .max(key_modifier_options_query_suffix_len(
-                pending,
-                QueryScanNoop,
-            ))
-            .max(key_modifier_options_sequence_suffix_len(
-                pending,
-                QueryScanNoop,
-            ))
-            .max(st_control_suffix_len(pending))
-            .max(incomplete_osc_control_sequence_suffix_len(pending))
-            .max(incomplete_st_control_sequence_suffix_len(pending))
-            .max(incomplete_csi_control_sequence_suffix_len(pending))
-    }
-
     fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
-        if let Some(drop_start) = find_incomplete_control_sequence_start(&self.pending) {
-            let visible = self.pending[..drop_start].to_vec();
-            self.write_visible_bytes_and_update_state(&visible, output)?;
-            self.pending.clear();
-            self.flush_synchronized_output_buffer(output)?;
-            return Ok(());
-        }
-
-        let visible = self.pending.clone();
-        self.write_visible_bytes_and_update_state(&visible, output)?;
+        self.query_scanner.discard_incomplete();
         self.pending.clear();
         self.flush_synchronized_output_buffer(output)?;
         Ok(())
@@ -2135,14 +2146,6 @@ fn find_st_control(bytes: &[u8]) -> Option<StControl> {
         .min_by_key(|control| control.index)
 }
 
-fn st_control_suffix_len(bytes: &[u8]) -> usize {
-    st_control_sequences()
-        .into_iter()
-        .map(|sequence| suffix_len_matching_prefix(bytes, sequence))
-        .max()
-        .unwrap_or(0)
-}
-
 fn st_control_sequences() -> [&'static [u8]; 3] {
     [b"\x1b\\".as_slice(), b"\x9c".as_slice(), UTF8_C1_ST]
 }
@@ -2188,10 +2191,6 @@ fn parse_osc8_hyperlink_sequence(
     })
 }
 
-fn osc8_hyperlink_sequence_suffix_len(bytes: &[u8]) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_osc8_hyperlink_sequence_prefix)
-}
-
 fn find_ignored_wezterm_notification_sequence(bytes: &[u8]) -> Option<StControl> {
     let mut match_sequence = None;
     for prefix in OSC9_NOTIFICATION_PREFIXES
@@ -2230,70 +2229,6 @@ fn parse_prefixed_osc_control_sequence(
         index,
         consumed: content_start + terminator.index + terminator.length - index,
     })
-}
-
-fn osc_notification_sequence_suffix_len(bytes: &[u8]) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_osc_notification_sequence_prefix)
-}
-
-fn is_osc_notification_sequence_prefix(bytes: &[u8]) -> bool {
-    OSC9_NOTIFICATION_PREFIXES
-        .iter()
-        .chain(RXVT_NOTIFY_PREFIXES.iter())
-        .any(|prefix| {
-            if prefix.starts_with(bytes) {
-                return true;
-            }
-            bytes.starts_with(prefix) && find_osc_color_terminator(&bytes[prefix.len()..]).is_none()
-        })
-}
-
-fn is_osc8_hyperlink_sequence_prefix(bytes: &[u8]) -> bool {
-    OSC8_HYPERLINK_PREFIXES.iter().any(|prefix| {
-        if prefix.starts_with(bytes) {
-            return true;
-        }
-        bytes.starts_with(prefix) && find_osc_color_terminator(&bytes[prefix.len()..]).is_none()
-    })
-}
-
-fn find_incomplete_osc8_hyperlink_start(bytes: &[u8]) -> Option<usize> {
-    find_incomplete_prefixed_osc_start(bytes, OSC8_HYPERLINK_PREFIXES)
-}
-
-fn find_incomplete_osc52_clipboard_start(bytes: &[u8]) -> Option<usize> {
-    find_incomplete_prefixed_osc_start(bytes, OSC52_CLIPBOARD_PREFIXES)
-}
-
-fn find_incomplete_prefixed_osc_start(bytes: &[u8], prefixes: &[&[u8]]) -> Option<usize> {
-    prefixes
-        .iter()
-        .filter_map(|prefix| find_incomplete_prefixed_sequence_start(bytes, prefix))
-        .min()
-}
-
-fn find_incomplete_prefixed_sequence_start(bytes: &[u8], prefix: &[u8]) -> Option<usize> {
-    if let Some(index) = find_subslice(bytes, prefix)
-        && find_osc_color_terminator(&bytes[index + prefix.len()..]).is_none()
-    {
-        return Some(index);
-    }
-
-    let suffix = suffix_len_matching_prefix(bytes, prefix);
-    (suffix > 0).then_some(bytes.len() - suffix)
-}
-
-fn find_incomplete_control_sequence_start(bytes: &[u8]) -> Option<usize> {
-    [
-        find_incomplete_osc_control_sequence_start(bytes),
-        find_incomplete_st_control_sequence_start(bytes),
-        find_incomplete_csi_control_sequence_start(bytes),
-        find_incomplete_osc8_hyperlink_start(bytes),
-        find_incomplete_osc52_clipboard_start(bytes),
-    ]
-    .into_iter()
-    .flatten()
-    .min()
 }
 
 fn is_inside_osc_or_st_control_string(bytes: &[u8], index: usize) -> bool {
@@ -2415,41 +2350,6 @@ fn find_next_st_control_string_start(bytes: &[u8]) -> Option<(usize, usize)> {
     .min_by_key(|(index, _)| *index)
 }
 
-fn incomplete_csi_control_sequence_suffix_len(bytes: &[u8]) -> usize {
-    find_incomplete_csi_control_sequence_start(bytes)
-        .map_or(0, |start| bytes.len() - start)
-        .max(suffix_len_matching_prefix(bytes, b"\x1b["))
-}
-
-fn find_incomplete_csi_control_sequence_start(bytes: &[u8]) -> Option<usize> {
-    let mut offset = 0;
-    while offset < bytes.len() {
-        let Some((relative_index, prefix_len)) = find_next_csi_start(&bytes[offset..]) else {
-            break;
-        };
-        let index = offset + relative_index;
-        let content_start = index + prefix_len;
-        let Some(final_index) = bytes[content_start..]
-            .iter()
-            .position(|byte| (0x40..=0x7e).contains(byte))
-        else {
-            return Some(index);
-        };
-        offset = content_start + final_index + 1;
-    }
-
-    None
-}
-
-fn find_next_csi_start(bytes: &[u8]) -> Option<(usize, usize)> {
-    [(b"\x1b[".as_slice(), 2), (b"\x9b".as_slice(), 1)]
-        .into_iter()
-        .filter_map(|(prefix, prefix_len)| {
-            find_subslice(bytes, prefix).map(|index| (index, prefix_len))
-        })
-        .min_by_key(|(index, _)| *index)
-}
-
 struct ClipboardControlSequence {
     index: usize,
     consumed: usize,
@@ -2550,22 +2450,6 @@ fn parse_osc52_clipboard_content(content: &[u8]) -> Option<ClipboardSequence> {
 fn parse_iterm_copy_clipboard_content(content: &[u8]) -> Option<String> {
     let decoded = STANDARD.decode(content).ok()?;
     String::from_utf8(decoded).ok()
-}
-
-fn clipboard_sequence_suffix_len(bytes: &[u8]) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_clipboard_sequence_prefix)
-}
-
-fn is_clipboard_sequence_prefix(bytes: &[u8]) -> bool {
-    OSC52_CLIPBOARD_PREFIXES
-        .iter()
-        .chain(ITERM_COPY_CLIPBOARD_PREFIXES.iter())
-        .any(|prefix| {
-            if prefix.starts_with(bytes) {
-                return true;
-            }
-            bytes.starts_with(prefix) && find_osc_color_terminator(&bytes[prefix.len()..]).is_none()
-        })
 }
 
 struct DecrqssQuery {
@@ -2773,31 +2657,6 @@ fn append_left_right_margin_state((left, right): (u16, u16), bytes: &mut Vec<u8>
     bytes.push(b';');
     bytes.extend_from_slice(right.saturating_add(1).to_string().as_bytes());
     bytes.push(b's');
-}
-
-fn decrqss_query_suffix_len(bytes: &[u8]) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_decrqss_query_prefix)
-}
-
-fn is_decrqss_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes
-        .strip_prefix(b"\x1bP")
-        .or_else(|| bytes.strip_prefix(UTF8_C1_DCS))
-        .or_else(|| bytes.strip_prefix(b"\x90"))
-    else {
-        return b"\x1bP".starts_with(bytes)
-            || UTF8_C1_DCS.starts_with(bytes)
-            || b"\x90".starts_with(bytes);
-    };
-    if !b"$q".starts_with(rest) && !rest.starts_with(b"$q") {
-        return false;
-    }
-    if let Some(body) = rest.strip_prefix(b"$q") {
-        return [b"m".as_slice(), b" q".as_slice(), b"r".as_slice()]
-            .into_iter()
-            .any(|target| target.starts_with(body));
-    }
-    true
 }
 
 struct XtGetTcapQuery {
@@ -3201,31 +3060,6 @@ fn decode_ascii_hex(bytes: &[u8]) -> Option<Vec<u8>> {
         .collect()
 }
 
-fn xtgettcap_query_suffix_len(bytes: &[u8]) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_xtgettcap_query_prefix)
-}
-
-fn is_xtgettcap_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes
-        .strip_prefix(b"\x1bP")
-        .or_else(|| bytes.strip_prefix(UTF8_C1_DCS))
-        .or_else(|| bytes.strip_prefix(b"\x90"))
-    else {
-        return b"\x1bP".starts_with(bytes)
-            || UTF8_C1_DCS.starts_with(bytes)
-            || b"\x90".starts_with(bytes);
-    };
-    if !b"+q".starts_with(rest) && !rest.starts_with(b"+q") {
-        return false;
-    }
-    if let Some(body) = rest.strip_prefix(b"+q") {
-        return body
-            .iter()
-            .all(|byte| byte.is_ascii_hexdigit() || *byte == b';');
-    }
-    true
-}
-
 struct XtSmGraphicsQuery {
     index: usize,
     consumed: usize,
@@ -3334,33 +3168,6 @@ fn parse_xtsmgraphics_query(
         consumed: prefix_len + b"?".len() + final_index + b"S".len(),
         request: XtSmGraphicsRequest { item, action },
     })
-}
-
-fn xtsmgraphics_query_suffix_len(bytes: &[u8]) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_xtsmgraphics_query_prefix)
-}
-
-fn is_xtsmgraphics_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes
-        .strip_prefix(b"\x1b[")
-        .or_else(|| bytes.strip_prefix(b"\x9b"))
-        .or_else(|| bytes.strip_prefix(UTF8_C1_CSI))
-    else {
-        return b"\x1b[".starts_with(bytes)
-            || b"\x9b".starts_with(bytes)
-            || UTF8_C1_CSI.starts_with(bytes);
-    };
-
-    if !b"?".starts_with(rest) && !rest.starts_with(b"?") {
-        return false;
-    }
-    let Some(body) = rest.strip_prefix(b"?") else {
-        return true;
-    };
-    !body.contains(&b'S')
-        && body
-            .iter()
-            .all(|byte| byte.is_ascii_digit() || *byte == b';')
 }
 
 struct OscColorQuery {
@@ -3507,64 +3314,6 @@ fn parse_u8_decimal(bytes: &[u8]) -> Option<u8> {
             .saturating_add(u16::from(*byte - b'0'));
     }
     u8::try_from(value).ok()
-}
-
-fn osc_color_query_suffix_len(bytes: &[u8]) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_osc_color_query_prefix)
-}
-
-fn is_osc_color_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes
-        .strip_prefix(b"\x1b]")
-        .or_else(|| bytes.strip_prefix(b"\x9d"))
-        .or_else(|| bytes.strip_prefix(UTF8_C1_OSC))
-    else {
-        return b"\x1b]".starts_with(bytes)
-            || b"\x9d".starts_with(bytes)
-            || UTF8_C1_OSC.starts_with(bytes);
-    };
-
-    b"10;?".starts_with(rest)
-        || b"11;?".starts_with(rest)
-        || b"12;?".starts_with(rest)
-        || is_palette_color_query_prefix(rest)
-}
-
-fn is_palette_color_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes.strip_prefix(b"4") else {
-        return bytes.is_empty();
-    };
-    let Some(mut rest) = rest.strip_prefix(b";") else {
-        return rest.is_empty();
-    };
-
-    loop {
-        let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
-        if digits == 0 {
-            return rest.is_empty();
-        }
-        rest = &rest[digits..];
-        if rest.is_empty() {
-            return true;
-        }
-        let Some(after_separator) = rest.strip_prefix(b";") else {
-            return false;
-        };
-        if after_separator.is_empty() {
-            return true;
-        }
-        let Some(after_query_marker) = after_separator.strip_prefix(b"?") else {
-            return false;
-        };
-        rest = after_query_marker;
-        if rest.is_empty() {
-            return true;
-        }
-        let Some(after_next_separator) = rest.strip_prefix(b";") else {
-            return false;
-        };
-        rest = after_next_separator;
-    }
 }
 
 struct ItermReportCellSizeQuery {
@@ -4177,53 +3926,6 @@ fn parse_ansi_mode_status_query(
     })
 }
 
-fn private_mode_status_query_suffix_len(bytes: &[u8]) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_private_mode_status_query_prefix)
-}
-
-fn ansi_mode_status_query_suffix_len(bytes: &[u8]) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_ansi_mode_status_query_prefix)
-}
-
-fn is_private_mode_status_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes
-        .strip_prefix(b"\x1b[?")
-        .or_else(|| bytes.strip_prefix(b"\x9b?"))
-        .or_else(|| bytes.strip_prefix(UTF8_C1_PRIVATE_CSI))
-    else {
-        return b"\x1b[".starts_with(bytes)
-            || b"\x1b[?".starts_with(bytes)
-            || b"\x9b?".starts_with(bytes)
-            || UTF8_C1_PRIVATE_CSI.starts_with(bytes);
-    };
-
-    let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
-    if digits == 0 {
-        return rest.is_empty();
-    }
-    let tail = &rest[digits..];
-    tail.is_empty() || tail == b"$"
-}
-
-fn is_ansi_mode_status_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes
-        .strip_prefix(b"\x1b[")
-        .or_else(|| bytes.strip_prefix(b"\x9b"))
-        .or_else(|| bytes.strip_prefix(UTF8_C1_CSI))
-    else {
-        return b"\x1b[".starts_with(bytes)
-            || b"\x9b".starts_with(bytes)
-            || UTF8_C1_CSI.starts_with(bytes);
-    };
-
-    let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
-    if digits == 0 {
-        return rest.is_empty();
-    }
-    let tail = &rest[digits..];
-    tail.is_empty() || tail == b"$"
-}
-
 fn suffix_len_matching_prefix(haystack: &[u8], needle: &[u8]) -> usize {
     let max = haystack.len().min(needle.len().saturating_sub(1));
     (1..=max)
@@ -4232,21 +3934,6 @@ fn suffix_len_matching_prefix(haystack: &[u8], needle: &[u8]) -> usize {
             let suffix_start = haystack.len() - length;
             haystack[suffix_start..] == needle[..length]
                 && !raw_c1_prefix_is_utf8_continuation(haystack, suffix_start, &needle[..length])
-        })
-        .unwrap_or(0)
-}
-
-fn suffix_len_matching_query_prefix(
-    haystack: &[u8],
-    mut is_query_prefix: impl FnMut(&[u8]) -> bool,
-) -> usize {
-    (1..=haystack.len())
-        .rev()
-        .find(|&length| {
-            let suffix_start = haystack.len() - length;
-            let suffix = &haystack[suffix_start..];
-            is_query_prefix(suffix)
-                && !raw_c1_prefix_is_utf8_continuation(haystack, suffix_start, suffix)
         })
         .unwrap_or(0)
 }

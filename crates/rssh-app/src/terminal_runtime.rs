@@ -1,5 +1,3 @@
-use std::cell::Cell as CounterCell;
-
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rssh_core::{DamageRegion, TerminalSize};
 use rssh_terminal::{
@@ -8,16 +6,14 @@ use rssh_terminal::{
 };
 
 use crate::{
-    query_scan_work::{QueryScanNoop, QueryScanRecorder, QueryScanWork},
     terminal_modes::{
         KeyModifierOptionsQuery, KeyModifierOptionsSequence, KittyKeyboardFlagsQuery,
         KittyKeyboardModeSequence, MouseInputMode, SynchronizedOutputModeSequence,
         TerminalModeTracker, find_key_modifier_options_query, find_key_modifier_options_sequence,
         find_kitty_keyboard_flags_query, find_kitty_keyboard_mode_sequence,
-        find_synchronized_output_mode_sequence, key_modifier_options_query_suffix_len,
-        key_modifier_options_sequence_suffix_len, kitty_keyboard_flags_query_suffix_len,
-        kitty_keyboard_mode_sequence_suffix_len, synchronized_output_mode_sequence_suffix_len,
+        find_synchronized_output_mode_sequence,
     },
+    terminal_queries::{ControlFamily, ScannedSegment, TerminalQueryScanner},
     visible_output::TerminalVisibleOutputFilter,
 };
 
@@ -85,7 +81,7 @@ impl TerminalRuntime {
 
     pub(crate) fn new_with_query_scan_work(size: TerminalSize) -> Self {
         let mut runtime = Self::new(size);
-        runtime.output_filter.record_query_scan_work = true;
+        runtime.output_filter.query_scanner = TerminalQueryScanner::new_with_work_counter();
         runtime
     }
 
@@ -239,13 +235,12 @@ impl TerminalRuntime {
         &self.terminal
     }
 
-    /// Sum of candidate buffer bytes presented to each legacy query matcher.
+    /// Cumulative bytes inspected by the streaming query scanner.
     ///
-    /// This cumulative counter saturates at `u64::MAX`. It measures the
-    /// current repeated-scan implementation without changing its control flow.
+    /// The counter saturates at `u64::MAX` and is disabled for normal runtimes.
     #[must_use]
     pub(crate) const fn inspected_query_bytes(&self) -> u64 {
-        self.output_filter.inspected_query_bytes
+        self.output_filter.query_scanner.inspected_bytes()
     }
 
     #[must_use]
@@ -346,11 +341,10 @@ impl TerminalRuntime {
 
 struct TerminalOutputFilter {
     pending: Vec<u8>,
+    query_scanner: TerminalQueryScanner,
     size: TerminalSize,
     terminal_name: String,
     color_state: TerminalColorState,
-    inspected_query_bytes: u64,
-    record_query_scan_work: bool,
 }
 
 struct FilteredOutput {
@@ -588,11 +582,10 @@ impl TerminalOutputFilter {
     fn new(size: TerminalSize) -> Self {
         Self {
             pending: Vec::new(),
+            query_scanner: TerminalQueryScanner::new(),
             size,
             terminal_name: DEFAULT_TERMINAL_NAME.to_owned(),
             color_state: TerminalColorState::default(),
-            inspected_query_bytes: 0,
-            record_query_scan_work: false,
         }
     }
 
@@ -605,75 +598,69 @@ impl TerminalOutputFilter {
     }
 
     fn process(&mut self, bytes: &[u8]) -> FilteredOutput {
-        if self.record_query_scan_work {
-            let candidate_bytes = CounterCell::new(0);
-            let output = self.process_inner(bytes, QueryScanWork::new(&candidate_bytes));
-            self.inspected_query_bytes = self
-                .inspected_query_bytes
-                .saturating_add(candidate_bytes.get());
-            output
-        } else {
-            self.process_inner(bytes, QueryScanNoop)
-        }
+        self.process_inner(bytes)
     }
 
-    fn process_inner<R: QueryScanRecorder>(&mut self, bytes: &[u8], recorder: R) -> FilteredOutput {
-        self.pending.extend_from_slice(bytes);
-
+    fn process_inner(&mut self, bytes: &[u8]) -> FilteredOutput {
         let mut events = Vec::new();
-
-        while let Some((index, event)) = self.find_next_event(recorder) {
-            if index > 0 {
-                let display = self.pending[..index].to_vec();
-                let all_lines_changed = self.color_state.process(&display);
-                events.push(FilteredOutputEvent::Display {
-                    bytes: display,
-                    all_lines_changed,
-                });
+        for segment in self.query_scanner.process(bytes) {
+            match segment {
+                ScannedSegment::Bytes(display) => {
+                    self.push_display(&mut events, display);
+                }
+                ScannedSegment::Control { family, bytes } => {
+                    self.pending = bytes;
+                    let event = self.find_next_event(family).filter(|(index, event)| {
+                        *index == 0 && event.consumed == self.pending.len()
+                    });
+                    if let Some((_, event)) = event {
+                        let output_event = match event.event {
+                            MatchedTerminalEventKind::Response(response) => {
+                                Some(self.filtered_response(response))
+                            }
+                            MatchedTerminalEventKind::Enq => Some(FilteredOutputEvent::Enq),
+                            MatchedTerminalEventKind::SynchronizedOutputMode { enabled } => {
+                                Some(FilteredOutputEvent::SynchronizedOutputMode {
+                                    bytes: std::mem::take(&mut self.pending),
+                                    enabled,
+                                })
+                            }
+                            MatchedTerminalEventKind::KittyKeyboardMode => {
+                                Some(FilteredOutputEvent::KittyKeyboardMode {
+                                    bytes: std::mem::take(&mut self.pending),
+                                })
+                            }
+                            MatchedTerminalEventKind::KeyModifierOptions => {
+                                Some(FilteredOutputEvent::KeyModifierOptions {
+                                    bytes: std::mem::take(&mut self.pending),
+                                })
+                            }
+                            MatchedTerminalEventKind::IgnoredControl => None,
+                        };
+                        if let Some(output_event) = output_event {
+                            events.push(output_event);
+                        }
+                    } else {
+                        let display = std::mem::take(&mut self.pending);
+                        self.push_display(&mut events, display);
+                    }
+                    self.pending.clear();
+                }
             }
-            let consumed_end = index + event.consumed;
-            let output_event = match event.event {
-                MatchedTerminalEventKind::Response(response) => {
-                    Some(self.filtered_response(response))
-                }
-                MatchedTerminalEventKind::Enq => Some(FilteredOutputEvent::Enq),
-                MatchedTerminalEventKind::SynchronizedOutputMode { enabled } => {
-                    Some(FilteredOutputEvent::SynchronizedOutputMode {
-                        bytes: self.pending[index..consumed_end].to_vec(),
-                        enabled,
-                    })
-                }
-                MatchedTerminalEventKind::KittyKeyboardMode => {
-                    Some(FilteredOutputEvent::KittyKeyboardMode {
-                        bytes: self.pending[index..consumed_end].to_vec(),
-                    })
-                }
-                MatchedTerminalEventKind::KeyModifierOptions => {
-                    Some(FilteredOutputEvent::KeyModifierOptions {
-                        bytes: self.pending[index..consumed_end].to_vec(),
-                    })
-                }
-                MatchedTerminalEventKind::IgnoredControl => None,
-            };
-            if let Some(output_event) = output_event {
-                events.push(output_event);
-            }
-            self.pending.drain(..consumed_end);
-        }
-
-        let retained = self.suffix_len_matching_query_prefix(recorder);
-        let writable = self.pending.len().saturating_sub(retained);
-        if writable > 0 {
-            let display = self.pending[..writable].to_vec();
-            let all_lines_changed = self.color_state.process(&display);
-            events.push(FilteredOutputEvent::Display {
-                bytes: display,
-                all_lines_changed,
-            });
-            self.pending.drain(..writable);
         }
 
         FilteredOutput { events }
+    }
+
+    fn push_display(&mut self, events: &mut Vec<FilteredOutputEvent>, display: Vec<u8>) {
+        if display.is_empty() {
+            return;
+        }
+        let all_lines_changed = self.color_state.process(&display);
+        events.push(FilteredOutputEvent::Display {
+            bytes: display,
+            all_lines_changed,
+        });
     }
 
     fn filtered_response(&self, response: TerminalResponse) -> FilteredOutputEvent {
@@ -685,23 +672,29 @@ impl TerminalOutputFilter {
         }
     }
 
-    fn find_next_event<R: QueryScanRecorder>(
-        &mut self,
-        recorder: R,
-    ) -> Option<(usize, MatchedTerminalEvent)> {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "explicit family-gated event precedence keeps terminal compatibility auditable"
+    )]
+    fn find_next_event(&mut self, family: ControlFamily) -> Option<(usize, MatchedTerminalEvent)> {
         let response = self
-            .find_next_response(recorder)
+            .find_next_response(family)
             .map(|(index, response)| (index, response.into()));
-        let enq = find_enq_control(&self.pending, recorder).map(|control| {
-            (
-                control.index,
-                MatchedTerminalEvent {
-                    consumed: control.consumed,
-                    event: MatchedTerminalEventKind::Enq,
-                },
-            )
-        });
-        let synchronized_output = find_synchronized_output_mode_sequence(&self.pending, recorder)
+        let enq = (family == ControlFamily::Enq)
+            .then(|| find_enq_control(&self.pending))
+            .flatten()
+            .map(|control| {
+                (
+                    control.index,
+                    MatchedTerminalEvent {
+                        consumed: control.consumed,
+                        event: MatchedTerminalEventKind::Enq,
+                    },
+                )
+            });
+        let synchronized_output = (family == ControlFamily::Csi)
+            .then(|| find_synchronized_output_mode_sequence(&self.pending))
+            .flatten()
             .map(
                 |SynchronizedOutputModeSequence {
                      index,
@@ -717,8 +710,10 @@ impl TerminalOutputFilter {
                     )
                 },
             );
-        let kitty_keyboard_mode = find_kitty_keyboard_mode_sequence(&self.pending, recorder).map(
-            |KittyKeyboardModeSequence { index, consumed }| {
+        let kitty_keyboard_mode = (family == ControlFamily::Csi)
+            .then(|| find_kitty_keyboard_mode_sequence(&self.pending))
+            .flatten()
+            .map(|KittyKeyboardModeSequence { index, consumed }| {
                 (
                     index,
                     MatchedTerminalEvent {
@@ -726,10 +721,11 @@ impl TerminalOutputFilter {
                         event: MatchedTerminalEventKind::KittyKeyboardMode,
                     },
                 )
-            },
-        );
-        let key_modifier_options = find_key_modifier_options_sequence(&self.pending, recorder).map(
-            |KeyModifierOptionsSequence { index, consumed }| {
+            });
+        let key_modifier_options = (family == ControlFamily::Csi)
+            .then(|| find_key_modifier_options_sequence(&self.pending))
+            .flatten()
+            .map(|KeyModifierOptionsSequence { index, consumed }| {
                 (
                     index,
                     MatchedTerminalEvent {
@@ -737,12 +733,11 @@ impl TerminalOutputFilter {
                         event: MatchedTerminalEventKind::KeyModifierOptions,
                     },
                 )
-            },
-        );
-        let ignored_window_query = find_ignored_wezterm_window_query(&self.pending, recorder)
-            .filter(|control| {
-                !is_inside_osc_or_st_control_string(&self.pending, control.index, recorder)
-            })
+            });
+        let ignored_window_query = (family == ControlFamily::Csi)
+            .then(|| find_ignored_wezterm_window_query(&self.pending))
+            .flatten()
+            .filter(|control| !is_inside_osc_or_st_control_string(&self.pending, control.index))
             .map(|control| {
                 (
                     control.index,
@@ -752,24 +747,23 @@ impl TerminalOutputFilter {
                     },
                 )
             });
-        let ignored_static_query =
-            find_ignored_static_query(&self.pending, Self::IGNORED_QUERIES, recorder)
-                .filter(|control| {
-                    !is_inside_osc_or_st_control_string(&self.pending, control.index, recorder)
-                })
-                .map(|control| {
-                    (
-                        control.index,
-                        MatchedTerminalEvent {
-                            consumed: control.consumed,
-                            event: MatchedTerminalEventKind::IgnoredControl,
-                        },
-                    )
-                });
-        let st_control = find_st_control(&self.pending, recorder)
-            .filter(|control| {
-                !is_inside_osc_or_st_control_string(&self.pending, control.index, recorder)
-            })
+        let ignored_static_query = (family == ControlFamily::Csi)
+            .then(|| find_ignored_static_query(&self.pending, Self::IGNORED_QUERIES))
+            .flatten()
+            .filter(|control| !is_inside_osc_or_st_control_string(&self.pending, control.index))
+            .map(|control| {
+                (
+                    control.index,
+                    MatchedTerminalEvent {
+                        consumed: control.consumed,
+                        event: MatchedTerminalEventKind::IgnoredControl,
+                    },
+                )
+            });
+        let st_control = (family == ControlFamily::Other)
+            .then(|| find_st_control(&self.pending))
+            .flatten()
+            .filter(|control| !is_inside_osc_or_st_control_string(&self.pending, control.index))
             .map(|control| {
                 (
                     control.index,
@@ -793,120 +787,144 @@ impl TerminalOutputFilter {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn find_next_response<R: QueryScanRecorder>(
+    fn find_next_response(
         &mut self,
-        recorder: R,
+        family: ControlFamily,
     ) -> Option<(usize, MatchedTerminalResponse)> {
-        let static_response = Self::RESPONSES
-            .iter()
-            .filter_map(|response| {
-                find_subslice(&self.pending, response.query, recorder).map(|index| {
-                    (
-                        index,
-                        MatchedTerminalResponse {
-                            consumed: response.query.len(),
-                            response: response.response.clone(),
-                        },
-                    )
-                })
+        let static_response = (family == ControlFamily::Csi)
+            .then(|| {
+                Self::RESPONSES
+                    .iter()
+                    .filter_map(|response| {
+                        find_subslice(&self.pending, response.query).map(|index| {
+                            (
+                                index,
+                                MatchedTerminalResponse {
+                                    consumed: response.query.len(),
+                                    response: response.response.clone(),
+                                },
+                            )
+                        })
+                    })
+                    .min_by_key(|(index, _)| *index)
             })
-            .min_by_key(|(index, _)| *index);
-        let window_report_response = find_wezterm_window_report_query(&self.pending, recorder).map(
-            |WindowReportQuery {
-                 index,
-                 consumed,
-                 response,
-             }| { (index, MatchedTerminalResponse { consumed, response }) },
-        );
-        let mode_response = find_private_mode_status_query(&self.pending, recorder).map(
-            |PrivateModeStatusQuery {
-                 index,
-                 consumed,
-                 mode,
-             }| {
-                (
-                    index,
-                    MatchedTerminalResponse {
-                        consumed,
-                        response: TerminalResponse::PrivateModeStatus(mode),
-                    },
-                )
-            },
-        );
-        let ansi_mode_response = find_ansi_mode_status_query(&self.pending, recorder).map(
-            |AnsiModeStatusQuery {
-                 index,
-                 consumed,
-                 mode,
-             }| {
-                (
-                    index,
-                    MatchedTerminalResponse {
-                        consumed,
-                        response: TerminalResponse::AnsiModeStatus(mode),
-                    },
-                )
-            },
-        );
-        let osc_color_response = find_osc_color_query(&self.pending, recorder).map(
-            |OscColorQuery {
-                 index,
-                 consumed,
-                 query,
-             }| {
-                (
-                    index,
-                    MatchedTerminalResponse {
-                        consumed,
-                        response: TerminalResponse::OscColor(query),
-                    },
-                )
-            },
-        );
-        let iterm_report_cell_size_response =
-            find_iterm_report_cell_size_query(&self.pending, recorder).map(
-                |ItermReportCellSizeQuery { index, consumed }| {
+            .flatten();
+        let window_report_response = (family == ControlFamily::Csi)
+            .then(|| find_wezterm_window_report_query(&self.pending))
+            .flatten()
+            .map(
+                |WindowReportQuery {
+                     index,
+                     consumed,
+                     response,
+                 }| { (index, MatchedTerminalResponse { consumed, response }) },
+            );
+        let mode_response = (family == ControlFamily::Csi)
+            .then(|| find_private_mode_status_query(&self.pending))
+            .flatten()
+            .map(
+                |PrivateModeStatusQuery {
+                     index,
+                     consumed,
+                     mode,
+                 }| {
                     (
                         index,
                         MatchedTerminalResponse {
                             consumed,
-                            response: TerminalResponse::ItermReportCellSize,
+                            response: TerminalResponse::PrivateModeStatus(mode),
                         },
                     )
                 },
             );
-        let checksum_rectangular_area_response = find_decrqcra_query(&self.pending, recorder).map(
-            |DecrqcraQuery {
-                 index,
-                 consumed,
-                 request,
-             }| {
+        let ansi_mode_response = (family == ControlFamily::Csi)
+            .then(|| find_ansi_mode_status_query(&self.pending))
+            .flatten()
+            .map(
+                |AnsiModeStatusQuery {
+                     index,
+                     consumed,
+                     mode,
+                 }| {
+                    (
+                        index,
+                        MatchedTerminalResponse {
+                            consumed,
+                            response: TerminalResponse::AnsiModeStatus(mode),
+                        },
+                    )
+                },
+            );
+        let osc_color_response = (family == ControlFamily::Osc)
+            .then(|| find_osc_color_query(&self.pending))
+            .flatten()
+            .map(
+                |OscColorQuery {
+                     index,
+                     consumed,
+                     query,
+                 }| {
+                    (
+                        index,
+                        MatchedTerminalResponse {
+                            consumed,
+                            response: TerminalResponse::OscColor(query),
+                        },
+                    )
+                },
+            );
+        let iterm_report_cell_size_response = (family == ControlFamily::Osc)
+            .then(|| find_iterm_report_cell_size_query(&self.pending))
+            .flatten()
+            .map(|ItermReportCellSizeQuery { index, consumed }| {
                 (
                     index,
                     MatchedTerminalResponse {
                         consumed,
-                        response: TerminalResponse::ChecksumRectangularArea(request),
+                        response: TerminalResponse::ItermReportCellSize,
                     },
                 )
-            },
-        );
-        let decrqss_response = find_decrqss_query(&self.pending, recorder).map(
-            |DecrqssQuery {
-                 index,
-                 consumed,
-                 response,
-             }| {
-                (
-                    index,
-                    MatchedTerminalResponse {
-                        consumed,
-                        response: TerminalResponse::Decrqss(response),
-                    },
-                )
-            },
-        );
-        let xtgettcap_response =
-            find_xtgettcap_query(&self.pending, self.size, &self.terminal_name, recorder).map(
+            });
+        let checksum_rectangular_area_response = (family == ControlFamily::Csi)
+            .then(|| find_decrqcra_query(&self.pending))
+            .flatten()
+            .map(
+                |DecrqcraQuery {
+                     index,
+                     consumed,
+                     request,
+                 }| {
+                    (
+                        index,
+                        MatchedTerminalResponse {
+                            consumed,
+                            response: TerminalResponse::ChecksumRectangularArea(request),
+                        },
+                    )
+                },
+            );
+        let decrqss_response = (family == ControlFamily::Dcs)
+            .then(|| find_decrqss_query(&self.pending))
+            .flatten()
+            .map(
+                |DecrqssQuery {
+                     index,
+                     consumed,
+                     response,
+                 }| {
+                    (
+                        index,
+                        MatchedTerminalResponse {
+                            consumed,
+                            response: TerminalResponse::Decrqss(response),
+                        },
+                    )
+                },
+            );
+        let xtgettcap_response = (family == ControlFamily::Dcs)
+            .then(|| find_xtgettcap_query(&self.pending, self.size, &self.terminal_name))
+            .flatten()
+            .map(
                 |XtGetTcapQuery {
                      index,
                      consumed,
@@ -921,35 +939,40 @@ impl TerminalOutputFilter {
                     )
                 },
             );
-        let xtsmgraphics_response = find_xtsmgraphics_query(&self.pending, recorder).map(
-            |XtSmGraphicsQuery {
-                 index,
-                 consumed,
-                 request,
-             }| {
-                (
-                    index,
-                    MatchedTerminalResponse {
-                        consumed,
-                        response: TerminalResponse::XtSmGraphics(request),
-                    },
-                )
-            },
-        );
-        let kitty_keyboard_flags_response =
-            find_kitty_keyboard_flags_query(&self.pending, recorder).map(
-                |KittyKeyboardFlagsQuery { index, consumed }| {
+        let xtsmgraphics_response = (family == ControlFamily::Csi)
+            .then(|| find_xtsmgraphics_query(&self.pending))
+            .flatten()
+            .map(
+                |XtSmGraphicsQuery {
+                     index,
+                     consumed,
+                     request,
+                 }| {
                     (
                         index,
                         MatchedTerminalResponse {
                             consumed,
-                            response: TerminalResponse::KittyKeyboardFlags,
+                            response: TerminalResponse::XtSmGraphics(request),
                         },
                     )
                 },
             );
-        let key_modifier_options_response =
-            find_key_modifier_options_query(&self.pending, recorder).map(
+        let kitty_keyboard_flags_response = (family == ControlFamily::Csi)
+            .then(|| find_kitty_keyboard_flags_query(&self.pending))
+            .flatten()
+            .map(|KittyKeyboardFlagsQuery { index, consumed }| {
+                (
+                    index,
+                    MatchedTerminalResponse {
+                        consumed,
+                        response: TerminalResponse::KittyKeyboardFlags,
+                    },
+                )
+            });
+        let key_modifier_options_response = (family == ControlFamily::Csi)
+            .then(|| find_key_modifier_options_query(&self.pending))
+            .flatten()
+            .map(
                 |KeyModifierOptionsQuery {
                      index,
                      consumed,
@@ -978,39 +1001,8 @@ impl TerminalOutputFilter {
             .chain(xtsmgraphics_response)
             .chain(kitty_keyboard_flags_response)
             .chain(key_modifier_options_response)
-            .filter(|(index, _)| {
-                !is_inside_osc_or_st_control_string(&self.pending, *index, recorder)
-            })
+            .filter(|(index, _)| !is_inside_osc_or_st_control_string(&self.pending, *index))
             .min_by_key(|(index, _)| *index)
-    }
-
-    fn suffix_len_matching_query_prefix<R: QueryScanRecorder>(&mut self, recorder: R) -> usize {
-        let pending = &self.pending;
-        let static_query_suffix = Self::RESPONSES
-            .iter()
-            .map(|response| suffix_prefix_len(pending, response.query, recorder))
-            .max()
-            .unwrap_or(0);
-        static_query_suffix
-            .max(private_mode_status_query_suffix_len(pending, recorder))
-            .max(ansi_mode_status_query_suffix_len(pending, recorder))
-            .max(synchronized_output_mode_sequence_suffix_len(
-                pending, recorder,
-            ))
-            .max(osc_color_query_suffix_len(pending, recorder))
-            .max(decrqcra_query_suffix_len(pending, recorder))
-            .max(decrqss_query_suffix_len(pending, recorder))
-            .max(xtgettcap_query_suffix_len(pending, recorder))
-            .max(xtsmgraphics_query_suffix_len(pending, recorder))
-            .max(kitty_keyboard_flags_query_suffix_len(pending, recorder))
-            .max(kitty_keyboard_mode_sequence_suffix_len(pending, recorder))
-            .max(key_modifier_options_query_suffix_len(pending, recorder))
-            .max(key_modifier_options_sequence_suffix_len(pending, recorder))
-            .max(st_control_suffix_len(pending, recorder))
-            .max(incomplete_osc_control_sequence_suffix_len(
-                pending, recorder,
-            ))
-            .max(incomplete_st_control_sequence_suffix_len(pending, recorder))
     }
 
     fn response_bytes(
@@ -1184,12 +1176,7 @@ fn xtversion_response() -> Vec<u8> {
     format!("\x1bP>|R-SSH {}\x1b\\", env!("CARGO_PKG_VERSION")).into_bytes()
 }
 
-fn find_subslice<R: QueryScanRecorder>(
-    haystack: &[u8],
-    needle: &[u8],
-    recorder: R,
-) -> Option<usize> {
-    recorder.record_candidate(haystack);
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
     }
@@ -1271,15 +1258,11 @@ fn csi_start_prefixes() -> [(&'static [u8], usize); 3] {
     ]
 }
 
-fn find_ignored_static_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    queries: &[&[u8]],
-    recorder: R,
-) -> Option<StControl> {
+fn find_ignored_static_query(bytes: &[u8], queries: &[&[u8]]) -> Option<StControl> {
     queries
         .iter()
         .filter_map(|query| {
-            find_subslice(bytes, query, recorder).map(|index| StControl {
+            find_subslice(bytes, query).map(|index| StControl {
                 index,
                 consumed: query.len(),
             })
@@ -1287,22 +1270,18 @@ fn find_ignored_static_query<R: QueryScanRecorder>(
         .min_by_key(|control| control.index)
 }
 
-fn find_wezterm_window_report_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<WindowReportQuery> {
+fn find_wezterm_window_report_query(bytes: &[u8]) -> Option<WindowReportQuery> {
     csi_start_prefixes()
         .into_iter()
         .filter_map(|(prefix, prefix_len)| {
-            let index = find_subslice(bytes, prefix, recorder)?;
+            let index = find_subslice(bytes, prefix)?;
             let body_start = index + prefix_len;
             let body = &bytes[body_start..];
-            recorder.record_candidate(body);
             let final_index = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
             if body[final_index] != b't' {
                 return None;
             }
-            let response = wezterm_window_report_response(&body[..final_index], recorder)?;
+            let response = wezterm_window_report_response(&body[..final_index])?;
             Some(WindowReportQuery {
                 index,
                 consumed: prefix_len + final_index + 1,
@@ -1312,11 +1291,8 @@ fn find_wezterm_window_report_query<R: QueryScanRecorder>(
         .min_by_key(|query| query.index)
 }
 
-fn wezterm_window_report_response<R: QueryScanRecorder>(
-    params: &[u8],
-    recorder: R,
-) -> Option<TerminalResponse> {
-    let (first, second) = parse_wezterm_window_params(params, recorder)?;
+fn wezterm_window_report_response(params: &[u8]) -> Option<TerminalResponse> {
+    let (first, second) = parse_wezterm_window_params(params)?;
     match first {
         14 if second.is_none() => Some(TerminalResponse::WindowPixelSize),
         16 => Some(TerminalResponse::CharacterCellSize),
@@ -1326,22 +1302,18 @@ fn wezterm_window_report_response<R: QueryScanRecorder>(
     }
 }
 
-fn find_ignored_wezterm_window_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<StControl> {
+fn find_ignored_wezterm_window_query(bytes: &[u8]) -> Option<StControl> {
     csi_start_prefixes()
         .into_iter()
         .filter_map(|(prefix, prefix_len)| {
-            let index = find_subslice(bytes, prefix, recorder)?;
+            let index = find_subslice(bytes, prefix)?;
             let body_start = index + prefix_len;
             let body = &bytes[body_start..];
-            recorder.record_candidate(body);
             let final_index = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
             if body[final_index] != b't' {
                 return None;
             }
-            if !is_wezterm_ignored_window_query(&body[..final_index], recorder) {
+            if !is_wezterm_ignored_window_query(&body[..final_index]) {
                 return None;
             }
             Some(StControl {
@@ -1352,31 +1324,24 @@ fn find_ignored_wezterm_window_query<R: QueryScanRecorder>(
         .min_by_key(|control| control.index)
 }
 
-fn is_wezterm_ignored_window_query<R: QueryScanRecorder>(params: &[u8], recorder: R) -> bool {
-    wezterm_window_report_response(params, recorder).is_none()
+fn is_wezterm_ignored_window_query(params: &[u8]) -> bool {
+    wezterm_window_report_response(params).is_none()
 }
 
-fn parse_wezterm_window_params<R: QueryScanRecorder>(
-    params: &[u8],
-    recorder: R,
-) -> Option<(i64, Option<i64>)> {
-    recorder.record_candidate(params);
+fn parse_wezterm_window_params(params: &[u8]) -> Option<(i64, Option<i64>)> {
     let mut parts = params.split(|byte| *byte == b';');
-    let first = parts
-        .next()
-        .and_then(|part| parse_ascii_i64(part, recorder))?;
+    let first = parts.next().and_then(parse_ascii_i64)?;
     let second = match parts.next() {
         Some([]) | None => None,
-        Some(part) => Some(parse_ascii_i64(part, recorder)?),
+        Some(part) => Some(parse_ascii_i64(part)?),
     };
-    if parts.any(|part| !part.is_empty() && parse_ascii_i64(part, recorder).is_none()) {
+    if parts.any(|part| !part.is_empty() && parse_ascii_i64(part).is_none()) {
         return None;
     }
     Some((first, second))
 }
 
-fn parse_ascii_i64<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> Option<i64> {
-    recorder.record_candidate(bytes);
+fn parse_ascii_i64(bytes: &[u8]) -> Option<i64> {
     if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
         return None;
     }
@@ -1398,19 +1363,18 @@ struct DecrqcraRequest {
     right: u16,
 }
 
-fn find_decrqcra_query<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> Option<DecrqcraQuery> {
+fn find_decrqcra_query(bytes: &[u8]) -> Option<DecrqcraQuery> {
     csi_start_prefixes()
         .into_iter()
         .filter_map(|(prefix, prefix_len)| {
-            let index = find_subslice(bytes, prefix, recorder)?;
+            let index = find_subslice(bytes, prefix)?;
             let body_start = index + prefix_len;
             let body = &bytes[body_start..];
-            recorder.record_candidate(body);
             let final_index = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
             if body[final_index] != b'y' {
                 return None;
             }
-            let request = parse_decrqcra_request(&body[..final_index], recorder)?;
+            let request = parse_decrqcra_request(&body[..final_index])?;
             Some(DecrqcraQuery {
                 index,
                 consumed: prefix_len + final_index + 1,
@@ -1420,27 +1384,19 @@ fn find_decrqcra_query<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> Optio
         .min_by_key(|query| query.index)
 }
 
-fn parse_decrqcra_request<R: QueryScanRecorder>(
-    params: &[u8],
-    recorder: R,
-) -> Option<DecrqcraRequest> {
-    recorder.record_candidate(params);
+fn parse_decrqcra_request(params: &[u8]) -> Option<DecrqcraRequest> {
     let params = params.strip_suffix(b"*")?;
     let mut parts = params.split(|byte| *byte == b';');
-    let request_id = parts
-        .next()
-        .and_then(|part| parse_ascii_i64(part, recorder))?;
-    let page_number = parts
-        .next()
-        .and_then(|part| parse_ascii_i64(part, recorder))?;
+    let request_id = parts.next().and_then(parse_ascii_i64)?;
+    let page_number = parts.next().and_then(parse_ascii_i64)?;
     if request_id < 0 || page_number < 0 {
         return None;
     }
 
-    let top = decrqcra_zero_based_axis(parts.next(), 0, recorder)?;
-    let left = decrqcra_zero_based_axis(parts.next(), 0, recorder)?;
-    let bottom = decrqcra_zero_based_axis(parts.next(), i64::from(u16::MAX), recorder)?;
-    let right = decrqcra_zero_based_axis(parts.next(), i64::from(u16::MAX), recorder)?;
+    let top = decrqcra_zero_based_axis(parts.next(), 0)?;
+    let left = decrqcra_zero_based_axis(parts.next(), 0)?;
+    let bottom = decrqcra_zero_based_axis(parts.next(), i64::from(u16::MAX))?;
+    let right = decrqcra_zero_based_axis(parts.next(), i64::from(u16::MAX))?;
     if parts.next().is_some() {
         return None;
     }
@@ -1454,14 +1410,10 @@ fn parse_decrqcra_request<R: QueryScanRecorder>(
     })
 }
 
-fn decrqcra_zero_based_axis<R: QueryScanRecorder>(
-    part: Option<&[u8]>,
-    default: i64,
-    recorder: R,
-) -> Option<u16> {
+fn decrqcra_zero_based_axis(part: Option<&[u8]>, default: i64) -> Option<u16> {
     let value = match part {
         Some([]) | None => default,
-        Some(part) => parse_ascii_i64(part, recorder)?,
+        Some(part) => parse_ascii_i64(part)?,
     };
     if value <= 0 {
         Some(0)
@@ -1471,33 +1423,6 @@ fn decrqcra_zero_based_axis<R: QueryScanRecorder>(
                 .expect("positive DECRQCRA axis is clamped to u16"),
         )
     }
-}
-
-fn decrqcra_query_suffix_len<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_decrqcra_query_prefix, recorder)
-}
-
-fn is_decrqcra_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes
-        .strip_prefix(b"\x1b[")
-        .or_else(|| bytes.strip_prefix(b"\x9b"))
-        .or_else(|| bytes.strip_prefix(UTF8_C1_CSI))
-    else {
-        return b"\x1b[".starts_with(bytes)
-            || b"\x9b".starts_with(bytes)
-            || UTF8_C1_CSI.starts_with(bytes);
-    };
-
-    let mut saw_star = false;
-    for byte in rest {
-        match *byte {
-            b'0'..=b'9' | b';' if !saw_star => {}
-            b'*' if !saw_star => saw_star = true,
-            b'y' if saw_star => {}
-            _ => return false,
-        }
-    }
-    true
 }
 
 const UTF8_C1_OSC: &[u8] = b"\xc2\x9d";
@@ -1516,23 +1441,21 @@ struct StControl {
     consumed: usize,
 }
 
-fn find_enq_control<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> Option<StControl> {
-    recorder.record_candidate(bytes);
+fn find_enq_control(bytes: &[u8]) -> Option<StControl> {
     bytes
         .iter()
         .enumerate()
         .find_map(|(index, byte)| {
-            (*byte == 0x05 && !is_inside_osc_or_st_control_string(bytes, index, recorder))
-                .then_some(index)
+            (*byte == 0x05 && !is_inside_osc_or_st_control_string(bytes, index)).then_some(index)
         })
         .map(|index| StControl { index, consumed: 1 })
 }
 
-fn find_st_control<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> Option<StControl> {
+fn find_st_control(bytes: &[u8]) -> Option<StControl> {
     st_control_sequences()
         .into_iter()
         .filter_map(|sequence| {
-            find_subslice(bytes, sequence, recorder).map(|index| StControl {
+            find_subslice(bytes, sequence).map(|index| StControl {
                 index,
                 consumed: sequence.len(),
             })
@@ -1540,34 +1463,18 @@ fn find_st_control<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> Option<St
         .min_by_key(|control| control.index)
 }
 
-fn st_control_suffix_len<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> usize {
-    st_control_sequences()
-        .into_iter()
-        .map(|sequence| suffix_prefix_len(bytes, sequence, recorder))
-        .max()
-        .unwrap_or(0)
-}
-
 fn st_control_sequences() -> [&'static [u8]; 3] {
     [b"\x1b\\".as_slice(), b"\x9c".as_slice(), UTF8_C1_ST]
 }
 
-fn is_inside_osc_or_st_control_string<R: QueryScanRecorder>(
-    bytes: &[u8],
-    index: usize,
-    recorder: R,
-) -> bool {
-    is_inside_control_string(
-        bytes,
-        index,
-        |candidate| find_next_osc_start(candidate, recorder),
-        |candidate| find_osc_color_terminator(candidate, recorder),
-    ) || is_inside_control_string(
-        bytes,
-        index,
-        |candidate| find_next_st_control_string_start(candidate, recorder),
-        |candidate| find_xtgettcap_terminator(candidate, recorder),
-    )
+fn is_inside_osc_or_st_control_string(bytes: &[u8], index: usize) -> bool {
+    is_inside_control_string(bytes, index, find_next_osc_start, find_osc_color_terminator)
+        || is_inside_control_string(
+            bytes,
+            index,
+            find_next_st_control_string_start,
+            find_xtgettcap_terminator,
+        )
 }
 
 fn is_inside_control_string(
@@ -1600,28 +1507,18 @@ fn is_inside_control_string(
     false
 }
 
-fn incomplete_osc_control_sequence_suffix_len<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> usize {
-    find_incomplete_control_sequence_start(
-        bytes,
-        |candidate| find_next_osc_start(candidate, recorder),
-        |candidate| find_osc_color_terminator(candidate, recorder),
-    )
-    .map_or(0, |start| bytes.len() - start)
-    .max(suffix_prefix_len(bytes, b"\x1b]", recorder))
-    .max(suffix_prefix_len(bytes, UTF8_C1_OSC, recorder))
+fn incomplete_osc_control_sequence_suffix_len(bytes: &[u8]) -> usize {
+    find_incomplete_control_sequence_start(bytes, find_next_osc_start, find_osc_color_terminator)
+        .map_or(0, |start| bytes.len() - start)
+        .max(suffix_prefix_len(bytes, b"\x1b]"))
+        .max(suffix_prefix_len(bytes, UTF8_C1_OSC))
 }
 
-fn incomplete_st_control_sequence_suffix_len<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> usize {
+fn incomplete_st_control_sequence_suffix_len(bytes: &[u8]) -> usize {
     find_incomplete_control_sequence_start(
         bytes,
-        |candidate| find_next_st_control_string_start(candidate, recorder),
-        |candidate| find_xtgettcap_terminator(candidate, recorder),
+        find_next_st_control_string_start,
+        find_xtgettcap_terminator,
     )
     .map_or(0, |start| bytes.len() - start)
     .max(
@@ -1632,7 +1529,7 @@ fn incomplete_st_control_sequence_suffix_len<R: QueryScanRecorder>(
             b"\x1b_".as_slice(),
         ]
         .into_iter()
-        .map(|prefix| suffix_prefix_len(bytes, prefix, recorder))
+        .map(|prefix| suffix_prefix_len(bytes, prefix))
         .max()
         .unwrap_or(0),
     )
@@ -1706,16 +1603,16 @@ impl DecrqssResponse {
     }
 }
 
-fn find_decrqss_query<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> Option<DecrqssQuery> {
+fn find_decrqss_query(bytes: &[u8]) -> Option<DecrqssQuery> {
     let mut match_query = None;
     for (prefix, prefix_len) in dcs_start_prefixes() {
         let mut offset = 0;
         while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_decrqss_query(bytes, index, prefix_len, recorder)
+            if let Some(query) = parse_decrqss_query(bytes, index, prefix_len)
                 && match_query
                     .as_ref()
                     .is_none_or(|current: &DecrqssQuery| query.index < current.index)
@@ -1728,31 +1625,24 @@ fn find_decrqss_query<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> Option
     match_query
 }
 
-fn parse_decrqss_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    index: usize,
-    prefix_len: usize,
-    recorder: R,
-) -> Option<DecrqssQuery> {
+fn parse_decrqss_query(bytes: &[u8], index: usize, prefix_len: usize) -> Option<DecrqssQuery> {
     let content_start = index + prefix_len;
     let rest = bytes.get(content_start..)?;
-    recorder.record_candidate(rest);
     let body = rest.strip_prefix(b"$q")?;
-    let terminator = find_xtgettcap_terminator(body, recorder)?;
+    let terminator = find_xtgettcap_terminator(body)?;
     let content = &body[..terminator.index];
 
     Some(DecrqssQuery {
         index,
         consumed: prefix_len + b"$q".len() + terminator.index + terminator.length,
         response: DecrqssResponse {
-            kind: parse_decrqss_kind(content, recorder),
+            kind: parse_decrqss_kind(content),
             terminator: terminator.response_terminator,
         },
     })
 }
 
-fn parse_decrqss_kind<R: QueryScanRecorder>(content: &[u8], recorder: R) -> Option<DecrqssKind> {
-    recorder.record_candidate(content);
+fn parse_decrqss_kind(content: &[u8]) -> Option<DecrqssKind> {
     match content {
         b"m" => Some(DecrqssKind::Sgr),
         b" q" => Some(DecrqssKind::CursorShape),
@@ -1873,31 +1763,6 @@ fn append_left_right_margin_state((left, right): (u16, u16), bytes: &mut Vec<u8>
     bytes.push(b's');
 }
 
-fn decrqss_query_suffix_len<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_decrqss_query_prefix, recorder)
-}
-
-fn is_decrqss_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes
-        .strip_prefix(b"\x1bP")
-        .or_else(|| bytes.strip_prefix(UTF8_C1_DCS))
-        .or_else(|| bytes.strip_prefix(b"\x90"))
-    else {
-        return b"\x1bP".starts_with(bytes)
-            || UTF8_C1_DCS.starts_with(bytes)
-            || b"\x90".starts_with(bytes);
-    };
-    if !b"$q".starts_with(rest) && !rest.starts_with(b"$q") {
-        return false;
-    }
-    if let Some(body) = rest.strip_prefix(b"$q") {
-        return [b"m".as_slice(), b" q".as_slice(), b"r".as_slice()]
-            .into_iter()
-            .any(|target| target.starts_with(body));
-    }
-    true
-}
-
 struct XtGetTcapQuery {
     index: usize,
     consumed: usize,
@@ -1939,22 +1804,21 @@ impl XtGetTcapResponse {
     }
 }
 
-fn find_xtgettcap_query<R: QueryScanRecorder>(
+fn find_xtgettcap_query(
     bytes: &[u8],
     size: TerminalSize,
     terminal_name: &str,
-    recorder: R,
 ) -> Option<XtGetTcapQuery> {
     let mut match_query = None;
     for (prefix, prefix_len) in dcs_start_prefixes() {
         let mut offset = 0;
         while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                 break;
             };
             let index = offset + relative_index;
             if let Some(query) =
-                parse_xtgettcap_query(bytes, index, prefix_len, size, terminal_name, recorder)
+                parse_xtgettcap_query(bytes, index, prefix_len, size, terminal_name)
                 && match_query
                     .as_ref()
                     .is_none_or(|current: &XtGetTcapQuery| query.index < current.index)
@@ -1967,21 +1831,18 @@ fn find_xtgettcap_query<R: QueryScanRecorder>(
     match_query
 }
 
-fn parse_xtgettcap_query<R: QueryScanRecorder>(
+fn parse_xtgettcap_query(
     bytes: &[u8],
     index: usize,
     prefix_len: usize,
     size: TerminalSize,
     terminal_name: &str,
-    recorder: R,
 ) -> Option<XtGetTcapQuery> {
     let content_start = index + prefix_len;
     let rest = bytes.get(content_start..)?;
-    recorder.record_candidate(rest);
     let body = rest.strip_prefix(b"+q")?;
-    let terminator = find_xtgettcap_terminator(body, recorder)?;
+    let terminator = find_xtgettcap_terminator(body)?;
     let content = &body[..terminator.index];
-    recorder.record_candidate(content);
     let entries = content
         .split(|byte| *byte == b';')
         .map(|entry| parse_xtgettcap_entry(entry, size, terminal_name))
@@ -1994,16 +1855,12 @@ fn parse_xtgettcap_query<R: QueryScanRecorder>(
     })
 }
 
-fn find_xtgettcap_terminator<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<OscColorTerminator> {
-    let st = find_subslice(bytes, b"\x1b\\", recorder).map(|index| OscColorTerminator {
+fn find_xtgettcap_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
+    let st = find_subslice(bytes, b"\x1b\\").map(|index| OscColorTerminator {
         index,
         length: 2,
         response_terminator: OscResponseTerminator::St,
     });
-    recorder.record_candidate(bytes);
     let c1_st = bytes
         .iter()
         .position(|byte| *byte == 0x9c)
@@ -2012,7 +1869,7 @@ fn find_xtgettcap_terminator<R: QueryScanRecorder>(
             length: 1,
             response_terminator: OscResponseTerminator::C1St,
         });
-    let utf8_c1_st = find_subslice(bytes, UTF8_C1_ST, recorder).map(|index| OscColorTerminator {
+    let utf8_c1_st = find_subslice(bytes, UTF8_C1_ST).map(|index| OscColorTerminator {
         index,
         length: UTF8_C1_ST.len(),
         response_terminator: OscResponseTerminator::C1St,
@@ -2310,31 +2167,6 @@ fn decode_ascii_hex(bytes: &[u8]) -> Option<Vec<u8>> {
         .collect()
 }
 
-fn xtgettcap_query_suffix_len<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_xtgettcap_query_prefix, recorder)
-}
-
-fn is_xtgettcap_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes
-        .strip_prefix(b"\x1bP")
-        .or_else(|| bytes.strip_prefix(UTF8_C1_DCS))
-        .or_else(|| bytes.strip_prefix(b"\x90"))
-    else {
-        return b"\x1bP".starts_with(bytes)
-            || UTF8_C1_DCS.starts_with(bytes)
-            || b"\x90".starts_with(bytes);
-    };
-    if !b"+q".starts_with(rest) && !rest.starts_with(b"+q") {
-        return false;
-    }
-    if let Some(body) = rest.strip_prefix(b"+q") {
-        return body
-            .iter()
-            .all(|byte| byte.is_ascii_hexdigit() || *byte == b';');
-    }
-    true
-}
-
 struct XtSmGraphicsQuery {
     index: usize,
     consumed: usize,
@@ -2400,19 +2232,16 @@ impl XtSmGraphicsRequest {
     }
 }
 
-fn find_xtsmgraphics_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<XtSmGraphicsQuery> {
+fn find_xtsmgraphics_query(bytes: &[u8]) -> Option<XtSmGraphicsQuery> {
     let mut match_query = None;
     for (prefix, prefix_len) in csi_start_prefixes() {
         let mut offset = 0;
         while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_xtsmgraphics_query(bytes, index, prefix_len, recorder)
+            if let Some(query) = parse_xtsmgraphics_query(bytes, index, prefix_len)
                 && match_query
                     .as_ref()
                     .is_none_or(|current: &XtSmGraphicsQuery| query.index < current.index)
@@ -2425,18 +2254,15 @@ fn find_xtsmgraphics_query<R: QueryScanRecorder>(
     match_query
 }
 
-fn parse_xtsmgraphics_query<R: QueryScanRecorder>(
+fn parse_xtsmgraphics_query(
     bytes: &[u8],
     index: usize,
     prefix_len: usize,
-    recorder: R,
 ) -> Option<XtSmGraphicsQuery> {
     let content_start = index + prefix_len;
     let body = bytes.get(content_start..)?.strip_prefix(b"?")?;
-    recorder.record_candidate(body);
     let final_index = body.iter().position(|byte| *byte == b'S')?;
     let content = &body[..final_index];
-    recorder.record_candidate(content);
     let mut parameters = content.split(|byte| *byte == b';');
     let item = parse_ascii_decimal_u64(parameters.next()?)?;
     let action = parse_ascii_decimal_u64(parameters.next()?)?;
@@ -2449,33 +2275,6 @@ fn parse_xtsmgraphics_query<R: QueryScanRecorder>(
         consumed: prefix_len + b"?".len() + final_index + b"S".len(),
         request: XtSmGraphicsRequest { item, action },
     })
-}
-
-fn xtsmgraphics_query_suffix_len<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_xtsmgraphics_query_prefix, recorder)
-}
-
-fn is_xtsmgraphics_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes
-        .strip_prefix(b"\x1b[")
-        .or_else(|| bytes.strip_prefix(b"\x9b"))
-        .or_else(|| bytes.strip_prefix(UTF8_C1_CSI))
-    else {
-        return b"\x1b[".starts_with(bytes)
-            || b"\x9b".starts_with(bytes)
-            || UTF8_C1_CSI.starts_with(bytes);
-    };
-
-    if !b"?".starts_with(rest) && !rest.starts_with(b"?") {
-        return false;
-    }
-    let Some(body) = rest.strip_prefix(b"?") else {
-        return true;
-    };
-    !body.contains(&b'S')
-        && body
-            .iter()
-            .all(|byte| byte.is_ascii_digit() || *byte == b';')
 }
 
 struct OscColorQuery {
@@ -2511,16 +2310,16 @@ struct OscColorTerminator {
     response_terminator: OscResponseTerminator,
 }
 
-fn find_osc_color_query<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> Option<OscColorQuery> {
+fn find_osc_color_query(bytes: &[u8]) -> Option<OscColorQuery> {
     let mut match_query = None;
     for &(prefix, prefix_len) in OSC_START_PREFIXES {
         let mut offset = 0;
         while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_osc_color_query(bytes, index, prefix_len, recorder)
+            if let Some(query) = parse_osc_color_query(bytes, index, prefix_len)
                 && match_query
                     .as_ref()
                     .is_none_or(|current: &OscColorQuery| query.index < current.index)
@@ -2533,16 +2332,11 @@ fn find_osc_color_query<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> Opti
     match_query
 }
 
-fn parse_osc_color_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    index: usize,
-    prefix_len: usize,
-    recorder: R,
-) -> Option<OscColorQuery> {
+fn parse_osc_color_query(bytes: &[u8], index: usize, prefix_len: usize) -> Option<OscColorQuery> {
     let content_start = index + prefix_len;
-    let terminator = find_osc_color_terminator(&bytes[content_start..], recorder)?;
+    let terminator = find_osc_color_terminator(&bytes[content_start..])?;
     let content_end = content_start + terminator.index;
-    let kinds = parse_osc_color_query_content(&bytes[content_start..content_end], recorder)?;
+    let kinds = parse_osc_color_query_content(&bytes[content_start..content_end])?;
 
     Some(OscColorQuery {
         index,
@@ -2554,11 +2348,7 @@ fn parse_osc_color_query<R: QueryScanRecorder>(
     })
 }
 
-fn find_osc_color_terminator<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<OscColorTerminator> {
-    recorder.record_candidate(bytes);
+fn find_osc_color_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
     let bel = bytes
         .iter()
         .position(|byte| *byte == b'\x07')
@@ -2567,12 +2357,11 @@ fn find_osc_color_terminator<R: QueryScanRecorder>(
             length: 1,
             response_terminator: OscResponseTerminator::Bel,
         });
-    let st = find_subslice(bytes, b"\x1b\\", recorder).map(|index| OscColorTerminator {
+    let st = find_subslice(bytes, b"\x1b\\").map(|index| OscColorTerminator {
         index,
         length: 2,
         response_terminator: OscResponseTerminator::St,
     });
-    recorder.record_candidate(bytes);
     let c1_st = bytes
         .iter()
         .position(|byte| *byte == 0x9c)
@@ -2581,7 +2370,7 @@ fn find_osc_color_terminator<R: QueryScanRecorder>(
             length: 1,
             response_terminator: OscResponseTerminator::C1St,
         });
-    let utf8_c1_st = find_subslice(bytes, UTF8_C1_ST, recorder).map(|index| OscColorTerminator {
+    let utf8_c1_st = find_subslice(bytes, UTF8_C1_ST).map(|index| OscColorTerminator {
         index,
         length: UTF8_C1_ST.len(),
         response_terminator: OscResponseTerminator::C1St,
@@ -2593,11 +2382,7 @@ fn find_osc_color_terminator<R: QueryScanRecorder>(
         .min_by_key(|terminator| terminator.index)
 }
 
-fn parse_osc_color_query_content<R: QueryScanRecorder>(
-    content: &[u8],
-    recorder: R,
-) -> Option<Vec<OscColorKind>> {
-    recorder.record_candidate(content);
+fn parse_osc_color_query_content(content: &[u8]) -> Option<Vec<OscColorKind>> {
     match content {
         b"10;?" => Some(vec![OscColorKind::DefaultForeground]),
         b"11;?" => Some(vec![OscColorKind::DefaultBackground]),
@@ -2638,83 +2423,21 @@ fn parse_u8_decimal(bytes: &[u8]) -> Option<u8> {
     u8::try_from(value).ok()
 }
 
-fn osc_color_query_suffix_len<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_osc_color_query_prefix, recorder)
-}
-
-fn is_osc_color_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes
-        .strip_prefix(b"\x1b]")
-        .or_else(|| bytes.strip_prefix(b"\x9d"))
-        .or_else(|| bytes.strip_prefix(UTF8_C1_OSC))
-    else {
-        return b"\x1b]".starts_with(bytes)
-            || b"\x9d".starts_with(bytes)
-            || UTF8_C1_OSC.starts_with(bytes);
-    };
-
-    b"10;?".starts_with(rest)
-        || b"11;?".starts_with(rest)
-        || b"12;?".starts_with(rest)
-        || is_palette_color_query_prefix(rest)
-}
-
-fn is_palette_color_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes.strip_prefix(b"4") else {
-        return bytes.is_empty();
-    };
-    let Some(mut rest) = rest.strip_prefix(b";") else {
-        return rest.is_empty();
-    };
-
-    loop {
-        let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
-        if digits == 0 {
-            return rest.is_empty();
-        }
-        rest = &rest[digits..];
-        if rest.is_empty() {
-            return true;
-        }
-        let Some(after_separator) = rest.strip_prefix(b";") else {
-            return false;
-        };
-        if after_separator.is_empty() {
-            return true;
-        }
-        let Some(after_query_marker) = after_separator.strip_prefix(b"?") else {
-            return false;
-        };
-        rest = after_query_marker;
-        if rest.is_empty() {
-            return true;
-        }
-        let Some(after_next_separator) = rest.strip_prefix(b";") else {
-            return false;
-        };
-        rest = after_next_separator;
-    }
-}
-
 struct ItermReportCellSizeQuery {
     index: usize,
     consumed: usize,
 }
 
-fn find_iterm_report_cell_size_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<ItermReportCellSizeQuery> {
+fn find_iterm_report_cell_size_query(bytes: &[u8]) -> Option<ItermReportCellSizeQuery> {
     let mut match_query = None;
     for &(prefix, prefix_len) in OSC_START_PREFIXES {
         let mut offset = 0;
         while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) =
-                parse_iterm_report_cell_size_query(bytes, index, prefix_len, recorder)
+            if let Some(query) = parse_iterm_report_cell_size_query(bytes, index, prefix_len)
                 && match_query
                     .as_ref()
                     .is_none_or(|current: &ItermReportCellSizeQuery| query.index < current.index)
@@ -2727,17 +2450,14 @@ fn find_iterm_report_cell_size_query<R: QueryScanRecorder>(
     match_query
 }
 
-fn parse_iterm_report_cell_size_query<R: QueryScanRecorder>(
+fn parse_iterm_report_cell_size_query(
     bytes: &[u8],
     index: usize,
     prefix_len: usize,
-    recorder: R,
 ) -> Option<ItermReportCellSizeQuery> {
     let content_start = index + prefix_len;
-    let terminator = find_osc_terminator(&bytes[content_start..], recorder)?;
+    let terminator = find_osc_terminator(&bytes[content_start..])?;
     let content_end = content_start + terminator.index;
-
-    recorder.record_candidate(&bytes[content_start..content_end]);
     if &bytes[content_start..content_end] != b"1337;ReportCellSize" {
         return None;
     }
@@ -2780,12 +2500,11 @@ impl TerminalColorState {
         }
 
         loop {
-            let Some((index, prefix_len)) = find_next_osc_start(&self.pending, QueryScanNoop)
-            else {
+            let Some((index, prefix_len)) = find_next_osc_start(&self.pending) else {
                 self.retain_possible_prefix();
                 return changed;
             };
-            if is_inside_osc_or_st_control_string(&self.pending, index, QueryScanNoop) {
+            if is_inside_osc_or_st_control_string(&self.pending, index) {
                 self.pending.drain(..index.saturating_add(1));
                 continue;
             }
@@ -2794,9 +2513,7 @@ impl TerminalColorState {
             }
 
             let content_start = prefix_len;
-            let Some(terminator) =
-                find_osc_color_terminator(&self.pending[content_start..], QueryScanNoop)
-            else {
+            let Some(terminator) = find_osc_color_terminator(&self.pending[content_start..]) else {
                 return changed;
             };
             let content_end = content_start + terminator.index;
@@ -2929,18 +2646,12 @@ impl TerminalColorState {
     fn retain_possible_prefix(&mut self) {
         let retained = [b"\x1b]".as_slice(), b"\x9d".as_slice(), UTF8_C1_OSC]
             .into_iter()
-            .map(|prefix| suffix_prefix_len(&self.pending, prefix, QueryScanNoop))
+            .map(|prefix| suffix_prefix_len(&self.pending, prefix))
             .max()
             .unwrap_or(0);
         let retained = retained
-            .max(incomplete_osc_control_sequence_suffix_len(
-                &self.pending,
-                QueryScanNoop,
-            ))
-            .max(incomplete_st_control_sequence_suffix_len(
-                &self.pending,
-                QueryScanNoop,
-            ));
+            .max(incomplete_osc_control_sequence_suffix_len(&self.pending))
+            .max(incomplete_st_control_sequence_suffix_len(&self.pending));
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             self.pending.drain(..writable);
@@ -2961,20 +2672,17 @@ enum OscColorChange {
     Palette(Vec<(u8, [u8; 3])>),
 }
 
-fn find_next_osc_start<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> Option<(usize, usize)> {
+fn find_next_osc_start(bytes: &[u8]) -> Option<(usize, usize)> {
     OSC_START_PREFIXES
         .iter()
         .copied()
         .filter_map(|(prefix, prefix_len)| {
-            find_subslice(bytes, prefix, recorder).map(|index| (index, prefix_len))
+            find_subslice(bytes, prefix).map(|index| (index, prefix_len))
         })
         .min_by_key(|(index, _)| *index)
 }
 
-fn find_next_st_control_string_start<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<(usize, usize)> {
+fn find_next_st_control_string_start(bytes: &[u8]) -> Option<(usize, usize)> {
     [
         (b"\x1bP".as_slice(), 2),
         (b"\x1bX".as_slice(), 2),
@@ -2988,7 +2696,7 @@ fn find_next_st_control_string_start<R: QueryScanRecorder>(
     ]
     .into_iter()
     .filter_map(|(prefix, prefix_len)| {
-        find_subslice(bytes, prefix, recorder).map(|index| (index, prefix_len))
+        find_subslice(bytes, prefix).map(|index| (index, prefix_len))
     })
     .min_by_key(|(index, _)| *index)
 }
@@ -3308,10 +3016,7 @@ struct AnsiModeStatusQuery {
     mode: u16,
 }
 
-fn find_private_mode_status_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<PrivateModeStatusQuery> {
+fn find_private_mode_status_query(bytes: &[u8]) -> Option<PrivateModeStatusQuery> {
     let mut match_query = None;
     for (prefix, prefix_len) in [
         (b"\x1b[?".as_slice(), b"\x1b[?".len()),
@@ -3320,11 +3025,11 @@ fn find_private_mode_status_query<R: QueryScanRecorder>(
     ] {
         let mut offset = 0;
         while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_private_mode_status_query(bytes, index, prefix_len, recorder)
+            if let Some(query) = parse_private_mode_status_query(bytes, index, prefix_len)
                 && match_query
                     .as_ref()
                     .is_none_or(|current: &PrivateModeStatusQuery| query.index < current.index)
@@ -3337,10 +3042,7 @@ fn find_private_mode_status_query<R: QueryScanRecorder>(
     match_query
 }
 
-fn find_ansi_mode_status_query<R: QueryScanRecorder>(
-    bytes: &[u8],
-    recorder: R,
-) -> Option<AnsiModeStatusQuery> {
+fn find_ansi_mode_status_query(bytes: &[u8]) -> Option<AnsiModeStatusQuery> {
     let mut match_query = None;
     for (prefix, prefix_len) in [
         (b"\x1b[".as_slice(), b"\x1b[".len()),
@@ -3349,11 +3051,11 @@ fn find_ansi_mode_status_query<R: QueryScanRecorder>(
     ] {
         let mut offset = 0;
         while offset < bytes.len() {
-            let Some(relative_index) = find_subslice(&bytes[offset..], prefix, recorder) else {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_ansi_mode_status_query(bytes, index, prefix_len, recorder)
+            if let Some(query) = parse_ansi_mode_status_query(bytes, index, prefix_len)
                 && match_query
                     .as_ref()
                     .is_none_or(|current: &AnsiModeStatusQuery| query.index < current.index)
@@ -3366,16 +3068,14 @@ fn find_ansi_mode_status_query<R: QueryScanRecorder>(
     match_query
 }
 
-fn parse_private_mode_status_query<R: QueryScanRecorder>(
+fn parse_private_mode_status_query(
     bytes: &[u8],
     index: usize,
     prefix_len: usize,
-    recorder: R,
 ) -> Option<PrivateModeStatusQuery> {
     let mut cursor = index + prefix_len;
     let start = cursor;
     let mut mode = 0u16;
-    recorder.record_candidate(&bytes[cursor..]);
     while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
         mode = mode
             .saturating_mul(10)
@@ -3386,7 +3086,6 @@ fn parse_private_mode_status_query<R: QueryScanRecorder>(
         return None;
     }
     let tail = bytes.get(cursor..cursor + 2)?;
-    recorder.record_candidate(tail);
     if tail != b"$p" {
         return None;
     }
@@ -3397,16 +3096,14 @@ fn parse_private_mode_status_query<R: QueryScanRecorder>(
     })
 }
 
-fn parse_ansi_mode_status_query<R: QueryScanRecorder>(
+fn parse_ansi_mode_status_query(
     bytes: &[u8],
     index: usize,
     prefix_len: usize,
-    recorder: R,
 ) -> Option<AnsiModeStatusQuery> {
     let mut cursor = index + prefix_len;
     let start = cursor;
     let mut mode = 0u16;
-    recorder.record_candidate(&bytes[cursor..]);
     while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
         mode = mode
             .saturating_mul(10)
@@ -3417,7 +3114,6 @@ fn parse_ansi_mode_status_query<R: QueryScanRecorder>(
         return None;
     }
     let tail = bytes.get(cursor..cursor + 2)?;
-    recorder.record_candidate(tail);
     if tail != b"$p" {
         return None;
     }
@@ -3428,55 +3124,7 @@ fn parse_ansi_mode_status_query<R: QueryScanRecorder>(
     })
 }
 
-fn private_mode_status_query_suffix_len<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_private_mode_status_query_prefix, recorder)
-}
-
-fn ansi_mode_status_query_suffix_len<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> usize {
-    suffix_len_matching_query_prefix(bytes, is_ansi_mode_status_query_prefix, recorder)
-}
-
-fn is_private_mode_status_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes
-        .strip_prefix(b"\x1b[?")
-        .or_else(|| bytes.strip_prefix(b"\x9b?"))
-        .or_else(|| bytes.strip_prefix(UTF8_C1_PRIVATE_CSI))
-    else {
-        return b"\x1b[".starts_with(bytes)
-            || b"\x1b[?".starts_with(bytes)
-            || b"\x9b?".starts_with(bytes)
-            || UTF8_C1_PRIVATE_CSI.starts_with(bytes);
-    };
-
-    let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
-    if digits == 0 {
-        return rest.is_empty();
-    }
-    let tail = &rest[digits..];
-    tail.is_empty() || tail == b"$"
-}
-
-fn is_ansi_mode_status_query_prefix(bytes: &[u8]) -> bool {
-    let Some(rest) = bytes
-        .strip_prefix(b"\x1b[")
-        .or_else(|| bytes.strip_prefix(b"\x9b"))
-        .or_else(|| bytes.strip_prefix(UTF8_C1_CSI))
-    else {
-        return b"\x1b[".starts_with(bytes)
-            || b"\x9b".starts_with(bytes)
-            || UTF8_C1_CSI.starts_with(bytes);
-    };
-
-    let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
-    if digits == 0 {
-        return rest.is_empty();
-    }
-    let tail = &rest[digits..];
-    tail.is_empty() || tail == b"$"
-}
-
-fn suffix_prefix_len<R: QueryScanRecorder>(bytes: &[u8], prefix: &[u8], recorder: R) -> usize {
-    recorder.record_candidate(bytes);
+fn suffix_prefix_len(bytes: &[u8], prefix: &[u8]) -> usize {
     let max_len = bytes.len().min(prefix.len().saturating_sub(1));
 
     (1..=max_len)
@@ -3485,23 +3133,6 @@ fn suffix_prefix_len<R: QueryScanRecorder>(bytes: &[u8], prefix: &[u8], recorder
             let suffix_start = bytes.len() - length;
             bytes[suffix_start..] == prefix[..length]
                 && !raw_c1_prefix_is_utf8_continuation(bytes, suffix_start, &prefix[..length])
-        })
-        .unwrap_or(0)
-}
-
-fn suffix_len_matching_query_prefix<R: QueryScanRecorder>(
-    bytes: &[u8],
-    mut is_query_prefix: impl FnMut(&[u8]) -> bool,
-    recorder: R,
-) -> usize {
-    (1..=bytes.len())
-        .rev()
-        .find(|&length| {
-            let suffix_start = bytes.len() - length;
-            let suffix = &bytes[suffix_start..];
-            recorder.record_candidate(suffix);
-            is_query_prefix(suffix)
-                && !raw_c1_prefix_is_utf8_continuation(bytes, suffix_start, suffix)
         })
         .unwrap_or(0)
 }
@@ -3548,7 +3179,7 @@ impl TerminalClipboardTracker {
                 self.retain_possible_prefix();
                 return;
             };
-            if is_inside_osc_or_st_control_string(&self.pending, start.index, QueryScanNoop) {
+            if is_inside_osc_or_st_control_string(&self.pending, start.index) {
                 self.pending.drain(..start.index.saturating_add(1));
                 continue;
             }
@@ -3557,9 +3188,7 @@ impl TerminalClipboardTracker {
             }
 
             let content_start = start.prefix_len;
-            let Some(terminator) =
-                find_osc_terminator(&self.pending[content_start..], QueryScanNoop)
-            else {
+            let Some(terminator) = find_osc_terminator(&self.pending[content_start..]) else {
                 return;
             };
             let content_end = content_start + terminator.index;
@@ -3588,18 +3217,12 @@ impl TerminalClipboardTracker {
         let retained = Self::OSC52_PREFIXES
             .iter()
             .chain(Self::ITERM_COPY_PREFIXES.iter())
-            .map(|prefix| suffix_prefix_len(&self.pending, prefix, QueryScanNoop))
+            .map(|prefix| suffix_prefix_len(&self.pending, prefix))
             .max()
             .unwrap_or(0);
         let retained = retained
-            .max(incomplete_osc_control_sequence_suffix_len(
-                &self.pending,
-                QueryScanNoop,
-            ))
-            .max(incomplete_st_control_sequence_suffix_len(
-                &self.pending,
-                QueryScanNoop,
-            ));
+            .max(incomplete_osc_control_sequence_suffix_len(&self.pending))
+            .max(incomplete_st_control_sequence_suffix_len(&self.pending));
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             self.pending.drain(..writable);
@@ -3611,7 +3234,7 @@ fn find_next_clipboard_start(bytes: &[u8]) -> Option<ClipboardStart> {
     TerminalClipboardTracker::OSC52_PREFIXES
         .iter()
         .filter_map(|prefix| {
-            find_subslice(bytes, prefix, QueryScanNoop).map(|index| ClipboardStart {
+            find_subslice(bytes, prefix).map(|index| ClipboardStart {
                 index,
                 prefix_len: prefix.len(),
                 kind: ClipboardStartKind::Osc52,
@@ -3621,7 +3244,7 @@ fn find_next_clipboard_start(bytes: &[u8]) -> Option<ClipboardStart> {
             TerminalClipboardTracker::ITERM_COPY_PREFIXES
                 .iter()
                 .filter_map(|prefix| {
-                    find_subslice(bytes, prefix, QueryScanNoop).map(|index| ClipboardStart {
+                    find_subslice(bytes, prefix).map(|index| ClipboardStart {
                         index,
                         prefix_len: prefix.len(),
                         kind: ClipboardStartKind::ITermCopy,
@@ -3636,24 +3259,21 @@ struct OscTerminator {
     length: usize,
 }
 
-fn find_osc_terminator<R: QueryScanRecorder>(bytes: &[u8], recorder: R) -> Option<OscTerminator> {
-    recorder.record_candidate(bytes);
+fn find_osc_terminator(bytes: &[u8]) -> Option<OscTerminator> {
     [
         bytes
             .iter()
             .position(|byte| *byte == b'\x07')
             .map(|index| OscTerminator { index, length: 1 }),
-        find_subslice(bytes, TerminalClipboardTracker::ST_TERMINATOR, recorder).map(|index| {
-            OscTerminator {
-                index,
-                length: TerminalClipboardTracker::ST_TERMINATOR.len(),
-            }
+        find_subslice(bytes, TerminalClipboardTracker::ST_TERMINATOR).map(|index| OscTerminator {
+            index,
+            length: TerminalClipboardTracker::ST_TERMINATOR.len(),
         }),
         bytes
             .iter()
             .position(|byte| *byte == 0x9c)
             .map(|index| OscTerminator { index, length: 1 }),
-        find_subslice(bytes, UTF8_C1_ST, recorder).map(|index| OscTerminator {
+        find_subslice(bytes, UTF8_C1_ST).map(|index| OscTerminator {
             index,
             length: UTF8_C1_ST.len(),
         }),
@@ -3728,7 +3348,7 @@ impl TerminalNotificationTracker {
                 self.retain_possible_prefix();
                 return;
             };
-            if is_inside_osc_or_st_control_string(&self.pending, start.index, QueryScanNoop) {
+            if is_inside_osc_or_st_control_string(&self.pending, start.index) {
                 self.pending.drain(..start.index.saturating_add(1));
                 continue;
             }
@@ -3737,9 +3357,7 @@ impl TerminalNotificationTracker {
             }
 
             let content_start = start.prefix_len;
-            let Some(terminator) =
-                find_osc_terminator(&self.pending[content_start..], QueryScanNoop)
-            else {
+            let Some(terminator) = find_osc_terminator(&self.pending[content_start..]) else {
                 return;
             };
             let content_end = content_start + terminator.index;
@@ -3770,18 +3388,12 @@ impl TerminalNotificationTracker {
         let retained = Self::OSC9_PREFIXES
             .iter()
             .chain(Self::RXVT_NOTIFY_PREFIXES.iter())
-            .map(|prefix| suffix_prefix_len(&self.pending, prefix, QueryScanNoop))
+            .map(|prefix| suffix_prefix_len(&self.pending, prefix))
             .max()
             .unwrap_or(0);
         let retained = retained
-            .max(incomplete_osc_control_sequence_suffix_len(
-                &self.pending,
-                QueryScanNoop,
-            ))
-            .max(incomplete_st_control_sequence_suffix_len(
-                &self.pending,
-                QueryScanNoop,
-            ));
+            .max(incomplete_osc_control_sequence_suffix_len(&self.pending))
+            .max(incomplete_st_control_sequence_suffix_len(&self.pending));
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             self.pending.drain(..writable);
@@ -3793,7 +3405,7 @@ fn find_next_notification_start(bytes: &[u8]) -> Option<NotificationStart> {
     TerminalNotificationTracker::OSC9_PREFIXES
         .iter()
         .filter_map(|prefix| {
-            find_subslice(bytes, prefix, QueryScanNoop).map(|index| NotificationStart {
+            find_subslice(bytes, prefix).map(|index| NotificationStart {
                 index,
                 prefix_len: prefix.len(),
                 kind: NotificationStartKind::Osc9,
@@ -3803,7 +3415,7 @@ fn find_next_notification_start(bytes: &[u8]) -> Option<NotificationStart> {
             TerminalNotificationTracker::RXVT_NOTIFY_PREFIXES
                 .iter()
                 .filter_map(|prefix| {
-                    find_subslice(bytes, prefix, QueryScanNoop).map(|index| NotificationStart {
+                    find_subslice(bytes, prefix).map(|index| NotificationStart {
                         index,
                         prefix_len: prefix.len(),
                         kind: NotificationStartKind::RxvtNotify,
@@ -3852,7 +3464,6 @@ fn parse_rxvt_notify_content(content: &[u8]) -> Option<TerminalNotification> {
 #[cfg(test)]
 mod tests {
     use std::{
-        cell::Cell as CounterCell,
         fs,
         path::PathBuf,
         sync::atomic::{AtomicUsize, Ordering},
@@ -3862,116 +3473,11 @@ mod tests {
     use rssh_core::TerminalSize;
 
     use crate::{
-        query_scan_work::QueryScanWork,
         terminal_modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode},
+        terminal_queries::TerminalQueryScanner,
     };
 
-    use super::{
-        OscColorTerminator, OscResponseTerminator, TerminalColorState, TerminalNotification,
-        TerminalOutputFilter, TerminalProgress, TerminalRuntime, find_osc_color_query,
-        find_subslice, is_inside_control_string, suffix_len_matching_query_prefix,
-        suffix_prefix_len,
-    };
-
-    #[test]
-    fn query_scan_work_counts_each_concrete_search_candidate() {
-        let candidate_bytes = CounterCell::new(0);
-        let recorder = QueryScanWork::new(&candidate_bytes);
-        assert_eq!(find_subslice(b"abcde", b"a", recorder), Some(0));
-        assert_eq!(find_subslice(&b"abcde"[2..], b"d", recorder), Some(1));
-        assert_eq!(find_subslice(b"abcde", b"z", recorder), None);
-
-        // Candidate slices are 5, 3, and 5 bytes. Early success does not
-        // pretend the concrete search primitive received a shorter slice.
-        assert_eq!(candidate_bytes.get(), 5 + 3 + 5);
-    }
-
-    #[test]
-    fn query_scan_work_counts_repeated_inside_control_rescans() {
-        let bytes = b"<a>x<b>y";
-        let candidate_bytes = CounterCell::new(0);
-        let recorder = QueryScanWork::new(&candidate_bytes);
-        assert!(!is_inside_control_string(
-            bytes,
-            7,
-            |candidate| find_subslice(candidate, b"<", recorder).map(|index| (index, 1)),
-            |candidate| {
-                find_subslice(candidate, b">", recorder).map(|index| OscColorTerminator {
-                    index,
-                    length: 1,
-                    response_terminator: OscResponseTerminator::St,
-                })
-            },
-        ));
-
-        // Start/terminator candidates are 8/7 for the first control string,
-        // 5/3 for the second, then a final 1-byte start rescan.
-        assert_eq!(candidate_bytes.get(), 8 + 7 + 5 + 3 + 1);
-
-        let early_return_candidate_bytes = CounterCell::new(0);
-        let early_return_recorder = QueryScanWork::new(&early_return_candidate_bytes);
-        assert!(is_inside_control_string(
-            bytes,
-            5,
-            |candidate| {
-                find_subslice(candidate, b"<", early_return_recorder).map(|index| (index, 1))
-            },
-            |candidate| {
-                find_subslice(candidate, b">", early_return_recorder).map(|index| {
-                    OscColorTerminator {
-                        index,
-                        length: 1,
-                        response_terminator: OscResponseTerminator::St,
-                    }
-                })
-            },
-        ));
-        assert_eq!(early_return_candidate_bytes.get(), 8 + 7 + 5 + 3);
-    }
-
-    #[test]
-    fn query_scan_work_counts_suffix_candidates_and_split_prefixes() {
-        let fixed_candidate_bytes = CounterCell::new(0);
-        assert_eq!(
-            suffix_prefix_len(
-                b"abc\x1b",
-                b"\x1b[",
-                QueryScanWork::new(&fixed_candidate_bytes),
-            ),
-            1
-        );
-        assert_eq!(fixed_candidate_bytes.get(), 4);
-
-        let dynamic_candidate_bytes = CounterCell::new(0);
-        assert_eq!(
-            suffix_len_matching_query_prefix(
-                b"xx\x1b[6",
-                |candidate| b"\x1b[6n".starts_with(candidate),
-                QueryScanWork::new(&dynamic_candidate_bytes),
-            ),
-            3
-        );
-        assert_eq!(dynamic_candidate_bytes.get(), 5 + 4 + 3);
-
-        let mut filter = TerminalOutputFilter::new(TerminalSize::new(10, 2));
-        filter.record_query_scan_work = true;
-        let first = filter.process(b"\x1b");
-        let first_work = filter.inspected_query_bytes;
-        let second = filter.process(b"[6n");
-
-        assert!(first.events.is_empty());
-        assert!(first_work > 0);
-        assert!(
-            second
-                .events
-                .iter()
-                .any(|event| matches!(event, super::FilteredOutputEvent::Response(_)))
-        );
-        assert!(
-            filter.inspected_query_bytes > first_work,
-            "the completed split query must add its concrete matcher candidates"
-        );
-    }
+    use super::{TerminalNotification, TerminalProgress, TerminalRuntime};
 
     #[test]
     fn normal_runtime_keeps_query_scan_counter_disabled() {
@@ -3991,15 +3497,15 @@ mod tests {
 
     #[test]
     fn color_state_display_scanning_does_not_add_query_scan_work() {
-        let candidate_bytes = CounterCell::new(0);
-        let recorder = QueryScanWork::new(&candidate_bytes);
-        assert!(find_osc_color_query(b"\x1b]10;?\x07", recorder).is_some());
-        let query_work = candidate_bytes.get();
+        let bytes = b"\x1b]10;#123456\x07";
+        let mut scanner = TerminalQueryScanner::new_with_work_counter();
+        let _ = scanner.process(bytes);
+        let scanner_work = scanner.inspected_bytes();
 
-        let mut colors = TerminalColorState::default();
-        assert!(colors.process(b"\x1b]10;#123456\x07"));
+        let mut runtime = TerminalRuntime::new_with_query_scan_work(TerminalSize::new(10, 2));
+        runtime.feed_pty_output(bytes);
 
-        assert_eq!(candidate_bytes.get(), query_work);
+        assert_eq!(runtime.inspected_query_bytes(), scanner_work);
     }
 
     #[test]
