@@ -3097,6 +3097,14 @@ name = "rssh-core"
 version = "0.1.0"
 
 [[package]]
+name = "rssh-fonts"
+version = "0.1.0"
+dependencies = [
+ "sha2",
+ "ttf-parser",
+]
+
+[[package]]
 name = "rssh-pty"
 version = "0.1.0"
 dependencies = [
