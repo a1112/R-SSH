@@ -222,6 +222,15 @@ struct LayoutOutput {
     linear_index_steps: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct CollapsedLayout {
+    shaping_x: f32,
+    y: f32,
+    x_offset: f32,
+    y_offset: f32,
+    bidi_level: u8,
+}
+
 /// Shapes logical terminal rows using an isolated [`FontCatalog`].
 pub struct TerminalShaper {
     config: FontConfig,
@@ -658,6 +667,7 @@ impl TerminalShaper {
         let mut linear_index_steps = 0;
         let mut glyphs = Vec::new();
         let mut plan_has_glyph = vec![false; plans.len()];
+        let mut collapsed_layouts = vec![None; plans.len()];
         let mut layout_line_count = 0;
         for run in buffer.layout_runs() {
             layout_line_count += 1;
@@ -665,6 +675,17 @@ impl TerminalShaper {
                 let cluster_range =
                     indexed_cluster_range(byte_to_cluster, glyph.start..glyph.end, plans.len());
                 if plans[cluster_range.clone()].iter().any(|plan| plan.is_tofu) {
+                    record_collapsed_layout(
+                        &mut collapsed_layouts,
+                        cluster_range,
+                        CollapsedLayout {
+                            shaping_x: glyph.x,
+                            y: glyph.y,
+                            x_offset: glyph.x_offset,
+                            y_offset: glyph.y_offset,
+                            bidi_level: glyph.level.number(),
+                        },
+                    );
                     continue;
                 }
                 let cell_span = cells_for_clusters(plans, cluster_range.clone());
@@ -675,17 +696,27 @@ impl TerminalShaper {
                     .iter()
                     .all(|plan| plan.font_id == planned_id);
                 linear_index_steps += cluster_range.end - cluster_range.start;
-                for logical_index in cluster_range.clone() {
-                    plan_has_glyph[logical_index] = true;
-                }
-                let mut is_tofu = false;
                 let actual_is_valid =
                     same_planned_face && actual_id == planned_id && glyph.glyph_id != 0;
                 if !actual_is_valid {
+                    record_collapsed_layout(
+                        &mut collapsed_layouts,
+                        cluster_range.clone(),
+                        CollapsedLayout {
+                            shaping_x: glyph.x,
+                            y: glyph.y,
+                            x_offset: glyph.x_offset,
+                            y_offset: glyph.y_offset,
+                            bidi_level: glyph.level.number(),
+                        },
+                    );
                     for plan in &mut plans[cluster_range.clone()] {
                         mark_plan_tofu(&mut self.diagnostics, plan, text, catalog.generation());
                     }
-                    is_tofu = true;
+                    continue;
+                }
+                for logical_index in cluster_range.clone() {
+                    plan_has_glyph[logical_index] = true;
                 }
                 let is_color = plans[cluster_range.clone()]
                     .iter()
@@ -710,42 +741,25 @@ impl TerminalShaper {
                     y_offset: glyph.y_offset,
                     bidi_level: glyph.level.number(),
                     is_color,
-                    is_tofu,
+                    is_tofu: false,
                 });
             }
         }
         for (logical_index, plan) in plans.iter_mut().enumerate() {
             let cluster = &text[plan.byte_range.clone()];
-            let has_visible_scalar = cluster
-                .chars()
-                .any(|character| !is_default_ignorable(character) && !character.is_whitespace());
+            let has_visible_scalar = has_visible_scalar(cluster);
             if plan.is_tofu || (!plan_has_glyph[logical_index] && has_visible_scalar) {
                 if !plan.is_tofu {
                     mark_plan_tofu(&mut self.diagnostics, plan, text, catalog.generation());
                 }
-                let shaping_x = cell_pixels(plan.cell_span.start, metrics.cell_width);
-                let shaping_width = cell_pixels(
-                    plan.cell_span.end - plan.cell_span.start,
-                    metrics.cell_width,
-                );
-                glyphs.push(ShapedGlyph {
-                    font_id: plan.font_id,
-                    glyph_id: 0,
-                    byte_range: plan.byte_range.clone(),
-                    cluster_range: logical_index..logical_index.saturating_add(1),
-                    cell_span: plan.cell_span.clone(),
-                    visual_order: glyphs.len(),
-                    x: shaping_x,
-                    y: 0.0,
-                    width: shaping_width,
-                    shaping_x,
-                    shaping_width,
-                    x_offset: 0.0,
-                    y_offset: 0.0,
-                    bidi_level: 0,
-                    is_color: plan.is_color,
-                    is_tofu: true,
-                });
+                let visual_order = glyphs.len();
+                glyphs.push(synthetic_tofu_glyph(
+                    plan,
+                    logical_index,
+                    collapsed_layouts[logical_index],
+                    metrics,
+                    visual_order,
+                ));
                 linear_index_steps += 1;
             }
         }
@@ -863,6 +877,52 @@ impl TerminalShaper {
     }
 }
 
+fn synthetic_tofu_glyph(
+    plan: &ClusterPlan,
+    logical_index: usize,
+    collapsed: Option<CollapsedLayout>,
+    metrics: TerminalFontMetrics,
+    visual_order: usize,
+) -> ShapedGlyph {
+    let logical_x = cell_pixels(plan.cell_span.start, metrics.cell_width);
+    let shaping_x = collapsed.map_or(logical_x, |layout| layout.shaping_x);
+    let shaping_width = cell_pixels(
+        plan.cell_span.end - plan.cell_span.start,
+        metrics.cell_width,
+    );
+    ShapedGlyph {
+        font_id: plan.font_id,
+        glyph_id: 0,
+        byte_range: plan.byte_range.clone(),
+        cluster_range: logical_index..logical_index.saturating_add(1),
+        cell_span: plan.cell_span.clone(),
+        visual_order,
+        x: shaping_x,
+        y: collapsed.map_or(0.0, |layout| layout.y),
+        width: shaping_width,
+        shaping_x,
+        shaping_width,
+        x_offset: collapsed.map_or(0.0, |layout| layout.x_offset),
+        y_offset: collapsed.map_or(0.0, |layout| layout.y_offset),
+        bidi_level: collapsed.map_or(0, |layout| layout.bidi_level),
+        is_color: plan.is_color,
+        is_tofu: true,
+    }
+}
+
+fn record_collapsed_layout(
+    layouts: &mut [Option<CollapsedLayout>],
+    clusters: Range<usize>,
+    candidate: CollapsedLayout,
+) {
+    for logical_index in clusters {
+        let slot = &mut layouts[logical_index];
+        if slot.is_none_or(|current| candidate.shaping_x < current.shaping_x) {
+            *slot = Some(candidate);
+        }
+    }
+}
+
 fn rejected_cluster_plans(
     catalog: &FontCatalog,
     text: &str,
@@ -906,9 +966,7 @@ fn rejected_cluster_plans(
                 return None;
             }
             let cluster = &text[plan.byte_range.clone()];
-            let has_visible_scalar = cluster
-                .chars()
-                .any(|character| !is_default_ignorable(character) && !character.is_whitespace());
+            let has_visible_scalar = has_visible_scalar(cluster);
             let wrong_glyph_count = if strict[logical_index] {
                 glyph_counts[logical_index] != 1
             } else {
@@ -917,6 +975,12 @@ fn rejected_cluster_plans(
             (wrong_glyph_count || !valid[logical_index]).then_some(logical_index)
         })
         .collect()
+}
+
+fn has_visible_scalar(cluster: &str) -> bool {
+    cluster
+        .chars()
+        .any(|character| !is_default_ignorable(character) && !character.is_whitespace())
 }
 
 fn requires_single_glyph_sequence(cluster: &str, is_color: bool) -> bool {

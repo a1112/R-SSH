@@ -328,6 +328,33 @@ fn pure_rtl_visual_order_follows_layout_positions_not_logical_vec_order() {
 }
 
 #[test]
+fn uncovered_hebrew_tofu_preserves_backend_rtl_order_and_levels() {
+    let mut catalog = catalog(&[LATIN, HEBREW]);
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));
+
+    let row = shaper
+        .shape_row(&mut catalog, "אבג")
+        .expect("shape uncovered Hebrew");
+
+    assert_eq!(row.visual_clusters, [2, 1, 0]);
+    assert_eq!(
+        row.clusters
+            .iter()
+            .map(|cluster| cluster.cell_span.clone())
+            .collect::<Vec<_>>(),
+        [0..1, 1..2, 2..3]
+    );
+    assert!(row.clusters.iter().all(|cluster| cluster.is_tofu));
+    assert!(
+        row.clusters
+            .iter()
+            .all(|cluster| cluster.bidi_level % 2 == 1)
+    );
+    assert!(row.glyphs.iter().all(|glyph| glyph.bidi_level % 2 == 1));
+    assert!(row.glyphs.windows(2).all(|pair| pair[0].x <= pair[1].x));
+}
+
+#[test]
 fn cjk_cluster_maps_to_two_terminal_cells_without_wrapping() {
     let mut catalog = catalog(&[LATIN, CJK]);
     let mut shaper =
