@@ -11,12 +11,12 @@ use rssh_fonts::{
 use rssh_terminal::{Color, UnderlineStyle, VerticalAlign};
 
 use super::{
-    CursorRenderStyle, DamageRegion, PixelRenderer, Rect, RenderCell, RenderGeometry, Surface,
-    TerminalRenderSnapshot, configured_cursor_border, cursor_colors, cursor_shape_default_color,
-    effective_cell_colors, fill_default_background, image_below_non_default_background,
-    image_below_text, render_background_images, render_background_layers, render_cell_background,
-    render_cursor, render_snapshot_inline_images_in_z_order, render_text_decorations,
-    source_over_rgba, text_foreground_alpha,
+    CursorRenderStyle, DamageRegion, ImageDrawLayer, PixelRenderer, Rect, RenderCell,
+    RenderGeometry, Surface, TerminalRenderSnapshot, configured_cursor_border, cursor_colors,
+    cursor_shape_default_color, effective_cell_colors, fill_default_background,
+    render_background_images, render_background_layers, render_cell_background, render_cursor,
+    render_snapshot_inline_images_in_z_order, render_text_decorations, source_over_rgba,
+    text_foreground_alpha,
 };
 
 /// Active text backend for a [`PixelRenderer`].
@@ -243,7 +243,7 @@ fn render_base_layers(
     render_snapshot_inline_images_in_z_order(
         surface,
         snapshot,
-        image_below_non_default_background,
+        ImageDrawLayer::UltraNegative,
         geometry.cell_width,
         geometry.cell_height,
         renderer.animation_frame,
@@ -270,7 +270,7 @@ fn render_base_layers(
     render_snapshot_inline_images_in_z_order(
         surface,
         snapshot,
-        |image| image_below_text(image) && !image_below_non_default_background(image),
+        ImageDrawLayer::Negative,
         geometry.cell_width,
         geometry.cell_height,
         renderer.animation_frame,
@@ -329,7 +329,7 @@ fn render_top_layers(
     render_snapshot_inline_images_in_z_order(
         surface,
         snapshot,
-        |image| !image_below_text(image),
+        ImageDrawLayer::Positive,
         geometry.cell_width,
         geometry.cell_height,
         renderer.animation_frame,

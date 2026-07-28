@@ -1156,7 +1156,7 @@ impl PixelRenderer {
         render_snapshot_inline_images_in_z_order(
             &mut surface,
             snapshot,
-            image_below_non_default_background,
+            ImageDrawLayer::UltraNegative,
             cell_width,
             cell_height,
             self.animation_frame,
@@ -1180,7 +1180,7 @@ impl PixelRenderer {
         render_snapshot_inline_images_in_z_order(
             &mut surface,
             snapshot,
-            |image| image_below_text(image) && !image_below_non_default_background(image),
+            ImageDrawLayer::Negative,
             cell_width,
             cell_height,
             self.animation_frame,
@@ -1210,7 +1210,7 @@ impl PixelRenderer {
         render_snapshot_inline_images_in_z_order(
             &mut surface,
             snapshot,
-            |image| !image_below_text(image),
+            ImageDrawLayer::Positive,
             cell_width,
             cell_height,
             self.animation_frame,
@@ -1360,7 +1360,7 @@ impl PixelRenderer {
         render_damaged_snapshot_inline_images_in_z_order(
             &mut surface,
             snapshot,
-            image_below_non_default_background,
+            ImageDrawLayer::UltraNegative,
             damage,
             geometry,
             self.animation_frame,
@@ -1384,7 +1384,7 @@ impl PixelRenderer {
         render_damaged_snapshot_inline_images_in_z_order(
             &mut surface,
             snapshot,
-            |image| image_below_text(image) && !image_below_non_default_background(image),
+            ImageDrawLayer::Negative,
             damage,
             geometry,
             self.animation_frame,
@@ -1414,7 +1414,7 @@ impl PixelRenderer {
         render_damaged_snapshot_inline_images_in_z_order(
             &mut surface,
             snapshot,
-            |image| !image_below_text(image),
+            ImageDrawLayer::Positive,
             damage,
             geometry,
             self.animation_frame,
@@ -1497,55 +1497,75 @@ pub(crate) struct ImageDrawPlan {
     pub stable_order: usize,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum ImageTiePolicy {
     Whole,
     Fragment,
 }
 
+#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum ImageDrawLayer {
+    UltraNegative,
+    Negative,
+    Positive,
+}
+
+#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+struct ImageDrawOrderKey {
+    layer: ImageDrawLayer,
+    kind: ImageTiePolicy,
+    z_index: i32,
+    id_group: u8,
+    kitty_image_id: u32,
+    parent_index: usize,
+    fragment_index: usize,
+    stable_order: usize,
+}
+
 pub(crate) fn compare_image_draw_plans(left: &ImageDrawPlan, right: &ImageDrawPlan) -> Ordering {
-    left.z_index
-        .cmp(&right.z_index)
-        .then_with(|| match (left.tie_policy, right.tie_policy) {
-            (ImageTiePolicy::Whole, ImageTiePolicy::Whole) => compare_whole_image_tie(
-                left.kitty_image_id,
-                left.stable_order,
-                right.kitty_image_id,
-                right.stable_order,
-            ),
-            (ImageTiePolicy::Fragment, ImageTiePolicy::Fragment) => compare_fragment_image_tie(
-                left.kitty_image_id,
-                left.parent_index,
-                right.kitty_image_id,
-                right.parent_index,
-            )
-            .then_with(|| left.fragment_index.cmp(&right.fragment_index)),
-            _ => left.stable_order.cmp(&right.stable_order),
-        })
+    image_draw_order_key(left).cmp(&image_draw_order_key(right))
 }
 
-fn compare_whole_image_tie(
-    left_id: Option<u32>,
-    left_order: usize,
-    right_id: Option<u32>,
-    right_order: usize,
-) -> Ordering {
-    match (left_id, right_id) {
-        (Some(left_id), Some(right_id)) => left_id.cmp(&right_id),
-        _ => Ordering::Equal,
+fn image_draw_order_key(plan: &ImageDrawPlan) -> ImageDrawOrderKey {
+    // Layer precedes kind so extreme-negative and ordinary-negative images
+    // retain their fixed relationship to cell backgrounds and glyphs.
+    // Within one layer, whole draws precede fragments exactly as the CPU
+    // renderer historically grouped them. Whole images with protocol IDs sort
+    // first by ID; missing IDs then preserve snapshot insertion order.
+    let (id_group, kitty_image_id, parent_index, fragment_index) = match plan.tie_policy {
+        ImageTiePolicy::Whole => (
+            u8::from(plan.kitty_image_id.is_none()),
+            plan.kitty_image_id.unwrap_or_default(),
+            0,
+            0,
+        ),
+        ImageTiePolicy::Fragment => (
+            u8::from(plan.kitty_image_id.is_some()),
+            plan.kitty_image_id.unwrap_or_default(),
+            plan.parent_index,
+            plan.fragment_index,
+        ),
+    };
+    ImageDrawOrderKey {
+        layer: image_draw_layer(plan.z_index),
+        kind: plan.tie_policy,
+        z_index: plan.z_index,
+        id_group,
+        kitty_image_id,
+        parent_index,
+        fragment_index,
+        stable_order: plan.stable_order,
     }
-    .then_with(|| left_order.cmp(&right_order))
 }
 
-fn compare_fragment_image_tie(
-    left_id: Option<u32>,
-    left_parent: usize,
-    right_id: Option<u32>,
-    right_parent: usize,
-) -> Ordering {
-    left_id
-        .cmp(&right_id)
-        .then_with(|| left_parent.cmp(&right_parent))
+const fn image_draw_layer(z_index: i32) -> ImageDrawLayer {
+    if z_index < KITTY_NON_DEFAULT_BACKGROUND_Z_CUTOFF {
+        ImageDrawLayer::UltraNegative
+    } else if z_index < 0 {
+        ImageDrawLayer::Negative
+    } else {
+        ImageDrawLayer::Positive
+    }
 }
 
 const fn inline_image_pixel_is_drawn(pixel: [u8; 4]) -> bool {
@@ -2212,122 +2232,6 @@ fn opacity_alpha(opacity: f32) -> u8 {
     (opacity.clamp(0.0, 1.0) * f32::from(u8::MAX)) as u8
 }
 
-fn render_inline_image(
-    surface: &mut Surface<'_>,
-    image: &RenderInlineImage,
-    cell_width: u32,
-    cell_height: u32,
-    animation_frame: usize,
-    animation_elapsed_ms: Option<u64>,
-) {
-    let Some(decoded) = decode_inline_image(image, animation_frame, animation_elapsed_ms) else {
-        return;
-    };
-    let rect = inline_image_rect(image, cell_width, cell_height);
-    let Some(source_rect) = inline_image_source_rect(image, decoded.width, decoded.height) else {
-        return;
-    };
-    if rect.width == 0 || rect.height == 0 || source_rect.width == 0 || source_rect.height == 0 {
-        return;
-    }
-
-    for target_y in 0..rect.height {
-        let source_y = source_rect.y + target_y.saturating_mul(source_rect.height) / rect.height;
-        for target_x in 0..rect.width {
-            let source_x = source_rect.x + target_x.saturating_mul(source_rect.width) / rect.width;
-            if let Some(pixel) = rgba_pixel(&decoded, source_x, source_y) {
-                if !inline_image_pixel_is_drawn(pixel) {
-                    continue;
-                }
-                surface.put_pixel(rect.x + target_x, rect.y + target_y, pixel);
-            }
-        }
-    }
-}
-
-fn render_runtime_inline_image_fragment(
-    surface: &mut Surface<'_>,
-    image: &RenderInlineImage,
-    runtime: &RuntimeInlineImageFragment,
-    cell_width: u32,
-    cell_height: u32,
-    animation_frame: usize,
-    animation_elapsed_ms: Option<u64>,
-) {
-    let Some(decoded) = decode_inline_image(image, animation_frame, animation_elapsed_ms) else {
-        return;
-    };
-    let Some(fragment) = resolve_runtime_inline_image_attachment_source(
-        &runtime.fragment,
-        image,
-        decoded.width,
-        decoded.height,
-    ) else {
-        return;
-    };
-    if fragment.destination_width == 0
-        || fragment.destination_height == 0
-        || fragment.source_width == 0
-        || fragment.source_height == 0
-        || fragment.source_destination_width == 0
-        || fragment.source_destination_height == 0
-    {
-        return;
-    }
-
-    let origin_x = (i64::from(fragment.column) + runtime.column_offset)
-        .saturating_mul(i64::from(cell_width))
-        .saturating_add(i64::from(fragment.destination_x));
-    let origin_y = (i64::from(fragment.row) + runtime.row_offset)
-        .saturating_mul(i64::from(cell_height))
-        .saturating_add(i64::from(fragment.destination_y));
-    let clip = runtime.clip.map(|clip| {
-        (
-            clip.left.saturating_mul(i64::from(cell_width)),
-            clip.top.saturating_mul(i64::from(cell_height)),
-            clip.right.saturating_mul(i64::from(cell_width)),
-            clip.bottom.saturating_mul(i64::from(cell_height)),
-        )
-    });
-    for target_y in 0..fragment.destination_height {
-        let source_y = fragment.sampling_source_y.saturating_add(
-            fragment
-                .source_destination_y
-                .saturating_add(target_y)
-                .saturating_mul(fragment.sampling_source_height)
-                / fragment.source_destination_height,
-        );
-        for target_x in 0..fragment.destination_width {
-            let source_x = fragment.sampling_source_x.saturating_add(
-                fragment
-                    .source_destination_x
-                    .saturating_add(target_x)
-                    .saturating_mul(fragment.sampling_source_width)
-                    / fragment.source_destination_width,
-            );
-            let target_x = origin_x.saturating_add(i64::from(target_x));
-            let target_y = origin_y.saturating_add(i64::from(target_y));
-            if target_x < 0 || target_y < 0 {
-                continue;
-            }
-            if clip.is_some_and(|(left, top, right, bottom)| {
-                target_x < left || target_x >= right || target_y < top || target_y >= bottom
-            }) {
-                continue;
-            }
-            let (Ok(target_x), Ok(target_y)) = (u32::try_from(target_x), u32::try_from(target_y))
-            else {
-                continue;
-            };
-            if let Some(pixel) = rgba_pixel(&decoded, source_x, source_y)
-                && inline_image_pixel_is_drawn(pixel)
-            {
-                surface.put_pixel(target_x, target_y, pixel);
-            }
-        }
-    }
-}
-
 fn resolve_runtime_inline_image_attachment_source(
     fragment: &RenderInlineImageFragment,
     image: &RenderInlineImage,
@@ -2393,15 +2297,31 @@ fn resolve_runtime_inline_image_attachment_source(
 
 const MAX_PLANNED_IMAGE_BYTES: usize = 64 * 1024 * 1024;
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "whole images and attachment fragments share one immutable normalization pass"
-)]
 pub(crate) fn gpu_image_draw_plan(
     snapshot: &TerminalRenderSnapshot,
     geometry: RenderGeometry,
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
+) -> Vec<ImageDrawPlan> {
+    image_draw_plan(
+        snapshot,
+        geometry,
+        animation_frame,
+        animation_elapsed_ms,
+        None,
+    )
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "whole images and attachment fragments share one immutable normalization pass"
+)]
+fn image_draw_plan(
+    snapshot: &TerminalRenderSnapshot,
+    geometry: RenderGeometry,
+    animation_frame: usize,
+    animation_elapsed_ms: Option<u64>,
+    selected_layer: Option<ImageDrawLayer>,
 ) -> Vec<ImageDrawPlan> {
     let fragments =
         runtime_inline_image_fragments(snapshot, geometry.cell_width, geometry.cell_height);
@@ -2417,6 +2337,7 @@ pub(crate) fn gpu_image_draw_plan(
             || snapshot
                 .empty_inline_image_attachment_parents
                 .contains(&parent_index)
+            || selected_layer.is_some_and(|layer| layer != image_draw_layer(image_z_index(image)))
         {
             continue;
         }
@@ -2464,6 +2385,9 @@ pub(crate) fn gpu_image_draw_plan(
         let Some(image) = snapshot.inline_images.get(parent_index) else {
             continue;
         };
+        if selected_layer.is_some_and(|layer| layer != image_draw_layer(image_z_index(image))) {
+            continue;
+        }
         let Some(decoded) = decode_inline_image(image, animation_frame, animation_elapsed_ms)
         else {
             continue;
@@ -2537,6 +2461,7 @@ pub(crate) fn gpu_image_draw_plan(
             plan.push(draw);
         }
     }
+    plan.sort_by(compare_image_draw_plans);
     plan
 }
 
@@ -3065,40 +2990,6 @@ fn background_image_axis_coordinate(
     }
 }
 
-fn render_inline_images_in_z_order<'a>(
-    surface: &mut Surface<'_>,
-    images: impl Iterator<Item = &'a RenderInlineImage>,
-    cell_width: u32,
-    cell_height: u32,
-    animation_frame: usize,
-    animation_elapsed_ms: Option<u64>,
-) {
-    let mut images = images.enumerate().collect::<Vec<_>>();
-    images.sort_by(|(left_index, left), (right_index, right)| {
-        image_z_index(left)
-            .cmp(&image_z_index(right))
-            .then_with(|| {
-                compare_whole_image_tie(
-                    left.kitty_image_id,
-                    *left_index,
-                    right.kitty_image_id,
-                    *right_index,
-                )
-            })
-    });
-
-    for (_, image) in images {
-        render_inline_image(
-            surface,
-            image,
-            cell_width,
-            cell_height,
-            animation_frame,
-            animation_elapsed_ms,
-        );
-    }
-}
-
 #[expect(
     clippy::too_many_lines,
     reason = "runtime fragment normalization keeps checked parent and geometry bookkeeping in one auditable pass"
@@ -3325,178 +3216,82 @@ fn render_inline_image_attachment_for_geometry(
 fn render_snapshot_inline_images_in_z_order(
     surface: &mut Surface<'_>,
     snapshot: &TerminalRenderSnapshot,
-    predicate: impl Fn(&RenderInlineImage) -> bool,
+    layer: ImageDrawLayer,
     cell_width: u32,
     cell_height: u32,
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
 ) {
-    let fragments = runtime_inline_image_fragments(snapshot, cell_width, cell_height);
-    let fragmented_parents = fragments
-        .iter()
-        .map(|fragment| fragment.fragment.parent_image_index)
-        .collect::<HashSet<_>>();
-    render_inline_images_in_z_order(
-        surface,
-        snapshot
-            .inline_images
-            .iter()
-            .enumerate()
-            .filter(|(index, image)| {
-                !fragmented_parents.contains(index)
-                    && !snapshot
-                        .empty_inline_image_attachment_parents
-                        .contains(index)
-                    && predicate(image)
-            })
-            .map(|(_, image)| image),
-        cell_width,
-        cell_height,
+    let geometry = RenderGeometry::new(surface.width, surface.height, cell_width, cell_height);
+    for draw in image_draw_plan(
+        snapshot,
+        geometry,
         animation_frame,
         animation_elapsed_ms,
-    );
-
-    let mut fragments = fragments
-        .iter()
-        .filter_map(|fragment| {
-            let image = snapshot
-                .inline_images
-                .get(fragment.fragment.parent_image_index)?;
-            predicate(image).then_some((fragment, image))
-        })
-        .collect::<Vec<_>>();
-    fragments.sort_by(
-        |(left_fragment, left_image), (right_fragment, right_image)| {
-            image_z_index(left_image)
-                .cmp(&image_z_index(right_image))
-                .then_with(|| {
-                    compare_fragment_image_tie(
-                        left_image.kitty_image_id,
-                        left_fragment.fragment.parent_image_index,
-                        right_image.kitty_image_id,
-                        right_fragment.fragment.parent_image_index,
-                    )
-                })
-        },
-    );
-    for (fragment, image) in fragments {
-        render_runtime_inline_image_fragment(
-            surface,
-            image,
-            fragment,
-            cell_width,
-            cell_height,
-            animation_frame,
-            animation_elapsed_ms,
-        );
+        Some(layer),
+    ) {
+        render_image_draw_plan(surface, &draw, None);
     }
-}
-
-fn render_damaged_inline_images_in_z_order<'a>(
-    surface: &mut Surface<'_>,
-    images: impl Iterator<Item = &'a RenderInlineImage>,
-    damage: &[DamageRegion],
-    geometry: RenderGeometry,
-    animation_frame: usize,
-    animation_elapsed_ms: Option<u64>,
-) {
-    render_inline_images_in_z_order(
-        surface,
-        images.filter(|image| {
-            damage_intersects_inline_image(damage, image, geometry.cell_width, geometry.cell_height)
-        }),
-        geometry.cell_width,
-        geometry.cell_height,
-        animation_frame,
-        animation_elapsed_ms,
-    );
 }
 
 fn render_damaged_snapshot_inline_images_in_z_order(
     surface: &mut Surface<'_>,
     snapshot: &TerminalRenderSnapshot,
-    predicate: impl Fn(&RenderInlineImage) -> bool,
+    layer: ImageDrawLayer,
     damage: &[DamageRegion],
     geometry: RenderGeometry,
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
 ) {
-    let fragments =
-        runtime_inline_image_fragments(snapshot, geometry.cell_width, geometry.cell_height);
-    let fragmented_parents = fragments
+    let damage_rects = damage
         .iter()
-        .map(|fragment| fragment.fragment.parent_image_index)
-        .collect::<HashSet<_>>();
-    render_damaged_inline_images_in_z_order(
-        surface,
-        snapshot
-            .inline_images
-            .iter()
-            .enumerate()
-            .filter(|(index, image)| {
-                !fragmented_parents.contains(index)
-                    && !snapshot
-                        .empty_inline_image_attachment_parents
-                        .contains(index)
-                    && predicate(image)
-            })
-            .map(|(_, image)| image),
-        damage,
+        .copied()
+        .filter(|region| !region.is_empty())
+        .map(|region| damage_rect(region, geometry.cell_width, geometry.cell_height))
+        .collect::<Vec<_>>();
+    for draw in image_draw_plan(
+        snapshot,
         geometry,
         animation_frame,
         animation_elapsed_ms,
-    );
-    let mut fragments = fragments
-        .iter()
-        .filter_map(|fragment| {
-            let image = snapshot
-                .inline_images
-                .get(fragment.fragment.parent_image_index)?;
-            (predicate(image)
-                && damage_intersects_inline_image_fragment(
-                    damage,
-                    fragment,
-                    geometry.cell_width,
-                    geometry.cell_height,
-                ))
-            .then_some((fragment, image))
-        })
-        .collect::<Vec<_>>();
-    fragments.sort_by(
-        |(left_fragment, left_image), (right_fragment, right_image)| {
-            image_z_index(left_image)
-                .cmp(&image_z_index(right_image))
-                .then_with(|| {
-                    compare_fragment_image_tie(
-                        left_image.kitty_image_id,
-                        left_fragment.fragment.parent_image_index,
-                        right_image.kitty_image_id,
-                        right_fragment.fragment.parent_image_index,
-                    )
-                })
-        },
-    );
-    for (fragment, image) in fragments {
-        render_runtime_inline_image_fragment(
-            surface,
-            image,
-            fragment,
-            geometry.cell_width,
-            geometry.cell_height,
-            animation_frame,
-            animation_elapsed_ms,
-        );
+        Some(layer),
+    ) {
+        render_image_draw_plan(surface, &draw, Some(&damage_rects));
     }
 }
 
-fn image_below_text(image: &RenderInlineImage) -> bool {
-    image.kitty_z_index.is_some_and(|z_index| z_index < 0)
-}
-
-fn image_below_non_default_background(image: &RenderInlineImage) -> bool {
-    image
-        .kitty_z_index
-        .is_some_and(|z_index| z_index < KITTY_NON_DEFAULT_BACKGROUND_Z_CUTOFF)
+fn render_image_draw_plan(
+    surface: &mut Surface<'_>,
+    draw: &ImageDrawPlan,
+    damage: Option<&[Rect]>,
+) {
+    for output_y in 0..draw.height {
+        for output_x in 0..draw.width {
+            let x = draw.destination_x.saturating_add(output_x);
+            let y = draw.destination_y.saturating_add(output_y);
+            if damage.is_some_and(|rects| {
+                !rects.iter().any(|rect| {
+                    x >= rect.x
+                        && x < rect.x.saturating_add(rect.width)
+                        && y >= rect.y
+                        && y < rect.y.saturating_add(rect.height)
+                })
+            }) {
+                continue;
+            }
+            let index = usize::try_from(
+                (u64::from(output_y) * u64::from(draw.width) + u64::from(output_x)) * 4,
+            )
+            .unwrap_or(usize::MAX);
+            let Some(pixel) = draw.pixels.get(index..index.saturating_add(4)) else {
+                continue;
+            };
+            let pixel = [pixel[0], pixel[1], pixel[2], pixel[3]];
+            if inline_image_pixel_is_drawn(pixel) {
+                surface.put_pixel(x, y, pixel);
+            }
+        }
+    }
 }
 
 fn image_z_index(image: &RenderInlineImage) -> i32 {
@@ -4558,78 +4353,6 @@ fn damage_contains_cell(damage: &[DamageRegion], row: u16, column: u16) -> bool 
             && column >= region.x
             && column < region.x.saturating_add(region.width)
     })
-}
-
-fn damage_intersects_inline_image(
-    damage: &[DamageRegion],
-    image: &RenderInlineImage,
-    cell_width: u32,
-    cell_height: u32,
-) -> bool {
-    let image_rect = inline_image_rect(image, cell_width, cell_height);
-    damage.iter().copied().any(|region| {
-        !region.is_empty()
-            && rects_intersect(image_rect, damage_rect(region, cell_width, cell_height))
-    })
-}
-
-fn damage_intersects_inline_image_fragment(
-    damage: &[DamageRegion],
-    runtime: &RuntimeInlineImageFragment,
-    cell_width: u32,
-    cell_height: u32,
-) -> bool {
-    let fragment = &runtime.fragment;
-    let x = (i64::from(fragment.column) + runtime.column_offset)
-        .saturating_mul(i64::from(cell_width))
-        .saturating_add(i64::from(fragment.destination_x));
-    let y = (i64::from(fragment.row) + runtime.row_offset)
-        .saturating_mul(i64::from(cell_height))
-        .saturating_add(i64::from(fragment.destination_y));
-    let (x, y, fragment_right, fragment_bottom) = if let Some(clip) = runtime.clip {
-        (
-            x.max(clip.left.saturating_mul(i64::from(cell_width))),
-            y.max(clip.top.saturating_mul(i64::from(cell_height))),
-            x.saturating_add(i64::from(fragment.destination_width))
-                .min(clip.right.saturating_mul(i64::from(cell_width))),
-            y.saturating_add(i64::from(fragment.destination_height))
-                .min(clip.bottom.saturating_mul(i64::from(cell_height))),
-        )
-    } else {
-        (
-            x,
-            y,
-            x.saturating_add(i64::from(fragment.destination_width)),
-            y.saturating_add(i64::from(fragment.destination_height)),
-        )
-    };
-    if x >= fragment_right || y >= fragment_bottom {
-        return false;
-    }
-    damage.iter().copied().any(|region| {
-        if region.is_empty() {
-            return false;
-        }
-        let damage_x = i64::from(region.x).saturating_mul(i64::from(cell_width));
-        let damage_y = i64::from(region.y).saturating_mul(i64::from(cell_height));
-        let damage_right =
-            damage_x.saturating_add(i64::from(region.width).saturating_mul(i64::from(cell_width)));
-        let damage_bottom = damage_y
-            .saturating_add(i64::from(region.height).saturating_mul(i64::from(cell_height)));
-        x < damage_right
-            && fragment_right > damage_x
-            && y < damage_bottom
-            && fragment_bottom > damage_y
-    })
-}
-
-fn rects_intersect(a: Rect, b: Rect) -> bool {
-    let a_right = a.x.saturating_add(a.width);
-    let a_bottom = a.y.saturating_add(a.height);
-    let b_right = b.x.saturating_add(b.width);
-    let b_bottom = b.y.saturating_add(b.height);
-
-    a.x < b_right && a_right > b.x && a.y < b_bottom && a_bottom > b.y
 }
 
 fn scrollbar_thumb_rect(
@@ -5898,7 +5621,10 @@ mod tests {
     use std::{
         fs,
         path::{Path, PathBuf},
-        sync::atomic::{AtomicUsize, Ordering},
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
     };
 
     use rssh_core::TerminalSize;
@@ -5908,15 +5634,95 @@ mod tests {
     };
 
     use super::{
-        DamageRegion, DecodedImage, PixelRenderer, RenderBackgroundGradientHsb,
-        RenderBackgroundImage, RenderBackgroundImageAttachment, RenderBackgroundImageDimension,
-        RenderBackgroundImageHorizontalAlign, RenderBackgroundImageLength,
-        RenderBackgroundImageRepeat, RenderBackgroundImageVerticalAlign,
-        RenderBoldBrightensAnsiColors, RenderCell, RenderGeometry, RenderInlineImage,
-        RenderInlineImageFragment, SCROLLBAR_THUMB_COLOR, SCROLLBAR_TRACK_COLOR,
-        ScrollbackScrollbar, TerminalRenderSnapshot, background_image_axis_coordinate,
-        background_image_layout, render_inline_images_from_terminal,
+        DamageRegion, DecodedImage, ImageDrawPlan, ImageTiePolicy, PixelRenderer,
+        RenderBackgroundGradientHsb, RenderBackgroundImage, RenderBackgroundImageAttachment,
+        RenderBackgroundImageDimension, RenderBackgroundImageHorizontalAlign,
+        RenderBackgroundImageLength, RenderBackgroundImageRepeat,
+        RenderBackgroundImageVerticalAlign, RenderBoldBrightensAnsiColors, RenderCell,
+        RenderGeometry, RenderInlineImage, RenderInlineImageFragment, SCROLLBAR_THUMB_COLOR,
+        SCROLLBAR_TRACK_COLOR, ScrollbackScrollbar, TerminalRenderSnapshot,
+        background_image_axis_coordinate, background_image_layout, compare_image_draw_plans,
+        render_inline_images_from_terminal,
     };
+
+    fn ordering_plan(
+        kitty_image_id: Option<u32>,
+        stable_order: usize,
+        tie_policy: ImageTiePolicy,
+        z_index: i32,
+    ) -> ImageDrawPlan {
+        ImageDrawPlan {
+            destination_x: 0,
+            destination_y: 0,
+            width: 1,
+            height: 1,
+            pixels: Arc::from([0, 0, 0, u8::MAX]),
+            z_index,
+            kitty_image_id,
+            parent_index: stable_order,
+            fragment_index: stable_order,
+            tie_policy,
+            stable_order,
+        }
+    }
+
+    #[test]
+    fn image_draw_order_is_transitive_and_groups_whole_images_before_fragments() {
+        let id_100 = ordering_plan(Some(100), 0, ImageTiePolicy::Whole, 0);
+        let missing = ordering_plan(None, 1, ImageTiePolicy::Whole, 0);
+        let id_1 = ordering_plan(Some(1), 2, ImageTiePolicy::Whole, 0);
+        let plans = [&id_100, &missing, &id_1];
+        for left in plans {
+            for right in plans {
+                assert_eq!(
+                    compare_image_draw_plans(left, right),
+                    compare_image_draw_plans(right, left).reverse()
+                );
+                for third in plans {
+                    if compare_image_draw_plans(left, right).is_le()
+                        && compare_image_draw_plans(right, third).is_le()
+                    {
+                        assert!(compare_image_draw_plans(left, third).is_le());
+                    }
+                }
+            }
+        }
+        assert!(compare_image_draw_plans(&id_1, &id_100).is_lt());
+        assert!(compare_image_draw_plans(&id_100, &missing).is_lt());
+        assert!(compare_image_draw_plans(&id_1, &missing).is_lt());
+        for mut input in [
+            vec![missing.clone(), id_100.clone(), id_1.clone()],
+            vec![id_1.clone(), id_100.clone(), missing.clone()],
+        ] {
+            input.sort_by(compare_image_draw_plans);
+            assert_eq!(
+                input
+                    .iter()
+                    .map(|draw| draw.kitty_image_id)
+                    .collect::<Vec<_>>(),
+                vec![Some(1), Some(100), None]
+            );
+        }
+
+        let whole = ordering_plan(None, 9, ImageTiePolicy::Whole, 10);
+        let fragment = ordering_plan(Some(1), 0, ImageTiePolicy::Fragment, 0);
+        assert!(
+            compare_image_draw_plans(&whole, &fragment).is_lt(),
+            "whole image draws must remain a stable group before fragments"
+        );
+
+        let earlier_missing = ordering_plan(None, 3, ImageTiePolicy::Whole, 0);
+        let later_missing = ordering_plan(None, 4, ImageTiePolicy::Whole, 0);
+        assert!(compare_image_draw_plans(&earlier_missing, &later_missing).is_lt());
+
+        let lower_z_whole = ordering_plan(None, 5, ImageTiePolicy::Whole, 1);
+        assert!(compare_image_draw_plans(&lower_z_whole, &whole).is_lt());
+        let ultra_fragment = ordering_plan(None, 6, ImageTiePolicy::Fragment, i32::MIN / 2 - 1);
+        assert!(
+            compare_image_draw_plans(&ultra_fragment, &lower_z_whole).is_lt(),
+            "layer ordering must precede the whole/fragment grouping"
+        );
+    }
 
     #[test]
     fn zero_width_region_is_empty() {

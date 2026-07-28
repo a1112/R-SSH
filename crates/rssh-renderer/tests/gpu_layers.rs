@@ -5,7 +5,7 @@ use rssh_renderer::gpu::{
     GpuContext, GpuContextOptions, GpuImage, GpuLayer, GpuLayerRenderer, GpuQuad, ImageProtocol,
     PixelRect, RenderGraph, SignedPixelRect,
 };
-use rssh_renderer::{RenderGeometry, TerminalRenderSnapshot};
+use rssh_renderer::{DamageRegion, PixelRenderer, RenderGeometry, TerminalRenderSnapshot};
 use rssh_terminal::Terminal;
 
 fn rgba(red: u8, green: u8, blue: u8, alpha: u8) -> [u8; 4] {
@@ -465,7 +465,7 @@ fn inline_image_alpha_replaces_cpu_style_instead_of_blending() {
 }
 
 #[test]
-fn whole_image_same_z_missing_kitty_id_preserves_snapshot_insertion_order() {
+fn same_z_fragment_group_follows_whole_group_in_both_insertion_directions() {
     const RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
     let mut terminal = Terminal::new(TerminalSize::new(1, 1));
     terminal.feed(b"\x1b_Ga=T,q=1,i=91,f=24,s=1,v=1;AP8A\x1b\\");
@@ -483,9 +483,74 @@ fn whole_image_same_z_missing_kitty_id_preserves_snapshot_insertion_order() {
         renderer
             .render_headless_rgba8(&graph, Duration::from_secs(5),)
             .expect("same-z readback"),
-        rgba(255, 0, 0, 255),
-        "the later iTerm image must remain above the earlier Kitty image"
+        rgba(0, 255, 0, 255),
+        "the Kitty placement fragment group must follow the iTerm whole group"
     );
+
+    let mut reversed = Terminal::new(TerminalSize::new(1, 1));
+    reversed.feed(format!("\x1b]1337;File=inline=1;width=1px;height=1px:{RED_PNG}\x07").as_bytes());
+    reversed.feed(b"\x1b[H");
+    reversed.feed(b"\x1b_Ga=T,q=1,i=91,f=24,s=1,v=1;AP8A\x1b\\");
+    let reversed_snapshot = TerminalRenderSnapshot::from_terminal(&reversed);
+    let mut reversed_graph = RenderGraph::new(1, 1);
+    reversed_graph.push_snapshot_images(
+        &reversed_snapshot,
+        RenderGeometry::new(1, 1, 1, 1),
+        0,
+        None,
+    );
+    assert_eq!(
+        renderer
+            .render_headless_rgba8(&reversed_graph, Duration::from_secs(5))
+            .expect("reverse insertion readback"),
+        rgba(0, 255, 0, 255),
+        "whole/fragment grouping must not depend on snapshot insertion"
+    );
+}
+
+#[test]
+fn mixed_whole_and_fragment_images_match_cpu_full_and_damage_on_real_gpu() {
+    const RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+    terminal.feed(format!("\x1b]1337;File=inline=1;width=1px;height=1px:{RED_PNG}\x07").as_bytes());
+    terminal.feed(b"\x1b[H");
+    terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=1,f=24,s=1,v=1,c=1,r=1;AAD/\x1b\\");
+    terminal.feed(b"\x1b[?25l");
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let geometry = RenderGeometry::new(1, 1, 1, 1);
+
+    let mut cpu_renderer = PixelRenderer::new();
+    cpu_renderer.set_default_background(rgba(8, 9, 10, 255));
+    cpu_renderer.set_cursor_opacity(0.0);
+    let mut cpu_full = vec![0; 4];
+    cpu_renderer.render(&snapshot, &mut cpu_full, 1, 1, 1, 1);
+    let mut cpu_damage = rgba(99, 98, 97, 255).to_vec();
+    cpu_renderer.render_damage(
+        &snapshot,
+        &[DamageRegion::new(0, 0, 1, 1)],
+        &mut cpu_damage,
+        geometry,
+    );
+    assert_eq!(cpu_damage, cpu_full);
+
+    let mut graph = RenderGraph::new(1, 1);
+    graph.push_quad(GpuQuad::new(
+        GpuLayer::PaneBackground,
+        PixelRect::new(0, 0, 1, 1),
+        rgba(8, 9, 10, 255),
+    ));
+    graph.push_snapshot_images(&snapshot, geometry, 0, None);
+    assert_eq!(graph.planned_image_draw_count(), 2);
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut gpu_renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 256).expect("renderer");
+    let gpu = gpu_renderer
+        .render_headless_rgba8(&graph, Duration::from_secs(5))
+        .expect("mixed whole/fragment real GPU readback");
+
+    assert_eq!(cpu_full, rgba(0, 0, 255, 255));
+    assert_eq!(gpu, cpu_full);
 }
 
 #[test]
@@ -633,4 +698,38 @@ fn non_power_of_two_instance_budget_accepts_legal_active_bytes_at_boundary() {
             .to_string()
             .contains("budget")
     );
+}
+
+#[test]
+fn instance_budget_counts_only_visible_non_glyph_draws() {
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 64).expect("renderer");
+
+    let mut glyphs = RenderGraph::new(1, 1);
+    for _ in 0..3 {
+        glyphs.push_quad(GpuQuad::new(
+            GpuLayer::Glyph,
+            PixelRect::new(0, 0, 1, 1),
+            rgba(1, 2, 3, 255),
+        ));
+    }
+    renderer
+        .upload(&glyphs)
+        .expect("reserved glyph slots consume no Task 16 instances");
+    assert_eq!(renderer.upload_metrics().bytes_written, 0);
+
+    let mut offscreen = RenderGraph::new(1, 1);
+    for _ in 0..3 {
+        offscreen.push_quad(GpuQuad::new(
+            GpuLayer::CellBackground,
+            PixelRect::new(10, 10, 1, 1),
+            rgba(1, 2, 3, 255),
+        ));
+    }
+    renderer
+        .upload(&offscreen)
+        .expect("clipped nodes consume no instance budget");
+    assert_eq!(renderer.upload_metrics().bytes_written, 0);
 }

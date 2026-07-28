@@ -211,6 +211,19 @@ impl GraphNode {
             Self::Quad { .. } => None,
         }
     }
+
+    fn rect(&self) -> PixelRect {
+        match self {
+            Self::Quad { quad, .. } => quad.rect(),
+            Self::Image { image, .. } => image.rect(),
+            Self::TextureImage { plan, .. } => PixelRect::new(
+                plan.destination_x,
+                plan.destination_y,
+                plan.width,
+                plan.height,
+            ),
+        }
+    }
 }
 
 /// CPU-side display list for the native GPU terminal passes.
@@ -335,8 +348,19 @@ impl RenderGraph {
     }
 
     fn prepare(&self, instance_budget_bytes: usize) -> Result<PreparedGraph, GpuLayerError> {
-        let maximum_instance_bytes = self
-            .nodes
+        let viewport = self.viewport();
+        let mut nodes = Vec::new();
+        nodes.try_reserve_exact(self.nodes.len()).map_err(|error| {
+            GpuLayerError::message(format!("reserve bounded GPU graph ordering: {error}"))
+        })?;
+        nodes.extend(self.nodes.iter().filter_map(|node| {
+            (node.layer() != GpuLayer::Glyph)
+                .then(|| node.rect().intersection(viewport).map(|rect| (node, rect)))
+                .flatten()
+        }));
+        nodes.sort_by(|(left, _), (right, _)| node_order(left, right));
+
+        let maximum_instance_bytes = nodes
             .len()
             .checked_mul(INSTANCE_SIZE)
             .ok_or_else(|| GpuLayerError::message("GPU graph instance byte length overflow"))?;
@@ -345,12 +369,6 @@ impl RenderGraph {
                 "GPU graph can require {maximum_instance_bytes} instance bytes, exceeding the {instance_budget_bytes}-byte budget"
             )));
         }
-        let mut nodes = Vec::new();
-        nodes.try_reserve_exact(self.nodes.len()).map_err(|error| {
-            GpuLayerError::message(format!("reserve bounded GPU graph ordering: {error}"))
-        })?;
-        nodes.extend(self.nodes.iter());
-        nodes.sort_by(|left, right| node_order(left, right));
 
         let mut bytes = Vec::new();
         bytes
@@ -361,18 +379,11 @@ impl RenderGraph {
         let mut batches = Vec::<DrawBatch>::new();
         let mut textures = Vec::<PlannedTexture>::new();
         let mut instance_index = 0_u32;
-        for node in nodes {
-            // Task 17 owns glyph rasterization. Keep the stable slot but submit
-            // no fake glyph pixels in this task.
-            if node.layer() == GpuLayer::Glyph {
-                continue;
-            }
-            let (kind, rect, color) = match node {
-                GraphNode::Quad { quad, .. } => (PrimitiveKind::Quad, quad.rect(), quad.color()),
-                GraphNode::Image { image, .. } => {
-                    (PrimitiveKind::Image, image.rect(), image.color())
-                }
-                GraphNode::TextureImage { texture, plan, .. } => {
+        for (node, rect) in nodes {
+            let (kind, color) = match node {
+                GraphNode::Quad { quad, .. } => (PrimitiveKind::Quad, quad.color()),
+                GraphNode::Image { image, .. } => (PrimitiveKind::Image, image.color()),
+                GraphNode::TextureImage { texture, .. } => {
                     let texture_index = textures
                         .iter()
                         .position(|planned| &planned.identity == texture)
@@ -383,20 +394,8 @@ impl RenderGraph {
                             });
                             index
                         });
-                    (
-                        PrimitiveKind::TextureImage(texture_index),
-                        PixelRect::new(
-                            plan.destination_x,
-                            plan.destination_y,
-                            plan.width,
-                            plan.height,
-                        ),
-                        [u8::MAX; 4],
-                    )
+                    (PrimitiveKind::TextureImage(texture_index), [u8::MAX; 4])
                 }
-            };
-            let Some(rect) = rect.intersection(self.viewport()) else {
-                continue;
             };
             encode_instance(rect, color, &mut bytes);
             if let Some(batch) = batches.last_mut().filter(|batch| batch.kind == kind) {
@@ -444,23 +443,25 @@ fn image_order(
 }
 
 fn node_order(left: &GraphNode, right: &GraphNode) -> Ordering {
+    if let (
+        GraphNode::TextureImage {
+            plan: left_plan, ..
+        },
+        GraphNode::TextureImage {
+            plan: right_plan, ..
+        },
+    ) = (left, right)
+    {
+        return compare_image_draw_plans(left_plan, right_plan)
+            .then_with(|| left.sequence().cmp(&right.sequence()));
+    }
     left.layer()
         .rank()
         .cmp(&right.layer().rank())
         .then_with(|| left.z_index().cmp(&right.z_index()))
-        .then_with(|| match (left, right) {
-            (
-                GraphNode::TextureImage {
-                    plan: left_plan, ..
-                },
-                GraphNode::TextureImage {
-                    plan: right_plan, ..
-                },
-            ) => compare_image_draw_plans(left_plan, right_plan),
-            _ => match (left.kitty_id(), right.kitty_id()) {
-                (Some(left_id), Some(right_id)) => left_id.cmp(&right_id),
-                _ => Ordering::Equal,
-            },
+        .then_with(|| match (left.kitty_id(), right.kitty_id()) {
+            (Some(left_id), Some(right_id)) => left_id.cmp(&right_id),
+            _ => Ordering::Equal,
         })
         .then_with(|| left.sequence().cmp(&right.sequence()))
 }
