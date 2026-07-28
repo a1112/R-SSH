@@ -554,6 +554,68 @@ fn mixed_whole_and_fragment_images_match_cpu_full_and_damage_on_real_gpu() {
 }
 
 #[test]
+fn mixed_texture_and_legacy_image_nodes_have_one_real_gpu_order() {
+    const RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    let geometry = RenderGeometry::new(1, 1, 1, 1);
+    let mut fragment_terminal = Terminal::new(TerminalSize::new(1, 1));
+    fragment_terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=1,f=24,s=1,v=1,c=1,r=1;AAD/\x1b\\");
+    let fragment_snapshot = TerminalRenderSnapshot::from_terminal(&fragment_terminal);
+    let mut whole_terminal = Terminal::new(TerminalSize::new(1, 1));
+    whole_terminal
+        .feed(format!("\x1b]1337;File=inline=1;width=1px;height=1px:{RED_PNG}\x07").as_bytes());
+    let whole_snapshot = TerminalRenderSnapshot::from_terminal(&whole_terminal);
+
+    let mut graph = RenderGraph::new(1, 1);
+    graph.push_snapshot_images(&fragment_snapshot, geometry, 0, None);
+    graph.push_image(GpuImage::new(
+        ImageProtocol::Iterm,
+        0,
+        PixelRect::new(0, 0, 1, 1),
+        rgba(0, 255, 0, 255),
+    ));
+    graph.push_snapshot_images(&whole_snapshot, geometry, 0, None);
+
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 256).expect("renderer");
+    assert_eq!(
+        renderer
+            .render_headless_rgba8(&graph, Duration::from_secs(5))
+            .expect("mixed GraphNode readback"),
+        rgba(0, 0, 255, 255),
+        "the fragment group must follow both legacy and texture whole-image nodes"
+    );
+}
+
+#[test]
+fn gpu_image_materialization_budget_errors_before_mutating_renderer_state() {
+    const RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+    terminal.feed(format!("\x1b]1337;File=inline=1;width=2px;height=2px:{RED_PNG}\x07").as_bytes());
+    terminal.feed(b"\x1b[H");
+    terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=1,f=24,s=1,v=1,c=1,r=1;AAD/\x1b\\");
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let mut graph = RenderGraph::new(2, 2);
+    graph.push_snapshot_images(&snapshot, RenderGeometry::new(2, 2, 2, 2), 0, None);
+    assert_eq!(graph.planned_image_draw_count(), 2);
+
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer =
+        GpuLayerRenderer::new_with_budgets(&context, wgpu::TextureFormat::Rgba8Unorm, 256, 40)
+            .expect("renderer");
+    let upload_before = renderer.upload_metrics();
+    let cache_before = renderer.texture_cache_metrics();
+    let error = renderer
+        .upload(&graph)
+        .expect_err("two 2x2 draws require 64 retained bytes");
+    assert!(error.to_string().contains("budget"));
+    assert_eq!(renderer.upload_metrics(), upload_before);
+    assert_eq!(renderer.texture_cache_metrics(), cache_before);
+}
+
+#[test]
 fn every_adjacent_layer_pair_is_submitted_in_canonical_order() {
     fn push_layer(graph: &mut RenderGraph, layer: GpuLayer, rect: PixelRect, color: [u8; 4]) {
         match layer {

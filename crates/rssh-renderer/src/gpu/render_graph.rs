@@ -15,8 +15,8 @@ use super::{
     quads::{INSTANCE_SIZE, encode_instance},
 };
 use crate::{
-    ImageDrawPlan, RenderGeometry, TerminalRenderSnapshot, compare_image_draw_plans,
-    gpu_image_draw_plan,
+    ImageDrawPlan, ImageTiePolicy, RenderGeometry, TerminalRenderSnapshot, gpu_image_draw_plan,
+    image_draw_pixel,
 };
 
 const INSTANCE_STRIDE: wgpu::BufferAddress = INSTANCE_SIZE as wgpu::BufferAddress;
@@ -174,9 +174,28 @@ enum GraphNode {
     },
     TextureImage {
         sequence: u64,
-        texture: TextureIdentity,
+        texture: Option<TextureIdentity>,
         plan: Arc<ImageDrawPlan>,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum GraphNodeKind {
+    Primitive,
+    Whole,
+    Fragment,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct GraphNodeOrderKey {
+    layer: u8,
+    kind: GraphNodeKind,
+    z_index: i32,
+    id_group: u8,
+    kitty_image_id: u32,
+    parent_index: usize,
+    fragment_index: usize,
+    sequence: u64,
 }
 
 impl GraphNode {
@@ -193,22 +212,6 @@ impl GraphNode {
             Self::Quad { sequence, .. }
             | Self::Image { sequence, .. }
             | Self::TextureImage { sequence, .. } => *sequence,
-        }
-    }
-
-    fn z_index(&self) -> i32 {
-        match self {
-            Self::Image { image, .. } => image.z_index(),
-            Self::TextureImage { plan, .. } => plan.z_index,
-            Self::Quad { .. } => 0,
-        }
-    }
-
-    fn kitty_id(&self) -> Option<u32> {
-        match self {
-            Self::Image { image, .. } => image.kitty_id(),
-            Self::TextureImage { plan, .. } => plan.kitty_image_id,
-            Self::Quad { .. } => None,
         }
     }
 
@@ -266,11 +269,10 @@ impl RenderGraph {
         animation_elapsed_ms: Option<u64>,
     ) {
         for plan in gpu_image_draw_plan(snapshot, geometry, animation_frame, animation_elapsed_ms) {
-            let texture = texture_identity(&plan);
             let sequence = self.allocate_sequence();
             self.nodes.push(GraphNode::TextureImage {
                 sequence,
-                texture,
+                texture: None,
                 plan: Arc::new(plan),
             });
         }
@@ -347,7 +349,11 @@ impl RenderGraph {
         sequence
     }
 
-    fn prepare(&self, instance_budget_bytes: usize) -> Result<PreparedGraph, GpuLayerError> {
+    fn prepare(
+        &self,
+        instance_budget_bytes: usize,
+        image_budget_bytes: usize,
+    ) -> Result<PreparedGraph, GpuLayerError> {
         let viewport = self.viewport();
         let mut nodes = Vec::new();
         nodes.try_reserve_exact(self.nodes.len()).map_err(|error| {
@@ -369,6 +375,22 @@ impl RenderGraph {
                 "GPU graph can require {maximum_instance_bytes} instance bytes, exceeding the {instance_budget_bytes}-byte budget"
             )));
         }
+        let maximum_image_bytes = nodes.iter().try_fold(0_usize, |total, (node, _)| {
+            let GraphNode::TextureImage { plan, .. } = node else {
+                return Ok(total);
+            };
+            total
+                .checked_add(texture_retained_bytes(texture_byte_len(
+                    plan.width,
+                    plan.height,
+                )?)?)
+                .ok_or_else(|| GpuLayerError::message("GPU image frame byte length overflow"))
+        })?;
+        if maximum_image_bytes > image_budget_bytes {
+            return Err(GpuLayerError::message(format!(
+                "GPU image draws require {maximum_image_bytes} retained bytes, exceeding the {image_budget_bytes}-byte budget"
+            )));
+        }
 
         let mut bytes = Vec::new();
         bytes
@@ -383,15 +405,14 @@ impl RenderGraph {
             let (kind, color) = match node {
                 GraphNode::Quad { quad, .. } => (PrimitiveKind::Quad, quad.color()),
                 GraphNode::Image { image, .. } => (PrimitiveKind::Image, image.color()),
-                GraphNode::TextureImage { texture, .. } => {
+                GraphNode::TextureImage { texture, plan, .. } => {
+                    let texture = texture.clone().map_or_else(|| texture_identity(plan), Ok)?;
                     let texture_index = textures
                         .iter()
-                        .position(|planned| &planned.identity == texture)
+                        .position(|planned| planned.identity == texture)
                         .unwrap_or_else(|| {
                             let index = textures.len();
-                            textures.push(PlannedTexture {
-                                identity: texture.clone(),
-                            });
+                            textures.push(PlannedTexture { identity: texture });
                             index
                         });
                     (PrimitiveKind::TextureImage(texture_index), [u8::MAX; 4])
@@ -416,17 +437,30 @@ impl RenderGraph {
     }
 }
 
-fn texture_identity(plan: &ImageDrawPlan) -> TextureIdentity {
+fn texture_identity(plan: &ImageDrawPlan) -> Result<TextureIdentity, GpuLayerError> {
+    let byte_len = texture_byte_len(plan.width, plan.height)?;
+    let mut pixels = Vec::new();
+    pixels.try_reserve_exact(byte_len).map_err(|error| {
+        GpuLayerError::message(format!(
+            "reserve bounded GPU image materialization: {error}"
+        ))
+    })?;
+    for y in 0..plan.height {
+        for x in 0..plan.width {
+            pixels.extend_from_slice(&image_draw_pixel(plan, x, y));
+        }
+    }
+    let pixels: Arc<[u8]> = pixels.into();
     let mut hasher = DefaultHasher::new();
     plan.width.hash(&mut hasher);
     plan.height.hash(&mut hasher);
-    plan.pixels.hash(&mut hasher);
-    TextureIdentity {
+    pixels.hash(&mut hasher);
+    Ok(TextureIdentity {
         digest: hasher.finish(),
         width: plan.width,
         height: plan.height,
-        pixels: Arc::clone(&plan.pixels),
-    }
+        pixels,
+    })
 }
 
 fn image_order(
@@ -443,27 +477,49 @@ fn image_order(
 }
 
 fn node_order(left: &GraphNode, right: &GraphNode) -> Ordering {
-    if let (
-        GraphNode::TextureImage {
-            plan: left_plan, ..
+    graph_node_order_key(left).cmp(&graph_node_order_key(right))
+}
+
+fn graph_node_order_key(node: &GraphNode) -> GraphNodeOrderKey {
+    let (kind, z_index, id_group, kitty_image_id, parent_index, fragment_index) = match node {
+        GraphNode::Quad { .. } => (GraphNodeKind::Primitive, 0, 0, 0, 0, 0),
+        GraphNode::Image { image, .. } => (
+            GraphNodeKind::Whole,
+            image.z_index(),
+            u8::from(image.kitty_id().is_none()),
+            image.kitty_id().unwrap_or_default(),
+            0,
+            0,
+        ),
+        GraphNode::TextureImage { plan, .. } => match plan.tie_policy {
+            ImageTiePolicy::Whole => (
+                GraphNodeKind::Whole,
+                plan.z_index,
+                u8::from(plan.kitty_image_id.is_none()),
+                plan.kitty_image_id.unwrap_or_default(),
+                0,
+                0,
+            ),
+            ImageTiePolicy::Fragment => (
+                GraphNodeKind::Fragment,
+                plan.z_index,
+                u8::from(plan.kitty_image_id.is_some()),
+                plan.kitty_image_id.unwrap_or_default(),
+                plan.parent_index,
+                plan.fragment_index,
+            ),
         },
-        GraphNode::TextureImage {
-            plan: right_plan, ..
-        },
-    ) = (left, right)
-    {
-        return compare_image_draw_plans(left_plan, right_plan)
-            .then_with(|| left.sequence().cmp(&right.sequence()));
+    };
+    GraphNodeOrderKey {
+        layer: node.layer().rank(),
+        kind,
+        z_index,
+        id_group,
+        kitty_image_id,
+        parent_index,
+        fragment_index,
+        sequence: node.sequence(),
     }
-    left.layer()
-        .rank()
-        .cmp(&right.layer().rank())
-        .then_with(|| left.z_index().cmp(&right.z_index()))
-        .then_with(|| match (left.kitty_id(), right.kitty_id()) {
-            (Some(left_id), Some(right_id)) => left_id.cmp(&right_id),
-            _ => Ordering::Equal,
-        })
-        .then_with(|| left.sequence().cmp(&right.sequence()))
 }
 
 #[derive(Clone, Debug)]
@@ -1081,7 +1137,8 @@ impl GpuLayerRenderer {
     ///
     /// Returns an error if graph instances exceed the configured byte budget.
     pub fn upload(&mut self, graph: &RenderGraph) -> Result<(), GpuLayerError> {
-        let prepared = graph.prepare(self.instances.budget_bytes)?;
+        let prepared =
+            graph.prepare(self.instances.budget_bytes, self.texture_cache.budget_bytes)?;
         self.texture_cache.prepare(
             &self.device,
             &self.queue,
@@ -1216,7 +1273,8 @@ impl GpuLayerRenderer {
             .map_err(|error| {
                 GpuLayerError::message(format!("reserve bounded GPU readback output: {error}"))
             })?;
-        let prepared = graph.prepare(self.instances.budget_bytes)?;
+        let prepared =
+            graph.prepare(self.instances.budget_bytes, self.texture_cache.budget_bytes)?;
         self.texture_cache.prepare(
             &self.device,
             &self.queue,
@@ -1388,10 +1446,14 @@ impl GpuLayerRenderer {
 mod tests {
     use std::{sync::Arc, time::Duration};
 
-    use crate::{ImageDrawPlan, ImageTiePolicy, gpu::GpuContextOptions};
+    use crate::{
+        DecodedImage, ImageDrawPlan, ImageTiePolicy,
+        gpu::{GpuContextOptions, ImageProtocol},
+    };
 
     use super::{
-        GpuContext, GpuLayerRenderer, GraphNode, RenderGraph, TextureIdentity, dirty_range,
+        GpuContext, GpuImage, GpuLayerRenderer, GraphNode, PixelRect, RenderGraph, TextureIdentity,
+        dirty_range, node_order,
     };
 
     #[test]
@@ -1407,6 +1469,81 @@ mod tests {
     }
 
     #[test]
+    fn graph_node_order_is_transitive_across_whole_fragment_and_legacy_images() {
+        fn texture_node(
+            sequence: u64,
+            tie_policy: ImageTiePolicy,
+            kitty_image_id: Option<u32>,
+        ) -> GraphNode {
+            let pixels: Arc<[u8]> =
+                Arc::from([u8::try_from(sequence).unwrap_or_default(), 0, 0, 255]);
+            let plan = Arc::new(ImageDrawPlan {
+                destination_x: 0,
+                destination_y: 0,
+                width: 1,
+                height: 1,
+                decoded: Arc::new(DecodedImage {
+                    width: 1,
+                    height: 1,
+                    pixels: pixels.to_vec(),
+                }),
+                sample_source_x: 0,
+                sample_source_y: 0,
+                sample_target_x: 0,
+                sample_target_y: 0,
+                sample_source_width: 1,
+                sample_source_height: 1,
+                sample_destination_width: 1,
+                sample_destination_height: 1,
+                z_index: 0,
+                kitty_image_id,
+                parent_index: usize::try_from(sequence).unwrap_or_default(),
+                fragment_index: 0,
+                tie_policy,
+                stable_order: usize::try_from(sequence).unwrap_or_default(),
+            });
+            GraphNode::TextureImage {
+                sequence,
+                texture: Some(TextureIdentity {
+                    digest: sequence,
+                    width: 1,
+                    height: 1,
+                    pixels,
+                }),
+                plan,
+            }
+        }
+
+        let fragment = texture_node(0, ImageTiePolicy::Fragment, Some(1));
+        let legacy = GraphNode::Image {
+            sequence: 1,
+            image: GpuImage::new(
+                ImageProtocol::Iterm,
+                0,
+                PixelRect::new(0, 0, 1, 1),
+                [0, 0, 0, 255],
+            ),
+        };
+        let whole = texture_node(2, ImageTiePolicy::Whole, None);
+        let permutations = [
+            [fragment.clone(), legacy.clone(), whole.clone()],
+            [fragment.clone(), whole.clone(), legacy.clone()],
+            [legacy.clone(), fragment.clone(), whole.clone()],
+            [legacy.clone(), whole.clone(), fragment.clone()],
+            [whole.clone(), fragment.clone(), legacy.clone()],
+            [whole, legacy, fragment],
+        ];
+        for mut nodes in permutations {
+            nodes.sort_by(node_order);
+            assert_eq!(
+                nodes.map(|node| node.sequence()),
+                [1, 2, 0],
+                "all insertion permutations must produce one total order"
+            );
+        }
+    }
+
+    #[test]
     fn exact_texture_identity_survives_an_artificial_digest_collision() {
         fn plan(x: u32, pixels: [u8; 4], stable_order: usize) -> Arc<ImageDrawPlan> {
             Arc::new(ImageDrawPlan {
@@ -1414,7 +1551,19 @@ mod tests {
                 destination_y: 0,
                 width: 1,
                 height: 1,
-                pixels: Arc::from(pixels),
+                decoded: Arc::new(DecodedImage {
+                    width: 1,
+                    height: 1,
+                    pixels: pixels.to_vec(),
+                }),
+                sample_source_x: 0,
+                sample_source_y: 0,
+                sample_target_x: 0,
+                sample_target_y: 0,
+                sample_source_width: 1,
+                sample_source_height: 1,
+                sample_destination_width: 1,
+                sample_destination_height: 1,
                 z_index: 0,
                 kitty_image_id: None,
                 parent_index: stable_order,
@@ -1433,22 +1582,22 @@ mod tests {
             nodes: vec![
                 GraphNode::TextureImage {
                     sequence: 0,
-                    texture: TextureIdentity {
+                    texture: Some(TextureIdentity {
                         digest: colliding_digest,
                         width: 1,
                         height: 1,
-                        pixels: Arc::clone(&red.pixels),
-                    },
+                        pixels: Arc::from(red.decoded.pixels.clone()),
+                    }),
                     plan: red,
                 },
                 GraphNode::TextureImage {
                     sequence: 1,
-                    texture: TextureIdentity {
+                    texture: Some(TextureIdentity {
                         digest: colliding_digest,
                         width: 1,
                         height: 1,
-                        pixels: Arc::clone(&green.pixels),
-                    },
+                        pixels: Arc::from(green.decoded.pixels.clone()),
+                    }),
                     plan: green,
                 },
             ],

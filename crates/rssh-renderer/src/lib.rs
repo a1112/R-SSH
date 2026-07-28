@@ -1471,10 +1471,10 @@ impl PixelRenderer {
 }
 
 #[derive(Debug, Clone)]
-struct DecodedImage {
-    width: u32,
-    height: u32,
-    pixels: Vec<u8>,
+pub(crate) struct DecodedImage {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) pixels: Vec<u8>,
 }
 
 /// Backend-neutral, fully normalized inline-image draw.
@@ -1488,7 +1488,15 @@ pub(crate) struct ImageDrawPlan {
     pub destination_y: u32,
     pub width: u32,
     pub height: u32,
-    pub pixels: Arc<[u8]>,
+    pub decoded: Arc<DecodedImage>,
+    pub sample_source_x: u32,
+    pub sample_source_y: u32,
+    pub sample_target_x: u32,
+    pub sample_target_y: u32,
+    pub sample_source_width: u32,
+    pub sample_source_height: u32,
+    pub sample_destination_width: u32,
+    pub sample_destination_height: u32,
     pub z_index: i32,
     pub kitty_image_id: Option<u32>,
     pub parent_index: usize,
@@ -2295,8 +2303,6 @@ fn resolve_runtime_inline_image_attachment_source(
     Some(resolved)
 }
 
-const MAX_PLANNED_IMAGE_BYTES: usize = 64 * 1024 * 1024;
-
 pub(crate) fn gpu_image_draw_plan(
     snapshot: &TerminalRenderSnapshot,
     geometry: RenderGeometry,
@@ -2330,7 +2336,6 @@ fn image_draw_plan(
         .map(|fragment| fragment.fragment.parent_image_index)
         .collect::<HashSet<_>>();
     let mut plan = Vec::new();
-    let mut retained_bytes = 0_usize;
 
     for (parent_index, image) in snapshot.inline_images.iter().enumerate() {
         if fragmented_parents.contains(&parent_index)
@@ -2341,7 +2346,8 @@ fn image_draw_plan(
         {
             continue;
         }
-        let Some(decoded) = decode_inline_image(image, animation_frame, animation_elapsed_ms)
+        let Some(decoded) =
+            decode_inline_image(image, animation_frame, animation_elapsed_ms).map(Arc::new)
         else {
             continue;
         };
@@ -2349,33 +2355,28 @@ fn image_draw_plan(
         let Some(source) = inline_image_source_rect(image, decoded.width, decoded.height) else {
             continue;
         };
-        if let Some(draw) = plan_image_pixels(
-            &decoded,
+        if let Some(draw) = plan_image_draw(
+            decoded,
             i64::from(destination.x),
             i64::from(destination.y),
             destination.width,
             destination.height,
             None,
             geometry,
-            |target_x, target_y| {
-                (
-                    source
-                        .x
-                        .saturating_add(target_x.saturating_mul(source.width) / destination.width),
-                    source.y.saturating_add(
-                        target_y.saturating_mul(source.height) / destination.height,
-                    ),
-                )
-            },
+            source.x,
+            source.y,
+            0,
+            0,
+            source.width,
+            source.height,
+            destination.width,
+            destination.height,
             image,
             parent_index,
             0,
             ImageTiePolicy::Whole,
             parent_index,
-        ) && let Some(next_retained) = retained_bytes.checked_add(draw.pixels.len())
-            && next_retained <= MAX_PLANNED_IMAGE_BYTES
-        {
-            retained_bytes = next_retained;
+        ) {
             plan.push(draw);
         }
     }
@@ -2388,7 +2389,8 @@ fn image_draw_plan(
         if selected_layer.is_some_and(|layer| layer != image_draw_layer(image_z_index(image))) {
             continue;
         }
-        let Some(decoded) = decode_inline_image(image, animation_frame, animation_elapsed_ms)
+        let Some(decoded) =
+            decode_inline_image(image, animation_frame, animation_elapsed_ms).map(Arc::new)
         else {
             continue;
         };
@@ -2423,41 +2425,28 @@ fn image_draw_plan(
                 clip.bottom.saturating_mul(i64::from(geometry.cell_height)),
             )
         });
-        if let Some(draw) = plan_image_pixels(
-            &decoded,
+        if let Some(draw) = plan_image_draw(
+            decoded,
             origin_x,
             origin_y,
             fragment.destination_width,
             fragment.destination_height,
             clip,
             geometry,
-            |target_x, target_y| {
-                (
-                    fragment.sampling_source_x.saturating_add(
-                        fragment
-                            .source_destination_x
-                            .saturating_add(target_x)
-                            .saturating_mul(fragment.sampling_source_width)
-                            / fragment.source_destination_width,
-                    ),
-                    fragment.sampling_source_y.saturating_add(
-                        fragment
-                            .source_destination_y
-                            .saturating_add(target_y)
-                            .saturating_mul(fragment.sampling_source_height)
-                            / fragment.source_destination_height,
-                    ),
-                )
-            },
+            fragment.sampling_source_x,
+            fragment.sampling_source_y,
+            fragment.source_destination_x,
+            fragment.source_destination_y,
+            fragment.sampling_source_width,
+            fragment.sampling_source_height,
+            fragment.source_destination_width,
+            fragment.source_destination_height,
             image,
             parent_index,
             fragment_index,
             ImageTiePolicy::Fragment,
             fragment_index,
-        ) && let Some(next_retained) = retained_bytes.checked_add(draw.pixels.len())
-            && next_retained <= MAX_PLANNED_IMAGE_BYTES
-        {
-            retained_bytes = next_retained;
+        ) {
             plan.push(draw);
         }
     }
@@ -2469,22 +2458,35 @@ fn image_draw_plan(
     clippy::too_many_arguments,
     reason = "the immutable draw plan keeps placement, clipping, sampling, and stable ordering explicit"
 )]
-fn plan_image_pixels(
-    decoded: &DecodedImage,
+fn plan_image_draw(
+    decoded: Arc<DecodedImage>,
     origin_x: i64,
     origin_y: i64,
     destination_width: u32,
     destination_height: u32,
     clip: Option<(i64, i64, i64, i64)>,
     geometry: RenderGeometry,
-    sample: impl Fn(u32, u32) -> (u32, u32),
+    sample_source_x: u32,
+    sample_source_y: u32,
+    sample_target_x: u32,
+    sample_target_y: u32,
+    sample_source_width: u32,
+    sample_source_height: u32,
+    sample_destination_width: u32,
+    sample_destination_height: u32,
     image: &RenderInlineImage,
     parent_index: usize,
     fragment_index: usize,
     tie_policy: ImageTiePolicy,
     stable_order: usize,
 ) -> Option<ImageDrawPlan> {
-    if destination_width == 0 || destination_height == 0 {
+    if destination_width == 0
+        || destination_height == 0
+        || sample_source_width == 0
+        || sample_source_height == 0
+        || sample_destination_width == 0
+        || sample_destination_height == 0
+    {
         return None;
     }
     let destination_right = origin_x.saturating_add(i64::from(destination_width));
@@ -2506,42 +2508,22 @@ fn plan_image_pixels(
     let y = u32::try_from(top).ok()?;
     let width = u32::try_from(right - left).ok()?;
     let height = u32::try_from(bottom - top).ok()?;
-    let byte_len = usize::try_from(width)
-        .ok()?
-        .checked_mul(usize::try_from(height).ok()?)?
-        .checked_mul(4)?;
-    if byte_len > MAX_PLANNED_IMAGE_BYTES {
-        return None;
-    }
-    let mut pixels = vec![0; byte_len];
-    for output_y in 0..height {
-        for output_x in 0..width {
-            let target_x = u32::try_from(
-                i64::from(x)
-                    .saturating_add(i64::from(output_x))
-                    .saturating_sub(origin_x),
-            )
-            .ok()?;
-            let target_y = u32::try_from(
-                i64::from(y)
-                    .saturating_add(i64::from(output_y))
-                    .saturating_sub(origin_y),
-            )
-            .ok()?;
-            let (source_x, source_y) = sample(target_x, target_y);
-            let pixel = rgba_pixel(decoded, source_x, source_y).unwrap_or([0; 4]);
-            let output_index =
-                usize::try_from((u64::from(output_y) * u64::from(width) + u64::from(output_x)) * 4)
-                    .ok()?;
-            pixels[output_index..output_index + 4].copy_from_slice(&pixel);
-        }
-    }
+    let clipped_target_x = u32::try_from(left.saturating_sub(origin_x)).ok()?;
+    let clipped_target_y = u32::try_from(top.saturating_sub(origin_y)).ok()?;
     Some(ImageDrawPlan {
         destination_x: x,
         destination_y: y,
         width,
         height,
-        pixels: pixels.into(),
+        decoded,
+        sample_source_x,
+        sample_source_y,
+        sample_target_x: sample_target_x.checked_add(clipped_target_x)?,
+        sample_target_y: sample_target_y.checked_add(clipped_target_y)?,
+        sample_source_width,
+        sample_source_height,
+        sample_destination_width,
+        sample_destination_height,
         z_index: image_z_index(image),
         kitty_image_id: image.kitty_image_id,
         parent_index,
@@ -3260,38 +3242,79 @@ fn render_damaged_snapshot_inline_images_in_z_order(
     }
 }
 
+pub(crate) fn image_draw_pixel(draw: &ImageDrawPlan, output_x: u32, output_y: u32) -> [u8; 4] {
+    let source_x = draw.sample_source_x.saturating_add(
+        draw.sample_target_x
+            .saturating_add(output_x)
+            .saturating_mul(draw.sample_source_width)
+            / draw.sample_destination_width,
+    );
+    let source_y = draw.sample_source_y.saturating_add(
+        draw.sample_target_y
+            .saturating_add(output_y)
+            .saturating_mul(draw.sample_source_height)
+            / draw.sample_destination_height,
+    );
+    rgba_pixel(&draw.decoded, source_x, source_y).unwrap_or([0; 4])
+}
+
 fn render_image_draw_plan(
     surface: &mut Surface<'_>,
     draw: &ImageDrawPlan,
     damage: Option<&[Rect]>,
-) {
-    for output_y in 0..draw.height {
-        for output_x in 0..draw.width {
-            let x = draw.destination_x.saturating_add(output_x);
-            let y = draw.destination_y.saturating_add(output_y);
-            if damage.is_some_and(|rects| {
-                !rects.iter().any(|rect| {
-                    x >= rect.x
-                        && x < rect.x.saturating_add(rect.width)
-                        && y >= rect.y
-                        && y < rect.y.saturating_add(rect.height)
-                })
-            }) {
-                continue;
-            }
-            let index = usize::try_from(
-                (u64::from(output_y) * u64::from(draw.width) + u64::from(output_x)) * 4,
-            )
-            .unwrap_or(usize::MAX);
-            let Some(pixel) = draw.pixels.get(index..index.saturating_add(4)) else {
-                continue;
-            };
-            let pixel = [pixel[0], pixel[1], pixel[2], pixel[3]];
+) -> usize {
+    let draw_rect = Rect {
+        x: draw.destination_x,
+        y: draw.destination_y,
+        width: draw.width,
+        height: draw.height,
+    };
+    if let Some(damage) = damage {
+        damage
+            .iter()
+            .filter_map(|damage| rect_intersection(draw_rect, *damage))
+            .map(|rect| render_image_draw_rect(surface, draw, rect))
+            .sum()
+    } else {
+        render_image_draw_rect(surface, draw, draw_rect)
+    }
+}
+
+fn render_image_draw_rect(surface: &mut Surface<'_>, draw: &ImageDrawPlan, rect: Rect) -> usize {
+    let mut sampled = 0;
+    for y in rect.y..rect.y.saturating_add(rect.height) {
+        for x in rect.x..rect.x.saturating_add(rect.width) {
+            let pixel = image_draw_pixel(
+                draw,
+                x.saturating_sub(draw.destination_x),
+                y.saturating_sub(draw.destination_y),
+            );
+            sampled += 1;
             if inline_image_pixel_is_drawn(pixel) {
                 surface.put_pixel(x, y, pixel);
             }
         }
     }
+    sampled
+}
+
+fn rect_intersection(left: Rect, right: Rect) -> Option<Rect> {
+    let x = left.x.max(right.x);
+    let y = left.y.max(right.y);
+    let right_edge = left
+        .x
+        .saturating_add(left.width)
+        .min(right.x.saturating_add(right.width));
+    let bottom_edge = left
+        .y
+        .saturating_add(left.height)
+        .min(right.y.saturating_add(right.height));
+    (right_edge > x && bottom_edge > y).then(|| Rect {
+        x,
+        y,
+        width: right_edge - x,
+        height: bottom_edge - y,
+    })
 }
 
 fn image_z_index(image: &RenderInlineImage) -> i32 {
@@ -5634,7 +5657,7 @@ mod tests {
     };
 
     use super::{
-        DamageRegion, DecodedImage, ImageDrawPlan, ImageTiePolicy, PixelRenderer,
+        DamageRegion, DecodedImage, ImageDrawPlan, ImageTiePolicy, PixelRenderer, Rect,
         RenderBackgroundGradientHsb, RenderBackgroundImage, RenderBackgroundImageAttachment,
         RenderBackgroundImageDimension, RenderBackgroundImageHorizontalAlign,
         RenderBackgroundImageLength, RenderBackgroundImageRepeat,
@@ -5642,7 +5665,7 @@ mod tests {
         RenderGeometry, RenderInlineImage, RenderInlineImageFragment, SCROLLBAR_THUMB_COLOR,
         SCROLLBAR_TRACK_COLOR, ScrollbackScrollbar, TerminalRenderSnapshot,
         background_image_axis_coordinate, background_image_layout, compare_image_draw_plans,
-        render_inline_images_from_terminal,
+        render_image_draw_plan, render_inline_images_from_terminal,
     };
 
     fn ordering_plan(
@@ -5656,7 +5679,19 @@ mod tests {
             destination_y: 0,
             width: 1,
             height: 1,
-            pixels: Arc::from([0, 0, 0, u8::MAX]),
+            decoded: Arc::new(DecodedImage {
+                width: 1,
+                height: 1,
+                pixels: vec![0, 0, 0, u8::MAX],
+            }),
+            sample_source_x: 0,
+            sample_source_y: 0,
+            sample_target_x: 0,
+            sample_target_y: 0,
+            sample_source_width: 1,
+            sample_source_height: 1,
+            sample_destination_width: 1,
+            sample_destination_height: 1,
             z_index,
             kitty_image_id,
             parent_index: stable_order,
@@ -5722,6 +5757,75 @@ mod tests {
             compare_image_draw_plans(&ultra_fragment, &lower_z_whole).is_lt(),
             "layer ordering must precede the whole/fragment grouping"
         );
+    }
+
+    #[test]
+    fn one_pixel_damage_samples_only_one_pixel_of_a_large_image_draw() {
+        let draw = ImageDrawPlan {
+            destination_x: 0,
+            destination_y: 0,
+            width: 3_000,
+            height: 3_000,
+            decoded: Arc::new(DecodedImage {
+                width: 1,
+                height: 1,
+                pixels: vec![0, 0, 255, 255],
+            }),
+            sample_source_x: 0,
+            sample_source_y: 0,
+            sample_target_x: 0,
+            sample_target_y: 0,
+            sample_source_width: 1,
+            sample_source_height: 1,
+            sample_destination_width: 3_000,
+            sample_destination_height: 3_000,
+            z_index: 0,
+            kitty_image_id: None,
+            parent_index: 0,
+            fragment_index: 0,
+            tie_policy: ImageTiePolicy::Whole,
+            stable_order: 0,
+        };
+        let mut target = vec![0; 4];
+        let mut surface = super::Surface {
+            target: &mut target,
+            width: 1,
+            height: 1,
+        };
+        assert_eq!(
+            render_image_draw_plan(
+                &mut surface,
+                &draw,
+                Some(&[Rect {
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                }]),
+            ),
+            1
+        );
+        assert_eq!(target, [0, 0, 255, 255]);
+        assert_eq!(draw.decoded.pixels.len(), 4);
+    }
+
+    #[test]
+    fn cpu_renderer_does_not_drop_the_second_draw_when_scaled_pixels_exceed_64_mib() {
+        const RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(
+            format!("\x1b]1337;File=inline=1;width=3000px;height=3000px:{RED_PNG}\x07").as_bytes(),
+        );
+        terminal.feed(b"\x1b[H");
+        terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=1,f=24,s=1,v=1,c=1,r=1;AAD/\x1b\\");
+        terminal.feed(b"\x1b[?25l");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let mut target = vec![0; 3_000 * 3_000 * 4];
+
+        PixelRenderer::new().render(&snapshot, &mut target, 3_000, 3_000, 3_000, 3_000);
+
+        assert_eq!(&target[..4], &[0, 0, 255, 255]);
+        assert_eq!(&target[target.len() - 4..], &[0, 0, 255, 255]);
     }
 
     #[test]
