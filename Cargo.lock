@@ -3079,6 +3079,7 @@ dependencies = [
  "rssh-renderer",
  "rssh-ssh",
  "rssh-terminal",
+ "rssh-test-support",
  "serde",
  "serde_json",
  "sysinfo",

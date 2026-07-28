@@ -31,6 +31,7 @@ wezterm-color-types = "=0.3.0"
 winit = "0.30"
 
 [dev-dependencies]
+rssh-test-support = { path = "../rssh-test-support" }
 
 [lints]
 workspace = true
