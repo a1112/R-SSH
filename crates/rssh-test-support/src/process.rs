@@ -266,12 +266,12 @@ impl CaptureFile {
     }
 }
 
-/// Owns a native child process and guarantees bounded waiting plus fallback cleanup.
+/// Owns a native child process and guarantees bounded waiting plus deferred cleanup.
 ///
 /// Dropping a live guard performs at most one cleanup grace period of synchronous
-/// polling, then transfers ownership to a background reaper. A pathological
-/// platform that cannot start that worker retains ownership in a process-global
-/// fallback registry rather than blocking the dropping thread.
+/// polling, then transfers ownership to the permanent background reaper that is
+/// initialized before any guarded child is spawned. If that worker cannot start,
+/// [`ChildGuard::spawn`] returns an error before creating the child.
 pub struct ChildGuard {
     child: Option<Child>,
     reaper: Arc<ReaperQueue>,
@@ -291,8 +291,9 @@ impl ChildGuard {
     ///
     /// # Errors
     ///
-    /// Returns an error if diagnostic files cannot be created or cloned, or if
-    /// the operating system cannot spawn the child.
+    /// Returns an error if the permanent reaper cannot start, diagnostic files
+    /// cannot be created or independently reopened for child writers, or the
+    /// operating system cannot spawn the child.
     pub fn spawn(mut command: Command, timeout: Duration) -> Result<Self, ChildGuardError> {
         let reaper = global_reaper().map_err(|source| ChildGuardError::Io {
             operation: "initialize background child reaper",
@@ -624,8 +625,9 @@ fn deferred_reaper_loop(reaper: &ReaperQueue) -> ! {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             pending = guard;
         }
-        active.extend(pending.drain(..));
+        let batch = std::mem::take(&mut *pending);
         drop(pending);
+        active.extend(batch);
 
         let mut index = active.len();
         while index > 0 {
