@@ -16,6 +16,8 @@ pub struct GpuPresentationMetrics {
     pub surface_timeouts: u64,
     pub surface_occlusions: u64,
     pub surface_validation_errors: u64,
+    pub uncaptured_errors: u64,
+    pub device_losses: u64,
 }
 
 impl GpuPresentationMetrics {
@@ -36,6 +38,8 @@ impl GpuPresentationMetrics {
             surface_timeouts: 0,
             surface_occlusions: 0,
             surface_validation_errors: 0,
+            uncaptured_errors: 0,
+            device_losses: 0,
         }
     }
 
@@ -58,6 +62,8 @@ impl GpuPresentationMetrics {
             surface_timeouts: 0,
             surface_occlusions: 0,
             surface_validation_errors: 0,
+            uncaptured_errors: 0,
+            device_losses: 0,
         }
     }
 }

@@ -81489,7 +81489,7 @@ struct NativeWindowApp {
     window_focused: bool,
     mouse_click_may_focus_window: bool,
     window: Option<Arc<Window>>,
-    gpu: Option<WindowGpu>,
+    gpu: Option<Box<WindowGpu>>,
     pixels: Option<Pixels<'static>>,
     renderer: PixelRenderer,
     configured_dpi: Option<u32>,
@@ -82930,6 +82930,8 @@ struct WindowMetricsSnapshot {
     gpu_surface_timeouts: u64,
     gpu_surface_occlusions: u64,
     gpu_surface_validation_errors: u64,
+    gpu_uncaptured_errors: u64,
+    gpu_device_losses: u64,
     text_backend: String,
     input_writes: u64,
     input_bytes: u64,
@@ -82970,6 +82972,8 @@ gpu_surface_recreations={}
 gpu_surface_timeouts={}
 gpu_surface_occlusions={}
 gpu_surface_validation_errors={}
+gpu_uncaptured_errors={}
+gpu_device_losses={}
 text_backend={}
 input_writes={}
 input_bytes={}
@@ -83004,6 +83008,8 @@ bells={}
             self.gpu_surface_timeouts,
             self.gpu_surface_occlusions,
             self.gpu_surface_validation_errors,
+            self.gpu_uncaptured_errors,
+            self.gpu_device_losses,
             self.text_backend,
             self.input_writes,
             self.input_bytes,
@@ -83172,6 +83178,8 @@ impl WindowMetrics {
             gpu_surface_timeouts: gpu.surface_timeouts,
             gpu_surface_occlusions: gpu.surface_occlusions,
             gpu_surface_validation_errors: gpu.surface_validation_errors,
+            gpu_uncaptured_errors: gpu.uncaptured_errors,
+            gpu_device_losses: gpu.device_losses,
             text_backend: text_backend.to_owned(),
             input_writes: self.input_writes,
             input_bytes: self.input_bytes,
@@ -90811,7 +90819,7 @@ impl NativeWindowApp {
         ))?;
 
         self.window = Some(window);
-        self.gpu = Some(gpu);
+        self.gpu = Some(Box::new(gpu));
         if let Some(window) = &self.window {
             window.set_cursor_visible(self.mouse_cursor_visible);
         }
@@ -100228,7 +100236,7 @@ impl NativeWindowApp {
         let gpu = self
             .gpu
             .as_ref()
-            .map(WindowGpu::metrics)
+            .map(|gpu| gpu.metrics())
             .cloned()
             .unwrap_or_else(GpuPresentationMetrics::uninitialized);
         let text_backend = match self.renderer.text_backend() {
@@ -132368,6 +132376,20 @@ mod tests {
         assert!(
             actual <= 16 * 1024,
             "NativeWindowManager is {actual} bytes; event-loop ownership must stay within the 16 KiB stack budget"
+        );
+    }
+
+    #[test]
+    fn native_gpu_ownership_stays_pointer_indirect() {
+        fn gpu_field(app: &NativeWindowApp) -> Option<&crate::window_gpu::WindowGpu> {
+            app.gpu.as_deref()
+        }
+
+        std::hint::black_box(gpu_field);
+        assert_eq!(
+            std::mem::size_of::<Option<Box<crate::window_gpu::WindowGpu>>>(),
+            std::mem::size_of::<usize>(),
+            "native GPU state must stay heap-indirect on the 1 MiB Windows main stack"
         );
     }
 
@@ -171953,6 +171975,8 @@ return config
         assert!(value["gpu_surface_height"].is_null());
         assert_eq!(value["gpu_rendered_frames"], 0);
         assert_eq!(value["gpu_presented_frames"], 0);
+        assert_eq!(value["gpu_uncaptured_errors"], 0);
+        assert_eq!(value["gpu_device_losses"], 0);
         assert_eq!(value["text_backend"], "bitmap-emergency");
         assert!(value["first_pty_byte_ms"].is_number());
         assert!(value["first_rendered_cell_ms"].is_number());

@@ -97,6 +97,8 @@ fn native_window_reports_real_gpu_presentation_for_one_and_ten_frames() {
         assert!(metrics["gpu_present_mode"].is_string(), "{diagnostics}");
         assert_eq!(metrics["gpu_rendered_frames"], frames, "{diagnostics}");
         assert_eq!(metrics["gpu_presented_frames"], frames, "{diagnostics}");
+        assert_eq!(metrics["gpu_uncaptured_errors"], 0, "{diagnostics}");
+        assert_eq!(metrics["gpu_device_losses"], 0, "{diagnostics}");
         assert!(metrics["text_backend"].is_string(), "{diagnostics}");
     }
 }

@@ -1,6 +1,9 @@
 use std::{error::Error, io, sync::Arc};
 
-use rssh_renderer::gpu::{GpuContext, GpuContextOptions, GpuFrameStatus, GpuPresentationMetrics};
+use rssh_renderer::gpu::{
+    DEFAULT_CPU_FRAME_BYTE_BUDGET, GpuContext, GpuContextOptions, GpuFrameStatus,
+    GpuPresentationMetrics, RgbaFrameLayout,
+};
 use winit::{dpi::PhysicalSize, event_loop::ActiveEventLoop, window::Window};
 
 /// App-owned compatibility bridge from the existing CPU framebuffer to the
@@ -33,7 +36,11 @@ impl WindowGpu {
             options,
         )
         .await?;
-        let frame = allocate_frame(frame_width, frame_height)?;
+        let frame = allocate_frame(
+            frame_width,
+            frame_height,
+            context.max_texture_dimension_2d(),
+        )?;
         Ok(Self {
             context,
             frame,
@@ -55,7 +62,7 @@ impl WindowGpu {
         if self.frame_width == width && self.frame_height == height {
             return Ok(());
         }
-        self.frame = allocate_frame(width, height)?;
+        self.frame = allocate_frame(width, height, self.context.max_texture_dimension_2d())?;
         self.frame_width = width;
         self.frame_height = height;
         Ok(())
@@ -74,15 +81,39 @@ impl WindowGpu {
     }
 }
 
-fn allocate_frame(width: u32, height: u32) -> Result<Vec<u8>, io::Error> {
-    let len = usize::try_from(width)
-        .ok()
-        .and_then(|width| {
-            usize::try_from(height)
-                .ok()
-                .and_then(|height| width.checked_mul(height))
-        })
-        .and_then(|pixels| pixels.checked_mul(4))
-        .ok_or_else(|| io::Error::other("compatibility framebuffer size overflow"))?;
-    Ok(vec![0; len])
+fn allocate_frame(
+    width: u32,
+    height: u32,
+    max_texture_dimension_2d: u32,
+) -> Result<Vec<u8>, io::Error> {
+    let layout = RgbaFrameLayout::new(
+        width,
+        height,
+        max_texture_dimension_2d,
+        DEFAULT_CPU_FRAME_BYTE_BUDGET,
+    )
+    .map_err(io::Error::other)?;
+    let mut frame = Vec::new();
+    frame.try_reserve_exact(layout.byte_len).map_err(|error| {
+        io::Error::other(format!("compatibility framebuffer allocation: {error}"))
+    })?;
+    frame.resize(layout.byte_len, 0);
+    Ok(frame)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    use super::*;
+
+    #[test]
+    fn compatibility_frame_allocation_accepts_4k_and_rejects_oversized_requests() {
+        let frame = allocate_frame(3_840, 2_160, 8_192).expect("4K frame fits the budget");
+        assert_eq!(frame.len(), 33_177_600);
+
+        let oversized = catch_unwind(AssertUnwindSafe(|| allocate_frame(8_193, 8_192, 16_384)))
+            .expect("oversized frame allocation must not panic");
+        assert!(oversized.is_err());
+    }
 }
