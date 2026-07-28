@@ -11,6 +11,12 @@ use rssh_terminal::{
     TerminalGrid, UnderlineStyle, VerticalAlign,
 };
 
+mod text;
+
+pub use text::{
+    CpuTextRenderReport, CpuTextRenderer, RenderedClusterBounds, TextBackend, TextPixelBounds,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct RenderCell {
@@ -1050,6 +1056,35 @@ impl PixelRenderer {
             animation_frame: 0,
             animation_elapsed_ms: Some(animation_elapsed_ms),
         }
+    }
+
+    /// Reports the backend used by the compatibility `render` entry point.
+    #[must_use]
+    pub const fn text_backend(&self) -> TextBackend {
+        TextBackend::BitmapEmergency
+    }
+
+    /// Renders with an explicit isolated shaping/raster owner.
+    pub fn render_shaped(
+        &self,
+        text_renderer: &mut CpuTextRenderer,
+        snapshot: &TerminalRenderSnapshot,
+        target: &mut [u8],
+        geometry: RenderGeometry,
+    ) {
+        text::render_full(self, text_renderer, snapshot, target, geometry);
+    }
+
+    /// Repaints damaged rows with an explicit isolated shaping/raster owner.
+    pub fn render_damage_shaped(
+        &self,
+        text_renderer: &mut CpuTextRenderer,
+        snapshot: &TerminalRenderSnapshot,
+        damage: &[DamageRegion],
+        target: &mut [u8],
+        geometry: RenderGeometry,
+    ) {
+        text::render_damage(self, text_renderer, snapshot, damage, target, geometry);
     }
 
     pub fn set_animation_elapsed_ms(&mut self, animation_elapsed_ms: u64) {
@@ -4534,6 +4569,55 @@ impl TerminalRenderSnapshot {
     #[must_use]
     pub fn cells(&self) -> &[RenderCell] {
         &self.cells
+    }
+
+    /// Reconstructs one immutable row as complete graphemes with terminal-owned spans.
+    ///
+    /// Default blank cells are represented explicitly so the result is contiguous
+    /// and can be passed directly to the shaping engine.
+    #[must_use]
+    pub fn terminal_clusters_for_row(
+        &self,
+        row: u16,
+        columns: u16,
+    ) -> Vec<rssh_fonts::TerminalCluster> {
+        let mut by_column = self
+            .cells
+            .iter()
+            .filter(|cell| cell.row == row)
+            .map(|cell| (cell.column, cell))
+            .collect::<HashMap<_, _>>();
+        let mut clusters = Vec::new();
+        let mut column = 0_u16;
+        while column < columns {
+            match by_column.remove(&column) {
+                Some(cell) if cell.continuation => {
+                    clusters.push(rssh_fonts::TerminalCluster::new(
+                        " ",
+                        usize::from(column)..usize::from(column.saturating_add(1)),
+                    ));
+                    column = column.saturating_add(1);
+                }
+                Some(cell) => {
+                    let width = u16::from(cell.columns.max(1))
+                        .min(columns.saturating_sub(column))
+                        .max(1);
+                    clusters.push(rssh_fonts::TerminalCluster::new(
+                        cell.text.clone(),
+                        usize::from(column)..usize::from(column.saturating_add(width)),
+                    ));
+                    column = column.saturating_add(width);
+                }
+                None => {
+                    clusters.push(rssh_fonts::TerminalCluster::new(
+                        " ",
+                        usize::from(column)..usize::from(column.saturating_add(1)),
+                    ));
+                    column = column.saturating_add(1);
+                }
+            }
+        }
+        clusters
     }
 
     #[must_use]

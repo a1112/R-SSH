@@ -95128,16 +95128,43 @@ impl NativeWindowApp {
         let end_column = rect.column.saturating_add(rect.columns);
 
         let mut cells = Vec::new();
-        for (offset, ch) in preedit.chars().enumerate() {
-            let offset = u16::try_from(offset).unwrap_or(u16::MAX);
-            let column = start_column.saturating_add(offset);
-            if column >= end_column {
+        let mut column = start_column;
+        for grapheme in preedit.graphemes(true) {
+            let columns = UnicodeWidthStr::width(grapheme).max(1);
+            let columns = u16::try_from(columns).unwrap_or(u16::MAX);
+            if column >= end_column || column.saturating_add(columns) > end_column {
                 break;
             }
-            let mut cell = ui_render_cell(row, column, ch, Color::Default, Color::Default, false);
-            cell.underline = true;
-            cell.underline_style = UnderlineStyle::Single;
-            cells.push(cell);
+            let mut leader = ui_render_cell(
+                row,
+                column,
+                grapheme.chars().next().unwrap_or(' '),
+                Color::Default,
+                Color::Default,
+                false,
+            );
+            leader.text = grapheme.to_owned();
+            leader.columns = u8::try_from(columns).unwrap_or(u8::MAX);
+            leader.underline = true;
+            leader.underline_style = UnderlineStyle::Single;
+            cells.push(leader);
+            for continuation_offset in 1..columns {
+                let mut continuation = ui_render_cell(
+                    row,
+                    column.saturating_add(continuation_offset),
+                    ' ',
+                    Color::Default,
+                    Color::Default,
+                    false,
+                );
+                continuation.text.clear();
+                continuation.columns = 0;
+                continuation.continuation = true;
+                continuation.underline = true;
+                continuation.underline_style = UnderlineStyle::Single;
+                cells.push(continuation);
+            }
+            column = column.saturating_add(columns);
         }
         cells
     }
@@ -233725,6 +233752,36 @@ return config
 
         let snapshot = app.render_snapshot();
         assert_eq!(snapshot_row_text(&snapshot, TAB_BAR_ROWS, 6), "abkan ");
+    }
+
+    #[test]
+    fn window_app_ime_preedit_preserves_graphemes_and_authoritative_cell_spans() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_ime_preedit("中e\u{301}👨‍👩‍👧‍👦");
+
+        let snapshot = app.render_snapshot();
+        let row = TAB_BAR_ROWS;
+        let leaders = snapshot
+            .cells()
+            .iter()
+            .filter(|cell| cell.row == row && !cell.continuation)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            leaders
+                .iter()
+                .map(|cell| (cell.text.as_str(), cell.column, cell.columns))
+                .collect::<Vec<_>>(),
+            [("中", 0, 2), ("e\u{301}", 2, 1), ("👨‍👩‍👧‍👦", 3, 2)]
+        );
+        assert_eq!(
+            snapshot
+                .cells()
+                .iter()
+                .filter(|cell| cell.row == row && cell.continuation)
+                .map(|cell| cell.column)
+                .collect::<Vec<_>>(),
+            [1, 4]
+        );
     }
 
     #[test]

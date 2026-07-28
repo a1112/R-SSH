@@ -151,6 +151,35 @@ fn raster_cache_returns_headless_masks_and_color_pixels() {
 }
 
 #[test]
+fn positioned_raster_preserves_integer_origins_without_duplicating_cached_pixels() {
+    let mut catalog = catalog(&[LATIN]);
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));
+    let row = shaper.shape_row(&mut catalog, "A").expect("shape");
+    let glyph = &row.glyphs[0];
+    let mut cache = RasterCache::new(RasterCacheConfig::new(1 << 20));
+
+    let first = cache
+        .rasterize_positioned(
+            &mut catalog,
+            RasterRequest::for_shaped_glyph(&row, glyph, 10.25, 20.75),
+        )
+        .expect("first positioned raster");
+    let moved = cache
+        .rasterize_positioned(
+            &mut catalog,
+            RasterRequest::for_shaped_glyph(&row, glyph, 42.25, 53.75),
+        )
+        .expect("moved positioned raster");
+
+    assert_eq!((first.origin_x, first.origin_y), (10, 20));
+    assert_eq!((moved.origin_x, moved.origin_y), (42, 53));
+    assert!(
+        std::sync::Arc::ptr_eq(&first.image, &moved.image),
+        "integer translation must reuse one cached glyph bitmap"
+    );
+}
+
+#[test]
 fn raster_cache_key_covers_scale_subpixel_flags_and_strong_font_scope() {
     let mut catalog = catalog(&[LATIN]);
     let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));

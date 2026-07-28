@@ -3247,6 +3247,7 @@ dependencies = [
  "font8x8",
  "image",
  "rssh-core",
+ "rssh-fonts",
  "rssh-terminal",
 ]
 

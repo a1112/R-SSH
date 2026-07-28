@@ -15,8 +15,8 @@ pub use catalog::{CatalogError, FontCatalog, FontId, FontSource};
 pub use config::{BidiMode, FontConfig, FontStretch, FontStyle};
 pub use diagnostics::{DiagnosticKind, FontDiagnostic};
 pub use raster::{
-    RasterCache, RasterCacheConfig, RasterContent, RasterFallback, RasterFlags, RasterRequest,
-    RasterizedGlyph,
+    PositionedRaster, RasterCache, RasterCacheConfig, RasterContent, RasterFallback, RasterFlags,
+    RasterRequest, RasterizedGlyph,
 };
 pub use shape::{
     CellSpan, ClusterSpan, ShapeCacheStats, ShapeError, ShapedCluster, ShapedGlyph, ShapedRow,

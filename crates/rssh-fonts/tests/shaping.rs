@@ -209,6 +209,75 @@ fn ligature_feature_can_be_enabled_and_disabled() {
 }
 
 #[test]
+fn styled_cluster_boundaries_preserve_paragraph_bidi_and_stop_cross_style_ligatures() {
+    let mut catalog = catalog(&[LATIN, HEBREW]);
+    let config = FontConfig::new("Noto Sans").with_fallbacks(["Noto Sans Hebrew"]);
+    let mut shaper = TerminalShaper::new(config);
+
+    let plain = shaper
+        .shape_row(&mut catalog, "A אבג B")
+        .expect("plain mixed bidi");
+    let styled = shaper
+        .shape_clusters(
+            &mut catalog,
+            &[
+                TerminalCluster::new("A", 0..1),
+                TerminalCluster::new(" ", 1..2),
+                TerminalCluster::new("א", 2..3).with_shape_boundary(1),
+                TerminalCluster::new("ב", 3..4).with_shape_boundary(1),
+                TerminalCluster::new("ג", 4..5).with_shape_boundary(1),
+                TerminalCluster::new(" ", 5..6),
+                TerminalCluster::new("B", 6..7),
+            ],
+        )
+        .expect("styled mixed bidi");
+    assert_eq!(styled.visual_clusters, plain.visual_clusters);
+
+    let split_ligature = shaper
+        .shape_clusters(
+            &mut catalog,
+            &[
+                TerminalCluster::new("f", 0..1),
+                TerminalCluster::new("i", 1..2).with_shape_boundary(2),
+            ],
+        )
+        .expect("shape styled fi");
+    assert_eq!(split_ligature.glyphs.len(), 2);
+}
+
+#[test]
+fn cluster_weight_and_style_are_forwarded_to_raster_attributes() {
+    let regular = FontSource::new("regular", fixture_bytes(LATIN));
+    let bold = FontSource::new("bold", with_weight(fixture_bytes(LATIN), 700));
+    let mut catalog =
+        FontCatalog::from_sources("en-US", [regular, bold]).expect("load regular and bold");
+    let mut shaper = TerminalShaper::new(FontConfig::new("Noto Sans"));
+
+    let row = shaper
+        .shape_clusters(
+            &mut catalog,
+            &[
+                TerminalCluster::new("A", 0..1),
+                TerminalCluster::new("B", 1..2)
+                    .with_shape_boundary(1)
+                    .with_weight(700),
+                TerminalCluster::new("C", 2..3)
+                    .with_shape_boundary(2)
+                    .with_style(rssh_fonts::FontStyle::Italic),
+            ],
+        )
+        .expect("shape styled clusters");
+
+    assert_eq!(row.glyphs[0].raster_weight, 400);
+    assert_eq!(row.glyphs[1].raster_weight, 700);
+    assert_eq!(row.glyphs[2].raster_weight, 400);
+    assert_ne!(
+        row.glyphs[2].raster_flags,
+        rssh_fonts::RasterFlags::default()
+    );
+}
+
+#[test]
 fn complex_script_glyphs_keep_logical_byte_cluster_and_cell_ranges() {
     let mut catalog = catalog(&[LATIN, ARABIC, DEVANAGARI]);
     let config =

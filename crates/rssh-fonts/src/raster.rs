@@ -138,6 +138,18 @@ pub struct RasterizedGlyph {
     pub fallback: Option<RasterFallback>,
 }
 
+/// Cached glyph image paired with the integer origin discarded by the
+/// subpixel cache key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PositionedRaster {
+    /// Shared cached pixels; integer translations do not duplicate this image.
+    pub image: Arc<RasterizedGlyph>,
+    /// Quantized integer x origin returned by the shaping cache key.
+    pub origin_x: i32,
+    /// Quantized integer baseline origin returned by the shaping cache key.
+    pub origin_y: i32,
+}
+
 /// Retained raster-cache settings.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RasterCacheConfig {
@@ -239,6 +251,17 @@ impl RasterCache {
         catalog: &mut FontCatalog,
         request: RasterRequest,
     ) -> Option<Arc<RasterizedGlyph>> {
+        self.rasterize_positioned(catalog, request)
+            .map(|positioned| positioned.image)
+    }
+
+    /// Rasterizes a glyph while retaining the integer origin needed to place
+    /// the cached subpixel image in an absolute framebuffer.
+    pub fn rasterize_positioned(
+        &mut self,
+        catalog: &mut FontCatalog,
+        request: RasterRequest,
+    ) -> Option<PositionedRaster> {
         let catalog_scope = (
             catalog.incarnation(),
             catalog.generation(),
@@ -275,7 +298,7 @@ impl RasterCache {
         let (physical_x, physical_y) = physical_position(request, dpi_scale, zoom)?;
 
         let raw_font = request.font_id.raw()?;
-        let (cosmic, _, _) = CacheKey::new(
+        let (cosmic, origin_x, origin_y) = CacheKey::new(
             raw_font,
             request.glyph_id,
             effective_size,
@@ -291,7 +314,11 @@ impl RasterCache {
             zoom_bits,
         };
         if let Some(image) = self.entries.get(&key) {
-            return Some(image);
+            return Some(PositionedRaster {
+                image,
+                origin_x,
+                origin_y,
+            });
         }
 
         if request.is_tofu {
@@ -300,7 +327,11 @@ impl RasterCache {
                 RasterFallback::MissingGlyph,
             )?);
             self.retain(key, &raster);
-            return Some(raster);
+            return Some(PositionedRaster {
+                image: raster,
+                origin_x,
+                origin_y,
+            });
         }
 
         let image = self
@@ -318,7 +349,11 @@ impl RasterCache {
             }
         };
         self.retain(key, &raster);
-        Some(raster)
+        Some(PositionedRaster {
+            image: raster,
+            origin_x,
+            origin_y,
+        })
     }
 
     fn retain(&mut self, key: RasterKey, raster: &Arc<RasterizedGlyph>) {

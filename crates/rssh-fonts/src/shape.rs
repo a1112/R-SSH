@@ -47,6 +47,14 @@ pub struct TerminalCluster {
     pub text: String,
     /// Cell geometry established by the terminal model.
     pub cell_span: CellSpan,
+    /// Renderer-defined shaping boundary. Adjacent clusters with different
+    /// values cannot form one ligature, while the paragraph still shares one
+    /// Unicode bidi analysis.
+    pub shape_boundary: usize,
+    /// Optional per-cluster font weight selected by terminal cell attributes.
+    pub weight: Option<u16>,
+    /// Optional per-cluster font style selected by terminal cell attributes.
+    pub style: Option<FontStyle>,
 }
 
 impl TerminalCluster {
@@ -56,6 +64,9 @@ impl TerminalCluster {
         Self {
             text: text.into(),
             cell_span,
+            shape_boundary: 0,
+            weight: None,
+            style: None,
         }
     }
 
@@ -63,6 +74,31 @@ impl TerminalCluster {
     #[must_use]
     pub fn with_columns(text: impl Into<String>, start: usize, columns: usize) -> Self {
         Self::new(text, start..start.saturating_add(columns))
+    }
+
+    /// Prevents shaping across a renderer style/color/cursor boundary without
+    /// splitting the paragraph or restarting bidi analysis.
+    ///
+    /// The current conservative backend disables standard/contextual
+    /// ligatures for the complete row when any adjacent boundary differs.
+    /// This preserves one UBA paragraph; per-span feature precision can be
+    /// added later without changing this API.
+    #[must_use]
+    pub const fn with_shape_boundary(mut self, shape_boundary: usize) -> Self {
+        self.shape_boundary = shape_boundary;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_weight(mut self, weight: u16) -> Self {
+        self.weight = Some(weight);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_style(mut self, style: FontStyle) -> Self {
+        self.style = Some(style);
+        self
     }
 }
 
@@ -222,6 +258,9 @@ struct ClusterPlan {
     is_color: bool,
     is_tofu: bool,
     fallback_candidates: Vec<FaceCandidate>,
+    shape_boundary: usize,
+    weight: u16,
+    style: FontStyle,
 }
 
 struct LayoutOutput {
@@ -418,11 +457,21 @@ impl TerminalShaper {
             byte = byte_range.end;
 
             let config = &self.config;
+            let weight = input.weight.unwrap_or(config.weight);
+            let style = input.style.unwrap_or(config.style);
             let diagnostics = &mut self.diagnostics;
             let mut candidates: Vec<_> = config
                 .families()
                 .filter_map(|family| {
-                    Self::face_candidate(config, diagnostics, catalog, family, cluster)
+                    Self::face_candidate(
+                        config,
+                        diagnostics,
+                        catalog,
+                        family,
+                        cluster,
+                        weight,
+                        style,
+                    )
                 })
                 .collect();
             let selected = (!candidates.is_empty()).then(|| candidates.remove(0));
@@ -445,12 +494,7 @@ impl TerminalShaper {
                     .config
                     .families()
                     .find_map(|family| {
-                        catalog.record_for_family(
-                            family,
-                            self.config.weight,
-                            self.config.style,
-                            self.config.stretch,
-                        )
+                        catalog.record_for_family(family, weight, style, self.config.stretch)
                     })
                     .or_else(|| catalog.first_record())
                     .map_or(
@@ -480,6 +524,9 @@ impl TerminalShaper {
                 is_color,
                 is_tofu,
                 fallback_candidates: candidates,
+                shape_boundary: input.shape_boundary,
+                weight,
+                style,
             });
         }
         plans
@@ -491,10 +538,10 @@ impl TerminalShaper {
         catalog: &FontCatalog,
         family: &str,
         cluster: &str,
+        weight: u16,
+        style: FontStyle,
     ) -> Option<FaceCandidate> {
-        let Some(record) =
-            catalog.record_for_family(family, config.weight, config.style, config.stretch)
-        else {
+        let Some(record) = catalog.record_for_family(family, weight, style, config.stretch) else {
             diagnostics.record(FontDiagnostic {
                 kind: DiagnosticKind::MissingFamily,
                 family: Some(family.to_owned()),
@@ -651,7 +698,10 @@ impl TerminalShaper {
         metrics: TerminalFontMetrics,
     ) -> Buffer {
         let mut features = FontFeatures::new();
-        if !self.config.ligatures {
+        let has_shape_boundaries = plans
+            .windows(2)
+            .any(|pair| pair[0].shape_boundary != pair[1].shape_boundary);
+        if !self.config.ligatures || has_shape_boundaries {
             features.disable(FeatureTag::STANDARD_LIGATURES);
             features.disable(FeatureTag::CONTEXTUAL_LIGATURES);
         }
@@ -659,12 +709,6 @@ impl TerminalShaper {
             features.set(FeatureTag::new(tag), *value);
         }
 
-        let weight = Weight(self.config.weight);
-        let style = match self.config.style {
-            FontStyle::Normal => Style::Normal,
-            FontStyle::Italic => Style::Italic,
-            FontStyle::Oblique => Style::Oblique,
-        };
         let stretch = match self.config.stretch {
             FontStretch::Condensed => Stretch::Condensed,
             FontStretch::Normal => Stretch::Normal,
@@ -675,18 +719,28 @@ impl TerminalShaper {
             .iter()
             .zip(&families)
             .map(|(plan, family)| {
+                let style = match plan.style {
+                    FontStyle::Normal => Style::Normal,
+                    FontStyle::Italic => Style::Italic,
+                    FontStyle::Oblique => Style::Oblique,
+                };
                 let attrs = Attrs::new()
                     .family(Family::Name(family))
-                    .weight(weight)
+                    .weight(Weight(plan.weight))
                     .style(style)
                     .stretch(stretch)
-                    .font_features(features.clone());
+                    .font_features(features.clone())
+                    .metadata(plan.shape_boundary);
                 (&text[plan.byte_range.clone()], attrs)
             })
             .collect();
         let default_attrs = Attrs::new()
-            .weight(weight)
-            .style(style)
+            .weight(Weight(self.config.weight))
+            .style(match self.config.style {
+                FontStyle::Normal => Style::Normal,
+                FontStyle::Italic => Style::Italic,
+                FontStyle::Oblique => Style::Oblique,
+            })
             .stretch(stretch)
             .font_features(features);
         let mut buffer = Buffer::new_empty(Metrics::new(metrics.font_size, metrics.line_height));
@@ -786,7 +840,7 @@ impl TerminalShaper {
                     logical_index,
                     collapsed_layouts[logical_index],
                     metrics,
-                    self.config.weight,
+                    plan.weight,
                     visual_order,
                 ));
                 linear_index_steps += 1;
@@ -1143,6 +1197,9 @@ fn shape_request_fingerprint(clusters: &[TerminalCluster], config: &FontConfig) 
         digest.update(cluster.text.as_bytes());
         digest.update(cluster.cell_span.start.to_le_bytes());
         digest.update(cluster.cell_span.end.to_le_bytes());
+        digest.update(cluster.shape_boundary.to_le_bytes());
+        digest.update(cluster.weight.unwrap_or_default().to_le_bytes());
+        digest.update([cluster.style.map_or(u8::MAX, |style| style as u8)]);
     }
     digest.update(config.primary.len().to_le_bytes());
     digest.update(config.primary.as_bytes());
