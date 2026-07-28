@@ -226,6 +226,10 @@ pub struct WindowConfigOptions {
     pub config_overrides: Vec<(String, String)>,
 }
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent compatibility flags represent valid combinations"
+)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowOptions {
     pub config: WindowConfigOptions,
@@ -275,6 +279,10 @@ impl Osc52Policy {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 pub fn parse_args<I, S>(args: I) -> Result<AppCommand, String>
 where
     I: IntoIterator<Item = S>,
@@ -950,68 +958,67 @@ fn infer_scp_transfer_from_operands(
     destination: &str,
 ) -> Result<(), String> {
     let destination_remote = split_scp_remote_operand(destination);
-    if let Some((target, remote)) = destination_remote {
-        if sources
+    if let Some((target, remote)) = destination_remote
+        && sources
             .iter()
             .all(|source| split_scp_remote_operand(source).is_none())
-        {
-            set_positional_ssh_target(state, target, "scp")?;
-            let locals = sources.iter().map(PathBuf::from).collect::<Vec<_>>();
-            return if let [local] = locals.as_slice() {
-                set_scp_transfer(
-                    transfer,
-                    ScpTransfer::Upload {
-                        local: local.clone(),
-                        remote: remote.to_owned(),
-                    },
-                )
-            } else {
-                set_scp_transfer(
-                    transfer,
-                    ScpTransfer::UploadMany {
-                        locals,
-                        remote: remote.to_owned(),
-                    },
-                )
-            };
-        }
+    {
+        set_positional_ssh_target(state, target, "scp")?;
+        let locals = sources.iter().map(PathBuf::from).collect::<Vec<_>>();
+        return if let [local] = locals.as_slice() {
+            set_scp_transfer(
+                transfer,
+                ScpTransfer::Upload {
+                    local: local.clone(),
+                    remote: remote.to_owned(),
+                },
+            )
+        } else {
+            set_scp_transfer(
+                transfer,
+                ScpTransfer::UploadMany {
+                    locals,
+                    remote: remote.to_owned(),
+                },
+            )
+        };
     }
 
     let remote_sources = sources
         .iter()
         .map(|source| split_scp_remote_operand(source))
         .collect::<Option<Vec<_>>>();
-    if let Some(remote_sources) = remote_sources {
-        if let Some((target, _)) = remote_sources.first() {
-            if remote_sources
-                .iter()
-                .any(|(next_target, _)| next_target != target)
-            {
-                return Err("scp multiple remote sources must use the same target".to_owned());
-            }
-            set_positional_ssh_target(state, target, "scp")?;
-            let remotes = remote_sources
-                .iter()
-                .map(|(_, remote)| (*remote).to_owned())
-                .collect::<Vec<_>>();
-            return if let [remote] = remotes.as_slice() {
-                set_scp_transfer(
-                    transfer,
-                    ScpTransfer::Download {
-                        remote: remote.clone(),
-                        local: PathBuf::from(destination),
-                    },
-                )
-            } else {
-                set_scp_transfer(
-                    transfer,
-                    ScpTransfer::DownloadMany {
-                        remotes,
-                        local: PathBuf::from(destination),
-                    },
-                )
-            };
+    if let Some(remote_sources) = remote_sources
+        && let Some((target, _)) = remote_sources.first()
+    {
+        if remote_sources
+            .iter()
+            .any(|(next_target, _)| next_target != target)
+        {
+            return Err("scp multiple remote sources must use the same target".to_owned());
         }
+        set_positional_ssh_target(state, target, "scp")?;
+        let remotes = remote_sources
+            .iter()
+            .map(|(_, remote)| (*remote).to_owned())
+            .collect::<Vec<_>>();
+        return if let [remote] = remotes.as_slice() {
+            set_scp_transfer(
+                transfer,
+                ScpTransfer::Download {
+                    remote: remote.clone(),
+                    local: PathBuf::from(destination),
+                },
+            )
+        } else {
+            set_scp_transfer(
+                transfer,
+                ScpTransfer::DownloadMany {
+                    remotes,
+                    local: PathBuf::from(destination),
+                },
+            )
+        };
     }
 
     Ok(())
@@ -1459,6 +1466,10 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn parse_window(args: &[String], config: WindowConfigOptions) -> Result<AppCommand, String> {
     let mut frame_limit = None;
     let mut workspace = None;

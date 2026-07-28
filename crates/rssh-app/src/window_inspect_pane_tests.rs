@@ -243,6 +243,10 @@ fn inspect_refuses_existing_pane_overlay_and_clears_input_transients_when_opened
     assert!(app.ui_left_release_pending);
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 #[test]
 fn inspect_swallows_terminal_input_and_the_paired_close_key_release() {
     let written = Arc::new(Mutex::new(Vec::new()));
@@ -388,6 +392,10 @@ fn inspect_swallows_terminal_input_and_the_paired_close_key_release() {
     assert!(written.lock().unwrap().is_empty());
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 #[test]
 fn focus_loss_downgrades_the_close_release_barrier_without_leaking_a_late_release() {
     let written = Arc::new(Mutex::new(Vec::new()));

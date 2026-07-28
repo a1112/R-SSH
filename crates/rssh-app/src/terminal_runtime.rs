@@ -20,6 +20,10 @@ use crate::{
 
 const DEFAULT_TERMINAL_NAME: &str = "xterm-256color";
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent compatibility flags represent valid combinations"
+)]
 pub struct TerminalRuntime {
     terminal: Terminal,
     output_filter: TerminalOutputFilter,
@@ -1363,7 +1367,10 @@ fn decrqcra_zero_based_axis(part: Option<&[u8]>, default: i64) -> Option<u16> {
     if value <= 0 {
         Some(0)
     } else {
-        Some(value.saturating_sub(1).min(i64::from(u16::MAX)) as u16)
+        Some(
+            u16::try_from(value.saturating_sub(1).min(i64::from(u16::MAX)))
+                .expect("positive DECRQCRA axis is clamped to u16"),
+        )
     }
 }
 
@@ -1589,13 +1596,12 @@ fn find_decrqss_query(bytes: &[u8]) -> Option<DecrqssQuery> {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_decrqss_query(bytes, index, prefix_len) {
-                if match_query
+            if let Some(query) = parse_decrqss_query(bytes, index, prefix_len)
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &DecrqssQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }
@@ -1822,13 +1828,11 @@ fn find_xtgettcap_query(
             let index = offset + relative_index;
             if let Some(query) =
                 parse_xtgettcap_query(bytes, index, prefix_len, size, terminal_name)
-            {
-                if match_query
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &XtGetTcapQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }
@@ -2271,13 +2275,12 @@ fn find_xtsmgraphics_query(bytes: &[u8]) -> Option<XtSmGraphicsQuery> {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_xtsmgraphics_query(bytes, index, prefix_len) {
-                if match_query
+            if let Some(query) = parse_xtsmgraphics_query(bytes, index, prefix_len)
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &XtSmGraphicsQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }
@@ -2377,13 +2380,12 @@ fn find_osc_color_query(bytes: &[u8]) -> Option<OscColorQuery> {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_osc_color_query(bytes, index, prefix_len) {
-                if match_query
+            if let Some(query) = parse_osc_color_query(bytes, index, prefix_len)
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &OscColorQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }
@@ -2554,13 +2556,12 @@ fn find_iterm_report_cell_size_query(bytes: &[u8]) -> Option<ItermReportCellSize
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_iterm_report_cell_size_query(bytes, index, prefix_len) {
-                if match_query
+            if let Some(query) = parse_iterm_report_cell_size_query(bytes, index, prefix_len)
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &ItermReportCellSizeQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }
@@ -3148,13 +3149,12 @@ fn find_private_mode_status_query(bytes: &[u8]) -> Option<PrivateModeStatusQuery
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_private_mode_status_query(bytes, index, prefix_len) {
-                if match_query
+            if let Some(query) = parse_private_mode_status_query(bytes, index, prefix_len)
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &PrivateModeStatusQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }
@@ -3175,13 +3175,12 @@ fn find_ansi_mode_status_query(bytes: &[u8]) -> Option<AnsiModeStatusQuery> {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_ansi_mode_status_query(bytes, index, prefix_len) {
-                if match_query
+            if let Some(query) = parse_ansi_mode_status_query(bytes, index, prefix_len)
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &AnsiModeStatusQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }

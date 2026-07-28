@@ -139,21 +139,21 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
                 .json_report()?
             );
         }
-    } else if options.console.metrics {
-        if let Ok(status) = &run_result {
-            print!(
-                "{}",
-                LocalMetricsSnapshot::from_status(
-                    &options.command,
-                    size,
-                    metrics.snapshot(),
-                    metrics_started_at.elapsed(),
-                    session_state,
-                    status
-                )
-                .report()
-            );
-        }
+    } else if options.console.metrics
+        && let Ok(status) = &run_result
+    {
+        print!(
+            "{}",
+            LocalMetricsSnapshot::from_status(
+                &options.command,
+                size,
+                metrics.snapshot(),
+                metrics_started_at.elapsed(),
+                session_state,
+                status
+            )
+            .report()
+        );
     }
 
     run_result
@@ -2453,13 +2453,12 @@ fn find_clipboard_sequence(bytes: &[u8]) -> Option<ClipboardControlSequence> {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(sequence) = parse_osc52_clipboard_sequence(bytes, index, prefix.len()) {
-                if match_sequence
+            if let Some(sequence) = parse_osc52_clipboard_sequence(bytes, index, prefix.len())
+                && match_sequence
                     .as_ref()
                     .is_none_or(|current: &ClipboardControlSequence| sequence.index < current.index)
-                {
-                    match_sequence = Some(sequence);
-                }
+            {
+                match_sequence = Some(sequence);
             }
             offset = index.saturating_add(1);
         }
@@ -2472,13 +2471,11 @@ fn find_clipboard_sequence(bytes: &[u8]) -> Option<ClipboardControlSequence> {
             };
             let index = offset + relative_index;
             if let Some(sequence) = parse_iterm_copy_clipboard_sequence(bytes, index, prefix.len())
-            {
-                if match_sequence
+                && match_sequence
                     .as_ref()
                     .is_none_or(|current: &ClipboardControlSequence| sequence.index < current.index)
-                {
-                    match_sequence = Some(sequence);
-                }
+            {
+                match_sequence = Some(sequence);
             }
             offset = index.saturating_add(1);
         }
@@ -2610,13 +2607,12 @@ fn find_decrqss_query(bytes: &[u8]) -> Option<DecrqssQuery> {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_decrqss_query(bytes, index, prefix_len) {
-                if match_query
+            if let Some(query) = parse_decrqss_query(bytes, index, prefix_len)
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &DecrqssQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }
@@ -2843,13 +2839,11 @@ fn find_xtgettcap_query(
             let index = offset + relative_index;
             if let Some(query) =
                 parse_xtgettcap_query(bytes, index, prefix_len, size, terminal_name)
-            {
-                if match_query
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &XtGetTcapQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }
@@ -3289,13 +3283,12 @@ fn find_xtsmgraphics_query(bytes: &[u8]) -> Option<XtSmGraphicsQuery> {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_xtsmgraphics_query(bytes, index, prefix_len) {
-                if match_query
+            if let Some(query) = parse_xtsmgraphics_query(bytes, index, prefix_len)
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &XtSmGraphicsQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }
@@ -3395,13 +3388,12 @@ fn find_osc_color_query(bytes: &[u8]) -> Option<OscColorQuery> {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_osc_color_query(bytes, index, *prefix_len) {
-                if match_query
+            if let Some(query) = parse_osc_color_query(bytes, index, *prefix_len)
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &OscColorQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }
@@ -3572,13 +3564,12 @@ fn find_iterm_report_cell_size_query(bytes: &[u8]) -> Option<ItermReportCellSize
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_iterm_report_cell_size_query(bytes, index, *prefix_len) {
-                if match_query
+            if let Some(query) = parse_iterm_report_cell_size_query(bytes, index, *prefix_len)
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &ItermReportCellSizeQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }
@@ -4082,13 +4073,12 @@ fn find_private_mode_status_query(bytes: &[u8]) -> Option<PrivateModeStatusQuery
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_private_mode_status_query(bytes, index, prefix_len) {
-                if match_query
+            if let Some(query) = parse_private_mode_status_query(bytes, index, prefix_len)
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &PrivateModeStatusQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }
@@ -4109,13 +4099,12 @@ fn find_ansi_mode_status_query(bytes: &[u8]) -> Option<AnsiModeStatusQuery> {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_ansi_mode_status_query(bytes, index, prefix_len) {
-                if match_query
+            if let Some(query) = parse_ansi_mode_status_query(bytes, index, prefix_len)
+                && match_query
                     .as_ref()
                     .is_none_or(|current: &AnsiModeStatusQuery| query.index < current.index)
-                {
-                    match_query = Some(query);
-                }
+            {
+                match_query = Some(query);
             }
             offset = index.saturating_add(1);
         }
@@ -4529,15 +4518,15 @@ fn encode_key_with_mode(key: KeyEvent, modes: InputModes) -> Option<Vec<u8>> {
     if let Some(bytes) = encode_xterm_modify_other_key(key, modes.modify_other_keys()) {
         return Some(bytes);
     }
-    if modes.application_keypad() {
-        if let Some(bytes) = encode_application_keypad_key(key) {
-            return Some(bytes);
-        }
+    if modes.application_keypad()
+        && let Some(bytes) = encode_application_keypad_key(key)
+    {
+        return Some(bytes);
     }
-    if modes.application_cursor_keys() {
-        if let Some(bytes) = encode_application_cursor_key(key) {
-            return Some(bytes);
-        }
+    if modes.application_cursor_keys()
+        && let Some(bytes) = encode_application_cursor_key(key)
+    {
+        return Some(bytes);
     }
 
     let terminal_key = match key.code {

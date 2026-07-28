@@ -591,6 +591,11 @@ impl RenderBackgroundGradientHsb {
     }
 }
 
+#[must_use]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "sampling positions are normalized ratios whose materialized vector bounds make integer precision loss unobservable"
+)]
 pub fn background_gradient_color_strings(
     gradient: &RenderBackgroundGradient,
     count: usize,
@@ -1045,6 +1050,10 @@ impl PixelRenderer {
         self.animation_elapsed_ms = Some(animation_elapsed_ms);
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the complete-frame render pipeline stays in draw order so layer ordering remains explicit"
+    )]
     pub fn render(
         &self,
         snapshot: &TerminalRenderSnapshot,
@@ -1238,6 +1247,10 @@ impl PixelRenderer {
         );
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the damage pipeline stays aligned with complete-frame draw order so parity remains reviewable"
+    )]
     pub fn render_damage(
         &self,
         snapshot: &TerminalRenderSnapshot,
@@ -1622,7 +1635,9 @@ fn background_gradient_color_with_hsb(
 
 fn background_gradient_color_with_opacity(mut color: [u8; 4], opacity_alpha: u8) -> [u8; 4] {
     if opacity_alpha != u8::MAX {
-        color[3] = ((u16::from(color[3]) * u16::from(opacity_alpha)) / u16::from(u8::MAX)) as u8;
+        color[3] =
+            u8::try_from((u16::from(color[3]) * u16::from(opacity_alpha)) / u16::from(u8::MAX))
+                .expect("scaled alpha remains within u8");
     }
     color
 }
@@ -1808,13 +1823,17 @@ fn linear_gradient_axis_position(
     (projection - min) / (max - min)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "radial sampling inputs form one cohesive coordinate and configuration tuple"
+)]
 fn radial_gradient_axis_position(
     column: u32,
     row: u32,
     width: u32,
     height: u32,
-    cx_millis: u32,
-    cy_millis: u32,
+    horizontal_center_millis: u32,
+    vertical_center_millis: u32,
     radius_millis: u32,
     noise_amount: usize,
 ) -> f64 {
@@ -1828,8 +1847,8 @@ fn radial_gradient_axis_position(
             row,
             width,
             height,
-            cx_millis,
-            cy_millis,
+            horizontal_center_millis,
+            vertical_center_millis,
             radius_millis,
             noise_amount,
         );
@@ -1837,44 +1856,49 @@ fn radial_gradient_axis_position(
 
     let x = gradient_axis_position(column, width);
     let y = gradient_axis_position(row, height);
-    let cx = f64::from(cx_millis) / 1_000.0;
-    let cy = f64::from(cy_millis) / 1_000.0;
+    let horizontal_center = f64::from(horizontal_center_millis) / 1_000.0;
+    let vertical_center = f64::from(vertical_center_millis) / 1_000.0;
     let radius = f64::from(radius_millis) / 1_000.0;
-    let dx = x - cx;
-    let dy = y - cy;
+    let dx = x - horizontal_center;
+    let dy = y - vertical_center;
 
     dx.hypot(dy) / radius
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    clippy::too_many_arguments,
+    reason = "the noisy radial path uses the same bounded coordinate tuple and normalized precision"
+)]
 fn radial_gradient_axis_position_with_noise(
     column: u32,
     row: u32,
     width: u32,
     height: u32,
-    cx_millis: u32,
-    cy_millis: u32,
+    horizontal_center_millis: u32,
+    vertical_center_millis: u32,
     radius_millis: u32,
     noise_amount: usize,
 ) -> f64 {
     let width = width.max(1);
     let height = height.max(1);
     let radius = (f64::from(width) * f64::from(radius_millis) / 1_000.0).max(f64::EPSILON);
-    let cx = f64::from(width) * f64::from(cx_millis) / 1_000.0;
-    let cy = f64::from(height) * f64::from(cy_millis) / 1_000.0;
+    let horizontal_center = f64::from(width) * f64::from(horizontal_center_millis) / 1_000.0;
+    let vertical_center = f64::from(height) * f64::from(vertical_center_millis) / 1_000.0;
     let x = f64::from(column.min(width - 1));
     let y = f64::from(row.min(height - 1));
     let noise_limit = noise_amount as f64;
-    let nx = if (cx - x).abs() < noise_limit {
+    let nx = if (horizontal_center - x).abs() < noise_limit {
         0.0
     } else {
         background_gradient_noise_offset(column, row, noise_amount)
     };
-    let ny = if (cy - y).abs() < noise_limit {
+    let ny = if (vertical_center - y).abs() < noise_limit {
         0.0
     } else {
         background_gradient_noise_offset(row, column, noise_amount)
     };
-    let value = nx + (x - cx).powi(2) + (ny + y - cy).powi(2);
+    let value = nx + (x - horizontal_center).powi(2) + (ny + y - vertical_center).powi(2);
 
     if value <= 0.0 {
         0.0
@@ -1892,6 +1916,10 @@ fn background_gradient_noise_amount(gradient: &RenderBackgroundGradient) -> usiz
     })
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "hash-derived visual noise is deliberately projected into f64 pixel space"
+)]
 fn background_gradient_noise_offset(column: u32, row: u32, noise_amount: usize) -> f64 {
     if noise_amount == 0 {
         return 0.0;
@@ -2165,10 +2193,14 @@ fn render_runtime_inline_image_fragment(
             }) {
                 continue;
             }
-            if let Some(pixel) = rgba_pixel(&decoded, source_x, source_y) {
-                if pixel[3] != 0 {
-                    surface.put_pixel(target_x as u32, target_y as u32, pixel);
-                }
+            let (Ok(target_x), Ok(target_y)) = (u32::try_from(target_x), u32::try_from(target_y))
+            else {
+                continue;
+            };
+            if let Some(pixel) = rgba_pixel(&decoded, source_x, source_y)
+                && pixel[3] != 0
+            {
+                surface.put_pixel(target_x, target_y, pixel);
             }
         }
     }
@@ -2237,6 +2269,10 @@ fn resolve_runtime_inline_image_attachment_source(
     Some(resolved)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "background rendering consumes one cohesive viewport and animation geometry tuple"
+)]
 fn render_background_images(
     surface: &mut Surface<'_>,
     images: &[RenderBackgroundImage],
@@ -2261,6 +2297,10 @@ fn render_background_images(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "layer rendering consumes the same cohesive viewport and animation geometry tuple"
+)]
 fn render_background_layers(
     surface: &mut Surface<'_>,
     layers: &[RenderBackgroundLayer],
@@ -2351,6 +2391,10 @@ fn render_background_gradient_layer(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one image render consumes the complete viewport and animation geometry tuple"
+)]
 fn render_background_image(
     surface: &mut Surface<'_>,
     image: &RenderBackgroundImage,
@@ -2441,6 +2485,11 @@ struct BackgroundImageLayout {
     repeat_height: u32,
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "positive finite cover and contain scales are rounded to pixels with saturating float conversion"
+)]
 fn background_image_layout(
     image: &RenderBackgroundImage,
     decoded: &DecodedImage,
@@ -2537,7 +2586,8 @@ fn background_image_attachment_scroll_pixels(
             scroll_pixels.saturating_mul(i128::from(factor_millis)) / 1_000
         }
     };
-    offset.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64
+    i64::try_from(offset.clamp(i128::from(i64::MIN), i128::from(i64::MAX)))
+        .expect("clamped background offset must fit i64")
 }
 
 fn background_image_dimension_pixels(
@@ -2689,6 +2739,10 @@ fn render_inline_images_in_z_order<'a>(
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "runtime fragment normalization keeps checked parent and geometry bookkeeping in one auditable pass"
+)]
 fn runtime_inline_image_fragments(
     snapshot: &TerminalRenderSnapshot,
     cell_width: u32,
@@ -3297,6 +3351,10 @@ fn inline_image_axis_pixels(value: Option<&str>, cell_pixels: u32) -> u32 {
         .map_or(cell_pixels, |cells| cells.saturating_mul(cell_pixels))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "checked image slicing stays together so every overflow exit remains visible"
+)]
 fn render_inline_image_fragments_for_geometry(
     parent_image_index: usize,
     image: &RenderInlineImage,
@@ -3421,6 +3479,10 @@ fn parse_positive_u32(value: &str) -> Option<u32> {
     value.parse::<u32>().ok().filter(|value| *value > 0)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "cell rendering consumes one cohesive palette and geometry context"
+)]
 fn render_cell_background(
     surface: &mut Surface<'_>,
     cell: &RenderCell,
@@ -3459,6 +3521,10 @@ fn render_cell_background(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "foreground rendering consumes one cohesive text, palette, and geometry context"
+)]
 fn render_cell_foreground(
     surface: &mut Surface<'_>,
     cell: &RenderCell,
@@ -3691,6 +3757,10 @@ fn clipped_cell_width(draw_x: u32, origin_x: u32, cell_width: u32, width: u32) -
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "decoration rendering shares the complete font metric and color context"
+)]
 fn render_text_decorations(
     surface: &mut Surface<'_>,
     cell: &RenderCell,
@@ -3749,6 +3819,10 @@ fn render_text_decorations(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "underline rendering shares the complete font metric and color context"
+)]
 fn render_underline_style(
     surface: &mut Surface<'_>,
     cell: &RenderCell,
@@ -3979,6 +4053,10 @@ struct CursorColors {
     foreground: Option<[u8; 4]>,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "cursor color resolution depends on the complete renderer palette context"
+)]
 fn cursor_colors(
     snapshot: &TerminalRenderSnapshot,
     cursor: RenderCursor,
@@ -4528,6 +4606,10 @@ impl TerminalRenderSnapshot {
     }
 
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "viewport projection atomically remaps cells, images, fragments, and attachment metadata"
+    )]
     pub fn with_viewport(
         mut self,
         origin_row: u16,
@@ -4650,8 +4732,9 @@ impl TerminalRenderSnapshot {
                 let clip = old_attachment_clips
                     .get(&(old_parent, source_row, source_column))
                     .copied()
-                    .map(|clip| clip.translated(origin_row, origin_column))
-                    .unwrap_or(viewport_clip)
+                    .map_or(viewport_clip, |clip| {
+                        clip.translated(origin_row, origin_column)
+                    })
                     .intersection(viewport_clip);
                 Some(((new_parent, source_row, source_column), clip))
             })
@@ -4851,9 +4934,9 @@ impl TerminalRenderSnapshot {
                     Some(None) => cell.foreground,
                     None => inverse_foreground,
                 };
-                cell.background = selection_background
-                    .map(|background| blend_selection_background(background, cell.background))
-                    .unwrap_or(inverse_background);
+                cell.background = selection_background.map_or(inverse_background, |background| {
+                    blend_selection_background(background, cell.background)
+                });
                 cell.inverse = false;
             }
         }
@@ -4940,18 +5023,21 @@ fn blend_selection_background(selection_background: Color, cell_background: Colo
     }
 }
 
-fn render_inline_images_from_terminal(
-    terminal: &Terminal,
-    first_source_row: usize,
-    rows: u16,
-    columns: u16,
-) -> (
+type AttachmentViewportOffset = ((usize, i64, i64), (i64, i64));
+type TerminalInlineImageProjection = (
     Vec<RenderInlineImage>,
     Vec<RenderInlineImageFragment>,
     Vec<(i64, i64)>,
     HashSet<usize>,
     HashMap<(usize, i64, i64), (i64, i64)>,
-) {
+);
+
+fn render_inline_images_from_terminal(
+    terminal: &Terminal,
+    first_source_row: usize,
+    rows: u16,
+    columns: u16,
+) -> TerminalInlineImageProjection {
     let last_source_row = first_source_row.saturating_add(usize::from(rows));
     let terminal_fragments = terminal.inline_image_fragments();
     let fragment_parent_indices = terminal_fragments
@@ -5015,7 +5101,7 @@ fn render_inline_images_from_terminal(
         .into_iter()
         .filter_map(|fragment| {
             render_inline_image_fragment_item(
-                fragment,
+                &fragment,
                 &parent_indices,
                 first_source_row,
                 last_source_row,
@@ -5033,17 +5119,15 @@ fn render_inline_images_from_terminal(
 }
 
 fn render_inline_image_fragment_item(
-    fragment: InlineImageFragment,
+    fragment: &InlineImageFragment,
     parent_indices: &HashMap<usize, usize>,
     first_source_row: usize,
     last_source_row: usize,
     columns: u16,
-) -> Option<(RenderInlineImageFragment, ((usize, i64, i64), (i64, i64)))> {
-    if (!fragment.cell_attachment
-        && (fragment.row < first_source_row
-            || fragment.row >= last_source_row
-            || fragment.column >= columns))
-        || (fragment.cell_attachment && fragment.column >= columns)
+) -> Option<(RenderInlineImageFragment, AttachmentViewportOffset)> {
+    if fragment.column >= columns
+        || (!fragment.cell_attachment
+            && (fragment.row < first_source_row || fragment.row >= last_source_row))
     {
         return None;
     }
@@ -5972,6 +6056,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "this scenario intentionally covers a complete mutation and deletion lifecycle"
+    )]
     fn target_offset_cell_attachment_mutation_and_deletion_follow_runtime_geometry() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 3));
         terminal

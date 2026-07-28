@@ -308,6 +308,10 @@ impl AppShell {
     /// # Errors
     /// Returns an [`AppShellError`] when the action references an invalid ID or
     /// requests a forbidden operation (for example, closing the last tab/pane).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the complete action dispatch stays together so every variant remains visible"
+    )]
     pub fn apply_action(&mut self, action: AppAction) -> Result<(), AppShellError> {
         let clears_active_pane_unseen_output = !matches!(
             &action,
@@ -1777,10 +1781,10 @@ impl Tab {
         let mut valid_sources = vec![first.id()];
 
         for pane in self.panes.iter_mut().skip(1) {
-            if let Some(split) = pane.split.as_mut() {
-                if !valid_sources.contains(&split.source_pane) {
-                    split.source_pane = valid_sources[0];
-                }
+            if let Some(split) = pane.split.as_mut()
+                && !valid_sources.contains(&split.source_pane)
+            {
+                split.source_pane = valid_sources[0];
             }
             valid_sources.push(pane.id());
         }
@@ -2166,7 +2170,7 @@ fn preserve_split_source_size_delta(
         .unwrap_or(i32::MAX)
         .clamp(1, new_usable_cells - 1);
     let default_source_cells = new_usable_cells / 2;
-    i16::try_from(source_cells - default_source_cells).unwrap_or_else(|_| {
+    i16::try_from(source_cells - default_source_cells).unwrap_or({
         if source_cells < default_source_cells {
             i16::MIN
         } else {

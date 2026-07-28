@@ -1485,14 +1485,14 @@ mod tests {
         inserted.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
         inserted.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[2;1H\x1b[L");
         for (row, expected) in rows.into_iter().enumerate() {
-            assert_eq!(row_text(&inserted, row as u16), expected);
+            assert_eq!(row_text(&inserted, test_row_index(row)), expected);
         }
 
         let mut deleted = Terminal::new(TerminalSize::new(8, 4));
         deleted.feed(b"AA1111ZZ\r\nBB2222YY\r\nCC3333XX\r\nDD4444WW");
         deleted.feed(b"\x1b[?69h\x1b[3;6s\x1b[2;4r\x1b[2;8H\x1b[M");
         for (row, expected) in rows.into_iter().enumerate() {
-            assert_eq!(row_text(&deleted, row as u16), expected);
+            assert_eq!(row_text(&deleted, test_row_index(row)), expected);
         }
     }
 
@@ -1527,7 +1527,7 @@ mod tests {
             .into_iter()
             .enumerate()
         {
-            assert_eq!(row_text(&outside, row as u16), expected);
+            assert_eq!(row_text(&outside, test_row_index(row)), expected);
         }
         assert_eq!(outside.cursor(), (3, 0));
         assert!(outside.scrollback().is_empty());
@@ -1540,7 +1540,7 @@ mod tests {
             .into_iter()
             .enumerate()
         {
-            assert_eq!(row_text(&outside_index, row as u16), expected);
+            assert_eq!(row_text(&outside_index, test_row_index(row)), expected);
         }
         assert_eq!(outside_index.cursor(), (3, 0));
         assert!(outside_index.scrollback().is_empty());
@@ -1565,7 +1565,7 @@ mod tests {
             .into_iter()
             .enumerate()
         {
-            assert_eq!(row_text(&outside_right, row as u16), expected);
+            assert_eq!(row_text(&outside_right, test_row_index(row)), expected);
         }
         assert_eq!(outside_right.cursor(), (3, 2));
         assert!(outside_right.scrollback().is_empty());
@@ -1584,7 +1584,7 @@ mod tests {
                 .into_iter()
                 .enumerate()
             {
-                assert_eq!(row_text(&terminal, row as u16), expected);
+                assert_eq!(row_text(&terminal, test_row_index(row)), expected);
             }
             assert_eq!(terminal.cursor(), (2, 0));
         }
@@ -1600,7 +1600,7 @@ mod tests {
                 .into_iter()
                 .enumerate()
             {
-                assert_eq!(row_text(&terminal, row as u16), expected);
+                assert_eq!(row_text(&terminal, test_row_index(row)), expected);
             }
             assert_eq!(terminal.cursor(), (2, 7));
         }
@@ -1684,7 +1684,7 @@ mod tests {
             .into_iter()
             .enumerate()
         {
-            assert_eq!(row_text(&outside, row as u16), expected);
+            assert_eq!(row_text(&outside, test_row_index(row)), expected);
         }
         assert_eq!(outside.cursor(), (1, 0));
         assert!(outside.scrollback().is_empty());
@@ -5492,6 +5492,10 @@ mod tests {
         }
 
         text
+    }
+
+    fn test_row_index(row: usize) -> u16 {
+        u16::try_from(row).expect("test row index must fit u16")
     }
 
     fn scrollback_text(terminal: &Terminal, index: usize) -> String {

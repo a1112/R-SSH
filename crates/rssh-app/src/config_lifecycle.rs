@@ -852,19 +852,10 @@ pub(crate) struct StaticNativeConfigAssignment {
     pub(crate) location: SourceLocation,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct ValidatedNativeConfigAssignments {
     assignments: Vec<StaticNativeConfigAssignment>,
     default_overrides: NativeConfigOverrides,
-}
-
-impl Default for ValidatedNativeConfigAssignments {
-    fn default() -> Self {
-        Self {
-            assignments: Vec::new(),
-            default_overrides: NativeConfigOverrides::default(),
-        }
-    }
 }
 
 impl std::ops::Deref for ValidatedNativeConfigAssignments {
@@ -1013,7 +1004,7 @@ fn validate_assignment(
             validate_non_empty_string(&assignment.value)
         }
         "initial_cols" | "initial_rows" => {
-            validate_integer_range(&assignment.value, 1, u16::MAX as u64)
+            validate_integer_range(&assignment.value, 1, u64::from(u16::MAX))
         }
         "scrollback_lines" | "max_fps" => {
             validate_integer_range(&assignment.value, 0, usize::MAX as u64)
@@ -1110,7 +1101,7 @@ fn validate_color(value: &StaticLuaValue) -> Result<(), String> {
     value
         .parse::<wezterm_color_types::SrgbaTuple>()
         .map(|_| ())
-        .map_err(|_| format!("invalid color `{value}`"))
+        .map_err(|()| format!("invalid color `{value}`"))
 }
 
 fn validate_color_array(value: &StaticLuaValue, field: &str) -> Result<(), String> {
@@ -1134,7 +1125,7 @@ fn validate_tab_bar(value: &StaticLuaValue) -> Result<(), String> {
         match key {
             "background" | "inactive_tab_edge" => validate_color(value)?,
             "active_tab" | "inactive_tab" | "inactive_tab_hover" | "new_tab" | "new_tab_hover" => {
-                validate_tab_bar_item(value, key)?
+                validate_tab_bar_item(value, key)?;
             }
             _ => return Err(format!("unknown colors.tab_bar key `{key}`")),
         }
@@ -1344,7 +1335,11 @@ fn write_canonical_value_with_context(
                     '\r' => output.push_str("\\r"),
                     '\t' => output.push_str("\\t"),
                     character if character.is_control() => {
-                        output.push_str(&format!("\\u{{{:x}}}", character as u32));
+                        std::fmt::Write::write_fmt(
+                            output,
+                            format_args!("\\u{{{:x}}}", character as u32),
+                        )
+                        .expect("writing to a String cannot fail");
                     }
                     character => output.push(character),
                 }
@@ -1577,9 +1572,8 @@ impl<'a> Parser<'a> {
             let field = if self.peek() == Some('[') && self.long_bracket_level().is_none() {
                 self.bump();
                 self.skip_trivia()?;
-                let field = match self.parse_value()? {
-                    StaticLuaValue::String(field) => field,
-                    _ => return Err(self.syntax("config table bracket key must be a string")),
+                let StaticLuaValue::String(field) = self.parse_value()? else {
+                    return Err(self.syntax("config table bracket key must be a string"));
                 };
                 self.skip_trivia()?;
                 self.expect_char(']')?;
@@ -1633,7 +1627,7 @@ impl<'a> Parser<'a> {
     ) -> Result<StaticLuaValue, NativeConfigLoadError> {
         self.skip_trivia()?;
         match self.peek() {
-            Some('\'') | Some('"') => self.parse_string().map(StaticLuaValue::String),
+            Some('\'' | '"') => self.parse_string().map(StaticLuaValue::String),
             Some('[') if self.long_bracket_level().is_some() => {
                 self.parse_long_string().map(StaticLuaValue::String)
             }
@@ -1795,14 +1789,13 @@ impl<'a> Parser<'a> {
                 'a' => output.push('\x07'),
                 'b' => output.push('\x08'),
                 'f' => output.push('\x0c'),
-                'n' => output.push('\n'),
+                'n' | '\n' => output.push('\n'),
                 'r' => output.push('\r'),
                 't' => output.push('\t'),
                 'v' => output.push('\x0b'),
                 '\\' => output.push('\\'),
                 '\'' => output.push('\''),
                 '"' => output.push('"'),
-                '\n' => output.push('\n'),
                 '\r' => {
                     self.consume_char('\n');
                     output.push('\n');
@@ -2815,6 +2808,10 @@ mod tests {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     #[test]
     fn strict_registry_accepts_lifecycle_consumer_fields() {
         let source = r##"
@@ -3028,10 +3025,7 @@ mod tests {
             Some("value")
         );
         assert_eq!(
-            overrides
-                .key_assignments
-                .as_ref()
-                .map(|assignments| assignments.len()),
+            overrides.key_assignments.as_ref().map(std::vec::Vec::len),
             Some(1)
         );
         assert_eq!(

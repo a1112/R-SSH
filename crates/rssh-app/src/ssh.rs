@@ -311,10 +311,11 @@ fn native_request_for_options_with_resolver_secret_prompts(
     if matches!(request.auth, SshAuthMethod::PasswordPrompt) {
         request.auth = SshAuthMethod::password(password_prompt(&request)?)?;
     }
-    if let SshAuthMethod::PrivateKey { path, passphrase } = &mut request.auth {
-        if passphrase.is_none() && key_needs_passphrase(path)? {
-            *passphrase = Some(key_passphrase_prompt(path)?);
-        }
+    if let SshAuthMethod::PrivateKey { path, passphrase } = &mut request.auth
+        && passphrase.is_none()
+        && key_needs_passphrase(path)?
+    {
+        *passphrase = Some(key_passphrase_prompt(path)?);
     }
 
     Ok(request)

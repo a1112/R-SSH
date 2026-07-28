@@ -1,3 +1,11 @@
+#![cfg_attr(
+    test,
+    expect(
+        clippy::large_stack_arrays,
+        reason = "the generated binary test harness aggregates a large compatibility test inventory"
+    )
+)]
+
 mod bench;
 mod cli;
 mod config_lifecycle;

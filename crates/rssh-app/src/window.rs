@@ -1236,6 +1236,10 @@ impl NativeWindowBackgroundGradientOrientation {
         Some(Self::Linear { angle_millidegrees })
     }
 
+    #[expect(
+        clippy::similar_names,
+        reason = "singular and plural names mirror distinct compatibility API parameters"
+    )]
     fn parse_radial_lua_table(source: &str, value: &str, max_start: usize) -> Option<Self> {
         let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
         let static_source = Some(LuaStaticSource { source, max_start });
@@ -1865,6 +1869,10 @@ impl NativeCursorStyle {
     }
 }
 
+#[expect(
+    clippy::struct_field_names,
+    reason = "field names mirror the upstream configuration schema"
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 struct NativeCubicBezier {
@@ -2192,6 +2200,10 @@ impl NativeWindowCloseConfirmation {
     }
 }
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent compatibility flags represent valid combinations"
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 struct NativeWindowDecorations {
@@ -3147,6 +3159,10 @@ pub(crate) struct NativeTabBarItemColors {
 
 #[cfg(test)]
 impl NativeTabBarItemColors {
+    #[expect(
+        clippy::type_complexity,
+        reason = "tuple shape mirrors the compatibility data contract"
+    )]
     pub(crate) fn test_projection(
         &self,
     ) -> (
@@ -3547,6 +3563,10 @@ struct NativeTlsClientDomain {
     overlay_lag_indicator: bool,
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub(crate) struct NativePalette {
@@ -3625,7 +3645,11 @@ impl Default for NativePalette {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeResolvedPalette {
     foreground: Color,
@@ -3727,7 +3751,7 @@ impl Default for NativeResolvedPalette {
 
 /// Returns the default palette exposed by `wezterm.color.get_default_colors()`.
 ///
-/// This is pinned to WezTerm commit `093bf6b`, primarily
+/// This is pinned to `WezTerm` commit `093bf6b`, primarily
 /// `term/src/color.rs::ColorPalette::compute_default` and the conversion in
 /// `config/src/color.rs`. It intentionally does not use R-SSH's own palette
 /// defaults.
@@ -3890,7 +3914,7 @@ fn native_palette_from_overrides(overrides: &NativeConfigOverrides) -> NativePal
 }
 
 fn native_resolved_palette_with_overrides(
-    base: NativeResolvedPalette,
+    base: &NativeResolvedPalette,
     overrides: &NativeConfigOverrides,
 ) -> NativeResolvedPalette {
     let (ansi, brights) = overrides
@@ -3978,9 +4002,13 @@ fn native_resolved_palette_with_overrides(
 fn native_resolved_palette_from_overrides(
     overrides: &NativeConfigOverrides,
 ) -> NativeResolvedPalette {
-    native_resolved_palette_with_overrides(NativeResolvedPalette::default(), overrides)
+    native_resolved_palette_with_overrides(&NativeResolvedPalette::default(), overrides)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
@@ -4247,6 +4275,10 @@ struct NativeEffectiveConfig {
     show_tabs_in_tab_bar: bool,
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct NativeConfigOverrides {
     dpi: Option<u32>,
@@ -4519,6 +4551,10 @@ pub(crate) struct NativeConfigOverrides {
     show_tabs_in_tab_bar: Option<bool>,
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 #[allow(dead_code)]
 pub(crate) fn native_config_overrides_from_wezterm_lua_config(
     config: &str,
@@ -6038,48 +6074,45 @@ pub(crate) fn native_config_overrides_from_wezterm_lua_config(
         parsed = true;
         parsed_hyperlink_rules = true;
     }
-    if !parsed_hyperlink_rules {
-        if let Some(hyperlink_rules) =
+    if !parsed_hyperlink_rules
+        && let Some(hyperlink_rules) =
             lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
                 config,
                 "hyperlink_rules",
             )
-        {
-            let parsed_rules = native_hyperlink_rules_lua_table_from_query(
-                config,
-                &hyperlink_rules.value,
-                hyperlink_rules.max_start,
-            );
-            if let Some(default_rules) =
-                lua_config_hyperlink_rules_default_rules_with_static_inserts(
-                    config,
-                    hyperlink_rules.max_start,
-                )
-            {
-                overrides.hyperlink_rules = Some(default_rules);
-            } else if let Some(default_rules) =
-                lua_config_hyperlink_rules_default_rules_with_config_inserts(
-                    config,
-                    hyperlink_rules.max_start,
-                )
-            {
-                overrides.hyperlink_rules = Some(default_rules);
-            } else if lua_config_hyperlink_rules_extends_default_rules_before_offset(
+    {
+        let parsed_rules = native_hyperlink_rules_lua_table_from_query(
+            config,
+            &hyperlink_rules.value,
+            hyperlink_rules.max_start,
+        );
+        if let Some(default_rules) = lua_config_hyperlink_rules_default_rules_with_static_inserts(
+            config,
+            hyperlink_rules.max_start,
+        ) {
+            overrides.hyperlink_rules = Some(default_rules);
+        } else if let Some(default_rules) =
+            lua_config_hyperlink_rules_default_rules_with_config_inserts(
                 config,
                 hyperlink_rules.max_start,
             )
-            .unwrap_or(false)
-            {
-                let mut rules = parsed_rules?;
-                let mut defaults = default_hyperlink_rules();
-                defaults.append(&mut rules);
-                overrides.hyperlink_rules = Some(defaults);
-            } else {
-                overrides.hyperlink_rules = Some(parsed_rules?);
-            }
-            parsed = true;
-            parsed_hyperlink_rules = true;
+        {
+            overrides.hyperlink_rules = Some(default_rules);
+        } else if lua_config_hyperlink_rules_extends_default_rules_before_offset(
+            config,
+            hyperlink_rules.max_start,
+        )
+        .unwrap_or(false)
+        {
+            let mut rules = parsed_rules?;
+            let mut defaults = default_hyperlink_rules();
+            defaults.append(&mut rules);
+            overrides.hyperlink_rules = Some(defaults);
+        } else {
+            overrides.hyperlink_rules = Some(parsed_rules?);
         }
+        parsed = true;
+        parsed_hyperlink_rules = true;
     }
     if !parsed_hyperlink_rules
         && lua_config_hyperlink_rules_static_default_alias_before_offset(config, config.len())
@@ -6977,6 +7010,10 @@ fn lua_static_wezterm_window_title_return_event_from_query(
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_static_wezterm_window_title_return_event_from_statement(
     source: &str,
     start: usize,
@@ -7018,6 +7055,10 @@ fn lua_static_wezterm_tab_title_return_event_from_query(source: &str) -> Option<
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_static_wezterm_tab_title_return_event_from_statement(
     source: &str,
     start: usize,
@@ -7525,9 +7566,7 @@ fn lua_static_table_variable_field_path_assignment_from_query<'a>(
     start: usize,
     variable: &str,
 ) -> Option<LuaTableMapFieldPathAssignment<'a>> {
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -7567,6 +7606,10 @@ fn lua_table_map_field_path_from_query_with_static_source<'a>(
     (!keys.is_empty()).then_some((keys, rest))
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_static_table_field_path_value_from_query<'a>(
     static_source: LuaStaticSource<'a>,
     mut value: &'a str,
@@ -7599,7 +7642,7 @@ fn lua_static_table_field_path_value_from_query<'a>(
                     ),
                 );
             }
-        };
+        }
     }
     Some(Some(value))
 }
@@ -7837,10 +7880,7 @@ fn lua_static_wezterm_receiver_rest_from_expression<'a>(
     Some(rest)
 }
 
-fn lua_static_wezterm_on_event_args_from_statement<'a>(
-    source: &'a str,
-    start: usize,
-) -> Option<&'a str> {
+fn lua_static_wezterm_on_event_args_from_statement(source: &str, start: usize) -> Option<&str> {
     let statement = lua_trim_start_comments(source.get(start..)?)?;
     if let Some(rest) =
         lua_static_wezterm_on_event_args_from_wezterm_query(source, start, statement)
@@ -8141,9 +8181,13 @@ fn lua_static_wezterm_on_alias_value_from_query(
     lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
-fn lua_anonymous_function_body_and_format_tab_title_params_from_query<'a>(
-    value: &'a str,
-) -> Option<(&'a str, &'a str, &'a str, &'a str, Option<&'a str>)> {
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+fn lua_anonymous_function_body_and_format_tab_title_params_from_query(
+    value: &str,
+) -> Option<(&str, &str, &str, &str, Option<&str>)> {
     let (params, body) = lua_anonymous_function_params_and_body_from_query(value)?;
     let tab_param = lua_function_param_identifier(params.first()?)?;
     let tabs_param = params
@@ -8160,9 +8204,9 @@ fn lua_anonymous_function_body_and_format_tab_title_params_from_query<'a>(
     Some((body, tab_param, tabs_param, panes_param, hover_param))
 }
 
-fn lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query<'a>(
-    value: &'a str,
-) -> Option<(&'a str, &'a str, &'a str, Option<&'a str>)> {
+fn lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(
+    value: &str,
+) -> Option<(&str, &str, &str, Option<&str>)> {
     let (params, body) = lua_anonymous_function_params_and_body_from_query(value)?;
     let first_param = lua_function_param_identifier(params.first()?)?;
     let second_param = lua_function_param_identifier(params.get(1)?)?;
@@ -8172,9 +8216,13 @@ fn lua_anonymous_function_body_and_first_two_and_optional_third_params_from_quer
     Some((body, first_param, second_param, third_param))
 }
 
-fn lua_anonymous_function_body_and_first_two_and_optional_third_and_fourth_params_from_query<'a>(
-    value: &'a str,
-) -> Option<(&'a str, &'a str, &'a str, Option<&'a str>, Option<&'a str>)> {
+#[expect(
+    clippy::type_complexity,
+    reason = "tuple shape mirrors the compatibility data contract"
+)]
+fn lua_anonymous_function_body_and_first_two_and_optional_third_and_fourth_params_from_query(
+    value: &str,
+) -> Option<(&str, &str, &str, Option<&str>, Option<&str>)> {
     let (params, body) = lua_anonymous_function_params_and_body_from_query(value)?;
     let first_param = lua_function_param_identifier(params.first()?)?;
     let second_param = lua_function_param_identifier(params.get(1)?)?;
@@ -8187,9 +8235,9 @@ fn lua_anonymous_function_body_and_first_two_and_optional_third_and_fourth_param
     Some((body, first_param, second_param, third_param, fourth_param))
 }
 
-fn lua_anonymous_function_body_and_first_four_params_from_query<'a>(
-    value: &'a str,
-) -> Option<(&'a str, &'a str, &'a str, &'a str, &'a str)> {
+fn lua_anonymous_function_body_and_first_four_params_from_query(
+    value: &str,
+) -> Option<(&str, &str, &str, &str, &str)> {
     let (params, body) = lua_anonymous_function_params_and_body_from_query(value)?;
     let first_param = lua_function_param_identifier(params.first()?)?;
     let second_param = lua_function_param_identifier(params.get(1)?)?;
@@ -8203,9 +8251,7 @@ fn lua_anonymous_function_body_from_query(value: &str) -> Option<&str> {
     Some(body)
 }
 
-fn lua_anonymous_function_params_and_body_from_query<'a>(
-    value: &'a str,
-) -> Option<(Vec<&'a str>, &'a str)> {
+fn lua_anonymous_function_params_and_body_from_query(value: &str) -> Option<(Vec<&str>, &str)> {
     let value = lua_trim_start_comments(value)?;
     if !lua_source_keyword_at(value, 0, "function") {
         return None;
@@ -8335,6 +8381,10 @@ fn lua_static_function_body_until_end(value: &str) -> Option<&str> {
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_static_window_title_return_from_function_body(
     body: &str,
     tab_param: &str,
@@ -8413,6 +8463,10 @@ fn lua_static_window_title_return_from_function_body(
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_static_window_title_conditional_return_from_function_body(
     body: &str,
     tab_param: &str,
@@ -8489,6 +8543,10 @@ fn lua_static_window_title_conditional_return_from_function_body(
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_static_window_title_first_return_parts_from_nested_body(
     outer_body: &str,
     nested_body: &str,
@@ -8520,6 +8578,10 @@ fn lua_static_window_title_first_return_parts_from_nested_body(
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_static_window_title_fallback_return_parts_after_if(
     outer_body: &str,
     rest_after_if: &str,
@@ -8554,6 +8616,14 @@ fn lua_static_window_title_fallback_return_parts_after_if(
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "compatibility operation requires the complete evaluation context"
+)]
 fn lua_window_title_return_parts_from_statement(
     source: &str,
     start: usize,
@@ -8579,6 +8649,14 @@ fn lua_window_title_return_parts_from_statement(
     )
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "compatibility operation requires the complete evaluation context"
+)]
 fn lua_dynamic_window_title_return_from_statement(
     source: &str,
     start: usize,
@@ -8594,7 +8672,7 @@ fn lua_dynamic_window_title_return_from_statement(
         return None;
     }
     let rest = lua_trim_start_comments(rest)?;
-    let rest = lua_trim_end_statement_separator(rest)?;
+    let rest = lua_trim_end_statement_separator(rest);
     let static_source = LuaStaticSource {
         source,
         max_start: start,
@@ -8648,6 +8726,10 @@ fn lua_window_title_event_field_return_from_statement(
     Some(NativeLuaWindowTitle::ActivePaneTitle)
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_window_title_text_parts_from_expression(
     expression: &str,
     tab_param: &str,
@@ -8669,6 +8751,18 @@ fn lua_window_title_text_parts_from_expression(
     )
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "compatibility operation requires the complete evaluation context"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_window_title_text_parts_from_expression_with_depth(
     expression: &str,
     tab_param: &str,
@@ -8766,7 +8860,7 @@ fn lua_window_title_text_parts_from_expression_with_depth(
         let mut has_dynamic_part = false;
         for segment in split_lua_string_concat_segments(expression)? {
             let segment = lua_trim_start_comments(segment.trim())?;
-            let segment = lua_trim_end_statement_separator(segment)?;
+            let segment = lua_trim_end_statement_separator(segment);
             if let Some(part) = lua_window_title_text_part_from_expression(
                 segment,
                 tab_param,
@@ -8818,6 +8912,14 @@ fn lua_window_title_text_parts_from_expression_with_depth(
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_window_title_text_part_from_expression(
     expression: &str,
     tab_param: &str,
@@ -9003,6 +9105,10 @@ fn lua_window_title_active_pane_text_parts() -> [(&'static str, NativeLuaWindowT
     ]
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_window_title_helper_call_parts_from_expression(
     expression: &str,
     tab_param: &str,
@@ -9050,6 +9156,14 @@ fn lua_window_title_helper_call_parts_from_expression(
     )
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "compatibility operation requires the complete evaluation context"
+)]
 fn lua_static_window_title_helper_function_parts_before_offset(
     source: &str,
     function_name: &str,
@@ -9085,6 +9199,10 @@ fn lua_static_window_title_helper_function_parts_before_offset(
     selected
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_window_title_helper_function_parts_from_statement(
     statement: &str,
     function_name: &str,
@@ -9122,6 +9240,10 @@ fn lua_window_title_helper_function_parts_from_statement(
     )
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_window_title_return_text_parts_from_function_body(
     body: &str,
     tab_param: &str,
@@ -9172,6 +9294,14 @@ fn lua_window_title_return_text_parts_from_function_body(
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_window_title_explicit_title_fallback_parts_from_function_body(
     body: &str,
     tab_param: &str,
@@ -9418,6 +9548,14 @@ fn lua_window_title_active_pane_progress_expression_from_query(
     Some(lua_static_identifier_value_rest_is_statement_end(rest))
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "compatibility operation requires the complete evaluation context"
+)]
 fn lua_window_title_conditional_assignment_parts_before_offset(
     source: &str,
     expression: &str,
@@ -9521,6 +9659,14 @@ fn lua_window_title_conditional_assignment_parts_before_offset(
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "compatibility operation requires the complete evaluation context"
+)]
 fn lua_window_title_else_assignment_parts(
     else_body: Option<&str>,
     source: &str,
@@ -9556,6 +9702,14 @@ fn lua_window_title_else_assignment_parts(
     )
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "compatibility operation requires the complete evaluation context"
+)]
 fn lua_window_title_assignment_parts(
     source: &str,
     branch_start: usize,
@@ -9569,7 +9723,7 @@ fn lua_window_title_assignment_parts(
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<Vec<NativeLuaWindowTitlePart>> {
     let value = lua_trim_start_comments(value.trim())?;
-    let value = lua_trim_end_statement_separator(value)?;
+    let value = lua_trim_end_statement_separator(value);
     let Some(segments) = split_lua_string_concat_segments(value) else {
         if lua_window_title_expression_is_variable(value, variable) {
             return lua_window_title_previous_assignment_parts(
@@ -9623,7 +9777,7 @@ fn lua_window_title_assignment_parts(
     let mut parts = Vec::new();
     for segment in segments {
         let segment = lua_trim_start_comments(segment.trim())?;
-        let segment = lua_trim_end_statement_separator(segment)?;
+        let segment = lua_trim_end_statement_separator(segment);
         if lua_window_title_expression_is_variable(segment, variable) {
             parts.extend(previous_parts.clone());
             continue;
@@ -9644,6 +9798,14 @@ fn lua_window_title_assignment_parts(
     (!parts.is_empty()).then_some(parts)
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "compatibility operation requires the complete evaluation context"
+)]
 fn lua_window_title_previous_assignment_parts(
     source: &str,
     before_start: usize,
@@ -9687,6 +9849,10 @@ fn lua_window_title_expression_is_variable(expression: &str, variable: &str) -> 
     lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_window_title_condition_from_expression(
     condition: &str,
     tab_param: &str,
@@ -9908,9 +10074,7 @@ fn lua_window_title_count_greater_than_condition(
     count_param: &str,
 ) -> Option<usize> {
     let count_expression = condition.strip_prefix('#')?;
-    let Some(rest) = count_expression.strip_prefix(count_param) else {
-        return None;
-    };
+    let rest = count_expression.strip_prefix(count_param)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
@@ -9921,6 +10085,10 @@ fn lua_window_title_count_greater_than_condition(
     lua_static_identifier_value_rest_is_statement_end(after_count).then(|| count.parse().ok())?
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_window_title_tab_index_format_part_from_expression(
     expression: &str,
     tab_param: &str,
@@ -9934,6 +10102,10 @@ fn lua_window_title_tab_index_format_part_from_expression(
     })
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_tab_index_count_format_from_expression(
     expression: &str,
     tab_param: &str,
@@ -9976,9 +10148,7 @@ fn lua_window_title_tab_index_offset_from_expression(
     tab_param: &str,
 ) -> Option<usize> {
     let tab_index = format!("{tab_param}.tab_index");
-    let Some(rest) = expression.strip_prefix(&tab_index) else {
-        return None;
-    };
+    let rest = expression.strip_prefix(&tab_index)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
@@ -9994,9 +10164,7 @@ fn lua_window_title_tab_index_offset_from_expression(
 
 fn lua_window_title_tab_count_expression(expression: &str, tabs_param: &str) -> Option<()> {
     let rest = expression.strip_prefix('#')?;
-    let Some(rest) = rest.strip_prefix(tabs_param) else {
-        return None;
-    };
+    let rest = rest.strip_prefix(tabs_param)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
@@ -10068,7 +10236,7 @@ fn lua_static_string_concat_return_from_statement(
     let mut value = String::new();
     for segment in split_lua_string_concat_segments(rest)? {
         let segment = lua_trim_start_comments(segment.trim())?;
-        let segment = lua_trim_end_statement_separator(segment)?;
+        let segment = lua_trim_end_statement_separator(segment);
         value.push_str(&parse_maybe_static_query_text_with_static_sources(
             Some(static_source),
             outer_static_source,
@@ -10178,14 +10346,18 @@ fn split_lua_string_concat_segments(value: &str) -> Option<Vec<&str>> {
     (segments.len() > 1).then_some(segments)
 }
 
-fn lua_trim_end_statement_separator(value: &str) -> Option<&str> {
+fn lua_trim_end_statement_separator(value: &str) -> &str {
     let value = value.trim_end();
     if let Some(value) = value.strip_suffix(';') {
-        return Some(value.trim_end());
+        return value.trim_end();
     }
-    Some(value)
+    value
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_static_tab_title_return_from_function_body(
     body: &str,
     tab_param: &str,
@@ -10282,7 +10454,7 @@ fn lua_static_new_tab_button_click_allow_default_from_function_body(
         else {
             continue;
         };
-        if !lua_trim_end_statement_separator(rest_after_if)?
+        if !lua_trim_end_statement_separator(rest_after_if)
             .trim()
             .is_empty()
         {
@@ -10381,7 +10553,7 @@ fn lua_static_new_tab_button_click_performs_default_action_with_static_source(
 ) -> Option<bool> {
     let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
     for (index, start) in starts.iter().copied().enumerate() {
-        let end = starts.get(index + 1).copied().unwrap_or_else(|| body.len());
+        let end = starts.get(index + 1).copied().unwrap_or(body.len());
         let statement = lua_trim_start_comments(body.get(start..end)?)?;
         let static_source = LuaStaticSource {
             source: body,
@@ -10426,7 +10598,7 @@ fn lua_new_tab_button_click_statement_performs_default_action(
     if let Some((branches, rest)) =
         lua_static_if_condition_and_body_branches_from_statement(statement)
     {
-        if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
+        if !lua_trim_end_statement_separator(rest).trim().is_empty() {
             return Some(false);
         }
         for (condition, body) in branches {
@@ -11062,6 +11234,10 @@ fn lua_static_open_uri_prefix_return_from_function_body(
     None
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_static_open_uri_prefix_action_from_function_body(
     body: &str,
     window_param: &str,
@@ -11071,7 +11247,7 @@ fn lua_static_open_uri_prefix_action_from_function_body(
 ) -> Option<Option<NativeLuaOpenUriAction>> {
     let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
     for (index, start) in starts.iter().copied().enumerate() {
-        let end = starts.get(index + 1).copied().unwrap_or_else(|| body.len());
+        let end = starts.get(index + 1).copied().unwrap_or(body.len());
         let statement = lua_trim_start_comments(body.get(start..end)?)?;
         let Some(action_query) =
             lua_callback_statement_perform_action_query(statement, window_param, pane_param)
@@ -11119,7 +11295,7 @@ fn lua_static_open_uri_action_from_query(
     } else if rest.starts_with('(') {
         let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
         let (arguments, after) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
-        if !lua_trim_end_statement_separator(after)?.trim().is_empty() {
+        if !lua_trim_end_statement_separator(after).trim().is_empty() {
             return None;
         }
         let arguments = split_lua_top_level_arguments(arguments)?;
@@ -11216,6 +11392,10 @@ fn lua_static_open_uri_suffix_value_from_expression(
     .map(|matched| matched.is_some())
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_open_uri_suffix_assignment_before_offset_from_query(
     source: &str,
     variable: &str,
@@ -11268,7 +11448,7 @@ fn lua_open_uri_suffix_from_expression(value: &str, uri_param: &str) -> Option<b
     let rest = lua_trim_start_comments(rest.get("sub".len()..)?)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
     let (arguments, after) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
-    if !lua_trim_end_statement_separator(after)?.trim().is_empty() {
+    if !lua_trim_end_statement_separator(after).trim().is_empty() {
         return Some(false);
     }
     let arguments = split_lua_top_level_arguments(arguments)?;
@@ -11383,6 +11563,10 @@ fn lua_open_uri_find_prefix_from_expression(value: &str, uri_param: &str) -> Opt
     lua_static_string_value_from_expression(None, None, prefix_expression)
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_static_tab_title_return_from_statement_as_lua_title(
     source: &str,
     start: usize,
@@ -11446,6 +11630,14 @@ fn lua_static_tab_title_return_from_statement_as_lua_title(
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_static_tab_title_conditional_return_from_function_body(
     body: &str,
     tab_param: &str,
@@ -11569,6 +11761,10 @@ fn lua_static_tab_title_conditional_return_from_function_body(
     })
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_static_tab_title_fallback_return_after_if(
     outer_body: &str,
     rest_after_if: &str,
@@ -11611,6 +11807,14 @@ fn lua_static_tab_title_fallback_return_statement_after_if<'a>(
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "compatibility operation requires the complete evaluation context"
+)]
 fn lua_static_tab_title_return_with_branch_assignments(
     body: &str,
     if_start: usize,
@@ -11642,6 +11846,10 @@ fn lua_static_tab_title_return_with_branch_assignments(
     )
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_static_tab_title_first_return_from_nested_body(
     outer_body: &str,
     nested_body: &str,
@@ -11672,6 +11880,10 @@ fn lua_static_tab_title_first_return_from_nested_body(
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_tab_title_condition_from_expression(
     condition: &str,
     tab_param: &str,
@@ -11995,6 +12207,10 @@ fn lua_tab_title_user_var_name_and_rest_from_rest<'a>(
     Some((name, rest))
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_tab_title_event_field_return_from_statement(
     statement: &str,
     tab_param: &str,
@@ -12103,6 +12319,10 @@ fn lua_tab_title_event_field_return_from_statement(
     Some(NativeLuaTabTitle::ActivePaneTitle)
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_dynamic_tab_title_concat_return_from_statement(
     source: &str,
     start: usize,
@@ -12130,7 +12350,7 @@ fn lua_dynamic_tab_title_concat_return_from_statement(
     let mut has_dynamic_part = false;
     for segment in split_lua_string_concat_segments(rest)? {
         let segment = lua_trim_start_comments(segment.trim())?;
-        let segment = lua_trim_end_statement_separator(segment)?;
+        let segment = lua_trim_end_statement_separator(segment);
         if let Some(part) = lua_tab_title_text_part_from_expression(
             segment,
             tab_param,
@@ -12154,6 +12374,14 @@ fn lua_dynamic_tab_title_concat_return_from_statement(
     has_dynamic_part.then_some(NativeLuaTabTitle::Concat(parts))
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_tab_title_text_part_from_expression(
     expression: &str,
     tab_param: &str,
@@ -12296,12 +12524,8 @@ fn lua_tab_title_text_part_from_expression(
 fn lua_tab_title_active_pane_progress_field_from_rest(
     rest: &str,
 ) -> Option<NativeLuaTabTitleProgressField> {
-    let Some(rest) = lua_trim_start_comments(rest).and_then(|rest| rest.strip_prefix('.')) else {
-        return None;
-    };
-    let Some(field) = lua_identifier_literal_from_query(rest) else {
-        return None;
-    };
+    let rest = lua_trim_start_comments(rest).and_then(|rest| rest.strip_prefix('.'))?;
+    let field = lua_identifier_literal_from_query(rest)?;
     if !lua_trim_start_comments(rest.get(field.len()..).unwrap_or_default())
         .is_some_and(str::is_empty)
     {
@@ -12446,6 +12670,10 @@ fn lua_tab_title_active_pane_progress_expression_from_query(
     Some(lua_static_identifier_value_rest_is_statement_end(rest))
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_dynamic_tab_title_format_return_from_statement(
     source: &str,
     start: usize,
@@ -12476,6 +12704,10 @@ fn lua_dynamic_tab_title_format_return_from_statement(
     has_dynamic_item.then_some(NativeLuaTabTitle::Format(items))
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn native_lua_format_items_from_lua_format_items_table_query(
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
@@ -12537,6 +12769,10 @@ fn native_lua_format_items_from_lua_format_items_table_query(
     Some((items, has_dynamic_item))
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_dynamic_tab_title_text_return_from_statement(
     source: &str,
     start: usize,
@@ -12551,7 +12787,7 @@ fn lua_dynamic_tab_title_text_return_from_statement(
         return None;
     }
     let rest = lua_trim_start_comments(rest)?;
-    let rest = lua_trim_end_statement_separator(rest)?;
+    let rest = lua_trim_end_statement_separator(rest);
     let static_source = LuaStaticSource {
         source,
         max_start: start,
@@ -12567,6 +12803,10 @@ fn lua_dynamic_tab_title_text_return_from_statement(
     Some(NativeLuaTabTitle::Concat(parts))
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn native_lua_format_item_from_lua_table_query(
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
@@ -12607,6 +12847,10 @@ fn native_lua_format_item_from_lua_table_query(
     item
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_tab_title_text_parts_from_expression(
     expression: &str,
     tab_param: &str,
@@ -12628,6 +12872,10 @@ fn lua_tab_title_text_parts_from_expression(
 
 const LUA_TAB_TITLE_PARSE_MAX_DEPTH: usize = 16;
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_tab_title_text_parts_from_expression_with_depth(
     expression: &str,
     tab_param: &str,
@@ -12705,7 +12953,7 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
     let mut has_dynamic_part = false;
     for segment in split_lua_string_concat_segments(expression)? {
         let segment = lua_trim_start_comments(segment.trim())?;
-        let segment = lua_trim_end_statement_separator(segment)?;
+        let segment = lua_trim_end_statement_separator(segment);
         if let Some(part) = lua_tab_title_text_part_from_expression(
             segment,
             tab_param,
@@ -12739,6 +12987,10 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
     has_dynamic_part.then_some(parts)
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_tab_title_truncate_parts_from_expression(
     expression: &str,
     tab_param: &str,
@@ -12853,6 +13105,10 @@ fn lua_tab_title_truncate_right_max_width_offset(expression: &str) -> Option<usi
     lua_static_identifier_value_rest_is_statement_end(rest).then(|| offset.parse().ok())?
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_tab_title_helper_call_parts_from_expression(
     expression: &str,
     tab_param: &str,
@@ -12898,6 +13154,10 @@ fn lua_tab_title_helper_call_parts_from_expression(
     )
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_static_tab_title_helper_function_parts_before_offset(
     source: &str,
     function_name: &str,
@@ -13090,6 +13350,10 @@ fn lua_tab_title_helper_function_parts_from_statement(
     )
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_tab_title_return_text_parts_from_function_body(
     body: &str,
     tab_param: &str,
@@ -13137,6 +13401,10 @@ fn lua_tab_title_return_text_parts_from_function_body(
     None
 }
 
+#[expect(
+    clippy::similar_names,
+    reason = "singular and plural names mirror distinct compatibility API parameters"
+)]
 fn lua_tab_title_explicit_title_fallback_parts_from_function_body(
     body: &str,
     tab_param: &str,
@@ -13255,7 +13523,7 @@ fn lua_static_return_expression_from_statement(statement: &str) -> Option<&str> 
         return None;
     }
     let rest = lua_trim_start_comments(rest)?;
-    lua_trim_end_statement_separator(rest)
+    Some(lua_trim_end_statement_separator(rest))
 }
 
 fn lua_static_if_condition_and_body_branches_from_statement(
@@ -13269,6 +13537,10 @@ fn lua_static_if_condition_and_body_branches_from_statement(
     Some((branches, rest))
 }
 
+#[expect(
+    clippy::type_complexity,
+    reason = "tuple shape mirrors the compatibility data contract"
+)]
 fn lua_static_if_condition_and_body_branches_and_else_from_statement(
     statement: &str,
 ) -> Option<(Vec<(&str, &str)>, Option<&str>, &str)> {
@@ -13314,6 +13586,10 @@ fn lua_static_if_condition_and_body_branches_and_else_from_statement(
     Some((branches, else_body, rest.get("end".len()..)?))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_static_if_branch_body_and_rest_from_query(value: &str) -> Option<(&str, &str)> {
     let mut quote = None;
     let mut escape = false;
@@ -13414,13 +13690,13 @@ fn lua_static_if_branch_body_and_rest_from_query(value: &str) -> Option<(&str, &
             continue;
         }
 
-        if lua_block_depth == 0 && table_depth == 0 {
-            if lua_source_keyword_at(value, index, "elseif")
+        if lua_block_depth == 0
+            && table_depth == 0
+            && (lua_source_keyword_at(value, index, "elseif")
                 || lua_source_keyword_at(value, index, "else")
-                || lua_source_keyword_at(value, index, "end")
-            {
-                return Some((value.get(..index)?.trim(), value.get(index..)?));
-            }
+                || lua_source_keyword_at(value, index, "end"))
+        {
+            return Some((value.get(..index)?.trim(), value.get(index..)?));
         }
 
         if lua_source_keyword_at(value, index, "end")
@@ -13743,6 +14019,10 @@ fn lua_static_window_config_overrides_from_statement(
     )
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_static_window_config_overrides_from_query(
     argument: &str,
     static_source: Option<LuaStaticSource<'_>>,
@@ -14106,6 +14386,10 @@ fn lua_static_user_var_changed_from_function_body(
     (update.left_status.is_some() || update.right_status.is_some()).then_some(update)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "compatibility operation requires the complete evaluation context"
+)]
 fn lua_static_user_var_changed_status_setter_from_statement(
     statement: &str,
     static_source: LuaStaticSource<'_>,
@@ -14157,6 +14441,10 @@ fn lua_static_user_var_changed_status_setter_from_statement(
     )
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_static_user_var_changed_status_text_from_query(
     value: &str,
     window_name: &str,
@@ -14995,6 +15283,10 @@ fn lua_static_window_dimensions_status_text_from_query(
     has_dynamic_part.then_some(NativeLuaWindowStatusText::WindowDimensions { parts })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_static_window_effective_config_status_text_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
@@ -16894,6 +17186,10 @@ fn lua_static_window_keyboard_modifiers_variables_from_statement(
     Some((modifiers_variable.to_owned(), leds_variable.to_owned()))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_static_window_status_variable_text_from_query(
     static_source: LuaStaticSource<'_>,
     window_name: &str,
@@ -17627,6 +17923,10 @@ fn lua_window_effective_config_field_from_query_with_static_sources(
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_window_effective_config_field_from_query_with_static_source(
     value: &str,
     window_name: &str,
@@ -18509,7 +18809,7 @@ enum NativeColorSchemeLuaSource<'a> {
     },
 }
 
-impl<'a> NativeColorSchemeLuaSource<'a> {
+impl NativeColorSchemeLuaSource<'_> {
     fn with_entry_mutation(
         mut self,
         entry_mutation: NativeColorSchemeEntryVariableReference,
@@ -18765,7 +19065,7 @@ fn apply_lua_color_scheme_config_mutations_to_map(
         let base = schemes.remove(&name)?;
         schemes.insert(
             name,
-            native_resolved_palette_with_overrides(base, &overrides),
+            native_resolved_palette_with_overrides(&base, &overrides),
         );
         parsed = true;
     }
@@ -18773,6 +19073,10 @@ fn apply_lua_color_scheme_config_mutations_to_map(
     Some(parsed)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn native_color_schemes_from_wezterm_lua_config(
     config: &str,
     receiver: &str,
@@ -18898,6 +19202,10 @@ fn apply_lua_color_scheme_entry_mutation_overrides(
     Some(parsed)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_color_scheme_entry_mutation_table_from_query(
     source: &str,
     color_scheme: &str,
@@ -19204,12 +19512,8 @@ fn lua_color_scheme_entry_mutation_rest_from_query<'a>(
     let rest = match target {
         NativeColorSchemeEntryMutationTarget::Config { receiver } => {
             let rest = lua_config_receiver_prefix_rest(query, receiver)?;
-            let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('.') else {
-                return None;
-            };
-            let Some(rest) = rest.strip_prefix("color_schemes") else {
-                return None;
-            };
+            let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+            let rest = rest.strip_prefix("color_schemes")?;
             if rest.chars().next().is_some_and(is_lua_identifier_character) {
                 return None;
             }
@@ -19223,9 +19527,7 @@ fn lua_color_scheme_entry_mutation_rest_from_query<'a>(
             rest
         }
     };
-    let Some((name, rest)) = color_scheme_lua_table_assignment_key_from_query(rest) else {
-        return None;
-    };
+    let (name, rest) = color_scheme_lua_table_assignment_key_from_query(rest)?;
     if name != color_scheme {
         return None;
     }
@@ -19237,6 +19539,10 @@ fn lua_color_scheme_entry_mutation_rest_from_query<'a>(
     Some(rest)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn color_scheme_lua_source_from_config_query<'a>(
     source: &'a str,
     color_scheme: &str,
@@ -19263,6 +19569,10 @@ fn color_scheme_lua_source_from_config_query<'a>(
     Some(selected)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn color_scheme_lua_variable_assignment_from_config_query<'a>(
     source: &'a str,
     color_scheme: &str,
@@ -19280,6 +19590,10 @@ fn color_scheme_lua_variable_assignment_from_config_query<'a>(
     color_scheme_lua_variable_assignment_before_offset(source, variable, color_scheme, max_start)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn color_scheme_lua_variable_assignment_before_offset<'a>(
     source: &'a str,
     variable: &str,
@@ -19320,6 +19634,10 @@ fn color_scheme_lua_variable_assignment_before_offset<'a>(
     Some(selected)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn color_scheme_lua_source_from_query<'a>(
     source: &'a str,
     color_schemes: &'a str,
@@ -19352,6 +19670,10 @@ fn color_scheme_lua_source_from_query<'a>(
     Some(selected)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn color_scheme_lua_assignment_from_query<'a>(
     source: &'a str,
     color_scheme: &str,
@@ -19390,6 +19712,10 @@ fn color_scheme_lua_assignment_from_query<'a>(
     Some(selected)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn color_scheme_lua_assignment_end_from_query(
     source: &str,
     color_scheme: &str,
@@ -19511,6 +19837,10 @@ fn color_scheme_lua_source_value_from_query<'a>(
     lua_color_variable_source_before_offset(source, variable, max_start)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_color_variable_source_before_offset<'a>(
     source: &'a str,
     variable: &str,
@@ -19695,6 +20025,10 @@ fn lua_top_level_logical_statements_before_offset(
     Some(statements)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_color_variable_known_binding_from_query<'a>(
     source: &'a str,
     statement: &'a str,
@@ -19820,6 +20154,10 @@ fn lua_single_identifier_assignment_from_query(statement: &str) -> Option<(Strin
     ))
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_palette_mutation_event_from_statement(
     source: &str,
     statement_range: LuaLogicalStatement,
@@ -20076,6 +20414,10 @@ fn apply_builtin_color_scheme_overrides(
     apply_toml_colors_table_overrides(colors, overrides)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
     match color_scheme {
         "3024 (base16)" => Some(BUILTIN_3024_BASE16_COLOR_SCHEME_TOML),
@@ -20216,8 +20558,9 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
             Some(BUILTIN_BESPIN_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
         "Bim (Gogh)" => Some(BUILTIN_BIM_GOGH_COLOR_SCHEME_TOML),
-        "Birds Of Paradise (Gogh)" => Some(BUILTIN_BIRDSOFPARADISE_COLOR_SCHEME_TOML),
-        "BirdsOfParadise" => Some(BUILTIN_BIRDSOFPARADISE_COLOR_SCHEME_TOML),
+        "Birds Of Paradise (Gogh)" | "BirdsOfParadise" => {
+            Some(BUILTIN_BIRDSOFPARADISE_COLOR_SCHEME_TOML)
+        }
         "Bitmute (terminal.sexy)" => Some(BUILTIN_BITMUTE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Black Metal (base16)" => Some(BUILTIN_BLACK_METAL_BASE16_COLOR_SCHEME_TOML),
         "Black Metal (Bathory) (base16)" => {
@@ -20304,13 +20647,14 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Catppuccin Frappe" => Some(BUILTIN_CATPPUCCIN_FRAPPE_COLOR_SCHEME_TOML),
         "Catppuccin Frapp\u{e9} (Gogh)" => Some(BUILTIN_CATPPUCCIN_FRAPPE_GOGH_COLOR_SCHEME_TOML),
         "Catppuccin Latte" => Some(BUILTIN_CATPPUCCIN_LATTE_COLOR_SCHEME_TOML),
-        "Catppuccin Latte (Gogh)" => Some(BUILTIN_CATPPUCCIN_LATTE_ALIAS_COLOR_SCHEME_TOML),
+        "Catppuccin Latte (Gogh)" | "catppuccin-latte" => {
+            Some(BUILTIN_CATPPUCCIN_LATTE_ALIAS_COLOR_SCHEME_TOML)
+        }
         "Catppuccin Macchiato" => Some(BUILTIN_CATPPUCCIN_MACCHIATO_COLOR_SCHEME_TOML),
         "Catppuccin Macchiato (Gogh)" => Some(BUILTIN_CATPPUCCIN_MACCHIATO_GOGH_COLOR_SCHEME_TOML),
         "Catppuccin Mocha" => Some(BUILTIN_CATPPUCCIN_MOCHA_COLOR_SCHEME_TOML),
         "Catppuccin Mocha (Gogh)" => Some(BUILTIN_CATPPUCCIN_MOCHA_GOGH_COLOR_SCHEME_TOML),
         "catppuccin-frappe" => Some(BUILTIN_CATPPUCCIN_FRAPPE_ALIAS_COLOR_SCHEME_TOML),
-        "catppuccin-latte" => Some(BUILTIN_CATPPUCCIN_LATTE_ALIAS_COLOR_SCHEME_TOML),
         "catppuccin-macchiato" => Some(BUILTIN_CATPPUCCIN_MACCHIATO_ALIAS_COLOR_SCHEME_TOML),
         "catppuccin-mocha" => Some(BUILTIN_CATPPUCCIN_MOCHA_ALIAS_COLOR_SCHEME_TOML),
         "CGA" => Some(BUILTIN_CGA_COLOR_SCHEME_TOML),
@@ -20341,10 +20685,9 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Cloud (terminal.sexy)" => Some(BUILTIN_CLOUD_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "CLRS" => Some(BUILTIN_CLRS_COLOR_SCHEME_TOML),
         "Clrs (Gogh)" => Some(BUILTIN_CLRS_GOGH_COLOR_SCHEME_TOML),
-        "Cobalt 2 (Gogh)" => Some(BUILTIN_COBALT2_COLOR_SCHEME_TOML),
+        "Cobalt 2 (Gogh)" | "Cobalt2" => Some(BUILTIN_COBALT2_COLOR_SCHEME_TOML),
         "Cobalt Neon" | "CobaltNeon (Gogh)" => Some(BUILTIN_COBALT_NEON_COLOR_SCHEME_TOML),
         "Cobalt Neon (Gogh)" => Some(BUILTIN_COBALT_NEON_GOGH_COLOR_SCHEME_TOML),
-        "Cobalt2" => Some(BUILTIN_COBALT2_COLOR_SCHEME_TOML),
         "Codeschool (base16)" => Some(BUILTIN_CODESCHOOL_BASE16_COLOR_SCHEME_TOML),
         "Codeschool (dark) (terminal.sexy)" => {
             Some(BUILTIN_CODESCHOOL_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
@@ -20362,8 +20705,9 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Count Von Count (terminal.sexy)" => {
             Some(BUILTIN_COUNT_VON_COUNT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
-        "Crayon Pony Fish (Gogh)" => Some(BUILTIN_CRAYON_PONY_FISH_COLOR_SCHEME_TOML),
-        "CrayonPonyFish" => Some(BUILTIN_CRAYON_PONY_FISH_COLOR_SCHEME_TOML),
+        "Crayon Pony Fish (Gogh)" | "CrayonPonyFish" => {
+            Some(BUILTIN_CRAYON_PONY_FISH_COLOR_SCHEME_TOML)
+        }
         "Cupcake (base16)" => Some(BUILTIN_CUPCAKE_BASE16_COLOR_SCHEME_TOML),
         "Cupertino (base16)" => Some(BUILTIN_CUPERTINO_BASE16_COLOR_SCHEME_TOML),
         "CutiePro" => Some(BUILTIN_CUTIEPRO_COLOR_SCHEME_TOML),
@@ -20404,8 +20748,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Desert" => Some(BUILTIN_DESERT_COLOR_SCHEME_TOML),
         "Desert (Gogh)" => Some(BUILTIN_DESERT_GOGH_COLOR_SCHEME_TOML),
         "Digerati (terminal.sexy)" => Some(BUILTIN_DIGERATI_TERMINAL_SEXY_COLOR_SCHEME_TOML),
-        "Dimmed Monokai (Gogh)" => Some(BUILTIN_DIMMED_MONOKAI_COLOR_SCHEME_TOML),
-        "DimmedMonokai" => Some(BUILTIN_DIMMED_MONOKAI_COLOR_SCHEME_TOML),
+        "Dimmed Monokai (Gogh)" | "DimmedMonokai" => Some(BUILTIN_DIMMED_MONOKAI_COLOR_SCHEME_TOML),
         "dirtysea (base16)" => Some(BUILTIN_DIRTYSEA_BASE16_COLOR_SCHEME_TOML),
         "Dissonance (Gogh)" => Some(BUILTIN_DISSONANCE_GOGH_COLOR_SCHEME_TOML),
         "Django" => Some(BUILTIN_DJANGO_COLOR_SCHEME_TOML),
@@ -20559,14 +20902,15 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Framer (base16)" => Some(BUILTIN_FRAMER_BASE16_COLOR_SCHEME_TOML),
         "Freya (Gogh)" => Some(BUILTIN_FREYA_GOGH_COLOR_SCHEME_TOML),
         "Frontend Delight (Gogh)" => Some(BUILTIN_FRONTENDDELIGHT_COLOR_SCHEME_TOML),
-        "Frontend Fun Forrest (Gogh)" => Some(BUILTIN_FUNFORREST_COLOR_SCHEME_TOML),
+        "Frontend Fun Forrest (Gogh)" | "FunForrest" | "FrontendFunForrest (Gogh)" => {
+            Some(BUILTIN_FUNFORREST_COLOR_SCHEME_TOML)
+        }
         "Frontend Galaxy (Gogh)" | "FrontendGalaxy (Gogh)" => {
             Some(BUILTIN_GALAXY_COLOR_SCHEME_TOML)
         }
         "FrontEndDelight" | "FrontendDelight (Gogh)" => {
             Some(BUILTIN_FRONTENDDELIGHT_COLOR_SCHEME_TOML)
         }
-        "FunForrest" | "FrontendFunForrest (Gogh)" => Some(BUILTIN_FUNFORREST_COLOR_SCHEME_TOML),
         "Fruit Soda (base16)" => Some(BUILTIN_FRUIT_SODA_BASE16_COLOR_SCHEME_TOML),
         "Galaxy" => Some(BUILTIN_GALAXY_COLOR_SCHEME_TOML),
         "Galizur" => Some(BUILTIN_GALIZUR_COLOR_SCHEME_TOML),
@@ -20583,11 +20927,12 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Gnometerm (terminal.sexy)" => Some(BUILTIN_GNOMETERM_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Gogh (Gogh)" => Some(BUILTIN_GOGH_GOGH_COLOR_SCHEME_TOML),
         "Gooey (Gogh)" | "gooey (Gogh)" => Some(BUILTIN_GOOEY_GOGH_COLOR_SCHEME_TOML),
-        "Google (dark) (terminal.sexy)" => Some(BUILTIN_GOOGLE_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Google (dark) (terminal.sexy)" | "Google Dark (base16)" => {
+            Some(BUILTIN_GOOGLE_DARK_BASE16_COLOR_SCHEME_TOML)
+        }
         "Google (light) (terminal.sexy)" => {
             Some(BUILTIN_GOOGLE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
-        "Google Dark (base16)" => Some(BUILTIN_GOOGLE_DARK_BASE16_COLOR_SCHEME_TOML),
         "Google Dark (Gogh)" | "GoogleDark (Gogh)" => {
             Some(BUILTIN_GOOGLE_DARK_GOGH_COLOR_SCHEME_TOML)
         }
@@ -20602,11 +20947,12 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Grape (Gogh)" => Some(BUILTIN_GRAPE_GOGH_COLOR_SCHEME_TOML),
         "Grass" => Some(BUILTIN_GRASS_COLOR_SCHEME_TOML),
         "Grass (Gogh)" => Some(BUILTIN_GRASS_GOGH_COLOR_SCHEME_TOML),
-        "Grayscale (dark) (terminal.sexy)" => Some(BUILTIN_GRAYSCALE_DARK_BASE16_COLOR_SCHEME_TOML),
+        "Grayscale (dark) (terminal.sexy)" | "Grayscale Dark (base16)" => {
+            Some(BUILTIN_GRAYSCALE_DARK_BASE16_COLOR_SCHEME_TOML)
+        }
         "Grayscale (light) (terminal.sexy)" => {
             Some(BUILTIN_GRAYSCALE_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
-        "Grayscale Dark (base16)" => Some(BUILTIN_GRAYSCALE_DARK_BASE16_COLOR_SCHEME_TOML),
         "Grayscale Light (base16)" => Some(BUILTIN_GRAYSCALE_LIGHT_BASE16_COLOR_SCHEME_TOML),
         "Green Screen (base16)" => Some(BUILTIN_GREEN_SCREEN_BASE16_COLOR_SCHEME_TOML),
         "Greenscreen (dark) (terminal.sexy)" => {
@@ -20618,7 +20964,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Grey-green" => Some(BUILTIN_GREY_GREEN_COLOR_SCHEME_TOML),
         "Gruber (base16)" => Some(BUILTIN_GRUBER_BASE16_COLOR_SCHEME_TOML),
         "Gruvbox (Gogh)" => Some(BUILTIN_GRUVBOX_GOGH_COLOR_SCHEME_TOML),
-        "Gruvbox Dark (Gogh)" => Some(BUILTIN_GRUVBOXDARK_COLOR_SCHEME_TOML),
+        "Gruvbox Dark (Gogh)" | "GruvboxDark" => Some(BUILTIN_GRUVBOXDARK_COLOR_SCHEME_TOML),
         "Gruvbox dark, hard (base16)" => Some(BUILTIN_GRUVBOX_DARK_HARD_BASE16_COLOR_SCHEME_TOML),
         "Gruvbox dark, medium (base16)" => {
             Some(BUILTIN_GRUVBOX_DARK_MEDIUM_BASE16_COLOR_SCHEME_TOML)
@@ -20631,7 +20977,6 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Gruvbox light, soft (base16)" => Some(BUILTIN_GRUVBOX_LIGHT_SOFT_BASE16_COLOR_SCHEME_TOML),
         "Gruvbox Material (Gogh)" => Some(BUILTIN_GRUVBOX_MATERIAL_GOGH_COLOR_SCHEME_TOML),
-        "GruvboxDark" => Some(BUILTIN_GRUVBOXDARK_COLOR_SCHEME_TOML),
         "GruvboxDarkHard" => Some(BUILTIN_GRUVBOXDARKHARD_COLOR_SCHEME_TOML),
         "GruvboxLight" | "Gruvbox Light" => Some(BUILTIN_GRUVBOXLIGHT_COLOR_SCHEME_TOML),
         "Guezwhoz" => Some(BUILTIN_GUEZWHOZ_COLOR_SCHEME_TOML),
@@ -20663,11 +21008,12 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Hivacruz" => Some(BUILTIN_HIVACRUZ_COLOR_SCHEME_TOML),
         "Homebrew" => Some(BUILTIN_HOMEBREW_COLOR_SCHEME_TOML),
         "Homebrew (Gogh)" => Some(BUILTIN_HOMEBREW_GOGH_COLOR_SCHEME_TOML),
-        "Homebrew Light (Gogh)" => Some(BUILTIN_TERMINAL_BASIC_COLOR_SCHEME_TOML),
-        "Homebrew Ocean (Gogh)" => Some(BUILTIN_OCEAN_COLOR_SCHEME_TOML),
+        "Homebrew Light (Gogh)" | "Terminal Basic" | "TerminalBasic (Gogh)" => {
+            Some(BUILTIN_TERMINAL_BASIC_COLOR_SCHEME_TOML)
+        }
+        "Homebrew Ocean (Gogh)" | "Ocean" => Some(BUILTIN_OCEAN_COLOR_SCHEME_TOML),
         "Hopscotch" => Some(BUILTIN_HOPSCOTCH_COLOR_SCHEME_TOML),
-        "Hopscotch (base16)" => Some(BUILTIN_HOPSCOTCH_256_COLOR_SCHEME_TOML),
-        "Hopscotch.256" => Some(BUILTIN_HOPSCOTCH_256_COLOR_SCHEME_TOML),
+        "Hopscotch (base16)" | "Hopscotch.256" => Some(BUILTIN_HOPSCOTCH_256_COLOR_SCHEME_TOML),
         "Horizon Bright (Gogh)" | "HorizonBright (Gogh)" => {
             Some(BUILTIN_HORIZON_BRIGHT_GOGH_COLOR_SCHEME_TOML)
         }
@@ -20691,16 +21037,18 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Ic Green Ppl (Gogh)" | "ICGreenPPL (Gogh)" => {
             Some(BUILTIN_IC_GREEN_PPL_GOGH_COLOR_SCHEME_TOML)
         }
-        "Ic Orange Ppl (Gogh)" => Some(BUILTIN_IC_ORANGE_PPL_COLOR_SCHEME_TOML),
+        "Ic Orange Ppl (Gogh)" | "IC_Orange_PPL" | "ICOrangePPL (Gogh)" => {
+            Some(BUILTIN_IC_ORANGE_PPL_COLOR_SCHEME_TOML)
+        }
         "IC_Green_PPL" => Some(BUILTIN_IC_GREEN_PPL_COLOR_SCHEME_TOML),
-        "IC_Orange_PPL" | "ICOrangePPL (Gogh)" => Some(BUILTIN_IC_ORANGE_PPL_COLOR_SCHEME_TOML),
         "Iceberg (Gogh)" => Some(BUILTIN_ICEBERG_GOGH_COLOR_SCHEME_TOML),
         "iceberg-dark" => Some(BUILTIN_ICEBERG_DARK_COLOR_SCHEME_TOML),
         "iceberg-light" => Some(BUILTIN_ICEBERG_LIGHT_COLOR_SCHEME_TOML),
         "Icy Dark (base16)" => Some(BUILTIN_ICY_DARK_BASE16_COLOR_SCHEME_TOML),
         "idea" => Some(BUILTIN_IDEA_COLOR_SCHEME_TOML),
-        "Idle Toes (Gogh)" => Some(BUILTIN_IDLETOES_COLOR_SCHEME_TOML),
-        "idleToes" | "IdleToes (Gogh)" => Some(BUILTIN_IDLETOES_COLOR_SCHEME_TOML),
+        "Idle Toes (Gogh)" | "idleToes" | "IdleToes (Gogh)" => {
+            Some(BUILTIN_IDLETOES_COLOR_SCHEME_TOML)
+        }
         "Iiamblack (terminal.sexy)" => Some(BUILTIN_IIAMBLACK_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Insignificato (terminal.sexy)" => {
             Some(BUILTIN_INSIGNIFICATO_TERMINAL_SEXY_COLOR_SCHEME_TOML)
@@ -20760,11 +21108,10 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Lavandula" => Some(BUILTIN_LAVANDULA_COLOR_SCHEME_TOML),
         "Lavandula (Gogh)" => Some(BUILTIN_LAVANDULA_GOGH_COLOR_SCHEME_TOML),
         "Light White (terminal.sexy)" => Some(BUILTIN_LIGHT_WHITE_TERMINAL_SEXY_COLOR_SCHEME_TOML),
-        "Liquid Carbon (Gogh)" => Some(BUILTIN_LIQUIDCARBON_COLOR_SCHEME_TOML),
+        "Liquid Carbon (Gogh)" | "LiquidCarbon" => Some(BUILTIN_LIQUIDCARBON_COLOR_SCHEME_TOML),
         "Liquid Carbon Transparent (Gogh)" => {
             Some(BUILTIN_LIQUIDCARBONTRANSPARENT_COLOR_SCHEME_TOML)
         }
-        "LiquidCarbon" => Some(BUILTIN_LIQUIDCARBON_COLOR_SCHEME_TOML),
         "LiquidCarbonTransparent" => Some(BUILTIN_LIQUIDCARBONTRANSPARENT_COLOR_SCHEME_TOML),
         "LiquidCarbonTransparentInverse" => {
             Some(BUILTIN_LIQUIDCARBONTRANSPARENTINVERSE_COLOR_SCHEME_TOML)
@@ -20858,8 +21205,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Modus-Vivendi-Tritanopia" => Some(BUILTIN_MODUS_VIVENDI_TRITANOPIA_COLOR_SCHEME_TOML),
         "Molokai" => Some(BUILTIN_MOLOKAI_COLOR_SCHEME_TOML),
         "Molokai (Gogh)" => Some(BUILTIN_MOLOKAI_GOGH_COLOR_SCHEME_TOML),
-        "Mona Lisa (Gogh)" => Some(BUILTIN_MONALISA_COLOR_SCHEME_TOML),
-        "MonaLisa" => Some(BUILTIN_MONALISA_COLOR_SCHEME_TOML),
+        "Mona Lisa (Gogh)" | "MonaLisa" => Some(BUILTIN_MONALISA_COLOR_SCHEME_TOML),
         "Mono (terminal.sexy)" => Some(BUILTIN_MONO_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Mono Amber (Gogh)" | "mono-amber (Gogh)" => {
             Some(BUILTIN_MONO_AMBER_GOGH_COLOR_SCHEME_TOML)
@@ -20954,15 +21300,15 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "NvimLight" => Some(BUILTIN_NVIMLIGHT_COLOR_SCHEME_TOML),
         "Obsidian" => Some(BUILTIN_OBSIDIAN_COLOR_SCHEME_TOML),
         "Obsidian (Gogh)" => Some(BUILTIN_OBSIDIAN_GOGH_COLOR_SCHEME_TOML),
-        "Ocean" => Some(BUILTIN_OCEAN_COLOR_SCHEME_TOML),
         "Ocean (base16)" => Some(BUILTIN_OCEAN_BASE16_COLOR_SCHEME_TOML),
         "Ocean (dark) (terminal.sexy)" => Some(BUILTIN_OCEAN_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML),
         "Ocean (light) (terminal.sexy)" => {
             Some(BUILTIN_OCEAN_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
         "Ocean Dark (Gogh)" | "OceanDark (Gogh)" => Some(BUILTIN_OCEAN_DARK_GOGH_COLOR_SCHEME_TOML),
-        "Oceanic Next (Gogh)" => Some(BUILTIN_OCEANIC_NEXT_COLOR_SCHEME_TOML),
-        "Oceanic-Next" | "OceanicNext (Gogh)" => Some(BUILTIN_OCEANIC_NEXT_COLOR_SCHEME_TOML),
+        "Oceanic Next (Gogh)" | "Oceanic-Next" | "OceanicNext (Gogh)" => {
+            Some(BUILTIN_OCEANIC_NEXT_COLOR_SCHEME_TOML)
+        }
         "OceanicMaterial" => Some(BUILTIN_OCEANICMATERIAL_COLOR_SCHEME_TOML),
         "OceanicNext (base16)" => Some(BUILTIN_OCEANICNEXT_BASE16_COLOR_SCHEME_TOML),
         "Ollie" => Some(BUILTIN_OLLIE_COLOR_SCHEME_TOML),
@@ -20997,12 +21343,13 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Papercolor Light (Gogh)" | "PaperColorLight (Gogh)" => {
             Some(BUILTIN_PAPERCOLOR_LIGHT_GOGH_COLOR_SCHEME_TOML)
         }
-        "Paraiso (base16)" => Some(BUILTIN_PARAISO_DARK_COLOR_SCHEME_TOML),
-        "Paraiso (dark) (terminal.sexy)" => Some(BUILTIN_PARAISO_DARK_COLOR_SCHEME_TOML),
+        "Paraiso (base16)"
+        | "Paraiso (dark) (terminal.sexy)"
+        | "Paraiso Dark"
+        | "ParaisoDark (Gogh)" => Some(BUILTIN_PARAISO_DARK_COLOR_SCHEME_TOML),
         "Paraiso (light) (terminal.sexy)" => {
             Some(BUILTIN_PARAISO_LIGHT_TERMINAL_SEXY_COLOR_SCHEME_TOML)
         }
-        "Paraiso Dark" | "ParaisoDark (Gogh)" => Some(BUILTIN_PARAISO_DARK_COLOR_SCHEME_TOML),
         "Paraiso Dark (Gogh)" => Some(BUILTIN_PARAISO_DARK_GOGH_COLOR_SCHEME_TOML),
         "Parker Brothers (terminal.sexy)" => {
             Some(BUILTIN_PARKER_BROTHERS_TERMINAL_SEXY_COLOR_SCHEME_TOML)
@@ -21013,10 +21360,8 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "Paul Millr (Gogh)" | "PaulMillr (Gogh)" => Some(BUILTIN_PAUL_MILLR_GOGH_COLOR_SCHEME_TOML),
         "PaulMillr" => Some(BUILTIN_PAULMILLR_COLOR_SCHEME_TOML),
-        "Pencil Dark (Gogh)" => Some(BUILTIN_PENCILDARK_COLOR_SCHEME_TOML),
-        "Pencil Light (Gogh)" => Some(BUILTIN_PENCILLIGHT_COLOR_SCHEME_TOML),
-        "PencilDark" => Some(BUILTIN_PENCILDARK_COLOR_SCHEME_TOML),
-        "PencilLight" => Some(BUILTIN_PENCILLIGHT_COLOR_SCHEME_TOML),
+        "Pencil Dark (Gogh)" | "PencilDark" => Some(BUILTIN_PENCILDARK_COLOR_SCHEME_TOML),
+        "Pencil Light (Gogh)" | "PencilLight" => Some(BUILTIN_PENCILLIGHT_COLOR_SCHEME_TOML),
         "Peppermint" => Some(BUILTIN_PEPPERMINT_COLOR_SCHEME_TOML),
         "Peppermint (Gogh)" => Some(BUILTIN_PEPPERMINT_GOGH_COLOR_SCHEME_TOML),
         "PhD (base16)" => Some(BUILTIN_PHD_BASE16_COLOR_SCHEME_TOML),
@@ -21100,10 +21445,9 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Sandcastle (base16)" => Some(BUILTIN_SANDCASTLE_BASE16_COLOR_SCHEME_TOML),
         "Sat (Gogh)" => Some(BUILTIN_SAT_GOGH_COLOR_SCHEME_TOML),
         "Scarlet Protocol" => Some(BUILTIN_SCARLET_PROTOCOL_COLOR_SCHEME_TOML),
-        "Sea Shells (Gogh)" => Some(BUILTIN_SEASHELLS_COLOR_SCHEME_TOML),
+        "Sea Shells (Gogh)" | "SeaShells" => Some(BUILTIN_SEASHELLS_COLOR_SCHEME_TOML),
         "Seafoam Pastel" | "SeafoamPastel (Gogh)" => Some(BUILTIN_SEAFOAM_PASTEL_COLOR_SCHEME_TOML),
         "Seafoam Pastel (Gogh)" => Some(BUILTIN_SEAFOAM_PASTEL_GOGH_COLOR_SCHEME_TOML),
-        "SeaShells" => Some(BUILTIN_SEASHELLS_COLOR_SCHEME_TOML),
         "Selenized Black (Gogh)" => Some(BUILTIN_SELENIZED_BLACK_GOGH_COLOR_SCHEME_TOML),
         "Selenized Dark (Gogh)" => Some(BUILTIN_SELENIZED_DARK_GOGH_COLOR_SCHEME_TOML),
         "Selenized Light (Gogh)" => Some(BUILTIN_SELENIZED_LIGHT_GOGH_COLOR_SCHEME_TOML),
@@ -21144,8 +21488,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Snazzy" => Some(BUILTIN_SNAZZY_COLOR_SCHEME_TOML),
         "Snazzy (base16)" => Some(BUILTIN_SNAZZY_BASE16_COLOR_SCHEME_TOML),
         "Snazzy (Gogh)" => Some(BUILTIN_SNAZZY_GOGH_COLOR_SCHEME_TOML),
-        "Soft Server (Gogh)" => Some(BUILTIN_SOFTSERVER_COLOR_SCHEME_TOML),
-        "SoftServer" => Some(BUILTIN_SOFTSERVER_COLOR_SCHEME_TOML),
+        "Soft Server (Gogh)" | "SoftServer" => Some(BUILTIN_SOFTSERVER_COLOR_SCHEME_TOML),
         "Solar Flare (base16)" => Some(BUILTIN_SOLAR_FLARE_BASE16_COLOR_SCHEME_TOML),
         "Solar Flare Light (base16)" => Some(BUILTIN_SOLAR_FLARE_LIGHT_BASE16_COLOR_SCHEME_TOML),
         "Solarized (dark) (terminal.sexy)" => {
@@ -21239,7 +21582,6 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "tender (base16)" => Some(BUILTIN_TENDER_BASE16_COLOR_SCHEME_TOML),
         "Tender (Gogh)" => Some(BUILTIN_TENDER_GOGH_COLOR_SCHEME_TOML),
         "terafox" => Some(BUILTIN_TERAFOX_COLOR_SCHEME_TOML),
-        "Terminal Basic" | "TerminalBasic (Gogh)" => Some(BUILTIN_TERMINAL_BASIC_COLOR_SCHEME_TOML),
         "Terminal Basic (Gogh)" => Some(BUILTIN_TERMINAL_BASIC_GOGH_COLOR_SCHEME_TOML),
         "Terminix Dark (Gogh)" | "TerminixDark (Gogh)" => {
             Some(BUILTIN_TERMINIX_DARK_GOGH_COLOR_SCHEME_TOML)
@@ -21267,13 +21609,16 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Tokyo Night Storm (Gogh)" | "TokyoNightStorm (Gogh)" => {
             Some(BUILTIN_TOKYO_NIGHT_STORM_GOGH_COLOR_SCHEME_TOML)
         }
-        "tokyonight" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_NIGHT_COLOR_SCHEME_TOML),
-        "tokyonight-day" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_DAY_COLOR_SCHEME_TOML),
-        "tokyonight-storm" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_STORM_COLOR_SCHEME_TOML),
-        "tokyonight_day" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_DAY_COLOR_SCHEME_TOML),
+        "tokyonight" | "tokyonight_night" => {
+            Some(BUILTIN_TOKYONIGHT_UNDERSCORE_NIGHT_COLOR_SCHEME_TOML)
+        }
+        "tokyonight-day" | "tokyonight_day" => {
+            Some(BUILTIN_TOKYONIGHT_UNDERSCORE_DAY_COLOR_SCHEME_TOML)
+        }
+        "tokyonight-storm" | "tokyonight_storm" => {
+            Some(BUILTIN_TOKYONIGHT_UNDERSCORE_STORM_COLOR_SCHEME_TOML)
+        }
         "tokyonight_moon" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_MOON_COLOR_SCHEME_TOML),
-        "tokyonight_night" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_NIGHT_COLOR_SCHEME_TOML),
-        "tokyonight_storm" => Some(BUILTIN_TOKYONIGHT_UNDERSCORE_STORM_COLOR_SCHEME_TOML),
         "Tomorrow" => Some(BUILTIN_TOMORROW_COLOR_SCHEME_TOML),
         "Tomorrow (dark) (terminal.sexy)" => {
             Some(BUILTIN_TOMORROW_DARK_TERMINAL_SEXY_COLOR_SCHEME_TOML)
@@ -21299,8 +21644,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Tomorrow Night Eighties (Gogh)" | "TomorrowNightEighties (Gogh)" => {
             Some(BUILTIN_TOMORROW_NIGHT_EIGHTIES_GOGH_COLOR_SCHEME_TOML)
         }
-        "Toy Chest (Gogh)" => Some(BUILTIN_TOY_CHEST_COLOR_SCHEME_TOML),
-        "ToyChest" => Some(BUILTIN_TOY_CHEST_COLOR_SCHEME_TOML),
+        "Toy Chest (Gogh)" | "ToyChest" => Some(BUILTIN_TOY_CHEST_COLOR_SCHEME_TOML),
         "Treehouse" => Some(BUILTIN_TREEHOUSE_COLOR_SCHEME_TOML),
         "Treehouse (Gogh)" => Some(BUILTIN_TREEHOUSE_GOGH_COLOR_SCHEME_TOML),
         "Trim Yer Beard (terminal.sexy)" => {
@@ -21336,8 +21680,7 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         "Vaughn" => Some(BUILTIN_VAUGHN_COLOR_SCHEME_TOML),
         "Vaughn (Gogh)" => Some(BUILTIN_VAUGHN_GOGH_COLOR_SCHEME_TOML),
         "Vesper" => Some(BUILTIN_VESPER_COLOR_SCHEME_TOML),
-        "Vibrant Ink (Gogh)" => Some(BUILTIN_VIBRANTINK_COLOR_SCHEME_TOML),
-        "VibrantInk" => Some(BUILTIN_VIBRANTINK_COLOR_SCHEME_TOML),
+        "Vibrant Ink (Gogh)" | "VibrantInk" => Some(BUILTIN_VIBRANTINK_COLOR_SCHEME_TOML),
         "Vice Alt (base16)" => Some(BUILTIN_VICE_ALT_BASE16_COLOR_SCHEME_TOML),
         "Vice Dark (base16)" => Some(BUILTIN_VICE_DARK_BASE16_COLOR_SCHEME_TOML),
         "vimbones" => Some(BUILTIN_VIMBONES_COLOR_SCHEME_TOML),
@@ -21356,14 +21699,12 @@ fn builtin_color_scheme_toml(color_scheme: &str) -> Option<&'static str> {
         }
         "vulcan (base16)" => Some(BUILTIN_VULCAN_BASE16_COLOR_SCHEME_TOML),
         "VWbug (terminal.sexy)" => Some(BUILTIN_VWBUG_TERMINAL_SEXY_COLOR_SCHEME_TOML),
-        "Warm Neon (Gogh)" => Some(BUILTIN_WARMNEON_COLOR_SCHEME_TOML),
-        "WarmNeon" => Some(BUILTIN_WARMNEON_COLOR_SCHEME_TOML),
+        "Warm Neon (Gogh)" | "WarmNeon" => Some(BUILTIN_WARMNEON_COLOR_SCHEME_TOML),
         "Website (Gogh)" => Some(BUILTIN_WEBSITE_GOGH_COLOR_SCHEME_TOML),
         "Wez" => Some(BUILTIN_WEZ_COLOR_SCHEME_TOML),
         "Wez (Gogh)" => Some(BUILTIN_WEZ_GOGH_COLOR_SCHEME_TOML),
         "Whimsy" => Some(BUILTIN_WHIMSY_COLOR_SCHEME_TOML),
-        "Wild Cherry (Gogh)" => Some(BUILTIN_WILDCHERRY_COLOR_SCHEME_TOML),
-        "WildCherry" => Some(BUILTIN_WILDCHERRY_COLOR_SCHEME_TOML),
+        "Wild Cherry (Gogh)" | "WildCherry" => Some(BUILTIN_WILDCHERRY_COLOR_SCHEME_TOML),
         "wilmersdorf" => Some(BUILTIN_WILMERSDORF_COLOR_SCHEME_TOML),
         "Windows 10 (base16)" => Some(BUILTIN_WINDOWS_10_BASE16_COLOR_SCHEME_TOML),
         "Windows 10 Light (base16)" => Some(BUILTIN_WINDOWS_10_LIGHT_BASE16_COLOR_SCHEME_TOML),
@@ -61847,6 +62188,10 @@ fn default_toml_color_scheme_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn apply_toml_color_scheme_dir_overrides(
     color_scheme_dir: &Path,
     color_scheme: &str,
@@ -61916,6 +62261,10 @@ fn toml_color_scheme_name_matches(scheme: &toml::Value, path: &Path, color_schem
     )
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn apply_toml_colors_table_overrides(
     colors: &toml::Value,
     overrides: &mut NativeConfigOverrides,
@@ -62086,6 +62435,10 @@ fn apply_toml_colors_table_overrides(
     Some(parsed)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn toml_table_field<'a>(
     value: &'a toml::Value,
     field_name: &str,
@@ -62094,6 +62447,10 @@ fn toml_table_field<'a>(
     Some(table.get(field_name))
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn toml_string_table_field_from_query<'a>(
     value: &'a toml::Value,
     field_name: &str,
@@ -62104,6 +62461,10 @@ fn toml_string_table_field_from_query<'a>(
     Some(Some(value.as_str()?))
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn toml_color_table_field_from_query(
     value: &toml::Value,
     field_name: &str,
@@ -62114,6 +62475,10 @@ fn toml_color_table_field_from_query(
     Some(Some(lua_opaque_color_from_query(value)?))
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn toml_selection_fg_table_field_from_query(value: &toml::Value) -> Option<Option<Option<Color>>> {
     let Some(value) = toml_string_table_field_from_query(value, "selection_fg")? else {
         return Some(None);
@@ -62125,6 +62490,10 @@ fn toml_selection_fg_table_field_from_query(value: &toml::Value) -> Option<Optio
     }))
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn toml_selection_bg_table_field_from_query(value: &toml::Value) -> Option<Option<Color>> {
     let Some(value) = toml_string_table_field_from_query(value, "selection_bg")? else {
         return Some(None);
@@ -62132,6 +62501,10 @@ fn toml_selection_bg_table_field_from_query(value: &toml::Value) -> Option<Optio
     Some(Some(lua_color_from_query(value)?))
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn toml_color_array_table_field_from_query(
     value: &toml::Value,
     field_name: &str,
@@ -62147,6 +62520,10 @@ fn toml_color_array_table_field_from_query(
     Some(Some(<[Color; 8]>::try_from(parsed).ok()?))
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn toml_indexed_palette_table_field_from_query(
     value: &toml::Value,
 ) -> Option<Option<[Option<Color>; 256]>> {
@@ -62164,6 +62541,10 @@ fn toml_indexed_palette_table_field_from_query(
     Some(Some(palette))
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn toml_tab_bar_background_from_query(value: &toml::Value) -> Option<Option<Color>> {
     let Some(tab_bar) = toml_table_field(value, "tab_bar")? else {
         return Some(None);
@@ -62171,6 +62552,10 @@ fn toml_tab_bar_background_from_query(value: &toml::Value) -> Option<Option<Colo
     toml_color_table_field_from_query(tab_bar, "background")
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn toml_tab_bar_inactive_tab_edge_from_query(value: &toml::Value) -> Option<Option<Color>> {
     let Some(tab_bar) = toml_table_field(value, "tab_bar")? else {
         return Some(None);
@@ -62178,6 +62563,10 @@ fn toml_tab_bar_inactive_tab_edge_from_query(value: &toml::Value) -> Option<Opti
     toml_color_table_field_from_query(tab_bar, "inactive_tab_edge")
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn toml_tab_bar_item_colors_from_query(
     value: &toml::Value,
     item_name: &str,
@@ -62219,6 +62608,10 @@ fn toml_tab_bar_item_colors_from_query(
     Some(parsed.then_some(colors))
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn toml_bool_table_field_from_query(value: &toml::Value, field_name: &str) -> Option<Option<bool>> {
     let Some(value) = toml_table_field(value, field_name)? else {
         return Some(None);
@@ -62226,6 +62619,10 @@ fn toml_bool_table_field_from_query(value: &toml::Value, field_name: &str) -> Op
     Some(Some(value.as_bool()?))
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn toml_color_spec_table_field_from_query(
     value: &toml::Value,
     field_name: &str,
@@ -62253,6 +62650,10 @@ fn toml_color_spec_from_query(value: &toml::Value) -> Option<NativeColorSpec> {
     color
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn apply_lua_colors_table_overrides(
     static_source: Option<LuaStaticSource<'_>>,
     colors: &str,
@@ -62536,6 +62937,10 @@ fn apply_lua_color_variable_mutation_overrides(
     Some(parsed)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_color_variable_mutation_field_state(
     source: &str,
     variable: &str,
@@ -63053,7 +63458,7 @@ fn lua_wezterm_font_family_call_assignment_value_from_query(query: &str) -> Opti
         }
         return query.get(..query.len() - after_table.len() + ')'.len_utf8());
     }
-    let quote = rest.find(|character| character == '\'' || character == '"')?;
+    let quote = rest.find(['\'', '"'])?;
     let literal = lua_quoted_string_literal_from_query(rest.get(quote..)?)?;
     let literal_end = rest_start + quote + literal.len();
     let mut end = literal_end;
@@ -63237,6 +63642,10 @@ fn lua_static_wezterm_font_value_assignment_before_offset_from_query<'a>(
     selected
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_static_wezterm_font_alias_kind_before_offset(
     source: &str,
     alias: &str,
@@ -63380,6 +63789,10 @@ struct LuaTableMapAssignment {
     variable: Option<String>,
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
     source: &str,
     field: &str,
@@ -63729,6 +64142,10 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
     selected
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_config_table_map_assignment_with_field_mutations_from_query(
     source: &str,
     field: &str,
@@ -63851,6 +64268,10 @@ fn lua_config_table_map_assignment_with_field_mutations_from_query(
     selected
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_config_u32_array_assignment_with_insert_appends_with_max_start_from_query(
     source: &str,
     field: &str,
@@ -64126,6 +64547,10 @@ fn lua_config_u32_array_assignment_with_insert_appends_with_max_start_from_query
     selected
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_config_string_array_assignment_with_insert_appends_with_max_start_from_query(
     source: &str,
     field: &str,
@@ -64404,6 +64829,10 @@ fn lua_config_string_array_assignment_with_insert_appends_with_max_start_from_qu
     selected
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_query(
     source: &str,
 ) -> Option<LuaTableAssignmentWithMaxStart> {
@@ -64869,9 +65298,7 @@ fn lua_static_table_variable_field_assignment_from_query<'a>(
     start: usize,
     variable: &str,
 ) -> Option<LuaTableMapFieldAssignment<'a>> {
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -65011,8 +65438,8 @@ fn lua_table_array_index_access_rest_from_query_with_static_source<'a>(
     Some((index, rest))
 }
 
-fn lua_config_table_insert_append_value_from_query<'a>(
-    source: &'a str,
+fn lua_config_table_insert_append_value_from_query(
+    source: &str,
     start: usize,
     receiver: &str,
     field: &str,
@@ -65059,8 +65486,8 @@ fn lua_config_table_insert_append_value_from_query<'a>(
     })
 }
 
-fn lua_config_table_index_or_append_assignment_from_query<'a>(
-    source: &'a str,
+fn lua_config_table_index_or_append_assignment_from_query(
+    source: &str,
     start: usize,
     receiver: &str,
     field: &str,
@@ -65099,8 +65526,8 @@ fn lua_config_table_index_or_append_assignment_from_query<'a>(
     })
 }
 
-fn lua_config_u32_array_insert_append_value_from_query<'a>(
-    source: &'a str,
+fn lua_config_u32_array_insert_append_value_from_query(
+    source: &str,
     start: usize,
     receiver: &str,
     field: &str,
@@ -65185,8 +65612,8 @@ fn lua_config_u32_array_index_or_append_assignment_from_query<'a>(
     })
 }
 
-fn lua_config_string_array_insert_append_value_from_query<'a>(
-    source: &'a str,
+fn lua_config_string_array_insert_append_value_from_query(
+    source: &str,
     start: usize,
     receiver: &str,
     field: &str,
@@ -65807,8 +66234,8 @@ fn lua_static_u32_array_variable_assignment_with_insert_appends_before_offset_fr
     selected
 }
 
-fn lua_static_u32_array_variable_insert_append_value_from_query<'a>(
-    source: &'a str,
+fn lua_static_u32_array_variable_insert_append_value_from_query(
+    source: &str,
     start: usize,
     variable: &str,
 ) -> Option<LuaTableInsertValue> {
@@ -65866,9 +66293,7 @@ fn lua_static_u32_array_variable_index_or_append_assignment_from_query<'a>(
         });
     }
 
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -65879,9 +66304,7 @@ fn lua_static_u32_array_variable_index_or_append_assignment_from_query<'a>(
     let after_open = lua_trim_start_comments(after_variable)?.strip_prefix('[')?;
     let after_hash = lua_trim_start_comments(after_open)?.strip_prefix('#')?;
     let after_hash = lua_trim_start_comments(after_hash)?;
-    let Some(rest) = after_hash.strip_prefix(variable) else {
-        return None;
-    };
+    let rest = after_hash.strip_prefix(variable)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
@@ -65898,9 +66321,7 @@ fn lua_static_u32_array_variable_index_assignment_from_query<'a>(
     start: usize,
     variable: &str,
 ) -> Option<LuaTableIndexAssignment<&'a str>> {
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -65911,8 +66332,8 @@ fn lua_static_u32_array_variable_index_assignment_from_query<'a>(
     lua_u32_array_index_assignment_value_from_query(source, after_variable, start)
 }
 
-fn lua_static_string_array_variable_insert_append_value_from_query<'a>(
-    source: &'a str,
+fn lua_static_string_array_variable_insert_append_value_from_query(
+    source: &str,
     start: usize,
     variable: &str,
 ) -> Option<LuaTableInsertValue> {
@@ -65970,9 +66391,7 @@ fn lua_static_string_array_variable_index_or_append_assignment_from_query<'a>(
         });
     }
 
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -65983,9 +66402,7 @@ fn lua_static_string_array_variable_index_or_append_assignment_from_query<'a>(
     let after_open = lua_trim_start_comments(after_variable)?.strip_prefix('[')?;
     let after_hash = lua_trim_start_comments(after_open)?.strip_prefix('#')?;
     let after_hash = lua_trim_start_comments(after_hash)?;
-    let Some(rest) = after_hash.strip_prefix(variable) else {
-        return None;
-    };
+    let rest = after_hash.strip_prefix(variable)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
@@ -66002,9 +66419,7 @@ fn lua_static_string_array_variable_index_assignment_from_query<'a>(
     start: usize,
     variable: &str,
 ) -> Option<LuaTableIndexAssignment<&'a str>> {
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -66015,8 +66430,8 @@ fn lua_static_string_array_variable_index_assignment_from_query<'a>(
     lua_string_array_index_assignment_value_from_query(source, after_variable, start)
 }
 
-fn lua_static_nested_table_insert_append_from_query<'a>(
-    source: &'a str,
+fn lua_static_nested_table_insert_append_from_query(
+    source: &str,
     start: usize,
     variable: &str,
 ) -> Option<(String, LuaTableInsertValue)> {
@@ -66075,9 +66490,7 @@ fn lua_static_key_tables_variable_field_assignment_from_query<'a>(
     start: usize,
     variable: &str,
 ) -> Option<(String, &'a str)> {
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -66093,14 +66506,12 @@ fn lua_static_key_tables_variable_field_assignment_from_query<'a>(
     Some((key_table_name, table))
 }
 
-fn lua_static_key_tables_variable_index_or_append_assignment_from_query<'a>(
-    source: &'a str,
+fn lua_static_key_tables_variable_index_or_append_assignment_from_query(
+    source: &str,
     start: usize,
     variable: &str,
 ) -> Option<(String, LuaTableIndexOrAppendAssignment<String>)> {
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -66135,9 +66546,7 @@ fn lua_static_key_tables_variable_indexed_field_assignment_from_query<'a>(
     start: usize,
     variable: &str,
 ) -> Option<(String, LuaTableIndexedFieldAssignment<'a>)> {
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -66282,9 +66691,7 @@ fn lua_static_nested_table_length_append_assignment_from_query<'a>(
     let after_open = lua_trim_start_comments(query)?.strip_prefix('[')?;
     let after_hash = lua_trim_start_comments(after_open)?.strip_prefix('#')?;
     let after_hash = lua_trim_start_comments(after_hash)?;
-    let Some(after_variable) = after_hash.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = after_hash.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -66304,8 +66711,8 @@ fn lua_static_nested_table_length_append_assignment_from_query<'a>(
     })
 }
 
-fn lua_static_table_variable_index_or_append_assignment_from_query<'a>(
-    source: &'a str,
+fn lua_static_table_variable_index_or_append_assignment_from_query(
+    source: &str,
     start: usize,
     variable: &str,
 ) -> Option<LuaTableIndexOrAppendAssignment<String>> {
@@ -66318,9 +66725,7 @@ fn lua_static_table_variable_index_or_append_assignment_from_query<'a>(
         });
     }
 
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -66331,9 +66736,7 @@ fn lua_static_table_variable_index_or_append_assignment_from_query<'a>(
     let after_open = lua_trim_start_comments(after_variable)?.strip_prefix('[')?;
     let after_hash = lua_trim_start_comments(after_open)?.strip_prefix('#')?;
     let after_hash = lua_trim_start_comments(after_hash)?;
-    let Some(rest) = after_hash.strip_prefix(variable) else {
-        return None;
-    };
+    let rest = after_hash.strip_prefix(variable)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
@@ -66345,14 +66748,12 @@ fn lua_static_table_variable_index_or_append_assignment_from_query<'a>(
     })
 }
 
-fn lua_static_table_variable_index_assignment_from_query<'a>(
-    source: &'a str,
+fn lua_static_table_variable_index_assignment_from_query(
+    source: &str,
     start: usize,
     variable: &str,
 ) -> Option<LuaTableIndexAssignment<String>> {
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -66368,9 +66769,7 @@ fn lua_static_table_variable_indexed_field_assignment_from_query<'a>(
     start: usize,
     variable: &str,
 ) -> Option<LuaTableIndexedFieldAssignment<'a>> {
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -66396,8 +66795,8 @@ fn lua_static_table_variable_indexed_field_assignment_from_query<'a>(
     })
 }
 
-fn lua_static_table_variable_insert_append_value_from_query<'a>(
-    source: &'a str,
+fn lua_static_table_variable_insert_append_value_from_query(
+    source: &str,
     start: usize,
     variable: &str,
 ) -> Option<LuaTableInsertValue> {
@@ -66882,6 +67281,10 @@ fn lua_static_wezterm_format_alias_value_from_query(
     field == "format" && lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_top_level_statement_value_from_query(value: &str) -> Option<&str> {
     let value = lua_trim_start_comments(value)?.trim_start();
     let mut quote = None;
@@ -67013,7 +67416,7 @@ fn lua_top_level_statement_value_from_query(value: &str) -> Option<&str> {
 fn lua_static_identifier_value_rest_is_statement_end(rest: &str) -> bool {
     for character in rest.chars() {
         match character {
-            ' ' | '\t' | '\r' => continue,
+            ' ' | '\t' | '\r' => {}
             '\n' | ';' => return true,
             '-' => return rest.trim_start().starts_with("--"),
             _ => return false,
@@ -67118,6 +67521,10 @@ fn lua_static_number_variable_assignment_before_offset_from_query<'a>(
     selected
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_static_table_variable_assignment_before_offset_from_query<'a>(
     source: &'a str,
     variable: &str,
@@ -67272,6 +67679,10 @@ fn lua_complete_label_len_from_query(query: &str) -> Option<usize> {
     Some(query.len().saturating_sub(rest.len()))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_top_level_statement_start_indices_before_offset(
     source: &str,
     max_start: usize,
@@ -67416,10 +67827,9 @@ fn lua_top_level_statement_start_indices_before_offset(
                 && paren_depth == 0
                 && !character.is_whitespace()
                 && lua_source_index_starts_statement(source, index)
+                && starts.last().copied() != Some(index)
             {
-                if starts.last().copied() != Some(index) {
-                    starts.push(index);
-                }
+                starts.push(index);
             }
             lua_block_depth = lua_block_depth.saturating_add(1);
             continue;
@@ -67444,10 +67854,9 @@ fn lua_top_level_statement_start_indices_before_offset(
             && paren_depth == 0
             && !character.is_whitespace()
             && lua_source_index_starts_statement(source, index)
+            && starts.last().copied() != Some(index)
         {
-            if starts.last().copied() != Some(index) {
-                starts.push(index);
-            }
+            starts.push(index);
         }
     }
 
@@ -67479,8 +67888,8 @@ fn lua_config_field_access_rest_from_query_with_static_key<'a>(
     lua_trim_start_comments(after_key)?.strip_prefix(']')
 }
 
-fn lua_config_nested_table_insert_append_from_query<'a>(
-    source: &'a str,
+fn lua_config_nested_table_insert_append_from_query(
+    source: &str,
     start: usize,
     receiver: &str,
     field: &str,
@@ -67535,8 +67944,8 @@ fn lua_config_nested_table_insert_append_from_query<'a>(
     ))
 }
 
-fn lua_config_nested_key_table_index_or_append_assignment_from_query<'a>(
-    source: &'a str,
+fn lua_config_nested_key_table_index_or_append_assignment_from_query(
+    source: &str,
     start: usize,
     receiver: &str,
     field: &str,
@@ -67938,7 +68347,7 @@ fn lua_table_with_index_or_append_assigned_field(
         return None;
     }
     if index <= fields.len() {
-        fields[index - 1] = field.to_owned();
+        field.clone_into(&mut fields[index - 1]);
     } else {
         fields.push(field.to_owned());
     }
@@ -68125,9 +68534,13 @@ enum NativeConfigColorsLuaSource<'a> {
     },
 }
 
-fn lua_config_colors_source_from_query<'a>(
-    source: &'a str,
-) -> Option<Option<NativeConfigColorsLuaSource<'a>>> {
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
+fn lua_config_colors_source_from_query(
+    source: &str,
+) -> Option<Option<NativeConfigColorsLuaSource<'_>>> {
     if let Some(table) = lua_config_static_return_table_from_query(source) {
         let mut literal_from_query = lua_color_variable_mutation_value_literal_from_query;
         let Some(colors) =
@@ -68159,6 +68572,14 @@ fn lua_config_colors_source_from_query<'a>(
     Some(None)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_config_colors_direct_source_from_query<'a>(
     source: &'a str,
     receiver: &str,
@@ -68761,6 +69182,10 @@ fn lua_static_builtin_scheme_fragment_references_map_identity(
     Some(false)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_static_builtin_scheme_map_rebind_is_safe(
     source: &str,
     statement: &str,
@@ -68914,6 +69339,10 @@ fn lua_static_builtin_scheme_static_scalar_is_exact(value: &str) -> Option<bool>
     Some(literal.len() == value.len())
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_static_builtin_scheme_function_definition_name(statement: &str) -> Option<Option<String>> {
     let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
     let normalized = lua_static_load_scheme_path_query_without_comments(statement)?;
@@ -69063,7 +69492,7 @@ fn lua_builtin_color_scheme_assignment_from_query(
 fn lua_config_load_scheme_colors_assignment_from_query(
     source: &str,
 ) -> Option<NativeLoadSchemeColorsAssignment> {
-    lua_config_assignment_from_query(source, "colors", |value| Some(value))
+    lua_config_assignment_from_query(source, "colors", Some)
         .and_then(|value| {
             lua_wezterm_color_load_scheme_path_from_query_with_static_source(source, value)
         })
@@ -69726,6 +70155,10 @@ fn lua_static_load_scheme_path_expression_value_from_query_with_depth(
     )
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 #[allow(dead_code)]
 fn split_lua_static_load_scheme_path_assignment_statement(statement: &str) -> Option<(&str, &str)> {
     let mut table_depth = 0u32;
@@ -70819,7 +71252,7 @@ fn lua_static_wezterm_builtin_color_scheme_alias_query_from_query(
 ) -> Option<String> {
     let query = lua_trim_start_comments(query)?;
     let alias = lua_identifier_literal_from_query(query)?;
-    if !lua_static_wezterm_builtin_color_scheme_alias_before_offset(source, alias, max_start)? {
+    if !lua_static_wezterm_builtin_color_scheme_alias_before_offset(source, alias, max_start) {
         return None;
     }
 
@@ -70835,19 +71268,13 @@ fn lua_static_wezterm_builtin_color_scheme_alias_before_offset(
     source: &str,
     alias: &str,
     max_start: usize,
-) -> Option<bool> {
+) -> bool {
     let Some((value, binding_start)) =
         lua_static_builtin_scheme_binding_before_offset(source, alias, max_start)
     else {
-        return Some(false);
+        return false;
     };
-    Some(
-        lua_static_wezterm_builtin_color_scheme_alias_value_from_query(
-            source,
-            binding_start,
-            value,
-        ),
-    )
+    lua_static_wezterm_builtin_color_scheme_alias_value_from_query(source, binding_start, value)
 }
 
 #[allow(dead_code)]
@@ -71188,10 +71615,9 @@ fn lua_static_wezterm_color_namespace_rest_from_query_with_depth<'a>(
             max_start,
             depth + 1,
         )
+        && lua_static_value_tail_is_value_end(namespace_rest)
     {
-        if lua_static_value_tail_is_value_end(namespace_rest) {
-            return Some(tail);
-        }
+        return Some(tail);
     }
 
     if let Some(receiver_rest) = lua_static_wezterm_module_namespace_rest_from_query_with_depth(
@@ -71253,6 +71679,10 @@ fn lua_identifier_literal_from_query(query: &str) -> Option<&str> {
     query.get(..end)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 #[allow(dead_code)]
 fn lua_config_assignment_from_query<'a>(
     source: &'a str,
@@ -71405,10 +71835,10 @@ fn lua_config_assignment_from_query<'a>(
             && lua_block_depth == 0
         {
             let rest = lua_trim_start_comments(source.get(index + field.len()..)?)?;
-            if let Some(rest) = rest.strip_prefix('=') {
-                if let Some(value) = literal_from_query(lua_trim_start_comments(rest)?) {
-                    selected = Some(value);
-                }
+            if let Some(rest) = rest.strip_prefix('=')
+                && let Some(value) = literal_from_query(lua_trim_start_comments(rest)?)
+            {
+                selected = Some(value);
             }
         }
 
@@ -71660,6 +72090,10 @@ fn lua_config_table_map_field_assignment_from_table_query(
     selected
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_config_static_return_table_from_query(source: &str) -> Option<&str> {
     let mut quote = None;
     let mut escape = false;
@@ -71889,6 +72323,10 @@ fn lua_config_static_return_identifier_from_query(source: &str) -> Option<&str> 
     None
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 #[allow(dead_code)]
 fn lua_config_table_initializer_assignment_from_query<'a>(
     source: &'a str,
@@ -72336,12 +72774,17 @@ fn lua_signed_number_literal_from_query(query: &str) -> Option<&str> {
 }
 
 #[allow(dead_code)]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "finite positive point sizes are rounded and bounded before conversion"
+)]
 fn native_font_size_from_points(points: f32) -> Option<NativeFontSize> {
     if !points.is_finite() || points <= 0.0 {
         return None;
     }
     let millipoints = (points * 1_000.0).round();
-    (millipoints <= u32::MAX as f32).then(|| NativeFontSize::from_millipoints(millipoints as u32))
+    (millipoints <= 4_294_967_296.0).then(|| NativeFontSize::from_millipoints(millipoints as u32))
 }
 
 fn native_lua_font_size_points_text(font_size: NativeFontSize) -> String {
@@ -72358,12 +72801,17 @@ fn native_lua_font_size_points_text(font_size: NativeFontSize) -> String {
     format!("{points}.{fraction}")
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "finite positive DPI values are rounded and bounded before conversion"
+)]
 fn native_dpi_from_f32(dpi: f32) -> Option<u32> {
     if !dpi.is_finite() || dpi <= 0.0 {
         return None;
     }
     let dpi = dpi.round();
-    (dpi <= u32::MAX as f32).then_some(dpi as u32)
+    (dpi <= 4_294_967_296.0).then_some(dpi as u32)
 }
 
 #[allow(dead_code)]
@@ -72748,6 +73196,10 @@ fn native_unix_domains_lua_table_from_query(
     Some(domains)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 #[allow(dead_code)]
 fn native_unix_domain_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
@@ -72945,6 +73397,10 @@ fn native_ssh_domains_lua_table_from_query(
     Some(domains)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 #[allow(dead_code)]
 fn native_ssh_domain_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
@@ -73316,6 +73772,10 @@ fn native_tls_client_domains_lua_table_from_query(
     Some(domains)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 #[allow(dead_code)]
 fn native_tls_client_domain_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
@@ -73663,12 +74123,12 @@ fn native_cell_width_override_lua_table_from_query<'a>(
             "first" => {
                 first = Some(lua_static_unsigned_u32_value_before_offset_from_query(
                     source, value, max_start,
-                )?)
+                )?);
             }
             "last" => {
                 last = Some(lua_static_unsigned_u32_value_before_offset_from_query(
                     source, value, max_start,
-                )?)
+                )?);
             }
             "width" => {
                 width = Some(
@@ -73896,15 +74356,14 @@ fn lua_config_hyperlink_rules_default_rules_with_static_inserts(
             inserted = true;
         } else if let Some(assignment) =
             lua_static_table_variable_indexed_field_assignment_from_query(source, start, variable)
-        {
-            if apply_hyperlink_rule_indexed_field_assignment(
+            && apply_hyperlink_rule_indexed_field_assignment(
                 &mut rules,
                 source,
                 &assignment,
                 start,
-            )? {
-                inserted = true;
-            }
+            )?
+        {
+            inserted = true;
         }
     }
 
@@ -74121,10 +74580,10 @@ fn apply_hyperlink_rule_indexed_field_assignment(
     Some(true)
 }
 
-fn lua_config_hyperlink_rules_static_value_variable_before_offset<'a>(
-    source: &'a str,
+fn lua_config_hyperlink_rules_static_value_variable_before_offset(
+    source: &str,
     max_start: usize,
-) -> Option<&'a str> {
+) -> Option<&str> {
     if let Some(table) = lua_config_static_return_table_from_query(source)
         && lua_source_slice_start_offset(source, table) == Some(max_start)
         && let Some(variable) =
@@ -74313,12 +74772,12 @@ fn native_hyperlink_rule_lua_table_from_query(
             "regex" => {
                 regex = Some(lua_static_string_value_before_offset(
                     source, value, max_start,
-                )?)
+                )?);
             }
             "format" => {
                 format = Some(lua_static_string_value_before_offset(
                     source, value, max_start,
-                )?)
+                )?);
             }
             "highlight" => {
                 let value = lua_static_number_assignment_value_before_offset_from_query(
@@ -74606,23 +75065,23 @@ fn apply_native_background_visual_layers_override(
     layers: Vec<NativeWindowBackgroundVisualLayer>,
     overrides: &mut NativeConfigOverrides,
 ) {
-    overrides.window_background_layers = Some(layers.clone());
     overrides.window_background_gradient = layers.iter().find_map(|layer| match layer {
-        NativeWindowBackgroundVisualLayer::Color(_) => None,
         NativeWindowBackgroundVisualLayer::Gradient(gradient) => Some(gradient.clone()),
-        NativeWindowBackgroundVisualLayer::Image(_) => None,
+        NativeWindowBackgroundVisualLayer::Color(_)
+        | NativeWindowBackgroundVisualLayer::Image(_) => None,
     });
     let images = layers
         .iter()
         .filter_map(|layer| match layer {
-            NativeWindowBackgroundVisualLayer::Color(_) => None,
             NativeWindowBackgroundVisualLayer::Image(image) => Some(image.clone()),
-            NativeWindowBackgroundVisualLayer::Gradient(_) => None,
+            NativeWindowBackgroundVisualLayer::Color(_)
+            | NativeWindowBackgroundVisualLayer::Gradient(_) => None,
         })
         .collect::<Vec<_>>();
     if !images.is_empty() {
         overrides.window_background_images = Some(images);
     }
+    overrides.window_background_layers = Some(layers);
 }
 
 fn native_background_lua_table_from_layers(
@@ -74664,7 +75123,7 @@ fn native_background_lua_table_from_layers(
                 return if let Some(color) = color {
                     Some(NativeBackgroundLayer::ColorAndGradient {
                         color,
-                        gradient: compose_lua_background_color_below_gradient(color, gradient)?,
+                        gradient: compose_lua_background_color_below_gradient(color, gradient),
                     })
                 } else {
                     Some(NativeBackgroundLayer::Gradient(gradient))
@@ -74691,9 +75150,9 @@ fn native_background_lua_table_from_layers(
         let images = visual_layers
             .into_iter()
             .filter_map(|layer| match layer {
-                NativeWindowBackgroundVisualLayer::Color(_) => None,
                 NativeWindowBackgroundVisualLayer::Image(image) => Some(image),
-                NativeWindowBackgroundVisualLayer::Gradient(_) => None,
+                NativeWindowBackgroundVisualLayer::Color(_)
+                | NativeWindowBackgroundVisualLayer::Gradient(_) => None,
             })
             .collect::<Vec<_>>();
         return if let Some(color) = color {
@@ -74703,19 +75162,15 @@ fn native_background_lua_table_from_layers(
         };
     }
 
-    if !visual_layers.is_empty() {
-        if let Some(color) = color {
-            Some(NativeBackgroundLayer::ColorAndVisualLayers {
-                color,
-                layers: visual_layers,
-            })
-        } else {
-            Some(NativeBackgroundLayer::VisualLayers(visual_layers))
-        }
+    if visual_layers.is_empty() {
+        color.map(NativeBackgroundLayer::Color)
     } else if let Some(color) = color {
-        Some(NativeBackgroundLayer::Color(color))
+        Some(NativeBackgroundLayer::ColorAndVisualLayers {
+            color,
+            layers: visual_layers,
+        })
     } else {
-        None
+        Some(NativeBackgroundLayer::VisualLayers(visual_layers))
     }
 }
 
@@ -74828,17 +75283,17 @@ fn compose_lua_background_color_layers(background: Color, foreground: Color) -> 
 fn compose_lua_background_color_below_gradient(
     color: Color,
     mut gradient: NativeWindowBackgroundGradient,
-) -> Option<NativeWindowBackgroundGradient> {
+) -> NativeWindowBackgroundGradient {
     if gradient.colors.is_empty() {
         gradient.blend_with_background_color = true;
-        return Some(gradient);
+        return gradient;
     }
     gradient.colors = gradient
         .colors
         .into_iter()
         .map(|gradient_color| compose_lua_background_color_layers(color, gradient_color))
         .collect();
-    Some(gradient)
+    gradient
 }
 
 fn compose_lua_background_color_over_gradient(
@@ -75063,12 +75518,20 @@ fn parse_background_image_percent_basis_points(value: &str) -> Option<u32> {
     u32::try_from(basis_points).ok()
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "finite percentages are rounded and bounded to i32 before conversion"
+)]
 fn parse_background_image_signed_percent_basis_points(value: &str) -> Option<i32> {
     let percent: f64 = parse_single_query_value(value)?.parse().ok()?;
     if !percent.is_finite() {
         return None;
     }
-    i32::try_from((percent * 100.0).round() as i64).ok()
+    let basis_points = (percent * 100.0).round();
+    if basis_points < f64::from(i32::MIN) || basis_points > f64::from(i32::MAX) {
+        return None;
+    }
+    Some(basis_points as i32)
 }
 
 fn native_background_image_repeat_lua_value_from_query(
@@ -75617,6 +76080,14 @@ fn native_window_content_alignment_lua_table_from_query<'a>(
     Some(alignment)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn native_window_frame_appearance_lua_table_from_query(
     source: &str,
     value: &str,
@@ -75821,7 +76292,7 @@ fn parse_wezterm_font_value(
             if let Some(stripped) = rest.strip_prefix('(') {
                 rest = stripped.trim_start();
             }
-            let quote = rest.find(|character| character == '\'' || character == '"')?;
+            let quote = rest.find(['\'', '"'])?;
             let literal = lua_quoted_string_literal_from_query(rest.get(quote..)?)?;
             parse_lua_quoted_query_text(literal)
         })
@@ -75963,9 +76434,7 @@ fn parse_wezterm_font_with_fallback_primary_attributes_value(
         .map_or(field, |(_, value)| value)
         .trim();
     let table = lua_braced_table_literal_from_query(value)?;
-    if lua_table_field_value_from_query(table, "family")?.is_none() {
-        return None;
-    }
+    lua_table_field_value_from_query(table, "family")??;
     native_font_attributes_lua_table_from_query(source, table)
 }
 
@@ -76250,6 +76719,11 @@ fn native_hsb_multiplier_from_ratio(ratio: f32) -> Option<NativeHsbMultiplier> {
 }
 
 #[allow(dead_code)]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "opacity is clamped to 0..=1 before rounded per-mille conversion"
+)]
 fn native_text_background_opacity_from_alpha(alpha: f32) -> Option<NativeTextBackgroundOpacity> {
     if !alpha.is_finite() || alpha < 0.0 {
         return None;
@@ -76261,6 +76735,11 @@ fn native_text_background_opacity_from_alpha(alpha: f32) -> Option<NativeTextBac
 }
 
 #[allow(dead_code)]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "finite positive ratios are rounded and bounded to u16 before conversion"
+)]
 fn native_ratio_to_per_mille(ratio: f32) -> Option<u16> {
     if !ratio.is_finite() || ratio <= 0.0 {
         return None;
@@ -76270,6 +76749,11 @@ fn native_ratio_to_per_mille(ratio: f32) -> Option<u16> {
 }
 
 #[allow(dead_code)]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "finite nonnegative ratios are rounded and bounded to u16 before conversion"
+)]
 fn native_non_negative_ratio_to_per_mille(ratio: f32) -> Option<u16> {
     if !ratio.is_finite() || ratio < 0.0 {
         return None;
@@ -76784,6 +77268,10 @@ fn native_user_key_assignment_lua_table_from_query(
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn native_key_assignment_command_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -77903,11 +78391,16 @@ impl NativeLuaWindowTitleCondition {
                 event.active_pane_info.progress == PaneProgress::Indeterminate
             }
             Self::ActivePaneProgressFieldPresence { field, present } => {
-                let has_field = match (field, event.active_pane_info.progress) {
-                    (&NativeLuaTabTitleProgressField::Percentage, PaneProgress::Percentage(_))
-                    | (&NativeLuaTabTitleProgressField::Error, PaneProgress::Error(_)) => true,
-                    _ => false,
-                };
+                let has_field = matches!(
+                    (field, event.active_pane_info.progress),
+                    (
+                        &NativeLuaTabTitleProgressField::Percentage,
+                        PaneProgress::Percentage(_)
+                    ) | (
+                        &NativeLuaTabTitleProgressField::Error,
+                        PaneProgress::Error(_)
+                    )
+                );
                 has_field == *present
             }
             Self::ActivePaneUserVarPresence { name, present } => {
@@ -78006,6 +78499,10 @@ struct NativeLuaWindowStatusUpdate {
     right_status: Option<NativeLuaWindowStatusText>,
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct NativeLuaWindowConfigOverrides {
     dpi: Option<u32>,
@@ -78266,6 +78763,10 @@ struct NativeLuaWindowConfigOverrides {
 }
 
 impl NativeLuaWindowConfigOverrides {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn is_empty(&self) -> bool {
         self.dpi.is_none()
             && self.dpi_by_screen.is_none()
@@ -78524,6 +79025,10 @@ impl NativeLuaWindowConfigOverrides {
             && self.show_tabs_in_tab_bar.is_none()
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn merge(&mut self, update: Self) {
         if update.dpi.is_some() {
             self.dpi = update.dpi;
@@ -79303,6 +79808,10 @@ impl NativeLuaWindowConfigOverrides {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn apply_to_native_config_overrides(self, overrides: &mut NativeConfigOverrides) {
         if let Some(dpi) = self.dpi {
             overrides.dpi = Some(dpi);
@@ -80620,13 +81129,12 @@ impl NativeLuaOpenUri {
                 }
                 None
             }
-            Self::Static { .. } => None,
             Self::UriPrefix {
                 prefix,
                 action: Some(action),
                 ..
             } if event.uri.starts_with(prefix) => action.command_for_uri(&event.uri, prefix),
-            Self::UriPrefix { .. } => None,
+            Self::Static { .. } | Self::UriPrefix { .. } => None,
         }
     }
 }
@@ -80682,6 +81190,10 @@ enum NativeLuaNewTabButtonClickAllowDefault {
     },
 }
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent compatibility flags represent valid combinations"
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NativeLuaNewTabButtonClickButtonDefaults {
     left_allow_default: bool,
@@ -80864,20 +81376,20 @@ fn dispatch_window_focus_changed<Id: Copy + Eq + std::hash::Hash>(
     }
 
     let transitions = apply_focus_transitions(focus, id, focused);
-    if let Some(blur) = transitions.blur {
-        if let Some(app) = apps.get_mut(&blur) {
-            let _ = app.handle_focus_changed(false)?;
-            if let Some(window) = &app.window {
-                window.request_redraw();
-            }
+    if let Some(blur) = transitions.blur
+        && let Some(app) = apps.get_mut(&blur)
+    {
+        let _ = app.handle_focus_changed(false)?;
+        if let Some(window) = &app.window {
+            window.request_redraw();
         }
     }
-    if let Some(focus) = transitions.focus {
-        if let Some(app) = apps.get_mut(&focus) {
-            let _ = app.handle_focus_changed(true)?;
-            if let Some(window) = &app.window {
-                window.request_redraw();
-            }
+    if let Some(focus) = transitions.focus
+        && let Some(app) = apps.get_mut(&focus)
+    {
+        let _ = app.handle_focus_changed(true)?;
+        if let Some(window) = &app.window {
+            window.request_redraw();
         }
     }
     Ok(())
@@ -80910,6 +81422,10 @@ impl NativeWindowStartup {
     }
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeWindowApp {
     app_window_id: rssh_core::WindowId,
@@ -82893,6 +83409,10 @@ fn fill_framebuffer(frame: &mut [u8], color: [u8; 4]) {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "compatibility operation requires the complete evaluation context"
+)]
 fn blit_framebuffer(
     source: &[u8],
     source_width: u32,
@@ -83885,10 +84405,10 @@ impl NativeWindowApp {
 
     fn start_window_drag(&mut self) {
         self.window_drag_requested = true;
-        if let Some(window) = &self.window {
-            if let Err(error) = window.drag_window() {
-                eprintln!("start window drag failed: {error}");
-            }
+        if let Some(window) = &self.window
+            && let Err(error) = window.drag_window()
+        {
+            eprintln!("start window drag failed: {error}");
         }
     }
 
@@ -84379,6 +84899,10 @@ impl NativeWindowApp {
         requested
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     #[allow(dead_code)]
     fn take_next_pending_window_app(&mut self) -> Option<Self> {
         let pending_window = self.app_shell.take_next_pending_window()?;
@@ -84418,21 +84942,29 @@ impl NativeWindowApp {
             .apply_bold_brightens_ansi_colors_override(Some(self.bold_brightens_ansi_colors));
         detached_app.text_background_opacity = self.text_background_opacity;
         detached_app.window_background_opacity = self.window_background_opacity;
-        detached_app.background = self.background.clone();
+        detached_app.background.clone_from(&self.background);
         detached_app
             .window_background_image
             .clone_from(&self.window_background_image);
         detached_app.window_background_image_hsb = self.window_background_image_hsb;
-        detached_app.window_background_gradient = self.window_background_gradient.clone();
-        detached_app.window_background_images = self.window_background_images.clone();
-        detached_app.window_background_layers = self.window_background_layers.clone();
+        detached_app
+            .window_background_gradient
+            .clone_from(&self.window_background_gradient);
+        detached_app
+            .window_background_images
+            .clone_from(&self.window_background_images);
+        detached_app
+            .window_background_layers
+            .clone_from(&self.window_background_layers);
         detached_app.kde_window_background_blur = self.kde_window_background_blur;
         detached_app.macos_window_background_blur = self.macos_window_background_blur;
         detached_app.win32_system_backdrop = self.win32_system_backdrop;
         detached_app.win32_acrylic_accent_color = self.win32_acrylic_accent_color;
         detached_app.window_decorations = self.window_decorations;
         detached_app.window_frame_appearance = self.window_frame_appearance.clone();
-        detached_app.integrated_title_buttons = self.integrated_title_buttons.clone();
+        detached_app
+            .integrated_title_buttons
+            .clone_from(&self.integrated_title_buttons);
         detached_app.integrated_title_button_alignment = self.integrated_title_button_alignment;
         detached_app.integrated_title_button_color = self.integrated_title_button_color;
         detached_app.integrated_title_button_style = self.integrated_title_button_style;
@@ -84692,6 +85224,10 @@ impl NativeWindowApp {
         Some(detached_app)
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn inherit_effective_config_from(&mut self, source: &Self) {
         self.base_config_overrides
             .clone_from(&source.base_config_overrides);
@@ -84747,16 +85283,20 @@ impl NativeWindowApp {
         self.window_background_image
             .clone_from(&source.window_background_image);
         self.window_background_image_hsb = source.window_background_image_hsb;
-        self.window_background_gradient = source.window_background_gradient.clone();
-        self.window_background_images = source.window_background_images.clone();
-        self.window_background_layers = source.window_background_layers.clone();
+        self.window_background_gradient
+            .clone_from(&source.window_background_gradient);
+        self.window_background_images
+            .clone_from(&source.window_background_images);
+        self.window_background_layers
+            .clone_from(&source.window_background_layers);
         self.kde_window_background_blur = source.kde_window_background_blur;
         self.macos_window_background_blur = source.macos_window_background_blur;
         self.win32_system_backdrop = source.win32_system_backdrop;
         self.win32_acrylic_accent_color = source.win32_acrylic_accent_color;
         self.window_decorations = source.window_decorations;
         self.window_frame_appearance = source.window_frame_appearance.clone();
-        self.integrated_title_buttons = source.integrated_title_buttons.clone();
+        self.integrated_title_buttons
+            .clone_from(&source.integrated_title_buttons);
         self.integrated_title_button_alignment = source.integrated_title_button_alignment;
         self.integrated_title_button_color = source.integrated_title_button_color;
         self.integrated_title_button_style = source.integrated_title_button_style;
@@ -84986,7 +85526,7 @@ impl NativeWindowApp {
         self.use_dead_keys = source.use_dead_keys;
         self.ime_preedit_rendering = source.ime_preedit_rendering;
         self.macos_forward_to_ime_modifier_mask = source.macos_forward_to_ime_modifier_mask;
-        self.ime_preedit = source.ime_preedit.clone();
+        self.ime_preedit.clone_from(&source.ime_preedit);
         self.dead_key_active = false;
         self.dead_key_text = None;
         self.xim_im_name.clone_from(&source.xim_im_name);
@@ -85939,7 +86479,42 @@ impl NativeWindowApp {
         self.persist_command_palette_frecency();
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn launcher_entries(&self, args: &WindowShowLauncherArgs) -> Vec<WindowCommandPaletteEntry> {
+        fn add_domain_entry(
+            entries: &mut Vec<WindowCommandPaletteEntry>,
+            added_domains: &mut HashSet<String>,
+            name: &str,
+            action: WindowCommand,
+        ) {
+            let normalized_name = name.to_ascii_lowercase();
+            if !added_domains.insert(normalized_name) {
+                return;
+            }
+            let doc = match action {
+                WindowCommand::AttachDomain(_) => {
+                    if is_local_domain_name(name) {
+                        None
+                    } else {
+                        Some("Attach Domain actions are currently unsupported".to_owned())
+                    }
+                }
+                _ => None,
+            };
+            entries.push(WindowCommandPaletteEntry::Augmented(
+                NativeCommandPaletteEntry {
+                    brief: format!("Spawn In Domain: {name}"),
+                    doc,
+                    icon: None,
+                    key_assignment: None,
+                    action,
+                },
+            ));
+        }
+
         let mut entries = Vec::new();
         if args.flags.commands {
             entries.extend(
@@ -85951,37 +86526,6 @@ impl NativeWindowApp {
         }
         if args.flags.domains {
             let mut added_domains = HashSet::new();
-            fn add_domain_entry(
-                entries: &mut Vec<WindowCommandPaletteEntry>,
-                added_domains: &mut HashSet<String>,
-                name: &str,
-                action: WindowCommand,
-            ) {
-                let normalized_name = name.to_ascii_lowercase();
-                if !added_domains.insert(normalized_name) {
-                    return;
-                }
-                let doc = match action {
-                    WindowCommand::AttachDomain(_) => {
-                        if is_local_domain_name(name) {
-                            None
-                        } else {
-                            Some("Attach Domain actions are currently unsupported".to_owned())
-                        }
-                    }
-                    _ => None,
-                };
-                entries.push(WindowCommandPaletteEntry::Augmented(
-                    NativeCommandPaletteEntry {
-                        brief: format!("Spawn In Domain: {name}"),
-                        doc,
-                        icon: None,
-                        key_assignment: None,
-                        action,
-                    },
-                ));
-            }
-
             entries.push(WindowCommandPaletteEntry::Augmented(
                 NativeCommandPaletteEntry {
                     brief: "Spawn In Domain: local".to_owned(),
@@ -86008,7 +86552,7 @@ impl NativeWindowApp {
                         &mut added_domains,
                         name,
                         WindowCommand::AttachDomain(name.to_owned()),
-                    )
+                    );
                 });
             self.wsl_domains
                 .iter()
@@ -86019,7 +86563,7 @@ impl NativeWindowApp {
                         &mut added_domains,
                         name,
                         WindowCommand::AttachDomain(name.to_owned()),
-                    )
+                    );
                 });
             self.unix_domains
                 .iter()
@@ -86030,7 +86574,7 @@ impl NativeWindowApp {
                         &mut added_domains,
                         name,
                         WindowCommand::AttachDomain(name.to_owned()),
-                    )
+                    );
                 });
             self.ssh_domains
                 .iter()
@@ -86041,7 +86585,7 @@ impl NativeWindowApp {
                         &mut added_domains,
                         name,
                         WindowCommand::AttachDomain(name.to_owned()),
-                    )
+                    );
                 });
             self.tls_clients
                 .iter()
@@ -86052,7 +86596,7 @@ impl NativeWindowApp {
                         &mut added_domains,
                         name,
                         WindowCommand::AttachDomain(name.to_owned()),
-                    )
+                    );
                 });
             self.serial_ports
                 .iter()
@@ -86063,7 +86607,7 @@ impl NativeWindowApp {
                         &mut added_domains,
                         name,
                         WindowCommand::AttachDomain(name.to_owned()),
-                    )
+                    );
                 });
         }
         if args.flags.key_assignments {
@@ -87334,10 +87878,8 @@ impl NativeWindowApp {
                 }
             },
         };
-        if succeeded {
-            if let Some(frecency_label) = frecency_label.as_deref() {
-                self.record_command_palette_label(frecency_label);
-            }
+        if succeeded && let Some(frecency_label) = frecency_label.as_deref() {
+            self.record_command_palette_label(frecency_label);
         }
         succeeded
     }
@@ -87407,9 +87949,10 @@ impl NativeWindowApp {
                     })
                     .unwrap_or(command)
             }
-            WindowCommand::SwitchToWorkspace => switch_workspace_options_from_query(query)
-                .map(WindowCommand::SwitchToWorkspaceArgs)
-                .unwrap_or(WindowCommand::SwitchToWorkspace),
+            WindowCommand::SwitchToWorkspace => switch_workspace_options_from_query(query).map_or(
+                WindowCommand::SwitchToWorkspace,
+                WindowCommand::SwitchToWorkspaceArgs,
+            ),
             WindowCommand::EnterPaneSwap | WindowCommand::EnterPaneSwapKeepFocus => {
                 pane_select_mode_show_pane_ids_from_query(query)
                     .map(|parsed| {
@@ -88517,8 +89060,7 @@ impl NativeWindowApp {
                         && click.mouse_reporting == mouse_reporting
                         && click.alternate_screen_active == alternate_screen_active
                 })
-                .map(|click| click.count)
-                .unwrap_or(1),
+                .map_or(1, |click| click.count),
         }
     }
 
@@ -88535,8 +89077,7 @@ impl NativeWindowApp {
                     && click.mouse_reporting == mouse_reporting
                     && click.alternate_screen_active == alternate_screen_active
             })
-            .map(|click| click.count)
-            .unwrap_or(1)
+            .map_or(1, |click| click.count)
     }
 
     fn handle_input_selector_backspace(&mut self) -> bool {
@@ -88555,17 +89096,15 @@ impl NativeWindowApp {
     }
 
     fn handle_input_selector_text(&mut self, text: &str) -> bool {
-        if text == "/" {
-            if let Some(input_selector) = self.input_selector.as_mut() {
-                if !input_selector.fuzzy
-                    && input_selector.query.is_empty()
-                    && input_selector.shortcut_prefix.is_empty()
-                {
-                    input_selector.fuzzy = true;
-                    self.apply_window_title();
-                    return true;
-                }
-            }
+        if text == "/"
+            && let Some(input_selector) = self.input_selector.as_mut()
+            && !input_selector.fuzzy
+            && input_selector.query.is_empty()
+            && input_selector.shortcut_prefix.is_empty()
+        {
+            input_selector.fuzzy = true;
+            self.apply_window_title();
+            return true;
         }
 
         if let Some(shortcut) = self.input_selector_shortcut_for_key(text) {
@@ -89164,6 +89703,10 @@ impl NativeWindowApp {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn accept_quick_select_match(&mut self, paste: bool) {
         let source_pane_id = self.app_shell.active_pane_id();
         let Some((action, skip_action_on_paste)) =
@@ -89198,12 +89741,11 @@ impl NativeWindowApp {
                 }
             }
             WindowQuickSelectAction::CopyTo(destination) => {
-                if paste {
-                    if let Err(error) =
+                if paste
+                    && let Err(error) =
                         self.paste_captured_selected_text_to_pane(selected_text.as_deref())
-                    {
-                        eprintln!("quick-select paste failed: {error}");
-                    }
+                {
+                    eprintln!("quick-select paste failed: {error}");
                 }
                 if paste && skip_action_on_paste {
                     return;
@@ -89213,12 +89755,11 @@ impl NativeWindowApp {
                 }
             }
             WindowQuickSelectAction::OpenUri => {
-                if paste {
-                    if let Err(error) =
+                if paste
+                    && let Err(error) =
                         self.paste_captured_selected_text_to_pane(selected_text.as_deref())
-                    {
-                        eprintln!("quick-select paste failed: {error}");
-                    }
+                {
+                    eprintln!("quick-select paste failed: {error}");
                 }
                 if paste && skip_action_on_paste {
                     return;
@@ -89228,21 +89769,19 @@ impl NativeWindowApp {
                 }
             }
             WindowQuickSelectAction::Nop => {
-                if paste {
-                    if let Err(error) =
+                if paste
+                    && let Err(error) =
                         self.paste_captured_selected_text_to_pane(selected_text.as_deref())
-                    {
-                        eprintln!("quick-select paste failed: {error}");
-                    }
+                {
+                    eprintln!("quick-select paste failed: {error}");
                 }
             }
             WindowQuickSelectAction::PasteFrom(source) => {
-                if paste {
-                    if let Err(error) =
+                if paste
+                    && let Err(error) =
                         self.paste_captured_selected_text_to_pane(selected_text.as_deref())
-                    {
-                        eprintln!("quick-select paste failed: {error}");
-                    }
+                {
+                    eprintln!("quick-select paste failed: {error}");
                 }
                 if paste && skip_action_on_paste {
                     return;
@@ -89252,12 +89791,11 @@ impl NativeWindowApp {
                 }
             }
             WindowQuickSelectAction::SendString(value) => {
-                if paste {
-                    if let Err(error) =
+                if paste
+                    && let Err(error) =
                         self.paste_captured_selected_text_to_pane(selected_text.as_deref())
-                    {
-                        eprintln!("quick-select paste failed: {error}");
-                    }
+                {
+                    eprintln!("quick-select paste failed: {error}");
                 }
                 if paste && skip_action_on_paste {
                     return;
@@ -89267,12 +89805,11 @@ impl NativeWindowApp {
                 }
             }
             WindowQuickSelectAction::SendSelectedText => {
-                if paste {
-                    if let Err(error) =
+                if paste
+                    && let Err(error) =
                         self.paste_captured_selected_text_to_pane(selected_text.as_deref())
-                    {
-                        eprintln!("quick-select paste failed: {error}");
-                    }
+                {
+                    eprintln!("quick-select paste failed: {error}");
                 }
                 if paste && skip_action_on_paste {
                     return;
@@ -89284,12 +89821,11 @@ impl NativeWindowApp {
                 }
             }
             WindowQuickSelectAction::PasteSelectedText => {
-                if paste {
-                    if let Err(error) =
+                if paste
+                    && let Err(error) =
                         self.paste_captured_selected_text_to_pane(selected_text.as_deref())
-                    {
-                        eprintln!("quick-select paste failed: {error}");
-                    }
+                {
+                    eprintln!("quick-select paste failed: {error}");
                 }
                 if paste && skip_action_on_paste {
                     return;
@@ -89306,12 +89842,11 @@ impl NativeWindowApp {
                 }
             }
             WindowQuickSelectAction::SendKey(send_key) => {
-                if paste {
-                    if let Err(error) =
+                if paste
+                    && let Err(error) =
                         self.paste_captured_selected_text_to_pane(selected_text.as_deref())
-                    {
-                        eprintln!("quick-select paste failed: {error}");
-                    }
+                {
+                    eprintln!("quick-select paste failed: {error}");
                 }
                 if paste && skip_action_on_paste {
                     return;
@@ -89321,12 +89856,11 @@ impl NativeWindowApp {
                 }
             }
             WindowQuickSelectAction::EmitEvent(event) => {
-                if paste {
-                    if let Err(error) =
+                if paste
+                    && let Err(error) =
                         self.paste_captured_selected_text_to_pane(selected_text.as_deref())
-                    {
-                        eprintln!("quick-select paste failed: {error}");
-                    }
+                {
+                    eprintln!("quick-select paste failed: {error}");
                 }
                 if paste && skip_action_on_paste {
                     return;
@@ -89334,12 +89868,11 @@ impl NativeWindowApp {
                 self.emit_event(event);
             }
             WindowQuickSelectAction::Multiple(commands) => {
-                if paste {
-                    if let Err(error) =
+                if paste
+                    && let Err(error) =
                         self.paste_captured_selected_text_to_pane(selected_text.as_deref())
-                    {
-                        eprintln!("quick-select paste failed: {error}");
-                    }
+                {
+                    eprintln!("quick-select paste failed: {error}");
                 }
                 if paste && skip_action_on_paste {
                     return;
@@ -89353,12 +89886,11 @@ impl NativeWindowApp {
                 }
             }
             WindowQuickSelectAction::ActivateKeyTable(key_table) => {
-                if paste {
-                    if let Err(error) =
+                if paste
+                    && let Err(error) =
                         self.paste_captured_selected_text_to_pane(selected_text.as_deref())
-                    {
-                        eprintln!("quick-select paste failed: {error}");
-                    }
+                {
+                    eprintln!("quick-select paste failed: {error}");
                 }
                 if paste && skip_action_on_paste {
                     return;
@@ -89366,12 +89898,11 @@ impl NativeWindowApp {
                 self.activate_key_table(key_table);
             }
             WindowQuickSelectAction::PopKeyTable => {
-                if paste {
-                    if let Err(error) =
+                if paste
+                    && let Err(error) =
                         self.paste_captured_selected_text_to_pane(selected_text.as_deref())
-                    {
-                        eprintln!("quick-select paste failed: {error}");
-                    }
+                {
+                    eprintln!("quick-select paste failed: {error}");
                 }
                 if paste && skip_action_on_paste {
                     return;
@@ -89379,12 +89910,11 @@ impl NativeWindowApp {
                 self.pop_key_table();
             }
             WindowQuickSelectAction::ClearKeyTableStack => {
-                if paste {
-                    if let Err(error) =
+                if paste
+                    && let Err(error) =
                         self.paste_captured_selected_text_to_pane(selected_text.as_deref())
-                    {
-                        eprintln!("quick-select paste failed: {error}");
-                    }
+                {
+                    eprintln!("quick-select paste failed: {error}");
                 }
                 if paste && skip_action_on_paste {
                     return;
@@ -89573,7 +90103,7 @@ impl NativeWindowApp {
             application_cursor_keys,
             application_keypad,
             kitty_keyboard_flags
-                | u16::from(self.enable_csi_u_key_encoding) * KITTY_KEYBOARD_DISAMBIGUATE,
+                | (u16::from(self.enable_csi_u_key_encoding) * KITTY_KEYBOARD_DISAMBIGUATE),
             modify_other_keys,
             KittyKeyEventKind::Press,
         );
@@ -90276,11 +90806,13 @@ impl NativeWindowApp {
     }
 
     fn redraw_request_interval(&self) -> Duration {
-        Duration::from_secs_f64(1.0 / self.max_fps.max(1) as f64)
+        let fps = u32::try_from(self.max_fps.max(1)).unwrap_or(u32::MAX);
+        Duration::from_secs_f64(1.0 / f64::from(fps))
     }
 
     fn animation_redraw_request_interval(&self) -> Duration {
-        Duration::from_secs_f64(1.0 / self.animation_fps.max(1) as f64)
+        let fps = u32::try_from(self.animation_fps.max(1)).unwrap_or(u32::MAX);
+        Duration::from_secs_f64(1.0 / f64::from(fps))
     }
 
     fn should_request_redraw_at(&mut self, now: Instant) -> bool {
@@ -91146,7 +91678,7 @@ impl NativeWindowApp {
                     self.apply_wheel_command_for_target(target, command)?;
                 }
             }
-            WheelCommandClass::Viewport => self.apply_wheel_viewport_command(target, command),
+            WheelCommandClass::Viewport => self.apply_wheel_viewport_command(target, &command),
             WheelCommandClass::Writer => self.apply_wheel_writer_command(target, command)?,
             WheelCommandClass::PaneUi => self.apply_wheel_pane_ui_command(target, command)?,
             WheelCommandClass::PaneAction => self.apply_wheel_pane_action(target, command)?,
@@ -91263,7 +91795,7 @@ impl NativeWindowApp {
         Ok(())
     }
 
-    fn apply_wheel_viewport_command(&mut self, target: WheelTarget, command: WindowCommand) {
+    fn apply_wheel_viewport_command(&mut self, target: WheelTarget, command: &WindowCommand) {
         let pane_id = target.pane_id;
         match command {
             WindowCommand::ScrollToTop => {
@@ -91314,7 +91846,7 @@ impl NativeWindowApp {
                 self.scroll_pane_viewport_lines(pane_id, -1);
             }
             WindowCommand::ScrollToPrompt(amount) => {
-                self.scroll_wheel_target_to_prompt(pane_id, amount);
+                self.scroll_wheel_target_to_prompt(pane_id, *amount);
             }
             WindowCommand::ScrollToPreviousPrompt => {
                 self.scroll_wheel_target_to_prompt(pane_id, -1);
@@ -91611,6 +92143,10 @@ impl NativeWindowApp {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn perform_copy_mode_assignment_for_owner(
         terminal: &Terminal,
         ui: &mut PaneUiState,
@@ -92338,6 +92874,10 @@ impl NativeWindowApp {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn apply_wheel_pane_ui_command(
         &mut self,
         target: WheelTarget,
@@ -92371,7 +92911,7 @@ impl NativeWindowApp {
                 self.set_wheel_target_selection(target.pane_id, None);
             }
             WindowCommand::CopyToClipboard | WindowCommand::Copy => {
-                self.copy_wheel_target_selection(target.pane_id, WindowCopyDestination::Clipboard)
+                self.copy_wheel_target_selection(target.pane_id, WindowCopyDestination::Clipboard);
             }
             WindowCommand::CopyToPrimarySelection => self.copy_wheel_target_selection(
                 target.pane_id,
@@ -92715,6 +93255,10 @@ impl NativeWindowApp {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn apply_wheel_explicit_command(
         &mut self,
         target: WheelTarget,
@@ -92904,6 +93448,10 @@ impl NativeWindowApp {
             .map_err(|error| wheel_action_io_error(&original, error))
     }
 
+    #[expect(
+        clippy::unused_self,
+        reason = "method shape is retained for compatibility call-site consistency"
+    )]
     fn encode_wheel_mouse_event_for_target(
         &self,
         target: WheelTarget,
@@ -92954,7 +93502,7 @@ impl NativeWindowApp {
             _ => PhysicalKey::Unidentified(winit::keyboard::NativeKeyCode::Unidentified),
         };
         let kitty_flags = runtime.kitty_keyboard_flags()
-            | u16::from(self.enable_csi_u_key_encoding) * KITTY_KEYBOARD_DISAMBIGUATE;
+            | (u16::from(self.enable_csi_u_key_encoding) * KITTY_KEYBOARD_DISAMBIGUATE);
         let bytes = encode_window_key_with_kitty_event(
             &Key::Named(key),
             physical_key,
@@ -93038,6 +93586,10 @@ impl NativeWindowApp {
         ))
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn handle_mouse_input(&mut self, state: ElementState, button: MouseButton) -> io::Result<bool> {
         if self.pane_inspection_input_barrier_active() {
             if self.handle_pending_ui_left_release(state, button) {
@@ -93419,9 +93971,9 @@ impl NativeWindowApp {
         let drag = self
             .split_resize_dragging
             .or_else(|| self.split_resize_drag_at_mouse_position());
-        let icon = drag
-            .map(|drag| split_resize_cursor_icon(drag.direction))
-            .unwrap_or(CursorIcon::Default);
+        let icon = drag.map_or(CursorIcon::Default, |drag| {
+            split_resize_cursor_icon(drag.direction)
+        });
         self.set_mouse_cursor_icon(icon);
     }
 
@@ -93763,6 +94315,10 @@ impl NativeWindowApp {
         ))
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn render_snapshot(&self) -> TerminalRenderSnapshot {
         let layout = self.pane_render_layout();
         let palette = self.native_resolved_palette();
@@ -93994,13 +94550,13 @@ impl NativeWindowApp {
 
     fn focus_pane_for_mouse_position(&mut self) -> Option<PaneMouseCell> {
         let mouse_cell = self.pane_cell_at_mouse_position()?;
-        if mouse_cell.pane_id != self.app_shell.active_pane_id() {
-            if let Err(error) = self.dispatch_app_action(AppAction::ActivatePane {
+        if mouse_cell.pane_id != self.app_shell.active_pane_id()
+            && let Err(error) = self.dispatch_app_action(AppAction::ActivatePane {
                 pane: mouse_cell.pane_id,
-            }) {
-                eprintln!("app shell pane focus error: {error:?}");
-                return None;
-            }
+            })
+        {
+            eprintln!("app shell pane focus error: {error:?}");
+            return None;
         }
 
         Some(mouse_cell)
@@ -94806,6 +95362,14 @@ impl NativeWindowApp {
         }
     }
 
+    #[expect(
+        clippy::similar_names,
+        reason = "singular and plural names mirror distinct compatibility API parameters"
+    )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn command_palette_cells(&self) -> Vec<RenderCell> {
         let Some(palette) = self.command_palette.as_ref() else {
             return Vec::new();
@@ -94881,12 +95445,10 @@ impl NativeWindowApp {
             {
                 let shortcut_fg = self
                     .launcher_label_fg
-                    .map(native_color_spec_to_render_color)
-                    .unwrap_or(Color::Rgb(255, 255, 255));
+                    .map_or(Color::Rgb(255, 255, 255), native_color_spec_to_render_color);
                 let shortcut_bg = self
                     .launcher_label_bg
-                    .map(native_color_spec_to_render_color)
-                    .unwrap_or(Color::Rgb(0, 0, 0));
+                    .map_or(Color::Rgb(0, 0, 0), native_color_spec_to_render_color);
                 let mut column = 0usize;
                 for ch in shortcut_label.chars().take(usize::from(columns)) {
                     if let Some(cell) = cells.get_mut(row_start + column) {
@@ -94920,6 +95482,10 @@ impl NativeWindowApp {
         cells
     }
 
+    #[expect(
+        clippy::similar_names,
+        reason = "singular and plural names mirror distinct compatibility API parameters"
+    )]
     fn input_selector_cells(&self) -> Vec<RenderCell> {
         let Some(input_selector) = self.input_selector.as_ref() else {
             return Vec::new();
@@ -94946,12 +95512,10 @@ impl NativeWindowApp {
             .then(|| quick_select_labels_for_alphabet(&input_selector.alphabet, choices.len()));
         let shortcut_fg = self
             .input_selector_label_fg
-            .map(native_color_spec_to_render_color)
-            .unwrap_or(Color::Rgb(255, 255, 255));
+            .map_or(Color::Rgb(255, 255, 255), native_color_spec_to_render_color);
         let shortcut_bg = self
             .input_selector_label_bg
-            .map(native_color_spec_to_render_color)
-            .unwrap_or(Color::Rgb(0, 0, 0));
+            .map_or(Color::Rgb(0, 0, 0), native_color_spec_to_render_color);
         let mut cells = Vec::with_capacity(visible_rows.saturating_mul(usize::from(size.columns)));
 
         for (visible_index, choice) in choices.iter().skip(start).take(visible_rows).enumerate() {
@@ -95287,6 +95851,10 @@ impl NativeWindowApp {
     }
 
     // WezTerm-style proportional tab bar rendering for `use_fancy_tab_bar = true`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn tab_bar_cells_fancy(&self) -> Vec<RenderCell> {
         if !self.tab_bar_is_visible() {
             self.rendered_tab_bar_layout.replace(None);
@@ -95574,6 +96142,10 @@ impl NativeWindowApp {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn window_frame_border_cells(&self) -> Vec<RenderCell> {
         let size = self.runtime.terminal().grid().size();
         if size.rows == 0 || size.columns == 0 {
@@ -95590,34 +96162,30 @@ impl NativeWindowApp {
         let left_width = self
             .window_frame_appearance
             .border_left_width
-            .map(|width| {
+            .map_or(0, |width| {
                 padding_dimension_to_cells(width, cell_width, terminal_width, self.window_dpi)
             })
-            .unwrap_or(0)
             .min(columns);
         let right_width = self
             .window_frame_appearance
             .border_right_width
-            .map(|width| {
+            .map_or(0, |width| {
                 padding_dimension_to_cells(width, cell_width, terminal_width, self.window_dpi)
             })
-            .unwrap_or(0)
             .min(columns);
         let top_height = self
             .window_frame_appearance
             .border_top_height
-            .map(|height| {
+            .map_or(0, |height| {
                 padding_dimension_to_cells(height, cell_height, terminal_height, self.window_dpi)
             })
-            .unwrap_or(0)
             .min(rows);
         let bottom_height = self
             .window_frame_appearance
             .border_bottom_height
-            .map(|height| {
+            .map_or(0, |height| {
                 padding_dimension_to_cells(height, cell_height, terminal_height, self.window_dpi)
             })
-            .unwrap_or(0)
             .min(rows);
 
         if left_width == 0 && right_width == 0 && top_height == 0 && bottom_height == 0 {
@@ -96135,9 +96703,7 @@ impl NativeWindowApp {
     }
 
     fn tab_bar_hover_column(&self) -> Option<u16> {
-        let Some(position) = self.mouse_pixel_position else {
-            return None;
-        };
+        let position = self.mouse_pixel_position?;
         if !position.x.is_finite()
             || !position.y.is_finite()
             || position.x < f64::from(self.frame_content_pixel_left())
@@ -96213,6 +96779,10 @@ impl NativeWindowApp {
         })
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn build_tab_bar_visible_layout(&self, hover_column: Option<u16>) -> TabBarVisibleLayout {
         let columns = self.runtime.terminal().grid().size().columns;
         let left_prefix_width = self.tab_bar_left_prefix_width().unwrap_or(0);
@@ -96641,6 +97211,10 @@ impl NativeWindowApp {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn native_effective_config(&self) -> NativeEffectiveConfig {
         NativeEffectiveConfig {
             dpi: self.window_dpi,
@@ -96924,6 +97498,10 @@ impl NativeWindowApp {
             .unwrap_or_else(|| default_freetype_load_flags_for_dpi(self.window_dpi))
     }
 
+    #[expect(
+        clippy::ref_option,
+        reason = "borrowed optional value matches surrounding compatibility helper interfaces"
+    )]
     fn effective_overlay_font(&self, font: &Option<NativeFontConfig>) -> Option<NativeFontConfig> {
         font.clone().or_else(|| {
             self.window_frame_appearance
@@ -96984,6 +97562,10 @@ impl NativeWindowApp {
         self.apply_config_overrides(overrides, disposition);
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn apply_config_overrides(
         &mut self,
         overrides: NativeConfigOverrides,
@@ -98239,6 +98821,10 @@ impl NativeWindowApp {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn handle_selection_mouse_input(&mut self, state: ElementState, button: MouseButton) -> bool {
         if button != MouseButton::Left {
             return false;
@@ -98286,19 +98872,19 @@ impl NativeWindowApp {
                     self.apply_window_title();
                     return true;
                 }
-                if click.count == 2 {
-                    if let Some(selection) = self.double_click_word_selection(cell) {
-                        self.set_ordinary_selection(StableOrdinarySelection::new(
-                            selection.anchor,
-                            selection.focus,
-                            self.runtime.terminal().current_seqno(),
-                        ));
-                        self.selecting = false;
-                        self.last_left_click = Some(click);
-                        self.refresh_snapshot();
-                        self.apply_window_title();
-                        return true;
-                    }
+                if click.count == 2
+                    && let Some(selection) = self.double_click_word_selection(cell)
+                {
+                    self.set_ordinary_selection(StableOrdinarySelection::new(
+                        selection.anchor,
+                        selection.focus,
+                        self.runtime.terminal().current_seqno(),
+                    ));
+                    self.selecting = false;
+                    self.last_left_click = Some(click);
+                    self.refresh_snapshot();
+                    self.apply_window_title();
+                    return true;
                 }
                 self.set_ordinary_selection(StableOrdinarySelection::new(
                     cell,
@@ -98921,6 +99507,10 @@ impl NativeWindowApp {
         self.apply_window_title();
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn effective_window_title(&self) -> String {
         let mut title = self.window_title.clone();
         title.push_str(&self.app_shell_state_id_suffix());
@@ -99199,7 +99789,7 @@ impl NativeWindowApp {
             self.dead_key_active = false;
             self.dead_key_text = None;
             self.selection = None;
-            self.window_title = DEFAULT_WINDOW_TITLE.to_owned();
+            DEFAULT_WINDOW_TITLE.clone_into(&mut self.window_title);
         }
         self.pane_bell_counts.remove(&pane_id);
         self.visual_bell_started_at.remove(&pane_id);
@@ -99207,6 +99797,10 @@ impl NativeWindowApp {
         self.pending_frame_damage.clear();
     }
 
+    #[expect(
+        clippy::unused_self,
+        reason = "method shape is retained for compatibility call-site consistency"
+    )]
     fn allocate_pane_runtime_generation(&mut self) -> u64 {
         allocate_pane_runtime_token_from(&NEXT_PANE_RUNTIME_TOKEN)
     }
@@ -101131,12 +101725,11 @@ impl NativeWindowApp {
         let preserve_copy_state = self.active_ui.copy_search_mode()
             == Some(WindowCopySearchMode::Search)
             && self.active_ui.retained_copy_mode().is_some();
-        let pattern_changed = match self
+        let Some(pattern_changed) = self
             .active_ui
             .replace_search_pattern(query.to_owned(), match_type)
-        {
-            Some(pattern_changed) => pattern_changed,
-            None => return false,
+        else {
+            return false;
         };
         if !pattern_changed {
             if query.is_empty() {
@@ -101319,7 +101912,7 @@ impl NativeWindowApp {
         }
 
         let bytes = encode_window_paste(
-            &text,
+            text,
             self.runtime.bracketed_paste(),
             self.canonicalize_pasted_newlines,
         );
@@ -101456,6 +102049,10 @@ impl NativeWindowApp {
         self.set_window_config_overrides(Some(config_overrides), ReloadDisposition::ReloadAttempt);
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn lua_window_status_text(&self, status: NativeLuaWindowStatusText) -> String {
         match status {
             NativeLuaWindowStatusText::Static(status) => status,
@@ -101504,15 +102101,14 @@ impl NativeWindowApp {
                         .to_owned(),
                 })
                 .collect::<String>(),
-            NativeLuaWindowStatusText::ActiveKeyTable { prefix, fallback } => self
-                .key_table_stack
-                .last()
-                .map(|activation| format!("{prefix}{}", activation.name))
-                .unwrap_or(fallback),
+            NativeLuaWindowStatusText::ActiveKeyTable { prefix, fallback } => {
+                self.key_table_stack.last().map_or(fallback, |activation| {
+                    format!("{prefix}{}", activation.name)
+                })
+            }
             NativeLuaWindowStatusText::CompositionStatus { prefix, fallback } => self
                 .composition_status_text()
-                .map(|status| format!("{prefix}{status}"))
-                .unwrap_or(fallback),
+                .map_or(fallback, |status| format!("{prefix}{status}")),
             NativeLuaWindowStatusText::Leader { active, inactive } => {
                 if self.leader_active_since.is_some() {
                     active
@@ -101594,7 +102190,9 @@ impl NativeWindowApp {
                 percentage_prefix,
                 error_prefix,
                 indeterminate,
-            } => self.lua_pane_progress_text(none, percentage_prefix, error_prefix, indeterminate),
+            } => {
+                self.lua_pane_progress_text(none, &percentage_prefix, &error_prefix, indeterminate)
+            }
             NativeLuaWindowStatusText::KeyboardModifiers { parts } => {
                 let modifiers = native_lua_keyboard_modifiers_text(self.modifiers);
                 let leds = String::new();
@@ -101619,6 +102217,10 @@ impl NativeWindowApp {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn lua_window_effective_config_field_text(
         &self,
         field: NativeLuaWindowEffectiveConfigField,
@@ -101658,7 +102260,7 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::DpiByScreen(name) => self
                 .dpi_by_screen
                 .get(&name)
-                .map(|dpi| dpi.to_string())
+                .map(std::string::ToString::to_string)
                 .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::ResolvedPalette(field) => {
                 let palette = self.native_resolved_palette();
@@ -102055,7 +102657,7 @@ impl NativeWindowApp {
                                         launch
                                             .args()
                                             .get(offset - 1)
-                                            .map(|arg| arg.to_string())
+                                            .map(std::string::ToString::to_string)
                                             .unwrap_or_default()
                                     }
                                 }),
@@ -102283,7 +102885,7 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::CleanExitCode(index) => index
                 .checked_sub(1)
                 .and_then(|offset| self.clean_exit_codes.get(offset))
-                .map(|code| code.to_string())
+                .map(std::string::ToString::to_string)
                 .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::DisableDefaultQuickSelectPatterns => {
                 self.disable_default_quick_select_patterns.to_string()
@@ -102499,8 +103101,8 @@ impl NativeWindowApp {
     fn lua_pane_progress_text(
         &self,
         none: String,
-        percentage_prefix: String,
-        error_prefix: String,
+        percentage_prefix: &str,
+        error_prefix: &str,
         indeterminate: String,
     ) -> String {
         match self
@@ -102972,7 +103574,7 @@ impl NativeWindowApp {
             .active_tab()
             .panes()
             .first()
-            .map(|pane| pane.id())
+            .map(rssh_core::app_shell::Pane::id)
             .map(|root_pane_id| {
                 let old_root =
                     self.padded_terminal_render_rect_for_size(root_pane_id, old_terminal_size);
@@ -103269,6 +103871,10 @@ fn window_physical_key_is_modifier(physical_key: PhysicalKey) -> bool {
     )
 }
 
+#[expect(
+    clippy::fn_params_excessive_bools,
+    reason = "independent compatibility flags represent valid combinations"
+)]
 fn native_alt_composed_key_should_remove_alt_modifier(
     physical_key: PhysicalKey,
     text: Option<&str>,
@@ -103394,16 +104000,12 @@ fn encode_window_key_with_kitty_event(
         return bytes;
     }
 
-    if application_keypad {
-        if let Some(bytes) = encode_application_keypad_key(physical_key) {
-            return bytes;
-        }
+    if application_keypad && let Some(bytes) = encode_application_keypad_key(physical_key) {
+        return bytes;
     }
 
-    if application_cursor_keys {
-        if let Some(bytes) = encode_application_cursor_key(key) {
-            return bytes;
-        }
+    if application_cursor_keys && let Some(bytes) = encode_application_cursor_key(key) {
+        return bytes;
     }
 
     if modifiers.shift_key() && matches!(key, Key::Named(NamedKey::Tab)) {
@@ -104393,6 +104995,10 @@ fn scrollback_lines_from_mouse_delta(delta: MouseScrollDelta) -> isize {
     }
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "finite deltas are truncated deliberately and saturated before isize conversion"
+)]
 fn signed_scroll_lines(value: f64) -> isize {
     if !value.is_finite() {
         return 0;
@@ -104403,12 +105009,10 @@ fn signed_scroll_lines(value: f64) -> isize {
 
     let direction = if value.is_sign_negative() { -1 } else { 1 };
     let value = value.abs().trunc();
-    let lines = if value > isize::MAX as f64 {
-        isize::MAX
-    } else if value == 0.0 {
+    let lines = if value == 0.0 {
         1
     } else {
-        value as isize
+        isize::try_from(value as i64).unwrap_or(isize::MAX)
     };
     lines.saturating_mul(direction)
 }
@@ -104690,13 +105294,11 @@ fn copy_mode_forward_word_target(
 
     if let Some(segment) = segments.next() {
         target_column = target_column.saturating_add(segment.end.saturating_sub(cursor_column));
-        if !segment.is_whitespace {
-            if let Some(next_segment) = segments.next() {
-                if next_segment.is_whitespace {
-                    target_column =
-                        target_column.saturating_add(next_segment.end - next_segment.start);
-                }
-            }
+        if !segment.is_whitespace
+            && let Some(next_segment) = segments.next()
+            && next_segment.is_whitespace
+        {
+            target_column = target_column.saturating_add(next_segment.end - next_segment.start);
         }
     }
 
@@ -105701,33 +106303,30 @@ mod pane_transient_overlay {
             mut requested: WindowSearch,
         ) {
             requested.editing = true;
-            match self.overlay.as_mut() {
-                Some(PaneTransientOverlay::CopySearch(controller)) => {
-                    match controller.search.as_mut() {
-                        Some(retained)
-                            if retained.query == requested.query
-                                && retained.match_type == requested.match_type =>
-                        {
-                            retained.editing = true;
-                        }
-                        Some(_) | None => {
-                            requested.current = None;
-                            controller.search = Some(requested);
-                        }
+            if let Some(PaneTransientOverlay::CopySearch(controller)) = self.overlay.as_mut() {
+                match controller.search.as_mut() {
+                    Some(retained)
+                        if retained.query == requested.query
+                            && retained.match_type == requested.match_type =>
+                    {
+                        retained.editing = true;
                     }
-                    controller.mode = WindowCopySearchMode::Search;
+                    Some(_) | None => {
+                        requested.current = None;
+                        controller.search = Some(requested);
+                    }
                 }
-                _ => {
-                    requested.current = None;
-                    self.overlay = Some(PaneTransientOverlay::CopySearch(
-                        WindowCopySearchController {
-                            mode: WindowCopySearchMode::Search,
-                            copy_mode_retained: true,
-                            copy_mode: initial_copy_mode,
-                            search: Some(requested),
-                        },
-                    ));
-                }
+                controller.mode = WindowCopySearchMode::Search;
+            } else {
+                requested.current = None;
+                self.overlay = Some(PaneTransientOverlay::CopySearch(
+                    WindowCopySearchController {
+                        mode: WindowCopySearchMode::Search,
+                        copy_mode_retained: true,
+                        copy_mode: initial_copy_mode,
+                        search: Some(requested),
+                    },
+                ));
             }
         }
 
@@ -105776,6 +106375,10 @@ mod pane_transient_overlay {
             self.search_match_cache.get_mut().clear();
         }
 
+        #[expect(
+            clippy::too_many_lines,
+            reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+        )]
         pub(super) fn reconcile_stable_coordinates(&mut self, terminal: &Terminal) {
             self.stable_viewport.clamp_main(terminal);
             let dimensions = terminal.stable_dimensions();
@@ -105821,16 +106424,13 @@ mod pane_transient_overlay {
                         ) && controller.copy_mode.source_anchor.is_none_or(|anchor| {
                             source_cell_is_retained(anchor, dimensions.domain, &retained)
                         }));
-                    if !copy_retained {
-                        true
-                    } else {
-                        if let Some(search) = controller.search.as_mut() {
-                            if search
+                    if copy_retained {
+                        if let Some(search) = controller.search.as_mut()
+                            && search
                                 .current
                                 .is_some_and(|matched| !matched.is_retained(terminal))
-                            {
-                                search.current = None;
-                            }
+                        {
+                            search.current = None;
                         }
                         if controller.copy_mode_retained {
                             let cursor = (size.columns > 0).then(|| SelectionSourceCell {
@@ -105868,12 +106468,12 @@ mod pane_transient_overlay {
                         } else {
                             false
                         }
+                    } else {
+                        true
                     }
                 }
                 Some(PaneTransientOverlay::QuickSelect(quick_select)) => {
-                    if quick_select.matches.len() != quick_select.labels.len() {
-                        true
-                    } else {
+                    if quick_select.matches.len() == quick_select.labels.len() {
                         let current_match = quick_select.current_match();
                         let retained_pairs = quick_select
                             .matches
@@ -105901,6 +106501,8 @@ mod pane_transient_overlay {
                             }
                             None => true,
                         }
+                    } else {
+                        true
                     }
                 }
                 None => false,
@@ -106060,9 +106662,7 @@ mod pane_transient_overlay {
             query: String,
             match_type: WindowSearchMatchType,
         ) -> Option<bool> {
-            let Some(controller) = self.copy_search_mut() else {
-                return None;
-            };
+            let controller = self.copy_search_mut()?;
             if controller
                 .search
                 .as_ref()
@@ -106496,7 +107096,7 @@ fn strip_wezterm_action_prefix(query: &str) -> Option<&str> {
         }
         let rest = lua_trim_start_comments(query.get(prefix.len()..)?)?;
         let rest = rest.strip_prefix('.')?;
-        Some(lua_trim_start_comments(rest)?)
+        lua_trim_start_comments(rest)
     })
 }
 
@@ -106660,6 +107260,10 @@ fn strip_wezterm_action_table_wrapper_argument_from_query(query: &str) -> Option
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn command_palette_structured_query_command_inner(query: &str) -> Option<WindowCommand> {
     if let Some(command) = command_palette_basic_structured_query_command(query) {
         return Some(command);
@@ -106907,6 +107511,10 @@ fn normalized_action_name_query(query: &str) -> String {
         .to_ascii_lowercase()
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn basic_no_arg_action_name_command(action_name: &str) -> Option<WindowCommand> {
     match action_name {
         "nop" => return Some(WindowCommand::Nop),
@@ -107013,8 +107621,9 @@ fn basic_no_arg_action_name_command(action_name: &str) -> Option<WindowCommand> 
         "showtabnavigator" => return Some(WindowCommand::ShowTabNavigator),
         "showlauncher" => return Some(WindowCommand::ShowLauncher),
         "charselect" => return Some(WindowCommand::CharSelect),
-        "quickselect" | "quickselectargs" => return Some(WindowCommand::EnterQuickSelect),
-        "enterquickselect" => return Some(WindowCommand::EnterQuickSelect),
+        "quickselect" | "quickselectargs" | "enterquickselect" => {
+            return Some(WindowCommand::EnterQuickSelect);
+        }
         "enterpaneselect" => return Some(WindowCommand::EnterPaneSelect),
         "enterpaneselectshowpaneids" => return Some(WindowCommand::EnterPaneSelectShowPaneIds),
         "enterpaneswap" => return Some(WindowCommand::EnterPaneSwap),
@@ -107412,10 +108021,12 @@ fn copy_mode_assignment_name_from_query_with_static_source(
         "moveleft" => Some(WindowCopyModeAssignment::MoveLeft),
         "moveright" => Some(WindowCopyModeAssignment::MoveRight),
         "movetoendoflinecontent" => Some(WindowCopyModeAssignment::MoveToEndOfLineContent),
-        "movetoscrollbackbottom" => Some(WindowCopyModeAssignment::MoveToScrollbackBottom),
-        "movetoscrollbacktop" => Some(WindowCopyModeAssignment::MoveToScrollbackTop),
-        "scrolltobottom" => Some(WindowCopyModeAssignment::MoveToScrollbackBottom),
-        "scrolltotop" => Some(WindowCopyModeAssignment::MoveToScrollbackTop),
+        "movetoscrollbackbottom" | "scrolltobottom" => {
+            Some(WindowCopyModeAssignment::MoveToScrollbackBottom)
+        }
+        "movetoscrollbacktop" | "scrolltotop" => {
+            Some(WindowCopyModeAssignment::MoveToScrollbackTop)
+        }
         "movetoselectionotherend" => Some(WindowCopyModeAssignment::MoveToSelectionOtherEnd),
         "movetoselectionotherendhoriz" => {
             Some(WindowCopyModeAssignment::MoveToSelectionOtherEndHoriz)
@@ -108002,7 +108613,7 @@ fn prompt_input_line_action_from_lua_action_callback_body(
                 continue;
             };
             if lua_callback_line_condition_from_expression(condition, line_param)?
-                && lua_trim_end_statement_separator(rest)?.trim().is_empty()
+                && lua_trim_end_statement_separator(rest).trim().is_empty()
             {
                 if let Some(action) = prompt_input_line_callback_body_sends_pane_input(
                     if_body, pane_param, line_param,
@@ -108072,6 +108683,10 @@ fn prompt_input_line_callback_body_switches_to_workspace_name(
     Some(found)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn prompt_input_line_callback_body_sends_pane_input(
     body: &str,
     pane_param: &str,
@@ -108094,6 +108709,10 @@ fn prompt_input_line_callback_body_sends_pane_input(
     Some(found)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn prompt_input_line_callback_statement_sends_pane_input(
     statement: &str,
     pane_param: &str,
@@ -108130,7 +108749,7 @@ fn prompt_input_line_callback_statement_sends_pane_input(
     let name = lua_identifier_literal_from_query(argument)?;
     if name != line_param
         || !lua_static_identifier_value_rest_is_statement_end(argument.get(name.len()..)?)
-        || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
+        || !lua_trim_end_statement_separator(rest).trim().is_empty()
     {
         return Some(None);
     }
@@ -108192,7 +108811,7 @@ fn prompt_input_line_callback_statement_renames_active_tab(
     {
         return Some(false);
     }
-    Some(lua_trim_end_statement_separator(rest)?.trim().is_empty())
+    Some(lua_trim_end_statement_separator(rest).trim().is_empty())
 }
 
 fn prompt_input_line_callback_statement_switches_to_workspace_name(
@@ -108226,7 +108845,7 @@ fn prompt_input_line_callback_statement_switches_to_workspace_name(
     let name = lua_identifier_literal_from_query(pane)?;
     if name != pane_param
         || !lua_static_identifier_value_rest_is_statement_end(pane.get(name.len()..)?)
-        || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
+        || !lua_trim_end_statement_separator(rest).trim().is_empty()
     {
         return Some(false);
     }
@@ -108253,20 +108872,19 @@ fn prompt_input_line_switch_to_workspace_action_uses_line(
     }
     let rest = lua_trim_start_comments(action.get(action_name.len()..)?)?;
     let table = if rest.starts_with('{') {
-        let table = rest.strip_prefix('{')?.strip_suffix('}')?.trim();
-        table
+        rest.strip_prefix('{')?.strip_suffix('}')?.trim()
     } else if rest.starts_with('(') {
         let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
         let (arguments, after) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
-        if !lua_trim_end_statement_separator(after)?.trim().is_empty() {
+        if !lua_trim_end_statement_separator(after).trim().is_empty() {
             return Some(false);
         }
         let arguments = split_lua_top_level_arguments(arguments)?;
         let [table] = arguments.as_slice() else {
             return Some(false);
         };
-        let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-        table
+
+        table.trim().strip_prefix('{')?.strip_suffix('}')?.trim()
     } else {
         return Some(false);
     };
@@ -108442,10 +109060,12 @@ fn push_native_format_color_status_sgr(text: &mut String, target: u16, color: Co
             _ => {}
         },
         Color::Indexed(index) => {
-            text.push_str(&format!("\x1b[{target};5;{index}m"));
+            std::fmt::Write::write_fmt(text, format_args!("\x1b[{target};5;{index}m"))
+                .expect("writing to a String cannot fail");
         }
         Color::Rgb(red, green, blue) | Color::Rgba(red, green, blue, _) => {
-            text.push_str(&format!("\x1b[{target};2;{red};{green};{blue}m"));
+            std::fmt::Write::write_fmt(text, format_args!("\x1b[{target};2;{red};{green};{blue}m"))
+                .expect("writing to a String cannot fail");
         }
     }
 }
@@ -108717,6 +109337,10 @@ fn split_unquoted_query_semicolons(query: &str) -> Vec<&str> {
     values
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn input_selector_fields_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     rest: &str,
@@ -108944,6 +109568,10 @@ fn input_selector_next_field_offsets(rest: &str) -> Vec<usize> {
     offsets
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn input_selector_lua_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -109204,7 +109832,7 @@ fn input_selector_action_from_lua_action_callback_statement(
     if let Some((branches, else_body, rest)) =
         lua_static_if_condition_and_body_branches_and_else_from_statement(statement)
     {
-        if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
+        if !lua_trim_end_statement_separator(rest).trim().is_empty() {
             return None;
         }
         let mut found = None;
@@ -109293,7 +109921,7 @@ fn input_selector_callback_statement_sends_pane_input_param(
     if !lua_static_identifier_value_rest_is_statement_end(argument.get(name.len()..)?) {
         return None;
     }
-    if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
+    if !lua_trim_end_statement_separator(rest).trim().is_empty() {
         return None;
     }
     if name == id_param {
@@ -109313,9 +109941,7 @@ fn input_selector_callback_statement_switches_to_workspace(
     label_param: &str,
 ) -> Option<WindowInputSelectorAction> {
     let statement = lua_trim_start_comments(statement)?;
-    let Some(rest) = statement.strip_prefix(window_param) else {
-        return None;
-    };
+    let rest = statement.strip_prefix(window_param)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
@@ -109337,7 +109963,7 @@ fn input_selector_callback_statement_switches_to_workspace(
     let name = lua_identifier_literal_from_query(pane)?;
     if name != pane_param
         || !lua_static_identifier_value_rest_is_statement_end(pane.get(name.len()..)?)
-        || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
+        || !lua_trim_end_statement_separator(rest).trim().is_empty()
     {
         return None;
     }
@@ -109369,7 +109995,7 @@ fn input_selector_switch_to_workspace_action_from_query(
     } else if rest.starts_with('(') {
         let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
         let (arguments, after) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
-        if !lua_trim_end_statement_separator(after)?.trim().is_empty() {
+        if !lua_trim_end_statement_separator(after).trim().is_empty() {
             return None;
         }
         let arguments = split_lua_top_level_arguments(arguments)?;
@@ -109419,6 +110045,10 @@ fn input_selector_switch_to_workspace_action_from_query(
     })
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn input_selector_switch_to_workspace_spawn_cwd_from_query(
     value: &str,
     id_param: &str,
@@ -109742,7 +110372,7 @@ fn lua_action_callback_perform_action_command_body(
     let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
     let mut commands = Vec::new();
     for (index, start) in starts.iter().copied().enumerate() {
-        let end = starts.get(index + 1).copied().unwrap_or_else(|| body.len());
+        let end = starts.get(index + 1).copied().unwrap_or(body.len());
         let statement = lua_trim_start_comments(body.get(start..end)?)?;
         let local_static_source = Some(LuaStaticSource {
             source: body,
@@ -109816,10 +110446,10 @@ fn lua_callback_statement_perform_action_query<'a>(
     if !lua_static_identifier_expression_matches(parts.window, window_param) {
         return None;
     }
-    if let Some(explicit_self) = parts.explicit_self {
-        if !lua_static_identifier_expression_matches(explicit_self, window_param) {
-            return None;
-        }
+    if let Some(explicit_self) = parts.explicit_self
+        && !lua_static_identifier_expression_matches(explicit_self, window_param)
+    {
+        return None;
     }
     if !lua_static_identifier_expression_matches(parts.pane, pane_param) {
         return None;
@@ -109843,15 +110473,15 @@ fn lua_callback_statement_perform_action_query_with_static_sources<'a>(
     ) {
         return None;
     }
-    if let Some(explicit_self) = parts.explicit_self {
-        if !lua_callback_expression_is_window_param(
+    if let Some(explicit_self) = parts.explicit_self
+        && !lua_callback_expression_is_window_param(
             explicit_self,
             window_param,
             static_source,
             outer_static_source,
-        ) {
-            return None;
-        }
+        )
+    {
+        return None;
     }
     if !lua_callback_expression_is_pane_param(
         parts.pane,
@@ -109871,9 +110501,9 @@ struct LuaCallbackPerformActionParts<'a> {
     pane: &'a str,
 }
 
-fn lua_callback_statement_perform_action_parts_query<'a>(
-    statement: &'a str,
-) -> Option<LuaCallbackPerformActionParts<'a>> {
+fn lua_callback_statement_perform_action_parts_query(
+    statement: &str,
+) -> Option<LuaCallbackPerformActionParts<'_>> {
     let statement = lua_trim_start_comments(statement)?;
     let window = lua_identifier_literal_from_query(statement)?;
     let rest = statement.get(window.len()..)?;
@@ -109895,7 +110525,7 @@ fn lua_callback_statement_perform_action_parts_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
     let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
     let arguments = split_lua_top_level_arguments(arguments)?;
-    if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
+    if !lua_trim_end_statement_separator(rest).trim().is_empty() {
         return None;
     }
     if has_explicit_self {
@@ -110104,7 +110734,7 @@ fn lua_callback_statement_pane_text_argument_from_query(rest: &str) -> Option<&s
         let [text] = arguments.as_slice() else {
             return None;
         };
-        if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
+        if !lua_trim_end_statement_separator(rest).trim().is_empty() {
             return None;
         }
         return Some(text);
@@ -110151,7 +110781,7 @@ fn lua_callback_statement_emits_event(
         lua_static_identifier_expression_matches(window, window_param)
             && lua_static_identifier_expression_matches(pane, pane_param)
     };
-    if !args_match || !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
+    if !args_match || !lua_trim_end_statement_separator(rest).trim().is_empty() {
         return None;
     }
     let name = lua_static_string_value_from_expression(
@@ -110314,7 +110944,7 @@ fn lua_static_wezterm_emit_alias_value_from_query(
     if value.starts_with("wezterm") && rest.chars().next().is_some_and(is_lua_identifier_character)
     {
         return false;
-    };
+    }
     lua_static_wezterm_emit_alias_receiver_rest_is_statement_end(source, max_start, rest)
 }
 
@@ -111295,6 +111925,10 @@ fn activate_key_table_from_query(query: &str) -> Option<WindowActivateKeyTable> 
     activate_key_table_from_query_with_static_source(None, query)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn activate_key_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     query: &str,
@@ -111578,6 +112212,10 @@ fn activate_key_table_from_query_with_static_source(
     Some(key_table)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn activate_key_table_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -113407,6 +114045,10 @@ fn char_select_options_from_query(query: &str) -> Option<WindowCharSelectOptions
     char_select_options_from_query_with_static_source(None, query)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn char_select_options_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     query: &str,
@@ -115322,6 +115964,10 @@ fn native_visual_bell_lua_table_from_query<'a>(
     Some(visual_bell)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn visual_bell_color_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -115329,6 +115975,10 @@ fn visual_bell_color_lua_table_from_query(
     color_lua_table_field_from_query_with_static_source(static_source, value, "visual_bell")
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn tab_bar_background_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -115336,6 +115986,10 @@ fn tab_bar_background_lua_table_from_query(
     tab_bar_color_lua_table_field_from_query(static_source, value, "background")
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn tab_bar_inactive_tab_edge_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -115343,6 +115997,10 @@ fn tab_bar_inactive_tab_edge_lua_table_from_query(
     tab_bar_color_lua_table_field_from_query(static_source, value, "inactive_tab_edge")
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn tab_bar_color_lua_table_field_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -115376,6 +116034,10 @@ fn tab_bar_color_lua_table_field_from_query(
     Some(color)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn tab_bar_item_colors_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -115470,6 +116132,10 @@ fn tab_bar_item_underline_from_query(value: &str) -> Option<NativeFormatUnderlin
     }
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn native_tab_bar_style_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -115496,7 +116162,7 @@ fn native_tab_bar_style_lua_table_from_query(
             "active_tab_right" => assign_tab_bar_style_edge(&mut style.active_tab_right, items)?,
             "inactive_tab_left" => assign_tab_bar_style_edge(&mut style.inactive_tab_left, items)?,
             "inactive_tab_right" => {
-                assign_tab_bar_style_edge(&mut style.inactive_tab_right, items)?
+                assign_tab_bar_style_edge(&mut style.inactive_tab_right, items)?;
             }
             "inactive_tab_hover_left" => {
                 assign_tab_bar_style_edge(&mut style.inactive_tab_hover_left, items)?;
@@ -115606,6 +116272,10 @@ fn native_format_items_from_wezterm_format_query_with_static_sources(
     None
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn native_format_items_from_static_lua_table_variable(
     static_source: LuaStaticSource<'_>,
     outer_static_source: Option<LuaStaticSource<'_>>,
@@ -115700,9 +116370,7 @@ fn lua_static_format_items_table_variable_index_or_append_assignment_from_query(
         });
     }
 
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -115713,9 +116381,7 @@ fn lua_static_format_items_table_variable_index_or_append_assignment_from_query(
     let after_open = lua_trim_start_comments(after_variable)?.strip_prefix('[')?;
     let after_hash = lua_trim_start_comments(after_open)?.strip_prefix('#')?;
     let after_hash = lua_trim_start_comments(after_hash)?;
-    let Some(rest) = after_hash.strip_prefix(variable) else {
-        return None;
-    };
+    let rest = after_hash.strip_prefix(variable)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
@@ -115736,9 +116402,7 @@ fn lua_static_format_items_table_variable_index_assignment_from_query(
     start: usize,
     variable: &str,
 ) -> Option<LuaTableIndexAssignment<String>> {
-    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
-        return None;
-    };
+    let after_variable = source.get(start..)?.strip_prefix(variable)?;
     if after_variable
         .chars()
         .next()
@@ -116242,6 +116906,10 @@ fn native_format_item_from_static_lua_table_variable_with_static_sources(
     None
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn native_format_item_from_static_lua_table_variable(
     static_source: LuaStaticSource<'_>,
     variable: &str,
@@ -116321,6 +116989,10 @@ fn native_format_underline_from_query(value: &str) -> Option<NativeFormatUnderli
     }
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_table_field_value_from_query<'a>(
     value: &'a str,
     field_name: &str,
@@ -116328,6 +117000,10 @@ fn lua_table_field_value_from_query<'a>(
     lua_table_field_value_from_query_with_static_source(None, value, field_name)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_table_field_value_from_query_with_static_source<'a>(
     static_source: Option<LuaStaticSource<'_>>,
     value: &'a str,
@@ -117023,7 +117699,7 @@ fn lua_color_from_query_with_static_source(
 ) -> Option<Color> {
     if let Some(color) = static_source
         .and_then(|source| lua_static_wezterm_color_value_from_query(source, value))
-        .and_then(|value| value.into_scalar())
+        .and_then(NativeStaticLuaColorValue::into_scalar)
         .and_then(|value| value.as_color())
     {
         return Some(terminal_color_from_native_static_lua_color(color));
@@ -117038,7 +117714,7 @@ fn lua_opaque_color_from_query_with_static_source(
 ) -> Option<Color> {
     if let Some(color) = static_source
         .and_then(|source| lua_static_wezterm_color_value_from_query(source, value))
-        .and_then(|value| value.into_scalar())
+        .and_then(NativeStaticLuaColorValue::into_scalar)
         .and_then(|value| value.as_color())
     {
         return Some(opaque_color(terminal_color_from_native_static_lua_color(
@@ -117060,7 +117736,7 @@ fn lua_opaque_color_from_query_with_static_sources(
             outer_static_source
                 .and_then(|source| lua_static_wezterm_color_value_from_query(source, value))
         })
-        .and_then(|value| value.into_scalar())
+        .and_then(NativeStaticLuaColorValue::into_scalar)
         .and_then(|value| value.as_color())
     {
         return Some(opaque_color(terminal_color_from_native_static_lua_color(
@@ -117071,6 +117747,10 @@ fn lua_opaque_color_from_query_with_static_sources(
     lua_opaque_color_from_query(&value)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn color_lua_table_field_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -117194,6 +117874,10 @@ fn lua_static_wezterm_color_parse_alias_value_from_query(
     field == "parse" && lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn color_spec_lua_table_field_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -117298,6 +117982,10 @@ fn lua_color_spec_from_query_with_static_sources(
     color
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn selection_fg_lua_table_field_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -117332,6 +118020,10 @@ fn selection_fg_lua_table_field_from_query_with_static_source(
     Some(color)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn selection_bg_lua_table_field_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -117364,6 +118056,10 @@ fn selection_bg_lua_table_field_from_query_with_static_source(
     Some(color)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn color_array_lua_table_field_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -117399,6 +118095,10 @@ fn color_array_lua_table_field_from_query_with_static_source(
     Some(colors)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn indexed_palette_lua_table_field_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -117457,6 +118157,10 @@ fn lua_hex_color_from_query(value: &str) -> Option<Color> {
     Some(Color::Rgb(red, green, blue))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn lua_named_color_from_query(value: &str) -> Option<Color> {
     let color = match value.trim().to_ascii_lowercase().as_str() {
         "aliceblue" => Color::Rgb(240, 248, 255),
@@ -117625,6 +118329,10 @@ fn lua_wezterm_color_parse_from_query(value: &str) -> Option<Color> {
     lua_color_from_query(&value)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_selection_foreground_color_from_query(value: &str) -> Option<Option<Color>> {
     let color = lua_color_from_query(value)?;
     match color {
@@ -117642,7 +118350,7 @@ fn opaque_color(color: Color) -> Color {
 
 fn lua_rgb_color_from_query(value: &str) -> Option<Color> {
     let components = lua_color_function_body(value, "rgb")?;
-    let (channels, alpha) = split_lua_css_rgb_channels_and_alpha(components)?;
+    let (channels, alpha) = split_lua_css_rgb_channels_and_alpha(components);
     let [red, green, blue] = <[&str; 3]>::try_from(channels).ok()?;
     let red = lua_css_rgb_channel_from_query(red)?;
     let green = lua_css_rgb_channel_from_query(green)?;
@@ -117662,7 +118370,7 @@ fn lua_rgb_color_from_query(value: &str) -> Option<Color> {
 
 fn lua_rgba_color_from_query(value: &str) -> Option<Color> {
     let components = lua_color_function_body(value, "rgba")?;
-    let (mut components, alpha) = split_lua_css_rgb_channels_and_alpha(components)?;
+    let (mut components, alpha) = split_lua_css_rgb_channels_and_alpha(components);
     let alpha = alpha.or_else(|| {
         if components.len() == 4 {
             components.pop()
@@ -117682,10 +118390,10 @@ fn lua_hsl_color_from_query(value: &str) -> Option<Color> {
     let (channels, alpha) = if let Some(components) = value.trim().strip_prefix("hsl:") {
         (components.split_whitespace().collect::<Vec<_>>(), None)
     } else if let Some(components) = lua_color_function_body(value, "hsl") {
-        split_lua_css_rgb_channels_and_alpha(components)?
+        split_lua_css_rgb_channels_and_alpha(components)
     } else {
         let components = lua_color_function_body(value, "hsla")?;
-        let (mut channels, alpha) = split_lua_css_rgb_channels_and_alpha(components)?;
+        let (mut channels, alpha) = split_lua_css_rgb_channels_and_alpha(components);
         let alpha = alpha.or_else(|| {
             if channels.len() == 4 {
                 channels.pop()
@@ -117716,7 +118424,7 @@ fn lua_hsl_color_from_query(value: &str) -> Option<Color> {
 
 fn lua_hsv_color_from_query(value: &str) -> Option<Color> {
     let components = lua_color_function_body(value, "hsv")?;
-    let (channels, alpha) = split_lua_css_rgb_channels_and_alpha(components)?;
+    let (channels, alpha) = split_lua_css_rgb_channels_and_alpha(components);
     let [hue, saturation, value] = <[&str; 3]>::try_from(channels).ok()?;
     let [red, green, blue] = hsv_to_rgb(
         lua_css_hue_degrees_from_query(hue)?,
@@ -117738,7 +118446,7 @@ fn lua_hsv_color_from_query(value: &str) -> Option<Color> {
 
 fn lua_hwb_color_from_query(value: &str) -> Option<Color> {
     let components = lua_color_function_body(value, "hwb")?;
-    let (channels, alpha) = split_lua_css_rgb_channels_and_alpha(components)?;
+    let (channels, alpha) = split_lua_css_rgb_channels_and_alpha(components);
     let [hue, whiteness, blackness] = <[&str; 3]>::try_from(channels).ok()?;
     let [red, green, blue] = hwb_to_rgb(
         lua_css_hue_degrees_from_query(hue)?,
@@ -117767,10 +118475,12 @@ fn lua_color_function_body<'a>(value: &'a str, function: &str) -> Option<&'a str
         .map(str::trim)
 }
 
-fn split_lua_css_rgb_channels_and_alpha(components: &str) -> Option<(Vec<&str>, Option<&str>)> {
+fn split_lua_css_rgb_channels_and_alpha(
+    components: &str,
+) -> (std::vec::Vec<&str>, std::option::Option<&str>) {
     if components.contains(',') {
         let components = components.split(',').map(str::trim).collect::<Vec<_>>();
-        return Some((components, None));
+        return (components, None);
     }
     let (channels, alpha) = components
         .split_once('/')
@@ -117778,7 +118488,7 @@ fn split_lua_css_rgb_channels_and_alpha(components: &str) -> Option<(Vec<&str>, 
             (channels, Some(alpha.trim()))
         });
     let channels = channels.split_whitespace().collect::<Vec<_>>();
-    Some((channels, alpha))
+    (channels, alpha)
 }
 
 fn lua_css_rgb_channel_from_query(value: &str) -> Option<u8> {
@@ -117825,6 +118535,11 @@ fn lua_css_percentage_from_query(value: &str) -> Option<f64> {
     Some((percent / 100.0).clamp(0.0, 1.0))
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "normalized hue is finite and constrained to the six CSS color sectors"
+)]
 fn hsl_to_rgb(hue_degrees: f64, saturation: f64, lightness: f64) -> [u8; 3] {
     let chroma = (1.0 - (2.0 * lightness - 1.0).abs()) * saturation;
     let hue_sector = hue_degrees / 60.0;
@@ -117947,17 +118662,17 @@ fn split_lua_table_string_array_with_static_source(
         if field.is_empty() {
             continue;
         }
-        if let Some((key, value)) = split_lua_table_assignment_from_field(field) {
-            if let Some(index) = split_lua_table_array_index_from_query(key.trim()) {
-                if !values.is_empty() || index == 0 || indexed_values.contains_key(&index) {
-                    return None;
-                }
-                indexed_values.insert(
-                    index,
-                    parse_maybe_static_query_text(static_source, value.trim())?,
-                );
-                continue;
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !values.is_empty() || index == 0 || indexed_values.contains_key(&index) {
+                return None;
             }
+            indexed_values.insert(
+                index,
+                parse_maybe_static_query_text(static_source, value.trim())?,
+            );
+            continue;
         }
         if !indexed_values.is_empty() {
             return None;
@@ -118117,6 +118832,10 @@ fn lua_static_wezterm_gradient_color_array_alias_query_from_query(
     Some(format!("{}{}", kind.normalized_prefix(), rest))
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn lua_static_wezterm_gradient_color_array_alias_kind_before_offset(
     source: &str,
     alias: &str,
@@ -118200,14 +118919,14 @@ fn split_lua_table_u32_array(value: &str) -> Option<Vec<u32>> {
         if field.is_empty() {
             continue;
         }
-        if let Some((key, value)) = split_lua_table_assignment_from_field(field) {
-            if let Some(index) = split_lua_table_array_index_from_query(key.trim()) {
-                if index == 0 || indexed_values.contains_key(&index) {
-                    return None;
-                }
-                indexed_values.insert(index, lua_unsigned_u32_value_from_query(value.trim())?);
-                continue;
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if index == 0 || indexed_values.contains_key(&index) {
+                return None;
             }
+            indexed_values.insert(index, lua_unsigned_u32_value_from_query(value.trim())?);
+            continue;
         }
         if indexed_values.contains_key(&implicit_index) {
             return None;
@@ -118229,14 +118948,14 @@ fn split_lua_table_f64_array(value: &str) -> Option<Vec<f64>> {
         if field.is_empty() {
             continue;
         }
-        if let Some((key, value)) = split_lua_table_assignment_from_field(field) {
-            if let Some(index) = split_lua_table_array_index_from_query(key.trim()) {
-                if index == 0 || indexed_values.contains_key(&index) {
-                    return None;
-                }
-                indexed_values.insert(index, parse_finite_f64(value.trim())?);
-                continue;
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if index == 0 || indexed_values.contains_key(&index) {
+                return None;
             }
+            indexed_values.insert(index, parse_finite_f64(value.trim())?);
+            continue;
         }
         if indexed_values.contains_key(&implicit_index) {
             return None;
@@ -118353,6 +119072,10 @@ fn split_lua_table_top_level_fields(table: &str) -> Option<Vec<&str>> {
     Some(fields)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn split_lua_top_level_arguments(arguments: &str) -> Option<Vec<&str>> {
     let mut values = Vec::new();
     let mut table_depth = 0u32;
@@ -118563,6 +119286,10 @@ fn lua_parenthesized_argument_list_prefix_from_query(value: &str) -> Option<(&st
     None
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
     let mut depth = 0u32;
     let mut paren_depth = 0u32;
@@ -118890,6 +119617,10 @@ where
     Ok((split_options, spawn_options))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn parse_split_pane_query_option<'a, I>(
     words: &mut std::iter::Peekable<I>,
     options: &mut WindowSplitPaneQueryOptions,
@@ -119296,10 +120027,6 @@ fn quick_select_action_from_window_command(
     command: WindowCommand,
 ) -> Option<WindowQuickSelectAction> {
     match command {
-        WindowCommand::CompleteSelection
-        | WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursor => Some(
-            WindowQuickSelectAction::CopyTo(WindowCopyDestination::ClipboardAndPrimarySelection),
-        ),
         WindowCommand::CompleteSelectionTo(destination)
         | WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursorTo(destination)
         | WindowCommand::CopyTo(destination) => Some(WindowQuickSelectAction::CopyTo(destination)),
@@ -119309,9 +120036,11 @@ fn quick_select_action_from_window_command(
         WindowCommand::CopyToPrimarySelection => Some(WindowQuickSelectAction::CopyTo(
             WindowCopyDestination::PrimarySelection,
         )),
-        WindowCommand::CopyToClipboardAndPrimarySelection => Some(WindowQuickSelectAction::CopyTo(
-            WindowCopyDestination::ClipboardAndPrimarySelection,
-        )),
+        WindowCommand::CompleteSelection
+        | WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursor
+        | WindowCommand::CopyToClipboardAndPrimarySelection => Some(
+            WindowQuickSelectAction::CopyTo(WindowCopyDestination::ClipboardAndPrimarySelection),
+        ),
         WindowCommand::Paste | WindowCommand::PasteFromClipboard => Some(
             WindowQuickSelectAction::PasteFrom(WindowPasteSource::Clipboard),
         ),
@@ -119356,10 +120085,10 @@ fn quick_select_key_assignment_action_from_value(action: &str) -> Option<WindowQ
     if let Some(source) = paste_source_command_from_query(action) {
         return Some(WindowQuickSelectAction::PasteFrom(source));
     }
-    if let Some(command) = command_palette_structured_query_command(action) {
-        if let Some(action) = quick_select_action_from_window_command(command) {
-            return Some(action);
-        }
+    if let Some(command) = command_palette_structured_query_command(action)
+        && let Some(action) = quick_select_action_from_window_command(command)
+    {
+        return Some(action);
     }
 
     copy_destination_command_from_query(action).map(WindowQuickSelectAction::CopyTo)
@@ -119701,6 +120430,10 @@ fn quick_select_lua_table_from_query(query: &str) -> Option<WindowQuickSelectOpt
     quick_select_lua_table_from_query_with_static_source(None, query)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn quick_select_lua_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     query: &str,
@@ -119893,7 +120626,7 @@ fn quick_select_selected_text_action_callback_from_query(
     let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
     let mut selected_text_variables = Vec::new();
     for (index, start) in starts.iter().copied().enumerate() {
-        let end = starts.get(index + 1).copied().unwrap_or_else(|| body.len());
+        let end = starts.get(index + 1).copied().unwrap_or(body.len());
         let statement = lua_trim_start_comments(body.get(start..end)?)?;
         if let Some(name) = quick_select_selected_text_local_name_from_callback_statement(
             statement,
@@ -119923,6 +120656,10 @@ fn quick_select_selected_text_action_callback_from_query(
     None
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn quick_select_selected_text_local_name_from_callback_statement<'a>(
     statement: &'a str,
     window_param: &str,
@@ -119939,13 +120676,17 @@ fn quick_select_selected_text_local_name_from_callback_statement<'a>(
     let name = lua_identifier_literal_from_query(rest)?;
     let rest = lua_trim_start_comments(rest.get(name.len()..)?)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
-    let expression = lua_trim_end_statement_separator(rest)?.trim();
+    let expression = lua_trim_end_statement_separator(rest).trim();
     if quick_select_callback_argument_is_selected_text(expression, window_param, pane_param)? {
         return Some(Some(name));
     }
     Some(None)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn quick_select_open_selected_text_action_from_callback_statement(
     statement: &str,
     window_param: &str,
@@ -119978,13 +120719,17 @@ fn quick_select_open_selected_text_action_from_callback_statement(
         window_param,
         pane_param,
         selected_text_variables,
-    )? || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
+    )? || !lua_trim_end_statement_separator(rest).trim().is_empty()
     {
         return Some(None);
     }
     Some(Some(WindowQuickSelectAction::OpenUri))
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
 fn quick_select_selected_text_action_from_callback_statement(
     statement: &str,
     window_param: &str,
@@ -120023,7 +120768,7 @@ fn quick_select_selected_text_action_from_callback_statement(
         window_param,
         pane_param,
         selected_text_variables,
-    )? || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
+    )? || !lua_trim_end_statement_separator(rest).trim().is_empty()
     {
         return Some(None);
     }
@@ -120098,6 +120843,10 @@ fn pane_select_options_from_query(query: &str) -> Option<WindowPaneSelectOptions
     pane_select_options_from_query_with_static_source(None, query)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn pane_select_options_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     query: &str,
@@ -120488,6 +121237,10 @@ fn pane_select_mode_alphabet_from_query(query: &str) -> Option<WindowPaneSelectM
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn pane_select_mode_show_pane_ids_from_query(
     query: &str,
 ) -> Option<WindowPaneSelectModeShowPaneIdsQuery> {
@@ -120809,6 +121562,10 @@ struct WindowSpawnCommandQueryOptions {
 }
 
 impl WindowSpawnCommandQueryOptions {
+    #[expect(
+        clippy::unused_self,
+        reason = "method shape is retained for compatibility call-site consistency"
+    )]
     fn launch_menu_label(&self) -> String {
         "New Tab".to_owned()
     }
@@ -120825,6 +121582,10 @@ where
     Ok(options)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 fn parse_spawn_command_query_option<'a, I>(
     words: &mut std::iter::Peekable<I>,
     options: &mut WindowSpawnCommandQueryOptions,
@@ -122473,6 +123234,10 @@ const fn should_focus_materialized_window(index: usize, len: usize) -> bool {
     len > 0 && index + 1 == len
 }
 
+#[expect(
+    clippy::large_enum_variant,
+    reason = "boxing the compatibility command would add unrelated allocation and API churn"
+)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WheelAssignmentMatch {
     None,
@@ -123201,6 +123966,10 @@ impl WindowCommand {
         })
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+    )]
     fn general_label(&self) -> &'static str {
         if let Some(label) = self.scrollback_label() {
             return label;
@@ -123412,10 +124181,10 @@ fn window_key_assignment_entry(keys: &str, command: WindowCommand) -> WindowComm
 }
 
 fn window_key_assignment_command_label(keys: &str, command: &WindowCommand) -> String {
-    if matches!(command, WindowCommand::ActivateTab(_)) {
-        if let Some(digit) = window_key_assignment_trailing_digit(keys) {
-            return format!("Activate Tab {digit}");
-        }
+    if matches!(command, WindowCommand::ActivateTab(_))
+        && let Some(digit) = window_key_assignment_trailing_digit(keys)
+    {
+        return format!("Activate Tab {digit}");
     }
 
     match command {
@@ -124470,11 +125239,11 @@ fn render_ui_key_cap_modifier(modifier: &str, style: NativeUiKeyCapRendering) ->
         ("SHIFT", NativeUiKeyCapRendering::Emacs) => "S".to_owned(),
         ("SHIFT", NativeUiKeyCapRendering::AppleSymbols) => "\u{21e7}".to_owned(),
         ("SHIFT", _) => "Shift".to_owned(),
-        ("ALT" | "OPT" | "OPTION", NativeUiKeyCapRendering::Emacs) => "M".to_owned(),
-        ("ALT" | "OPT" | "OPTION", NativeUiKeyCapRendering::AppleSymbols) => "\u{2325}".to_owned(),
+        ("ALT" | "OPT" | "OPTION" | "META", NativeUiKeyCapRendering::Emacs) => "M".to_owned(),
+        ("ALT" | "OPT" | "OPTION" | "META", NativeUiKeyCapRendering::AppleSymbols) => {
+            "\u{2325}".to_owned()
+        }
         ("ALT" | "OPT" | "OPTION", _) => "Alt".to_owned(),
-        ("META", NativeUiKeyCapRendering::Emacs) => "M".to_owned(),
-        ("META", NativeUiKeyCapRendering::AppleSymbols) => "\u{2325}".to_owned(),
         ("META", _) => "Meta".to_owned(),
         ("SUPER" | "CMD" | "COMMAND", NativeUiKeyCapRendering::AppleSymbols) => {
             "\u{2318}".to_owned()
@@ -125834,12 +126603,10 @@ fn quick_select_cells_for_pane(
         .saturating_add(StableRowIndex::try_from(size.rows).unwrap_or(StableRowIndex::MAX));
     let foreground = palette
         .quick_select_label_fg
-        .map(native_color_spec_to_render_color)
-        .unwrap_or(Color::Rgb(12, 12, 14));
+        .map_or(Color::Rgb(12, 12, 14), native_color_spec_to_render_color);
     let background = palette
         .quick_select_label_bg
-        .map(native_color_spec_to_render_color)
-        .unwrap_or(Color::Rgb(255, 209, 102));
+        .map_or(Color::Rgb(255, 209, 102), native_color_spec_to_render_color);
     let input_prefix = quick_select.input.to_ascii_lowercase();
     let mut cells = Vec::new();
 
@@ -125897,6 +126664,10 @@ fn quick_select_cells_for_pane(
     cells
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
+)]
 #[allow(clippy::too_many_arguments)]
 fn pane_presentation_snapshot(
     base: TerminalRenderSnapshot,
@@ -126246,6 +127017,10 @@ fn window_background_opacity_snapshot(
     })
 }
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "ownership transfer is intentional for compatibility palette updates"
+)]
 fn text_min_contrast_snapshot(
     snapshot: TerminalRenderSnapshot,
     ratio: Option<NativeTextMinContrastRatio>,
@@ -126276,6 +127051,10 @@ fn text_min_contrast_snapshot(
     })
 }
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "ownership transfer is intentional for compatibility palette updates"
+)]
 fn text_min_contrast_cell(
     mut cell: RenderCell,
     min_ratio: f64,
@@ -126312,6 +127091,10 @@ fn text_min_contrast_cell(
     cell
 }
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "ownership transfer is intentional for compatibility palette updates"
+)]
 fn text_effective_cell_colors(
     cell: &RenderCell,
     default_foreground: [u8; 4],
@@ -126356,6 +127139,10 @@ fn text_effective_cell_foreground(
     }
 }
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "ownership transfer is intentional for compatibility palette updates"
+)]
 fn native_color_to_rgba(
     color: Color,
     default: [u8; 4],
@@ -126407,7 +127194,7 @@ fn text_contrast_adjusted_foreground(
     let mut low = 0.0;
     let mut high = 1.0;
     for _ in 0..16 {
-        let mid = (low + high) / 2.0;
+        let mid = f64::midpoint(low, high);
         let candidate = interpolate_rgba(foreground, target, mid);
         if contrast_ratio(candidate, background) >= min_ratio {
             high = mid;
@@ -126631,13 +127418,11 @@ fn inline_image_may_animate(image: &RenderInlineImage) -> bool {
 }
 
 fn duration_progress(elapsed: Duration, duration: Duration) -> f64 {
-    let duration_ms = duration.as_millis();
-    if duration_ms == 0 {
+    if duration.is_zero() {
         return 1.0;
     }
 
-    let elapsed_ms = elapsed.as_millis().min(duration_ms);
-    elapsed_ms as f64 / duration_ms as f64
+    elapsed.min(duration).as_secs_f64() / duration.as_secs_f64()
 }
 
 fn blend_visual_bell_color(
@@ -126677,6 +127462,10 @@ fn native_ansi_palette_to_rgba(colors: [Color; 16]) -> [[u8; 4]; 16] {
     colors.map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA))
 }
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "ownership transfer is intentional for compatibility palette updates"
+)]
 fn native_indexed_palette_to_rgba(colors: [Option<Color>; 256]) -> [Option<[u8; 4]>; 256] {
     colors.map(|color| color.map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)))
 }
@@ -129935,7 +130724,7 @@ fn cubic_bezier_parameter_for_x(progress: f64, x1: f64, x2: f64) -> f64 {
         } else {
             high = parameter;
         }
-        parameter = (low + high) / 2.0;
+        parameter = f64::midpoint(low, high);
     }
 
     parameter
@@ -130390,10 +131179,11 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     return;
                 }
 
-                if pane_id == self.app_shell.active_pane_id() && self.window.is_some() {
-                    if let Some(window) = &self.window {
-                        window.request_redraw();
-                    }
+                if pane_id == self.app_shell.active_pane_id()
+                    && self.window.is_some()
+                    && let Some(window) = &self.window
+                {
+                    window.request_redraw();
                 }
             }
             WindowUserEvent::Exited {
@@ -130765,7 +131555,7 @@ fn windows_user_home_dir() -> Option<PathBuf> {
         if drive.is_empty() || path.is_empty() {
             return None;
         }
-        let mut home = std::ffi::OsString::from(drive);
+        let mut home = drive;
         home.push(path);
         Some(PathBuf::from(home))
     })
@@ -130782,14 +131572,14 @@ fn percent_decode_path_component(value: &str) -> String {
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut index = 0;
     while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len() {
-            if let (Some(high), Some(low)) =
+        if bytes[index] == b'%'
+            && index + 2 < bytes.len()
+            && let (Some(high), Some(low)) =
                 (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
-            {
-                decoded.push(high << 4 | low);
-                index += 3;
-                continue;
-            }
+        {
+            decoded.push(high << 4 | low);
+            index += 3;
+            continue;
         }
 
         decoded.push(bytes[index]);
@@ -130809,6 +131599,14 @@ fn hex_value(byte: u8) -> Option<u8> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::needless_raw_string_hashes,
+    reason = "embedded Lua fixtures preserve upstream text and delimiter conventions"
+)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "integration scenarios intentionally cover complete compatibility lifecycles"
+)]
 mod tests {
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::io::{self, Write};
@@ -132766,7 +133564,7 @@ mod tests {
     ) -> super::WindowCopyMode {
         let source_cursor = SelectionSourceCell {
             domain: TerminalScreenDomain::Main,
-            row: row as isize,
+            row: isize::try_from(row).expect("u16 row fits StableRowIndex on supported targets"),
             column: usize::from(column),
         };
         super::WindowCopyMode {
@@ -132877,7 +133675,8 @@ mod tests {
             copy_mode.source_cursor,
             SelectionSourceCell {
                 domain: TerminalScreenDomain::Main,
-                row: row as isize,
+                row: isize::try_from(row)
+                    .expect("u16 row fits StableRowIndex on supported targets"),
                 column: usize::from(column),
             }
         );
@@ -132909,7 +133708,9 @@ mod tests {
             copy_mode.source_anchor,
             Some(SelectionSourceCell {
                 domain: TerminalScreenDomain::Main,
-                row: row as isize + 1,
+                row: isize::try_from(row)
+                    .expect("u16 row fits StableRowIndex on supported targets")
+                    + 1,
                 column: usize::from(column) + 1,
             })
         );
@@ -133381,7 +134182,7 @@ mod tests {
                 if drive.is_empty() || path.is_empty() {
                     return None;
                 }
-                let mut home = std::ffi::OsString::from(drive);
+                let mut home = drive;
                 home.push(path);
                 Some(PathBuf::from(home))
             })
@@ -133394,6 +134195,8 @@ mod tests {
 
     #[test]
     fn wezterm_default_colors_palette_matches_pinned_upstream() {
+        const CUBE_RAMP: [u8; 6] = [0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff];
+
         let palette = super::native_wezterm_default_colors_palette();
 
         assert_eq!(palette.foreground, Color::Rgb(0xb2, 0xb2, 0xb2));
@@ -133442,7 +134245,6 @@ mod tests {
             240
         );
 
-        const CUBE_RAMP: [u8; 6] = [0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff];
         let mut index = 16;
         for red in CUBE_RAMP {
             for green in CUBE_RAMP {
@@ -139450,12 +140252,11 @@ return config
 
             config.color_scheme = 'Project Scheme'
             config.color_schemes = {{
-              ['Project Scheme'] = wezterm.color.load_scheme('{}'),
+              ['Project Scheme'] = wezterm.color.load_scheme('{scheme_file_query}'),
             }}
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm custom color_scheme load_scheme config");
         app.set_config_overrides(overrides);
@@ -139506,12 +140307,11 @@ return config
 
             config.color_scheme = 'Project Scheme'
             config.color_schemes = {{
-              ['Project Scheme'] = load_scheme('{}'),
+              ['Project Scheme'] = load_scheme('{scheme_file_query}'),
             }}
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm custom color_scheme load_scheme alias config");
         app.set_config_overrides(overrides);
@@ -139574,8 +140374,8 @@ return config
             local wt = require 'wezterm'
             local config = {{}}
             local load_scheme = wt.color.load_scheme
-            local scheme_dir = '{}'
-            local scheme_name = '{}'
+            local scheme_dir = '{scheme_dir}'
+            local scheme_name = '{scheme_name}'
             local scheme_path = scheme_dir .. scheme_name
 
             config.color_scheme = 'Project Scheme'
@@ -139584,8 +140384,7 @@ return config
             }}
 
             return config
-            "##,
-            scheme_dir, scheme_name
+            "##
         ))
         .expect("expected WezTerm custom color_scheme static-path load_scheme config");
         app.set_config_overrides(overrides);
@@ -139658,12 +140457,11 @@ return config
 
             config.color_scheme = 'Project Scheme'
             config.color_schemes = {{
-              ['Project Scheme'] = load_scheme(wt.config_dir .. '/{}'),
+              ['Project Scheme'] = load_scheme(wt.config_dir .. '/{scheme_name}'),
             }}
 
             return config
-            "##,
-            scheme_name
+            "##
         ))
         .expect("expected WezTerm custom color_scheme config_dir load_scheme config");
 
@@ -139711,7 +140509,7 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local project_scheme = wezterm.color.load_scheme('{}')
+            local project_scheme = wezterm.color.load_scheme('{scheme_file_query}')
 
             config.color_scheme = 'Project Scheme'
             config.color_schemes = {{
@@ -139719,8 +140517,7 @@ return config
             }}
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm custom color_scheme variable load_scheme config");
         app.set_config_overrides(overrides);
@@ -139764,7 +140561,7 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local project_scheme = wezterm.color.load_scheme('{}')
+            local project_scheme = wezterm.color.load_scheme('{scheme_file_query}')
             project_scheme.background = '#565758'
 
             config.color_scheme = 'Project Scheme'
@@ -139773,8 +140570,7 @@ return config
             }}
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm custom color_scheme load_scheme variable mutation config");
         app.set_config_overrides(overrides);
@@ -141173,11 +141969,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm built-in dark/light color_scheme config");
             app.set_config_overrides(overrides);
@@ -141234,11 +142029,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm 3024 Day/Night color_scheme config");
             app.set_config_overrides(overrides);
@@ -141328,11 +142122,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm 3024 variant color_scheme config");
             app.set_config_overrides(overrides);
@@ -141472,11 +142265,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm early A built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -141599,11 +142391,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Afterglow-to-Alien built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -141775,11 +142566,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Andromeda-to-Argonaut built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -141927,11 +142717,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Arthur-to-astromouse built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -142065,11 +142854,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Atelier Cave/Dune/Estuary built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -142203,11 +142991,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Atelier Forest/Heath/Lakeside built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -142341,11 +143128,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect(
                 "expected WezTerm Atelier Plateau/Savanna/Seaside built-in color_scheme config",
@@ -142537,11 +143323,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect(
                 "expected WezTerm Atelier Sulphurpool/terminal.sexy built-in color_scheme config",
@@ -142733,11 +143518,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Atelierseaside-to-ayu built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -142927,11 +143711,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Ayu/Bamboo built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -143121,11 +143904,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Batman/Bespin built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -143321,11 +144103,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Birds/Black Metal built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -143539,11 +144320,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Black Metal-to-BlueBerry built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -143789,11 +144569,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm BlueDolphin-to-Breath Darker built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -144055,11 +144834,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Breath Light-to-Broadcast built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -144273,11 +145051,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Brogrammer-to-Calamity built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -144475,11 +145252,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect(
                 "expected WezTerm Campbell-to-Catppuccin Macchiato built-in color_scheme config",
@@ -144695,11 +145471,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Catppuccin Mocha-to-Chalk Dark built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -144913,11 +145688,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Chalk Gogh-to-Circus built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -145115,11 +145889,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm City Lights-to-Cobalt Neon built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -145333,11 +146106,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Cobalt Neon Gogh-to-Colors built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -145535,11 +146307,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect(
                 "expected WezTerm Count Von Count-to-DanQing Light built-in color_scheme config",
@@ -145755,11 +146526,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Darcula-to-Darkside built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -145973,11 +146743,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Darkside Gogh-to-Default Light built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -146175,11 +146944,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Default Dark-to-dirtysea built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -146393,11 +147161,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm Dissonance-to-Dracula base16 built-in color_scheme config");
             app.set_config_overrides(overrides);
@@ -146611,11 +147378,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -146833,11 +147599,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -147055,11 +147820,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -147277,11 +148041,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -147499,11 +148262,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -147721,11 +148483,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -147943,11 +148704,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -148165,11 +148925,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -148387,11 +149146,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -148609,11 +149367,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -148831,11 +149588,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -149005,11 +149761,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -149227,11 +149982,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -149433,11 +150187,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -149515,11 +150268,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -149711,11 +150463,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -149917,11 +150668,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -150139,11 +150889,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -150397,11 +151146,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -150667,11 +151415,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -150873,11 +151620,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -151111,11 +151857,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -151365,11 +152110,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -151603,11 +152347,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -151825,11 +152568,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -152063,11 +152805,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -152317,11 +153058,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -152539,11 +153279,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -152745,11 +153484,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -153047,11 +153785,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -153285,11 +154022,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -153507,11 +154243,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -153793,11 +154528,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -154127,11 +154861,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -154605,11 +155338,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -154875,11 +155607,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -155177,11 +155908,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -155415,11 +156145,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -155621,11 +156350,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -155811,11 +156539,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -156017,11 +156744,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -156223,11 +156949,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -156429,11 +157154,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -156635,11 +157359,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -156825,11 +157548,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -157031,11 +157753,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -157205,11 +157926,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -157395,11 +158115,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -157601,11 +158320,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -157807,11 +158525,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -157997,11 +158714,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -158235,11 +158951,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -158553,11 +159268,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -158791,11 +159505,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -159029,11 +159742,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -159283,11 +159995,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -159505,11 +160216,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -159711,11 +160421,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -159981,11 +160690,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -160235,11 +160943,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -160457,11 +161164,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -160711,11 +161417,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -160982,11 +161687,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -161204,11 +161908,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -161474,11 +162177,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -161697,11 +162399,10 @@ return config
                     r##"
                     local config = {{}}
 
-                    config.color_scheme = '{}'
+                    config.color_scheme = '{color_scheme}'
 
                     return config
-                    "##,
-                    color_scheme
+                    "##
                 ))
                 .unwrap_or_else(|| {
                     panic!(
@@ -161799,11 +162500,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!("expected WezTerm Tokyo Night built-in tab-bar config for {color_scheme}")
@@ -161997,11 +162697,10 @@ return config
                     r##"
                     local config = {{}}
 
-                    config.color_scheme = '{}'
+                    config.color_scheme = '{color_scheme}'
 
                     return config
-                    "##,
-                    color_scheme
+                    "##
                 ))
                 .unwrap_or_else(|| {
                     panic!(
@@ -162114,11 +162813,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!("expected WezTerm underscore Tokyo Night extended color_scheme config for {color_scheme}")
@@ -162358,11 +163056,10 @@ return config
                     r##"
                     local config = {{}}
 
-                    config.color_scheme = '{}'
+                    config.color_scheme = '{color_scheme}'
 
                     return config
-                    "##,
-                    color_scheme
+                    "##
                 ))
                 .unwrap_or_else(|| {
                     panic!(
@@ -162570,11 +163267,10 @@ return config
                     r##"
                     local config = {{}}
 
-                    config.color_scheme = '{}'
+                    config.color_scheme = '{color_scheme}'
 
                     return config
-                    "##,
-                    color_scheme
+                    "##
                 ))
                 .unwrap_or_else(|| {
                     panic!(
@@ -162937,11 +163633,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -163159,11 +163854,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -163349,11 +164043,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -163571,11 +164264,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -163793,11 +164485,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -163983,11 +164674,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .unwrap_or_else(|| {
                 panic!(
@@ -164030,11 +164720,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm built-in Solarized Light color_scheme config");
             app.set_config_overrides(overrides);
@@ -164078,11 +164767,10 @@ return config
                 r##"
                 local config = {{}}
 
-                config.color_scheme = '{}'
+                config.color_scheme = '{color_scheme}'
 
                 return config
-                "##,
-                color_scheme
+                "##
             ))
             .expect("expected WezTerm built-in Tango color_scheme config");
             app.set_config_overrides(overrides);
@@ -164384,11 +165072,10 @@ return config
             local config = {{}}
 
             config.color_scheme = 'Project Scheme'
-            config.color_scheme_dirs = {{ '{}' }}
+            config.color_scheme_dirs = {{ '{scheme_dir}' }}
 
             return config
-            "##,
-            scheme_dir
+            "##
         ))
         .expect("expected WezTerm external TOML color scheme config");
         app.set_config_overrides(overrides);
@@ -164448,14 +165135,13 @@ return config
             format!(
                 r##"
                 [metadata]
-                name = "{}"
+                name = "{scheme_name}"
 
                 [colors]
                 foreground = "#313233"
                 background = "#343536"
                 cursor_bg = "#373839"
-                "##,
-                scheme_name
+                "##
             ),
         )
         .expect("expected default colors-dir TOML color scheme");
@@ -164466,11 +165152,10 @@ return config
             local wezterm = require 'wezterm'
             local config = {{}}
 
-            config.color_scheme = '{}'
+            config.color_scheme = '{scheme_name}'
 
             return config
-            "##,
-            scheme_name
+            "##
         ))
         .expect("expected WezTerm default colors-dir color scheme config");
         app.set_config_overrides(overrides);
@@ -167601,13 +168286,12 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local colors, metadata = wezterm.color.load_scheme('{}')
+            local colors, metadata = wezterm.color.load_scheme('{scheme_file_query}')
 
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme colors config");
         app.set_config_overrides(overrides);
@@ -167658,13 +168342,12 @@ return config
             local wezterm = require 'wezterm'
             local config = {{}}
             local colors, metadata = wezterm.color -- loader namespace
-              .load_scheme('{}')
+              .load_scheme('{scheme_file_query}')
 
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme dotted comment colors config");
         app.set_config_overrides(overrides);
@@ -167706,13 +168389,12 @@ return config
         let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
             r##"
             local config = {{}}
-            local colors, metadata = require('wezterm').color.load_scheme('{}')
+            local colors, metadata = require('wezterm').color.load_scheme('{scheme_file_query}')
 
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm direct require load_scheme colors config");
         app.set_config_overrides(overrides);
@@ -167754,13 +168436,12 @@ return config
         let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
             r##"
             local config = {{}}
-            local colors, metadata = (require('wezterm')).color.load_scheme('{}')
+            local colors, metadata = (require('wezterm')).color.load_scheme('{scheme_file_query}')
 
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm parenthesized require load_scheme colors config");
         app.set_config_overrides(overrides);
@@ -167805,13 +168486,12 @@ return config
             local config = {{}}
             local color_key = 'color'
             local load_key = 'load_scheme'
-            local colors, metadata = wt[color_key][load_key]('{}')
+            local colors, metadata = wt[color_key][load_key]('{scheme_file_query}')
 
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm direct static-key load_scheme colors config");
         app.set_config_overrides(overrides);
@@ -167856,11 +168536,10 @@ return config
             local config = {{}}
             local load_scheme = wezterm.color.load_scheme
 
-            config.colors = load_scheme('{}')
+            config.colors = load_scheme('{scheme_file_query}')
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme alias colors config");
         app.set_config_overrides(overrides);
@@ -167907,11 +168586,10 @@ return config
             local load_key = 'load_scheme'
             local load_scheme = wt[color_key][load_key]
 
-            config.colors = load_scheme('{}')
+            config.colors = load_scheme('{scheme_file_query}')
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme static-key alias colors config");
         app.set_config_overrides(overrides);
@@ -167957,11 +168635,10 @@ return config
             local load_scheme = wezterm.color.load_scheme
 
             config.colors = load_scheme -- palette
-              ('{}')
+              ('{scheme_file_query}')
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme alias comment colors config");
         app.set_config_overrides(overrides);
@@ -168007,11 +168684,10 @@ return config
             local load_scheme = wezterm.color -- loader namespace
               .load_scheme
 
-            config.colors = load_scheme('{}')
+            config.colors = load_scheme('{scheme_file_query}')
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme alias dotted-comment colors config");
         app.set_config_overrides(overrides);
@@ -168055,13 +168731,12 @@ return config
             local wezterm = require 'wezterm'
             local config = {{}}
             local load_scheme = wezterm.color.load_scheme
-            local colors, metadata = load_scheme('{}')
+            local colors, metadata = load_scheme('{scheme_file_query}')
 
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme alias variable colors config");
         app.set_config_overrides(overrides);
@@ -168104,13 +168779,12 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            colors, metadata = wezterm.color.load_scheme('{}')
+            colors, metadata = wezterm.color.load_scheme('{scheme_file_query}')
 
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm nonlocal load_scheme colors config");
         app.set_config_overrides(overrides);
@@ -168182,14 +168856,13 @@ return config
             local wezterm = require 'wezterm'
             local config = {{}}
 
-            local colors = wezterm.color.load_scheme('{}')
-            colors = wezterm.color.load_scheme('{}')
+            local colors = wezterm.color.load_scheme('{first_scheme_file_query}')
+            colors = wezterm.color.load_scheme('{second_scheme_file_query}')
             config.colors = colors
-            colors = wezterm.color.load_scheme('{}')
+            colors = wezterm.color.load_scheme('{third_scheme_file_query}')
 
             return config
-            "##,
-            first_scheme_file_query, second_scheme_file_query, third_scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme variable reassignment config");
         app.set_config_overrides(overrides);
@@ -168261,9 +168934,9 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local first_path = '{}'
-            local second_path = '{}'
-            local third_path = '{}'
+            local first_path = '{first_scheme_file_query}'
+            local second_path = '{second_scheme_file_query}'
+            local third_path = '{third_scheme_file_query}'
             local scheme_path = first_path
             scheme_path = second_path
             local colors = wezterm.color.load_scheme(scheme_path)
@@ -168271,8 +168944,7 @@ return config
             config.colors = colors
 
             return config
-            "##,
-            first_scheme_file_query, second_scheme_file_query, third_scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme path-binding config");
         app.set_config_overrides(overrides);
@@ -168330,16 +169002,15 @@ return config
             local wezterm = require 'wezterm'
             local config = {{}}
 
-            local colors = wezterm.color.load_scheme('{}')
+            local colors = wezterm.color.load_scheme('{top_level_scheme_file_query}')
             local function ignored()
-              colors = wezterm.color.load_scheme('{}')
+              colors = wezterm.color.load_scheme('{helper_scheme_file_query}')
             end
 
             config.colors = colors
 
             return config
-            "##,
-            top_level_scheme_file_query, helper_scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme helper assignment config");
         app.set_config_overrides(overrides);
@@ -168379,7 +169050,7 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local colors, metadata = wezterm.color.load_scheme('{}')
+            local colors, metadata = wezterm.color.load_scheme('{scheme_file_query}')
 
             local function ignored()
               colors.background = '#010203'
@@ -168389,8 +169060,7 @@ return config
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme helper mutation config");
         app.set_config_overrides(overrides);
@@ -168432,15 +169102,14 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local colors, metadata = wezterm.color.load_scheme('{}')
+            local colors, metadata = wezterm.color.load_scheme('{scheme_file_query}')
 
             colors.background = '#2a2b2c'
             colors.cursor_bg = '#2d2e2f'
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme mutated colors config");
         app.set_config_overrides(overrides);
@@ -168483,7 +169152,7 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local colors, metadata = wezterm.color.load_scheme('{}')
+            local colors, metadata = wezterm.color.load_scheme('{scheme_file_query}')
 
             config.colors = {{
               foreground = '#010203',
@@ -168495,8 +169164,7 @@ return config
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected later WezTerm load_scheme colors assignment config");
         app.set_config_overrides(overrides);
@@ -168556,7 +169224,7 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local colors, metadata = wezterm.color.load_scheme('{}')
+            local colors, metadata = wezterm.color.load_scheme('{scheme_file_query}')
 
             colors.ansi = {{
               '#010203',
@@ -168581,8 +169249,7 @@ return config
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme mutated palette config");
         app.set_config_overrides(overrides);
@@ -168639,7 +169306,7 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local colors, metadata = wezterm.color.load_scheme('{}')
+            local colors, metadata = wezterm.color.load_scheme('{scheme_file_query}')
 
             colors['background'] = '#3d3e3f'
             colors["cursor_bg"] = '#404142'
@@ -168647,8 +169314,7 @@ return config
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme bracket-mutated colors config");
         app.set_config_overrides(overrides);
@@ -168690,15 +169356,14 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local colors, metadata = wezterm.color.load_scheme('{}')
+            local colors, metadata = wezterm.color.load_scheme('{scheme_file_query}')
 
             colors.indexed[136] = '#464748'
             colors.indexed[137] = '#494a4b'
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme indexed palette mutation config");
         app.set_config_overrides(overrides);
@@ -168739,7 +169404,7 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local colors, metadata = wezterm.color.load_scheme('{}')
+            local colors, metadata = wezterm.color.load_scheme('{scheme_file_query}')
 
             colors.indexed = {{
               [136] = '#4c4d4e',
@@ -168748,8 +169413,7 @@ return config
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme indexed palette merged mutation config");
         app.set_config_overrides(overrides);
@@ -168811,15 +169475,14 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local colors, metadata = wezterm.color.load_scheme('{}')
+            local colors, metadata = wezterm.color.load_scheme('{scheme_file_query}')
 
             colors.ansi[2] = '#525354'
             colors.brights[8] = '#555657'
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme ANSI slot mutation config");
         app.set_config_overrides(overrides);
@@ -168864,7 +169527,7 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local colors, metadata = wezterm.color.load_scheme('{}')
+            local colors, metadata = wezterm.color.load_scheme('{scheme_file_query}')
 
             colors.ansi[2] = '#58595a'
             colors.ansi = {{
@@ -168880,8 +169543,7 @@ return config
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme ANSI mutation order config");
         app.set_config_overrides(overrides);
@@ -168929,15 +169591,14 @@ return config
             r##"
             local wezterm = require 'wezterm'
             local config = {{}}
-            local colors, metadata = wezterm.color.load_scheme('{}')
+            local colors, metadata = wezterm.color.load_scheme('{scheme_file_query}')
 
             colors.tab_bar.background = '#101112'
             colors.tab_bar.active_tab.bg_color = '#131415'
             config.colors = colors
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme tab-bar nested mutation config");
         app.set_config_overrides(overrides);
@@ -168995,11 +169656,10 @@ return config
             local wezterm = require 'wezterm'
             local config = {{}}
 
-            config.colors = wezterm.color.load_scheme('{}')
+            config.colors = wezterm.color.load_scheme('{scheme_file_query}')
 
             return config
-            "##,
-            scheme_file_query
+            "##
         ))
         .expect("expected WezTerm load_scheme tab_bar inactive_tab_edge config");
         app.set_config_overrides(overrides);
@@ -170883,7 +171543,9 @@ return config
         app.handle_pty_output(b"A\x07").unwrap();
         app.visual_bell_started_at.insert(
             app.active_pane_id(),
-            Instant::now() - Duration::from_millis(50_000),
+            Instant::now()
+                .checked_sub(Duration::from_millis(50_000))
+                .unwrap(),
         );
 
         let snapshot = app.render_snapshot();
@@ -170916,7 +171578,9 @@ return config
         app.handle_pty_output(b"A\x07").unwrap();
         app.visual_bell_started_at.insert(
             app.active_pane_id(),
-            Instant::now() - Duration::from_millis(12_500),
+            Instant::now()
+                .checked_sub(Duration::from_millis(12_500))
+                .unwrap(),
         );
 
         let snapshot = app.render_snapshot();
@@ -170968,7 +171632,9 @@ return config
         app.handle_pty_output(b"\x1b[31mA\x08\x07").unwrap();
         app.visual_bell_started_at.insert(
             app.active_pane_id(),
-            Instant::now() - Duration::from_millis(50_000),
+            Instant::now()
+                .checked_sub(Duration::from_millis(50_000))
+                .unwrap(),
         );
 
         let snapshot = app.render_snapshot();
@@ -177690,7 +178356,7 @@ return config
             vec![NativeSerialDomain {
                 name: "runtime-serial".to_owned(),
                 port: Some("COM9".to_owned()),
-                baud: Some(115200),
+                baud: Some(115_200),
             }]
         );
         assert!(!effective.mux_enable_ssh_agent);
@@ -187481,6 +188147,10 @@ return config
         assert!(parsed.contains("IsHover"), "parsed was {parsed}");
     }
 
+    #[expect(
+        clippy::similar_names,
+        reason = "singular and plural names mirror distinct compatibility API parameters"
+    )]
     #[test]
     fn lua_extracts_function_body_with_elseif_branch() {
         let callback = r#"
@@ -193310,9 +193980,10 @@ return config
         row: u16,
         column: u16,
     ) -> String {
-        let source_row = app
-            .current_viewport_stable_top()
-            .saturating_add(row as StableRowIndex);
+        let source_row = app.current_viewport_stable_top().saturating_add(
+            StableRowIndex::try_from(row)
+                .expect("u16 row fits StableRowIndex on supported targets"),
+        );
         let search_match = WindowSearchMatch {
             domain: TerminalScreenDomain::Main,
             source_row,
@@ -193401,9 +194072,10 @@ return config
         column: u16,
         expected_title: &str,
     ) {
-        let source_row = app
-            .current_viewport_stable_top()
-            .saturating_add(row as StableRowIndex);
+        let source_row = app.current_viewport_stable_top().saturating_add(
+            StableRowIndex::try_from(row)
+                .expect("u16 row fits StableRowIndex on supported targets"),
+        );
         assert_eq!(
             app.effective_window_title(),
             expected_title,
@@ -198507,7 +199179,7 @@ return config
         assert_eq!(opened.lock().unwrap().as_slice(), ["https://inactive.test"]);
     }
 
-    fn assert_wheel_complete_selection_semantics(command: WindowCommand) {
+    fn assert_wheel_complete_selection_semantics(command: &WindowCommand) {
         for single_cell in [true, false] {
             let clipboard = Arc::new(Mutex::new(Vec::new()));
             let clipboard_output = Arc::clone(&clipboard);
@@ -198559,7 +199231,7 @@ return config
                     ["left"],
                     "{command:?}"
                 );
-                if command == WindowCommand::CompleteSelection {
+                if *command == WindowCommand::CompleteSelection {
                     assert_eq!(primary.lock().unwrap().as_slice(), ["left"]);
                 } else {
                     assert!(primary.lock().unwrap().is_empty());
@@ -198575,12 +199247,12 @@ return config
 
     #[test]
     fn window_app_wheel_binding_complete_selection_uses_hovered_owner_semantics() {
-        assert_wheel_complete_selection_semantics(WindowCommand::CompleteSelection);
+        assert_wheel_complete_selection_semantics(&WindowCommand::CompleteSelection);
     }
 
     #[test]
     fn window_app_wheel_binding_complete_selection_to_uses_hovered_owner_semantics() {
-        assert_wheel_complete_selection_semantics(WindowCommand::CompleteSelectionTo(
+        assert_wheel_complete_selection_semantics(&WindowCommand::CompleteSelectionTo(
             WindowCopyDestination::Clipboard,
         ));
     }
@@ -199301,7 +199973,7 @@ return config
             .panes()
             .iter()
             .find(|pane| pane.id() == rssh_core::PaneId::new(3))
-            .and_then(|pane| pane.split())
+            .and_then(rssh_core::app_shell::Pane::split)
             .unwrap();
         assert_eq!(split.source_pane, inactive);
         assert_eq!(split.source_size_delta, expected_delta);
@@ -199374,7 +200046,7 @@ return config
             .active_tab()
             .panes()
             .iter()
-            .map(|pane| pane.id())
+            .map(rssh_core::app_shell::Pane::id)
             .collect::<Vec<_>>();
 
         assert!(
@@ -199391,7 +200063,7 @@ return config
             .active_tab()
             .panes()
             .iter()
-            .map(|pane| pane.id())
+            .map(rssh_core::app_shell::Pane::id)
             .collect::<Vec<_>>();
         assert_ne!(after, before);
         assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
@@ -207221,6 +207893,10 @@ return config
         );
     }
 
+    #[expect(
+        clippy::large_stack_arrays,
+        reason = "bounded compatibility fixtures avoid unrelated allocation and ownership changes"
+    )]
     #[test]
     fn window_manager_focus_ignores_unknown_and_removed_window_ids() {
         let known = rssh_core::WindowId::new(1);
@@ -225305,19 +225981,18 @@ return config
                 r#"
                     local wezterm = require 'wezterm'
                     local act = wezterm.action
-                    local config = {}
+                    local config = {default_domain}
 
                     config.keys = {{
                       {{
                         key = 'A',
                         mods = 'CTRL|ALT',
-                        action = act {{ AttachDomain = {{ DomainName = '{0}' }} }},
+                        action = act {{ AttachDomain = {{ DomainName = '{default_domain}' }} }},
                       }},
                     }}
 
                     return config
-                    "#,
-                default_domain
+                    "#
             ))
             .expect("expected WezTerm AttachDomain table-wrapper default-domain config");
 
@@ -225472,19 +226147,18 @@ return config
                 r#"
                 local wezterm = require 'wezterm'
                 local act = wezterm.action
-                local config = {}
+                local config = {default_domain}
 
                 config.keys = {{
                   {{
                     key = 'D',
                     mods = 'CTRL|ALT',
-                    action = act {{ DetachDomain = {{ DomainName = '{0}' }} }},
+                    action = act {{ DetachDomain = {{ DomainName = '{default_domain}' }} }},
                   }},
                 }}
 
                 return config
-                "#,
-                default_domain
+                "#
             ))
             .expect("expected WezTerm DetachDomain table-wrapper default-domain config");
 
@@ -236214,7 +236888,7 @@ return config
                 NativeSerialDomain {
                     name: "dev-console".to_owned(),
                     port: Some("COM3".to_owned()),
-                    baud: Some(115200),
+                    baud: Some(115_200),
                 },
                 NativeSerialDomain {
                     name: "usb-debug".to_owned(),
@@ -246989,7 +247663,7 @@ act.Confirmation {
             serial_ports: Some(vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
-                baud: Some(115200),
+                baud: Some(115_200),
             }]),
             mux_enable_ssh_agent: Some(false),
             ssh_backend: Some(NativeSshBackend::Ssh2),
@@ -247493,7 +248167,7 @@ act.Confirmation {
             serial_ports: vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
-                baud: Some(115200),
+                baud: Some(115_200),
             }],
             mux_enable_ssh_agent: false,
             ssh_backend: NativeSshBackend::Ssh2,
@@ -261048,7 +261722,10 @@ act.Confirmation {
             text: "literal text".to_owned(),
             destination: WindowCopyDestination::PrimarySelection,
         };
-        assert_eq!(app.command_palette_filtered_commands(), [expected.clone()]);
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            std::slice::from_ref(&expected)
+        );
         assert!(app.command_palette_execute(expected));
 
         assert!(clipboard_copied.lock().unwrap().is_empty());
@@ -261082,7 +261759,10 @@ act.Confirmation {
             text: "literal text".to_owned(),
             destination: WindowCopyDestination::ClipboardAndPrimarySelection,
         };
-        assert_eq!(app.command_palette_filtered_commands(), [expected.clone()]);
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            std::slice::from_ref(&expected)
+        );
         assert!(app.command_palette_execute(expected));
 
         assert_eq!(
@@ -264303,7 +264983,7 @@ act.Confirmation {
             serial_ports: Some(vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
-                baud: Some(115200),
+                baud: Some(115_200),
             }]),
             ..NativeConfigOverrides::default()
         });
@@ -264413,7 +265093,7 @@ act.Confirmation {
             serial_ports: Some(vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
-                baud: Some(115200),
+                baud: Some(115_200),
             }]),
             ..NativeConfigOverrides::default()
         });

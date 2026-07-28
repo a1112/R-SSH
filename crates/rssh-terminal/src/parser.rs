@@ -426,6 +426,10 @@ impl TabStops {
 }
 
 #[derive(Debug, Clone)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "these flags model independent terminal protocol modes with valid combinations"
+)]
 pub struct Terminal {
     grid: TerminalGrid,
     scrollback: Vec<ScrollbackLine>,
@@ -762,6 +766,7 @@ impl Terminal {
         self.cell_width_overrides = overrides;
     }
 
+    #[must_use]
     pub fn char_display_width(&self, ch: char) -> u16 {
         display_width(
             ch,
@@ -838,7 +843,7 @@ impl Terminal {
             self.nfc_last_printable_cell = None;
         }
         match chars[index] {
-            '\u{1b}' => self.consume_escape_sequence(chars, index),
+            '\u{1b}' => Some(self.consume_escape_sequence(chars, index)),
             '\u{9b}' => Some(next_or_pending(self.apply_csi_sequence(chars, index, 1))),
             '\u{9c}' => Some(FeedAdvance::Next(index + 1)),
             '\u{90}' => Some(next_or_pending(self.apply_dcs_sequence(chars, index, 1))),
@@ -866,51 +871,51 @@ impl Terminal {
         }
     }
 
-    fn consume_escape_sequence(&mut self, chars: &[char], index: usize) -> Option<FeedAdvance> {
+    fn consume_escape_sequence(&mut self, chars: &[char], index: usize) -> FeedAdvance {
         match chars.get(index + 1).copied() {
-            Some('[') => Some(next_or_pending(self.apply_csi_sequence(chars, index, 2))),
-            Some(']') => Some(next_or_pending(self.skip_osc(chars, index))),
-            Some('_') => Some(next_or_pending(self.apply_apc_sequence(chars, index, 2))),
-            Some('P') => Some(next_or_pending(self.apply_dcs_sequence(chars, index, 2))),
-            Some('\\' | '=' | '>') => Some(FeedAdvance::Next(index + 2)),
-            Some('X' | '^') => Some(next_or_pending(self.skip_st_control_string(chars, index))),
-            Some('(') => Some(self.consume_g0_character_set_selection(chars, index)),
-            Some('#') => Some(self.consume_hash_escape_sequence(chars, index)),
+            Some('[') => next_or_pending(self.apply_csi_sequence(chars, index, 2)),
+            Some(']') => next_or_pending(self.skip_osc(chars, index)),
+            Some('_') => next_or_pending(self.apply_apc_sequence(chars, index, 2)),
+            Some('P') => next_or_pending(self.apply_dcs_sequence(chars, index, 2)),
+            Some('\\' | '=' | '>') => FeedAdvance::Next(index + 2),
+            Some('X' | '^') => next_or_pending(self.skip_st_control_string(chars, index)),
+            Some('(') => self.consume_g0_character_set_selection(chars, index),
+            Some('#') => self.consume_hash_escape_sequence(chars, index),
             Some('7') => {
                 self.save_cursor();
-                Some(FeedAdvance::Next(index + 2))
+                FeedAdvance::Next(index + 2)
             }
             Some('8') => {
                 self.restore_cursor();
-                Some(FeedAdvance::Next(index + 2))
+                FeedAdvance::Next(index + 2)
             }
             Some('H') => {
                 self.set_horizontal_tab_stop();
-                Some(FeedAdvance::Next(index + 2))
+                FeedAdvance::Next(index + 2)
             }
             Some('c') => {
                 self.reset_terminal();
-                Some(FeedAdvance::Next(index + 2))
+                FeedAdvance::Next(index + 2)
             }
             Some('D') => {
                 self.index_down_control(false);
-                Some(FeedAdvance::Next(index + 2))
+                FeedAdvance::Next(index + 2)
             }
             Some('E') => {
                 self.next_line();
-                Some(FeedAdvance::Next(index + 2))
+                FeedAdvance::Next(index + 2)
             }
             Some('M') => {
                 self.reverse_index();
-                Some(FeedAdvance::Next(index + 2))
+                FeedAdvance::Next(index + 2)
             }
             None => {
                 self.pending_control.extend_from_slice(&chars[index..]);
-                Some(FeedAdvance::Pending)
+                FeedAdvance::Pending
             }
             Some(command) => {
                 self.record_unknown_escape_sequence(format!("ESC {command}"));
-                Some(FeedAdvance::Next(index + 2))
+                FeedAdvance::Next(index + 2)
             }
         }
     }
@@ -2307,10 +2312,8 @@ impl Terminal {
             self.retain_inline_images(|image| {
                 let remove = kitty_image_placement_key(image)
                     .is_some_and(|placement_key| orphan_keys.contains(&placement_key));
-                if remove {
-                    if let Some(image_id) = image.kitty_image_id {
-                        removed_image_ids.push(image_id);
-                    }
+                if remove && let Some(image_id) = image.kitty_image_id {
+                    removed_image_ids.push(image_id);
                 }
                 !remove
             });
@@ -2754,6 +2757,12 @@ impl Terminal {
             .expect("terminal sequence number overflow");
     }
 
+    /// Reports the stable-row geometry for the active screen domain.
+    ///
+    /// # Panics
+    ///
+    /// Panics if retained row counts or stable-row offsets exceed their
+    /// representable ranges.
     #[must_use]
     pub fn stable_dimensions(&self) -> TerminalStableDimensions {
         let viewport_rows = usize::from(self.grid.size().rows);
@@ -2788,6 +2797,12 @@ impl Terminal {
         }
     }
 
+    /// Returns the half-open range of stable rows retained by the terminal.
+    ///
+    /// # Panics
+    ///
+    /// Panics if retained row counts or stable-row offsets exceed their
+    /// representable ranges.
     #[must_use]
     pub fn retained_stable_range(&self) -> Range<StableRowIndex> {
         let dimensions = self.stable_dimensions();
@@ -3132,7 +3147,7 @@ impl Terminal {
     pub fn checksum_rectangle(&self, left: u16, top: u16, right: u16, bottom: u16) -> u16 {
         let size = self.grid.size();
         if size.rows == 0 || size.columns == 0 || top > bottom || left > right {
-            return b' ' as u16;
+            return u16::from(b' ');
         }
 
         let row_origin = if self.modes.origin_mode {
@@ -3153,7 +3168,7 @@ impl Terminal {
         let end_column = column_origin.saturating_add(right).min(max_column);
 
         if start_row > end_row || start_column > end_column {
-            return b' ' as u16;
+            return u16::from(b' ');
         }
 
         let mut checksum = 0_u16;
@@ -3167,7 +3182,11 @@ impl Terminal {
             }
         }
 
-        if checksum == 0 { b' ' as u16 } else { checksum }
+        if checksum == 0 {
+            u16::from(b' ')
+        } else {
+            checksum
+        }
     }
 
     #[must_use]
@@ -3424,6 +3443,10 @@ impl Terminal {
         self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
     }
 
+    #[expect(
+        clippy::if_not_else,
+        reason = "the primary width-changing reflow path remains first ahead of the smaller same-width path"
+    )]
     pub fn resize(&mut self, size: TerminalSize) -> TerminalResizeOutcome {
         let size = TerminalSize::new(size.columns.max(1), size.rows);
         self.advance_seqno();
@@ -4087,17 +4110,16 @@ impl Terminal {
     fn clear_kitty_placeholder_cells(&mut self, row: usize, column: u16, width: u16) {
         for offset in 0..width {
             let column = column.saturating_add(offset);
-            if let Some(placeholder) = self.kitty_placeholder_cells.remove(&(row, column)) {
-                if let Some((render_row, render_column, image_id, placement_id)) =
+            if let Some(placeholder) = self.kitty_placeholder_cells.remove(&(row, column))
+                && let Some((render_row, render_column, image_id, placement_id)) =
                     self.kitty_placeholder_render_key(row, column, placeholder)
-                {
-                    self.remove_kitty_placeholder_render(
-                        render_row,
-                        render_column,
-                        image_id,
-                        placement_id,
-                    );
-                }
+            {
+                self.remove_kitty_placeholder_render(
+                    render_row,
+                    render_column,
+                    image_id,
+                    placement_id,
+                );
             }
         }
         if self.last_kitty_placeholder.is_some_and(|placeholder| {
@@ -6308,6 +6330,11 @@ fn default_tab_stops(size: TerminalSize) -> Vec<u16> {
     stops
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "reflow atomically coordinates buffers, cursor state, and configuration inputs"
+)]
 fn reflow_main_screen(
     scrollback: &mut Vec<ScrollbackLine>,
     grid: &mut TerminalGrid,
@@ -6389,10 +6416,10 @@ fn reflow_main_screen(
             // Preserve that padding through the cursor before recording the
             // logical offset, just as the upstream rewrap uses the untrimmed
             // line length for cursor mapping.
-            if let Some(cursor_cells) = cursor_cells {
-                if cells.len() < cursor_cells.len() {
-                    cells.extend(cursor_cells.into_iter().skip(cells.len()));
-                }
+            if let Some(cursor_cells) = cursor_cells
+                && cells.len() < cursor_cells.len()
+            {
+                cells.extend(cursor_cells.into_iter().skip(cells.len()));
             }
             logical_cursor_offset = Some(
                 logical_line
@@ -6571,8 +6598,7 @@ fn trim_reflow_padding(
             )
             .saturating_sub(1)
         })
-        .map(usize::from)
-        .unwrap_or(0)
+        .map_or(0, usize::from)
         .min(padding);
     cells.truncate(content_end.saturating_add(continuation_cells));
 }
@@ -7857,6 +7883,10 @@ fn inline_image_axis_pixels(value: Option<&str>, cell_pixels: u16) -> u32 {
         .map_or(cell_pixels, |cells| cells.saturating_mul(cell_pixels))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "fragment generation keeps checked geometry and every overflow exit together"
+)]
 fn inline_image_fragments(
     image_index: usize,
     image: &ItermInlineImage,
@@ -8044,6 +8074,10 @@ fn cell_attachment_dimensions(image: &ItermInlineImage) -> Option<(u16, u16)> {
     (attachment_count > 0 && attachment_count <= 1_000_000).then_some((columns, rows))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "attachment sampling keeps the checked whole-image mapping invariants together"
+)]
 fn inline_image_attachment_fragment(
     image_index: usize,
     image: &ItermInlineImage,
@@ -8229,12 +8263,12 @@ fn append_semantic_zone(
     current_zone: &mut Option<SemanticZone>,
     zones: &mut Vec<SemanticZone>,
 ) {
-    if let Some(current) = current_zone.as_mut() {
-        if current.semantic_type == zone.semantic_type {
-            current.end_y = zone.end_y;
-            current.end_x = zone.end_x;
-            return;
-        }
+    if let Some(current) = current_zone.as_mut()
+        && current.semantic_type == zone.semantic_type
+    {
+        current.end_y = zone.end_y;
+        current.end_x = zone.end_x;
+        return;
     }
 
     if let Some(current) = current_zone.replace(zone) {
@@ -8637,13 +8671,13 @@ fn shift_image_and_placeholder_suffix_metadata(
             ((row, column), placeholder)
         })
         .collect();
-    if let Some(placeholder) = last_kitty_placeholder {
-        if placeholder.row >= suffix_start {
-            placeholder.row = placeholder
-                .row
-                .checked_add(rows)
-                .expect("last kitty placeholder row overflow");
-        }
+    if let Some(placeholder) = last_kitty_placeholder
+        && placeholder.row >= suffix_start
+    {
+        placeholder.row = placeholder
+            .row
+            .checked_add(rows)
+            .expect("last kitty placeholder row overflow");
     }
 }
 
@@ -9318,6 +9352,10 @@ mod stable_row_tests {
     }
 
     #[test]
+    #[expect(
+        clippy::reversed_empty_ranges,
+        reason = "the test intentionally verifies rejection of a reversed range"
+    )]
     fn terminal_stable_range_retention_is_strict() {
         let terminal = Terminal::new(TerminalSize::new(4, 3));
 
@@ -10585,7 +10623,7 @@ mod stable_row_tests {
 
         terminal.feed(b"\x1b[S");
 
-        assert!(terminal.kitty_placeholder_cells.get(&(2, 0)).is_none());
+        assert!(!terminal.kitty_placeholder_cells.contains_key(&(2, 0)));
         assert_eq!(
             terminal
                 .kitty_placeholder_cells
@@ -11505,7 +11543,13 @@ mod stable_row_tests {
 
     #[test]
     fn terminal_partial_region_scroll_marks_only_affected_slots_changed() {
-        let cases: &[(&str, &[u8], &[u8], &[StableRowIndex])] = &[
+        type ScrollCase = (
+            &'static str,
+            &'static [u8],
+            &'static [u8],
+            &'static [StableRowIndex],
+        );
+        let cases: &[ScrollCase] = &[
             ("non-top SU", b"\x1b[2;4r", b"\x1b[S", &[1, 2, 3]),
             ("non-top SD", b"\x1b[2;4r", b"\x1b[T", &[1, 2, 3]),
             ("insert line", b"\x1b[2;4r\x1b[2;1H", b"\x1b[L", &[1, 2, 3]),
