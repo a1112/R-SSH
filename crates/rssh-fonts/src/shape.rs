@@ -698,15 +698,15 @@ impl TerminalShaper {
         metrics: TerminalFontMetrics,
     ) -> Buffer {
         let mut features = FontFeatures::new();
+        for (tag, value) in &self.config.features {
+            features.set(FeatureTag::new(tag), *value);
+        }
         let has_shape_boundaries = plans
             .windows(2)
             .any(|pair| pair[0].shape_boundary != pair[1].shape_boundary);
         if !self.config.ligatures || has_shape_boundaries {
             features.disable(FeatureTag::STANDARD_LIGATURES);
             features.disable(FeatureTag::CONTEXTUAL_LIGATURES);
-        }
-        for (tag, value) in &self.config.features {
-            features.set(FeatureTag::new(tag), *value);
         }
 
         let stretch = match self.config.stretch {

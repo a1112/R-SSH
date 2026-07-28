@@ -157,12 +157,35 @@ pub(super) fn render_damage(
     let rows = geometry.target_height / geometry.cell_height;
     let expanded = expand_damage_rows(damage, columns, rows);
 
-    // The CPU implementation is the correctness oracle. It deliberately
-    // repaints the complete frame after conservatively expanding each dirty
-    // row to its full visible width;
-    // Task 15 may use those regions for GPU scissoring without changing text
-    // ownership or old/new footprint semantics.
-    render_full(renderer, text, snapshot, target, geometry);
+    // The CPU implementation is the correctness oracle. Compose a complete
+    // isolated frame to preserve every layer's ordering, then publish only
+    // the conservatively expanded full-width rows. This makes the write set
+    // match `expanded_damage` without retaining a previous frame.
+    let mut composed = vec![0; target.len()];
+    render_full(renderer, text, snapshot, &mut composed, geometry);
+    let Ok(row_stride) = usize::try_from(u64::from(geometry.target_width).saturating_mul(4)) else {
+        return;
+    };
+    for region in &expanded {
+        let start_y = u64::from(region.y).saturating_mul(u64::from(geometry.cell_height));
+        let end_y = start_y
+            .saturating_add(
+                u64::from(region.height).saturating_mul(u64::from(geometry.cell_height)),
+            )
+            .min(u64::from(geometry.target_height));
+        for pixel_y in start_y..end_y {
+            let Ok(start) = usize::try_from(pixel_y.saturating_mul(row_stride as u64)) else {
+                continue;
+            };
+            let end = start
+                .saturating_add(row_stride)
+                .min(target.len())
+                .min(composed.len());
+            if start < end {
+                target[start..end].copy_from_slice(&composed[start..end]);
+            }
+        }
+    }
     if let Some(report) = text.last_report.as_mut() {
         report.expanded_damage = expanded;
     }
@@ -363,7 +386,12 @@ fn render_top_layers(
                 ),
             },
         );
-        if let (Some(foreground), Some(shape)) = (colors.foreground, cursor_shape) {
+        let redraw_shaped_foreground = cursor.shape == rssh_terminal::CursorShape::Block
+            && (!cursor.blinking || renderer.blink_visible)
+            && cursor_cell.is_none_or(|cell| !cell.conceal);
+        if redraw_shaped_foreground
+            && let (Some(foreground), Some(shape)) = (colors.foreground, cursor_shape)
+        {
             redraw_cursor_glyph(
                 text,
                 surface,
@@ -399,8 +427,10 @@ fn shape_cursor_row(
         .clusters
         .iter()
         .position(|cluster| cluster.cell_span.contains(&usize::from(cursor.column)))?;
+    let logical_offset =
+        usize::from(cursor.column).saturating_sub(row.clusters[logical].cell_span.start);
     Some(CursorShape {
-        visual_column: visual_starts[logical],
+        visual_column: visual_starts[logical].saturating_add(logical_offset),
         row,
     })
 }
@@ -426,21 +456,15 @@ fn redraw_cursor_glyph(
             .cell_span
             .contains(&usize::from(logical_cursor.column))
     }) {
-        let request =
-            RasterRequest::for_shaped_glyph(&shape.row, glyph, glyph.x * scale_x, baseline);
+        let request = RasterRequest::for_shaped_glyph_at_physical_position(
+            &shape.row,
+            glyph,
+            glyph.x * scale_x,
+            baseline,
+        );
         let Some(positioned) = text.raster.rasterize_positioned(&mut text.catalog, request) else {
             continue;
         };
-        let visual_width = glyph
-            .cluster_range
-            .clone()
-            .map(|cluster| {
-                shape.row.clusters[cluster]
-                    .cell_span
-                    .end
-                    .saturating_sub(shape.row.clusters[cluster].cell_span.start)
-            })
-            .sum::<usize>();
         draw_raster(
             surface,
             &positioned.image,
@@ -449,9 +473,7 @@ fn redraw_cursor_glyph(
             Rect {
                 x: u32::from(visual_cursor.column).saturating_mul(geometry.cell_width),
                 y: u32::from(visual_cursor.row).saturating_mul(geometry.cell_height),
-                width: u32::try_from(visual_width)
-                    .unwrap_or(u32::MAX)
-                    .saturating_mul(geometry.cell_width),
+                width: geometry.cell_width,
                 height: geometry.cell_height,
             },
             foreground,
@@ -579,26 +601,14 @@ fn draw_shaped_row(
             renderer.rapid_text_blink_opacity_alpha,
         );
         if !style.conceal && foreground_alpha != 0 {
-            let visual_start = glyph
-                .cluster_range
-                .clone()
-                .map(|cluster| visual_starts[cluster])
-                .min()
-                .unwrap_or(0);
-            let visual_width = glyph
-                .cluster_range
-                .clone()
-                .map(|cluster| {
-                    shaped.clusters[cluster]
-                        .cell_span
-                        .end
-                        .saturating_sub(shaped.clusters[cluster].cell_span.start)
-                })
-                .sum::<usize>();
             let logical_x = glyph.x * scale_x;
             let aligned_baseline = vertical_align_baseline(baseline, geometry.cell_height, style);
-            let request =
-                RasterRequest::for_shaped_glyph(shaped, glyph, logical_x, aligned_baseline);
+            let request = RasterRequest::for_shaped_glyph_at_physical_position(
+                shaped,
+                glyph,
+                logical_x,
+                aligned_baseline,
+            );
             let Some(positioned) = text.raster.rasterize_positioned(&mut text.catalog, request)
             else {
                 continue;
@@ -612,13 +622,9 @@ fn draw_shaped_row(
                 report.fallback_glyphs += 1;
             }
             let clip = Rect {
-                x: u32::try_from(visual_start)
-                    .unwrap_or(u32::MAX)
-                    .saturating_mul(geometry.cell_width),
+                x: 0,
                 y: u32::from(row).saturating_mul(geometry.cell_height),
-                width: u32::try_from(visual_width)
-                    .unwrap_or(u32::MAX)
-                    .saturating_mul(geometry.cell_width),
+                width: geometry.target_width,
                 height: geometry.cell_height,
             };
             draw_raster(
@@ -641,6 +647,9 @@ fn draw_shaped_row(
 
     for cluster in &shaped.clusters {
         let style = &plan.styles[cluster.logical_index];
+        if style.conceal {
+            continue;
+        }
         let (foreground, _) = effective_cell_colors(
             style,
             renderer.bold_brightens_ansi_colors,

@@ -64,6 +64,13 @@ pub struct RasterRequest {
     y_offset: f32,
     expected_visible: bool,
     is_tofu: bool,
+    position_space: RasterPositionSpace,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RasterPositionSpace {
+    Logical,
+    Physical,
 }
 
 impl RasterRequest {
@@ -87,7 +94,26 @@ impl RasterRequest {
             y_offset: glyph.y_offset,
             expected_visible,
             is_tofu: glyph.is_tofu,
+            position_space: RasterPositionSpace::Logical,
         }
+    }
+
+    /// Creates a request whose `x` and `y` origins are already physical
+    /// framebuffer pixels.
+    ///
+    /// Font size and shaped offsets still follow the cache DPI/zoom scope so
+    /// the outline grows at the requested scale without translating an
+    /// already-mapped terminal cell a second time.
+    #[must_use]
+    pub fn for_shaped_glyph_at_physical_position(
+        row: &ShapedRow,
+        glyph: &ShapedGlyph,
+        x: f32,
+        y: f32,
+    ) -> Self {
+        let mut request = Self::for_shaped_glyph(row, glyph, x, y);
+        request.position_space = RasterPositionSpace::Physical;
+        request
     }
 }
 
@@ -373,10 +399,15 @@ fn valid_scale(dpi_scale: f32, zoom: f32) -> Option<()> {
 
 fn physical_position(request: RasterRequest, dpi_scale: f32, zoom: f32) -> Option<(f32, f32)> {
     let scale = dpi_scale.checked_mul(zoom)?;
-    let logical_x = request.x_offset.mul_add(request.font_size, request.x);
-    let logical_y = request.y - request.font_size.checked_mul(request.y_offset)?;
-    let physical_x = logical_x.checked_mul(scale)?;
-    let physical_y = logical_y.checked_mul(scale)?;
+    let physical_font_size = request.font_size.checked_mul(scale)?;
+    let (base_x, base_y) = match request.position_space {
+        RasterPositionSpace::Logical => {
+            (request.x.checked_mul(scale)?, request.y.checked_mul(scale)?)
+        }
+        RasterPositionSpace::Physical => (request.x, request.y),
+    };
+    let physical_x = request.x_offset.mul_add(physical_font_size, base_x);
+    let physical_y = base_y - physical_font_size.checked_mul(request.y_offset)?;
     (subpixel_coordinate_is_safe(physical_x) && subpixel_coordinate_is_safe(physical_y))
         .then_some((physical_x, physical_y))
 }

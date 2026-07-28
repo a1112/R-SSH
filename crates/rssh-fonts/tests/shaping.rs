@@ -246,6 +246,35 @@ fn styled_cluster_boundaries_preserve_paragraph_bidi_and_stop_cross_style_ligatu
 }
 
 #[test]
+fn hard_shape_boundaries_override_explicit_ligature_features() {
+    let mut catalog = catalog(&[LATIN]);
+    let config = FontConfig::new("Noto Sans")
+        .with_feature(*b"liga", 1)
+        .with_feature(*b"clig", 1);
+    let mut shaper = TerminalShaper::new(config);
+
+    let plain = shaper
+        .shape_row(&mut catalog, "fi")
+        .expect("shape plain fi");
+    assert_eq!(plain.glyphs.len(), 1, "fixture must expose the fi ligature");
+
+    let split = shaper
+        .shape_clusters(
+            &mut catalog,
+            &[
+                TerminalCluster::new("f", 0..1),
+                TerminalCluster::new("i", 1..2).with_shape_boundary(1),
+            ],
+        )
+        .expect("shape fi across a hard boundary");
+    assert_eq!(
+        split.glyphs.len(),
+        2,
+        "user features must not reactivate ligatures across a hard boundary"
+    );
+}
+
+#[test]
 fn cluster_weight_and_style_are_forwarded_to_raster_attributes() {
     let regular = FontSource::new("regular", fixture_bytes(LATIN));
     let bold = FontSource::new("bold", with_weight(fixture_bytes(LATIN), 700));

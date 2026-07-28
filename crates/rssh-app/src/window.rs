@@ -95143,7 +95143,7 @@ impl NativeWindowApp {
                 Color::Default,
                 false,
             );
-            leader.text = grapheme.to_owned();
+            grapheme.clone_into(&mut leader.text);
             leader.columns = u8::try_from(columns).unwrap_or(u8::MAX);
             leader.underline = true;
             leader.underline_style = UnderlineStyle::Single;

@@ -177,6 +177,19 @@ fn positioned_raster_preserves_integer_origins_without_duplicating_cached_pixels
         std::sync::Arc::ptr_eq(&first.image, &moved.image),
         "integer translation must reuse one cached glyph bitmap"
     );
+
+    cache.set_scale(2.0, 1.0);
+    let physical = cache
+        .rasterize_positioned(
+            &mut catalog,
+            RasterRequest::for_shaped_glyph_at_physical_position(&row, glyph, 10.25, 20.75),
+        )
+        .expect("physical-position raster");
+    assert_eq!(
+        (physical.origin_x, physical.origin_y),
+        (10, 20),
+        "an already physical framebuffer origin must not be scaled twice"
+    );
 }
 
 #[test]

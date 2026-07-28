@@ -2025,7 +2025,10 @@ fn colorgrad_gradient_for_preset(preset: RenderBackgroundGradientPreset) -> colo
 
 impl Surface<'_> {
     fn fill(&mut self, color: [u8; 4]) {
-        for pixel in self.target.chunks_exact_mut(4) {
+        let pixel_count =
+            usize::try_from(u64::from(self.width).saturating_mul(u64::from(self.height)))
+                .unwrap_or(usize::MAX);
+        for pixel in self.target.chunks_exact_mut(4).take(pixel_count) {
             pixel.copy_from_slice(&color);
         }
     }

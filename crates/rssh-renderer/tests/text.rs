@@ -83,6 +83,37 @@ fn non_background_pixels(target: &[u8]) -> usize {
         .count()
 }
 
+fn cell_non_background_pixels(target: &[u8], columns: usize, column: usize) -> usize {
+    (0..24)
+        .flat_map(|y| {
+            (column * 16..(column + 1) * 16).map(move |x| {
+                let offset = (y * columns * 16 + x) * 4;
+                &target[offset..offset + 4]
+            })
+        })
+        .filter(|pixel| *pixel != [12, 12, 12, 255])
+        .count()
+}
+
+fn cell_pixels(target: &[u8], columns: usize, column: usize) -> Vec<[u8; 4]> {
+    (0..24)
+        .flat_map(|y| {
+            (column * 16..(column + 1) * 16).map(move |x| {
+                let offset = (y * columns * 16 + x) * 4;
+                target[offset..offset + 4]
+                    .try_into()
+                    .expect("complete RGBA pixel")
+            })
+        })
+        .collect()
+}
+
+fn cell_has_red_cursor_foreground(target: &[u8], columns: usize, column: usize) -> bool {
+    cell_pixels(target, columns, column)
+        .iter()
+        .any(|pixel| pixel[0] > 200 && pixel[1] < 50 && pixel[2] < 50)
+}
+
 fn overlay_cell(column: u16, text: &str, foreground: Color, background: Color) -> RenderCell {
     RenderCell {
         row: 0,
@@ -281,6 +312,207 @@ fn damage_conservatively_repaints_the_full_dirty_row() {
     assert_eq!(
         damaged, expected,
         "old pixels from the second ligature cell must be cleared"
+    );
+}
+
+#[test]
+fn damage_does_not_modify_rows_that_were_not_marked_dirty() {
+    let renderer = PixelRenderer::new();
+    let mut text_renderer = cpu_text(true);
+    let geometry = RenderGeometry::new(32, 48, 16, 24);
+    let mut bottom = overlay_cell(0, "B", Color::Default, Color::Default);
+    bottom.row = 1;
+    let snapshot = TerminalRenderSnapshot::from_terminal(&Terminal::new(TerminalSize::new(2, 2)))
+        .with_overlay_cells([overlay_cell(0, "A", Color::Default, Color::Default), bottom]);
+
+    let mut expected = vec![0; 32 * 48 * 4];
+    renderer.render_shaped(&mut text_renderer, &snapshot, &mut expected, geometry);
+
+    let sentinel = 0xa5;
+    let mut damaged = vec![sentinel; expected.len()];
+    renderer.render_damage_shaped(
+        &mut text_renderer,
+        &snapshot,
+        &[DamageRegion::new(0, 0, 1, 1)],
+        &mut damaged,
+        geometry,
+    );
+
+    let row_bytes = 32 * 24 * 4;
+    assert_eq!(&damaged[..row_bytes], &expected[..row_bytes]);
+    assert!(
+        damaged[row_bytes..].iter().all(|byte| *byte == sentinel),
+        "the untouched terminal row must retain the caller's existing pixels"
+    );
+}
+
+#[test]
+fn raster_scale_changes_glyph_size_without_scaling_framebuffer_cell_positions_twice() {
+    let renderer = PixelRenderer::new();
+    let mut text_renderer = cpu_text(true);
+    let snapshot = snapshot("AB", 2);
+
+    let scale_one = render(&renderer, &mut text_renderer, &snapshot, 2);
+    let scale_one_counts = [
+        cell_non_background_pixels(&scale_one, 2, 0),
+        cell_non_background_pixels(&scale_one, 2, 1),
+    ];
+    assert!(scale_one_counts.iter().all(|count| *count > 0));
+
+    text_renderer.set_scale(2.0, 1.0);
+    let scale_two = render(&renderer, &mut text_renderer, &snapshot, 2);
+    let scale_two_counts = [
+        cell_non_background_pixels(&scale_two, 2, 0),
+        cell_non_background_pixels(&scale_two, 2, 1),
+    ];
+    assert!(
+        scale_two_counts.iter().all(|count| *count > 0),
+        "DPI scaling must resize both glyphs without moving B out of its visual cell: {scale_two_counts:?}"
+    );
+    assert_ne!(
+        scale_two_counts, scale_one_counts,
+        "the isolated raster scale must change physical glyph coverage"
+    );
+    assert_eq!(
+        text_renderer
+            .last_report()
+            .expect("scaled report")
+            .cluster_bounds
+            .iter()
+            .map(|cluster| cluster.pixel_bounds.x)
+            .collect::<Vec<_>>(),
+        [0, 16],
+        "visual cell bounds remain framebuffer coordinates at every raster scale"
+    );
+}
+
+#[test]
+fn shaped_text_preserves_legal_left_overhang_inside_the_row_viewport() {
+    let renderer = PixelRenderer::new();
+    let mut text_renderer = cpu_text(true);
+    let snapshot = snapshot(" j", 2);
+    let geometry = RenderGeometry::new(32, 24, 16, 24);
+    let frame_len = 32 * 24 * 4;
+    let sentinel = 0xa5;
+    let mut guarded = vec![sentinel; frame_len + 16];
+
+    renderer.render_shaped(&mut text_renderer, &snapshot, &mut guarded, geometry);
+
+    assert!(
+        (0..24).any(|y| {
+            let offset = (y * 32 + 15) * 4;
+            guarded[offset..offset + 4] != [12, 12, 12, 255]
+        }),
+        "the second-cell j has a legal one-pixel left overhang into the preceding cell"
+    );
+    assert!(
+        guarded[frame_len..].iter().all(|byte| *byte == sentinel),
+        "row clipping must still respect the framebuffer boundary"
+    );
+}
+
+#[test]
+fn concealed_shaped_text_suppresses_glyphs_and_all_decorations() {
+    let concealed = TerminalRenderSnapshot::from_terminal(&{
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[?25l\x1b[4;8;9;53mA");
+        terminal
+    });
+    let renderer = PixelRenderer::new();
+    let mut text_renderer = cpu_text(true);
+
+    let target = render(&renderer, &mut text_renderer, &concealed, 1);
+    assert_eq!(
+        non_background_pixels(&target),
+        0,
+        "conceal must suppress underline, strikethrough, and overline with the glyph"
+    );
+}
+
+#[test]
+fn block_cursor_clips_wide_shaped_foreground_to_one_cursor_cell() {
+    let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+    terminal.feed("中\u{1b}[2D\u{1b}[2 q".as_bytes());
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let mut renderer = PixelRenderer::new();
+    renderer.set_default_cursor_color([0, 0, 255, 255]);
+    renderer.set_default_cursor_foreground(Some([255, 0, 0, 255]));
+    let mut text_renderer = cpu_text(true);
+    text_renderer.set_scale(2.0, 1.0);
+
+    let target = render(&renderer, &mut text_renderer, &snapshot, 2);
+    assert!(cell_has_red_cursor_foreground(&target, 2, 0));
+    assert!(
+        !cell_has_red_cursor_foreground(&target, 2, 1),
+        "the second half of a wide glyph is outside the one-cell block cursor"
+    );
+}
+
+#[test]
+fn block_cursor_does_not_recompose_the_second_cell_of_color_emoji() {
+    let mut visible = Terminal::new(TerminalSize::new(2, 1));
+    visible.feed("😀\u{1b}[2D\u{1b}[2 q".as_bytes());
+    let visible = TerminalRenderSnapshot::from_terminal(&visible);
+    let mut hidden = Terminal::new(TerminalSize::new(2, 1));
+    hidden.feed("😀\u{1b}[2D\u{1b}[?25l".as_bytes());
+    let hidden = TerminalRenderSnapshot::from_terminal(&hidden);
+    let mut renderer = PixelRenderer::new();
+    renderer.set_default_cursor_color([0, 0, 255, 255]);
+    renderer.set_default_cursor_foreground(Some([255, 0, 0, 255]));
+    let mut text_renderer = cpu_text(true);
+
+    let visible = render(&renderer, &mut text_renderer, &visible, 2);
+    let hidden = render(&renderer, &mut text_renderer, &hidden, 2);
+    assert_eq!(
+        cell_pixels(&visible, 2, 1),
+        cell_pixels(&hidden, 2, 1),
+        "cursor foreground redraw must not blend a wide color glyph twice outside the cursor cell"
+    );
+}
+
+#[test]
+fn non_block_concealed_and_hidden_blink_cursors_do_not_redraw_shaped_foreground() {
+    let mut renderer = PixelRenderer::new();
+    renderer.set_default_cursor_color([0, 0, 255, 255]);
+    renderer.set_default_cursor_foreground(Some([255, 0, 0, 255]));
+
+    for shape in [b"\x1b[4 q".as_slice(), b"\x1b[6 q".as_slice()] {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"A\x1b[1D");
+        terminal.feed(shape);
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let mut text_renderer = cpu_text(true);
+        let target = render(&renderer, &mut text_renderer, &snapshot, 1);
+        assert!(
+            !cell_has_red_cursor_foreground(&target, 1, 0),
+            "underline and bar cursors must not recolor the full shaped glyph"
+        );
+    }
+
+    let concealed = TerminalRenderSnapshot::from_terminal(&{
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[8mA\x1b[1D\x1b[2 q");
+        terminal
+    });
+    let mut text_renderer = cpu_text(true);
+    let concealed = render(&renderer, &mut text_renderer, &concealed, 1);
+    assert!(
+        !cell_has_red_cursor_foreground(&concealed, 1, 0),
+        "a block cursor must not reveal concealed shaped text"
+    );
+
+    let blinking = TerminalRenderSnapshot::from_terminal(&{
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"A\x1b[1D\x1b[1 q");
+        terminal
+    });
+    let mut hidden_phase_renderer = PixelRenderer::with_blink_visible(false);
+    hidden_phase_renderer.set_default_cursor_color([0, 0, 255, 255]);
+    hidden_phase_renderer.set_default_cursor_foreground(Some([255, 0, 0, 255]));
+    let blinking = render(&hidden_phase_renderer, &mut text_renderer, &blinking, 1);
+    assert!(
+        !cell_has_red_cursor_foreground(&blinking, 1, 0),
+        "hidden cursor blink phase must not recolor the shaped glyph"
     );
 }
 
