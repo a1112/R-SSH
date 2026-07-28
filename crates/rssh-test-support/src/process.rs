@@ -4,7 +4,7 @@ use std::{
     fs::File,
     io::{self, Read, Seek, SeekFrom},
     process::{Child, Command, ExitStatus, Stdio},
-    sync::{Mutex, OnceLock, mpsc},
+    sync::{Arc, Condvar, Mutex, OnceLock},
     thread,
     time::{Duration, Instant},
 };
@@ -30,17 +30,21 @@ pub enum ChildGuardError {
     Io {
         operation: &'static str,
         source: io::Error,
+        secondary: Option<io::Error>,
         output: Option<ChildOutput>,
     },
     /// The child exceeded its deadline and was killed and reaped.
     TimedOut {
         timeout: Duration,
         output: ChildOutput,
+        cleanup_error: Option<io::Error>,
+        capture_error: Option<io::Error>,
     },
     /// Synchronous cleanup reached its deadline; ownership moved to a reaper.
     CleanupDeferred {
         operation: &'static str,
         source: io::Error,
+        secondary: Option<io::Error>,
         stdout: Vec<u8>,
         stderr: Vec<u8>,
     },
@@ -84,33 +88,58 @@ impl fmt::Display for ChildGuardError {
             Self::Io {
                 operation,
                 source,
+                secondary,
                 output,
             } => {
                 write!(formatter, "child process {operation} failed: {source}")?;
+                if let Some(secondary) = secondary {
+                    write!(formatter, "; secondary error: {secondary}")?;
+                }
                 if let Some(output) = output {
                     write_diagnostics(formatter, output)?;
                 }
                 Ok(())
             }
-            Self::TimedOut { timeout, output } => {
+            Self::TimedOut {
+                timeout,
+                output,
+                cleanup_error,
+                capture_error,
+            } => {
                 write!(
                     formatter,
                     "child process exceeded its {timeout:?} deadline and was killed and reaped"
                 )?;
+                if let Some(cleanup_error) = cleanup_error {
+                    write!(formatter, "; cleanup warning: {cleanup_error}")?;
+                }
+                if let Some(capture_error) = capture_error {
+                    write!(formatter, "; capture warning: {capture_error}")?;
+                }
                 write_diagnostics(formatter, output)
             }
             Self::CleanupDeferred {
                 operation,
                 source,
+                secondary,
                 stdout,
                 stderr,
-            } => write!(
-                formatter,
-                "child process {operation}; cleanup ownership was retained for asynchronous \
-                 reaping: {source}; stdout={:?}; stderr={:?}",
-                String::from_utf8_lossy(stdout),
-                String::from_utf8_lossy(stderr)
-            ),
+            } => {
+                write!(
+                    formatter,
+                    "child process {operation}; cleanup ownership was retained for asynchronous \
+                     reaping: {source}"
+                )?;
+                if let Some(secondary) = secondary {
+                    write!(formatter, "; secondary error: {secondary}")?;
+                }
+                write!(
+                    formatter,
+                    "; stdout={:?}; stderr={:?}",
+                    String::from_utf8_lossy(stdout),
+                    String::from_utf8_lossy(stderr)
+                )
+            }
         }
     }
 }
@@ -119,7 +148,14 @@ impl std::error::Error for ChildGuardError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io { source, .. } | Self::CleanupDeferred { source, .. } => Some(source),
-            Self::TimedOut { .. } => None,
+            Self::TimedOut {
+                cleanup_error,
+                capture_error,
+                ..
+            } => capture_error
+                .as_ref()
+                .or(cleanup_error.as_ref())
+                .map(|error| error as &(dyn std::error::Error + 'static)),
         }
     }
 }
@@ -212,6 +248,24 @@ where
     }
 }
 
+struct CaptureFile {
+    file: tempfile::NamedTempFile,
+}
+
+impl CaptureFile {
+    fn new() -> io::Result<Self> {
+        tempfile::NamedTempFile::new().map(|file| Self { file })
+    }
+
+    fn reopen_writer(&self) -> io::Result<File> {
+        self.file.reopen()
+    }
+
+    fn snapshot(&mut self) -> io::Result<Vec<u8>> {
+        read_bounded(self.file.as_file_mut())
+    }
+}
+
 /// Owns a native child process and guarantees bounded waiting plus fallback cleanup.
 ///
 /// Dropping a live guard performs at most one cleanup grace period of synchronous
@@ -220,24 +274,32 @@ where
 /// fallback registry rather than blocking the dropping thread.
 pub struct ChildGuard {
     child: Option<Child>,
+    reaper: Arc<ReaperQueue>,
     deadline: Instant,
     timeout: Duration,
-    stdout: File,
-    stderr: File,
+    stdout: CaptureFile,
+    stderr: CaptureFile,
     redactions: Vec<Vec<u8>>,
 }
 
 impl ChildGuard {
     /// Spawns `command` with stdout and stderr redirected to bounded diagnostics.
     ///
-    /// The child inherits no stdin. Environment values explicitly configured on
-    /// `command`, plus its current directory, are redacted from error output.
+    /// The child inherits no stdin. Values of explicitly configured environment
+    /// keys whose names indicate credentials, keys, tokens, passwords, or home
+    /// paths, plus the current directory, are redacted from error output.
     ///
     /// # Errors
     ///
     /// Returns an error if diagnostic files cannot be created or cloned, or if
     /// the operating system cannot spawn the child.
     pub fn spawn(mut command: Command, timeout: Duration) -> Result<Self, ChildGuardError> {
+        let reaper = global_reaper().map_err(|source| ChildGuardError::Io {
+            operation: "initialize background child reaper",
+            source,
+            secondary: None,
+            output: None,
+        })?;
         let deadline = Instant::now()
             .checked_add(timeout)
             .ok_or_else(|| ChildGuardError::Io {
@@ -246,28 +308,37 @@ impl ChildGuard {
                     io::ErrorKind::InvalidInput,
                     "child timeout exceeds the platform Instant range",
                 ),
+                secondary: None,
                 output: None,
             })?;
-        let stdout = tempfile::tempfile().map_err(|source| ChildGuardError::Io {
+        let stdout = CaptureFile::new().map_err(|source| ChildGuardError::Io {
             operation: "stdout capture setup",
             source,
+            secondary: None,
             output: None,
         })?;
-        let stderr = tempfile::tempfile().map_err(|source| ChildGuardError::Io {
+        let stderr = CaptureFile::new().map_err(|source| ChildGuardError::Io {
             operation: "stderr capture setup",
             source,
+            secondary: None,
             output: None,
         })?;
-        let stdout_writer = stdout.try_clone().map_err(|source| ChildGuardError::Io {
-            operation: "stdout capture clone",
-            source,
-            output: None,
-        })?;
-        let stderr_writer = stderr.try_clone().map_err(|source| ChildGuardError::Io {
-            operation: "stderr capture clone",
-            source,
-            output: None,
-        })?;
+        let stdout_writer = stdout
+            .reopen_writer()
+            .map_err(|source| ChildGuardError::Io {
+                operation: "stdout capture reopen",
+                source,
+                secondary: None,
+                output: None,
+            })?;
+        let stderr_writer = stderr
+            .reopen_writer()
+            .map_err(|source| ChildGuardError::Io {
+                operation: "stderr capture reopen",
+                source,
+                secondary: None,
+                output: None,
+            })?;
         let redactions = command_redactions(&command);
 
         command
@@ -277,11 +348,13 @@ impl ChildGuard {
         let child = command.spawn().map_err(|source| ChildGuardError::Io {
             operation: "spawn",
             source,
+            secondary: None,
             output: None,
         })?;
 
         Ok(Self {
             child: Some(child),
+            reaper,
             deadline,
             timeout,
             stdout,
@@ -310,11 +383,11 @@ impl ChildGuard {
                     self.child.take();
                     let (output, capture_error) = self.capture_output(status, false);
                     return match capture_error {
-                        Some(source) => Err(ChildGuardError::Io {
-                            operation: "capture completed child output",
+                        Some(source) => Err(build_completed_capture_error(
+                            output,
                             source,
-                            output: Some(output),
-                        }),
+                            &self.redactions,
+                        )),
                         None => Ok(output),
                     };
                 }
@@ -340,17 +413,12 @@ impl ChildGuard {
             CleanupOutcome::Reaped { status, last_error } => {
                 self.child.take();
                 let (output, capture_error) = self.capture_output(status, true);
-                if let Some(source) = capture_error.or(last_error) {
-                    return Err(ChildGuardError::Io {
-                        operation: "capture after timeout cleanup",
-                        source,
-                        output: Some(output),
-                    });
-                }
-                Err(ChildGuardError::TimedOut {
-                    timeout: self.timeout,
+                Err(build_timeout_error(
+                    self.timeout,
                     output,
-                })
+                    last_error,
+                    capture_error,
+                ))
             }
             CleanupOutcome::Deferred { last_error } => {
                 let (stdout, stderr, capture_error) = self.capture_diagnostics(true);
@@ -358,15 +426,16 @@ impl ChildGuard {
                     .child
                     .take()
                     .ok_or_else(|| missing_child_error("defer timeout cleanup"))?;
-                let operation = defer_child_to_reaper(child);
+                self.reaper.enqueue(child);
                 Err(ChildGuardError::CleanupDeferred {
-                    operation,
-                    source: capture_error.or(last_error).unwrap_or_else(|| {
+                    operation: "cleanup deadline expired; delegated to background reaper",
+                    source: last_error.unwrap_or_else(|| {
                         io::Error::new(
                             io::ErrorKind::TimedOut,
                             "child remained unreaped after kill and cleanup grace",
                         )
                     }),
+                    secondary: capture_error,
                     stdout,
                     stderr,
                 })
@@ -385,12 +454,13 @@ impl ChildGuard {
         match outcome {
             CleanupOutcome::Reaped { status, last_error } => {
                 self.child.take();
-                let (output, _) = self.capture_output(status, true);
-                Err(ChildGuardError::Io {
-                    operation: "observe and clean up",
-                    source: last_error.unwrap_or(observation_error),
-                    output: Some(output),
-                })
+                let (output, capture_error) = self.capture_output(status, true);
+                Err(build_observation_error(
+                    output,
+                    observation_error,
+                    last_error,
+                    capture_error,
+                ))
             }
             CleanupOutcome::Deferred { last_error } => {
                 let (stdout, stderr, capture_error) = self.capture_diagnostics(true);
@@ -398,10 +468,11 @@ impl ChildGuard {
                     .child
                     .take()
                     .ok_or_else(|| missing_child_error("defer observation-error cleanup"))?;
-                let operation = defer_child_to_reaper(child);
+                self.reaper.enqueue(child);
                 Err(ChildGuardError::CleanupDeferred {
-                    operation,
-                    source: capture_error.or(last_error).unwrap_or(observation_error),
+                    operation: "observation cleanup deferred to background reaper",
+                    source: observation_error,
+                    secondary: combine_secondary_errors(last_error, capture_error),
                     stdout,
                     stderr,
                 })
@@ -426,11 +497,11 @@ impl ChildGuard {
     }
 
     fn capture_diagnostics(&mut self, redact: bool) -> (Vec<u8>, Vec<u8>, Option<io::Error>) {
-        let (mut stdout, stdout_error) = match read_bounded(&mut self.stdout) {
+        let (mut stdout, stdout_error) = match self.stdout.snapshot() {
             Ok(stdout) => (stdout, None),
             Err(source) => (Vec::new(), Some(source)),
         };
-        let (mut stderr, stderr_error) = match read_bounded(&mut self.stderr) {
+        let (mut stderr, stderr_error) = match self.stderr.snapshot() {
             Ok(stderr) => (stderr, None),
             Err(source) => (Vec::new(), Some(source)),
         };
@@ -454,92 +525,188 @@ impl Drop for ChildGuard {
             }
             CleanupOutcome::Deferred { .. } => {
                 if let Some(child) = self.child.take() {
-                    defer_child_to_reaper(child);
+                    self.reaper.enqueue(child);
                 }
             }
         }
     }
 }
 
-static DEFERRED_REAPER: OnceLock<Option<mpsc::Sender<Child>>> = OnceLock::new();
-static FALLBACK_CHILDREN: OnceLock<Mutex<Vec<Child>>> = OnceLock::new();
-
-fn defer_child_to_reaper(child: Child) -> &'static str {
-    let sender = DEFERRED_REAPER.get_or_init(start_deferred_reaper);
-    if let Some(sender) = sender {
-        match sender.send(child) {
-            Ok(()) => return "cleanup deadline expired; delegated to background reaper",
-            Err(error) => retain_fallback_child(error.0),
-        }
-    } else {
-        retain_fallback_child(child);
-    }
-    "cleanup deadline expired; retained in fallback ownership registry"
+struct ReaperEntry {
+    child: Child,
+    #[cfg(test)]
+    notification: Option<std::sync::mpsc::Sender<ExitStatus>>,
 }
 
-fn start_deferred_reaper() -> Option<mpsc::Sender<Child>> {
-    let (sender, receiver) = mpsc::channel();
-    thread::Builder::new()
+struct ReaperQueue {
+    pending: Mutex<Vec<ReaperEntry>>,
+    wake: Condvar,
+}
+
+impl ReaperQueue {
+    fn enqueue(&self, child: Child) {
+        self.pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(ReaperEntry {
+                child,
+                #[cfg(test)]
+                notification: None,
+            });
+        self.wake.notify_one();
+    }
+
+    #[cfg(test)]
+    fn enqueue_with_notification(&self, child: Child) -> std::sync::mpsc::Receiver<ExitStatus> {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(ReaperEntry {
+                child,
+                notification: Some(sender),
+            });
+        self.wake.notify_one();
+        receiver
+    }
+}
+
+enum ReaperInitialization {
+    Ready(Arc<ReaperQueue>),
+    Failed(String),
+}
+
+static GLOBAL_REAPER: OnceLock<ReaperInitialization> = OnceLock::new();
+
+fn global_reaper() -> io::Result<Arc<ReaperQueue>> {
+    match GLOBAL_REAPER.get_or_init(initialize_reaper) {
+        ReaperInitialization::Ready(reaper) => Ok(Arc::clone(reaper)),
+        ReaperInitialization::Failed(message) => Err(io::Error::other(message.clone())),
+    }
+}
+
+fn initialize_reaper() -> ReaperInitialization {
+    let reaper = Arc::new(ReaperQueue {
+        pending: Mutex::new(Vec::new()),
+        wake: Condvar::new(),
+    });
+    let worker_reaper = Arc::clone(&reaper);
+    match thread::Builder::new()
         .name("rssh-child-reaper".to_owned())
-        .spawn(move || deferred_reaper_loop(&receiver))
-        .ok()
-        .map(|_| sender)
+        .spawn(move || deferred_reaper_loop(&worker_reaper))
+    {
+        Ok(_) => ReaperInitialization::Ready(reaper),
+        Err(error) => ReaperInitialization::Failed(error.to_string()),
+    }
 }
 
 // `try_wait() == Some(_)` has already reaped the child. Calling `wait()` again
 // would be both redundant and contrary to this module's bounded-wait contract.
 #[allow(clippy::zombie_processes)]
-fn deferred_reaper_loop(receiver: &mpsc::Receiver<Child>) {
-    let mut children = Vec::new();
-    let mut disconnected = false;
+fn deferred_reaper_loop(reaper: &ReaperQueue) -> ! {
+    let mut active = Vec::new();
     loop {
-        if children.is_empty() {
-            match receiver.recv() {
-                Ok(child) => children.push(child),
-                Err(_) => return,
+        let mut pending = reaper
+            .pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if active.is_empty() {
+            while pending.is_empty() {
+                pending = reaper
+                    .wake
+                    .wait(pending)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
             }
-        } else {
-            match receiver.recv_timeout(REAPER_POLL_INTERVAL) {
-                Ok(child) => children.push(child),
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(mpsc::RecvTimeoutError::Disconnected) => disconnected = true,
-            }
+        } else if pending.is_empty() {
+            let (guard, _) = reaper
+                .wake
+                .wait_timeout(pending, REAPER_POLL_INTERVAL)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            pending = guard;
         }
-        while let Ok(child) = receiver.try_recv() {
-            children.push(child);
-        }
+        active.extend(pending.drain(..));
+        drop(pending);
 
-        let mut index = children.len();
+        let mut index = active.len();
         while index > 0 {
             index -= 1;
-            let reaped = if let Ok(Some(_)) = children[index].try_wait() {
-                true
+            let status = active[index].child.try_wait().ok().flatten();
+            if let Some(status) = status {
+                #[cfg(test)]
+                if let Some(notification) = active[index].notification.take() {
+                    let _ = notification.send(status);
+                }
+                #[cfg(not(test))]
+                let _ = status;
+                active.swap_remove(index);
             } else {
-                let _ = children[index].kill();
-                false
-            };
-            if reaped {
-                children.swap_remove(index);
+                let _ = active[index].child.kill();
             }
-        }
-        if disconnected && children.is_empty() {
-            return;
         }
     }
 }
 
-fn retain_fallback_child(child: Child) {
-    FALLBACK_CHILDREN
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .push(child);
+fn build_timeout_error(
+    timeout: Duration,
+    output: ChildOutput,
+    cleanup_error: Option<io::Error>,
+    capture_error: Option<io::Error>,
+) -> ChildGuardError {
+    ChildGuardError::TimedOut {
+        timeout,
+        output,
+        cleanup_error,
+        capture_error,
+    }
+}
+
+fn build_completed_capture_error(
+    mut output: ChildOutput,
+    source: io::Error,
+    redactions: &[Vec<u8>],
+) -> ChildGuardError {
+    redact_values(&mut output.stdout, redactions);
+    redact_values(&mut output.stderr, redactions);
+    ChildGuardError::Io {
+        operation: "capture completed child output",
+        source,
+        secondary: None,
+        output: Some(output),
+    }
+}
+
+fn build_observation_error(
+    output: ChildOutput,
+    observation_error: io::Error,
+    cleanup_error: Option<io::Error>,
+    capture_error: Option<io::Error>,
+) -> ChildGuardError {
+    ChildGuardError::Io {
+        operation: "observe and clean up",
+        source: observation_error,
+        secondary: combine_secondary_errors(cleanup_error, capture_error),
+        output: Some(output),
+    }
+}
+
+fn combine_secondary_errors(
+    cleanup_error: Option<io::Error>,
+    capture_error: Option<io::Error>,
+) -> Option<io::Error> {
+    match (cleanup_error, capture_error) {
+        (Some(cleanup), Some(capture)) => Some(io::Error::other(format!(
+            "cleanup warning: {cleanup}; capture warning: {capture}"
+        ))),
+        (Some(error), None) | (None, Some(error)) => Some(error),
+        (None, None) => None,
+    }
 }
 
 fn missing_child_error(operation: &'static str) -> ChildGuardError {
     ChildGuardError::Io {
         operation,
         source: io::Error::other("child process ownership was already released"),
+        secondary: None,
         output: None,
     }
 }
@@ -557,6 +724,7 @@ fn write_diagnostics(formatter: &mut fmt::Formatter<'_>, output: &ChildOutput) -
 fn command_redactions(command: &Command) -> Vec<Vec<u8>> {
     let mut redactions = command
         .get_envs()
+        .filter(|(key, _)| sensitive_environment_name(key))
         .filter_map(|(_, value)| value)
         .map(OsStr::to_string_lossy)
         .filter(|value| !value.is_empty())
@@ -572,6 +740,21 @@ fn command_redactions(command: &Command) -> Vec<Vec<u8>> {
         .sort_unstable_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
     redactions.dedup();
     redactions
+}
+
+fn sensitive_environment_name(name: &OsStr) -> bool {
+    let name = name.to_string_lossy().to_ascii_uppercase();
+    [
+        "CREDENTIAL",
+        "HOME",
+        "KEY",
+        "PASSWORD",
+        "PROFILE",
+        "SECRET",
+        "TOKEN",
+    ]
+    .iter()
+    .any(|sensitive| name.contains(sensitive))
 }
 
 fn read_bounded(file: &mut File) -> io::Result<Vec<u8>> {
@@ -631,14 +814,17 @@ mod tests {
         collections::VecDeque,
         env,
         ffi::OsStr,
-        io::{self, Write},
-        process::Command,
+        io::{self, Seek, SeekFrom, Write},
+        process::{Command, Stdio},
+        sync::{Arc, Barrier},
+        thread,
         time::{Duration, Instant},
     };
 
     use super::{
-        CAPTURE_LIMIT, ChildGuard, ChildGuardError, CleanupClock, CleanupOutcome, CleanupTarget,
-        bounded_cleanup, read_bounded,
+        CAPTURE_LIMIT, CaptureFile, ChildGuard, ChildGuardError, CleanupClock, CleanupOutcome,
+        CleanupTarget, bounded_cleanup, build_completed_capture_error, build_observation_error,
+        build_timeout_error, command_redactions, global_reaper, read_bounded,
     };
     use crate::{TempHome, platform_marker_command};
 
@@ -895,6 +1081,7 @@ mod tests {
         let error = ChildGuardError::CleanupDeferred {
             operation: "injected deferred cleanup",
             source: io::Error::new(io::ErrorKind::TimedOut, "injected cleanup deadline"),
+            secondary: None,
             stdout: b"stdout-before-error".to_vec(),
             stderr: b"stderr-with-<redacted>".to_vec(),
         };
@@ -905,6 +1092,123 @@ mod tests {
         assert!(display.contains("injected deferred cleanup"));
         assert!(display.contains("stdout-before-error"));
         assert!(display.contains("<redacted>"));
+    }
+
+    #[test]
+    fn concurrent_capture_snapshot_does_not_move_writer_cursor() {
+        let mut capture = CaptureFile::new().expect("create independent capture");
+        let mut writer = capture.reopen_writer().expect("reopen capture writer");
+        writer.write_all(b"abcdef").unwrap();
+        writer.seek(SeekFrom::Start(3)).unwrap();
+        let ready = Arc::new(Barrier::new(2));
+        let resume = Arc::new(Barrier::new(2));
+        let writer_ready = Arc::clone(&ready);
+        let writer_resume = Arc::clone(&resume);
+        let writer_thread = thread::spawn(move || {
+            writer_ready.wait();
+            writer_resume.wait();
+            writer.write_all(b"X").unwrap();
+            writer.flush().unwrap();
+        });
+
+        ready.wait();
+        assert_eq!(capture.snapshot().unwrap(), b"abcdef");
+        resume.wait();
+        writer_thread.join().unwrap();
+
+        assert_eq!(capture.snapshot().unwrap(), b"abcXef");
+    }
+
+    #[test]
+    fn reaper_worker_reaps_a_real_handed_off_child_before_deadline() {
+        let reaper = global_reaper().expect("global reaper initialized");
+        let mut command = timeout_command();
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let child = command.spawn().expect("spawn long-running reaper child");
+        let notification = reaper.enqueue_with_notification(child);
+
+        let status = notification
+            .recv_timeout(Duration::from_secs(2))
+            .expect("background worker reaps handed-off child");
+
+        assert!(!status.success());
+    }
+
+    #[test]
+    fn timeout_classification_survives_transient_cleanup_errors() {
+        let output = ChildGuard::spawn(platform_marker_command("status"), Duration::from_secs(5))
+            .unwrap()
+            .wait()
+            .unwrap();
+        let error = build_timeout_error(
+            Duration::from_millis(25),
+            output,
+            Some(io::Error::other("transient kill failure")),
+            None,
+        );
+
+        assert!(matches!(error, ChildGuardError::TimedOut { .. }));
+        assert!(error.to_string().contains("transient kill failure"));
+    }
+
+    #[test]
+    fn observation_error_remains_primary_after_cleanup_and_capture_errors() {
+        let output = ChildGuard::spawn(platform_marker_command("status"), Duration::from_secs(5))
+            .unwrap()
+            .wait()
+            .unwrap();
+        let error = build_observation_error(
+            output,
+            io::Error::new(io::ErrorKind::BrokenPipe, "primary observation failure"),
+            Some(io::Error::other("secondary cleanup failure")),
+            Some(io::Error::other("secondary capture failure")),
+        );
+
+        assert!(matches!(
+            error,
+            ChildGuardError::Io {
+                ref source,
+                ..
+            } if source.kind() == io::ErrorKind::BrokenPipe
+        ));
+        assert!(error.to_string().contains("primary observation failure"));
+        assert!(error.to_string().contains("secondary cleanup failure"));
+        assert!(error.to_string().contains("secondary capture failure"));
+    }
+
+    #[test]
+    fn completed_capture_error_redacts_the_other_stream() {
+        let mut output =
+            ChildGuard::spawn(platform_marker_command("status"), Duration::from_secs(5))
+                .unwrap()
+                .wait()
+                .unwrap();
+        output.stdout = b"safe-prefix super-secret-value".to_vec();
+        output.stderr = b"super-secret-value in other stream".to_vec();
+        let error = build_completed_capture_error(
+            output,
+            io::Error::other("injected stdout capture failure"),
+            &[b"super-secret-value".to_vec()],
+        );
+
+        assert!(!error.to_string().contains("super-secret-value"));
+        assert!(error.to_string().contains("<redacted>"));
+    }
+
+    #[test]
+    fn automatic_redaction_ignores_tiny_non_sensitive_environment_values() {
+        let mut command = Command::new("unused");
+        command
+            .env("RSSH_MODE", "x")
+            .env("RSSH_API_TOKEN", "token-value");
+
+        let redactions = command_redactions(&command);
+
+        assert!(!redactions.iter().any(|value| value == b"x"));
+        assert!(redactions.iter().any(|value| value == b"token-value"));
     }
 
     #[test]
