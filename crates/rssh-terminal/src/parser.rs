@@ -436,7 +436,8 @@ pub struct TerminalWorkCounters {
     /// Surviving history rows physically relocated by prefix pruning.
     ///
     /// Logical deque front eviction records zero because survivors retain their
-    /// ring-buffer slots.
+    /// ring-buffer slots. Removing one front row is O(1), removing `k` rows is
+    /// O(k), and the complete terminal prune remains O(k + metadata).
     pub history_row_relocations: u64,
     /// Non-empty history prune operations that run the metadata rebase pass.
     pub metadata_rebase_batches: u64,
@@ -2784,6 +2785,11 @@ impl Terminal {
     }
 
     #[must_use]
+    /// Returns retained scrollback in oldest-to-newest logical order.
+    ///
+    /// The 0.1.0 API intentionally returns [`HistoryBuffer`] instead of a
+    /// contiguous slice. See that type's migration guide and complexity
+    /// contract.
     pub const fn scrollback(&self) -> &HistoryBuffer<ScrollbackLine> {
         &self.scrollback
     }

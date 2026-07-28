@@ -1,8 +1,74 @@
 use std::collections::{VecDeque, vec_deque};
 use std::ops::{Index, RangeBounds};
 
-/// Oldest-to-newest terminal history with logical indexing independent of its
-/// physical ring-buffer layout.
+/// Oldest-to-newest terminal history addressed by logical row index.
+///
+/// # Compatibility and migration
+///
+/// The 0.1.0 API intentionally changes [`crate::Terminal::scrollback`] from
+/// `&[ScrollbackLine]` to `&HistoryBuffer<ScrollbackLine>`. This breaking
+/// pre-1.0 decision permits bounded history to use `VecDeque` internally:
+/// removing the oldest row no longer relocates every surviving row.
+///
+/// Consumers should migrate as follows:
+///
+/// - keep using [`len`](Self::len), [`is_empty`](Self::is_empty), logical
+///   indexing, or [`get`](Self::get);
+/// - replace slice iteration with [`iter`](Self::iter) or
+///   `for row in terminal.scrollback()`;
+/// - replace slice subranges with [`range`](Self::range);
+/// - if an external API truly requires a contiguous owned slice, explicitly
+///   collect with `history.iter().cloned().collect::<Vec<_>>()`.
+///
+/// ```
+/// use rssh_core::TerminalSize;
+/// use rssh_terminal::{ScrollbackLine, Terminal};
+///
+/// let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+/// terminal.feed(b"aa\r\nbb\r\ncc");
+/// let history = terminal.scrollback();
+///
+/// assert_eq!(history.len(), 1);
+/// let first: &ScrollbackLine = history.get(0).unwrap();
+/// assert!(std::ptr::eq(first, &history[0]));
+/// assert_eq!(history.iter().count(), 1);
+/// assert_eq!(history.range(..1).count(), 1);
+/// assert_eq!(history.into_iter().count(), 1);
+/// ```
+///
+/// `HistoryBuffer` deliberately exposes no contiguous or physical-slice API.
+/// These examples must not compile:
+///
+/// ```compile_fail,E0308
+/// use rssh_core::TerminalSize;
+/// use rssh_terminal::{ScrollbackLine, Terminal};
+///
+/// let terminal = Terminal::new(TerminalSize::new(4, 2));
+/// let history = terminal.scrollback();
+/// let contiguous: &[ScrollbackLine] = history;
+/// # let _ = contiguous;
+/// ```
+///
+/// ```compile_fail,E0599
+/// use rssh_core::TerminalSize;
+/// use rssh_terminal::Terminal;
+///
+/// let terminal = Terminal::new(TerminalSize::new(4, 2));
+/// let history = terminal.scrollback();
+/// let physical_segments = history.as_slices();
+/// # let _ = physical_segments;
+/// ```
+///
+/// # Complexity
+///
+/// Logical `len`, `get`, indexing, and `last` are O(1). Appending is amortized
+/// O(1). Evicting one front row is O(1), while evicting `k` front rows is O(k)
+/// because all removed values must be dropped. A complete terminal prune is
+/// O(k + metadata), where `metadata` is the number of coordinate-bearing
+/// metadata records rebased for that batch. Iteration and ranges are linear in
+/// the number of yielded rows, and rebuilding `n` rows is O(n). Front eviction
+/// performs zero survivor-row relocations; this does not make the complete
+/// prune operation O(1).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HistoryBuffer<T> {
     rows: VecDeque<T>,

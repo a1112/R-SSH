@@ -365,6 +365,37 @@ MVP 4 tests cover:
 - native window xterm mouse-mode tracking and legacy/UTF-8/SGR/urxvt
   button/wheel/drag/motion report encoding
 
+## Scrollback API compatibility
+
+R-SSH 0.1.0 intentionally makes a breaking pre-1.0 API change:
+`Terminal::scrollback()` returns `&HistoryBuffer<ScrollbackLine>` instead of
+`&[ScrollbackLine]`. The container uses `VecDeque` internally so removing the
+oldest bounded-history row does not relocate every surviving row. It does not
+expose `Deref<Target = [T]>`, `as_slices`, `make_contiguous`, or any other
+physical-slice API; callers cannot depend on ring-buffer segment boundaries.
+
+Existing callers should keep using `len()` and `is_empty()`, use `get(index)` or
+`history[index]` for logical oldest-to-newest indexing, use `iter()` or
+`IntoIterator for &HistoryBuffer` for traversal, and use `range()` for logical
+subranges. A caller that must pass an owned contiguous slice to another API
+must make that cost explicit:
+
+```rust
+let owned_rows = terminal
+    .scrollback()
+    .iter()
+    .cloned()
+    .collect::<Vec<ScrollbackLine>>();
+consume_rows(&owned_rows);
+```
+
+The complexity guarantee is deliberately narrow. Evicting one front row is
+O(1); evicting `k` rows is O(k) because the removed values must be dropped. A
+complete terminal prune is O(k + metadata), including one metadata rebase for
+the batch. Surviving history rows are not relocated, so
+`history_row_relocations` is zero for deque front eviction. The complete prune
+operation is not claimed to be O(1).
+
 ## Metrics
 
 The current MVP uses tests and smoke checks as completion gates. Window runs can
