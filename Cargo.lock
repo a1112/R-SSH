@@ -3484,6 +3484,7 @@ dependencies = [
  "rssh-core",
  "rssh-fonts",
  "rssh-terminal",
+ "sha2",
  "wgpu 30.0.0",
 ]
 

@@ -32,8 +32,13 @@ pub struct GpuTextConfig {
     pub budget_bytes: usize,
     pub raster_cache: RasterCacheConfig,
     pub cursor_foreground: Option<[u8; 4]>,
+    #[cfg(debug_assertions)]
     identifier_limit: u32,
 }
+
+const MAX_CUSTOM_GLYPH_IDENTIFIER: u32 = u16::MAX as u32;
+const GLYPH_IDENTIFIER_EXHAUSTED: &str =
+    "glyph atlas identifier pool exhausted after 65535 custom glyph identifiers";
 
 impl GpuTextConfig {
     #[must_use]
@@ -42,7 +47,8 @@ impl GpuTextConfig {
             budget_bytes,
             raster_cache,
             cursor_foreground: None,
-            identifier_limit: 65_535,
+            #[cfg(debug_assertions)]
+            identifier_limit: MAX_CUSTOM_GLYPH_IDENTIFIER,
         }
     }
 
@@ -54,6 +60,7 @@ impl GpuTextConfig {
         self
     }
 
+    #[cfg(debug_assertions)]
     #[doc(hidden)]
     #[must_use]
     pub const fn with_identifier_limit_for_tests(mut self, identifier_limit: u16) -> Self {
@@ -89,7 +96,7 @@ pub struct GpuTextPrepareReport {
     pub cursor_foreground_glyphs: usize,
     pub subpixel_masks_converted: usize,
     pub second_shape_calls: usize,
-    pub content_hash: u64,
+    pub content_digest: crate::TerminalContentDigest,
     pub glyph_bounds: Vec<PixelRect>,
     pub cursor_foreground_bounds: Vec<PixelRect>,
     pub damage_bounds: Vec<PixelRect>,
@@ -361,16 +368,17 @@ impl GpuText {
                 self.config.budget_bytes
             )));
         }
-        if self.next_id > self.config.identifier_limit {
+        #[cfg(debug_assertions)]
+        let identifier_limit = self.config.identifier_limit;
+        #[cfg(not(debug_assertions))]
+        let identifier_limit = MAX_CUSTOM_GLYPH_IDENTIFIER;
+        if self.next_id > identifier_limit {
             self.retryable_failure = Some(RetryableFailure::IdExhausted);
-            return Err(GpuLayerError::message(format!(
-                "glyph atlas identifier pool exhausted its configured {} identifier limit",
-                self.config.identifier_limit
-            )));
+            return Err(GpuLayerError::message(GLYPH_IDENTIFIER_EXHAUSTED));
         }
         let id = u16::try_from(self.next_id).map_err(|_| {
             self.retryable_failure = Some(RetryableFailure::IdExhausted);
-            GpuLayerError::message("glyph atlas exhausted all 65535 custom glyph identifiers")
+            GpuLayerError::message(GLYPH_IDENTIFIER_EXHAUSTED)
         })?;
         self.next_id = self.next_id.saturating_add(1);
         self.identity_to_id.insert(identity, id);
@@ -517,7 +525,7 @@ impl GpuText {
 
         let mut report = GpuTextPrepareReport {
             prepared_rows: row_numbers.iter().copied().collect(),
-            content_hash: crate::terminal_snapshot_text_hash(snapshot),
+            content_digest: crate::terminal_snapshot_content_digest(snapshot),
             damage_bounds: damaged_rows
                 .iter()
                 .map(|row| {

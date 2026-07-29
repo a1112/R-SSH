@@ -82906,8 +82906,10 @@ struct WindowMetricsSnapshot {
     first_rendered_cell_ms: Option<u128>,
     pty_chunks: u64,
     pty_bytes: u64,
-    pty_content_hash: u64,
-    terminal_snapshot_content_hash: u64,
+    pty_linkage_found: bool,
+    pty_linkage_digest: Option<String>,
+    terminal_linkage_nonce_found: bool,
+    terminal_snapshot_content_digest: Option<String>,
     pty_chunk_process_p95_us: u128,
     damage_regions: u64,
     damaged_cells: u64,
@@ -82939,7 +82941,7 @@ struct WindowMetricsSnapshot {
     gpu_text_mask_glyphs: usize,
     gpu_text_color_glyphs: usize,
     gpu_text_block_glyphs: usize,
-    gpu_text_content_hash: u64,
+    gpu_text_content_digest: Option<String>,
     gpu_text_rendered_frames: u64,
     input_writes: u64,
     input_bytes: u64,
@@ -82956,8 +82958,10 @@ first_pty_byte_ms={}
 first_rendered_cell_ms={}
 pty_chunks={}
 pty_bytes={}
-pty_content_hash={}
-terminal_snapshot_content_hash={}
+pty_linkage_found={}
+pty_linkage_digest={}
+terminal_linkage_nonce_found={}
+terminal_snapshot_content_digest={}
 pty_chunk_process_p95_us={}
 damage_regions={}
 damaged_cells={}
@@ -82989,7 +82993,7 @@ gpu_text_prepared_glyphs={}
 gpu_text_mask_glyphs={}
 gpu_text_color_glyphs={}
 gpu_text_block_glyphs={}
-gpu_text_content_hash={}
+gpu_text_content_digest={}
 gpu_text_rendered_frames={}
 input_writes={}
 input_bytes={}
@@ -83000,8 +83004,10 @@ bells={}
             metric_option(self.first_rendered_cell_ms),
             self.pty_chunks,
             self.pty_bytes,
-            self.pty_content_hash,
-            self.terminal_snapshot_content_hash,
+            self.pty_linkage_found,
+            metric_option_string(self.pty_linkage_digest.as_deref()),
+            self.terminal_linkage_nonce_found,
+            metric_option_string(self.terminal_snapshot_content_digest.as_deref()),
             self.pty_chunk_process_p95_us,
             self.damage_regions,
             self.damaged_cells,
@@ -83033,7 +83039,7 @@ bells={}
             self.gpu_text_mask_glyphs,
             self.gpu_text_color_glyphs,
             self.gpu_text_block_glyphs,
-            self.gpu_text_content_hash,
+            metric_option_string(self.gpu_text_content_digest.as_deref()),
             self.gpu_text_rendered_frames,
             self.input_writes,
             self.input_bytes,
@@ -83054,9 +83060,11 @@ struct WindowMetrics {
     first_rendered_cell: Option<Duration>,
     pty_chunks: u64,
     pty_bytes: u64,
-    pty_content_hash: u64,
-    expected_pty_content: Option<Vec<u8>>,
+    pty_linkage_enabled: bool,
     pty_content_probe: Vec<u8>,
+    pty_linkage_payload: Option<Vec<u8>>,
+    terminal_linkage_nonce_found: bool,
+    terminal_snapshot_content_digest: Option<rssh_renderer::TerminalContentDigest>,
     pty_chunk_process_times: Vec<Duration>,
     damage_regions: u64,
     damaged_cells: u64,
@@ -83074,19 +83082,20 @@ struct WindowMetrics {
 impl WindowMetrics {
     fn new() -> Self {
         #[cfg(debug_assertions)]
-        let expected_pty_content = std::env::var_os("RSSH_TEST_EXPECT_PTY_TEXT")
-            .map(|value| value.to_string_lossy().into_owned().into_bytes());
+        let pty_linkage_enabled = std::env::var_os("RSSH_TEST_PTY_LINKAGE").is_some();
         #[cfg(not(debug_assertions))]
-        let expected_pty_content = None;
+        let pty_linkage_enabled = false;
         Self {
             spawn_started_at: Instant::now(),
             first_pty_byte: None,
             first_rendered_cell: None,
             pty_chunks: 0,
             pty_bytes: 0,
-            pty_content_hash: rssh_renderer::TERMINAL_TEXT_HASH_OFFSET,
-            expected_pty_content,
+            pty_linkage_enabled,
             pty_content_probe: Vec::new(),
+            pty_linkage_payload: None,
+            terminal_linkage_nonce_found: false,
+            terminal_snapshot_content_digest: None,
             pty_chunk_process_times: Vec::new(),
             damage_regions: 0,
             damaged_cells: 0,
@@ -83119,31 +83128,57 @@ impl WindowMetrics {
     }
 
     fn record_active_pty_content(&mut self, bytes: &[u8]) {
-        let Some(expected) = self.expected_pty_content.as_deref() else {
-            self.pty_content_hash =
-                rssh_renderer::terminal_text_hash_update(self.pty_content_hash, bytes);
-            return;
-        };
-        if expected.is_empty() {
+        const BEGIN: &[u8] = b"RSSH-LINK-BEGIN|";
+        const END: &[u8] = b"|RSSH-LINK-END";
+        const MAX_PROBE_BYTES: usize = 64 * 1024;
+
+        if !self.pty_linkage_enabled || self.pty_linkage_payload.is_some() {
             return;
         }
         self.pty_content_probe.extend_from_slice(bytes);
-        if self
-            .pty_content_probe
-            .windows(expected.len())
-            .any(|window| window == expected)
-        {
-            let expected = std::str::from_utf8(expected)
-                .expect("debug PTY content expectation must be valid UTF-8");
-            self.pty_content_hash = rssh_renderer::terminal_text_content_hash(expected);
+        let Some(begin) = find_bytes(&self.pty_content_probe, BEGIN) else {
+            let retained = BEGIN.len().saturating_sub(1);
+            if self.pty_content_probe.len() > retained {
+                let discard = self.pty_content_probe.len() - retained;
+                self.pty_content_probe.drain(..discard);
+            }
+            return;
+        };
+        let payload_start = begin.saturating_add(BEGIN.len());
+        if let Some(end) = find_bytes(&self.pty_content_probe[payload_start..], END) {
+            let payload_end = payload_start.saturating_add(end);
+            self.pty_linkage_payload =
+                Some(self.pty_content_probe[payload_start..payload_end].to_vec());
             self.pty_content_probe.clear();
             return;
         }
-        let retained = expected.len().saturating_sub(1);
-        if self.pty_content_probe.len() > retained {
-            let discard = self.pty_content_probe.len() - retained;
-            self.pty_content_probe.drain(..discard);
+        if begin > 0 {
+            self.pty_content_probe.drain(..begin);
         }
+        if self.pty_content_probe.len() > MAX_PROBE_BYTES {
+            self.pty_content_probe.clear();
+        }
+    }
+
+    fn record_terminal_linkage_snapshot(&mut self, snapshot: &TerminalRenderSnapshot) {
+        self.terminal_snapshot_content_digest =
+            Some(rssh_renderer::terminal_snapshot_content_digest(snapshot));
+        let Some(payload) = self.pty_linkage_payload.as_deref() else {
+            self.terminal_linkage_nonce_found = false;
+            return;
+        };
+        let nonce = payload
+            .split(|byte| *byte == b'|')
+            .next()
+            .unwrap_or_default();
+        let ordered_text = snapshot
+            .cells()
+            .iter()
+            .filter(|cell| !cell.continuation)
+            .flat_map(|cell| cell.text.bytes())
+            .collect::<Vec<_>>();
+        self.terminal_linkage_nonce_found =
+            !nonce.is_empty() && find_bytes(&ordered_text, nonce).is_some();
     }
 
     fn record_first_rendered_cell(&mut self, snapshot_is_empty: bool) {
@@ -83206,7 +83241,6 @@ impl WindowMetrics {
             &GpuPresentationMetrics::uninitialized(),
             "bitmap-emergency",
             None,
-            rssh_renderer::TERMINAL_TEXT_HASH_OFFSET,
         )
     }
 
@@ -83215,7 +83249,6 @@ impl WindowMetrics {
         gpu: &GpuPresentationMetrics,
         text_backend: &str,
         direct_text: Option<(&rssh_renderer::gpu::GpuTextPrepareReport, u64)>,
-        terminal_snapshot_content_hash: u64,
     ) -> WindowMetricsSnapshot {
         let (direct_report, direct_rendered_frames) =
             direct_text.map_or((None, 0), |(report, frames)| (Some(report), frames));
@@ -83226,8 +83259,16 @@ impl WindowMetrics {
                 .map(|duration| duration.as_millis()),
             pty_chunks: self.pty_chunks,
             pty_bytes: self.pty_bytes,
-            pty_content_hash: self.pty_content_hash,
-            terminal_snapshot_content_hash,
+            pty_linkage_found: self.pty_linkage_payload.is_some(),
+            pty_linkage_digest: self
+                .pty_linkage_payload
+                .as_deref()
+                .map(rssh_renderer::terminal_bytes_content_digest)
+                .map(content_digest_hex),
+            terminal_linkage_nonce_found: self.terminal_linkage_nonce_found,
+            terminal_snapshot_content_digest: self
+                .terminal_snapshot_content_digest
+                .map(content_digest_hex),
             pty_chunk_process_p95_us: p95_us(&self.pty_chunk_process_times),
             damage_regions: self.damage_regions,
             damaged_cells: self.damaged_cells,
@@ -83259,7 +83300,8 @@ impl WindowMetrics {
             gpu_text_mask_glyphs: direct_report.map_or(0, |report| report.mask_glyphs),
             gpu_text_color_glyphs: direct_report.map_or(0, |report| report.color_glyphs),
             gpu_text_block_glyphs: direct_report.map_or(0, |report| report.custom_block_glyphs),
-            gpu_text_content_hash: direct_report.map_or(0, |report| report.content_hash),
+            gpu_text_content_digest: direct_report
+                .map(|report| content_digest_hex(report.content_digest)),
             gpu_text_rendered_frames: direct_rendered_frames,
             input_writes: self.input_writes,
             input_bytes: self.input_bytes,
@@ -83267,6 +83309,25 @@ impl WindowMetrics {
             bells: self.bells,
         }
     }
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+fn content_digest_hex(digest: rssh_renderer::TerminalContentDigest) -> String {
+    use std::fmt::Write as _;
+
+    let mut encoded = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut encoded, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    encoded
 }
 
 fn p95_us(samples: &[Duration]) -> u128 {
@@ -90965,10 +91026,16 @@ impl NativeWindowApp {
             return;
         };
         self.metrics.record_frame_render_mode(mode);
+        self.metrics.record_terminal_linkage_snapshot(&snapshot);
 
         let presented = if let (Some(gpu), Some(window)) = (self.gpu.as_mut(), self.window.as_ref())
         {
-            match gpu.present(window) {
+            match gpu.present(
+                window,
+                &snapshot,
+                geometry,
+                &self.renderer.text_paint_config(),
+            ) {
                 Ok(GpuFrameStatus::Presented) => true,
                 Ok(GpuFrameStatus::Skipped) => false,
                 Err(error) => {
@@ -100330,12 +100397,8 @@ impl NativeWindowApp {
         } else {
             compatibility_text_backend
         };
-        self.metrics.snapshot_with_gpu(
-            &gpu,
-            text_backend,
-            direct_text,
-            rssh_renderer::terminal_snapshot_text_hash(&self.snapshot),
-        )
+        self.metrics
+            .snapshot_with_gpu(&gpu, text_backend, direct_text)
     }
 
     fn metrics_report(&self) -> String {
@@ -131991,7 +132054,7 @@ mod tests {
     };
     use rssh_terminal::{
         Color, CursorShape, StableRowIndex, StableSelectionCoordinate, StableSelectionRange,
-        TerminalScreenDomain,
+        Terminal, TerminalScreenDomain,
     };
 
     use crate::{
@@ -132100,7 +132163,7 @@ mod tests {
         WindowConfirmationOptions, WindowCopyDestination, WindowDomainSelector, WindowEmitEvent,
         WindowFocusCoordinator, WindowFocusTransitions, WindowFontSizeAction,
         WindowInputSelectorAction, WindowInputSelectorChoice, WindowInputSelectorOptions,
-        WindowMouseAssignmentClick, WindowMouseEvent, WindowMouseEventKind,
+        WindowMetrics, WindowMouseAssignmentClick, WindowMouseEvent, WindowMouseEventKind,
         WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
         WindowPromptInputLineAction, WindowPromptInputLineOptions, WindowQuickSelect,
         WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
@@ -172040,6 +172103,30 @@ return config
         let cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("visible cell");
         assert_eq!(cell.foreground, Color::Indexed(1));
         assert_eq!(snapshot.cursor_color(), Some(Color::Rgb(153, 75, 75)));
+    }
+
+    #[test]
+    fn pty_linkage_matcher_spans_chunks_and_rejects_a_different_terminal_nonce() {
+        let mut metrics = WindowMetrics::new();
+        metrics.pty_linkage_enabled = true;
+        metrics.record_active_pty_content(b"noiseRSSH-LI");
+        metrics.record_active_pty_content(b"NK-BEGIN|nonce-one|office \xe4\xb8\xad|RSSH-LINK-");
+        metrics.record_active_pty_content(b"ENDtail");
+        assert_eq!(
+            metrics.pty_linkage_payload.as_deref(),
+            Some(b"nonce-one|office \xe4\xb8\xad".as_slice())
+        );
+
+        let mut matching = Terminal::new(rssh_core::TerminalSize::new(80, 1));
+        matching.feed(b"RSSH-LINK-BEGIN|nonce-one|office \xe4\xb8\xad|RSSH-LINK-END");
+        metrics.record_terminal_linkage_snapshot(&TerminalRenderSnapshot::from_terminal(&matching));
+        assert!(metrics.terminal_linkage_nonce_found);
+
+        let mut different = Terminal::new(rssh_core::TerminalSize::new(80, 1));
+        different.feed(b"RSSH-LINK-BEGIN|nonce-two|office \xe4\xb8\xad|RSSH-LINK-END");
+        metrics
+            .record_terminal_linkage_snapshot(&TerminalRenderSnapshot::from_terminal(&different));
+        assert!(!metrics.terminal_linkage_nonce_found);
     }
 
     #[test]

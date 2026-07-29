@@ -20,8 +20,7 @@ pub(crate) struct WindowGpu {
 
 struct DirectGpuText {
     renderer: GpuLayerRenderer,
-    graph: RenderGraph,
-    report: GpuTextPrepareReport,
+    report: Option<GpuTextPrepareReport>,
     rendered_frames: u64,
 }
 
@@ -53,11 +52,7 @@ impl WindowGpu {
         )?;
         #[cfg(debug_assertions)]
         let direct_text = if std::env::var_os("RSSH_TEST_DIRECT_GPU_TEXT").is_some() {
-            Some(Box::new(direct_text_fixture(
-                &context,
-                surface_size.width,
-                surface_size.height,
-            )?))
+            Some(Box::new(direct_text_test_backend(&context)?))
         } else {
             None
         };
@@ -78,14 +73,6 @@ impl WindowGpu {
 
     pub(crate) fn resize_surface(&mut self, size: PhysicalSize<u32>) -> Result<(), Box<dyn Error>> {
         self.context.resize_surface(size.width, size.height)?;
-        #[cfg(debug_assertions)]
-        if self.direct_text.is_some() && size.width > 0 && size.height > 0 {
-            self.direct_text = Some(Box::new(direct_text_fixture(
-                &self.context,
-                size.width,
-                size.height,
-            )?));
-        }
         Ok(())
     }
 
@@ -99,10 +86,31 @@ impl WindowGpu {
         Ok(())
     }
 
-    pub(crate) fn present(&mut self, window: &Window) -> Result<GpuFrameStatus, Box<dyn Error>> {
+    pub(crate) fn present(
+        &mut self,
+        window: &Window,
+        snapshot: &TerminalRenderSnapshot,
+        geometry: RenderGeometry,
+        paint: &TextPaintConfig,
+    ) -> Result<GpuFrameStatus, Box<dyn Error>> {
         let status = if let Some(direct) = self.direct_text.as_mut() {
+            let report = direct.renderer.prepare_text(
+                snapshot,
+                geometry,
+                &[],
+                paint,
+                window.scale_factor() as f32,
+                1.0,
+            )?;
+            let mut graph = RenderGraph::new(geometry.target_width, geometry.target_height);
+            graph.push_quad(GpuQuad::new(
+                GpuLayer::PaneBackground,
+                PixelRect::new(0, 0, geometry.target_width, geometry.target_height),
+                paint.default_background,
+            ));
+            direct.report = Some(report);
             self.context
-                .render_graph(&mut direct.renderer, &direct.graph, || {
+                .render_graph(&mut direct.renderer, &graph, || {
                     window.pre_present_notify();
                 })?
         } else {
@@ -124,23 +132,20 @@ impl WindowGpu {
     }
 
     pub(crate) fn direct_text_metrics(&self) -> Option<(&GpuTextPrepareReport, u64)> {
-        self.direct_text
-            .as_ref()
-            .map(|direct| (&direct.report, direct.rendered_frames))
+        self.direct_text.as_ref().and_then(|direct| {
+            direct
+                .report
+                .as_ref()
+                .map(|report| (report, direct.rendered_frames))
+        })
     }
 }
 
 #[cfg(debug_assertions)]
-fn direct_text_fixture(
-    context: &GpuContext,
-    width: u32,
-    height: u32,
-) -> Result<DirectGpuText, Box<dyn Error>> {
+fn direct_text_test_backend(context: &GpuContext) -> Result<DirectGpuText, Box<dyn Error>> {
     use std::{fs, path::Path};
 
-    use rssh_core::TerminalSize;
     use rssh_fonts::{FontCatalog, FontConfig, FontSource, RasterCacheConfig};
-    use rssh_terminal::Terminal;
 
     let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/fonts");
     let source = |name: &str| -> Result<FontSource, io::Error> {
@@ -178,30 +183,9 @@ fn direct_text_fixture(
         font_config,
         GpuTextConfig::new(4 * 1024 * 1024, RasterCacheConfig::new(4 * 1024 * 1024)),
     )?;
-    let columns = u16::try_from((width / 16).max(1)).unwrap_or(u16::MAX);
-    let mut terminal = Terminal::new(TerminalSize::new(columns, 1));
-    terminal.feed(b"\x1b[?25l");
-    terminal.feed("office 中 مرحبا नमस्ते שלום 😀 █".as_bytes());
-    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
-    let geometry = RenderGeometry::new(width, height, 16, 24);
-    let report = renderer.prepare_text(
-        &snapshot,
-        geometry,
-        &[],
-        &TextPaintConfig::default(),
-        1.0,
-        1.0,
-    )?;
-    let mut graph = RenderGraph::new(width, height);
-    graph.push_quad(GpuQuad::new(
-        GpuLayer::PaneBackground,
-        PixelRect::new(0, 0, width, height),
-        [12, 12, 12, 255],
-    ));
     Ok(DirectGpuText {
         renderer,
-        graph,
-        report,
+        report: None,
         rendered_frames: 0,
     })
 }

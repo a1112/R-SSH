@@ -12,6 +12,7 @@ use rssh_terminal::{
     Cell, Color, CursorShape, InlineImageFormat, InlineImageFragment, ItermInlineImage, Terminal,
     TerminalGrid, UnderlineStyle, VerticalAlign,
 };
+use sha2::{Digest, Sha256};
 
 pub mod gpu;
 mod text;
@@ -202,46 +203,38 @@ pub const SCROLLBAR_WIDTH: u32 = 4;
 const DEFAULT_DPI: u32 = 96;
 pub type RenderIndexedPalette = [Option<[u8; 4]>; 256];
 
-pub const TERMINAL_TEXT_HASH_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+pub type TerminalContentDigest = [u8; 32];
 
 #[must_use]
-pub fn terminal_text_hash_update(mut hash: u64, bytes: &[u8]) -> u64 {
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+pub fn terminal_bytes_content_digest(bytes: &[u8]) -> TerminalContentDigest {
+    Sha256::digest(bytes).into()
+}
+
+/// Hashes the exact ordered terminal render plan, including cell placement and
+/// grapheme span, with SHA-256.
+#[must_use]
+pub fn terminal_snapshot_content_digest(
+    snapshot: &TerminalRenderSnapshot,
+) -> TerminalContentDigest {
+    let mut digest = Sha256::new();
+    digest.update(b"rssh-terminal-render-plan-v1\0");
+    digest.update(
+        u64::try_from(snapshot.cells().len())
+            .unwrap_or(u64::MAX)
+            .to_le_bytes(),
+    );
+    for cell in snapshot.cells() {
+        digest.update(cell.row.to_le_bytes());
+        digest.update(cell.column.to_le_bytes());
+        digest.update([cell.columns, u8::from(cell.continuation)]);
+        digest.update(
+            u64::try_from(cell.text.len())
+                .unwrap_or(u64::MAX)
+                .to_le_bytes(),
+        );
+        digest.update(cell.text.as_bytes());
     }
-    hash
-}
-
-/// Produces an order-independent fingerprint of nonblank Unicode scalars.
-///
-/// Terminal snapshots omit default blank cells and may expose bidi text in
-/// display order, so this fingerprint intentionally verifies content rather
-/// than byte order or cell placement.
-#[must_use]
-pub fn terminal_text_content_hash(text: &str) -> u64 {
-    let mut scalars = text
-        .chars()
-        .filter(|scalar| !scalar.is_whitespace())
-        .collect::<Vec<_>>();
-    scalars.sort_unstable();
-    scalars
-        .into_iter()
-        .fold(TERMINAL_TEXT_HASH_OFFSET, |hash, scalar| {
-            let mut encoded = [0_u8; 4];
-            terminal_text_hash_update(hash, scalar.encode_utf8(&mut encoded).as_bytes())
-        })
-}
-
-#[must_use]
-pub fn terminal_snapshot_text_hash(snapshot: &TerminalRenderSnapshot) -> u64 {
-    let text = snapshot
-        .cells()
-        .iter()
-        .filter(|cell| !cell.continuation)
-        .map(|cell| cell.text.as_str())
-        .collect::<String>();
-    terminal_text_content_hash(&text)
+    digest.finalize().into()
 }
 const DEFAULT_ANSI_PALETTE: [[u8; 4]; 16] = [
     [0, 0, 0, 255],

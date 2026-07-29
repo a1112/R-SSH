@@ -15,6 +15,7 @@ raw-window-handle = { version = "0.6", features = ["std"] }
 rssh-core = { path = "../rssh-core" }
 rssh-fonts = { path = "../rssh-fonts" }
 rssh-terminal = { path = "../rssh-terminal" }
+sha2 = "0.11"
 wgpu = { version = "=30.0.0", default-features = false, features = ["std", "wgsl"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]

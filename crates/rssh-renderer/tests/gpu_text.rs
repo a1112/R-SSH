@@ -14,6 +14,7 @@ use rssh_renderer::{
         GpuContext, GpuContextOptions, GpuImage, GpuLayer, GpuLayerRenderer, GpuQuad,
         GpuTextConfig, ImageProtocol, PixelRect, RenderGraph,
     },
+    terminal_snapshot_content_digest,
 };
 use rssh_terminal::{CursorShape, Terminal};
 
@@ -72,6 +73,31 @@ fn snapshot(text: &str, columns: u16) -> TerminalRenderSnapshot {
     terminal.feed(b"\x1b[?25l");
     terminal.feed(text.as_bytes());
     TerminalRenderSnapshot::from_terminal(&terminal)
+}
+
+#[test]
+fn structured_terminal_digest_preserves_order_spaces_and_cell_positions() {
+    let ab = snapshot("ab", 4);
+    let ba = snapshot("ba", 4);
+    let spaced = snapshot("a b", 4);
+    let compact = snapshot("ab", 4);
+    let misplaced = snapshot("a\x1b[2Cb", 4);
+
+    assert_ne!(
+        terminal_snapshot_content_digest(&ab),
+        terminal_snapshot_content_digest(&ba),
+        "text order must be part of the terminal digest"
+    );
+    assert_ne!(
+        terminal_snapshot_content_digest(&spaced),
+        terminal_snapshot_content_digest(&compact),
+        "blank-cell layout must be part of the terminal digest"
+    );
+    assert_ne!(
+        terminal_snapshot_content_digest(&compact),
+        terminal_snapshot_content_digest(&misplaced),
+        "cell coordinates must be part of the terminal digest"
+    );
 }
 
 fn multiline_snapshot(text: &str, columns: u16, rows: u16) -> TerminalRenderSnapshot {

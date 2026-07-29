@@ -1,12 +1,17 @@
 #![cfg(windows)]
 
-use std::{process::Command, time::Duration};
+use std::{
+    process::Command,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use rssh_test_support::{ChildGuard, ChildOutput};
 
 const PROCESS_DEADLINE: Duration = Duration::from_secs(30);
 const RSSH_APP_EXECUTABLE: &str = env!("CARGO_BIN_EXE_rssh-app");
 const DIRECT_GPU_TEXT_SPECIMEN: &str = "office 中 مرحبا नमस्ते שלום 😀 █";
+const PTY_LINK_BEGIN: &str = "RSSH-LINK-BEGIN|";
+const PTY_LINK_END: &str = "|RSSH-LINK-END";
 const STACK_OVERFLOW_MESSAGE: &str = "overflowed its stack";
 const CDB_FRAME_EVIDENCE: &str = "\
 CDB frame evidence for the existing Windows debug failure:
@@ -56,28 +61,46 @@ fn one_frame_native_window_does_not_overflow_the_debug_stack() {
 
 #[test]
 fn native_window_reports_real_gpu_presentation_for_one_and_ten_frames() {
+    let nonce = format!(
+        "rssh-native-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock after Unix epoch")
+            .as_nanos()
+    );
+    let linkage_payload = format!("{nonce}|{DIRECT_GPU_TEXT_SPECIMEN}");
+    let powershell_command = format!(
+        "[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); \
+         [Console]::Write('{PTY_LINK_BEGIN}{linkage_payload}{PTY_LINK_END}')"
+    );
+    let expected_raw_digest = digest_hex(rssh_renderer::terminal_bytes_content_digest(
+        linkage_payload.as_bytes(),
+    ));
+
     for frames in [1_u64, 10] {
         let frame_text = frames.to_string();
         let mut arguments = vec![
-            "-n",
-            "window",
-            "--frames",
-            frame_text.as_str(),
-            "--metrics-json",
+            "-n".to_owned(),
+            "window".to_owned(),
+            "--frames".to_owned(),
+            frame_text,
+            "--metrics-json".to_owned(),
         ];
         if frames == 10 {
             arguments.extend([
-                "--",
-                "powershell.exe",
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); [Console]::Write('office 中 مرحبا नमस्ते שלום 😀 █')",
+                "--".to_owned(),
+                "powershell.exe".to_owned(),
+                "-NoProfile".to_owned(),
+                "-NonInteractive".to_owned(),
+                "-Command".to_owned(),
+                powershell_command.clone(),
             ]);
         }
+        let argument_refs = arguments.iter().map(String::as_str).collect::<Vec<_>>();
         let command_intent = format!("rssh-app -n window --frames {frames} --metrics-json");
-        let output = run_rssh_app_with_direct_gpu_text(&command_intent, &arguments);
-        let diagnostics = diagnostics(&command_intent, &arguments, &output);
+        let output = run_rssh_app_with_direct_gpu_text(&command_intent, &argument_refs);
+        let diagnostics = diagnostics(&command_intent, &argument_refs, &output);
 
         assert!(
             output.status.success(),
@@ -111,59 +134,70 @@ fn native_window_reports_real_gpu_presentation_for_one_and_ten_frames() {
         assert_eq!(metrics["gpu_uncaptured_errors"], 0, "{diagnostics}");
         assert_eq!(metrics["gpu_device_losses"], 0, "{diagnostics}");
         assert_eq!(metrics["text_backend"], "shaped-gpu-atlas", "{diagnostics}");
-        assert!(
-            metrics["gpu_text_prepared_glyphs"]
-                .as_u64()
-                .is_some_and(|count| count > 0),
-            "{diagnostics}"
-        );
-        assert!(
-            metrics["gpu_text_mask_glyphs"]
-                .as_u64()
-                .is_some_and(|count| count > 0),
-            "{diagnostics}"
-        );
-        assert!(
-            metrics["gpu_text_color_glyphs"]
-                .as_u64()
-                .is_some_and(|count| count > 0),
-            "{diagnostics}"
-        );
-        assert!(
-            metrics["gpu_text_block_glyphs"]
-                .as_u64()
-                .is_some_and(|count| count > 0),
-            "{diagnostics}"
-        );
         assert_eq!(metrics["gpu_text_rendered_frames"], frames, "{diagnostics}");
         if frames == 10 {
-            assert_native_unicode_linkage(&metrics, &diagnostics);
+            for field in [
+                "gpu_text_prepared_glyphs",
+                "gpu_text_mask_glyphs",
+                "gpu_text_color_glyphs",
+                "gpu_text_block_glyphs",
+            ] {
+                assert!(
+                    metrics[field].as_u64().is_some_and(|count| count > 0),
+                    "{field} did not observe the PTY specimen\n{diagnostics}"
+                );
+            }
+            assert_native_unicode_linkage(&metrics, &expected_raw_digest, &diagnostics);
         }
     }
 }
 
-fn assert_native_unicode_linkage(metrics: &serde_json::Value, diagnostics: &str) {
+fn assert_native_unicode_linkage(
+    metrics: &serde_json::Value,
+    expected_raw_digest: &str,
+    diagnostics: &str,
+) {
     assert!(
         metrics["pty_bytes"].as_u64().is_some_and(|bytes| bytes > 0),
         "Unicode specimen produced no PTY bytes\n{diagnostics}"
     );
     assert_eq!(
-        metrics["pty_content_hash"], metrics["terminal_snapshot_content_hash"],
-        "PTY nonblank Unicode content did not reach the terminal snapshot\n{diagnostics}"
+        metrics["pty_linkage_found"], true,
+        "raw PTY matcher did not find the nonce/specimen payload\n{diagnostics}"
     );
     assert_eq!(
-        metrics["terminal_snapshot_content_hash"], metrics["gpu_text_content_hash"],
-        "terminal snapshot content did not reach the direct GPU text preparation\n{diagnostics}"
+        metrics["pty_linkage_digest"], expected_raw_digest,
+        "raw PTY matcher found different nonce/specimen bytes\n{diagnostics}"
     );
-    assert_ne!(
-        metrics["pty_content_hash"],
-        rssh_renderer::TERMINAL_TEXT_HASH_OFFSET,
-        "Unicode specimen content hash was never updated\n{diagnostics}"
+    assert_eq!(
+        metrics["terminal_linkage_nonce_found"], true,
+        "the unique PTY nonce did not reach the active terminal snapshot\n{diagnostics}"
+    );
+    assert_eq!(
+        metrics["terminal_snapshot_content_digest"], metrics["gpu_text_content_digest"],
+        "the actual active terminal plan did not reach GPU text preparation unchanged\n\
+         {diagnostics}"
+    );
+    assert!(
+        metrics["terminal_snapshot_content_digest"]
+            .as_str()
+            .is_some_and(|digest| digest.len() == 64 && digest.bytes().any(|byte| byte != b'0')),
+        "missing SHA-256 terminal plan digest\n{diagnostics}"
     );
     assert!(
         metrics["first_rendered_cell_ms"].is_number(),
         "Unicode specimen never reached a rendered cell\n{diagnostics}"
     );
+}
+
+fn digest_hex(digest: rssh_renderer::TerminalContentDigest) -> String {
+    use std::fmt::Write as _;
+
+    let mut encoded = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut encoded, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    encoded
 }
 
 #[test]
@@ -227,7 +261,7 @@ fn run_rssh_app_with_direct_gpu_text(command_intent: &str, args: &[&str]) -> Chi
     command
         .args(args)
         .env("RSSH_TEST_DIRECT_GPU_TEXT", "1")
-        .env("RSSH_TEST_EXPECT_PTY_TEXT", DIRECT_GPU_TEXT_SPECIMEN);
+        .env("RSSH_TEST_PTY_LINKAGE", "1");
     ChildGuard::spawn(command, PROCESS_DEADLINE)
         .unwrap_or_else(|error| {
             panic!(
