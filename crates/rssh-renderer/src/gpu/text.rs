@@ -32,8 +32,8 @@ pub struct GpuTextConfig {
     pub budget_bytes: usize,
     pub raster_cache: RasterCacheConfig,
     pub cursor_foreground: Option<[u8; 4]>,
-    #[cfg(debug_assertions)]
-    identifier_limit: u32,
+    #[cfg(test)]
+    identifier_ceiling_for_unit_tests: u32,
 }
 
 const MAX_CUSTOM_GLYPH_IDENTIFIER: u32 = u16::MAX as u32;
@@ -47,8 +47,8 @@ impl GpuTextConfig {
             budget_bytes,
             raster_cache,
             cursor_foreground: None,
-            #[cfg(debug_assertions)]
-            identifier_limit: MAX_CUSTOM_GLYPH_IDENTIFIER,
+            #[cfg(test)]
+            identifier_ceiling_for_unit_tests: MAX_CUSTOM_GLYPH_IDENTIFIER,
         }
     }
 
@@ -57,14 +57,6 @@ impl GpuTextConfig {
     #[must_use]
     pub const fn with_cursor_foreground(mut self, color: [u8; 4]) -> Self {
         self.cursor_foreground = Some(color);
-        self
-    }
-
-    #[cfg(debug_assertions)]
-    #[doc(hidden)]
-    #[must_use]
-    pub const fn with_identifier_limit_for_tests(mut self, identifier_limit: u16) -> Self {
-        self.identifier_limit = identifier_limit as u32;
         self
     }
 }
@@ -368,9 +360,9 @@ impl GpuText {
                 self.config.budget_bytes
             )));
         }
-        #[cfg(debug_assertions)]
-        let identifier_limit = self.config.identifier_limit;
-        #[cfg(not(debug_assertions))]
+        #[cfg(test)]
+        let identifier_limit = self.config.identifier_ceiling_for_unit_tests;
+        #[cfg(not(test))]
         let identifier_limit = MAX_CUSTOM_GLYPH_IDENTIFIER;
         if self.next_id > identifier_limit {
             self.retryable_failure = Some(RetryableFailure::IdExhausted);
@@ -1093,7 +1085,21 @@ fn clipped_bounds(
 
 #[cfg(test)]
 mod tests {
-    use super::subpixel_to_grayscale;
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
+
+    use rssh_core::TerminalSize;
+    use rssh_fonts::{FontCatalog, FontConfig, FontSource, RasterCacheConfig};
+    use rssh_terminal::Terminal;
+
+    use crate::{
+        DamageRegion, RenderGeometry, TerminalRenderSnapshot, TextPaintConfig,
+        gpu::{GpuContext, GpuContextOptions, GpuLayerRenderer},
+    };
+
+    use super::{GpuTextConfig, subpixel_to_grayscale};
 
     #[test]
     fn subpixel_mask_is_compacted_to_one_grayscale_byte_per_pixel() {
@@ -1101,5 +1107,141 @@ mod tests {
         let grayscale = subpixel_to_grayscale(&rgba_subpixel);
         assert_eq!(grayscale, [7, 19]);
         assert_eq!(grayscale.len(), rgba_subpixel.len() / 4);
+    }
+
+    #[test]
+    fn id_exhaustion_retries_full_frame_without_aliasing_and_failure_is_atomic() {
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let geometry = RenderGeometry::new(32, 48, 16, 24);
+        let paint = TextPaintConfig::default();
+
+        let mut recoverable =
+            GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 64 * 1024)
+                .expect("recoverable renderer");
+        recoverable
+            .enable_text(catalog(), font_config(), test_config(2))
+            .expect("enable low identifier seam");
+        recoverable
+            .prepare_text(
+                &multiline_snapshot("A\r\nB", 2, 2),
+                geometry,
+                &[],
+                &paint,
+                1.0,
+                1.0,
+            )
+            .expect("fill two simulated identifiers");
+        let recovered = recoverable
+            .prepare_text(
+                &multiline_snapshot("A\r\nC", 2, 2),
+                geometry,
+                &[DamageRegion::new(0, 1, 1, 1)],
+                &paint,
+                1.0,
+                1.0,
+            )
+            .expect("ID exhaustion rebuilds and retries the complete frame");
+        let recovered_metrics = recoverable.text_atlas_metrics().expect("recovered metrics");
+        assert_eq!(recovered.prepared_rows, vec![0, 1]);
+        assert_eq!(recovered_metrics.entries, 2);
+        assert_eq!(recovered_metrics.repack_attempts, 1);
+
+        let mut atomic =
+            GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 64 * 1024)
+                .expect("atomic renderer");
+        atomic
+            .enable_text(catalog(), font_config(), test_config(1))
+            .expect("enable one-identifier seam");
+        let error = atomic
+            .prepare_text(
+                &multiline_snapshot("A\r\nB", 2, 2),
+                geometry,
+                &[],
+                &paint,
+                1.0,
+                1.0,
+            )
+            .expect_err("both full-frame attempts must exhaust one identifier");
+        assert!(error.to_string().contains("identifier pool exhausted"));
+        let failed = atomic.text_atlas_metrics().expect("failed metrics");
+        assert_eq!(failed.entries, 0);
+        assert_eq!(failed.payload_bytes, 0);
+        assert_eq!(failed.repack_attempts, 1);
+
+        let restored = atomic
+            .prepare_text(
+                &multiline_snapshot("A\r\nA", 2, 2),
+                geometry,
+                &[DamageRegion::new(0, 0, 1, 1)],
+                &paint,
+                1.0,
+                1.0,
+            )
+            .expect("small damage after failure must rebuild every visible row");
+        assert_eq!(restored.prepared_rows, vec![0, 1]);
+        assert_eq!(
+            atomic
+                .text_atlas_metrics()
+                .expect("restored metrics")
+                .entries,
+            1
+        );
+    }
+
+    fn test_config(identifier_limit: u32) -> GpuTextConfig {
+        let mut config =
+            GpuTextConfig::new(4 * 1024 * 1024, RasterCacheConfig::new(4 * 1024 * 1024));
+        config.identifier_ceiling_for_unit_tests = identifier_limit;
+        config
+    }
+
+    fn fixture_dir() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/fonts")
+    }
+
+    fn source(name: &str) -> FontSource {
+        FontSource::new(
+            name,
+            fs::read(fixture_dir().join(name)).expect("read deterministic font fixture"),
+        )
+    }
+
+    fn catalog() -> FontCatalog {
+        FontCatalog::from_sources(
+            "en-US",
+            [
+                "NotoSans-Latin.fixture.ttf",
+                "NotoSansSC-CJK.fixture.ttf",
+                "NotoSansArabic.fixture.ttf",
+                "NotoSansDevanagari.fixture.ttf",
+                "NotoSansHebrew.fixture.ttf",
+                "NotoColorEmoji.fixture.ttf",
+            ]
+            .into_iter()
+            .map(source),
+        )
+        .expect("load isolated fixture catalog")
+    }
+
+    fn font_config() -> FontConfig {
+        FontConfig::new("Noto Sans")
+            .with_fallbacks([
+                "Noto Sans SC",
+                "Noto Sans Arabic",
+                "Noto Sans Devanagari",
+                "Noto Sans Hebrew",
+                "Noto Color Emoji",
+            ])
+            .with_font_size(16.0)
+            .with_line_height(1.0)
+            .with_cell_width(1.0)
+    }
+
+    fn multiline_snapshot(text: &str, columns: u16, rows: u16) -> TerminalRenderSnapshot {
+        let mut terminal = Terminal::new(TerminalSize::new(columns, rows));
+        terminal.feed(b"\x1b[?25l");
+        terminal.feed(text.as_bytes());
+        TerminalRenderSnapshot::from_terminal(&terminal)
     }
 }

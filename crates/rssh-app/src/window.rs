@@ -83161,6 +83161,9 @@ impl WindowMetrics {
     }
 
     fn record_terminal_linkage_snapshot(&mut self, snapshot: &TerminalRenderSnapshot) {
+        if !self.pty_linkage_enabled {
+            return;
+        }
         self.terminal_snapshot_content_digest =
             Some(rssh_renderer::terminal_snapshot_content_digest(snapshot));
         let Some(payload) = self.pty_linkage_payload.as_deref() else {

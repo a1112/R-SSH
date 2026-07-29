@@ -1,8 +1,4 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{fs, path::Path, process::Command};
 
 #[test]
 fn release_renderer_excludes_identifier_limit_test_api_and_artifacts() {
@@ -41,46 +37,11 @@ fn release_renderer_excludes_identifier_limit_test_api_and_artifacts() {
          }\n",
     )
     .expect("write release API probe source");
-    let target = probe.join("target");
-    let output = Command::new(env!("CARGO"))
-        .args([
-            "check",
-            "--release",
-            "--offline",
-            "--manifest-path",
-            probe.join("Cargo.toml").to_str().expect("UTF-8 probe path"),
-            "--target-dir",
-            target.to_str().expect("UTF-8 target path"),
-        ])
-        .output()
-        .expect("run release API probe");
-    assert!(
-        !output.status.success(),
-        "release renderer unexpectedly exposed with_identifier_limit_for_tests"
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("no method named `with_identifier_limit_for_tests`")
-            || stderr.contains("no method named 'with_identifier_limit_for_tests'"),
-        "release API probe failed for an unrelated reason:\n{stderr}"
-    );
-
-    let deps = target.join("release/deps");
-    for artifact in release_renderer_artifacts(&deps) {
-        let bytes = fs::read(&artifact).expect("read release renderer artifact");
-        for forbidden in [
-            b"with_identifier_limit_for_tests".as_slice(),
-            b"configured identifier limit".as_slice(),
-        ] {
-            assert!(
-                !bytes
-                    .windows(forbidden.len())
-                    .any(|window| window == forbidden),
-                "release artifact {} contains forbidden test seam {:?}",
-                artifact.display(),
-                String::from_utf8_lossy(forbidden)
-            );
-        }
+    for (mode, debug_assertions, rustflags) in [
+        ("default", false, ""),
+        ("debug-assertions", true, "-C debug-assertions=yes"),
+    ] {
+        verify_release_mode(&probe, mode, debug_assertions, rustflags);
     }
 }
 
@@ -88,21 +49,87 @@ fn toml_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-fn release_renderer_artifacts(deps: &Path) -> Vec<PathBuf> {
-    fs::read_dir(deps)
-        .expect("release probe deps directory")
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            let name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or_default();
-            name.starts_with("librssh_renderer-")
-                && matches!(
-                    path.extension().and_then(|extension| extension.to_str()),
-                    Some("rlib" | "rmeta")
-                )
+fn verify_release_mode(probe: &Path, mode: &str, debug_assertions: bool, rustflags: &str) {
+    let target = probe.join("target");
+    let mut command = Command::new(env!("CARGO"));
+    command
+        .args([
+            "build",
+            "--release",
+            "--offline",
+            "--message-format=json",
+            "--manifest-path",
+            probe.join("Cargo.toml").to_str().expect("UTF-8 probe path"),
+            "--target-dir",
+            target.to_str().expect("UTF-8 target path"),
+            "--jobs",
+            "2",
+        ])
+        .env("CARGO_INCREMENTAL", "0")
+        .env(
+            "CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS",
+            debug_assertions.to_string(),
+        )
+        .env_remove("CARGO_ENCODED_RUSTFLAGS")
+        .env("RUSTFLAGS", rustflags);
+    let output = command.output().expect("run release API probe");
+    assert!(
+        !output.status.success(),
+        "{mode} release renderer unexpectedly exposed with_identifier_limit_for_tests"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let messages = stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .collect::<Vec<_>>();
+    let diagnostics = format!("{stdout}\n{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        messages.iter().any(|message| {
+            message["reason"] == "compiler-message"
+                && message["message"]["code"]["code"] == "E0599"
+                && message["message"]["message"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("with_identifier_limit_for_tests"))
+        }),
+        "{mode} release API probe failed for an unrelated reason:\n{diagnostics}"
+    );
+
+    let artifacts = messages
+        .into_iter()
+        .filter(|message| message["reason"] == "compiler-artifact")
+        .filter(|message| message["target"]["name"] == "rssh_renderer")
+        .flat_map(|message| message["filenames"].as_array().cloned().unwrap_or_default())
+        .filter_map(|filename| filename.as_str().map(ToOwned::to_owned))
+        .filter(|filename| {
+            Path::new(filename)
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    extension.eq_ignore_ascii_case("rlib")
+                        || extension.eq_ignore_ascii_case("rmeta")
+                })
         })
-        .collect()
+        .collect::<Vec<_>>();
+    assert!(
+        !artifacts.is_empty(),
+        "{mode} release probe emitted no current rssh-renderer rlib/rmeta artifacts"
+    );
+    for artifact in artifacts {
+        let bytes = fs::read(&artifact).unwrap_or_else(|error| {
+            panic!("{mode} release artifact {artifact} cannot be read: {error}")
+        });
+        for forbidden in [
+            b"with_identifier_limit_for_tests".as_slice(),
+            b"identifier_ceiling_for_unit_tests".as_slice(),
+            b"configured identifier limit".as_slice(),
+        ] {
+            assert!(
+                !bytes
+                    .windows(forbidden.len())
+                    .any(|window| window == forbidden),
+                "{mode} release artifact {artifact} contains forbidden test seam {:?}",
+                String::from_utf8_lossy(forbidden)
+            );
+        }
+    }
 }

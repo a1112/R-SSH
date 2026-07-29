@@ -29,6 +29,7 @@ wgpu = { version = "=30.0.0", default-features = false, features = ["gles", "vul
 
 [dev-dependencies]
 pollster = "0.4"
+serde_json = "1"
 
 [lints]
 workspace = true

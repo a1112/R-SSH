@@ -2,6 +2,7 @@
 
 use std::{
     process::Command,
+    sync::{Mutex, MutexGuard},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -13,6 +14,7 @@ const DIRECT_GPU_TEXT_SPECIMEN: &str = "office 中 مرحبا नमस्ते
 const PTY_LINK_BEGIN: &str = "RSSH-LINK-BEGIN|";
 const PTY_LINK_END: &str = "|RSSH-LINK-END";
 const STACK_OVERFLOW_MESSAGE: &str = "overflowed its stack";
+static NATIVE_WINDOW_TEST_LOCK: Mutex<()> = Mutex::new(());
 const CDB_FRAME_EVIDENCE: &str = "\
 CDB frame evidence for the existing Windows debug failure:
   window::run: ~617,680 B
@@ -27,6 +29,7 @@ on the test worker thread.";
 fn state_json_control_exits_successfully() {
     const COMMAND_INTENT: &str = "rssh-app -n window --state-json";
     const ARGUMENTS: &[&str] = &["-n", "window", "--state-json"];
+    let _native_window = native_window_test_guard();
     let output = run_rssh_app(COMMAND_INTENT, ARGUMENTS);
     let diagnostics = diagnostics(COMMAND_INTENT, ARGUMENTS, &output);
 
@@ -43,6 +46,7 @@ fn state_json_control_exits_successfully() {
 fn one_frame_native_window_does_not_overflow_the_debug_stack() {
     const COMMAND_INTENT: &str = "rssh-app -n window --frames 1";
     const ARGUMENTS: &[&str] = &["-n", "window", "--frames", "1"];
+    let _native_window = native_window_test_guard();
     let output = run_rssh_app(COMMAND_INTENT, ARGUMENTS);
     let diagnostics = diagnostics(COMMAND_INTENT, ARGUMENTS, &output);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -61,6 +65,7 @@ fn one_frame_native_window_does_not_overflow_the_debug_stack() {
 
 #[test]
 fn native_window_reports_real_gpu_presentation_for_one_and_ten_frames() {
+    let _native_window = native_window_test_guard();
     let nonce = format!(
         "rssh-native-{}-{}",
         std::process::id(),
@@ -205,9 +210,11 @@ fn native_window_reconfigures_the_direct_surface_after_resize() {
     const COMMAND_INTENT: &str =
         "rssh-app -n window --frames 2 --metrics-json (resize after first present)";
     const ARGUMENTS: &[&str] = &["-n", "window", "--frames", "2", "--metrics-json"];
+    let _native_window = native_window_test_guard();
     let mut command = Command::new(RSSH_APP_EXECUTABLE);
     command
         .args(ARGUMENTS)
+        .env("RSSH_TEST_DIRECT_GPU_TEXT", "1")
         .env("RSSH_TEST_RESIZE_AFTER_FIRST_PRESENT", "800x480");
     let output = ChildGuard::spawn(command, PROCESS_DEADLINE)
         .expect("spawn deterministic native resize smoke")
@@ -224,12 +231,20 @@ fn native_window_reconfigures_the_direct_surface_after_resize() {
     assert_eq!(metrics["gpu_presented_frames"], 2, "{diagnostics}");
     assert_eq!(metrics["gpu_surface_width"], 800, "{diagnostics}");
     assert_eq!(metrics["gpu_surface_height"], 480, "{diagnostics}");
+    assert_eq!(metrics["text_backend"], "shaped-gpu-atlas", "{diagnostics}");
+    assert_eq!(metrics["gpu_text_rendered_frames"], 2, "{diagnostics}");
     assert!(
         metrics["gpu_surface_reconfigurations"]
             .as_u64()
             .is_some_and(|count| count >= 2),
         "resize did not reconfigure the direct surface\n{diagnostics}"
     );
+}
+
+fn native_window_test_guard() -> MutexGuard<'static, ()> {
+    NATIVE_WINDOW_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn run_rssh_app(command_intent: &str, args: &[&str]) -> ChildOutput {

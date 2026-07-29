@@ -99,7 +99,7 @@ impl WindowGpu {
                 geometry,
                 &[],
                 paint,
-                window.scale_factor() as f32,
+                scale_factor_f32(window.scale_factor())?,
                 1.0,
             )?;
             let mut graph = RenderGraph::new(geometry.target_width, geometry.target_height);
@@ -139,6 +139,24 @@ impl WindowGpu {
                 .map(|report| (report, direct.rendered_frames))
         })
     }
+}
+
+fn scale_factor_f32(scale_factor: f64) -> Result<f32, io::Error> {
+    if !scale_factor.is_finite()
+        || scale_factor < f64::from(f32::MIN_POSITIVE)
+        || scale_factor > f64::from(f32::MAX)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("window scale factor {scale_factor:?} is outside the finite f32 range"),
+        ));
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the finite f32 range is validated immediately before this conversion"
+    )]
+    let converted = scale_factor as f32;
+    Ok(converted)
 }
 
 #[cfg(debug_assertions)]
@@ -224,5 +242,17 @@ mod tests {
         let oversized = catch_unwind(AssertUnwindSafe(|| allocate_frame(8_193, 8_192, 16_384)))
             .expect("oversized frame allocation must not panic");
         assert!(oversized.is_err());
+    }
+
+    #[test]
+    fn scale_factor_conversion_rejects_non_finite_and_out_of_range_values() {
+        let converted = scale_factor_f32(1.25).expect("ordinary DPI scale");
+        assert!((converted - 1.25).abs() <= f32::EPSILON);
+        for invalid in [0.0, f64::NAN, f64::INFINITY, f64::from(f32::MAX) * 2.0] {
+            assert!(
+                scale_factor_f32(invalid).is_err(),
+                "{invalid:?} must not reach GPU raster scaling"
+            );
+        }
     }
 }
