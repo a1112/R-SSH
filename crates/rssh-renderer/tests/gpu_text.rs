@@ -654,6 +654,38 @@ fn damaged_cell_expands_to_full_shaped_run_and_clips_to_half_open_terminal_bound
 }
 
 #[test]
+fn gpu_text_bounds_follow_nonzero_content_origin_and_clip() {
+    let _gpu = gpu_test_guard();
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer = GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 4096)
+        .expect("layer renderer");
+    renderer
+        .enable_text(catalog(), font_config(), config(4 * 1024 * 1024))
+        .expect("enable GPU text");
+    let geometry = RenderGeometry::new(64, 32, 16, 24).with_content_rect(16, 4, 32, 24);
+
+    let report = renderer
+        .prepare_text(
+            &snapshot("AB", 2),
+            geometry,
+            &[],
+            &TextPaintConfig::default(),
+            1.0,
+            1.0,
+        )
+        .expect("prepare placed GPU text");
+
+    assert!(!report.glyph_bounds.is_empty());
+    assert!(report.glyph_bounds.iter().all(|bounds| {
+        bounds.x >= 16
+            && bounds.y >= 4
+            && bounds.x.saturating_add(bounds.width) <= 48
+            && bounds.y.saturating_add(bounds.height) <= 28
+    }));
+}
+
+#[test]
 fn local_row_damage_preserves_cached_glyphs_on_untouched_rows() {
     let _gpu = gpu_test_guard();
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))

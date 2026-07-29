@@ -6,6 +6,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use rssh_renderer::gpu::should_abandon_recovered_window_surface;
 use rssh_test_support::{ChildGuard, ChildOutput};
 
 const PROCESS_DEADLINE: Duration = Duration::from_secs(30);
@@ -60,6 +61,117 @@ fn one_frame_native_window_does_not_overflow_the_debug_stack() {
     assert!(
         !stderr.contains(STACK_OVERFLOW_MESSAGE),
         "native window reported a stack overflow\n{diagnostics}"
+    );
+}
+
+#[test]
+fn default_native_window_uses_direct_gpu_text_without_compatibility_uploads() {
+    const COMMAND_INTENT: &str = "rssh-app -n window --frames 1 --metrics-json";
+    const ARGUMENTS: &[&str] = &["-n", "window", "--frames", "1", "--metrics-json"];
+    let _native_window = native_window_test_guard();
+    let output = run_rssh_app(COMMAND_INTENT, ARGUMENTS);
+    let diagnostics = diagnostics(COMMAND_INTENT, ARGUMENTS, &output);
+    let metrics: serde_json::Value =
+        serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+            panic!("default native window emitted invalid metrics JSON: {error}\n{diagnostics}")
+        });
+
+    assert!(output.status.success(), "{diagnostics}");
+    assert_eq!(metrics["text_backend"], "shaped-gpu-atlas", "{diagnostics}");
+    assert_eq!(metrics["gpu_text_rendered_frames"], 1, "{diagnostics}");
+    assert_eq!(
+        metrics["gpu_compatibility_frame_uploads"], 0,
+        "{diagnostics}"
+    );
+    assert!(
+        metrics["gpu_backend"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty()),
+        "{diagnostics}"
+    );
+    assert!(
+        metrics["gpu_adapter_name"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty()),
+        "{diagnostics}"
+    );
+    assert!(metrics["gpu_surface_format"].is_string(), "{diagnostics}");
+}
+
+#[test]
+fn injected_device_loss_rebuilds_direct_gpu_state_and_presents_the_same_frame() {
+    const COMMAND_INTENT: &str =
+        "RSSH_TEST_GPU_DEVICE_LOSS=1 rssh-app -n window --frames 1 --metrics-json";
+    const ARGUMENTS: &[&str] = &["-n", "window", "--frames", "1", "--metrics-json"];
+    let _native_window = native_window_test_guard();
+    let mut command = Command::new(RSSH_APP_EXECUTABLE);
+    command
+        .args(ARGUMENTS)
+        .env("RSSH_TEST_GPU_DEVICE_LOSS", "1");
+    let output = ChildGuard::spawn(command, PROCESS_DEADLINE)
+        .expect("launch device-loss recovery probe")
+        .wait()
+        .expect("bounded device-loss recovery probe");
+    let diagnostics = diagnostics(COMMAND_INTENT, ARGUMENTS, &output);
+    let metrics: serde_json::Value =
+        serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+            panic!("device-loss probe emitted invalid metrics JSON: {error}\n{diagnostics}")
+        });
+
+    assert!(output.status.success(), "{diagnostics}");
+    assert_eq!(metrics["gpu_device_recoveries"], 1, "{diagnostics}");
+    assert_eq!(metrics["gpu_device_recovery_failures"], 0, "{diagnostics}");
+    let backend = metrics["gpu_backend"]
+        .as_str()
+        .expect("GPU backend string in metrics");
+    let vendor_id = u32::try_from(
+        metrics["gpu_adapter_vendor_id"]
+            .as_u64()
+            .expect("GPU adapter vendor id in metrics"),
+    )
+    .expect("GPU adapter vendor id fits u32");
+    assert!(
+        metrics["gpu_adapter_device_id"].as_u64().is_some(),
+        "{diagnostics}"
+    );
+    let expected_abandonment = u64::from(should_abandon_recovered_window_surface(
+        std::env::consts::OS,
+        backend,
+        vendor_id,
+        true,
+        true,
+    ));
+    assert_eq!(
+        metrics["gpu_abandoned_lost_surfaces"], expected_abandonment,
+        "{diagnostics}"
+    );
+    assert_eq!(metrics["gpu_device_losses"], 1, "{diagnostics}");
+    assert_eq!(metrics["gpu_presented_frames"], 1, "{diagnostics}");
+    assert_eq!(metrics["gpu_text_rendered_frames"], 1, "{diagnostics}");
+    assert_eq!(
+        metrics["gpu_compatibility_frame_uploads"], 0,
+        "{diagnostics}"
+    );
+}
+
+#[test]
+fn static_native_window_reaches_ten_frames_without_external_damage() {
+    const COMMAND_INTENT: &str = "rssh-app -n window --frames 10 --metrics-json";
+    const ARGUMENTS: &[&str] = &["-n", "window", "--frames", "10", "--metrics-json"];
+    let _native_window = native_window_test_guard();
+    let output = run_rssh_app(COMMAND_INTENT, ARGUMENTS);
+    let diagnostics = diagnostics(COMMAND_INTENT, ARGUMENTS, &output);
+    let metrics: serde_json::Value =
+        serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+            panic!("static ten-frame probe emitted invalid metrics JSON: {error}\n{diagnostics}")
+        });
+
+    assert!(output.status.success(), "{diagnostics}");
+    assert_eq!(metrics["gpu_presented_frames"], 10, "{diagnostics}");
+    assert_eq!(metrics["gpu_text_rendered_frames"], 10, "{diagnostics}");
+    assert_eq!(
+        metrics["gpu_compatibility_frame_uploads"], 0,
+        "{diagnostics}"
     );
 }
 
@@ -136,6 +248,10 @@ fn native_window_reports_real_gpu_presentation_for_one_and_ten_frames() {
         assert!(metrics["gpu_present_mode"].is_string(), "{diagnostics}");
         assert_eq!(metrics["gpu_rendered_frames"], frames, "{diagnostics}");
         assert_eq!(metrics["gpu_presented_frames"], frames, "{diagnostics}");
+        assert_eq!(
+            metrics["gpu_compatibility_frame_uploads"], 0,
+            "{diagnostics}"
+        );
         assert_eq!(metrics["gpu_uncaptured_errors"], 0, "{diagnostics}");
         assert_eq!(metrics["gpu_device_losses"], 0, "{diagnostics}");
         assert_eq!(metrics["text_backend"], "shaped-gpu-atlas", "{diagnostics}");

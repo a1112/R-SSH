@@ -263,11 +263,40 @@ impl GpuContextOptions {
         self.force_fallback_adapter = force;
         self
     }
+
+    /// Restricts recovery to the backend selected by the original adapter.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unrecognized backend instead of probing a
+    /// different backend during a device-loss transaction.
+    pub fn with_only_backend_name(mut self, backend: &str) -> Result<Self, GpuContextError> {
+        self.backends = if backend.eq_ignore_ascii_case("vulkan") {
+            wgpu::Backends::VULKAN
+        } else if backend.eq_ignore_ascii_case("dx12") {
+            wgpu::Backends::DX12
+        } else if backend.eq_ignore_ascii_case("metal") {
+            wgpu::Backends::METAL
+        } else if backend.eq_ignore_ascii_case("gl") {
+            wgpu::Backends::GL
+        } else if backend.eq_ignore_ascii_case("browserwebgpu")
+            || backend.eq_ignore_ascii_case("webgpu")
+        {
+            wgpu::Backends::BROWSER_WEBGPU
+        } else {
+            return Err(GpuContextError::new(
+                "select recovery backend",
+                format!("unsupported original GPU backend {backend:?}"),
+            ));
+        };
+        Ok(self)
+    }
 }
 
 /// Owns the instance, selected adapter, logical device, and submission queue.
 pub struct GpuContext {
     generation: GpuContextGeneration,
+    options: GpuContextOptions,
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
     device: wgpu::Device,
@@ -279,6 +308,10 @@ pub struct GpuContext {
     runtime_faults: Arc<GpuFaultMonitor>,
     suspended: bool,
     metrics: GpuPresentationMetrics,
+    #[cfg(test)]
+    recovery_failure_injections: u64,
+    #[cfg(test)]
+    recovery_post_validation_failure_injections: u64,
 }
 
 impl fmt::Debug for GpuContext {
@@ -321,6 +354,7 @@ impl GpuContext {
 
         Ok(Self {
             generation: next_gpu_context_generation(),
+            options,
             instance,
             adapter,
             device,
@@ -332,6 +366,10 @@ impl GpuContext {
             runtime_faults,
             suspended: false,
             metrics: GpuPresentationMetrics::from_adapter(&info),
+            #[cfg(test)]
+            recovery_failure_injections: 0,
+            #[cfg(test)]
+            recovery_post_validation_failure_injections: 0,
         })
     }
 
@@ -378,6 +416,7 @@ impl GpuContext {
 
         let mut context = Self {
             generation: next_gpu_context_generation(),
+            options,
             instance,
             adapter,
             device,
@@ -389,6 +428,10 @@ impl GpuContext {
             runtime_faults,
             suspended: width == 0 || height == 0,
             metrics: GpuPresentationMetrics::from_adapter(&info),
+            #[cfg(test)]
+            recovery_failure_injections: 0,
+            #[cfg(test)]
+            recovery_post_validation_failure_injections: 0,
         };
         if !context.suspended {
             context.configure_surface(width, height)?;
@@ -424,6 +467,203 @@ impl GpuContext {
     #[must_use]
     pub const fn generation(&self) -> GpuContextGeneration {
         self.generation
+    }
+
+    /// Atomically replaces a lost logical device while retaining the instance,
+    /// presentation surface, configuration options, and cumulative metrics.
+    ///
+    /// This prepares a recovery candidate but deliberately does not count a
+    /// successful recovery. The window owner commits that metric only after it
+    /// rebuilds every device-owned layer and presents the retried frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns an initialization error without replacing the current context
+    /// when adapter or device recreation fails.
+    #[allow(clippy::too_many_lines)]
+    pub async fn recover_device(&mut self) -> Result<(), GpuContextError> {
+        #[cfg(test)]
+        if self.recovery_failure_injections != 0 {
+            self.recovery_failure_injections = self.recovery_failure_injections.saturating_sub(1);
+            self.metrics.device_recovery_failures =
+                self.metrics.device_recovery_failures.saturating_add(1);
+            return Err(GpuContextError::new(
+                "recover device",
+                "injected candidate creation failure",
+            ));
+        }
+
+        let recovery_options = self.options.with_only_backend_name(&self.metrics.backend)?;
+        let recovered = async {
+            let adapter =
+                request_adapter(&self.instance, self.surface.as_ref(), recovery_options).await?;
+            let info = adapter.get_info();
+            let (device, queue) = adapter
+                .request_device(&wgpu::DeviceDescriptor {
+                    label: Some("rssh-native-recovered-device"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::downlevel_defaults()
+                        .using_resolution(adapter.limits()),
+                    experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                    memory_hints: wgpu::MemoryHints::MemoryUsage,
+                    trace: wgpu::Trace::Off,
+                })
+                .await
+                .map_err(|error| GpuContextError::new("recover device", error))?;
+            let runtime_faults = Arc::new(GpuFaultMonitor::default());
+            runtime_faults
+                .uncaptured_errors
+                .store(self.metrics.uncaptured_errors, Ordering::Relaxed);
+            runtime_faults
+                .device_losses
+                .store(self.metrics.device_losses, Ordering::Relaxed);
+            install_device_fault_handlers(&device, &runtime_faults);
+            let surface_config = match (self.surface.as_ref(), self.surface_config.as_ref()) {
+                (Some(surface), Some(previous)) => Some(recovery_surface_config(
+                    surface, &adapter, &device, previous,
+                )?),
+                (None | Some(_), None) => None,
+                (None, Some(_)) => {
+                    return Err(GpuContextError::message(
+                        "configured context has no presentation surface".into(),
+                    ));
+                }
+            };
+            let compatibility_pipeline = if self.compatibility_pipeline.is_some() {
+                surface_config.as_ref().map(|config| {
+                    CompatibilityPipeline::new(&device, config.format, config.width, config.height)
+                })
+            } else {
+                None
+            };
+            let mut recovery_metrics = GpuPresentationMetrics::uninitialized();
+            take_runtime_fault(&runtime_faults, &mut recovery_metrics, "during recovery")?;
+            Ok::<_, GpuContextError>((
+                adapter,
+                info,
+                device,
+                queue,
+                runtime_faults,
+                compatibility_pipeline,
+                surface_config,
+            ))
+        }
+        .await;
+
+        let (adapter, info, device, queue, runtime_faults, compatibility_pipeline, surface_config) =
+            match recovered {
+                Ok(recovered) => recovered,
+                Err(error) => {
+                    self.metrics.device_recovery_failures =
+                        self.metrics.device_recovery_failures.saturating_add(1);
+                    return Err(error);
+                }
+            };
+
+        #[cfg(test)]
+        if self.recovery_post_validation_failure_injections != 0 {
+            self.recovery_post_validation_failure_injections = self
+                .recovery_post_validation_failure_injections
+                .saturating_sub(1);
+            self.metrics.device_recovery_failures =
+                self.metrics.device_recovery_failures.saturating_add(1);
+            return Err(GpuContextError::new(
+                "recover device",
+                "injected candidate post-validation failure",
+            ));
+        }
+
+        let previous = self.metrics.clone();
+        let mut metrics = GpuPresentationMetrics::from_adapter(&info);
+        metrics.surface_format = surface_config
+            .as_ref()
+            .map(|config| format!("{:?}", config.format))
+            .or(previous.surface_format);
+        metrics.present_mode = surface_config
+            .as_ref()
+            .map(|config| format!("{:?}", config.present_mode))
+            .or(previous.present_mode);
+        metrics.surface_width = surface_config
+            .as_ref()
+            .map(|config| config.width)
+            .or(previous.surface_width);
+        metrics.surface_height = surface_config
+            .as_ref()
+            .map(|config| config.height)
+            .or(previous.surface_height);
+        metrics.rendered_frames = previous.rendered_frames;
+        metrics.presented_frames = previous.presented_frames;
+        metrics.surface_reconfigurations = previous.surface_reconfigurations;
+        metrics.surface_recreations = previous.surface_recreations;
+        metrics.surface_timeouts = previous.surface_timeouts;
+        metrics.surface_occlusions = previous.surface_occlusions;
+        metrics.surface_validation_errors = previous.surface_validation_errors;
+        metrics.compatibility_frame_uploads = previous.compatibility_frame_uploads;
+        metrics.uncaptured_errors = previous.uncaptured_errors;
+        metrics.device_losses = previous.device_losses;
+        metrics.device_recoveries = previous.device_recoveries;
+        metrics.device_recovery_failures = previous.device_recovery_failures;
+        metrics.abandoned_lost_surfaces = previous.abandoned_lost_surfaces;
+
+        self.generation = next_gpu_context_generation();
+        self.adapter = adapter;
+        self.device = device;
+        self.queue = queue;
+        self.runtime_faults = runtime_faults;
+        self.compatibility_pipeline = compatibility_pipeline;
+        self.surface_config = surface_config;
+        self.metrics = metrics;
+        if let (Some(surface), Some(config)) = (self.surface.as_ref(), self.surface_config.as_ref())
+        {
+            // `Surface::configure` is the non-rollback recovery commit
+            // boundary. Every operation that can return `Result::Err`
+            // completed before self was replaced. A backend panic remains a
+            // panic; it must not masquerade as an atomic, recoverable error
+            // after either self or the live surface may have changed.
+            self.metrics.surface_reconfigurations =
+                self.metrics.surface_reconfigurations.saturating_add(1);
+            surface.configure(&self.device, config);
+            self.suspended = false;
+        }
+        Ok(())
+    }
+
+    /// Commits one recovery after the replacement device, device-owned layers,
+    /// and retried presentation have all succeeded as one window transaction.
+    pub fn commit_windowed_device_recovery(&mut self) {
+        self.metrics.device_recoveries = self.metrics.device_recoveries.saturating_add(1);
+    }
+
+    /// Counts one recovery transaction that failed after candidate creation.
+    pub fn record_device_recovery_failure(&mut self) {
+        self.metrics.device_recovery_failures =
+            self.metrics.device_recovery_failures.saturating_add(1);
+    }
+
+    /// Records the actual process-exit abandonment of one recovered window
+    /// surface after the app has decided to `forget` its driver-owned bundle.
+    pub fn record_abandoned_lost_surface(&mut self) {
+        self.metrics.abandoned_lost_surfaces =
+            self.metrics.abandoned_lost_surfaces.saturating_add(1);
+    }
+
+    #[cfg(any(test, debug_assertions))]
+    #[doc(hidden)]
+    pub fn inject_device_loss_for_test(&self) {
+        self.runtime_faults.record(GpuRuntimeFault::DeviceLost {
+            reason: wgpu::DeviceLostReason::Unknown,
+            message: "injected device loss".to_owned(),
+        });
+    }
+
+    #[cfg(test)]
+    fn inject_recovery_failures_for_test(&mut self, count: u64) {
+        self.recovery_failure_injections = count;
+    }
+
+    #[cfg(test)]
+    fn inject_recovery_post_validation_failures_for_test(&mut self, count: u64) {
+        self.recovery_post_validation_failure_injections = count;
     }
 
     #[must_use]
@@ -543,6 +783,7 @@ impl GpuContext {
         self.check_runtime_faults("before frame upload")?;
         let layout = self.rgba_frame_layout(width, height)?;
         validate_frame(rgba, layout)?;
+        self.ensure_compatibility_pipeline()?;
         self.ensure_upload_frame(width, height)?;
         {
             let upload = self
@@ -572,6 +813,8 @@ impl GpuContext {
                 },
             );
         }
+        self.metrics.compatibility_frame_uploads =
+            self.metrics.compatibility_frame_uploads.saturating_add(1);
         self.check_runtime_faults("after frame upload")?;
 
         let Some((surface_texture, suboptimal)) =
@@ -728,12 +971,14 @@ impl GpuContext {
             .as_ref()
             .is_none_or(|previous| previous.format != config.format)
         {
-            self.compatibility_pipeline = Some(CompatibilityPipeline::new(
-                &self.device,
-                config.format,
-                width,
-                height,
-            ));
+            if self.compatibility_pipeline.is_some() {
+                self.compatibility_pipeline = Some(CompatibilityPipeline::new(
+                    &self.device,
+                    config.format,
+                    width,
+                    height,
+                ));
+            }
         } else if let Some(pipeline) = self.compatibility_pipeline.as_mut() {
             pipeline.set_surface_size(&self.queue, width, height)?;
         }
@@ -820,6 +1065,7 @@ impl GpuContext {
     }
 
     fn ensure_upload_frame(&mut self, width: u32, height: u32) -> Result<(), GpuContextError> {
+        self.ensure_compatibility_pipeline()?;
         let pipeline = self
             .compatibility_pipeline
             .as_mut()
@@ -842,6 +1088,22 @@ impl GpuContext {
         pipeline.set_frame_size(&self.queue, width, height)?;
         self.check_runtime_faults("after compatibility texture creation")
     }
+
+    fn ensure_compatibility_pipeline(&mut self) -> Result<(), GpuContextError> {
+        if self.compatibility_pipeline.is_none() {
+            let config = self
+                .surface_config
+                .as_ref()
+                .ok_or_else(|| GpuContextError::message("surface is not configured".into()))?;
+            self.compatibility_pipeline = Some(CompatibilityPipeline::new(
+                &self.device,
+                config.format,
+                config.width,
+                config.height,
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn create_surface(
@@ -851,6 +1113,85 @@ fn create_surface(
     instance
         .create_surface(wgpu::SurfaceTarget::from_window_without_display(window))
         .map_err(|error| GpuContextError::new("create surface", error))
+}
+
+fn recovery_surface_config(
+    surface: &wgpu::Surface<'static>,
+    adapter: &wgpu::Adapter,
+    device: &wgpu::Device,
+    previous: &wgpu::SurfaceConfiguration,
+) -> Result<wgpu::SurfaceConfiguration, GpuContextError> {
+    let max_dimension = device.limits().max_texture_dimension_2d;
+    if previous.width > max_dimension || previous.height > max_dimension {
+        return Err(GpuContextError::with_kind(
+            GpuContextErrorKind::ResourceLimit,
+            format!(
+                "recovered surface {}x{} exceeds max texture dimension {max_dimension}",
+                previous.width, previous.height
+            ),
+        ));
+    }
+    let capabilities = surface.get_capabilities(adapter);
+    if !capabilities
+        .usages
+        .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
+    {
+        return Err(GpuContextError::message(
+            "recovered surface does not support render attachments".into(),
+        ));
+    }
+    let format = capabilities
+        .formats
+        .contains(&previous.format)
+        .then_some(previous.format)
+        .or_else(|| {
+            capabilities
+                .formats
+                .iter()
+                .copied()
+                .find(wgpu::TextureFormat::is_srgb)
+        })
+        .or_else(|| capabilities.formats.first().copied())
+        .ok_or_else(|| GpuContextError::message("recovered surface exposes no formats".into()))?;
+    let present_mode = capabilities
+        .present_modes
+        .contains(&previous.present_mode)
+        .then_some(previous.present_mode)
+        .or_else(|| {
+            capabilities
+                .present_modes
+                .contains(&wgpu::PresentMode::Fifo)
+                .then_some(wgpu::PresentMode::Fifo)
+        })
+        .or_else(|| capabilities.present_modes.first().copied())
+        .ok_or_else(|| {
+            GpuContextError::message("recovered surface exposes no present modes".into())
+        })?;
+    let alpha_mode = capabilities
+        .alpha_modes
+        .contains(&previous.alpha_mode)
+        .then_some(previous.alpha_mode)
+        .or_else(|| {
+            capabilities
+                .alpha_modes
+                .contains(&wgpu::CompositeAlphaMode::Auto)
+                .then_some(wgpu::CompositeAlphaMode::Auto)
+        })
+        .or_else(|| capabilities.alpha_modes.first().copied())
+        .ok_or_else(|| {
+            GpuContextError::message("recovered surface exposes no alpha modes".into())
+        })?;
+    Ok(wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format,
+        color_space: previous.color_space,
+        width: previous.width,
+        height: previous.height,
+        present_mode,
+        desired_maximum_frame_latency: previous.desired_maximum_frame_latency,
+        alpha_mode,
+        view_formats: Vec::new(),
+    })
 }
 
 fn validate_frame(rgba: &[u8], layout: RgbaFrameLayout) -> Result<(), GpuContextError> {
@@ -1355,5 +1696,114 @@ mod tests {
         assert_eq!(metrics.device_losses, 1);
         assert_eq!(metrics.rendered_frames, 0);
         assert_eq!(metrics.presented_frames, 0);
+    }
+
+    #[test]
+    fn injected_device_loss_recovers_generation_metrics_and_submission_health() {
+        let mut context =
+            pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+                .expect("headless context");
+        context
+            .run_headless_submission_probe(Duration::from_secs(5))
+            .expect("baseline submission");
+        let generation = context.generation();
+        let rendered_frames = context.metrics().rendered_frames;
+        context.inject_device_loss_for_test();
+        let error = context
+            .run_headless_submission_probe(Duration::from_secs(5))
+            .expect_err("injected device loss must be typed");
+        assert_eq!(error.kind(), GpuContextErrorKind::DeviceLost);
+
+        pollster::block_on(context.recover_device()).expect("recover logical device");
+
+        assert_ne!(context.generation(), generation);
+        assert_eq!(context.metrics().device_recoveries, 0);
+        assert_eq!(context.metrics().abandoned_lost_surfaces, 0);
+        context.commit_windowed_device_recovery();
+        assert_eq!(context.metrics().device_recoveries, 1);
+        assert_eq!(context.metrics().abandoned_lost_surfaces, 0);
+        assert_eq!(context.metrics().device_recovery_failures, 0);
+        assert_eq!(context.metrics().device_losses, 1);
+        assert!(context.metrics().rendered_frames >= rendered_frames);
+        context
+            .run_headless_submission_probe(Duration::from_secs(5))
+            .expect("recovered submission");
+    }
+
+    #[test]
+    fn failed_device_recovery_is_atomic_and_counted() {
+        let mut context =
+            pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+                .expect("headless context");
+        let generation = context.generation();
+        let device = context.device().clone();
+        context.inject_recovery_failures_for_test(2);
+
+        for expected_failures in 1..=2 {
+            pollster::block_on(context.recover_device())
+                .expect_err("injected candidate creation failure");
+            assert_eq!(context.generation(), generation);
+            assert_eq!(context.device(), &device);
+            assert_eq!(
+                context.metrics().device_recovery_failures,
+                expected_failures
+            );
+            assert_eq!(context.metrics().device_recoveries, 0);
+        }
+    }
+
+    #[test]
+    fn post_validation_recovery_failure_does_not_commit_candidate_or_surface_state() {
+        let mut context =
+            pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+                .expect("headless context");
+        let generation = context.generation();
+        let device = context.device().clone();
+        let surface_config = context.surface_config.clone();
+        let metrics = context.metrics().clone();
+        context.inject_recovery_post_validation_failures_for_test(1);
+
+        pollster::block_on(context.recover_device())
+            .expect_err("post-validation candidate failure must remain atomic");
+
+        assert_eq!(context.generation(), generation);
+        assert_eq!(context.device(), &device);
+        assert_eq!(context.surface_config, surface_config);
+        assert_eq!(
+            context.metrics().surface_reconfigurations,
+            metrics.surface_reconfigurations
+        );
+        assert_eq!(context.metrics().device_recoveries, 0);
+        assert_eq!(context.metrics().abandoned_lost_surfaces, 0);
+        assert_eq!(
+            context.metrics().device_recovery_failures,
+            metrics.device_recovery_failures + 1
+        );
+    }
+
+    #[test]
+    fn recovery_backend_mapping_selects_exactly_one_original_backend() {
+        for (backend, expected) in [
+            ("Vulkan", wgpu::Backends::VULKAN),
+            ("Dx12", wgpu::Backends::DX12),
+            ("Metal", wgpu::Backends::METAL),
+            ("Gl", wgpu::Backends::GL),
+            ("BrowserWebGpu", wgpu::Backends::BROWSER_WEBGPU),
+        ] {
+            assert_eq!(
+                GpuContextOptions::default()
+                    .with_only_backend_name(backend)
+                    .expect("known backend")
+                    .backends,
+                expected,
+                "{backend} recovery must not probe a different backend"
+            );
+        }
+        assert!(
+            GpuContextOptions::default()
+                .with_only_backend_name("unknown")
+                .is_err(),
+            "unknown recovery backends must not silently fall back to all backends"
+        );
     }
 }

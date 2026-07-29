@@ -17,7 +17,6 @@ use std::{
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD};
-use pixels::Pixels;
 use rssh_core::{
     DamageRegion, TerminalSize,
     app_shell::{
@@ -57,7 +56,7 @@ use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
     event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey},
     window::{CursorIcon, Fullscreen, Window, WindowAttributes, WindowLevel as WinitWindowLevel},
 };
@@ -81490,7 +81489,6 @@ struct NativeWindowApp {
     mouse_click_may_focus_window: bool,
     window: Option<Arc<Window>>,
     gpu: Option<Box<WindowGpu>>,
-    pixels: Option<Pixels<'static>>,
     renderer: PixelRenderer,
     configured_dpi: Option<u32>,
     dpi_by_screen: BTreeMap<String, u32>,
@@ -81875,6 +81873,7 @@ struct NativeWindowManager {
     pane_event_routes: HashMap<(rssh_core::WindowId, rssh_core::PaneId), rssh_core::WindowId>,
     focus: WindowFocusCoordinator<winit::window::WindowId>,
     last_metrics: Option<WindowMetricsSnapshot>,
+    closed_gpu_abandonments: u64,
     quit_when_all_windows_are_closed: bool,
 }
 
@@ -81897,6 +81896,7 @@ impl NativeWindowManager {
             pane_event_routes: HashMap::new(),
             focus: WindowFocusCoordinator::default(),
             last_metrics: None,
+            closed_gpu_abandonments: 0,
             quit_when_all_windows_are_closed,
         }
     }
@@ -81916,18 +81916,43 @@ impl NativeWindowManager {
     }
 
     fn metrics_report(&self) -> String {
-        self.metrics_app()
-            .map_or_else(String::new, NativeWindowApp::metrics_report)
+        self.aggregated_metrics_snapshot().report()
     }
 
     fn metrics_json_report(&self) -> Result<String, serde_json::Error> {
+        self.aggregated_metrics_snapshot().json_report()
+    }
+
+    fn aggregated_metrics_snapshot(&self) -> WindowMetricsSnapshot {
+        let live_gpu_abandonments = self
+            .startup_app
+            .iter()
+            .chain(self.windows.values())
+            .chain(self.pending_apps.iter())
+            .map(|app| app.metrics_snapshot().gpu_abandoned_lost_surfaces)
+            .fold(0_u64, u64::saturating_add);
+        let total_gpu_abandonments = self
+            .closed_gpu_abandonments
+            .saturating_add(live_gpu_abandonments);
         if let Some(app) = self.metrics_app() {
-            return app.metrics_json_report();
+            let mut snapshot = app.metrics_snapshot();
+            snapshot.gpu_abandoned_lost_surfaces = total_gpu_abandonments;
+            snapshot
+        } else {
+            let mut snapshot = self
+                .last_metrics
+                .clone()
+                .unwrap_or_else(|| WindowMetrics::new().snapshot());
+            snapshot.gpu_abandoned_lost_surfaces = total_gpu_abandonments;
+            snapshot
         }
-        self.last_metrics
-            .clone()
-            .unwrap_or_else(|| WindowMetrics::new().snapshot())
-            .json_report()
+    }
+
+    fn retain_closed_window_metrics(&mut self, snapshot: WindowMetricsSnapshot) {
+        self.closed_gpu_abandonments = self
+            .closed_gpu_abandonments
+            .saturating_add(snapshot.gpu_abandoned_lost_surfaces);
+        self.last_metrics = Some(snapshot);
     }
 
     fn materialize_startup_app(
@@ -82142,6 +82167,21 @@ impl NativeWindowManager {
         }
     }
 
+    fn app_at_location_mut(
+        &mut self,
+        location: ManagedWindowAppLocation,
+    ) -> Option<&mut NativeWindowApp> {
+        match location {
+            ManagedWindowAppLocation::Startup => self.startup_app.as_deref_mut(),
+            ManagedWindowAppLocation::Window(window_id) => {
+                self.windows.get_mut(&window_id).map(Box::as_mut)
+            }
+            ManagedWindowAppLocation::Pending(index) => {
+                self.pending_apps.get_mut(index).map(Box::as_mut)
+            }
+        }
+    }
+
     fn take_app_at_location(
         &mut self,
         location: ManagedWindowAppLocation,
@@ -82170,6 +82210,29 @@ impl NativeWindowManager {
                     .insert(index.min(self.pending_apps.len()), app);
             }
         }
+    }
+
+    fn finalize_app_close_at_location(&mut self, location: ManagedWindowAppLocation) -> Option<()> {
+        let (app_window_id, quit_when_all_windows_are_closed, snapshot) = {
+            let app = self.app_at_location_mut(location)?;
+            app.shutdown_gpu_for_window_close();
+            (
+                app.app_window_id,
+                app.quit_when_all_windows_are_closed,
+                app.metrics_snapshot(),
+            )
+        };
+        if let ManagedWindowAppLocation::Window(window_id) = location {
+            self.focus.remove(window_id);
+        }
+        self.quit_when_all_windows_are_closed = quit_when_all_windows_are_closed;
+        let app = self
+            .take_app_at_location(location)
+            .expect("closed app remains manager-owned until final removal");
+        self.retain_closed_window_metrics(snapshot);
+        drop(app);
+        self.remove_pane_event_routes_for_window(app_window_id);
+        Some(())
     }
 
     fn dispatch_user_event_to_owner(&mut self, event: WindowUserEvent) -> Option<bool> {
@@ -82211,13 +82274,9 @@ impl NativeWindowManager {
 
         self.collect_pending_window_apps_from_app(&mut app);
         if close_window {
-            if let ManagedWindowAppLocation::Window(window_id) = location {
-                self.focus.remove(window_id);
-            }
-            self.quit_when_all_windows_are_closed = app.quit_when_all_windows_are_closed;
-            self.last_metrics = Some(app.metrics_snapshot());
-            drop(app);
-            self.remove_pane_event_routes_for_window(owner_window_id);
+            self.restore_app_at_location(location, app);
+            self.finalize_app_close_at_location(location)
+                .expect("event owner remains manager-owned until final removal");
         } else {
             let owner_still_has_pane = Self::app_owns_pane(&app, pane_id);
             self.restore_app_at_location(location, app);
@@ -82301,24 +82360,42 @@ impl NativeWindowManager {
     }
 
     fn close_window(&mut self, window_id: winit::window::WindowId) -> bool {
-        if let Some(mut app) = self.windows.remove(&window_id) {
+        if let Some(app) = self.windows.get_mut(&window_id) {
             app.handle_window_close_requested();
             if !app.take_window_close_request() {
-                self.windows.insert(window_id, app);
                 return false;
             }
-            let app_window_id = app.app_window_id;
-            self.quit_when_all_windows_are_closed = app.quit_when_all_windows_are_closed;
-            self.last_metrics = Some(app.metrics_snapshot());
-            drop(app);
-            self.remove_pane_event_routes_for_window(app_window_id);
+            self.finalize_app_close_at_location(ManagedWindowAppLocation::Window(window_id))
+                .expect("approved window remains manager-owned until final removal");
         }
         self.focus.remove(window_id);
         self.should_exit_when_idle()
     }
 
-    fn quit_application_from_app(&mut self, app: Box<NativeWindowApp>) {
-        self.last_metrics = Some(app.metrics_snapshot());
+    fn quit_application_from_app(&mut self, mut app: Box<NativeWindowApp>) {
+        app.shutdown_gpu_for_window_close();
+        for window in self.windows.values_mut() {
+            window.shutdown_gpu_for_window_close();
+        }
+        if let Some(startup) = self.startup_app.as_mut() {
+            startup.shutdown_gpu_for_window_close();
+        }
+        for pending in &mut self.pending_apps {
+            pending.shutdown_gpu_for_window_close();
+        }
+        let app_snapshot = app.metrics_snapshot();
+        let additional_abandonments = self
+            .windows
+            .values()
+            .chain(self.startup_app.iter())
+            .chain(self.pending_apps.iter())
+            .map(|window| window.metrics_snapshot().gpu_abandoned_lost_surfaces)
+            .fold(0_u64, u64::saturating_add);
+        self.closed_gpu_abandonments = self
+            .closed_gpu_abandonments
+            .saturating_add(app_snapshot.gpu_abandoned_lost_surfaces)
+            .saturating_add(additional_abandonments);
+        self.last_metrics = Some(app_snapshot);
         drop(app);
         self.windows.clear();
         self.focus = WindowFocusCoordinator::default();
@@ -82332,6 +82409,18 @@ impl NativeWindowManager {
             && self.windows.is_empty()
             && self.startup_app.is_none()
             && self.pending_apps.is_empty()
+    }
+
+    fn shutdown_gpu_for_application_exit(&mut self) {
+        if let Some(startup) = self.startup_app.as_mut() {
+            startup.shutdown_gpu_for_window_close();
+        }
+        for app in self.windows.values_mut() {
+            app.shutdown_gpu_for_window_close();
+        }
+        for app in &mut self.pending_apps {
+            app.shutdown_gpu_for_window_close();
+        }
     }
 
     #[cfg(test)]
@@ -82368,6 +82457,11 @@ impl NativeWindowManager {
     #[cfg(test)]
     fn last_metrics_for_test(&self) -> Option<WindowMetricsSnapshot> {
         self.last_metrics.clone()
+    }
+
+    #[cfg(test)]
+    const fn closed_gpu_abandonments_for_test(&self) -> u64 {
+        self.closed_gpu_abandonments
     }
 
     #[cfg(test)]
@@ -82900,6 +82994,28 @@ enum FrameRenderMode {
     Damage,
 }
 
+fn finalize_native_gpu_frame<E>(
+    outcome: Result<GpuFrameStatus, E>,
+    pending_damage: &mut Vec<DamageRegion>,
+    needs_full_repaint: &mut bool,
+) -> Result<bool, E> {
+    match outcome {
+        Ok(GpuFrameStatus::Presented) => {
+            pending_damage.clear();
+            *needs_full_repaint = false;
+            Ok(true)
+        }
+        Ok(GpuFrameStatus::Skipped) => {
+            *needs_full_repaint = true;
+            Ok(false)
+        }
+        Err(error) => {
+            *needs_full_repaint = true;
+            Err(error)
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct WindowMetricsSnapshot {
     first_pty_byte_ms: Option<u128>,
@@ -82921,6 +83037,8 @@ struct WindowMetricsSnapshot {
     render_frame_p95_us: u128,
     gpu_backend: String,
     gpu_adapter_name: String,
+    gpu_adapter_vendor_id: u32,
+    gpu_adapter_device_id: u32,
     gpu_adapter_type: String,
     gpu_software_adapter: bool,
     gpu_surface_format: Option<String>,
@@ -82934,8 +83052,12 @@ struct WindowMetricsSnapshot {
     gpu_surface_timeouts: u64,
     gpu_surface_occlusions: u64,
     gpu_surface_validation_errors: u64,
+    gpu_compatibility_frame_uploads: u64,
     gpu_uncaptured_errors: u64,
     gpu_device_losses: u64,
+    gpu_device_recoveries: u64,
+    gpu_device_recovery_failures: u64,
+    gpu_abandoned_lost_surfaces: u64,
     text_backend: String,
     gpu_text_prepared_glyphs: usize,
     gpu_text_mask_glyphs: usize,
@@ -82950,6 +83072,7 @@ struct WindowMetricsSnapshot {
 }
 
 impl WindowMetricsSnapshot {
+    #[allow(clippy::too_many_lines)]
     fn report(self) -> String {
         format!(
             "\
@@ -82973,6 +83096,8 @@ dirty_render_frames={}
 render_frame_p95_us={}
 gpu_backend={}
 gpu_adapter_name={}
+gpu_adapter_vendor_id={}
+gpu_adapter_device_id={}
 gpu_adapter_type={}
 gpu_software_adapter={}
 gpu_surface_format={}
@@ -82986,8 +83111,12 @@ gpu_surface_recreations={}
 gpu_surface_timeouts={}
 gpu_surface_occlusions={}
 gpu_surface_validation_errors={}
+gpu_compatibility_frame_uploads={}
 gpu_uncaptured_errors={}
 gpu_device_losses={}
+gpu_device_recoveries={}
+gpu_device_recovery_failures={}
+gpu_abandoned_lost_surfaces={}
 text_backend={}
 gpu_text_prepared_glyphs={}
 gpu_text_mask_glyphs={}
@@ -83019,6 +83148,8 @@ bells={}
             self.render_frame_p95_us,
             self.gpu_backend,
             self.gpu_adapter_name,
+            self.gpu_adapter_vendor_id,
+            self.gpu_adapter_device_id,
             self.gpu_adapter_type,
             self.gpu_software_adapter,
             metric_option_string(self.gpu_surface_format.as_deref()),
@@ -83032,8 +83163,12 @@ bells={}
             self.gpu_surface_timeouts,
             self.gpu_surface_occlusions,
             self.gpu_surface_validation_errors,
+            self.gpu_compatibility_frame_uploads,
             self.gpu_uncaptured_errors,
             self.gpu_device_losses,
+            self.gpu_device_recoveries,
+            self.gpu_device_recovery_failures,
+            self.gpu_abandoned_lost_surfaces,
             self.text_backend,
             self.gpu_text_prepared_glyphs,
             self.gpu_text_mask_glyphs,
@@ -83283,6 +83418,8 @@ impl WindowMetrics {
             render_frame_p95_us: p95_us(&self.render_frame_times),
             gpu_backend: gpu.backend.clone(),
             gpu_adapter_name: gpu.adapter_name.clone(),
+            gpu_adapter_vendor_id: gpu.adapter_vendor_id,
+            gpu_adapter_device_id: gpu.adapter_device_id,
             gpu_adapter_type: gpu.adapter_type.clone(),
             gpu_software_adapter: gpu.software_adapter,
             gpu_surface_format: gpu.surface_format.clone(),
@@ -83296,8 +83433,12 @@ impl WindowMetrics {
             gpu_surface_timeouts: gpu.surface_timeouts,
             gpu_surface_occlusions: gpu.surface_occlusions,
             gpu_surface_validation_errors: gpu.surface_validation_errors,
+            gpu_compatibility_frame_uploads: gpu.compatibility_frame_uploads,
             gpu_uncaptured_errors: gpu.uncaptured_errors,
             gpu_device_losses: gpu.device_losses,
+            gpu_device_recoveries: gpu.device_recoveries,
+            gpu_device_recovery_failures: gpu.device_recovery_failures,
+            gpu_abandoned_lost_surfaces: gpu.abandoned_lost_surfaces,
             text_backend: text_backend.to_owned(),
             gpu_text_prepared_glyphs: direct_report.map_or(0, |report| report.shaped_glyphs),
             gpu_text_mask_glyphs: direct_report.map_or(0, |report| report.mask_glyphs),
@@ -83528,6 +83669,7 @@ struct NativeFrameContentPlacement {
 }
 
 impl NativeFrameContentPlacement {
+    #[cfg(test)]
     fn is_full_frame(self, geometry: RenderGeometry) -> bool {
         self.x == 0
             && self.y == 0
@@ -83536,6 +83678,7 @@ impl NativeFrameContentPlacement {
     }
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn render_framebuffer_with_state(
     renderer: &PixelRenderer,
@@ -83592,6 +83735,7 @@ fn render_framebuffer_with_state(
     FrameRenderMode::Damage
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn render_aligned_framebuffer(
     renderer: &PixelRenderer,
@@ -83653,12 +83797,14 @@ fn render_aligned_framebuffer(
     );
 }
 
+#[cfg(test)]
 fn fill_framebuffer(frame: &mut [u8], color: [u8; 4]) {
     for pixel in frame.chunks_exact_mut(4) {
         pixel.copy_from_slice(&color);
     }
 }
 
+#[cfg(test)]
 #[expect(
     clippy::too_many_arguments,
     reason = "compatibility operation requires the complete evaluation context"
@@ -83712,6 +83858,7 @@ fn blit_framebuffer(
     }
 }
 
+#[cfg(test)]
 fn redraw_frame_ui_rows(
     renderer: &PixelRenderer,
     snapshot: &TerminalRenderSnapshot,
@@ -83931,7 +84078,6 @@ impl NativeWindowApp {
                 mouse_click_may_focus_window: false,
                 window: None,
                 gpu: None,
-                pixels: None,
                 renderer: {
                     let mut renderer = PixelRenderer::new();
                     renderer.set_reverse_video_cursor_min_contrast(Some(
@@ -90956,8 +91102,6 @@ impl NativeWindowApp {
             event_loop,
             Arc::clone(&window),
             size,
-            self.frame_width,
-            self.frame_height,
             high_performance,
             force_fallback_adapter,
         ))?;
@@ -90990,8 +91134,14 @@ impl NativeWindowApp {
     fn draw_frame(&mut self, event_loop: &ActiveEventLoop) {
         self.refresh_renderer_animation_clock();
         let scrollbar = self.scrollback_scrollbar();
-        let geometry = self.render_geometry();
+        let surface_geometry = self.render_geometry();
         let placement = self.frame_content_placement();
+        let geometry = surface_geometry.with_content_rect(
+            placement.x,
+            placement.y,
+            placement.width,
+            placement.height,
+        );
         let snapshot = self.render_snapshot();
         self.record_missing_glyph_warnings(&snapshot);
         let damage_row_offset = self.terminal_frame_row_offset();
@@ -90999,70 +91149,51 @@ impl NativeWindowApp {
             self.frame_needs_full_repaint = true;
         }
         let started = Instant::now();
-        let mode = if let Some(gpu) = self.gpu.as_mut() {
-            render_framebuffer_with_state(
-                &self.renderer,
-                &snapshot,
-                scrollbar,
-                &mut self.pending_frame_damage,
-                &mut self.frame_needs_full_repaint,
-                gpu.frame_mut(),
-                geometry,
-                damage_row_offset,
-                placement,
-                color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
-            )
-        } else if let Some(pixels) = self.pixels.as_mut() {
-            render_framebuffer_with_state(
-                &self.renderer,
-                &snapshot,
-                scrollbar,
-                &mut self.pending_frame_damage,
-                &mut self.frame_needs_full_repaint,
-                pixels.frame_mut(),
-                geometry,
-                damage_row_offset,
-                placement,
-                color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
-            )
+        let mode = if self.frame_needs_full_repaint || self.pending_frame_damage.is_empty() {
+            FrameRenderMode::Full
         } else {
-            return;
+            FrameRenderMode::Damage
         };
-        self.metrics.record_frame_render_mode(mode);
+        let damage = if mode == FrameRenderMode::Damage {
+            offset_damage_regions(self.pending_frame_damage.clone(), damage_row_offset)
+        } else {
+            Vec::new()
+        };
+        let graph =
+            self.renderer
+                .prepare_gpu_frame(&snapshot, geometry, scrollbar, damage_row_offset);
         self.metrics.record_terminal_linkage_snapshot(&snapshot);
 
-        let presented = if let (Some(gpu), Some(window)) = (self.gpu.as_mut(), self.window.as_ref())
-        {
-            match gpu.present(
+        let outcome = if let (Some(gpu), Some(window)) = (self.gpu.as_mut(), self.window.as_ref()) {
+            gpu.present(
                 window,
                 &snapshot,
                 geometry,
+                &damage,
                 &self.renderer.text_paint_config(),
-            ) {
-                Ok(GpuFrameStatus::Presented) => true,
-                Ok(GpuFrameStatus::Skipped) => false,
-                Err(error) => {
-                    eprintln!("render error: {error}");
-                    event_loop.exit();
-                    return;
-                }
-            }
-        } else if let Some(pixels) = self.pixels.as_mut() {
-            if let Err(error) = pixels.render() {
+                &graph,
+            )
+        } else {
+            Ok(GpuFrameStatus::Skipped)
+        };
+        let presented = match finalize_native_gpu_frame(
+            outcome,
+            &mut self.pending_frame_damage,
+            &mut self.frame_needs_full_repaint,
+        ) {
+            Ok(presented) => presented,
+            Err(error) => {
                 eprintln!("render error: {error}");
                 event_loop.exit();
                 return;
             }
-            true
-        } else {
-            false
         };
 
         self.metrics.record_render_frame(started.elapsed());
         if !presented {
-            self.frame_needs_full_repaint = true;
             return;
         }
+        self.metrics.record_frame_render_mode(mode);
         self.rendered_frames = self.rendered_frames.saturating_add(1);
         if self.rendered_frames == 1
             && let Some(size) = test_resize_after_first_present()
@@ -91123,10 +91254,11 @@ impl NativeWindowApp {
         }
     }
 
-    fn refresh_renderer_animation_clock(&mut self) {
+    fn refresh_renderer_animation_clock(&mut self) -> u64 {
         let elapsed_ms =
             u64::try_from(self.animation_started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
         self.renderer.set_animation_elapsed_ms(elapsed_ms);
+        elapsed_ms
     }
 
     fn redraw_request_interval(&self) -> Duration {
@@ -91148,6 +91280,18 @@ impl NativeWindowApp {
 
         self.last_redraw_request_at = Some(now);
         true
+    }
+
+    fn frame_limit_redraw_pending(&self) -> bool {
+        self.frame_limit
+            .is_some_and(|limit| self.rendered_frames < limit)
+    }
+
+    fn frame_limit_redraw_deadline(&self, now: Instant) -> Option<Instant> {
+        self.frame_limit_redraw_pending().then(|| {
+            self.last_redraw_request_at
+                .map_or(now, |last| last + self.redraw_request_interval())
+        })
     }
 
     fn should_request_animation_redraw_at(&mut self, now: Instant) -> bool {
@@ -100391,23 +100535,27 @@ impl NativeWindowApp {
             .map_or_else(GpuPresentationMetrics::uninitialized, |gpu| {
                 gpu.metrics().clone()
             });
-        let compatibility_text_backend = match self.renderer.text_backend() {
-            rssh_renderer::TextBackend::BitmapEmergency => "bitmap-emergency",
-            rssh_renderer::TextBackend::Shaped => "shaped",
-        };
-        let text_backend = if direct_text.is_some() {
+        let text_backend = if self.gpu.is_some() {
             "shaped-gpu-atlas"
         } else {
-            compatibility_text_backend
+            "bitmap-emergency"
         };
         self.metrics
             .snapshot_with_gpu(&gpu, text_backend, direct_text)
     }
 
+    fn shutdown_gpu_for_window_close(&mut self) {
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.shutdown_for_window_close();
+        }
+    }
+
+    #[cfg(test)]
     fn metrics_report(&self) -> String {
         self.metrics_snapshot().report()
     }
 
+    #[cfg(test)]
     fn metrics_json_report(&self) -> Result<String, serde_json::Error> {
         self.metrics_snapshot().json_report()
     }
@@ -103963,8 +104111,6 @@ impl NativeWindowApp {
                 u32::from(terminal_size.rows.saturating_add(TAB_BAR_ROWS)) * cell_height;
         }
 
-        self.resize_presentation_frame()?;
-
         let pty_size = PtySize::try_new(terminal_size.columns, terminal_size.rows)?;
         if let Some((old_columns, old_rows, new_columns, new_rows)) = split_resize {
             self.app_shell.preserve_split_layout_for_resize(
@@ -104031,19 +104177,6 @@ impl NativeWindowApp {
     ) -> Result<(), Box<dyn Error>> {
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.resize_surface(size)?;
-        }
-        if let Some(pixels) = self.pixels.as_mut() {
-            pixels.resize_surface(size.width, size.height)?;
-        }
-        Ok(())
-    }
-
-    fn resize_presentation_frame(&mut self) -> Result<(), Box<dyn Error>> {
-        if let Some(pixels) = self.pixels.as_mut() {
-            pixels.resize_buffer(self.frame_width, self.frame_height)?;
-        }
-        if let Some(gpu) = self.gpu.as_mut() {
-            gpu.resize_frame(self.frame_width, self.frame_height)?;
         }
         Ok(())
     }
@@ -131499,12 +131632,9 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
         let activate_window_request = app.take_activate_window_request();
         let application_hide_requested = app.take_application_hide_request();
         if app.take_window_close_request() {
-            self.focus.remove(window_id);
-            let app_window_id = app.app_window_id;
-            self.quit_when_all_windows_are_closed = app.quit_when_all_windows_are_closed;
-            self.last_metrics = Some(app.metrics_snapshot());
-            drop(app);
-            self.remove_pane_event_routes_for_window(app_window_id);
+            self.windows.insert(window_id, app);
+            self.finalize_app_close_at_location(ManagedWindowAppLocation::Window(window_id))
+                .expect("event window remains manager-owned until final removal");
             if self.should_exit_when_idle() {
                 event_loop.exit();
                 return;
@@ -131538,9 +131668,11 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
         }
 
         let now = Instant::now();
+        let mut next_frame_limit_redraw = None;
         for app in self.windows.values_mut() {
             let mut regular_redraw_needed =
                 app.frame_needs_full_repaint || !app.pending_frame_damage.is_empty();
+            regular_redraw_needed |= app.frame_limit_redraw_pending();
             regular_redraw_needed |= app.dispatch_update_status_if_due(now);
             let cursor_animation_changed = app.update_cursor_blink_phase_if_due(now);
             let text_animation_changed = app.update_text_blink_phase_if_due(now);
@@ -131556,7 +131688,22 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
             if animation_active {
                 app.request_animation_redraw_if_due(now);
             }
+            if let Some(deadline) = app.frame_limit_redraw_deadline(now) {
+                next_frame_limit_redraw = Some(
+                    next_frame_limit_redraw
+                        .map_or(deadline, |earliest: Instant| earliest.min(deadline)),
+                );
+            }
         }
+        if let Some(deadline) = next_frame_limit_redraw {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
+        } else {
+            event_loop.set_control_flow(ControlFlow::Wait);
+        }
+    }
+
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.shutdown_gpu_for_application_exit();
     }
 }
 
@@ -131637,6 +131784,10 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                 }
             }
         }
+    }
+
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.shutdown_gpu_for_window_close();
     }
 
     fn window_event(
@@ -131736,10 +131887,11 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
         let mut regular_redraw_needed =
             self.frame_needs_full_repaint || !self.pending_frame_damage.is_empty();
+        regular_redraw_needed |= self.frame_limit_redraw_pending();
         regular_redraw_needed |= self.dispatch_update_status_if_due(now);
         let cursor_animation_changed = self.update_cursor_blink_phase_if_due(now);
         let text_animation_changed = self.update_text_blink_phase_if_due(now);
@@ -131754,6 +131906,11 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
         }
         if animation_active {
             self.request_animation_redraw_if_due(now);
+        }
+        if let Some(deadline) = self.frame_limit_redraw_deadline(now) {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
+        } else {
+            event_loop.set_control_flow(ControlFlow::Wait);
         }
     }
 }
@@ -132053,7 +132210,7 @@ mod tests {
     use rssh_pty::PtyExitStatus;
     use rssh_renderer::{
         RenderBackgroundImageAttachment, RenderGeometry, RenderScrollbarThumbSize,
-        SCROLLBAR_THUMB_COLOR, TerminalRenderSnapshot, color_to_rgba,
+        SCROLLBAR_THUMB_COLOR, TerminalRenderSnapshot, color_to_rgba, gpu::GpuFrameStatus,
     };
     use rssh_terminal::{
         Color, CursorShape, StableRowIndex, StableSelectionCoordinate, StableSelectionRange,
@@ -132181,9 +132338,9 @@ mod tests {
         demo_snapshot, dispatch_window_focus_changed, encode_window_focus_event, encode_window_key,
         encode_window_key_with_kitty, encode_window_key_with_kitty_event,
         encode_window_mouse_event, encode_window_mouse_event_with_pixels, encode_window_paste,
-        input_selector_options_from_query, native_window_key_assignment_entries,
-        native_window_resize_increments_supported, nerd_font_icon_for_name,
-        pane_select_activate_alphabet_from_query,
+        finalize_native_gpu_frame, input_selector_options_from_query,
+        native_window_key_assignment_entries, native_window_resize_increments_supported,
+        nerd_font_icon_for_name, pane_select_activate_alphabet_from_query,
         pane_select_activate_show_pane_ids_alphabet_from_query, pane_select_alphabet_from_query,
         pane_select_mode_alphabet_from_query, pane_select_mode_show_pane_ids_from_query,
         pane_select_options_from_query, pane_select_show_pane_ids_alphabet_from_query,
@@ -136821,6 +136978,34 @@ mod tests {
         let metrics = app.metrics_snapshot();
         assert_eq!(metrics.full_render_frames, 1);
         assert_eq!(metrics.dirty_render_frames, 1);
+    }
+
+    #[test]
+    fn native_gpu_damage_is_consumed_only_after_successful_present() {
+        let damage = DamageRegion::new(1, 2, 3, 4);
+        for outcome in [Ok(GpuFrameStatus::Skipped), Err("device fault")] {
+            let expected_error = outcome.is_err();
+            let mut pending = vec![damage];
+            let mut needs_full = false;
+            let result = finalize_native_gpu_frame(outcome, &mut pending, &mut needs_full);
+
+            assert_eq!(pending, vec![damage]);
+            assert!(needs_full);
+            assert_eq!(result.is_err(), expected_error);
+        }
+
+        let mut pending = vec![damage];
+        let mut needs_full = true;
+        assert_eq!(
+            finalize_native_gpu_frame(
+                Ok::<_, &str>(GpuFrameStatus::Presented),
+                &mut pending,
+                &mut needs_full,
+            ),
+            Ok(true)
+        );
+        assert!(pending.is_empty());
+        assert!(!needs_full);
     }
 
     #[test]
@@ -208580,6 +208765,92 @@ return config
     }
 
     #[test]
+    fn window_manager_abandons_recovered_eligible_window_while_another_window_remains_active() {
+        let mut recovered = NativeWindowApp::new(None);
+        recovered.gpu = Some(Box::new(
+            crate::window_gpu::WindowGpu::for_manager_close_test(true, true),
+        ));
+        let mut manager = NativeWindowManager::new_for_test(NativeWindowApp::new(None));
+        let mut survivor = manager
+            .startup_app
+            .take()
+            .expect("surviving app starts manager-owned");
+        survivor
+            .handle_pty_output(b"alive")
+            .expect("survivor accepts output before peer close");
+        let survivor_id = winit::window::WindowId::from(1_u64);
+        let recovered_id = winit::window::WindowId::from(2_u64);
+        manager.windows.insert(survivor_id, survivor);
+        manager.windows.insert(recovered_id, Box::new(recovered));
+
+        assert!(
+            !manager.close_window(recovered_id),
+            "the other materialized window must keep the application alive"
+        );
+        assert_eq!(manager.windows.len(), 1);
+        assert!(manager.windows.contains_key(&survivor_id));
+        manager
+            .windows
+            .get_mut(&survivor_id)
+            .expect("surviving materialized window")
+            .handle_pty_output(b"!")
+            .expect("survivor continues processing output after peer close");
+        let metrics: serde_json::Value =
+            serde_json::from_str(&manager.metrics_json_report().expect("aggregate metrics"))
+                .expect("metrics JSON");
+        assert_eq!(metrics["pty_chunks"], 2);
+        assert_eq!(metrics["pty_bytes"], 6);
+        assert_eq!(metrics["gpu_abandoned_lost_surfaces"], 1);
+        assert_eq!(manager.closed_gpu_abandonments_for_test(), 1);
+
+        for (eligible, replaced) in [(false, true), (true, false)] {
+            let active = NativeWindowApp::new(None);
+            let mut ordinary = NativeWindowApp::new(None);
+            ordinary.gpu = Some(Box::new(
+                crate::window_gpu::WindowGpu::for_manager_close_test(eligible, replaced),
+            ));
+            let mut manager = NativeWindowManager::new_for_test(active);
+            let ordinary_id = winit::window::WindowId::dummy();
+            manager.windows.insert(ordinary_id, Box::new(ordinary));
+
+            assert!(!manager.close_window(ordinary_id));
+            assert_eq!(manager.closed_gpu_abandonments_for_test(), 0);
+        }
+    }
+
+    #[test]
+    fn window_manager_aggregates_closed_and_all_live_gpu_abandonments_on_application_exit() {
+        let mut manager = NativeWindowManager::new_for_test(NativeWindowApp::new(None));
+        manager.startup_app = None;
+        for (raw_id, chunks) in [(1_u64, 1_usize), (2_u64, 2_usize), (3_u64, 0_usize)] {
+            let mut app = NativeWindowApp::new(None);
+            for _ in 0..chunks {
+                app.handle_pty_output(b"x")
+                    .expect("record representative PTY metric");
+            }
+            app.gpu = Some(Box::new(
+                crate::window_gpu::WindowGpu::for_manager_close_test(true, true),
+            ));
+            manager
+                .windows
+                .insert(winit::window::WindowId::from(raw_id), Box::new(app));
+        }
+
+        assert!(!manager.close_window(winit::window::WindowId::from(3_u64)));
+        assert_eq!(manager.closed_gpu_abandonments_for_test(), 1);
+        manager.shutdown_gpu_for_application_exit();
+
+        let selected = manager
+            .metrics_app()
+            .expect("one live app remains selected for representative metrics")
+            .metrics_snapshot();
+        let aggregated = manager.aggregated_metrics_snapshot();
+        assert_eq!(aggregated.gpu_abandoned_lost_surfaces, 3);
+        assert_eq!(aggregated.pty_chunks, selected.pty_chunks);
+        assert_eq!(aggregated.pty_bytes, selected.pty_bytes);
+    }
+
+    #[test]
     fn window_pane_select_cancel_keys_exit_without_focusing() {
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::SplitPane {
@@ -234692,6 +234963,19 @@ return config
         assert!(app.should_request_redraw_at(next));
         assert!(!app.should_request_redraw_at(next + Duration::from_millis(6)));
         assert!(app.should_request_redraw_at(next + Duration::from_millis(7)));
+    }
+
+    #[test]
+    fn window_app_requests_throttled_redraws_until_the_frame_limit_is_reached() {
+        let mut app = NativeWindowApp::new(Some(10));
+        assert!(app.frame_limit_redraw_pending());
+
+        app.rendered_frames = 9;
+        assert!(app.frame_limit_redraw_pending());
+
+        app.rendered_frames = 10;
+        assert!(!app.frame_limit_redraw_pending());
+        assert!(!NativeWindowApp::new(None).frame_limit_redraw_pending());
     }
 
     #[test]

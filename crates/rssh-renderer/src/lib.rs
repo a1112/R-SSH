@@ -1,4 +1,5 @@
 use std::{
+    cell::{Cell as StdCell, RefCell},
     cmp::Ordering,
     collections::{HashMap, HashSet},
     io::Cursor,
@@ -178,6 +179,10 @@ pub struct RenderGeometry {
     pub target_height: u32,
     pub cell_width: u32,
     pub cell_height: u32,
+    pub content_x: u32,
+    pub content_y: u32,
+    pub content_width: u32,
+    pub content_height: u32,
 }
 
 impl RenderGeometry {
@@ -193,7 +198,20 @@ impl RenderGeometry {
             target_height,
             cell_width,
             cell_height,
+            content_x: 0,
+            content_y: 0,
+            content_width: target_width,
+            content_height: target_height,
         }
+    }
+
+    #[must_use]
+    pub fn with_content_rect(mut self, x: u32, y: u32, width: u32, height: u32) -> Self {
+        self.content_x = x.min(self.target_width);
+        self.content_y = y.min(self.target_height);
+        self.content_width = width.min(self.target_width.saturating_sub(self.content_x));
+        self.content_height = height.min(self.target_height.saturating_sub(self.content_y));
+        self
     }
 }
 
@@ -365,6 +383,58 @@ impl ScrollbackScrollbar {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct GpuBackgroundPlanKey {
+    config_generation: u64,
+    width: u32,
+    height: u32,
+    cell_width: u32,
+    cell_height: u32,
+    scrollback_offset: Option<usize>,
+    animation_frames: Vec<usize>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedGpuBackgroundPlan {
+    key: GpuBackgroundPlanKey,
+    decoded: Arc<DecodedImage>,
+    texture: gpu::TextureIdentity,
+}
+
+#[derive(Debug, Clone)]
+struct BackgroundAnimationTimeline {
+    speed_millis: u32,
+    frame_delays_ms: Vec<u64>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedBackgroundAnimationTimelines {
+    config_generation: u64,
+    timelines: Vec<BackgroundAnimationTimeline>,
+}
+
+#[derive(Debug, Default)]
+struct GpuBackgroundPlanCache {
+    cached: RefCell<Option<CachedGpuBackgroundPlan>>,
+    animation_timelines: RefCell<Option<CachedBackgroundAnimationTimelines>>,
+    updates: StdCell<u64>,
+    budget_rejections: StdCell<u64>,
+}
+
+impl Clone for GpuBackgroundPlanCache {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl PartialEq for GpuBackgroundPlanCache {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for GpuBackgroundPlanCache {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PixelRenderer {
     blink_visible: bool,
     cursor_opacity_alpha: u8,
@@ -384,6 +454,8 @@ pub struct PixelRenderer {
     default_background_gradient: Option<RenderBackgroundGradient>,
     default_background_images: Vec<RenderBackgroundImage>,
     default_background_layers: Vec<RenderBackgroundLayer>,
+    gpu_background_config_generation: u64,
+    gpu_background_plan_cache: GpuBackgroundPlanCache,
     default_cursor_color: [u8; 4],
     default_cursor_border: Option<[u8; 4]>,
     default_cursor_foreground: Option<[u8; 4]>,
@@ -718,6 +790,13 @@ impl PixelRenderer {
             default_background_gradient: None,
             default_background_images: Vec::new(),
             default_background_layers: Vec::new(),
+            gpu_background_config_generation: 0,
+            gpu_background_plan_cache: GpuBackgroundPlanCache {
+                cached: RefCell::new(None),
+                animation_timelines: RefCell::new(None),
+                updates: StdCell::new(0),
+                budget_rejections: StdCell::new(0),
+            },
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -748,6 +827,13 @@ impl PixelRenderer {
             default_background_gradient: None,
             default_background_images: Vec::new(),
             default_background_layers: Vec::new(),
+            gpu_background_config_generation: 0,
+            gpu_background_plan_cache: GpuBackgroundPlanCache {
+                cached: RefCell::new(None),
+                animation_timelines: RefCell::new(None),
+                updates: StdCell::new(0),
+                budget_rejections: StdCell::new(0),
+            },
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -983,12 +1069,19 @@ impl PixelRenderer {
     }
 
     pub fn set_default_background(&mut self, background: [u8; 4]) {
-        self.default_background = background;
+        if self.default_background != background {
+            self.default_background = background;
+            self.invalidate_gpu_background_plan();
+        }
     }
 
     pub fn set_default_background_gradient(&mut self, gradient: Option<RenderBackgroundGradient>) {
-        self.default_background_gradient =
+        let gradient =
             gradient.filter(|gradient| gradient.preset.is_some() || !gradient.colors.is_empty());
+        if self.default_background_gradient != gradient {
+            self.default_background_gradient = gradient;
+            self.invalidate_gpu_background_plan();
+        }
     }
 
     pub fn set_default_background_image(&mut self, image: Option<RenderBackgroundImage>) {
@@ -996,14 +1089,18 @@ impl PixelRenderer {
     }
 
     pub fn set_default_background_images(&mut self, images: Vec<RenderBackgroundImage>) {
-        self.default_background_images = images
+        let images = images
             .into_iter()
             .filter(|image| !image.data.is_empty())
             .collect();
+        if self.default_background_images != images {
+            self.default_background_images = images;
+            self.invalidate_gpu_background_plan();
+        }
     }
 
     pub fn set_default_background_layers(&mut self, layers: Vec<RenderBackgroundLayer>) {
-        self.default_background_layers = layers
+        let layers = layers
             .into_iter()
             .filter(|layer| match layer {
                 RenderBackgroundLayer::Color(color) => color[3] != 0,
@@ -1013,6 +1110,101 @@ impl PixelRenderer {
                 RenderBackgroundLayer::Image(image) => !image.data.is_empty(),
             })
             .collect();
+        if self.default_background_layers != layers {
+            self.default_background_layers = layers;
+            self.invalidate_gpu_background_plan();
+        }
+    }
+
+    fn invalidate_gpu_background_plan(&mut self) {
+        self.gpu_background_config_generation =
+            self.gpu_background_config_generation.saturating_add(1);
+        self.gpu_background_plan_cache.cached.get_mut().take();
+        self.gpu_background_plan_cache
+            .animation_timelines
+            .get_mut()
+            .take();
+    }
+
+    /// Number of background rasters built for the direct GPU path.
+    ///
+    /// A raster is rebuilt only when background configuration or its viewport,
+    /// scale, scrollback, or animation fingerprint changes.
+    #[must_use]
+    pub fn gpu_background_plan_updates(&self) -> u64 {
+        self.gpu_background_plan_cache.updates.get()
+    }
+
+    #[must_use]
+    pub fn gpu_background_plan_budget_rejections(&self) -> u64 {
+        self.gpu_background_plan_cache.budget_rejections.get()
+    }
+
+    fn background_images(&self) -> Vec<&RenderBackgroundImage> {
+        if self.default_background_layers.is_empty() {
+            self.default_background_images.iter().collect()
+        } else {
+            self.default_background_layers
+                .iter()
+                .filter_map(|layer| match layer {
+                    RenderBackgroundLayer::Image(image) => Some(image),
+                    RenderBackgroundLayer::Color(_) | RenderBackgroundLayer::Gradient(_) => None,
+                })
+                .collect()
+        }
+    }
+
+    fn background_animation_frames(&self, images: &[&RenderBackgroundImage]) -> Vec<usize> {
+        let needs_rebuild = self
+            .gpu_background_plan_cache
+            .animation_timelines
+            .borrow()
+            .as_ref()
+            .is_none_or(|cached| cached.config_generation != self.gpu_background_config_generation);
+        if needs_rebuild {
+            let timelines = images
+                .iter()
+                .filter_map(|image| {
+                    gif_frame_delays_ms(&image.data).map(|frame_delays_ms| {
+                        BackgroundAnimationTimeline {
+                            speed_millis: image.animation_speed_millis,
+                            frame_delays_ms,
+                        }
+                    })
+                })
+                .collect();
+            self.gpu_background_plan_cache
+                .animation_timelines
+                .replace(Some(CachedBackgroundAnimationTimelines {
+                    config_generation: self.gpu_background_config_generation,
+                    timelines,
+                }));
+        }
+        self.gpu_background_plan_cache
+            .animation_timelines
+            .borrow()
+            .as_ref()
+            .map(|cached| {
+                cached
+                    .timelines
+                    .iter()
+                    .map(|timeline| {
+                        self.animation_elapsed_ms.map_or_else(
+                            || self.animation_frame % timeline.frame_delays_ms.len().max(1),
+                            |elapsed_ms| {
+                                animation_frame_index_for_delays(
+                                    &timeline.frame_delays_ms,
+                                    background_image_animation_elapsed_ms(
+                                        elapsed_ms,
+                                        timeline.speed_millis,
+                                    ),
+                                )
+                            },
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub fn set_default_foreground(&mut self, foreground: [u8; 4]) {
@@ -1052,6 +1244,13 @@ impl PixelRenderer {
             default_background_gradient: None,
             default_background_images: Vec::new(),
             default_background_layers: Vec::new(),
+            gpu_background_config_generation: 0,
+            gpu_background_plan_cache: GpuBackgroundPlanCache {
+                cached: RefCell::new(None),
+                animation_timelines: RefCell::new(None),
+                updates: StdCell::new(0),
+                budget_rejections: StdCell::new(0),
+            },
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -1096,6 +1295,13 @@ impl PixelRenderer {
             default_background_gradient: None,
             default_background_images: Vec::new(),
             default_background_layers: Vec::new(),
+            gpu_background_config_generation: 0,
+            gpu_background_plan_cache: GpuBackgroundPlanCache {
+                cached: RefCell::new(None),
+                animation_timelines: RefCell::new(None),
+                updates: StdCell::new(0),
+                budget_rejections: StdCell::new(0),
+            },
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -1126,6 +1332,13 @@ impl PixelRenderer {
             default_background_gradient: None,
             default_background_images: Vec::new(),
             default_background_layers: Vec::new(),
+            gpu_background_config_generation: 0,
+            gpu_background_plan_cache: GpuBackgroundPlanCache {
+                cached: RefCell::new(None),
+                animation_timelines: RefCell::new(None),
+                updates: StdCell::new(0),
+                budget_rejections: StdCell::new(0),
+            },
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -1542,13 +1755,537 @@ impl PixelRenderer {
             );
         }
     }
+
+    /// Builds the non-text GPU layers owned by the terminal renderer.
+    #[allow(clippy::too_many_lines)]
+    fn prepared_gpu_background(
+        &self,
+        snapshot: &TerminalRenderSnapshot,
+        geometry: RenderGeometry,
+    ) -> Option<CachedGpuBackgroundPlan> {
+        let requires_raster = if self.default_background_layers.is_empty() {
+            self.default_background_gradient.is_some() || !self.default_background_images.is_empty()
+        } else {
+            self.default_background_layers.iter().any(|layer| {
+                matches!(
+                    layer,
+                    RenderBackgroundLayer::Gradient(_) | RenderBackgroundLayer::Image(_)
+                )
+            })
+        };
+        if !requires_raster || geometry.content_width == 0 || geometry.content_height == 0 {
+            return None;
+        }
+
+        let images = self.background_images();
+        let key = GpuBackgroundPlanKey {
+            config_generation: self.gpu_background_config_generation,
+            width: geometry.content_width,
+            height: geometry.content_height,
+            cell_width: geometry.cell_width,
+            cell_height: geometry.cell_height,
+            scrollback_offset: images
+                .iter()
+                .any(|image| image.attachment != RenderBackgroundImageAttachment::Fixed)
+                .then(|| snapshot.scrollback_offset()),
+            animation_frames: self.background_animation_frames(&images),
+        };
+        if let Some(cached) = self
+            .gpu_background_plan_cache
+            .cached
+            .borrow()
+            .as_ref()
+            .filter(|cached| cached.key == key)
+        {
+            return Some(cached.clone());
+        }
+
+        let byte_len = usize::try_from(geometry.content_width)
+            .ok()?
+            .checked_mul(usize::try_from(geometry.content_height).ok()?)?
+            .checked_mul(4)?;
+        if byte_len
+            .checked_mul(2)
+            .is_none_or(|retained| retained > gpu::DEFAULT_GPU_IMAGE_BYTE_BUDGET)
+        {
+            self.gpu_background_plan_cache.budget_rejections.set(
+                self.gpu_background_plan_cache
+                    .budget_rejections
+                    .get()
+                    .saturating_add(1),
+            );
+            return None;
+        }
+        let mut pixels = Vec::new();
+        if pixels.try_reserve_exact(byte_len).is_err() {
+            self.gpu_background_plan_cache.budget_rejections.set(
+                self.gpu_background_plan_cache
+                    .budget_rejections
+                    .get()
+                    .saturating_add(1),
+            );
+            return None;
+        }
+        pixels.resize(byte_len, 0);
+        let mut surface = Surface {
+            target: &mut pixels,
+            width: geometry.content_width,
+            height: geometry.content_height,
+        };
+        let background_rect = Rect {
+            x: 0,
+            y: 0,
+            width: geometry.content_width,
+            height: geometry.content_height,
+        };
+        if self.default_background_layers.is_empty() {
+            fill_default_background(
+                &mut surface,
+                self.default_background,
+                self.default_background_gradient.as_ref(),
+            );
+            render_background_images(
+                &mut surface,
+                &self.default_background_images,
+                background_rect,
+                snapshot.scrollback_offset(),
+                self.animation_frame,
+                self.animation_elapsed_ms,
+                geometry.cell_width,
+                geometry.cell_height,
+            );
+        } else {
+            surface.fill(self.default_background);
+            render_background_layers(
+                &mut surface,
+                &self.default_background_layers,
+                background_rect,
+                snapshot.scrollback_offset(),
+                self.animation_frame,
+                self.animation_elapsed_ms,
+                geometry.cell_width,
+                geometry.cell_height,
+            );
+        }
+
+        let pixels: Arc<[u8]> = pixels.into();
+        let decoded = Arc::new(DecodedImage {
+            width: geometry.content_width,
+            height: geometry.content_height,
+            pixels: Arc::clone(&pixels),
+        });
+        let prepared = CachedGpuBackgroundPlan {
+            key,
+            decoded,
+            texture: gpu::TextureIdentity::from_rgba(
+                geometry.content_width,
+                geometry.content_height,
+                pixels,
+            ),
+        };
+        self.gpu_background_plan_cache
+            .cached
+            .replace(Some(prepared.clone()));
+        self.gpu_background_plan_cache.updates.set(
+            self.gpu_background_plan_cache
+                .updates
+                .get()
+                .saturating_add(1),
+        );
+        Some(prepared)
+    }
+
+    #[must_use]
+    #[allow(clippy::too_many_lines)]
+    pub fn prepare_gpu_frame(
+        &self,
+        snapshot: &TerminalRenderSnapshot,
+        geometry: RenderGeometry,
+        scrollbar: Option<ScrollbackScrollbar>,
+        protected_ui_rows: u16,
+    ) -> gpu::RenderGraph {
+        let mut graph = gpu::RenderGraph::new(geometry.target_width, geometry.target_height);
+        let viewport = gpu::PixelRect::new(
+            geometry.content_x,
+            geometry.content_y,
+            geometry.content_width,
+            geometry.content_height,
+        );
+        graph.push_quad(gpu::GpuQuad::new(
+            gpu::GpuLayer::PaneBackground,
+            gpu::PixelRect::new(0, 0, geometry.target_width, geometry.target_height),
+            self.default_background,
+        ));
+        if let Some(background) = self.prepared_gpu_background(snapshot, geometry) {
+            graph.push_background_texture(background.decoded, background.texture, viewport);
+        } else {
+            for layer in &self.default_background_layers {
+                if let RenderBackgroundLayer::Color(color) = layer {
+                    graph.push_quad(gpu::GpuQuad::new(
+                        gpu::GpuLayer::PaneBackground,
+                        viewport,
+                        *color,
+                    ));
+                }
+            }
+        }
+        graph.push_snapshot_images(
+            snapshot,
+            geometry,
+            self.animation_frame,
+            self.animation_elapsed_ms,
+        );
+        for cell in snapshot.cells() {
+            let (foreground, background) = effective_cell_colors(
+                cell,
+                self.bold_brightens_ansi_colors,
+                self.default_foreground,
+                self.default_background,
+                self.ansi_palette.as_ref(),
+                self.indexed_palette.as_ref(),
+            );
+            let cell_rect = gpu::PixelRect::new(
+                geometry
+                    .content_x
+                    .saturating_add(u32::from(cell.column).saturating_mul(geometry.cell_width)),
+                geometry
+                    .content_y
+                    .saturating_add(u32::from(cell.row).saturating_mul(geometry.cell_height)),
+                geometry.cell_width,
+                geometry.cell_height,
+            );
+            let Some(cell_rect) = cell_rect.intersection(viewport) else {
+                continue;
+            };
+            if background != self.default_background {
+                graph.push_quad(gpu::GpuQuad::new(
+                    gpu::GpuLayer::CellBackground,
+                    cell_rect,
+                    background,
+                ));
+            }
+            push_gpu_text_decorations(
+                &mut graph,
+                cell,
+                cell_rect,
+                foreground,
+                color_to_rgba_with_palette(
+                    cell.underline_color,
+                    foreground,
+                    self.ansi_palette.as_ref(),
+                    self.indexed_palette.as_ref(),
+                ),
+                text_foreground_alpha(
+                    cell,
+                    self.text_blink_opacity_alpha,
+                    self.rapid_text_blink_opacity_alpha,
+                ),
+                self.underline_thickness,
+                self.underline_position,
+                self.strikethrough_position,
+                self.window_dpi,
+            );
+        }
+        if let Some(cursor) = snapshot.cursor() {
+            let colors = cursor_colors(
+                snapshot,
+                cursor,
+                self.force_reverse_video_cursor,
+                self.reverse_video_cursor_min_contrast,
+                self.bold_brightens_ansi_colors,
+                self.default_foreground,
+                self.default_background,
+                self.ansi_palette.as_ref(),
+                self.indexed_palette.as_ref(),
+                cursor_shape_default_color(
+                    cursor,
+                    self.default_cursor_color,
+                    self.default_cursor_border,
+                ),
+                self.default_cursor_foreground,
+            );
+            push_gpu_cursor(
+                &mut graph,
+                cursor,
+                geometry,
+                CursorRenderStyle {
+                    blink_visible: self.blink_visible,
+                    opacity_alpha: self.cursor_opacity_alpha,
+                    thickness: self.cursor_thickness,
+                    window_dpi: self.window_dpi,
+                    color: colors.color,
+                    foreground: colors.foreground,
+                    border: configured_cursor_border(
+                        snapshot,
+                        self.force_reverse_video_cursor,
+                        self.default_cursor_border,
+                    ),
+                },
+            );
+        }
+        if let Some(scrollbar) = scrollbar {
+            push_gpu_scrollbar(
+                &mut graph,
+                scrollbar,
+                geometry,
+                protected_ui_rows,
+                self.window_dpi,
+            );
+        }
+        graph
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "GPU decorations consume the same authoritative style inputs as the CPU oracle"
+)]
+fn push_gpu_text_decorations(
+    graph: &mut gpu::RenderGraph,
+    cell: &RenderCell,
+    cell_rect: gpu::PixelRect,
+    foreground: [u8; 4],
+    underline_color: [u8; 4],
+    foreground_alpha: u8,
+    underline_thickness: Option<RenderUnderlineThickness>,
+    underline_position: Option<RenderUnderlinePosition>,
+    strikethrough_position: Option<RenderStrikethroughPosition>,
+    window_dpi: u32,
+) {
+    if cell.conceal || foreground_alpha == 0 {
+        return;
+    }
+    let with_alpha = |mut color: [u8; 4]| {
+        color[3] = gpu_modulate_alpha(color[3], foreground_alpha);
+        color
+    };
+    let underline_height =
+        underline_thickness_px(underline_thickness, cell_rect.height, window_dpi);
+    let lower_y = cell_rect.y.saturating_add(underline_position_px(
+        underline_position,
+        cell_rect.height,
+        underline_height,
+        window_dpi,
+    ));
+    let lower = gpu::PixelRect::new(cell_rect.x, lower_y, cell_rect.width, underline_height);
+    let underline_color = with_alpha(underline_color);
+    match effective_underline_style(cell) {
+        UnderlineStyle::None => {}
+        UnderlineStyle::Single => graph.push_quad(gpu::GpuQuad::new(
+            gpu::GpuLayer::Underline,
+            lower,
+            underline_color,
+        )),
+        UnderlineStyle::Double => {
+            graph.push_quad(gpu::GpuQuad::new(
+                gpu::GpuLayer::Underline,
+                lower,
+                underline_color,
+            ));
+            graph.push_quad(gpu::GpuQuad::new(
+                gpu::GpuLayer::Underline,
+                gpu::PixelRect::new(
+                    lower.x,
+                    lower.y.saturating_sub(underline_height.saturating_mul(2)),
+                    lower.width,
+                    lower.height,
+                ),
+                underline_color,
+            ));
+        }
+        UnderlineStyle::Curly => {
+            for offset in 0..lower.width {
+                let wave = (offset / underline_height.max(1)) % 2;
+                graph.push_quad(gpu::GpuQuad::new(
+                    gpu::GpuLayer::Underline,
+                    gpu::PixelRect::new(
+                        lower.x.saturating_add(offset),
+                        lower.y.saturating_sub(wave),
+                        1,
+                        lower.height,
+                    ),
+                    underline_color,
+                ));
+            }
+        }
+        UnderlineStyle::Dotted => push_gpu_patterned_line(graph, lower, underline_color, 1, 1),
+        UnderlineStyle::Dashed => push_gpu_patterned_line(
+            graph,
+            lower,
+            underline_color,
+            underline_height.saturating_mul(3).max(3),
+            underline_height.saturating_mul(2).max(2),
+        ),
+    }
+    if cell.overline {
+        graph.push_quad(gpu::GpuQuad::new(
+            gpu::GpuLayer::Underline,
+            gpu::PixelRect::new(cell_rect.x, cell_rect.y, cell_rect.width, underline_height),
+            with_alpha(foreground),
+        ));
+    }
+    if cell.strikethrough {
+        let strike_y = cell_rect.y.saturating_add(strikethrough_position_px(
+            strikethrough_position,
+            cell_rect.height,
+            underline_height,
+            window_dpi,
+        ));
+        graph.push_quad(gpu::GpuQuad::new(
+            gpu::GpuLayer::Strikethrough,
+            gpu::PixelRect::new(cell_rect.x, strike_y, cell_rect.width, underline_height),
+            with_alpha(foreground),
+        ));
+    }
+}
+
+fn push_gpu_patterned_line(
+    graph: &mut gpu::RenderGraph,
+    rect: gpu::PixelRect,
+    color: [u8; 4],
+    segment: u32,
+    gap: u32,
+) {
+    let step = segment.saturating_add(gap).max(1);
+    let mut x = 0;
+    while x < rect.width {
+        graph.push_quad(gpu::GpuQuad::new(
+            gpu::GpuLayer::Underline,
+            gpu::PixelRect::new(
+                rect.x.saturating_add(x),
+                rect.y,
+                segment.min(rect.width.saturating_sub(x)),
+                rect.height,
+            ),
+            color,
+        ));
+        x = x.saturating_add(step);
+    }
+}
+
+fn push_gpu_cursor(
+    graph: &mut gpu::RenderGraph,
+    cursor: RenderCursor,
+    geometry: RenderGeometry,
+    style: CursorRenderStyle,
+) {
+    if cursor.blinking && !style.blink_visible {
+        return;
+    }
+    let rect = cursor_rect(
+        cursor.shape,
+        geometry
+            .content_x
+            .saturating_add(u32::from(cursor.column).saturating_mul(geometry.cell_width)),
+        geometry
+            .content_y
+            .saturating_add(u32::from(cursor.row).saturating_mul(geometry.cell_height)),
+        geometry.cell_width,
+        geometry.cell_height,
+        style.thickness,
+        style.window_dpi,
+    );
+    let alpha = if cursor.blinking {
+        style.opacity_alpha
+    } else {
+        u8::MAX
+    };
+    let mut color = style.color;
+    color[3] = gpu_modulate_alpha(color[3], alpha);
+    let Some(rect) = gpu::PixelRect::new(rect.x, rect.y, rect.width, rect.height).intersection(
+        gpu::PixelRect::new(
+            geometry.content_x,
+            geometry.content_y,
+            geometry.content_width,
+            geometry.content_height,
+        ),
+    ) else {
+        return;
+    };
+    graph.push_quad(gpu::GpuQuad::new(gpu::GpuLayer::Cursor, rect, color));
+    if cursor.shape == CursorShape::Block
+        && let Some(mut border) = style.border
+    {
+        border[3] = gpu_modulate_alpha(border[3], alpha);
+        let right = rect.x.saturating_add(rect.width.saturating_sub(1));
+        let bottom = rect.y.saturating_add(rect.height.saturating_sub(1));
+        for edge in [
+            gpu::PixelRect::new(rect.x, rect.y, rect.width, 1),
+            gpu::PixelRect::new(rect.x, bottom, rect.width, 1),
+            gpu::PixelRect::new(rect.x, rect.y, 1, rect.height),
+            gpu::PixelRect::new(right, rect.y, 1, rect.height),
+        ] {
+            graph.push_quad(gpu::GpuQuad::new(gpu::GpuLayer::Cursor, edge, border));
+        }
+    }
+}
+
+fn push_gpu_scrollbar(
+    graph: &mut gpu::RenderGraph,
+    scrollbar: ScrollbackScrollbar,
+    geometry: RenderGeometry,
+    protected_ui_rows: u16,
+    window_dpi: u32,
+) {
+    if geometry.content_width == 0 || geometry.content_height == 0 {
+        return;
+    }
+    let protected_height = u32::from(protected_ui_rows)
+        .saturating_mul(geometry.cell_height)
+        .min(geometry.content_height);
+    let clip = gpu::PixelRect::new(
+        geometry.content_x,
+        geometry.content_y.saturating_add(protected_height),
+        geometry.content_width,
+        geometry.content_height.saturating_sub(protected_height),
+    );
+    let track_width = SCROLLBAR_WIDTH.min(geometry.content_width);
+    let track = gpu::PixelRect::new(
+        geometry
+            .content_x
+            .saturating_add(geometry.content_width.saturating_sub(track_width)),
+        geometry.content_y,
+        track_width,
+        geometry.content_height,
+    );
+    if let Some(track) = track.intersection(clip) {
+        graph.push_quad(gpu::GpuQuad::new(
+            gpu::GpuLayer::Overlay,
+            track,
+            SCROLLBAR_TRACK_COLOR,
+        ));
+    }
+    let content_geometry = RenderGeometry::new(
+        geometry.content_width,
+        geometry.content_height,
+        geometry.cell_width,
+        geometry.cell_height,
+    );
+    let thumb = scrollbar_thumb_rect(scrollbar, content_geometry, track_width, window_dpi);
+    let thumb = gpu::PixelRect::new(
+        geometry.content_x.saturating_add(thumb.x),
+        geometry.content_y.saturating_add(thumb.y),
+        thumb.width,
+        thumb.height,
+    );
+    if let Some(thumb) = thumb.intersection(clip) {
+        graph.push_quad(gpu::GpuQuad::new(
+            gpu::GpuLayer::Overlay,
+            thumb,
+            scrollbar.thumb_color.unwrap_or(SCROLLBAR_THUMB_COLOR),
+        ));
+    }
+}
+
+fn gpu_modulate_alpha(left: u8, right: u8) -> u8 {
+    u8::try_from((u16::from(left) * u16::from(right)) / 255).unwrap_or(u8::MAX)
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct DecodedImage {
     pub(crate) width: u32,
     pub(crate) height: u32,
-    pub(crate) pixels: Vec<u8>,
+    pub(crate) pixels: Arc<[u8]>,
 }
 
 /// Backend-neutral, fully normalized inline-image draw.
@@ -2592,8 +3329,8 @@ fn cached_decoded_image(
 )]
 fn plan_image_draw(
     decoded: Arc<DecodedImage>,
-    origin_x: i64,
-    origin_y: i64,
+    local_origin_x: i64,
+    local_origin_y: i64,
     destination_width: u32,
     destination_height: u32,
     clip: Option<(i64, i64, i64, i64)>,
@@ -2621,17 +3358,21 @@ fn plan_image_draw(
     {
         return None;
     }
+    let origin_x = local_origin_x.saturating_add(i64::from(geometry.content_x));
+    let origin_y = local_origin_y.saturating_add(i64::from(geometry.content_y));
     let destination_right = origin_x.saturating_add(i64::from(destination_width));
     let destination_bottom = origin_y.saturating_add(i64::from(destination_height));
-    let mut left = origin_x.max(0);
-    let mut top = origin_y.max(0);
-    let mut right = destination_right.min(i64::from(geometry.target_width));
-    let mut bottom = destination_bottom.min(i64::from(geometry.target_height));
+    let content_right = geometry.content_x.saturating_add(geometry.content_width);
+    let content_bottom = geometry.content_y.saturating_add(geometry.content_height);
+    let mut left = origin_x.max(i64::from(geometry.content_x));
+    let mut top = origin_y.max(i64::from(geometry.content_y));
+    let mut right = destination_right.min(i64::from(content_right));
+    let mut bottom = destination_bottom.min(i64::from(content_bottom));
     if let Some((clip_left, clip_top, clip_right, clip_bottom)) = clip {
-        left = left.max(clip_left);
-        top = top.max(clip_top);
-        right = right.min(clip_right);
-        bottom = bottom.min(clip_bottom);
+        left = left.max(clip_left.saturating_add(i64::from(geometry.content_x)));
+        top = top.max(clip_top.saturating_add(i64::from(geometry.content_y)));
+        right = right.min(clip_right.saturating_add(i64::from(geometry.content_x)));
+        bottom = bottom.min(clip_bottom.saturating_add(i64::from(geometry.content_y)));
     }
     if right <= left || bottom <= top {
         return None;
@@ -3532,7 +4273,7 @@ fn decode_image_rgba(
     Some(DecodedImage {
         width,
         height,
-        pixels: image.into_raw(),
+        pixels: image.into_raw().into(),
     })
 }
 
@@ -3558,22 +4299,36 @@ fn decode_gif_frame_rgba(
     Some(DecodedImage {
         width,
         height,
-        pixels: image.into_raw(),
+        pixels: image.into_raw().into(),
     })
 }
 
 fn gif_frame_index_for_elapsed_ms(frames: &[image::Frame], elapsed_ms: u64) -> usize {
-    let total_duration_ms = frames.iter().fold(0_u64, |total, frame| {
-        total.saturating_add(gif_frame_delay_ms(frame))
-    });
+    let delays = frames.iter().map(gif_frame_delay_ms).collect::<Vec<_>>();
+    animation_frame_index_for_delays(&delays, elapsed_ms)
+}
+
+fn gif_frame_delays_ms(data: &[u8]) -> Option<Vec<u64>> {
+    if !data.starts_with(b"GIF87a") && !data.starts_with(b"GIF89a") {
+        return None;
+    }
+    let decoder = image::codecs::gif::GifDecoder::new(Cursor::new(data)).ok()?;
+    let frames = decoder.into_frames().collect_frames().ok()?;
+    (!frames.is_empty()).then(|| frames.iter().map(gif_frame_delay_ms).collect())
+}
+
+fn animation_frame_index_for_delays(delays: &[u64], elapsed_ms: u64) -> usize {
+    let total_duration_ms = delays
+        .iter()
+        .fold(0_u64, |total, delay| total.saturating_add(*delay));
     if total_duration_ms == 0 {
         return 0;
     }
 
     let elapsed_ms = elapsed_ms % total_duration_ms;
     let mut frame_start_ms = 0_u64;
-    for (index, frame) in frames.iter().enumerate() {
-        frame_start_ms = frame_start_ms.saturating_add(gif_frame_delay_ms(frame));
+    for (index, delay) in delays.iter().enumerate() {
+        frame_start_ms = frame_start_ms.saturating_add(*delay);
         if elapsed_ms < frame_start_ms {
             return index;
         }
@@ -3607,7 +4362,7 @@ fn decode_raw_rgb(data: &[u8], width: u32, height: u32) -> Option<DecodedImage> 
     Some(DecodedImage {
         width,
         height,
-        pixels,
+        pixels: pixels.into(),
     })
 }
 
@@ -3617,7 +4372,7 @@ fn decode_raw_rgba(data: &[u8], width: u32, height: u32) -> Option<DecodedImage>
     Some(DecodedImage {
         width,
         height,
-        pixels: data.to_vec(),
+        pixels: Arc::from(data),
     })
 }
 
@@ -5856,7 +6611,7 @@ mod tests {
             decoded: Arc::new(DecodedImage {
                 width: 1,
                 height: 1,
-                pixels: vec![0, 0, 0, u8::MAX],
+                pixels: vec![0, 0, 0, u8::MAX].into(),
             }),
             sample_source_x: 0,
             sample_source_y: 0,
@@ -6082,7 +6837,7 @@ mod tests {
         let decoded = DecodedImage {
             width: 1,
             height: 1,
-            pixels: Vec::new(),
+            pixels: Arc::from([]),
         };
 
         let layout = background_image_layout(&image, &decoded, 640, 400, 8, 16)
@@ -6118,7 +6873,7 @@ mod tests {
         let decoded = DecodedImage {
             width: 2,
             height: 1,
-            pixels: Vec::new(),
+            pixels: Arc::from([]),
         };
 
         let layout = background_image_layout(&image, &decoded, 100, 80, 8, 16)

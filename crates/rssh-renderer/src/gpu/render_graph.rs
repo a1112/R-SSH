@@ -21,8 +21,8 @@ use super::{
     text::{GpuText, GpuTextAtlasMetrics, GpuTextConfig, GpuTextPrepareReport},
 };
 use crate::{
-    DamageRegion, ImageDrawPlan, ImageTiePolicy, RenderGeometry, TerminalRenderSnapshot,
-    TextPaintConfig, gpu_image_draw_plan, image_draw_pixel,
+    DamageRegion, DecodedImage, ImageDrawPlan, ImageTiePolicy, RenderGeometry,
+    TerminalRenderSnapshot, TextPaintConfig, gpu_image_draw_plan, image_draw_pixel,
 };
 use rssh_fonts::{FontCatalog, FontConfig};
 
@@ -146,11 +146,26 @@ enum PrimitiveKind {
 }
 
 #[derive(Clone, Debug)]
-struct TextureIdentity {
+pub(crate) struct TextureIdentity {
     digest: u64,
     width: u32,
     height: u32,
     pixels: Arc<[u8]>,
+}
+
+impl TextureIdentity {
+    pub(crate) fn from_rgba(width: u32, height: u32, pixels: Arc<[u8]>) -> Self {
+        let mut hasher = DefaultHasher::new();
+        width.hash(&mut hasher);
+        height.hash(&mut hasher);
+        pixels.hash(&mut hasher);
+        Self {
+            digest: hasher.finish(),
+            width,
+            height,
+            pixels,
+        }
+    }
 }
 
 impl PartialEq for TextureIdentity {
@@ -186,6 +201,7 @@ enum GraphNode {
     },
     TextureImage {
         sequence: u64,
+        layer: GpuLayer,
         texture: Option<TextureIdentity>,
         plan: Arc<ImageDrawPlan>,
     },
@@ -215,7 +231,7 @@ impl GraphNode {
         match self {
             Self::Quad { quad, .. } => quad.layer(),
             Self::Image { image, .. } => image.layer(),
-            Self::TextureImage { plan, .. } => image_layer(plan.z_index),
+            Self::TextureImage { layer, .. } => *layer,
         }
     }
 
@@ -284,10 +300,46 @@ impl RenderGraph {
             let sequence = self.allocate_sequence();
             self.nodes.push(GraphNode::TextureImage {
                 sequence,
+                layer: image_layer(plan.z_index),
                 texture: None,
                 plan: Arc::new(plan),
             });
         }
+    }
+
+    pub(crate) fn push_background_texture(
+        &mut self,
+        decoded: Arc<DecodedImage>,
+        texture: TextureIdentity,
+        destination: PixelRect,
+    ) {
+        let sequence = self.allocate_sequence();
+        self.nodes.push(GraphNode::TextureImage {
+            sequence,
+            layer: GpuLayer::PaneBackground,
+            texture: Some(texture),
+            plan: Arc::new(ImageDrawPlan {
+                destination_x: destination.x,
+                destination_y: destination.y,
+                width: destination.width,
+                height: destination.height,
+                sample_source_x: 0,
+                sample_source_y: 0,
+                sample_target_x: 0,
+                sample_target_y: 0,
+                sample_source_width: decoded.width,
+                sample_source_height: decoded.height,
+                sample_destination_width: destination.width,
+                sample_destination_height: destination.height,
+                z_index: 0,
+                kitty_image_id: None,
+                parent_index: 0,
+                fragment_index: 0,
+                tie_policy: ImageTiePolicy::Whole,
+                stable_order: 0,
+                decoded,
+            }),
+        });
     }
 
     #[must_use]
@@ -398,11 +450,13 @@ impl RenderGraph {
         let mut texture_candidates = HashMap::<TextureIdentity, usize>::new();
         let mut texture_indices = HashMap::<u64, usize>::new();
         let mut unique_image_bytes = 0_usize;
+        let mut texture_materializations = 0_u64;
         for (node, _) in &nodes {
             let GraphNode::TextureImage {
                 sequence,
                 texture,
                 plan,
+                ..
             } = node
             else {
                 continue;
@@ -414,7 +468,12 @@ impl RenderGraph {
                     "GPU image draw requires {retained_bytes} retained bytes, exceeding the {image_budget_bytes}-byte budget"
                 )));
             }
-            let identity = texture.clone().map_or_else(|| texture_identity(plan), Ok)?;
+            let identity = if let Some(texture) = texture.clone() {
+                texture
+            } else {
+                texture_materializations = texture_materializations.saturating_add(1);
+                texture_identity(plan)?
+            };
             let texture_index = if let Some(index) = texture_candidates.get(&identity).copied() {
                 index
             } else {
@@ -476,6 +535,7 @@ impl RenderGraph {
             bytes,
             batches,
             textures,
+            texture_materializations,
         })
     }
 }
@@ -493,17 +553,11 @@ fn texture_identity(plan: &ImageDrawPlan) -> Result<TextureIdentity, GpuLayerErr
             pixels.extend_from_slice(&image_draw_pixel(plan, x, y));
         }
     }
-    let pixels: Arc<[u8]> = pixels.into();
-    let mut hasher = DefaultHasher::new();
-    plan.width.hash(&mut hasher);
-    plan.height.hash(&mut hasher);
-    pixels.hash(&mut hasher);
-    Ok(TextureIdentity {
-        digest: hasher.finish(),
-        width: plan.width,
-        height: plan.height,
-        pixels,
-    })
+    Ok(TextureIdentity::from_rgba(
+        plan.width,
+        plan.height,
+        pixels.into(),
+    ))
 }
 
 fn node_order(left: &GraphNode, right: &GraphNode) -> Ordering {
@@ -557,6 +611,7 @@ struct PreparedGraph {
     bytes: Vec<u8>,
     batches: Vec<DrawBatch>,
     textures: Vec<PlannedTexture>,
+    texture_materializations: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -697,6 +752,7 @@ pub struct TextureCacheMetrics {
     pub budget_bytes: usize,
     pub uploads: u64,
     pub evictions: u64,
+    pub materializations: u64,
 }
 
 #[derive(Debug)]
@@ -890,6 +946,7 @@ impl TextureCache {
             budget_bytes: self.budget_bytes,
             uploads: self.uploads,
             evictions: self.evictions,
+            materializations: 0,
         }
     }
 }
@@ -990,6 +1047,7 @@ pub struct GpuLayerRenderer {
     readback_budget_bytes: usize,
     prepared_batches: Vec<DrawBatch>,
     prepared_textures: Vec<TextureIdentity>,
+    texture_materializations: u64,
     prepared_size: (u32, u32),
     text: Option<GpuText>,
 }
@@ -1167,6 +1225,7 @@ impl GpuLayerRenderer {
             readback_budget_bytes,
             prepared_batches: Vec::new(),
             prepared_textures: Vec::new(),
+            texture_materializations: 0,
             prepared_size: (0, 0),
             text: None,
         })
@@ -1238,6 +1297,9 @@ impl GpuLayerRenderer {
         let graph = extended.as_ref().unwrap_or(graph);
         let mut prepared =
             graph.prepare(self.instances.budget_bytes, self.texture_cache.budget_bytes)?;
+        self.texture_materializations = self
+            .texture_materializations
+            .saturating_add(prepared.texture_materializations);
         self.texture_cache.prepare(
             &self.device,
             &self.queue,
@@ -1303,7 +1365,9 @@ impl GpuLayerRenderer {
 
     #[must_use]
     pub fn texture_cache_metrics(&self) -> TextureCacheMetrics {
-        self.texture_cache.metrics()
+        let mut metrics = self.texture_cache.metrics();
+        metrics.materializations = self.texture_materializations;
+        metrics
     }
 
     fn validate_readback(&self, width: u32, height: u32) -> Result<ReadbackLayout, GpuLayerError> {
@@ -1595,7 +1659,7 @@ mod tests {
     };
 
     use super::{
-        GpuContext, GpuImage, GpuLayerRenderer, GraphNode, PixelRect, RenderGraph,
+        GpuContext, GpuImage, GpuLayer, GpuLayerRenderer, GraphNode, PixelRect, RenderGraph,
         TEXTURE_IDENTITY_EQ_CALLS, TextureIdentity, dirty_range, node_order,
     };
 
@@ -1608,7 +1672,7 @@ mod tests {
             decoded: Arc::new(DecodedImage {
                 width: 1,
                 height: 1,
-                pixels: pixels.to_vec(),
+                pixels: Arc::from(pixels),
             }),
             sample_source_x: 0,
             sample_source_y: 0,
@@ -1656,7 +1720,7 @@ mod tests {
                 decoded: Arc::new(DecodedImage {
                     width: 1,
                     height: 1,
-                    pixels: pixels.to_vec(),
+                    pixels: Arc::clone(&pixels),
                 }),
                 sample_source_x: 0,
                 sample_source_y: 0,
@@ -1675,6 +1739,7 @@ mod tests {
             });
             GraphNode::TextureImage {
                 sequence,
+                layer: GpuLayer::PositiveImage,
                 texture: Some(TextureIdentity {
                     digest: sequence,
                     width: 1,
@@ -1725,21 +1790,23 @@ mod tests {
             nodes: vec![
                 GraphNode::TextureImage {
                     sequence: 0,
+                    layer: GpuLayer::PositiveImage,
                     texture: Some(TextureIdentity {
                         digest: colliding_digest,
                         width: 1,
                         height: 1,
-                        pixels: Arc::from(red.decoded.pixels.clone()),
+                        pixels: red.decoded.pixels.clone(),
                     }),
                     plan: red,
                 },
                 GraphNode::TextureImage {
                     sequence: 1,
+                    layer: GpuLayer::PositiveImage,
                     texture: Some(TextureIdentity {
                         digest: colliding_digest,
                         width: 1,
                         height: 1,
-                        pixels: Arc::from(green.decoded.pixels.clone()),
+                        pixels: green.decoded.pixels.clone(),
                     }),
                     plan: green,
                 },
@@ -1789,6 +1856,7 @@ mod tests {
                 let byte = u8::try_from(index % 251).expect("bounded byte");
                 GraphNode::TextureImage {
                     sequence: u64::try_from(index).expect("bounded sequence"),
+                    layer: GpuLayer::PositiveImage,
                     texture: Some(TextureIdentity {
                         digest: u64::try_from(index).expect("bounded digest"),
                         width: 1,
@@ -1829,6 +1897,7 @@ mod tests {
             height: 1,
             nodes: vec![GraphNode::TextureImage {
                 sequence: 0,
+                layer: GpuLayer::PositiveImage,
                 texture: None,
                 plan,
             }],

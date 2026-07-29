@@ -401,6 +401,8 @@ impl GpuText {
             || geometry.cell_height == 0
             || geometry.target_width == 0
             || geometry.target_height == 0
+            || geometry.content_width == 0
+            || geometry.content_height == 0
         {
             return Err(GpuLayerError::message("GPU text geometry must be nonzero"));
         }
@@ -461,8 +463,8 @@ impl GpuText {
         damage: &[DamageRegion],
         paint: &TextPaintConfig,
     ) -> Result<GpuTextPrepareReport, GpuLayerError> {
-        let columns_u32 = geometry.target_width / geometry.cell_width;
-        let rows_u32 = geometry.target_height / geometry.cell_height;
+        let columns_u32 = geometry.content_width / geometry.cell_width;
+        let rows_u32 = geometry.content_height / geometry.cell_height;
         let columns = u16::try_from(columns_u32).unwrap_or(u16::MAX);
         let rows = u16::try_from(rows_u32).unwrap_or(u16::MAX);
         if self.geometry != Some(geometry) {
@@ -522,9 +524,11 @@ impl GpuText {
                 .iter()
                 .map(|row| {
                     PixelRect::new(
-                        0,
-                        u32::from(*row).saturating_mul(geometry.cell_height),
-                        geometry.target_width,
+                        geometry.content_x,
+                        geometry
+                            .content_y
+                            .saturating_add(u32::from(*row).saturating_mul(geometry.cell_height)),
+                        geometry.content_width,
                         geometry.cell_height,
                     )
                 })
@@ -545,7 +549,8 @@ impl GpuText {
             report.shaped_glyphs = report.shaped_glyphs.saturating_add(shaped.glyphs.len());
             let scale_x = geometry.cell_width as f32 / shaped.metrics.cell_width;
             let visual_starts = crate::text::visual_cell_starts(&shaped);
-            let baseline = f32::from(row) * geometry.cell_height as f32
+            let baseline = geometry.content_y as f32
+                + f32::from(row) * geometry.cell_height as f32
                 + shaped.metrics.baseline / shaped.metrics.line_height
                     * geometry.cell_height as f32;
             let mut prepared_row = PreparedGpuRow::default();
@@ -595,10 +600,14 @@ impl GpuText {
                     prepared_row.blocks.push(super::GpuQuad::new(
                         super::GpuLayer::Glyph,
                         PixelRect::new(
-                            u32::try_from(visual_start)
-                                .unwrap_or(u32::MAX)
-                                .saturating_mul(geometry.cell_width),
-                            u32::from(row).saturating_mul(geometry.cell_height),
+                            geometry.content_x.saturating_add(
+                                u32::try_from(visual_start)
+                                    .unwrap_or(u32::MAX)
+                                    .saturating_mul(geometry.cell_width),
+                            ),
+                            geometry.content_y.saturating_add(
+                                u32::from(row).saturating_mul(geometry.cell_height),
+                            ),
                             u32::try_from(cell_width)
                                 .unwrap_or(u32::MAX)
                                 .saturating_mul(geometry.cell_width),
@@ -612,10 +621,13 @@ impl GpuText {
                     {
                         let cursor_x = u32::try_from(visual_cell)
                             .unwrap_or(u32::MAX)
-                            .saturating_mul(geometry.cell_width);
+                            .saturating_mul(geometry.cell_width)
+                            .saturating_add(geometry.content_x);
                         let cursor_rect = PixelRect::new(
                             cursor_x,
-                            u32::from(row).saturating_mul(geometry.cell_height),
+                            geometry.content_y.saturating_add(
+                                u32::from(row).saturating_mul(geometry.cell_height),
+                            ),
                             geometry.cell_width,
                             geometry.cell_height,
                         );
@@ -630,7 +642,7 @@ impl GpuText {
                     }
                     continue;
                 }
-                let logical_x = glyph.x * scale_x;
+                let logical_x = geometry.content_x as f32 + glyph.x * scale_x;
                 let aligned_baseline =
                     vertical_align_baseline(baseline, geometry.cell_height, style);
                 let request = RasterRequest::for_shaped_glyph_at_physical_position(
@@ -760,7 +772,9 @@ impl GpuText {
                     glyph.cluster_range.start,
                     geometry,
                 );
-                let clip_y = u32::from(row).saturating_mul(geometry.cell_height);
+                let clip_y = geometry
+                    .content_y
+                    .saturating_add(u32::from(row).saturating_mul(geometry.cell_height));
                 let Some(bounds) = clipped_bounds(
                     left,
                     top,
@@ -790,7 +804,8 @@ impl GpuText {
                 {
                     let cursor_x = u32::try_from(visual_cell)
                         .unwrap_or(u32::MAX)
-                        .saturating_mul(geometry.cell_width);
+                        .saturating_mul(geometry.cell_width)
+                        .saturating_add(geometry.content_x);
                     let cursor_bounds = clipped_bounds(
                         left,
                         top,
@@ -1004,13 +1019,13 @@ fn shaped_run_clip(
     geometry: RenderGeometry,
 ) -> (u32, u32) {
     if plan.run_count <= 1 {
-        return (0, geometry.target_width);
+        return (geometry.content_x, geometry.content_width);
     }
     let Some(cluster) = shaped.clusters.get(logical_index) else {
-        return (0, geometry.target_width);
+        return (geometry.content_x, geometry.content_width);
     };
     let Some(input) = plan.clusters.get(logical_index) else {
-        return (0, geometry.target_width);
+        return (geometry.content_x, geometry.content_width);
     };
     let boundary = input.shape_boundary;
     let mut visual_start = cluster.visual_index;
@@ -1042,11 +1057,13 @@ fn shaped_run_clip(
     let x = u32::try_from(first_cell)
         .unwrap_or(u32::MAX)
         .saturating_mul(geometry.cell_width)
-        .min(geometry.target_width);
+        .min(geometry.content_width)
+        .saturating_add(geometry.content_x);
     let right = u32::try_from(last_cell)
         .unwrap_or(u32::MAX)
         .saturating_mul(geometry.cell_width)
-        .min(geometry.target_width);
+        .min(geometry.content_width)
+        .saturating_add(geometry.content_x);
     (x, right.saturating_sub(x))
 }
 

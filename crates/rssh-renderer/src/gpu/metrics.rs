@@ -3,6 +3,8 @@
 pub struct GpuPresentationMetrics {
     pub backend: String,
     pub adapter_name: String,
+    pub adapter_vendor_id: u32,
+    pub adapter_device_id: u32,
     pub adapter_type: String,
     pub software_adapter: bool,
     pub surface_format: Option<String>,
@@ -16,8 +18,12 @@ pub struct GpuPresentationMetrics {
     pub surface_timeouts: u64,
     pub surface_occlusions: u64,
     pub surface_validation_errors: u64,
+    pub compatibility_frame_uploads: u64,
     pub uncaptured_errors: u64,
     pub device_losses: u64,
+    pub device_recoveries: u64,
+    pub device_recovery_failures: u64,
+    pub abandoned_lost_surfaces: u64,
 }
 
 impl GpuPresentationMetrics {
@@ -25,6 +31,8 @@ impl GpuPresentationMetrics {
         Self {
             backend: info.backend.to_string(),
             adapter_name: info.name.clone(),
+            adapter_vendor_id: info.vendor,
+            adapter_device_id: info.device,
             adapter_type: adapter_type_name(info.device_type).to_owned(),
             software_adapter: matches!(info.device_type, wgpu::DeviceType::Cpu),
             surface_format: None,
@@ -38,8 +46,12 @@ impl GpuPresentationMetrics {
             surface_timeouts: 0,
             surface_occlusions: 0,
             surface_validation_errors: 0,
+            compatibility_frame_uploads: 0,
             uncaptured_errors: 0,
             device_losses: 0,
+            device_recoveries: 0,
+            device_recovery_failures: 0,
+            abandoned_lost_surfaces: 0,
         }
     }
 
@@ -49,6 +61,8 @@ impl GpuPresentationMetrics {
         Self {
             backend: "uninitialized".to_owned(),
             adapter_name: "uninitialized".to_owned(),
+            adapter_vendor_id: 0,
+            adapter_device_id: 0,
             adapter_type: "unknown".to_owned(),
             software_adapter: false,
             surface_format: None,
@@ -62,10 +76,31 @@ impl GpuPresentationMetrics {
             surface_timeouts: 0,
             surface_occlusions: 0,
             surface_validation_errors: 0,
+            compatibility_frame_uploads: 0,
             uncaptured_errors: 0,
             device_losses: 0,
+            device_recoveries: 0,
+            device_recovery_failures: 0,
+            abandoned_lost_surfaces: 0,
         }
     }
+}
+
+/// Returns whether a recovered native window surface needs the narrowly scoped
+/// Windows Vulkan NVIDIA abandonment workaround during final shutdown.
+#[must_use]
+pub fn should_abandon_recovered_window_surface(
+    os: &str,
+    backend: &str,
+    vendor_id: u32,
+    shutdown_intent: bool,
+    replaced_device: bool,
+) -> bool {
+    os.eq_ignore_ascii_case("windows")
+        && backend.eq_ignore_ascii_case("vulkan")
+        && vendor_id == 0x10de
+        && shutdown_intent
+        && replaced_device
 }
 
 fn adapter_type_name(device_type: wgpu::DeviceType) -> &'static str {

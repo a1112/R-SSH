@@ -8,7 +8,14 @@ use rssh_renderer::gpu::{
     GpuContext, GpuContextOptions, GpuImage, GpuLayer, GpuLayerRenderer, GpuQuad, ImageProtocol,
     PixelRect, RenderGraph, SignedPixelRect,
 };
-use rssh_renderer::{DamageRegion, PixelRenderer, RenderGeometry, TerminalRenderSnapshot};
+use rssh_renderer::{
+    DamageRegion, PixelRenderer, RenderBackgroundGradient, RenderBackgroundGradientBlend,
+    RenderBackgroundGradientHsb, RenderBackgroundGradientInterpolation,
+    RenderBackgroundGradientOrientation, RenderBackgroundImage, RenderBackgroundImageAttachment,
+    RenderBackgroundImageDimension, RenderBackgroundImageHorizontalAlign,
+    RenderBackgroundImageLength, RenderBackgroundImageRepeat, RenderBackgroundImageVerticalAlign,
+    RenderBackgroundLayer, RenderGeometry, ScrollbackScrollbar, TerminalRenderSnapshot,
+};
 use rssh_terminal::Terminal;
 
 static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -21,6 +28,40 @@ fn gpu_test_guard() -> MutexGuard<'static, ()> {
 
 fn rgba(red: u8, green: u8, blue: u8, alpha: u8) -> [u8; 4] {
     [red, green, blue, alpha]
+}
+
+fn assert_rgba_close(actual: &[u8], expected: &[u8], tolerance: u8) {
+    assert_eq!(actual.len(), expected.len());
+    for (index, (&actual, &expected)) in actual.iter().zip(expected).enumerate() {
+        assert!(
+            actual.abs_diff(expected) <= tolerance,
+            "channel {index}: GPU={actual}, CPU={expected}"
+        );
+    }
+}
+
+fn red_green_blue_vertical_png_bytes() -> &'static [u8] {
+    &[
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x08, 0x06, 0x00, 0x00, 0x00, 0x52,
+        0xdd, 0x65, 0x82, 0x00, 0x00, 0x00, 0x14, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8,
+        0xcf, 0xc0, 0x00, 0x46, 0xff, 0x19, 0x18, 0x18, 0xfe, 0xff, 0x07, 0x00, 0x29, 0xe5, 0x05,
+        0xfb, 0x48, 0xb8, 0xae, 0x8a, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42,
+        0x60, 0x82,
+    ]
+}
+
+fn red_green_gif_bytes() -> &'static [u8] {
+    &[
+        0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x81, 0x00, 0x00, 0xff, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0xff, 0x0b, 0x4e, 0x45,
+        0x54, 0x53, 0x43, 0x41, 0x50, 0x45, 0x32, 0x2e, 0x30, 0x03, 0x01, 0x00, 0x00, 0x00, 0x21,
+        0xf9, 0x04, 0x08, 0x0a, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01,
+        0x00, 0x00, 0x08, 0x04, 0x00, 0x01, 0x04, 0x04, 0x00, 0x21, 0xf9, 0x04, 0x08, 0x0a, 0x00,
+        0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x81, 0x00, 0xff, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x04, 0x00, 0x01, 0x04, 0x04,
+        0x00, 0x3b,
+    ]
 }
 
 #[test]
@@ -331,6 +372,351 @@ fn headless_gpu_readback_matches_cpu_layering_invariants_with_tolerance() {
             "channel {index}: GPU={actual}, CPU reference={expected}"
         );
     }
+}
+
+#[test]
+fn renderer_owned_gpu_planner_composites_configured_background_layers() {
+    let _gpu = gpu_test_guard();
+    let terminal = Terminal::new(TerminalSize::new(1, 1));
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let geometry = RenderGeometry::new(4, 4, 1, 1);
+    let mut planner = PixelRenderer::new();
+    planner.set_default_background(rgba(10, 20, 30, 255));
+    planner
+        .set_default_background_layers(vec![RenderBackgroundLayer::Color(rgba(90, 80, 70, 255))]);
+
+    let graph = planner.prepare_gpu_frame(&snapshot, geometry, None, 0);
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 4096).expect("renderer");
+    let actual = renderer
+        .render_headless_rgba8(&graph, Duration::from_secs(5))
+        .expect("renderer-owned GPU plan readback");
+
+    assert_eq!(
+        &actual[60..64],
+        &rgba(90, 80, 70, 255),
+        "configured background layers must be part of the direct GPU plan"
+    );
+}
+
+#[test]
+fn renderer_owned_gpu_planner_preserves_gradient_stops_and_reuses_the_texture() {
+    let _gpu = gpu_test_guard();
+    let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+    terminal.feed(b"\x1b[?25l");
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let geometry = RenderGeometry::new(5, 3, 1, 1);
+    let mut planner = PixelRenderer::new();
+    planner.set_default_background(rgba(5, 7, 9, 255));
+    planner.set_default_background_gradient(Some(RenderBackgroundGradient {
+        orientation: RenderBackgroundGradientOrientation::Horizontal,
+        interpolation: RenderBackgroundGradientInterpolation::Linear,
+        blend: RenderBackgroundGradientBlend::Rgb,
+        noise: Some(0),
+        segment: None,
+        preset: None,
+        opacity_alpha: 192,
+        blend_with_default_background: true,
+        hsb: RenderBackgroundGradientHsb::IDENTITY,
+        colors: vec![rgba(255, 0, 0, 255), rgba(0, 0, 255, 255)],
+    }));
+    let graph = planner.prepare_gpu_frame(&snapshot, geometry, None, 0);
+    let mut expected = vec![0; 5 * 3 * 4];
+    planner.render(&snapshot, &mut expected, 5, 3, 1, 1);
+
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 4096).expect("renderer");
+    let actual = renderer
+        .render_headless_rgba8(&graph, Duration::from_secs(5))
+        .expect("gradient readback");
+    assert_rgba_close(&actual, &expected, 2);
+    assert_ne!(&actual[0..4], &actual[16..20], "gradient stops collapsed");
+    assert_eq!(planner.gpu_background_plan_updates(), 1);
+    let uploads = renderer.texture_cache_metrics().uploads;
+    let materializations = renderer.texture_cache_metrics().materializations;
+
+    planner.set_animation_elapsed_ms(1);
+    let same = planner.prepare_gpu_frame(&snapshot, geometry, None, 0);
+    renderer
+        .render_headless_rgba8(&same, Duration::from_secs(5))
+        .expect("cached gradient readback");
+    assert_eq!(planner.gpu_background_plan_updates(), 1);
+    assert_eq!(renderer.texture_cache_metrics().uploads, uploads);
+    assert_eq!(
+        renderer.texture_cache_metrics().materializations,
+        materializations
+    );
+
+    let resized = planner.prepare_gpu_frame(&snapshot, RenderGeometry::new(6, 3, 1, 1), None, 0);
+    renderer
+        .render_headless_rgba8(&resized, Duration::from_secs(5))
+        .expect("resized gradient readback");
+    assert_eq!(planner.gpu_background_plan_updates(), 2);
+    assert_eq!(renderer.texture_cache_metrics().uploads, uploads + 1);
+}
+
+#[test]
+fn renderer_owned_gpu_background_cache_tracks_selected_animation_frame_not_elapsed_clock() {
+    let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+    terminal.feed(b"\x1b[?25l");
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let geometry = RenderGeometry::new(2, 2, 2, 2);
+    let mut planner = PixelRenderer::new();
+    planner.set_default_background_image(Some(RenderBackgroundImage {
+        data: red_green_gif_bytes().to_vec(),
+        opacity_alpha: u8::MAX,
+        hsb: RenderBackgroundGradientHsb::IDENTITY,
+        animation_speed_millis: 1_000,
+        attachment: RenderBackgroundImageAttachment::Fixed,
+        width: RenderBackgroundImageDimension::Cover,
+        height: RenderBackgroundImageDimension::Cover,
+        repeat_x: RenderBackgroundImageRepeat::Repeat,
+        repeat_y: RenderBackgroundImageRepeat::Repeat,
+        horizontal_align: RenderBackgroundImageHorizontalAlign::Left,
+        vertical_align: RenderBackgroundImageVerticalAlign::Top,
+        horizontal_offset: RenderBackgroundImageLength::Pixels(0),
+        vertical_offset: RenderBackgroundImageLength::Pixels(0),
+        repeat_x_size: None,
+        repeat_y_size: None,
+    }));
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 4096).expect("renderer");
+
+    planner.set_animation_elapsed_ms(1);
+    let first = planner.prepare_gpu_frame(&snapshot, geometry, None, 0);
+    renderer
+        .render_headless_rgba8(&first, Duration::from_secs(5))
+        .expect("first animation bucket");
+    let uploads = renderer.texture_cache_metrics().uploads;
+
+    planner.set_animation_elapsed_ms(99);
+    let same_bucket = planner.prepare_gpu_frame(&snapshot, geometry, None, 0);
+    renderer
+        .render_headless_rgba8(&same_bucket, Duration::from_secs(5))
+        .expect("same animation bucket");
+    assert_eq!(planner.gpu_background_plan_updates(), 1);
+    assert_eq!(renderer.texture_cache_metrics().uploads, uploads);
+
+    planner.set_animation_elapsed_ms(100);
+    let next_bucket = planner.prepare_gpu_frame(&snapshot, geometry, None, 0);
+    renderer
+        .render_headless_rgba8(&next_bucket, Duration::from_secs(5))
+        .expect("next animation bucket");
+    assert_eq!(planner.gpu_background_plan_updates(), 2);
+    assert_eq!(renderer.texture_cache_metrics().uploads, uploads + 1);
+}
+
+#[test]
+fn renderer_owned_gpu_background_rejects_oversized_raster_before_allocation() {
+    let snapshot = TerminalRenderSnapshot::from_terminal(&Terminal::new(TerminalSize::new(1, 1)));
+    let mut planner = PixelRenderer::new();
+    planner.set_default_background_gradient(Some(RenderBackgroundGradient {
+        orientation: RenderBackgroundGradientOrientation::Horizontal,
+        interpolation: RenderBackgroundGradientInterpolation::Linear,
+        blend: RenderBackgroundGradientBlend::Rgb,
+        noise: Some(0),
+        segment: None,
+        preset: None,
+        opacity_alpha: u8::MAX,
+        blend_with_default_background: false,
+        hsb: RenderBackgroundGradientHsb::IDENTITY,
+        colors: vec![rgba(255, 0, 0, 255), rgba(0, 0, 255, 255)],
+    }));
+
+    let graph =
+        planner.prepare_gpu_frame(&snapshot, RenderGeometry::new(4097, 4097, 1, 1), None, 0);
+
+    assert_eq!(planner.gpu_background_plan_updates(), 0);
+    assert_eq!(planner.gpu_background_plan_budget_rejections(), 1);
+    assert_eq!(graph.planned_image_draw_count(), 0);
+}
+
+#[test]
+fn renderer_owned_gpu_planner_preserves_background_image_layout_opacity_and_clip() {
+    let _gpu = gpu_test_guard();
+    let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+    terminal.feed(b"\x1b[?25l");
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let geometry = RenderGeometry::new(8, 6, 1, 1).with_content_rect(1, 1, 6, 4);
+    let background = rgba(10, 20, 30, 255);
+    let mut planner = PixelRenderer::new();
+    planner.set_default_background(background);
+    planner.set_default_background_image(Some(RenderBackgroundImage {
+        data: red_green_blue_vertical_png_bytes().to_vec(),
+        opacity_alpha: 128,
+        hsb: RenderBackgroundGradientHsb::IDENTITY,
+        animation_speed_millis: 1_000,
+        attachment: RenderBackgroundImageAttachment::Fixed,
+        width: RenderBackgroundImageDimension::Pixels(2),
+        height: RenderBackgroundImageDimension::Pixels(3),
+        repeat_x: RenderBackgroundImageRepeat::Repeat,
+        repeat_y: RenderBackgroundImageRepeat::NoRepeat,
+        horizontal_align: RenderBackgroundImageHorizontalAlign::Right,
+        vertical_align: RenderBackgroundImageVerticalAlign::Bottom,
+        horizontal_offset: RenderBackgroundImageLength::Pixels(-1),
+        vertical_offset: RenderBackgroundImageLength::Pixels(0),
+        repeat_x_size: Some(RenderBackgroundImageLength::Pixels(3)),
+        repeat_y_size: None,
+    }));
+    let graph = planner.prepare_gpu_frame(&snapshot, geometry, None, 0);
+    let mut content = vec![0; 6 * 4 * 4];
+    planner.render(&snapshot, &mut content, 6, 4, 1, 1);
+    let mut expected = vec![0; 8 * 6 * 4];
+    for pixel in expected.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&background);
+    }
+    for y in 0..4_usize {
+        let source = y * 6 * 4;
+        let destination = ((y + 1) * 8 + 1) * 4;
+        expected[destination..destination + 6 * 4]
+            .copy_from_slice(&content[source..source + 6 * 4]);
+    }
+
+    let gpu_context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer = GpuLayerRenderer::new(&gpu_context, wgpu::TextureFormat::Rgba8Unorm, 4096)
+        .expect("renderer");
+    let actual = renderer
+        .render_headless_rgba8(&graph, Duration::from_secs(5))
+        .expect("background image readback");
+    assert_rgba_close(&actual, &expected, 2);
+    assert_eq!(
+        &actual[0..4],
+        &background,
+        "padding must retain window color"
+    );
+    assert_ne!(
+        &actual[((4 * 8 + 5) * 4)..((4 * 8 + 5) * 4 + 4)],
+        &background,
+        "aligned repeated image was not sampled"
+    );
+}
+
+#[test]
+fn renderer_owned_gpu_planner_emits_effective_cell_backgrounds() {
+    let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+    terminal.feed(b"\x1b[48;2;3;4;5mX");
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let graph =
+        PixelRenderer::new().prepare_gpu_frame(&snapshot, RenderGeometry::new(4, 2, 2, 2), None, 0);
+
+    assert!(
+        graph
+            .ordered_content_layers()
+            .contains(&GpuLayer::CellBackground),
+        "effective backgrounds baked into snapshot cells must reach the direct GPU graph"
+    );
+}
+
+#[test]
+fn renderer_owned_gpu_planner_reuses_snapshot_image_z_order() {
+    let mut terminal = Terminal::new(TerminalSize::new(2, 2));
+    terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=91,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let graph =
+        PixelRenderer::new().prepare_gpu_frame(&snapshot, RenderGeometry::new(4, 4, 2, 2), None, 0);
+
+    assert_eq!(
+        graph.planned_image_draw_count(),
+        4,
+        "the renderer-owned planner must preserve the authoritative fragmented image plan"
+    );
+    assert_eq!(
+        graph.planned_image_destinations(),
+        vec![
+            PixelRect::new(0, 0, 2, 2),
+            PixelRect::new(2, 0, 2, 2),
+            PixelRect::new(0, 2, 2, 2),
+            PixelRect::new(2, 2, 2, 2),
+        ]
+    );
+}
+
+#[test]
+fn renderer_owned_gpu_planner_emits_decorations_and_cursor() {
+    let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+    terminal.feed(b"\x1b[4mX");
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let graph =
+        PixelRenderer::new().prepare_gpu_frame(&snapshot, RenderGeometry::new(8, 4, 4, 4), None, 0);
+    let layers = graph.ordered_content_layers();
+
+    assert!(
+        layers.contains(&GpuLayer::Underline),
+        "text decorations must be explicit GPU graph layers"
+    );
+    assert!(
+        layers.contains(&GpuLayer::Cursor),
+        "the terminal cursor must be an explicit GPU graph layer"
+    );
+}
+
+#[test]
+fn renderer_owned_gpu_planner_clips_scrollbar_below_protected_ui_rows() {
+    let _gpu = gpu_test_guard();
+    let terminal = Terminal::new(TerminalSize::new(1, 1));
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let geometry = RenderGeometry::new(8, 8, 2, 2);
+    let mut planner = PixelRenderer::new();
+    let pane = rgba(12, 34, 56, 255);
+    planner.set_default_background(pane);
+    let graph =
+        planner.prepare_gpu_frame(&snapshot, geometry, ScrollbackScrollbar::new(100, 4, 0), 2);
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 4096).expect("renderer");
+    let actual = renderer
+        .render_headless_rgba8(&graph, Duration::from_secs(5))
+        .expect("scrollbar GPU plan readback");
+    let pixel = |x: usize, y: usize| &actual[(y * 8 + x) * 4..(y * 8 + x + 1) * 4];
+
+    assert_eq!(
+        pixel(7, 0),
+        pane,
+        "the scrollbar must not paint over protected UI rows"
+    );
+    assert_ne!(
+        pixel(7, 7),
+        pane,
+        "the scrollbar must remain visible below protected UI rows"
+    );
+}
+
+#[test]
+fn renderer_owned_gpu_planner_moves_and_clips_every_layer_to_content_placement() {
+    let _gpu = gpu_test_guard();
+    let mut terminal = Terminal::new(TerminalSize::new(2, 2));
+    terminal.feed(b"\x1b[48;2;90;80;70mX");
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let geometry = RenderGeometry::new(8, 8, 2, 2).with_content_rect(2, 2, 4, 4);
+    let graph = PixelRenderer::new().prepare_gpu_frame(&snapshot, geometry, None, 0);
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 4096).expect("renderer");
+    let actual = renderer
+        .render_headless_rgba8(&graph, Duration::from_secs(5))
+        .expect("placed graph readback");
+    let pixel = |x: usize, y: usize| &actual[(y * 8 + x) * 4..(y * 8 + x + 1) * 4];
+
+    assert_eq!(pixel(2, 2), rgba(90, 80, 70, 255));
+    assert_ne!(
+        pixel(0, 0),
+        rgba(90, 80, 70, 255),
+        "content layers must not remain at the surface origin"
+    );
+    assert_ne!(
+        pixel(6, 2),
+        rgba(90, 80, 70, 255),
+        "content layers must be clipped at the placement right edge"
+    );
 }
 
 #[test]

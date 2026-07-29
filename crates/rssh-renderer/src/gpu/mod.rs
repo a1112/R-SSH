@@ -12,8 +12,12 @@ pub use context::{
     GpuContextGeneration, GpuContextOptions, GpuFrameStatus, RgbaFrameLayout,
 };
 pub use images::{GpuImage, ImageProtocol};
-pub use metrics::{GpuPresentationMetrics, SurfaceFault, SurfaceRecovery, SurfaceRecoveryState};
+pub use metrics::{
+    GpuPresentationMetrics, SurfaceFault, SurfaceRecovery, SurfaceRecoveryState,
+    should_abandon_recovered_window_surface,
+};
 pub use quads::{GpuLayer, GpuLayerError, GpuQuad, PixelRect, SignedPixelRect};
+pub(crate) use render_graph::TextureIdentity;
 pub use render_graph::{
     DEFAULT_GPU_IMAGE_BYTE_BUDGET, DEFAULT_GPU_INSTANCE_BYTE_BUDGET,
     DEFAULT_GPU_READBACK_BYTE_BUDGET, GpuLayerRenderer, InstanceUploadMetrics, RenderGraph,
