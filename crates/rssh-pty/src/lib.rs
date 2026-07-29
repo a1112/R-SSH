@@ -39,7 +39,16 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use super::{PtyBackend, PtyCommand, PtySession, PtySize};
+    use super::{PtyBackend, PtyCommand, PtyExitStatus, PtySession, PtySize};
+
+    #[test]
+    fn pty_exit_status_preserves_signal() {
+        let status = PtyExitStatus::from_signal("TERM");
+
+        assert_eq!(status.exit_code(), 1);
+        assert_eq!(status.signal(), Some("TERM"));
+        assert!(!status.success());
+    }
 
     #[test]
     fn selects_a_platform_backend() {
@@ -530,6 +539,18 @@ impl PtyExitStatus {
     #[must_use]
     pub const fn from_exit_code(code: u32) -> Self {
         Self { code, signal: None }
+    }
+
+    #[must_use]
+    /// Projects a signal name into the portable app status representation.
+    ///
+    /// Rich SSH signal metadata remains in the SSH session result; this type
+    /// intentionally carries only the conventional failure code and name.
+    pub fn from_signal(signal: impl Into<String>) -> Self {
+        Self {
+            code: 1,
+            signal: Some(signal.into()),
+        }
     }
 
     #[must_use]

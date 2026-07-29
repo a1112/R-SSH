@@ -12,7 +12,8 @@ use tokio::io::AsyncWriteExt;
 
 use crate::{
     SshAuthMethod, SshChannel, SshChannelOpenPlan, SshChannelOpener, SshConnectRequest,
-    SshSessionError, SshSessionStartup,
+    SshExitSignal, SshSessionError, SshSessionResult, SshSessionStartup, SshShellReader,
+    SshShellWriter,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1039,6 +1040,8 @@ pub struct RusshChannelReader {
     read_half: russh::ChannelReadHalf,
     runtime: Arc<tokio::runtime::Runtime>,
     pending_read: VecDeque<u8>,
+    result: SshSessionResult,
+    finished: bool,
 }
 
 impl RusshChannelReader {
@@ -1048,6 +1051,8 @@ impl RusshChannelReader {
             read_half,
             runtime,
             pending_read: VecDeque::new(),
+            result: SshSessionResult::default(),
+            finished: false,
         }
     }
 
@@ -1074,22 +1079,84 @@ impl RusshChannelReader {
         if pending_count > 0 {
             return Ok(pending_count);
         }
+        if self.finished {
+            return Ok(0);
+        }
 
         loop {
             let message = self.runtime.block_on(self.read_half.wait());
-            match message {
-                Some(
-                    russh::ChannelMsg::Data { data } | russh::ChannelMsg::ExtendedData { data, .. },
-                ) => {
+            match message.map_or(RusshReadAction::Finished, |message| {
+                apply_channel_message(&mut self.result, message)
+            }) {
+                RusshReadAction::Data(data) => {
                     self.queue_read_bytes(&data);
                     return Ok(self.fill_from_pending(buffer));
                 }
-                Some(russh::ChannelMsg::Eof | russh::ChannelMsg::Close) | None => {
+                RusshReadAction::Finished => {
+                    self.finished = true;
                     return Ok(0);
                 }
-                Some(_) => {}
+                RusshReadAction::Continue => {}
             }
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum RusshReadAction {
+    Data(Vec<u8>),
+    Continue,
+    Finished,
+}
+
+fn apply_channel_message(
+    result: &mut SshSessionResult,
+    message: russh::ChannelMsg,
+) -> RusshReadAction {
+    match message {
+        russh::ChannelMsg::Data { data } | russh::ChannelMsg::ExtendedData { data, .. } => {
+            RusshReadAction::Data(data.to_vec())
+        }
+        russh::ChannelMsg::ExitStatus { exit_status } => {
+            result.exit_status = Some(exit_status);
+            RusshReadAction::Continue
+        }
+        russh::ChannelMsg::ExitSignal {
+            signal_name,
+            core_dumped,
+            error_message,
+            lang_tag,
+        } => {
+            result.exit_signal = Some(SshExitSignal {
+                name: signal_name_text(signal_name),
+                core_dumped,
+                error_message,
+                lang_tag,
+            });
+            RusshReadAction::Continue
+        }
+        russh::ChannelMsg::Close => RusshReadAction::Finished,
+        // EOF only half-closes remote data; exit metadata may still arrive
+        // before Close, so it follows the non-terminal path here.
+        _ => RusshReadAction::Continue,
+    }
+}
+
+fn signal_name_text(signal: russh::Sig) -> String {
+    match signal {
+        russh::Sig::ABRT => "ABRT".to_owned(),
+        russh::Sig::ALRM => "ALRM".to_owned(),
+        russh::Sig::FPE => "FPE".to_owned(),
+        russh::Sig::HUP => "HUP".to_owned(),
+        russh::Sig::ILL => "ILL".to_owned(),
+        russh::Sig::INT => "INT".to_owned(),
+        russh::Sig::KILL => "KILL".to_owned(),
+        russh::Sig::PIPE => "PIPE".to_owned(),
+        russh::Sig::QUIT => "QUIT".to_owned(),
+        russh::Sig::SEGV => "SEGV".to_owned(),
+        russh::Sig::TERM => "TERM".to_owned(),
+        russh::Sig::USR1 => "USR1".to_owned(),
+        russh::Sig::Custom(name) => name,
     }
 }
 
@@ -1100,10 +1167,72 @@ impl Read for RusshChannelReader {
     }
 }
 
+impl SshShellReader for RusshChannelReader {
+    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError> {
+        self.read_blocking(buffer)
+    }
+
+    fn session_result(&self) -> SshSessionResult {
+        self.result.clone()
+    }
+}
+
 pub struct RusshChannelWriter {
     write_half: russh::ChannelWriteHalf<russh::client::Msg>,
     handle: russh::client::Handle<RusshClientHandler>,
     runtime: Arc<tokio::runtime::Runtime>,
+    lifecycle: RusshWriterLifecycle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RusshWriterAction {
+    Execute,
+    AlreadyDone,
+}
+
+#[derive(Debug, Default)]
+struct RusshWriterLifecycle {
+    input_finished: bool,
+    closed: bool,
+}
+
+impl RusshWriterLifecycle {
+    fn ensure_write_allowed(&self) -> Result<(), SshSessionError> {
+        if self.closed {
+            Err(SshSessionError::new("SSH channel is closed"))
+        } else if self.input_finished {
+            Err(SshSessionError::new(
+                "SSH channel input is already finished",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn prepare_finish_input(&self) -> RusshWriterAction {
+        if self.closed || self.input_finished {
+            RusshWriterAction::AlreadyDone
+        } else {
+            RusshWriterAction::Execute
+        }
+    }
+
+    fn mark_input_finished(&mut self) {
+        self.input_finished = true;
+    }
+
+    fn prepare_close(&self) -> RusshWriterAction {
+        if self.closed {
+            RusshWriterAction::AlreadyDone
+        } else {
+            RusshWriterAction::Execute
+        }
+    }
+
+    fn mark_closed(&mut self) {
+        self.input_finished = true;
+        self.closed = true;
+    }
 }
 
 impl RusshChannelWriter {
@@ -1117,15 +1246,42 @@ impl RusshChannelWriter {
             write_half,
             handle,
             runtime,
+            lifecycle: RusshWriterLifecycle::default(),
         }
     }
 
     fn write_blocking(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError> {
+        self.lifecycle.ensure_write_allowed()?;
         self.runtime
             .block_on(self.write_half.data_bytes(bytes.to_vec()))
             .map_err(|error| SshSessionError::new(format!("SSH channel write failed: {error}")))?;
 
         Ok(bytes.len())
+    }
+
+    fn write_cancellable_blocking(
+        &mut self,
+        bytes: &[u8],
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<Option<usize>, SshSessionError> {
+        self.lifecycle.ensure_write_allowed()?;
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            return Ok(None);
+        }
+
+        let write_result = self.runtime.block_on(select_write_or_cancellation(
+            self.write_half.data_bytes(bytes.to_vec()),
+            wait_for_write_cancellation(cancelled),
+        ));
+        match write_result {
+            Some(result) => {
+                result.map_err(|error| {
+                    SshSessionError::new(format!("SSH channel write failed: {error}"))
+                })?;
+                Ok(Some(bytes.len()))
+            }
+            None => Ok(None),
+        }
     }
 
     fn resize_pty(&mut self, size: rssh_core::TerminalSize) -> Result<(), SshSessionError> {
@@ -1146,9 +1302,25 @@ impl RusshChannelWriter {
     }
 
     fn close_channel(&mut self) -> Result<(), SshSessionError> {
+        if self.lifecycle.prepare_close() == RusshWriterAction::AlreadyDone {
+            return Ok(());
+        }
         self.runtime
             .block_on(self.write_half.close())
-            .map_err(|error| SshSessionError::new(format!("SSH channel close failed: {error}")))
+            .map_err(|error| SshSessionError::new(format!("SSH channel close failed: {error}")))?;
+        self.lifecycle.mark_closed();
+        Ok(())
+    }
+
+    fn finish_input_blocking(&mut self) -> Result<(), SshSessionError> {
+        if self.lifecycle.prepare_finish_input() == RusshWriterAction::AlreadyDone {
+            return Ok(());
+        }
+        self.runtime
+            .block_on(self.write_half.eof())
+            .map_err(|error| SshSessionError::new(format!("SSH channel EOF failed: {error}")))?;
+        self.lifecycle.mark_input_finished();
+        Ok(())
     }
 }
 
@@ -1160,6 +1332,59 @@ impl Write for RusshChannelWriter {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+impl SshShellWriter for RusshChannelWriter {
+    fn write(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError> {
+        self.write_blocking(bytes)
+    }
+
+    fn write_cancellable(
+        &mut self,
+        bytes: &[u8],
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<Option<usize>, SshSessionError> {
+        self.write_cancellable_blocking(bytes, cancelled)
+    }
+
+    fn resize(&mut self, size: rssh_core::TerminalSize) -> Result<(), SshSessionError> {
+        self.resize_pty(size)
+    }
+
+    fn keepalive(&mut self) -> Result<(), SshSessionError> {
+        self.send_keepalive()
+    }
+
+    fn finish_input(&mut self) -> Result<(), SshSessionError> {
+        self.finish_input_blocking()
+    }
+
+    fn close(&mut self) -> Result<(), SshSessionError> {
+        self.close_channel()
+    }
+}
+
+async fn wait_for_write_cancellation(cancelled: &std::sync::atomic::AtomicBool) {
+    while !cancelled.load(std::sync::atomic::Ordering::Acquire) {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+async fn select_write_or_cancellation<W, C>(
+    write: W,
+    cancellation: C,
+) -> Option<Result<(), russh::Error>>
+where
+    W: Future<Output = Result<(), russh::Error>>,
+    C: Future<Output = ()>,
+{
+    tokio::pin!(write);
+    tokio::pin!(cancellation);
+    tokio::select! {
+        biased;
+        () = &mut cancellation => None,
+        result = &mut write => Some(result),
     }
 }
 
@@ -1182,6 +1407,11 @@ impl SshChannel for RusshSshChannel {
 
     fn close_channel(&mut self) -> Result<(), SshSessionError> {
         self.writer.close_channel()
+    }
+
+    fn into_read_writer(self) -> (Box<dyn SshShellReader>, Box<dyn SshShellWriter>) {
+        let (reader, writer) = RusshSshChannel::into_read_writer(self);
+        (Box::new(reader), Box::new(writer))
     }
 }
 
@@ -1226,6 +1456,164 @@ mod tests {
 
     type TestAuthFuture<'a> =
         Pin<Box<dyn Future<Output = Result<russh::client::AuthResult, SshSessionError>> + 'a>>;
+
+    #[test]
+    fn remote_exit_status_is_preserved() {
+        let mut result = crate::SshSessionResult::default();
+
+        assert_eq!(
+            apply_channel_message(&mut result, russh::ChannelMsg::Eof),
+            RusshReadAction::Continue
+        );
+        assert_eq!(
+            apply_channel_message(
+                &mut result,
+                russh::ChannelMsg::ExitStatus { exit_status: 7 },
+            ),
+            RusshReadAction::Continue
+        );
+        let status_action = apply_channel_message(
+            &mut result,
+            russh::ChannelMsg::ExitStatus { exit_status: 23 },
+        );
+        let data_action = apply_channel_message(
+            &mut result,
+            russh::ChannelMsg::Data {
+                data: b"late output".as_slice().into(),
+            },
+        );
+        let close_action = apply_channel_message(&mut result, russh::ChannelMsg::Close);
+
+        assert_eq!(status_action, RusshReadAction::Continue);
+        assert_eq!(data_action, RusshReadAction::Data(b"late output".to_vec()));
+        assert_eq!(close_action, RusshReadAction::Finished);
+        assert_eq!(result.exit_status, Some(23));
+        assert_eq!(result.exit_signal, None);
+    }
+
+    #[test]
+    fn remote_exit_signal_is_preserved() {
+        let mut result = crate::SshSessionResult::default();
+
+        assert_eq!(
+            apply_channel_message(&mut result, russh::ChannelMsg::Eof),
+            RusshReadAction::Continue
+        );
+        assert_eq!(
+            apply_channel_message(
+                &mut result,
+                russh::ChannelMsg::ExitSignal {
+                    signal_name: russh::Sig::HUP,
+                    core_dumped: false,
+                    error_message: String::new(),
+                    lang_tag: String::new(),
+                },
+            ),
+            RusshReadAction::Continue
+        );
+        let action = apply_channel_message(
+            &mut result,
+            russh::ChannelMsg::ExitSignal {
+                signal_name: russh::Sig::TERM,
+                core_dumped: true,
+                error_message: "terminated by policy".to_owned(),
+                lang_tag: "en-US".to_owned(),
+            },
+        );
+
+        assert_eq!(action, RusshReadAction::Continue);
+        assert_eq!(
+            apply_channel_message(&mut result, russh::ChannelMsg::Close),
+            RusshReadAction::Finished
+        );
+        assert_eq!(
+            result.exit_signal,
+            Some(crate::SshExitSignal {
+                name: "TERM".to_owned(),
+                core_dumped: true,
+                error_message: "terminated by policy".to_owned(),
+                lang_tag: "en-US".to_owned(),
+            })
+        );
+        assert_eq!(result.exit_status, None);
+    }
+
+    #[test]
+    fn remote_exit_status_and_signal_coexist_in_either_order() {
+        let signal = || russh::ChannelMsg::ExitSignal {
+            signal_name: russh::Sig::TERM,
+            core_dumped: true,
+            error_message: "terminated by policy".to_owned(),
+            lang_tag: "en-US".to_owned(),
+        };
+        let expected_signal = SshExitSignal {
+            name: "TERM".to_owned(),
+            core_dumped: true,
+            error_message: "terminated by policy".to_owned(),
+            lang_tag: "en-US".to_owned(),
+        };
+
+        let mut status_then_signal = SshSessionResult::default();
+        apply_channel_message(
+            &mut status_then_signal,
+            russh::ChannelMsg::ExitStatus { exit_status: 23 },
+        );
+        apply_channel_message(&mut status_then_signal, signal());
+        assert_eq!(status_then_signal.exit_status, Some(23));
+        assert_eq!(
+            status_then_signal.exit_signal.as_ref(),
+            Some(&expected_signal)
+        );
+
+        let mut signal_then_status = SshSessionResult::default();
+        apply_channel_message(&mut signal_then_status, signal());
+        apply_channel_message(
+            &mut signal_then_status,
+            russh::ChannelMsg::ExitStatus { exit_status: 42 },
+        );
+        assert_eq!(signal_then_status.exit_status, Some(42));
+        assert_eq!(
+            signal_then_status.exit_signal.as_ref(),
+            Some(&expected_signal)
+        );
+    }
+
+    #[test]
+    fn russh_writer_lifecycle_makes_eof_and_close_idempotent() {
+        let mut lifecycle = RusshWriterLifecycle::default();
+
+        assert_eq!(lifecycle.prepare_finish_input(), RusshWriterAction::Execute);
+        lifecycle.mark_input_finished();
+        assert_eq!(
+            lifecycle.prepare_finish_input(),
+            RusshWriterAction::AlreadyDone
+        );
+        assert!(lifecycle.ensure_write_allowed().is_err());
+
+        assert_eq!(lifecycle.prepare_close(), RusshWriterAction::Execute);
+        lifecycle.mark_closed();
+        assert_eq!(lifecycle.prepare_close(), RusshWriterAction::AlreadyDone);
+        assert_eq!(
+            lifecycle.prepare_finish_input(),
+            RusshWriterAction::AlreadyDone
+        );
+        assert!(lifecycle.ensure_write_allowed().is_err());
+    }
+
+    #[test]
+    fn russh_write_cancellation_wins_when_both_futures_are_ready() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let selected = runtime.block_on(select_write_or_cancellation(
+            std::future::ready(Ok(())),
+            std::future::ready(()),
+        ));
+
+        assert!(selected.is_none());
+    }
 
     #[derive(Default)]
     struct MockAuthBackend {

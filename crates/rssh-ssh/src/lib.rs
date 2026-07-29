@@ -293,6 +293,77 @@ impl std::fmt::Display for SshSessionError {
 
 impl std::error::Error for SshSessionError {}
 
+/// Complete SSH exit-signal metadata from the remote channel.
+///
+/// This backend result remains the source of truth even when an application
+/// later projects it into a narrower process-status or metrics schema.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SshExitSignal {
+    /// SSH signal name such as `TERM`.
+    pub name: String,
+    /// Whether the remote process reported producing a core dump.
+    pub core_dumped: bool,
+    /// Optional remote diagnostic text; empty when the server omitted it.
+    pub error_message: String,
+    /// Language tag associated with `error_message`.
+    pub lang_tag: String,
+}
+
+/// Complete remote session termination result.
+///
+/// SSH status and signal events are independent and may both be present.
+/// Repeated events overwrite the previous event of the same kind without
+/// clearing the other kind, so no exit-signal metadata is lost at this layer.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SshSessionResult {
+    /// Last remote numeric exit status, when reported.
+    pub exit_status: Option<u32>,
+    /// Last complete remote exit signal, when reported.
+    pub exit_signal: Option<SshExitSignal>,
+}
+
+/// Bounded local-input message consumed by the full-duplex shell runner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SshInputEvent {
+    /// Bytes to write to the remote input stream.
+    Data(Vec<u8>),
+    /// Local input ended cleanly; send SSH channel EOF.
+    Eof,
+    /// Local input failed before EOF.
+    Error(String),
+}
+
+/// Receiving half of a bounded SSH local-input event channel.
+pub struct SshInputEventReceiver {
+    receiver: std::sync::mpsc::Receiver<SshInputEvent>,
+}
+
+/// Creates a bounded local-input channel for the full-duplex shell runner.
+///
+/// A zero capacity request is normalized to one because the native stdin
+/// broker must never use an unbounded or rendezvous-only queue.
+#[must_use]
+pub fn ssh_input_event_channel(
+    capacity: usize,
+) -> (
+    std::sync::mpsc::SyncSender<SshInputEvent>,
+    SshInputEventReceiver,
+) {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(capacity.max(1));
+    (sender, SshInputEventReceiver { receiver })
+}
+
+/// Remote exit metadata and exact byte counts from a completed SSH pump.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SshSessionOutcome {
+    /// Remote exit status and signal metadata observed before channel close.
+    pub result: SshSessionResult,
+    /// Bytes accepted by the remote writer.
+    pub input_bytes: u64,
+    /// Bytes successfully written to the local output sink.
+    pub output_bytes: u64,
+}
+
 pub trait SshShellConnector {
     /// Connects to an SSH server and starts the requested shell, command, or
     /// no-shell session.
@@ -307,7 +378,7 @@ pub trait SshShellConnector {
     ) -> Result<Box<dyn SshShellSession>, SshSessionError>;
 }
 
-pub trait SshShellSession: Send {
+pub trait SshShellReader: Send {
     /// Reads bytes from the remote shell channel into `buffer`.
     ///
     /// # Errors
@@ -316,6 +387,12 @@ pub trait SshShellSession: Send {
     /// SSH channel.
     fn read(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError>;
 
+    /// Returns the final remote status observed while draining the channel.
+    #[must_use]
+    fn session_result(&self) -> SshSessionResult;
+}
+
+pub trait SshShellWriter: Send {
     /// Writes bytes to the remote shell channel.
     ///
     /// # Errors
@@ -323,6 +400,32 @@ pub trait SshShellSession: Send {
     /// Returns [`SshSessionError`] when the adapter cannot write to or flush the
     /// active SSH channel.
     fn write(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError>;
+
+    /// Writes bytes while observing runner cancellation.
+    ///
+    /// The compatibility default checks cancellation before entering the
+    /// legacy blocking [`Self::write`] method. Backends whose write operation
+    /// can wait on remote flow control must override this method and interrupt
+    /// that wait when `cancelled` becomes true.
+    ///
+    /// `Ok(None)` means the write was cancelled and the caller should stop
+    /// pumping input. `Ok(Some(count))` has the same meaning as [`Self::write`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the adapter cannot write to the active
+    /// SSH channel.
+    fn write_cancellable(
+        &mut self,
+        bytes: &[u8],
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<Option<usize>, SshSessionError> {
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            Ok(None)
+        } else {
+            self.write(bytes).map(Some)
+        }
+    }
 
     /// Resizes the remote PTY attached to the shell channel.
     ///
@@ -338,6 +441,16 @@ pub trait SshShellSession: Send {
     /// Returns [`SshSessionError`] when the keepalive request fails.
     fn keepalive(&mut self) -> Result<(), SshSessionError>;
 
+    /// Sends EOF for the local-input direction without closing the channel.
+    ///
+    /// The remote side may still send trailing data and exit metadata after
+    /// receiving this half-close.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the backend cannot send channel EOF.
+    fn finish_input(&mut self) -> Result<(), SshSessionError>;
+
     /// Closes the remote shell session.
     ///
     /// # Errors
@@ -347,43 +460,216 @@ pub trait SshShellSession: Send {
     fn close(&mut self) -> Result<(), SshSessionError>;
 }
 
-pub trait SshChannel: Send {
-    /// Reads bytes from an established remote shell channel.
+pub trait SshShellSession: Send {
+    /// Compatibility read entrypoint for callers that still own an unsplit
+    /// session. Concurrent runners use [`Self::into_read_writer`].
     ///
     /// # Errors
     ///
-    /// Returns [`SshSessionError`] when the underlying SSH backend cannot read
-    /// from the channel.
+    /// Returns [`SshSessionError`] when the backend cannot read the channel.
+    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError>;
+
+    /// Compatibility write entrypoint for callers that still own an unsplit
+    /// session.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the backend cannot write the channel.
+    fn write(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError>;
+
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the backend rejects the PTY resize.
+    fn resize(&mut self, size: TerminalSize) -> Result<(), SshSessionError>;
+
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the backend cannot send a keepalive.
+    fn keepalive(&mut self) -> Result<(), SshSessionError>;
+
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the backend cannot close the channel.
+    fn close(&mut self) -> Result<(), SshSessionError>;
+
+    /// Splits the remote channel into independently owned read and write halves.
+    ///
+    /// The split contract permits the local-input pump and remote-output pump
+    /// to block independently without serializing the whole session. This
+    /// compatibility default shares the legacy session behind a mutex and
+    /// therefore provides source compatibility only: it does not guarantee
+    /// full-duplex progress. A backend used with the concurrent runner must
+    /// override this method with genuinely independent native halves to make
+    /// that guarantee.
+    #[must_use]
+    fn into_read_writer(self: Box<Self>) -> (Box<dyn SshShellReader>, Box<dyn SshShellWriter>)
+    where
+        Self: 'static,
+    {
+        let session = std::sync::Arc::new(std::sync::Mutex::new(self));
+        (
+            Box::new(SharedSessionReader {
+                session: std::sync::Arc::clone(&session),
+            }),
+            Box::new(SharedSessionWriter { session }),
+        )
+    }
+}
+
+pub trait SshChannel: Send {
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the backend cannot read the channel.
     fn read_channel(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError>;
 
-    /// Writes bytes to an established remote shell channel.
-    ///
     /// # Errors
     ///
-    /// Returns [`SshSessionError`] when the underlying SSH backend cannot write
-    /// to the channel.
+    /// Returns [`SshSessionError`] when the backend cannot write the channel.
     fn write_channel(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError>;
 
-    /// Resizes the remote PTY bound to the channel.
-    ///
     /// # Errors
     ///
     /// Returns [`SshSessionError`] when the backend rejects the PTY resize.
     fn resize_pty(&mut self, size: TerminalSize) -> Result<(), SshSessionError>;
 
-    /// Sends a keepalive request through the SSH connection.
-    ///
     /// # Errors
     ///
-    /// Returns [`SshSessionError`] when the backend cannot send the keepalive.
+    /// Returns [`SshSessionError`] when the backend cannot send a keepalive.
     fn send_keepalive(&mut self) -> Result<(), SshSessionError>;
 
-    /// Closes the remote shell channel.
-    ///
     /// # Errors
     ///
     /// Returns [`SshSessionError`] when the backend cannot close the channel.
     fn close_channel(&mut self) -> Result<(), SshSessionError>;
+
+    /// Splits an established backend channel into independently owned halves.
+    /// The compatibility default shares the channel behind a mutex and is
+    /// source-compatible, but does not guarantee full-duplex progress. A
+    /// backend used with the concurrent runner must override this method with
+    /// genuinely independent native halves.
+    #[must_use]
+    fn into_read_writer(self) -> (Box<dyn SshShellReader>, Box<dyn SshShellWriter>)
+    where
+        Self: Sized + 'static,
+    {
+        let channel = std::sync::Arc::new(std::sync::Mutex::new(self));
+        (
+            Box::new(SharedChannelReader {
+                channel: std::sync::Arc::clone(&channel),
+            }),
+            Box::new(SharedChannelWriter { channel }),
+        )
+    }
+}
+
+struct SharedSessionReader<T: SshShellSession + ?Sized> {
+    session: std::sync::Arc<std::sync::Mutex<Box<T>>>,
+}
+
+impl<T: SshShellSession + ?Sized> SshShellReader for SharedSessionReader<T> {
+    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError> {
+        self.session
+            .lock()
+            .map_err(|_| SshSessionError::new("shared SSH session lock poisoned"))?
+            .read(buffer)
+    }
+
+    fn session_result(&self) -> SshSessionResult {
+        SshSessionResult::default()
+    }
+}
+
+struct SharedSessionWriter<T: SshShellSession + ?Sized> {
+    session: std::sync::Arc<std::sync::Mutex<Box<T>>>,
+}
+
+impl<T: SshShellSession + ?Sized> SshShellWriter for SharedSessionWriter<T> {
+    fn write(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError> {
+        self.session
+            .lock()
+            .map_err(|_| SshSessionError::new("shared SSH session lock poisoned"))?
+            .write(bytes)
+    }
+
+    fn resize(&mut self, size: TerminalSize) -> Result<(), SshSessionError> {
+        self.session
+            .lock()
+            .map_err(|_| SshSessionError::new("shared SSH session lock poisoned"))?
+            .resize(size)
+    }
+
+    fn keepalive(&mut self) -> Result<(), SshSessionError> {
+        self.session
+            .lock()
+            .map_err(|_| SshSessionError::new("shared SSH session lock poisoned"))?
+            .keepalive()
+    }
+
+    fn finish_input(&mut self) -> Result<(), SshSessionError> {
+        Ok(())
+    }
+
+    fn close(&mut self) -> Result<(), SshSessionError> {
+        self.session
+            .lock()
+            .map_err(|_| SshSessionError::new("shared SSH session lock poisoned"))?
+            .close()
+    }
+}
+
+struct SharedChannelReader<C: SshChannel> {
+    channel: std::sync::Arc<std::sync::Mutex<C>>,
+}
+
+impl<C: SshChannel> SshShellReader for SharedChannelReader<C> {
+    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError> {
+        self.channel
+            .lock()
+            .map_err(|_| SshSessionError::new("shared SSH channel lock poisoned"))?
+            .read_channel(buffer)
+    }
+
+    fn session_result(&self) -> SshSessionResult {
+        SshSessionResult::default()
+    }
+}
+
+struct SharedChannelWriter<C: SshChannel> {
+    channel: std::sync::Arc<std::sync::Mutex<C>>,
+}
+
+impl<C: SshChannel> SshShellWriter for SharedChannelWriter<C> {
+    fn write(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError> {
+        self.channel
+            .lock()
+            .map_err(|_| SshSessionError::new("shared SSH channel lock poisoned"))?
+            .write_channel(bytes)
+    }
+
+    fn resize(&mut self, size: TerminalSize) -> Result<(), SshSessionError> {
+        self.channel
+            .lock()
+            .map_err(|_| SshSessionError::new("shared SSH channel lock poisoned"))?
+            .resize_pty(size)
+    }
+
+    fn keepalive(&mut self) -> Result<(), SshSessionError> {
+        self.channel
+            .lock()
+            .map_err(|_| SshSessionError::new("shared SSH channel lock poisoned"))?
+            .send_keepalive()
+    }
+
+    fn finish_input(&mut self) -> Result<(), SshSessionError> {
+        Ok(())
+    }
+
+    fn close(&mut self) -> Result<(), SshSessionError> {
+        self.channel
+            .lock()
+            .map_err(|_| SshSessionError::new("shared SSH channel lock poisoned"))?
+            .close_channel()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -448,6 +734,13 @@ where
     fn close(&mut self) -> Result<(), SshSessionError> {
         self.channel.close_channel()
     }
+
+    fn into_read_writer(self: Box<Self>) -> (Box<dyn SshShellReader>, Box<dyn SshShellWriter>)
+    where
+        Self: 'static,
+    {
+        self.channel.into_read_writer()
+    }
 }
 
 pub trait SshChannelOpener {
@@ -496,8 +789,11 @@ where
     }
 }
 
-/// Runs an SSH shell session by copying local input to the remote session and
-/// remote output to the provided output sink.
+/// Runs the legacy sequential borrowed-I/O adapter.
+///
+/// This compatibility API copies all input before reading remote output. It is
+/// not full duplex and does not return remote exit metadata. New code should
+/// use [`run_connected_shell_with_events`].
 ///
 /// # Errors
 ///
@@ -511,7 +807,7 @@ pub fn run_shell_with_io(
     output: &mut dyn std::io::Write,
 ) -> Result<(), SshSessionError> {
     let mut session = connector.connect(request)?;
-    copy_input_to_session(input, session.as_mut())?;
+    copy_input_to_legacy_session(input, session.as_mut())?;
 
     let mut buffer = [0; 8192];
     loop {
@@ -519,7 +815,6 @@ pub fn run_shell_with_io(
         if count == 0 {
             break;
         }
-
         output
             .write_all(&buffer[..count])
             .map_err(|error| SshSessionError::new(error.to_string()))?;
@@ -527,11 +822,179 @@ pub fn run_shell_with_io(
             .flush()
             .map_err(|error| SshSessionError::new(error.to_string()))?;
     }
-
     session.close()
 }
 
-fn copy_input_to_session(
+#[derive(Clone)]
+struct SshCancellation {
+    cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl SshCancellation {
+    fn new() -> Self {
+        Self {
+            cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    fn cancel(&self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    fn flag(&self) -> &std::sync::atomic::AtomicBool {
+        self.cancelled.as_ref()
+    }
+}
+
+enum SshInputPoll {
+    Event(SshInputEvent),
+    Cancelled,
+}
+
+fn input_event_after_wakeup(event: SshInputEvent, cancellation: &SshCancellation) -> SshInputPoll {
+    if cancellation.is_cancelled() {
+        SshInputPoll::Cancelled
+    } else {
+        SshInputPoll::Event(event)
+    }
+}
+
+impl SshInputEventReceiver {
+    fn recv_cancellable(&self, cancellation: &SshCancellation) -> SshInputPoll {
+        loop {
+            if cancellation.is_cancelled() {
+                return SshInputPoll::Cancelled;
+            }
+            let event = match self
+                .receiver
+                .recv_timeout(std::time::Duration::from_millis(20))
+            {
+                Ok(event) => event,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => SshInputEvent::Eof,
+            };
+            return input_event_after_wakeup(event, cancellation);
+        }
+    }
+}
+
+/// Pumps an already connected session using cancellable bounded input events.
+///
+/// Remote Close or output failure cancels an idle input receiver, so joining
+/// the writer pump does not depend on an arbitrary blocking [`std::io::Read`].
+/// Full-duplex progress additionally requires the backend to override
+/// [`SshShellSession::into_read_writer`] with independent native halves. If its
+/// writes can wait on remote flow control, its writer must also override
+/// [`SshShellWriter::write_cancellable`]. The compatibility defaults preserve
+/// existing implementations but do not provide these concurrency guarantees.
+///
+/// # Errors
+///
+/// Returns [`SshSessionError`] for input events, channel I/O, output I/O, or
+/// channel shutdown failures.
+pub fn run_connected_shell_with_events(
+    session: Box<dyn SshShellSession>,
+    input: SshInputEventReceiver,
+    output: &mut dyn std::io::Write,
+) -> Result<SshSessionOutcome, SshSessionError> {
+    let (mut reader, mut writer) = session.into_read_writer();
+    let cancellation = SshCancellation::new();
+    let writer_cancellation = cancellation.clone();
+
+    std::thread::scope(move |scope| {
+        let input_pump = scope.spawn(move || {
+            let input_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                pump_input_events(&input, &writer_cancellation, writer.as_mut())
+            }))
+            .unwrap_or_else(|_| Err(SshSessionError::new("SSH input pump panicked")));
+            let closed_on_error = input_result.is_err();
+            let emergency_close_result = closed_on_error.then(|| writer.close());
+            (
+                writer,
+                input_result,
+                closed_on_error,
+                emergency_close_result,
+            )
+        });
+
+        let mut output_bytes = 0;
+        let output_result = copy_session_to_output(reader.as_mut(), output, &mut output_bytes);
+        cancellation.cancel();
+        let Ok((mut writer, input_result, closed_on_error, emergency_close_result)) =
+            input_pump.join()
+        else {
+            output_result?;
+            return Err(SshSessionError::new("SSH input pump panicked"));
+        };
+        let close_result = if closed_on_error {
+            emergency_close_result.unwrap_or(Ok(()))
+        } else {
+            writer.close()
+        };
+
+        output_result?;
+        let input_bytes = input_result?;
+        close_result?;
+        Ok(SshSessionOutcome {
+            result: reader.session_result(),
+            input_bytes,
+            output_bytes,
+        })
+    })
+}
+
+fn pump_input_events(
+    input: &SshInputEventReceiver,
+    cancellation: &SshCancellation,
+    writer: &mut dyn SshShellWriter,
+) -> Result<u64, SshSessionError> {
+    let mut input_bytes = 0_u64;
+    loop {
+        match input.recv_cancellable(cancellation) {
+            SshInputPoll::Cancelled => return Ok(input_bytes),
+            SshInputPoll::Event(SshInputEvent::Data(bytes)) => {
+                if !write_all_to_shell(writer, &bytes, cancellation)? {
+                    return Ok(input_bytes);
+                }
+                input_bytes = input_bytes.saturating_add(bytes.len() as u64);
+            }
+            SshInputPoll::Event(SshInputEvent::Eof) => {
+                writer.finish_input()?;
+                return Ok(input_bytes);
+            }
+            SshInputPoll::Event(SshInputEvent::Error(message)) => {
+                return Err(SshSessionError::new(message));
+            }
+        }
+    }
+}
+
+fn write_all_to_shell(
+    writer: &mut dyn SshShellWriter,
+    bytes: &[u8],
+    cancellation: &SshCancellation,
+) -> Result<bool, SshSessionError> {
+    let mut written = 0;
+    while written < bytes.len() {
+        let Some(next) = writer.write_cancellable(&bytes[written..], cancellation.flag())? else {
+            return Ok(false);
+        };
+        if next == 0 {
+            return Err(SshSessionError::new(
+                "SSH session write returned zero bytes",
+            ));
+        }
+        written += next;
+    }
+    Ok(true)
+}
+
+fn copy_input_to_legacy_session(
     input: &mut dyn std::io::Read,
     session: &mut dyn SshShellSession,
 ) -> Result<(), SshSessionError> {
@@ -558,20 +1021,47 @@ fn copy_input_to_session(
     }
 }
 
+fn copy_session_to_output(
+    reader: &mut dyn SshShellReader,
+    output: &mut dyn std::io::Write,
+    output_bytes: &mut u64,
+) -> Result<(), SshSessionError> {
+    let mut buffer = [0; 8192];
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            return Ok(());
+        }
+
+        output
+            .write_all(&buffer[..count])
+            .map_err(|error| SshSessionError::new(error.to_string()))?;
+        output
+            .flush()
+            .map_err(|error| SshSessionError::new(error.to_string()))?;
+        *output_bytes = (*output_bytes).saturating_add(count as u64);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
         io,
         path::PathBuf,
-        sync::{Arc, Mutex},
+        sync::{
+            Arc, Condvar, Mutex,
+            mpsc::{self, SyncSender},
+        },
+        time::Duration,
     };
 
     use rssh_core::TerminalSize;
 
     use super::{
         SshAuthError, SshAuthMethod, SshChannel, SshChannelConnector, SshChannelOpenPlan,
-        SshChannelOpener, SshChannelSession, SshConnectRequest, SshSessionConfig,
-        SshSessionStartup, SshShellConnector, SshShellSession, SshStartupError,
+        SshChannelOpener, SshChannelSession, SshConnectRequest, SshInputEvent, SshSessionConfig,
+        SshSessionResult, SshSessionStartup, SshShellConnector, SshShellReader, SshShellSession,
+        SshShellWriter, SshStartupError, ssh_input_event_channel,
     };
 
     use crate::{
@@ -654,6 +1144,33 @@ mod tests {
         assert_eq!(session.size, TerminalSize::new(120, 30));
         assert!(session.kept_alive);
         assert!(session.closed);
+    }
+
+    #[test]
+    fn legacy_shell_runner_accepts_non_send_reader_and_returns_unit() {
+        let request = SshConnectRequest::agent(valid_config());
+        let state = Arc::new(Mutex::new(MockRunnerState::default()));
+        let mut connector = MockRunnerConnector {
+            state: Arc::clone(&state),
+        };
+        let shared = std::rc::Rc::new(std::cell::RefCell::new(io::Cursor::new(Vec::<u8>::new())));
+        let mut input = NonSendReader { shared };
+        let mut output = Vec::new();
+
+        let result: Result<(), super::SshSessionError> =
+            super::run_shell_with_io(&mut connector, request, &mut input, &mut output);
+
+        result.unwrap();
+        assert_eq!(output, b"remote\n");
+    }
+
+    #[test]
+    fn legacy_session_and_channel_implementers_do_not_need_split_methods() {
+        fn assert_session<T: SshShellSession>() {}
+        fn assert_channel<T: SshChannel>() {}
+
+        assert_session::<LegacyCompatibleSession>();
+        assert_channel::<LegacyCompatibleChannel>();
     }
 
     #[test]
@@ -883,6 +1400,284 @@ mod tests {
         assert_eq!(state.written, b"echo hi\n");
         assert_eq!(output, b"remote\n");
         assert!(state.closed);
+    }
+
+    #[test]
+    fn shell_runner_streams_output_before_input_eof() {
+        let request = SshConnectRequest::agent(valid_config());
+        let state = Arc::new(Mutex::new(MockRunnerState::default()));
+        let mut connector = MockRunnerConnector {
+            state: Arc::clone(&state),
+        };
+        let session = connector.connect(request).unwrap();
+        let (input_tx, input_rx) = ssh_input_event_channel(1);
+        let (output_tx, output_rx) = mpsc::sync_channel(1);
+        let mut output = ChannelOutput {
+            sender: output_tx,
+            pending: Vec::new(),
+        };
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+
+        let worker = std::thread::spawn(move || {
+            let result = super::run_connected_shell_with_events(session, input_rx, &mut output);
+            done_tx.send(result).unwrap();
+        });
+
+        let remote_output = output_rx.recv_timeout(Duration::from_millis(250));
+        input_tx.send(SshInputEvent::Eof).unwrap();
+        done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("shell runner did not finish after input EOF")
+            .unwrap();
+        worker.join().unwrap();
+
+        assert_eq!(
+            remote_output.expect("remote output was blocked on local input EOF"),
+            b"remote\n"
+        );
+    }
+
+    #[test]
+    fn shell_runner_remote_close_cancels_open_input() {
+        let request = SshConnectRequest::agent(valid_config());
+        let state = Arc::new(Mutex::new(MockRunnerState::default()));
+        let mut connector = MockRunnerConnector {
+            state: Arc::clone(&state),
+        };
+        let session = connector.connect(request).unwrap();
+        let (input_tx, input_rx) = ssh_input_event_channel(1);
+        let mut output = Vec::new();
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+
+        let worker = std::thread::spawn(move || {
+            let result = super::run_connected_shell_with_events(session, input_rx, &mut output);
+            done_tx.send(result).unwrap();
+        });
+
+        let completed_while_input_open = done_rx
+            .recv_timeout(Duration::from_millis(250))
+            .expect("remote Close did not cancel open input");
+        worker.join().unwrap();
+        drop(input_tx);
+
+        completed_while_input_open.unwrap();
+    }
+
+    #[test]
+    fn input_receiver_prioritizes_cancellation_over_queued_events() {
+        let (input_tx, input_rx) = ssh_input_event_channel(1);
+        input_tx.send(SshInputEvent::Eof).unwrap();
+        let cancellation = super::SshCancellation::new();
+        cancellation.cancel();
+
+        assert!(matches!(
+            input_rx.recv_cancellable(&cancellation),
+            super::SshInputPoll::Cancelled
+        ));
+    }
+
+    #[test]
+    fn input_receiver_post_wakeup_arbitration_prefers_cancellation() {
+        let cancellation = super::SshCancellation::new();
+        cancellation.cancel();
+
+        assert!(matches!(
+            super::input_event_after_wakeup(SshInputEvent::Data(vec![1]), &cancellation),
+            super::SshInputPoll::Cancelled
+        ));
+        assert!(matches!(
+            super::input_event_after_wakeup(SshInputEvent::Eof, &cancellation),
+            super::SshInputPoll::Cancelled
+        ));
+        assert!(matches!(
+            super::input_event_after_wakeup(
+                SshInputEvent::Error("late input error".to_owned()),
+                &cancellation,
+            ),
+            super::SshInputPoll::Cancelled
+        ));
+    }
+
+    #[test]
+    fn shell_runner_output_broken_pipe_cancels_open_input() {
+        let request = SshConnectRequest::agent(valid_config());
+        let state = Arc::new(Mutex::new(MockRunnerState::default()));
+        let mut connector = MockRunnerConnector {
+            state: Arc::clone(&state),
+        };
+        let session = connector.connect(request).unwrap();
+        let (input_tx, input_rx) = ssh_input_event_channel(1);
+        let mut output = FailingOutput;
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+
+        let worker = std::thread::spawn(move || {
+            let result = super::run_connected_shell_with_events(session, input_rx, &mut output);
+            done_tx.send(result).unwrap();
+        });
+
+        let error = done_rx
+            .recv_timeout(Duration::from_millis(250))
+            .expect("BrokenPipe did not cancel open input")
+            .unwrap_err();
+        worker.join().unwrap();
+        drop(input_tx);
+
+        assert_eq!(error.to_string(), "output failure");
+    }
+
+    #[test]
+    fn shell_runner_remote_close_cancels_blocked_writer() {
+        let session = BlockingWriteSession::new(false);
+        let state = Arc::clone(&session.state);
+        let (input_tx, input_rx) = ssh_input_event_channel(1);
+        input_tx
+            .send(SshInputEvent::Data(b"blocked write".to_vec()))
+            .unwrap();
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+
+        let worker = std::thread::spawn(move || {
+            let mut output = Vec::new();
+            done_tx
+                .send(super::run_connected_shell_with_events(
+                    Box::new(session),
+                    input_rx,
+                    &mut output,
+                ))
+                .unwrap();
+        });
+
+        done_rx
+            .recv_timeout(Duration::from_millis(250))
+            .expect("remote Close did not cancel a blocked writer")
+            .unwrap();
+        worker.join().unwrap();
+        drop(input_tx);
+        assert!(state.0.lock().unwrap().closed);
+    }
+
+    #[test]
+    fn shell_runner_output_error_cancels_blocked_writer() {
+        let session = BlockingWriteSession::new(true);
+        let state = Arc::clone(&session.state);
+        let (input_tx, input_rx) = ssh_input_event_channel(1);
+        input_tx
+            .send(SshInputEvent::Data(b"blocked write".to_vec()))
+            .unwrap();
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+
+        let worker = std::thread::spawn(move || {
+            let mut output = FailingOutput;
+            done_tx
+                .send(super::run_connected_shell_with_events(
+                    Box::new(session),
+                    input_rx,
+                    &mut output,
+                ))
+                .unwrap();
+        });
+
+        let error = done_rx
+            .recv_timeout(Duration::from_millis(250))
+            .expect("output failure did not cancel a blocked writer")
+            .unwrap_err();
+        worker.join().unwrap();
+        drop(input_tx);
+        assert_eq!(error.to_string(), "output failure");
+        assert!(state.0.lock().unwrap().closed);
+    }
+
+    #[test]
+    fn shell_runner_drains_late_output_and_status_after_input_eof() {
+        let request = SshConnectRequest::agent(valid_config());
+        let shared = Arc::new((Mutex::new(false), Condvar::new()));
+        let mut connector = EofAwareConnector {
+            shared: Arc::clone(&shared),
+        };
+        let session = connector.connect(request).unwrap();
+        let (input_tx, input_rx) = ssh_input_event_channel(2);
+        input_tx
+            .send(SshInputEvent::Data(b"request\n".to_vec()))
+            .unwrap();
+        input_tx.send(SshInputEvent::Eof).unwrap();
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+
+        let worker = std::thread::spawn(move || {
+            let mut output = Vec::new();
+            let result = super::run_connected_shell_with_events(session, input_rx, &mut output);
+            done_tx.send((result, output)).unwrap();
+        });
+
+        let (result, output) = done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("runner did not drain output after local input EOF");
+        worker.join().unwrap();
+
+        assert_eq!(output, b"late\n");
+        assert_eq!(result.unwrap().result.exit_status, Some(37));
+    }
+
+    #[test]
+    fn shell_runner_closes_channel_when_finish_input_fails() {
+        let state = Arc::new((Mutex::new(FaultState::default()), Condvar::new()));
+        let mut connector = FaultConnector {
+            state: Arc::clone(&state),
+            emit_output: false,
+        };
+        let request = SshConnectRequest::agent(valid_config());
+        let session = connector.connect(request).unwrap();
+        let (input_tx, input_rx) = ssh_input_event_channel(1);
+        input_tx.send(SshInputEvent::Eof).unwrap();
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+
+        let worker = std::thread::spawn(move || {
+            let mut output = Vec::new();
+            let result = super::run_connected_shell_with_events(session, input_rx, &mut output)
+                .map_err(|error| error.to_string());
+            done_tx.send(result).unwrap();
+        });
+
+        let error = done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("finish-input failure left the output pump blocked")
+            .unwrap_err();
+        worker.join().unwrap();
+
+        assert_eq!(error, "finish input failure");
+        let state = state.0.lock().unwrap();
+        assert!(state.finish_called);
+        assert!(state.closed);
+    }
+
+    #[test]
+    fn shell_runner_prioritizes_output_error_over_input_finish_and_close_errors() {
+        let state = Arc::new((Mutex::new(FaultState::default()), Condvar::new()));
+        let mut connector = FaultConnector {
+            state: Arc::clone(&state),
+            emit_output: true,
+        };
+        let request = SshConnectRequest::agent(valid_config());
+        let session = connector.connect(request).unwrap();
+        let (input_tx, input_rx) = ssh_input_event_channel(1);
+        input_tx
+            .send(SshInputEvent::Error("input failure".to_owned()))
+            .unwrap();
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+
+        let worker = std::thread::spawn(move || {
+            let mut output = FailingOutput;
+            let result = super::run_connected_shell_with_events(session, input_rx, &mut output)
+                .map_err(|error| error.to_string());
+            done_tx.send(result).unwrap();
+        });
+
+        let error = done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("fault-injected pumps did not finish")
+            .unwrap_err();
+        worker.join().unwrap();
+
+        assert_eq!(error, "output failure");
+        assert!(state.0.lock().unwrap().closed);
     }
 
     #[test]
@@ -1390,6 +2185,64 @@ mod tests {
         closed: bool,
     }
 
+    struct NonSendReader {
+        shared: std::rc::Rc<std::cell::RefCell<io::Cursor<Vec<u8>>>>,
+    }
+
+    impl io::Read for NonSendReader {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            self.shared.borrow_mut().read(buffer)
+        }
+    }
+
+    struct LegacyCompatibleSession;
+
+    impl SshShellSession for LegacyCompatibleSession {
+        fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, super::SshSessionError> {
+            Ok(0)
+        }
+
+        fn write(&mut self, bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            Ok(bytes.len())
+        }
+
+        fn resize(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+    }
+
+    struct LegacyCompatibleChannel;
+
+    impl SshChannel for LegacyCompatibleChannel {
+        fn read_channel(&mut self, _buffer: &mut [u8]) -> Result<usize, super::SshSessionError> {
+            Ok(0)
+        }
+
+        fn write_channel(&mut self, bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            Ok(bytes.len())
+        }
+
+        fn resize_pty(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn send_keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn close_channel(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+    }
+
     impl Default for MockSshSession {
         fn default() -> Self {
             Self {
@@ -1426,6 +2279,21 @@ mod tests {
             self.closed = true;
             Ok(())
         }
+
+        fn into_read_writer(self: Box<Self>) -> (Box<dyn SshShellReader>, Box<dyn SshShellWriter>) {
+            (
+                Box::new(MockChannelReader {
+                    output: b"pong".to_vec(),
+                }),
+                Box::new(MockChannelWriter {
+                    written: self.written,
+                    sizes: Vec::new(),
+                    keepalives: 0,
+                    closed: self.closed,
+                    recorded: None,
+                }),
+            )
+        }
     }
 
     #[derive(Default)]
@@ -1457,6 +2325,25 @@ mod tests {
         read_once: bool,
     }
 
+    struct ChannelOutput {
+        sender: SyncSender<Vec<u8>>,
+        pending: Vec<u8>,
+    }
+
+    impl io::Write for ChannelOutput {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.pending.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.sender
+                .send(std::mem::take(&mut self.pending))
+                .map_err(|error| io::Error::new(io::ErrorKind::BrokenPipe, error))?;
+            Ok(())
+        }
+    }
+
     impl SshShellSession for MockRunnerSession {
         fn read(&mut self, buffer: &mut [u8]) -> Result<usize, super::SshSessionError> {
             if self.read_once {
@@ -1482,6 +2369,438 @@ mod tests {
 
         fn close(&mut self) -> Result<(), super::SshSessionError> {
             self.state.lock().unwrap().closed = true;
+            Ok(())
+        }
+
+        fn into_read_writer(self: Box<Self>) -> (Box<dyn SshShellReader>, Box<dyn SshShellWriter>) {
+            let writer = MockRunnerWriter {
+                state: Arc::clone(&self.state),
+            };
+            (self, Box::new(writer))
+        }
+    }
+
+    impl SshShellReader for MockRunnerSession {
+        fn read(&mut self, buffer: &mut [u8]) -> Result<usize, super::SshSessionError> {
+            SshShellSession::read(self, buffer)
+        }
+
+        fn session_result(&self) -> SshSessionResult {
+            SshSessionResult::default()
+        }
+    }
+
+    struct MockRunnerWriter {
+        state: Arc<Mutex<MockRunnerState>>,
+    }
+
+    impl SshShellWriter for MockRunnerWriter {
+        fn write(&mut self, bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            self.state.lock().unwrap().written.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn resize(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn finish_input(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), super::SshSessionError> {
+            self.state.lock().unwrap().closed = true;
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct BlockingWriteState {
+        write_started: bool,
+        closed: bool,
+    }
+
+    struct BlockingWriteSession {
+        state: Arc<(Mutex<BlockingWriteState>, Condvar)>,
+        emit_output: bool,
+    }
+
+    impl BlockingWriteSession {
+        fn new(emit_output: bool) -> Self {
+            Self {
+                state: Arc::new((Mutex::new(BlockingWriteState::default()), Condvar::new())),
+                emit_output,
+            }
+        }
+    }
+
+    impl SshShellSession for BlockingWriteSession {
+        fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, super::SshSessionError> {
+            unreachable!("blocking-write tests use the split reader")
+        }
+
+        fn write(&mut self, _bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            unreachable!("blocking-write tests use the split writer")
+        }
+
+        fn resize(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn into_read_writer(self: Box<Self>) -> (Box<dyn SshShellReader>, Box<dyn SshShellWriter>) {
+            (
+                Box::new(BlockingWriteReader {
+                    state: Arc::clone(&self.state),
+                    emit_output: self.emit_output,
+                    emitted: false,
+                }),
+                Box::new(BlockingWriteWriter { state: self.state }),
+            )
+        }
+    }
+
+    struct BlockingWriteReader {
+        state: Arc<(Mutex<BlockingWriteState>, Condvar)>,
+        emit_output: bool,
+        emitted: bool,
+    }
+
+    impl SshShellReader for BlockingWriteReader {
+        fn read(&mut self, buffer: &mut [u8]) -> Result<usize, super::SshSessionError> {
+            let (state, wake) = &*self.state;
+            let mut state = state.lock().unwrap();
+            while !state.write_started {
+                state = wake.wait(state).unwrap();
+            }
+            if self.emit_output && !self.emitted {
+                self.emitted = true;
+                buffer[0] = b'x';
+                Ok(1)
+            } else {
+                Ok(0)
+            }
+        }
+
+        fn session_result(&self) -> SshSessionResult {
+            SshSessionResult::default()
+        }
+    }
+
+    struct BlockingWriteWriter {
+        state: Arc<(Mutex<BlockingWriteState>, Condvar)>,
+    }
+
+    impl SshShellWriter for BlockingWriteWriter {
+        fn write(&mut self, _bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            Err(super::SshSessionError::new(
+                "runner bypassed cancellable SSH write",
+            ))
+        }
+
+        fn write_cancellable(
+            &mut self,
+            _bytes: &[u8],
+            cancelled: &std::sync::atomic::AtomicBool,
+        ) -> Result<Option<usize>, super::SshSessionError> {
+            let (state, wake) = &*self.state;
+            {
+                let mut state = state.lock().unwrap();
+                state.write_started = true;
+                wake.notify_all();
+            }
+            while !cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            Ok(None)
+        }
+
+        fn resize(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn finish_input(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), super::SshSessionError> {
+            let (state, wake) = &*self.state;
+            state.lock().unwrap().closed = true;
+            wake.notify_all();
+            Ok(())
+        }
+    }
+
+    struct EofAwareConnector {
+        shared: Arc<(Mutex<bool>, Condvar)>,
+    }
+
+    impl SshShellConnector for EofAwareConnector {
+        fn connect(
+            &mut self,
+            _request: SshConnectRequest,
+        ) -> Result<Box<dyn SshShellSession>, super::SshSessionError> {
+            Ok(Box::new(EofAwareSession {
+                shared: Arc::clone(&self.shared),
+            }))
+        }
+    }
+
+    struct EofAwareSession {
+        shared: Arc<(Mutex<bool>, Condvar)>,
+    }
+
+    impl SshShellSession for EofAwareSession {
+        fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, super::SshSessionError> {
+            Err(super::SshSessionError::new("split session required"))
+        }
+
+        fn write(&mut self, _bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            Err(super::SshSessionError::new("split session required"))
+        }
+
+        fn resize(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn into_read_writer(self: Box<Self>) -> (Box<dyn SshShellReader>, Box<dyn SshShellWriter>) {
+            (
+                Box::new(EofAwareReader {
+                    shared: Arc::clone(&self.shared),
+                    emitted: false,
+                }),
+                Box::new(EofAwareWriter {
+                    shared: self.shared,
+                }),
+            )
+        }
+    }
+
+    struct EofAwareReader {
+        shared: Arc<(Mutex<bool>, Condvar)>,
+        emitted: bool,
+    }
+
+    impl SshShellReader for EofAwareReader {
+        fn read(&mut self, buffer: &mut [u8]) -> Result<usize, super::SshSessionError> {
+            if self.emitted {
+                return Ok(0);
+            }
+
+            let (input_finished, wake) = &*self.shared;
+            let input_finished = input_finished.lock().unwrap();
+            let (input_finished, timeout) = wake
+                .wait_timeout_while(input_finished, Duration::from_secs(1), |finished| {
+                    !*finished
+                })
+                .unwrap();
+            if timeout.timed_out() || !*input_finished {
+                return Err(super::SshSessionError::new(
+                    "local input EOF was not sent before the deadline",
+                ));
+            }
+
+            self.emitted = true;
+            buffer[..5].copy_from_slice(b"late\n");
+            Ok(5)
+        }
+
+        fn session_result(&self) -> SshSessionResult {
+            SshSessionResult {
+                exit_status: self.emitted.then_some(37),
+                exit_signal: None,
+            }
+        }
+    }
+
+    struct EofAwareWriter {
+        shared: Arc<(Mutex<bool>, Condvar)>,
+    }
+
+    #[derive(Default)]
+    struct FaultState {
+        finish_called: bool,
+        closed: bool,
+    }
+
+    struct FaultConnector {
+        state: Arc<(Mutex<FaultState>, Condvar)>,
+        emit_output: bool,
+    }
+
+    impl SshShellConnector for FaultConnector {
+        fn connect(
+            &mut self,
+            _request: SshConnectRequest,
+        ) -> Result<Box<dyn SshShellSession>, super::SshSessionError> {
+            Ok(Box::new(FaultSession {
+                state: Arc::clone(&self.state),
+                emit_output: self.emit_output,
+            }))
+        }
+    }
+
+    struct FaultSession {
+        state: Arc<(Mutex<FaultState>, Condvar)>,
+        emit_output: bool,
+    }
+
+    impl SshShellSession for FaultSession {
+        fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, super::SshSessionError> {
+            Err(super::SshSessionError::new("split session required"))
+        }
+
+        fn write(&mut self, _bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            Err(super::SshSessionError::new("split session required"))
+        }
+
+        fn resize(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn into_read_writer(self: Box<Self>) -> (Box<dyn SshShellReader>, Box<dyn SshShellWriter>) {
+            (
+                Box::new(FaultReader {
+                    state: Arc::clone(&self.state),
+                    emit_output: self.emit_output,
+                    emitted: false,
+                }),
+                Box::new(FaultWriter { state: self.state }),
+            )
+        }
+    }
+
+    struct FaultReader {
+        state: Arc<(Mutex<FaultState>, Condvar)>,
+        emit_output: bool,
+        emitted: bool,
+    }
+
+    impl SshShellReader for FaultReader {
+        fn read(&mut self, buffer: &mut [u8]) -> Result<usize, super::SshSessionError> {
+            if self.emitted {
+                return Ok(0);
+            }
+
+            let (state, wake) = &*self.state;
+            let state = state.lock().unwrap();
+            let (state, timeout) = wake
+                .wait_timeout_while(state, Duration::from_secs(1), |state| !state.closed)
+                .unwrap();
+            if timeout.timed_out() || !state.closed {
+                return Err(super::SshSessionError::new(
+                    "reader remained blocked after input failure",
+                ));
+            }
+            drop(state);
+
+            self.emitted = true;
+            if self.emit_output {
+                buffer[..6].copy_from_slice(b"fault\n");
+                Ok(6)
+            } else {
+                Ok(0)
+            }
+        }
+
+        fn session_result(&self) -> SshSessionResult {
+            SshSessionResult::default()
+        }
+    }
+
+    struct FaultWriter {
+        state: Arc<(Mutex<FaultState>, Condvar)>,
+    }
+
+    impl SshShellWriter for FaultWriter {
+        fn write(&mut self, bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            Ok(bytes.len())
+        }
+
+        fn resize(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn finish_input(&mut self) -> Result<(), super::SshSessionError> {
+            self.state.0.lock().unwrap().finish_called = true;
+            Err(super::SshSessionError::new("finish input failure"))
+        }
+
+        fn close(&mut self) -> Result<(), super::SshSessionError> {
+            self.state.0.lock().unwrap().closed = true;
+            self.state.1.notify_all();
+            Err(super::SshSessionError::new("close failure"))
+        }
+    }
+
+    struct FailingOutput;
+
+    impl io::Write for FailingOutput {
+        fn write(&mut self, _bytes: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other("output failure"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl SshShellWriter for EofAwareWriter {
+        fn write(&mut self, bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            Ok(bytes.len())
+        }
+
+        fn resize(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn finish_input(&mut self) -> Result<(), super::SshSessionError> {
+            let (input_finished, wake) = &*self.shared;
+            *input_finished.lock().unwrap() = true;
+            wake.notify_all();
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), super::SshSessionError> {
             Ok(())
         }
     }
@@ -1532,6 +2851,10 @@ mod tests {
         fn close_channel(&mut self) -> Result<(), super::SshSessionError> {
             self.closed = true;
             Ok(())
+        }
+
+        fn into_read_writer(self) -> (Box<dyn SshShellReader>, Box<dyn SshShellWriter>) {
+            split_mock_channel(self, None)
         }
     }
 
@@ -1596,5 +2919,87 @@ mod tests {
             ));
             Ok(())
         }
+
+        fn into_read_writer(self) -> (Box<dyn SshShellReader>, Box<dyn SshShellWriter>) {
+            split_mock_channel(self.channel, Some(self.recorded))
+        }
+    }
+
+    struct MockChannelReader {
+        output: Vec<u8>,
+    }
+
+    impl SshShellReader for MockChannelReader {
+        fn read(&mut self, buffer: &mut [u8]) -> Result<usize, super::SshSessionError> {
+            let count = buffer.len().min(self.output.len());
+            buffer[..count].copy_from_slice(&self.output[..count]);
+            self.output.drain(..count);
+            Ok(count)
+        }
+
+        fn session_result(&self) -> SshSessionResult {
+            SshSessionResult::default()
+        }
+    }
+
+    struct MockChannelWriter {
+        written: Vec<u8>,
+        sizes: Vec<TerminalSize>,
+        keepalives: u32,
+        closed: bool,
+        recorded: Option<Arc<Mutex<Option<MockSshChannel>>>>,
+    }
+
+    impl SshShellWriter for MockChannelWriter {
+        fn write(&mut self, bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            self.written.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn resize(&mut self, size: TerminalSize) -> Result<(), super::SshSessionError> {
+            self.sizes.push(size);
+            Ok(())
+        }
+
+        fn keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            self.keepalives += 1;
+            Ok(())
+        }
+
+        fn finish_input(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), super::SshSessionError> {
+            self.closed = true;
+            if let Some(recorded) = &self.recorded {
+                *recorded.lock().unwrap() = Some(MockSshChannel {
+                    output: Vec::new(),
+                    written: std::mem::take(&mut self.written),
+                    sizes: std::mem::take(&mut self.sizes),
+                    keepalives: self.keepalives,
+                    closed: self.closed,
+                });
+            }
+            Ok(())
+        }
+    }
+
+    fn split_mock_channel(
+        channel: MockSshChannel,
+        recorded: Option<Arc<Mutex<Option<MockSshChannel>>>>,
+    ) -> (Box<dyn SshShellReader>, Box<dyn SshShellWriter>) {
+        (
+            Box::new(MockChannelReader {
+                output: channel.output,
+            }),
+            Box::new(MockChannelWriter {
+                written: channel.written,
+                sizes: channel.sizes,
+                keepalives: channel.keepalives,
+                closed: channel.closed,
+                recorded,
+            }),
+        )
     }
 }

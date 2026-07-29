@@ -16,7 +16,8 @@ use rssh_pty::{PtyCommand, PtyExitStatus, PtySize};
 use rssh_ssh::{
     RusshChannelOpener, RusshDirectTcpIpOpenPlan, RusshHostKeyPolicy, RusshPrivateKeyAuth,
     RusshRemoteTcpIpForwardPlan, SshAuthMethod, SshChannelConnector, SshConnectRequest,
-    SshSessionConfig, SshSessionStartup, SshShellConnector,
+    SshInputEvent, SshInputEventReceiver, SshSessionConfig, SshSessionStartup, SshShellConnector,
+    SshShellSession, ssh_input_event_channel,
 };
 use serde::Serialize;
 
@@ -193,9 +194,7 @@ fn run_native(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     let mut connector = SshChannelConnector::new(native_channel_opener_for_options(options));
     let mut forward_starter =
         ThreadedNativeLocalForwardStarter::new(native_channel_opener_for_options(options));
-    let stdin = io::stdin();
     let stdout = io::stdout();
-    let mut input = stdin.lock();
     let mut output = stdout.lock();
 
     run_native_with_connector_prompt_and_io(
@@ -203,9 +202,96 @@ fn run_native(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
         &mut connector,
         &mut forward_starter,
         &mut |request| native_password_prompt(request),
-        &mut input,
+        NativeSshInput::StdinBroker,
         &mut output,
     )
+}
+
+enum NativeSshInput {
+    Events(SshInputEventReceiver),
+    StdinBroker,
+}
+
+impl NativeSshInput {
+    fn acquire_after_connect(self) -> Result<SshInputEventReceiver, Box<dyn Error>> {
+        match self {
+            Self::Events(receiver) => Ok(receiver),
+            Self::StdinBroker => native_stdin_event_receiver(),
+        }
+    }
+}
+
+impl From<SshInputEventReceiver> for NativeSshInput {
+    fn from(receiver: SshInputEventReceiver) -> Self {
+        Self::Events(receiver)
+    }
+}
+
+struct NativeStdinBroker {
+    receiver: std::sync::Mutex<Option<SshInputEventReceiver>>,
+}
+
+impl NativeStdinBroker {
+    fn start() -> Result<Self, String> {
+        let (sender, receiver) = ssh_input_event_channel(32);
+        thread::Builder::new()
+            .name("rssh-native-stdin-broker".to_owned())
+            .spawn(move || {
+                let mut stdin = io::stdin();
+                let mut buffer = [0_u8; 8192];
+                loop {
+                    match stdin.read(&mut buffer) {
+                        Ok(0) => {
+                            let _ = sender.send(SshInputEvent::Eof);
+                            return;
+                        }
+                        Ok(count) => {
+                            if sender
+                                .send(SshInputEvent::Data(buffer[..count].to_vec()))
+                                .is_err()
+                            {
+                                return;
+                            }
+                        }
+                        Err(error) => {
+                            let _ = sender.send(SshInputEvent::Error(error.to_string()));
+                            return;
+                        }
+                    }
+                }
+            })
+            .map_err(|error| format!("native stdin broker creation failed: {error}"))?;
+        Ok(Self {
+            receiver: std::sync::Mutex::new(Some(receiver)),
+        })
+    }
+
+    fn take_receiver(&self) -> Result<SshInputEventReceiver, Box<dyn Error>> {
+        self.receiver
+            .lock()
+            .map_err(|_| "native stdin broker lock poisoned")?
+            .take()
+            .ok_or_else(|| {
+                "native stdin broker supports one CLI SSH session per process"
+                    .to_owned()
+                    .into()
+            })
+    }
+}
+
+/// Returns the process-lifetime native stdin event stream.
+///
+/// The broker thread is created once, owns `stdin`, and serves the single SSH
+/// CLI session supported by this process. Dropping the session receiver
+/// disconnects any pending bounded send; a broker blocked inside the OS stdin
+/// read is intentionally allowed to live until process exit.
+fn native_stdin_event_receiver() -> Result<SshInputEventReceiver, Box<dyn Error>> {
+    static BROKER: std::sync::OnceLock<Result<NativeStdinBroker, String>> =
+        std::sync::OnceLock::new();
+    match BROKER.get_or_init(NativeStdinBroker::start) {
+        Ok(broker) => broker.take_receiver(),
+        Err(error) => Err(error.clone().into()),
+    }
 }
 
 fn native_channel_opener_for_options(options: &SshOptions) -> RusshChannelOpener {
@@ -816,18 +902,21 @@ fn local_options_for_request(request: &SshConnectRequest) -> Result<LocalOptions
 fn run_with_connector_and_io(
     options: &SshOptions,
     connector: &mut dyn SshShellConnector,
-    input: &mut dyn Read,
+    input: SshInputEventReceiver,
     output: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
     let request = native_request_for_options(options)?;
-    rssh_ssh::run_shell_with_io(connector, request, input, output).map_err(Into::into)
+    let session = connector.connect(request)?;
+    rssh_ssh::run_connected_shell_with_events(session, input, output)
+        .map(|_| ())
+        .map_err(Into::into)
 }
 
 #[cfg(test)]
 fn run_native_with_connector_and_io(
     options: &SshOptions,
     connector: &mut dyn SshShellConnector,
-    input: &mut dyn Read,
+    input: impl Into<NativeSshInput>,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
     let mut forward_starter = RejectingNativeLocalForwardStarter;
@@ -845,7 +934,7 @@ fn run_native_with_connector_forward_starter_and_io(
     options: &SshOptions,
     connector: &mut dyn SshShellConnector,
     forward_starter: &mut dyn NativeLocalForwardStarter,
-    input: &mut dyn Read,
+    input: impl Into<NativeSshInput>,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
     let mut prompts = NativeSecretPrompts {
@@ -872,7 +961,7 @@ fn run_native_with_connector_forward_starter_resolver_and_io(
     connector: &mut dyn SshShellConnector,
     forward_starter: &mut dyn NativeLocalForwardStarter,
     openssh_config_resolver: &mut OpenSshConfigResolver<'_>,
-    input: &mut dyn Read,
+    input: impl Into<NativeSshInput>,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
     let mut prompts = NativeSecretPrompts {
@@ -898,7 +987,7 @@ fn run_native_with_connector_prompt_and_io(
     connector: &mut dyn SshShellConnector,
     forward_starter: &mut dyn NativeLocalForwardStarter,
     password_prompt: &mut SecretPrompt<'_>,
-    input: &mut dyn Read,
+    input: impl Into<NativeSshInput>,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
     let mut prompts = NativeSecretPrompts {
@@ -924,7 +1013,7 @@ fn run_native_with_connector_prompt_resolver_and_io(
     forward_starter: &mut dyn NativeLocalForwardStarter,
     openssh_config_resolver: &mut OpenSshConfigResolver<'_>,
     password_prompt: &mut SecretPrompt<'_>,
-    input: &mut dyn Read,
+    input: impl Into<NativeSshInput>,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
     let mut prompts = NativeSecretPrompts {
@@ -950,7 +1039,7 @@ fn run_native_with_connector_secret_prompts_and_io(
     password_prompt: &mut SecretPrompt<'_>,
     key_passphrase_prompt: &mut KeyPassphrasePrompt<'_>,
     key_needs_passphrase: &mut KeyPassphraseDetector<'_>,
-    input: &mut dyn Read,
+    input: impl Into<NativeSshInput>,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
     let mut forward_starter = RejectingNativeLocalForwardStarter;
@@ -976,9 +1065,10 @@ fn run_native_with_connector_forward_starter_resolver_secret_prompts_and_io(
     forward_starter: &mut dyn NativeLocalForwardStarter,
     openssh_config_resolver: &mut OpenSshConfigResolver<'_>,
     prompts: &mut NativeSecretPrompts<'_>,
-    input: &mut dyn Read,
+    input: impl Into<NativeSshInput>,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
+    let input = input.into();
     let metrics_started_at = Instant::now();
     let mut lifecycle = SessionLifecycle::new(NATIVE_SSH_SESSION_ID);
     lifecycle.start_connecting()?;
@@ -1006,35 +1096,31 @@ fn run_native_with_connector_forward_starter_resolver_secret_prompts_and_io(
         for handle in &mut forward_handles {
             handle.wait()?;
         }
+        lifecycle.mark_connected()?;
         return finish_native_ssh_success(
             options,
             &request,
             NativeSshIoCounters::default(),
+            &rssh_ssh::SshSessionResult::default(),
             &mut lifecycle,
             metrics_started_at.elapsed(),
             output,
         );
     }
 
-    let mut counted_input = CountingRead::new(input);
-    let io_counters = {
-        let mut counted_output = CountingWrite::new(output);
-        rssh_ssh::run_shell_with_io(
-            connector,
-            request.clone(),
-            &mut counted_input,
-            &mut counted_output,
-        )?;
-        NativeSshIoCounters {
-            ssh_input_bytes: counted_input.byte_count(),
-            ssh_output_bytes: counted_output.byte_count(),
-        }
+    let session = connect_native_session(connector, request.clone(), &mut lifecycle)?;
+    let input = input.acquire_after_connect()?;
+    let outcome = rssh_ssh::run_connected_shell_with_events(session, input, output)?;
+    let io_counters = NativeSshIoCounters {
+        ssh_input_bytes: outcome.input_bytes,
+        ssh_output_bytes: outcome.output_bytes,
     };
 
     finish_native_ssh_success(
         options,
         &request,
         io_counters,
+        &outcome.result,
         &mut lifecycle,
         metrics_started_at.elapsed(),
         output,
@@ -1045,15 +1131,15 @@ fn finish_native_ssh_success(
     options: &SshOptions,
     request: &SshConnectRequest,
     io_counters: NativeSshIoCounters,
+    session_result: &rssh_ssh::SshSessionResult,
     lifecycle: &mut SessionLifecycle,
     elapsed: Duration,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
-    lifecycle.mark_connected()?;
     lifecycle.mark_disconnected()?;
     lifecycle.close()?;
 
-    let status = PtyExitStatus::from_exit_code(0);
+    let status = pty_status_for_ssh_result(session_result);
     write_native_ssh_metrics_if_requested(
         options,
         request,
@@ -1065,6 +1151,31 @@ fn finish_native_ssh_success(
     )?;
 
     Ok(status)
+}
+
+fn connect_native_session(
+    connector: &mut dyn SshShellConnector,
+    request: SshConnectRequest,
+    lifecycle: &mut SessionLifecycle,
+) -> Result<Box<dyn SshShellSession>, Box<dyn Error>> {
+    let session = connector.connect(request)?;
+    lifecycle.mark_connected()?;
+    Ok(session)
+}
+
+fn pty_status_for_ssh_result(result: &rssh_ssh::SshSessionResult) -> PtyExitStatus {
+    // Intentional application-boundary projection: SshSessionResult retains
+    // the complete four-field signal metadata, while PtyExitStatus and the
+    // existing native metrics schema expose only a numeric code plus signal
+    // name. A numeric status wins; signal-only maps to code 1 plus its name;
+    // a server that reports neither remains backward-compatible exit code 0.
+    if let Some(exit_status) = result.exit_status {
+        PtyExitStatus::from_exit_code(exit_status)
+    } else if let Some(exit_signal) = &result.exit_signal {
+        PtyExitStatus::from_signal(exit_signal.name.clone())
+    } else {
+        PtyExitStatus::from_exit_code(0)
+    }
 }
 
 fn write_native_ssh_metrics_if_requested(
@@ -1096,56 +1207,6 @@ fn write_native_ssh_metrics_if_requested(
 struct NativeSshIoCounters {
     ssh_input_bytes: u64,
     ssh_output_bytes: u64,
-}
-
-struct CountingRead<'a> {
-    inner: &'a mut dyn Read,
-    bytes: u64,
-}
-
-impl<'a> CountingRead<'a> {
-    fn new(inner: &'a mut dyn Read) -> Self {
-        Self { inner, bytes: 0 }
-    }
-
-    fn byte_count(&self) -> u64 {
-        self.bytes
-    }
-}
-
-impl Read for CountingRead<'_> {
-    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        let count = self.inner.read(buffer)?;
-        self.bytes += count as u64;
-        Ok(count)
-    }
-}
-
-struct CountingWrite<'a> {
-    inner: &'a mut dyn Write,
-    bytes: u64,
-}
-
-impl<'a> CountingWrite<'a> {
-    fn new(inner: &'a mut dyn Write) -> Self {
-        Self { inner, bytes: 0 }
-    }
-
-    fn byte_count(&self) -> u64 {
-        self.bytes
-    }
-}
-
-impl Write for CountingWrite<'_> {
-    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        let count = self.inner.write(buffer)?;
-        self.bytes += count as u64;
-        Ok(count)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.inner.flush()
-    }
 }
 
 #[derive(Serialize)]
@@ -1284,13 +1345,30 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use rssh_core::TerminalSize;
+    use rssh_core::{
+        TerminalSize,
+        session::{SessionLifecycle, SessionState},
+    };
     use rssh_ssh::{
-        SshConnectRequest, SshSessionConfig, SshSessionError, SshSessionStartup, SshShellConnector,
-        SshShellSession,
+        SshConnectRequest, SshExitSignal, SshInputEvent, SshInputEventReceiver, SshSessionConfig,
+        SshSessionError, SshSessionResult, SshSessionStartup, SshShellConnector, SshShellReader,
+        SshShellSession, SshShellWriter, ssh_input_event_channel,
     };
 
     use crate::cli::{NativeHostKeyPolicy, OpenSshTarget, Osc52Policy, SshOptions, SshTarget};
+
+    fn input_events(bytes: &[u8]) -> SshInputEventReceiver {
+        let (sender, receiver) = ssh_input_event_channel(2);
+        if !bytes.is_empty() {
+            sender.send(SshInputEvent::Data(bytes.to_vec())).unwrap();
+        }
+        sender.send(SshInputEvent::Eof).unwrap();
+        receiver
+    }
+
+    fn empty_input_events() -> SshInputEventReceiver {
+        input_events(&[])
+    }
 
     #[test]
     fn ssh_runner_streams_remote_output_and_closes_session() {
@@ -1317,7 +1395,7 @@ mod tests {
                 log: None,
             },
             &mut connector,
-            &mut io::empty(),
+            empty_input_events(),
             &mut output,
         )
         .unwrap();
@@ -1337,7 +1415,7 @@ mod tests {
         let mut connector = MockConnector {
             state: Arc::clone(&state),
         };
-        let mut input = &b"echo hi\n"[..];
+        let input = input_events(b"echo hi\n");
         let mut output = Vec::new();
 
         super::run_with_connector_and_io(
@@ -1354,7 +1432,7 @@ mod tests {
                 log: None,
             },
             &mut connector,
-            &mut input,
+            input,
             &mut output,
         )
         .unwrap();
@@ -1390,7 +1468,7 @@ mod tests {
                 log: None,
             },
             &mut connector,
-            &mut io::empty(),
+            empty_input_events(),
             &mut output,
         )
         .unwrap();
@@ -1428,7 +1506,7 @@ mod tests {
                 log: None,
             },
             &mut connector,
-            &mut io::empty(),
+            empty_input_events(),
             &mut output,
         )
         .unwrap();
@@ -1463,7 +1541,7 @@ mod tests {
                 log: None,
             },
             &mut connector,
-            &mut io::empty(),
+            empty_input_events(),
             &mut output,
         )
         .unwrap();
@@ -1476,6 +1554,162 @@ mod tests {
     }
 
     #[test]
+    fn native_session_marks_connected_immediately_after_connect() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let state = Arc::new(Mutex::new(MockState::default()));
+        let mut connector = MockConnector {
+            state: Arc::clone(&state),
+        };
+        let mut lifecycle = SessionLifecycle::new(rssh_core::SessionId::new(77));
+        lifecycle.start_connecting().unwrap();
+
+        let session =
+            super::connect_native_session(&mut connector, request, &mut lifecycle).unwrap();
+
+        assert_eq!(lifecycle.state(), SessionState::Connected);
+        drop(session);
+    }
+
+    #[test]
+    fn native_ssh_runner_returns_remote_exit_status() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let state = Arc::new(Mutex::new(MockState {
+            remote_exit_status: Some(23),
+            remote_exit_signal: Some(SshExitSignal {
+                name: "TERM".to_owned(),
+                core_dumped: false,
+                error_message: String::new(),
+                lang_tag: String::new(),
+            }),
+            ..MockState::default()
+        }));
+        let mut connector = MockConnector {
+            state: Arc::clone(&state),
+        };
+        let mut output = Vec::new();
+
+        let status = super::run_native_with_connector_and_io(
+            &SshOptions {
+                target: SshTarget::Direct(request),
+                remote_command: vec!["false".to_owned()],
+                forwards: Vec::new(),
+                openssh_args: Vec::new(),
+                no_shell: false,
+                native: true,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+                console: crate::cli::ConsoleOptions::default(),
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            empty_input_events(),
+            &mut output,
+        )
+        .unwrap();
+
+        assert_eq!(status.exit_code(), 23);
+        assert_eq!(status.signal(), None);
+    }
+
+    #[test]
+    fn native_ssh_runner_preserves_remote_exit_signal_and_metrics() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let state = Arc::new(Mutex::new(MockState {
+            remote_exit_signal: Some(SshExitSignal {
+                name: "TERM".to_owned(),
+                core_dumped: true,
+                error_message: "terminated by policy".to_owned(),
+                lang_tag: "en-US".to_owned(),
+            }),
+            ..MockState::default()
+        }));
+        let mut connector = MockConnector {
+            state: Arc::clone(&state),
+        };
+        let mut output = Vec::new();
+
+        let status = super::run_native_with_connector_and_io(
+            &SshOptions {
+                target: SshTarget::Direct(request),
+                remote_command: vec!["long-running-command".to_owned()],
+                forwards: Vec::new(),
+                openssh_args: Vec::new(),
+                no_shell: false,
+                native: true,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+                console: crate::cli::ConsoleOptions {
+                    metrics_json: true,
+                    ..crate::cli::ConsoleOptions::default()
+                },
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            empty_input_events(),
+            &mut output,
+        )
+        .unwrap();
+
+        assert_eq!(status.exit_code(), 1);
+        assert_eq!(status.signal(), Some("TERM"));
+        let metrics = String::from_utf8(output)
+            .unwrap()
+            .lines()
+            .last()
+            .map(serde_json::from_str::<serde_json::Value>)
+            .transpose()
+            .unwrap()
+            .expect("metrics JSON line");
+        assert_eq!(metrics["exit_code"], 1);
+        assert_eq!(metrics["signal"], "TERM");
+    }
+
+    #[test]
+    fn ssh_session_result_mapping_policy_preserves_source_metadata() {
+        let status_and_signal = SshSessionResult {
+            exit_status: Some(23),
+            exit_signal: Some(SshExitSignal {
+                name: "TERM".to_owned(),
+                core_dumped: true,
+                error_message: "terminated by policy".to_owned(),
+                lang_tag: "en-US".to_owned(),
+            }),
+        };
+
+        let status = super::pty_status_for_ssh_result(&status_and_signal);
+
+        assert_eq!(status.exit_code(), 23);
+        assert_eq!(status.signal(), None);
+        assert_eq!(
+            status_and_signal.exit_signal,
+            Some(SshExitSignal {
+                name: "TERM".to_owned(),
+                core_dumped: true,
+                error_message: "terminated by policy".to_owned(),
+                lang_tag: "en-US".to_owned(),
+            })
+        );
+
+        let signal_only = SshSessionResult {
+            exit_status: None,
+            exit_signal: status_and_signal.exit_signal.clone(),
+        };
+        let signal_status = super::pty_status_for_ssh_result(&signal_only);
+        assert_eq!(signal_status.exit_code(), 1);
+        assert_eq!(signal_status.signal(), Some("TERM"));
+
+        let no_remote_status = super::pty_status_for_ssh_result(&SshSessionResult::default());
+        assert_eq!(no_remote_status.exit_code(), 0);
+        assert_eq!(no_remote_status.signal(), None);
+    }
+
+    #[test]
     fn native_ssh_runner_prints_json_metrics_when_requested() {
         let request = SshConnectRequest::agent(
             SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(100, 30))
@@ -1485,7 +1719,7 @@ mod tests {
         let mut connector = MockConnector {
             state: Arc::clone(&state),
         };
-        let mut input = &b"whoami\n"[..];
+        let input = input_events(b"whoami\n");
         let mut output = Vec::new();
 
         let status = super::run_native_with_connector_and_io(
@@ -1505,7 +1739,7 @@ mod tests {
                 log: None,
             },
             &mut connector,
-            &mut input,
+            input,
             &mut output,
         )
         .unwrap();
@@ -1563,7 +1797,7 @@ mod tests {
             },
             &mut connector,
             &mut forward_starter,
-            &mut io::empty(),
+            empty_input_events(),
             &mut output,
         )
         .unwrap();
@@ -1610,7 +1844,7 @@ mod tests {
             },
             &mut connector,
             &mut forward_starter,
-            &mut io::empty(),
+            empty_input_events(),
             &mut output,
         )
         .unwrap();
@@ -1657,7 +1891,7 @@ mod tests {
             },
             &mut connector,
             &mut forward_starter,
-            &mut io::empty(),
+            empty_input_events(),
             &mut output,
         )
         .unwrap();
@@ -1712,7 +1946,7 @@ mod tests {
                 assert_eq!(target.target, "prod");
                 Ok("hostname ssh.example.com\nuser deploy\nport 2222\n".to_owned())
             },
-            &mut io::empty(),
+            empty_input_events(),
             &mut output,
         )
         .unwrap();
@@ -1913,7 +2147,7 @@ mod tests {
                 assert_eq!(request.config.host, "example.com");
                 Ok("secret".to_owned())
             },
-            &mut io::empty(),
+            empty_input_events(),
             &mut output,
         )
         .unwrap();
@@ -1971,7 +2205,7 @@ mod tests {
                     Some((request.config.username.clone(), request.config.host.clone()));
                 Ok("secret".to_owned())
             },
-            &mut io::empty(),
+            empty_input_events(),
             &mut output,
         )
         .unwrap();
@@ -2028,7 +2262,7 @@ mod tests {
                 assert_eq!(path, key_path.as_path());
                 Ok(true)
             },
-            &mut io::empty(),
+            empty_input_events(),
             &mut output,
         )
         .unwrap();
@@ -2376,7 +2610,10 @@ mod tests {
     struct MockState {
         last_request: Option<SshConnectRequest>,
         written: Vec<u8>,
+        input_finished: bool,
         closed: bool,
+        remote_exit_status: Option<u32>,
+        remote_exit_signal: Option<SshExitSignal>,
     }
 
     struct MockConnector {
@@ -2421,6 +2658,72 @@ mod tests {
         }
 
         fn keepalive(&mut self) -> Result<(), SshSessionError> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), SshSessionError> {
+            self.state.lock().unwrap().closed = true;
+            Ok(())
+        }
+
+        fn into_read_writer(self: Box<Self>) -> (Box<dyn SshShellReader>, Box<dyn SshShellWriter>) {
+            (
+                Box::new(MockReader {
+                    state: Arc::clone(&self.state),
+                    read_once: self.read_once,
+                }),
+                Box::new(MockWriter { state: self.state }),
+            )
+        }
+    }
+
+    struct MockReader {
+        state: Arc<Mutex<MockState>>,
+        read_once: bool,
+    }
+
+    impl SshShellReader for MockReader {
+        fn read(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError> {
+            if self.read_once {
+                while !self.state.lock().unwrap().input_finished {
+                    std::thread::yield_now();
+                }
+                return Ok(0);
+            }
+            self.read_once = true;
+            buffer[..7].copy_from_slice(b"remote\n");
+            Ok(7)
+        }
+
+        fn session_result(&self) -> SshSessionResult {
+            let state = self.state.lock().unwrap();
+            SshSessionResult {
+                exit_status: state.remote_exit_status,
+                exit_signal: state.remote_exit_signal.clone(),
+            }
+        }
+    }
+
+    struct MockWriter {
+        state: Arc<Mutex<MockState>>,
+    }
+
+    impl SshShellWriter for MockWriter {
+        fn write(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError> {
+            self.state.lock().unwrap().written.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn resize(&mut self, _size: TerminalSize) -> Result<(), SshSessionError> {
+            Ok(())
+        }
+
+        fn keepalive(&mut self) -> Result<(), SshSessionError> {
+            Ok(())
+        }
+
+        fn finish_input(&mut self) -> Result<(), SshSessionError> {
+            self.state.lock().unwrap().input_finished = true;
             Ok(())
         }
 
