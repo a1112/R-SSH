@@ -2,9 +2,13 @@ use std::{
     collections::VecDeque,
     future::Future,
     io::{Read, Seek, SeekFrom, Write},
+    net::TcpStream,
     path::{Path, PathBuf},
     pin::Pin,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -365,6 +369,104 @@ pub struct RusshRemoteTcpIpForwardPlan {
     target_port: u16,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct RusshForwardCancellation {
+    state: Arc<RusshForwardCancellationState>,
+}
+
+#[derive(Debug, Default)]
+struct RusshForwardCancellationState {
+    cancelled: AtomicBool,
+    wake: tokio::sync::Notify,
+}
+
+impl RusshForwardCancellation {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.state.cancelled.store(true, Ordering::Release);
+        self.state.wake.notify_waiters();
+    }
+
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.state.cancelled.load(Ordering::Acquire)
+    }
+
+    async fn cancelled(&self) {
+        loop {
+            if self.is_cancelled() {
+                return;
+            }
+            let notified = self.state.wake.notified();
+            if self.is_cancelled() {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RusshForwardDeadlines {
+    startup: Duration,
+    shutdown: Duration,
+}
+
+impl RusshForwardDeadlines {
+    #[must_use]
+    pub const fn new(startup: Duration, shutdown: Duration) -> Self {
+        Self { startup, shutdown }
+    }
+}
+
+#[derive(Debug, Default)]
+struct RemoteForwardTaskTracker {
+    active: AtomicUsize,
+    changed: tokio::sync::Notify,
+}
+
+impl RemoteForwardTaskTracker {
+    fn register(self: &Arc<Self>) -> RemoteForwardTaskGuard {
+        self.active.fetch_add(1, Ordering::AcqRel);
+        RemoteForwardTaskGuard {
+            tracker: Arc::clone(self),
+        }
+    }
+
+    fn active(&self) -> usize {
+        self.active.load(Ordering::Acquire)
+    }
+
+    async fn wait_for_empty(&self) {
+        loop {
+            if self.active() == 0 {
+                return;
+            }
+            let changed = self.changed.notified();
+            if self.active() == 0 {
+                return;
+            }
+            changed.await;
+        }
+    }
+}
+
+struct RemoteForwardTaskGuard {
+    tracker: Arc<RemoteForwardTaskTracker>,
+}
+
+impl Drop for RemoteForwardTaskGuard {
+    fn drop(&mut self) {
+        if self.tracker.active.fetch_sub(1, Ordering::AcqRel) == 1 {
+            self.tracker.changed.notify_waiters();
+        }
+    }
+}
+
 impl RusshRemoteTcpIpForwardPlan {
     #[must_use]
     pub fn new(
@@ -513,6 +615,9 @@ impl RusshChannelOpener {
             port: None,
             known_hosts_path: self.known_hosts_path,
             remote_forwards: Vec::new(),
+            forward_cancellation: None,
+            forward_task_tracker: None,
+            forward_deadlines: None,
         }
     }
 
@@ -524,6 +629,9 @@ impl RusshChannelOpener {
             port: None,
             known_hosts_path: self.known_hosts_path.clone(),
             remote_forwards: Vec::new(),
+            forward_cancellation: None,
+            forward_task_tracker: None,
+            forward_deadlines: None,
         }
     }
 
@@ -535,6 +643,9 @@ impl RusshChannelOpener {
             port: Some(port),
             known_hosts_path: self.known_hosts_path.clone(),
             remote_forwards: Vec::new(),
+            forward_cancellation: None,
+            forward_task_tracker: None,
+            forward_deadlines: None,
         }
     }
 
@@ -545,12 +656,35 @@ impl RusshChannelOpener {
         port: u16,
         remote_forward: RusshRemoteTcpIpForwardPlan,
     ) -> RusshClientHandler {
+        self.handler_for_host_with_remote_forward_lifecycle(
+            host,
+            port,
+            remote_forward,
+            RusshForwardCancellation::new(),
+            Arc::new(RemoteForwardTaskTracker::default()),
+            RusshForwardDeadlines::new(Duration::from_secs(30), Duration::from_secs(1)),
+        )
+    }
+
+    #[must_use]
+    fn handler_for_host_with_remote_forward_lifecycle(
+        &self,
+        host: impl Into<String>,
+        port: u16,
+        remote_forward: RusshRemoteTcpIpForwardPlan,
+        forward_cancellation: RusshForwardCancellation,
+        forward_task_tracker: Arc<RemoteForwardTaskTracker>,
+        forward_deadlines: RusshForwardDeadlines,
+    ) -> RusshClientHandler {
         RusshClientHandler {
             host_key_policy: self.host_key_policy,
             host: Some(host.into()),
             port: Some(port),
             known_hosts_path: self.known_hosts_path.clone(),
             remote_forwards: vec![remote_forward],
+            forward_cancellation: Some(forward_cancellation),
+            forward_task_tracker: Some(forward_task_tracker),
+            forward_deadlines: Some(forward_deadlines),
         }
     }
 
@@ -676,6 +810,107 @@ impl RusshChannelOpener {
         Ok(RusshSshChannel::new(channel, handle, runtime))
     }
 
+    /// Opens a dedicated direct-tcpip session and bridges it to `local_stream`
+    /// until EOF or cancellation. Both establishment and shutdown are bounded.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when establishment, transfer, or bounded
+    /// shutdown fails.
+    pub fn forward_direct_tcpip_stream(
+        &self,
+        request: SshConnectRequest,
+        direct_tcpip_plan: &RusshDirectTcpIpOpenPlan,
+        local_stream: TcpStream,
+        cancellation: &RusshForwardCancellation,
+        deadlines: RusshForwardDeadlines,
+    ) -> Result<(), SshSessionError> {
+        self.forward_direct_tcpip_stream_with_ready(
+            request,
+            direct_tcpip_plan,
+            local_stream,
+            cancellation,
+            deadlines,
+            || Ok(()),
+        )
+    }
+
+    /// Bridges a direct-tcpip stream and invokes `ready` after the SSH channel
+    /// is established but before bytes are transferred.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] under the same conditions as
+    /// [`Self::forward_direct_tcpip_stream`] or when `ready` fails.
+    pub fn forward_direct_tcpip_stream_with_ready<F>(
+        &self,
+        request: SshConnectRequest,
+        direct_tcpip_plan: &RusshDirectTcpIpOpenPlan,
+        local_stream: TcpStream,
+        cancellation: &RusshForwardCancellation,
+        deadlines: RusshForwardDeadlines,
+        ready: F,
+    ) -> Result<(), SshSessionError>
+    where
+        F: FnOnce() -> Result<(), SshSessionError>,
+    {
+        local_stream.set_nonblocking(true).map_err(|error| {
+            SshSessionError::new(format!("local forwarding stream setup failed: {error}"))
+        })?;
+        let runtime = build_direct_forward_runtime()?;
+        let plan = self.connect_plan(&request);
+        let direct_tcpip_plan = direct_tcpip_plan.clone();
+
+        runtime.block_on(async {
+            let (mut handle, channel) =
+                run_forward_startup(cancellation, deadlines.startup, async {
+                    let mut handle = self.connect_async(request).await?;
+                    self.authenticate_async(&mut handle, plan.auth_plan())
+                        .await?;
+                    let channel = self
+                        .open_direct_tcpip_channel_async(&handle, &direct_tcpip_plan)
+                        .await?;
+                    Ok((handle, channel))
+                })
+                .await?;
+            let mut channel_stream = channel.into_stream();
+            let transfer_result = match ready() {
+                Err(error) => Err(error),
+                Ok(()) => match tokio::net::TcpStream::from_std(local_stream) {
+                    Err(error) => Err(SshSessionError::new(format!(
+                        "local forwarding stream setup failed: {error}"
+                    ))),
+                    Ok(mut local_stream) => tokio::select! {
+                        biased;
+                        () = cancellation.cancelled() => Ok(()),
+                        result = tokio::io::copy_bidirectional(&mut local_stream, &mut channel_stream) => {
+                            result.map(|_| ()).map_err(|error| {
+                                SshSessionError::new(format!("SSH forwarding transfer failed: {error}"))
+                            })
+                        }
+                    },
+                }
+            };
+
+            complete_established_forward(transfer_result, async {
+                tokio::time::timeout(deadlines.shutdown, async {
+                    let channel_result = channel_stream.shutdown().await.map_err(|error| {
+                        SshSessionError::new(format!(
+                            "SSH forwarding channel shutdown failed: {error}"
+                        ))
+                    });
+                    drop(channel_stream);
+                    let disconnect_result = RemoteForwardSession::disconnect(&mut handle).await;
+                    let wait_result = RemoteForwardSession::wait(&mut handle).await;
+                    channel_result.and(disconnect_result).and(wait_result)
+                })
+                .await
+                .map_err(|_| SshSessionError::new("SSH forwarding shutdown timed out"))?
+            })
+            .await
+        })
+    }
+
     /// Requests a server-side TCP listener and handles incoming forwarded
     /// channels by connecting them to the requested local target.
     ///
@@ -688,6 +923,44 @@ impl RusshChannelOpener {
         request: &SshConnectRequest,
         remote_forward_plan: &RusshRemoteTcpIpForwardPlan,
     ) -> Result<(), SshSessionError> {
+        let mut forward = self.open_remote_tcpip_forward(request, remote_forward_plan)?;
+        forward.wait()
+    }
+
+    /// Opens a server-side TCP listener and returns an explicit lifecycle
+    /// handle after the server confirms the forwarding request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when runtime creation, SSH connection,
+    /// authentication, or the remote forwarding request fails.
+    pub fn open_remote_tcpip_forward(
+        &mut self,
+        request: &SshConnectRequest,
+        remote_forward_plan: &RusshRemoteTcpIpForwardPlan,
+    ) -> Result<RusshRemoteTcpIpForward, SshSessionError> {
+        self.open_remote_tcpip_forward_with_lifecycle(
+            request,
+            remote_forward_plan,
+            &RusshForwardCancellation::new(),
+            RusshForwardDeadlines::new(Duration::from_secs(30), Duration::from_secs(1)),
+        )
+    }
+
+    /// Opens a remote forwarding listener with cancellation and a total
+    /// establishment deadline covering connect, authentication, and request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when establishment fails, is cancelled, or
+    /// exceeds `deadlines.startup`.
+    pub fn open_remote_tcpip_forward_with_lifecycle(
+        &self,
+        request: &SshConnectRequest,
+        remote_forward_plan: &RusshRemoteTcpIpForwardPlan,
+        cancellation: &RusshForwardCancellation,
+        deadlines: RusshForwardDeadlines,
+    ) -> Result<RusshRemoteTcpIpForward, SshSessionError> {
         let plan = self.connect_plan(request);
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -696,30 +969,50 @@ impl RusshChannelOpener {
                 SshSessionError::new(format!("SSH async runtime creation failed: {error}"))
             })?;
         let remote_forward_plan = remote_forward_plan.clone();
+        let task_tracker = Arc::new(RemoteForwardTaskTracker::default());
 
-        runtime.block_on(async {
-            let (host, port) = plan.socket_addr();
-            let mut handle = russh::client::connect(
-                Arc::clone(&self.client_config),
-                (host, port),
-                self.handler_for_host_with_remote_forward(host, port, remote_forward_plan.clone()),
-            )
-            .await
-            .map_err(|error| SshSessionError::new(format!("SSH connect failed: {error}")))?;
-            self.authenticate_async(&mut handle, plan.auth_plan())
-                .await?;
-
-            let (bind_host, bind_port) = remote_forward_plan.bind();
-            handle
-                .tcpip_forward(bind_host, u32::from(bind_port))
+        let handle = runtime.block_on(run_forward_startup(
+            cancellation,
+            deadlines.startup,
+            async {
+                let (host, port) = plan.socket_addr();
+                let mut handle = russh::client::connect(
+                    Arc::clone(&self.client_config),
+                    (host, port),
+                    self.handler_for_host_with_remote_forward_lifecycle(
+                        host,
+                        port,
+                        remote_forward_plan.clone(),
+                        cancellation.clone(),
+                        Arc::clone(&task_tracker),
+                        deadlines,
+                    ),
+                )
                 .await
-                .map_err(|error| {
-                    SshSessionError::new(format!("SSH remote TCP forwarding failed: {error}"))
-                })?;
+                .map_err(|error| SshSessionError::new(format!("SSH connect failed: {error}")))?;
+                self.authenticate_async(&mut handle, plan.auth_plan())
+                    .await?;
 
-            std::future::pending::<()>().await;
-            #[allow(unreachable_code)]
-            Ok(())
+                let (bind_host, bind_port) = remote_forward_plan.bind();
+                handle
+                    .tcpip_forward(bind_host, u32::from(bind_port))
+                    .await
+                    .map_err(|error| {
+                        SshSessionError::new(format!("SSH remote TCP forwarding failed: {error}"))
+                    })?;
+
+                Ok::<_, SshSessionError>(handle)
+            },
+        ))?;
+
+        Ok(RusshRemoteTcpIpForward {
+            runtime,
+            handle: Some(handle),
+            bind_host: remote_forward_plan.bind_host.clone(),
+            bind_port: remote_forward_plan.bind_port,
+            cancellation: cancellation.clone(),
+            task_tracker,
+            deadlines,
         })
     }
 
@@ -929,6 +1222,9 @@ pub struct RusshClientHandler {
     port: Option<u16>,
     known_hosts_path: Option<PathBuf>,
     remote_forwards: Vec<RusshRemoteTcpIpForwardPlan>,
+    forward_cancellation: Option<RusshForwardCancellation>,
+    forward_task_tracker: Option<Arc<RemoteForwardTaskTracker>>,
+    forward_deadlines: Option<RusshForwardDeadlines>,
 }
 
 impl RusshClientHandler {
@@ -991,21 +1287,364 @@ impl russh::client::Handler for RusshClientHandler {
             channel.close().await?;
             return Ok(());
         };
+        let cancellation = self.forward_cancellation.clone().unwrap_or_default();
+        let task_tracker = self
+            .forward_task_tracker
+            .clone()
+            .unwrap_or_else(|| Arc::new(RemoteForwardTaskTracker::default()));
+        let deadlines = self.forward_deadlines.unwrap_or_else(|| {
+            RusshForwardDeadlines::new(Duration::from_secs(30), Duration::from_secs(1))
+        });
+        let task_guard = task_tracker.register();
 
         tokio::spawn(async move {
-            let (target_host, target_port) = forward.target();
-            let Ok(mut local_stream) =
-                tokio::net::TcpStream::connect((target_host, target_port)).await
-            else {
-                let _ = channel.close().await;
-                return;
-            };
+            let _task_guard = task_guard;
             let mut channel_stream = channel.into_stream();
-            let _ = tokio::io::copy_bidirectional(&mut channel_stream, &mut local_stream).await;
-            let _ = channel_stream.shutdown().await;
+            let (target_host, target_port) = forward.target();
+            if let Ok(mut local_stream) =
+                run_forward_startup(&cancellation, deadlines.startup, async {
+                    tokio::net::TcpStream::connect((target_host, target_port))
+                        .await
+                        .map_err(|error| {
+                            SshSessionError::new(format!(
+                                "SSH remote forwarding target connect failed: {error}"
+                            ))
+                        })
+                })
+                .await
+            {
+                tokio::select! {
+                    biased;
+                    () = cancellation.cancelled() => {}
+                    _ = tokio::io::copy_bidirectional(&mut channel_stream, &mut local_stream) => {}
+                }
+            }
+            let _ = tokio::time::timeout(deadlines.shutdown, channel_stream.shutdown()).await;
         });
 
         Ok(())
+    }
+}
+
+trait RemoteForwardSession {
+    async fn cancel_tcpip_forward(
+        &mut self,
+        bind_host: &str,
+        bind_port: u32,
+    ) -> Result<(), SshSessionError>;
+
+    async fn disconnect(&mut self) -> Result<(), SshSessionError>;
+
+    async fn wait(&mut self) -> Result<(), SshSessionError>;
+}
+
+impl RemoteForwardSession for russh::client::Handle<RusshClientHandler> {
+    async fn cancel_tcpip_forward(
+        &mut self,
+        bind_host: &str,
+        bind_port: u32,
+    ) -> Result<(), SshSessionError> {
+        russh::client::Handle::cancel_tcpip_forward(self, bind_host, bind_port)
+            .await
+            .map_err(|error| {
+                SshSessionError::new(format!(
+                    "SSH remote forwarding cancellation failed: {error}"
+                ))
+            })
+    }
+
+    async fn disconnect(&mut self) -> Result<(), SshSessionError> {
+        russh::client::Handle::disconnect(
+            self,
+            russh::Disconnect::ByApplication,
+            "remote forwarding stopped",
+            "en",
+        )
+        .await
+        .map_err(|error| SshSessionError::new(format!("SSH disconnect failed: {error}")))
+    }
+
+    async fn wait(&mut self) -> Result<(), SshSessionError> {
+        (&mut *self).await.map_err(|error| {
+            SshSessionError::new(format!("SSH forwarding session failed: {error}"))
+        })
+    }
+}
+
+#[cfg(test)]
+async fn shutdown_remote_forward_session<S>(
+    session: &mut S,
+    bind_host: &str,
+    bind_port: u32,
+    timeout: Duration,
+) -> Result<(), SshSessionError>
+where
+    S: RemoteForwardSession,
+{
+    shutdown_remote_forward_session_outcome(session, bind_host, bind_port, timeout)
+        .await
+        .result
+}
+
+struct RemoteForwardShutdownOutcome {
+    result: Result<(), SshSessionError>,
+    session_terminal: bool,
+    terminal: bool,
+}
+
+#[cfg(test)]
+async fn shutdown_remote_forward_session_outcome<S>(
+    session: &mut S,
+    bind_host: &str,
+    bind_port: u32,
+    timeout: Duration,
+) -> RemoteForwardShutdownOutcome
+where
+    S: RemoteForwardSession,
+{
+    let shutdown = async {
+        let cancel_result = session.cancel_tcpip_forward(bind_host, bind_port).await;
+        let disconnect_result = session.disconnect().await;
+        let wait_result = session.wait().await;
+
+        let result = cancel_result.and(disconnect_result).and(wait_result);
+        RemoteForwardShutdownOutcome {
+            result,
+            session_terminal: true,
+            terminal: true,
+        }
+    };
+
+    tokio::time::timeout(timeout, shutdown)
+        .await
+        .unwrap_or_else(|_| RemoteForwardShutdownOutcome {
+            result: Err(SshSessionError::new(
+                "SSH remote forwarding shutdown timed out",
+            )),
+            session_terminal: false,
+            terminal: false,
+        })
+}
+
+async fn shutdown_remote_forward_session_and_tasks<S>(
+    session: &mut S,
+    bind_host: &str,
+    bind_port: u32,
+    task_tracker: &RemoteForwardTaskTracker,
+    timeout: Duration,
+) -> RemoteForwardShutdownOutcome
+where
+    S: RemoteForwardSession,
+{
+    let session_terminal = Arc::new(AtomicBool::new(false));
+    let completed_session = Arc::clone(&session_terminal);
+    let shutdown = async {
+        let cancel_result = session.cancel_tcpip_forward(bind_host, bind_port).await;
+        let disconnect_result = session.disconnect().await;
+        let wait_result = session.wait().await;
+        completed_session.store(true, Ordering::Release);
+        task_tracker.wait_for_empty().await;
+
+        RemoteForwardShutdownOutcome {
+            result: cancel_result.and(disconnect_result).and(wait_result),
+            session_terminal: true,
+            terminal: true,
+        }
+    };
+
+    tokio::time::timeout(timeout, shutdown)
+        .await
+        .unwrap_or_else(|_| RemoteForwardShutdownOutcome {
+            result: Err(SshSessionError::new(
+                "SSH remote forwarding shutdown timed out",
+            )),
+            session_terminal: session_terminal.load(Ordering::Acquire),
+            terminal: false,
+        })
+}
+
+async fn run_forward_startup<T, F>(
+    cancellation: &RusshForwardCancellation,
+    timeout: Duration,
+    startup: F,
+) -> Result<T, SshSessionError>
+where
+    F: std::future::Future<Output = Result<T, SshSessionError>>,
+{
+    tokio::time::timeout(timeout, async {
+        tokio::select! {
+            biased;
+            () = cancellation.cancelled() => {
+                Err(SshSessionError::new("SSH forwarding startup cancelled"))
+            }
+            result = startup => result,
+        }
+    })
+    .await
+    .map_err(|_| SshSessionError::new("SSH forwarding startup timed out"))?
+}
+
+fn build_direct_forward_runtime() -> Result<tokio::runtime::Runtime, SshSessionError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| {
+            SshSessionError::new(format!("SSH async runtime creation failed: {error}"))
+        })
+}
+
+async fn complete_established_forward<F>(
+    operation_result: Result<(), SshSessionError>,
+    cleanup: F,
+) -> Result<(), SshSessionError>
+where
+    F: std::future::Future<Output = Result<(), SshSessionError>>,
+{
+    let cleanup_result = cleanup.await;
+    operation_result.and(cleanup_result)
+}
+
+async fn complete_remote_forward_session(
+    session_result: Result<(), SshSessionError>,
+    cancellation: &RusshForwardCancellation,
+    task_tracker: &RemoteForwardTaskTracker,
+    shutdown_timeout: Duration,
+) -> Result<(), SshSessionError> {
+    cancellation.cancel();
+    let drain_result = tokio::time::timeout(shutdown_timeout, task_tracker.wait_for_empty())
+        .await
+        .map_err(|_| SshSessionError::new("SSH remote forwarding shutdown timed out"));
+    session_result.and(drain_result)
+}
+
+fn remote_forward_cleanup_required(
+    has_session_handle: bool,
+    task_tracker: &RemoteForwardTaskTracker,
+) -> bool {
+    has_session_handle || task_tracker.active() > 0
+}
+
+pub struct RusshRemoteTcpIpForward {
+    runtime: tokio::runtime::Runtime,
+    handle: Option<russh::client::Handle<RusshClientHandler>>,
+    bind_host: String,
+    bind_port: u16,
+    cancellation: RusshForwardCancellation,
+    task_tracker: Arc<RemoteForwardTaskTracker>,
+    deadlines: RusshForwardDeadlines,
+}
+
+impl RusshRemoteTcpIpForward {
+    /// Waits until the remote forwarding session ends.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the SSH session fails.
+    pub fn wait(&mut self) -> Result<(), SshSessionError> {
+        let Some(handle) = self.handle.as_mut() else {
+            return self.runtime.block_on(complete_remote_forward_session(
+                Ok(()),
+                &self.cancellation,
+                &self.task_tracker,
+                self.deadlines.shutdown,
+            ));
+        };
+        let result = self.runtime.block_on(RemoteForwardSession::wait(handle));
+        self.handle = None;
+        self.runtime.block_on(complete_remote_forward_session(
+            result,
+            &self.cancellation,
+            &self.task_tracker,
+            self.deadlines.shutdown,
+        ))
+    }
+
+    /// Cancels the server listener, disconnects, and joins within `timeout`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when cancellation, disconnect, joining, or
+    /// the deadline fails.
+    pub fn shutdown(&mut self, timeout: Duration) -> Result<(), SshSessionError> {
+        self.cancellation.cancel();
+        let Some(handle) = self.handle.as_mut() else {
+            return self.runtime.block_on(complete_remote_forward_session(
+                Ok(()),
+                &self.cancellation,
+                &self.task_tracker,
+                timeout,
+            ));
+        };
+        let outcome = self
+            .runtime
+            .block_on(shutdown_remote_forward_session_and_tasks(
+                handle,
+                &self.bind_host,
+                u32::from(self.bind_port),
+                &self.task_tracker,
+                timeout,
+            ));
+        if outcome.terminal {
+            debug_assert_eq!(self.task_tracker.active(), 0);
+        }
+        if outcome.session_terminal {
+            self.handle = None;
+        }
+        outcome.result
+    }
+
+    /// Waits for session completion or a cancellation request. Cancellation
+    /// wins when both become ready in the same poll.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the SSH session or bounded shutdown
+    /// fails.
+    pub fn wait_until_cancelled(
+        &mut self,
+        cancellation: &RusshForwardCancellation,
+        shutdown_timeout: Duration,
+    ) -> Result<(), SshSessionError> {
+        enum ForwardStop {
+            Cancelled,
+            Session(Result<(), SshSessionError>),
+        }
+
+        let Some(handle) = self.handle.as_mut() else {
+            return self.runtime.block_on(complete_remote_forward_session(
+                Ok(()),
+                &self.cancellation,
+                &self.task_tracker,
+                shutdown_timeout,
+            ));
+        };
+        let stop = self.runtime.block_on(async {
+            tokio::select! {
+                biased;
+                () = cancellation.cancelled() => ForwardStop::Cancelled,
+                result = RemoteForwardSession::wait(handle) => ForwardStop::Session(result),
+            }
+        });
+        match stop {
+            ForwardStop::Cancelled => self.shutdown(shutdown_timeout),
+            ForwardStop::Session(result) => {
+                self.handle = None;
+                self.runtime.block_on(complete_remote_forward_session(
+                    result,
+                    &self.cancellation,
+                    &self.task_tracker,
+                    shutdown_timeout,
+                ))
+            }
+        }
+    }
+}
+
+impl Drop for RusshRemoteTcpIpForward {
+    fn drop(&mut self) {
+        if remote_forward_cleanup_required(self.handle.is_some(), &self.task_tracker) {
+            let _ = self.shutdown(Duration::from_millis(250));
+        }
     }
 }
 
@@ -1447,7 +2086,7 @@ impl SshChannelOpener for RusshChannelOpener {
 
 #[cfg(test)]
 mod tests {
-    use std::{future::Future, path::Path, pin::Pin};
+    use std::{future::Future, path::Path, pin::Pin, time::Duration};
 
     use rssh_core::TerminalSize;
 
@@ -1613,6 +2252,305 @@ mod tests {
         ));
 
         assert!(selected.is_none());
+    }
+
+    #[derive(Default)]
+    struct MockRemoteForwardSession {
+        calls: Vec<&'static str>,
+        join_never_finishes: bool,
+        cancel_fails: bool,
+        disconnect_fails: bool,
+    }
+
+    impl RemoteForwardSession for MockRemoteForwardSession {
+        async fn cancel_tcpip_forward(
+            &mut self,
+            _bind_host: &str,
+            _bind_port: u32,
+        ) -> Result<(), SshSessionError> {
+            self.calls.push("cancel");
+            if self.cancel_fails {
+                Err(SshSessionError::new("cancel failed"))
+            } else {
+                Ok(())
+            }
+        }
+
+        async fn disconnect(&mut self) -> Result<(), SshSessionError> {
+            self.calls.push("disconnect");
+            if self.disconnect_fails {
+                Err(SshSessionError::new("disconnect failed"))
+            } else {
+                Ok(())
+            }
+        }
+
+        async fn wait(&mut self) -> Result<(), SshSessionError> {
+            self.calls.push("join");
+            if self.join_never_finishes {
+                std::future::pending::<()>().await;
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn remote_forward_shutdown_cancels_disconnects_and_joins_in_order() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let mut session = MockRemoteForwardSession::default();
+
+        runtime
+            .block_on(shutdown_remote_forward_session(
+                &mut session,
+                "127.0.0.1",
+                8022,
+                Duration::from_millis(250),
+            ))
+            .unwrap();
+
+        assert_eq!(session.calls, ["cancel", "disconnect", "join"]);
+    }
+
+    #[test]
+    fn remote_forward_shutdown_join_is_bounded_by_deadline() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let mut session = MockRemoteForwardSession {
+            join_never_finishes: true,
+            ..MockRemoteForwardSession::default()
+        };
+
+        let error = runtime
+            .block_on(shutdown_remote_forward_session(
+                &mut session,
+                "127.0.0.1",
+                8022,
+                Duration::from_millis(25),
+            ))
+            .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "SSH remote forwarding shutdown timed out"
+        );
+        assert_eq!(session.calls, ["cancel", "disconnect", "join"]);
+    }
+
+    #[test]
+    fn remote_forward_shutdown_is_terminal_after_partial_errors_when_join_completes() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let mut session = MockRemoteForwardSession {
+            cancel_fails: true,
+            disconnect_fails: true,
+            ..MockRemoteForwardSession::default()
+        };
+
+        let outcome = runtime.block_on(shutdown_remote_forward_session_outcome(
+            &mut session,
+            "127.0.0.1",
+            8022,
+            Duration::from_millis(250),
+        ));
+
+        assert!(outcome.terminal);
+        assert_eq!(outcome.result.unwrap_err().to_string(), "cancel failed");
+        assert_eq!(session.calls, ["cancel", "disconnect", "join"]);
+    }
+
+    #[test]
+    fn remote_forward_shutdown_waits_for_registered_children() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let tracker = Arc::new(RemoteForwardTaskTracker::default());
+        let guard = tracker.register();
+        runtime.spawn(async move {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            drop(guard);
+        });
+        let mut session = MockRemoteForwardSession::default();
+        let started = std::time::Instant::now();
+
+        let outcome = runtime.block_on(shutdown_remote_forward_session_and_tasks(
+            &mut session,
+            "127.0.0.1",
+            8022,
+            &tracker,
+            Duration::from_millis(250),
+        ));
+
+        assert!(outcome.terminal);
+        outcome.result.unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(20));
+        assert_eq!(tracker.active(), 0);
+    }
+
+    #[test]
+    fn remote_forward_shutdown_child_join_is_bounded_by_total_deadline() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let tracker = Arc::new(RemoteForwardTaskTracker::default());
+        let guard = tracker.register();
+        let mut session = MockRemoteForwardSession::default();
+
+        let outcome = runtime.block_on(shutdown_remote_forward_session_and_tasks(
+            &mut session,
+            "127.0.0.1",
+            8022,
+            &tracker,
+            Duration::from_millis(20),
+        ));
+
+        assert!(!outcome.terminal);
+        assert!(outcome.session_terminal);
+        assert_eq!(
+            outcome.result.unwrap_err().to_string(),
+            "SSH remote forwarding shutdown timed out"
+        );
+        drop(guard);
+    }
+
+    #[test]
+    fn established_forward_error_still_runs_cleanup_and_preserves_primary_error() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let cleaned = Arc::new(AtomicBool::new(false));
+        let cleanup_flag = Arc::clone(&cleaned);
+
+        let error = runtime
+            .block_on(complete_established_forward(
+                Err(SshSessionError::new("ready failed")),
+                async move {
+                    cleanup_flag.store(true, Ordering::Release);
+                    Ok(())
+                },
+            ))
+            .unwrap_err();
+
+        assert!(cleaned.load(Ordering::Acquire));
+        assert_eq!(error.to_string(), "ready failed");
+    }
+
+    #[test]
+    fn natural_remote_forward_completion_cancels_and_bounded_drains_children() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let cancellation = RusshForwardCancellation::new();
+        let tracker = Arc::new(RemoteForwardTaskTracker::default());
+        let guard = tracker.register();
+        let child_cancellation = cancellation.clone();
+        runtime.spawn(async move {
+            child_cancellation.cancelled().await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            drop(guard);
+        });
+
+        runtime
+            .block_on(complete_remote_forward_session(
+                Ok(()),
+                &cancellation,
+                &tracker,
+                Duration::from_millis(250),
+            ))
+            .unwrap();
+
+        assert!(cancellation.is_cancelled());
+        assert_eq!(tracker.active(), 0);
+    }
+
+    #[test]
+    fn natural_remote_forward_drain_is_bounded_and_preserves_session_error() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let cancellation = RusshForwardCancellation::new();
+        let tracker = Arc::new(RemoteForwardTaskTracker::default());
+        let guard = tracker.register();
+        let started = std::time::Instant::now();
+
+        let error = runtime
+            .block_on(complete_remote_forward_session(
+                Err(SshSessionError::new("session failed")),
+                &cancellation,
+                &tracker,
+                Duration::from_millis(20),
+            ))
+            .unwrap_err();
+
+        assert!(started.elapsed() < Duration::from_millis(200));
+        assert!(cancellation.is_cancelled());
+        assert_eq!(error.to_string(), "session failed");
+        drop(guard);
+    }
+
+    #[test]
+    fn remote_forward_drop_cleanup_is_required_for_unjoined_children_without_session_handle() {
+        let tracker = Arc::new(RemoteForwardTaskTracker::default());
+        let guard = tracker.register();
+
+        assert!(remote_forward_cleanup_required(false, &tracker));
+
+        drop(guard);
+        assert!(!remote_forward_cleanup_required(false, &tracker));
+    }
+
+    #[test]
+    fn direct_forward_runtime_uses_one_current_thread_executor() {
+        let runtime = build_direct_forward_runtime().unwrap();
+
+        assert_eq!(
+            runtime.handle().runtime_flavor(),
+            tokio::runtime::RuntimeFlavor::CurrentThread
+        );
+    }
+
+    #[test]
+    fn forwarding_startup_is_bounded_and_cancellation_wins() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let cancellation = RusshForwardCancellation::new();
+        let timeout_error = runtime
+            .block_on(run_forward_startup(
+                &cancellation,
+                Duration::from_millis(20),
+                std::future::pending::<Result<(), SshSessionError>>(),
+            ))
+            .unwrap_err();
+        assert_eq!(
+            timeout_error.to_string(),
+            "SSH forwarding startup timed out"
+        );
+
+        cancellation.cancel();
+        let cancellation_error = runtime
+            .block_on(run_forward_startup(
+                &cancellation,
+                Duration::from_secs(1),
+                std::future::ready(Ok(())),
+            ))
+            .unwrap_err();
+        assert_eq!(
+            cancellation_error.to_string(),
+            "SSH forwarding startup cancelled"
+        );
     }
 
     #[derive(Default)]

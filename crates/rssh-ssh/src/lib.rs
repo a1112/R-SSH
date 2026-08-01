@@ -7,8 +7,8 @@ mod russh_client;
 pub use russh_client::{
     RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelOpener, RusshChannelStartupPlan,
     RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan, RusshDirectTcpIpOpenPlan,
-    RusshHostKeyPolicy, RusshKnownHosts, RusshPrivateKeyAuth, RusshRemoteTcpIpForwardPlan,
-    RusshSshChannel,
+    RusshForwardCancellation, RusshForwardDeadlines, RusshHostKeyPolicy, RusshKnownHosts,
+    RusshPrivateKeyAuth, RusshRemoteTcpIpForward, RusshRemoteTcpIpForwardPlan, RusshSshChannel,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -14,10 +14,10 @@ use rssh_core::{
 };
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySize};
 use rssh_ssh::{
-    RusshChannelOpener, RusshDirectTcpIpOpenPlan, RusshHostKeyPolicy, RusshPrivateKeyAuth,
-    RusshRemoteTcpIpForwardPlan, SshAuthMethod, SshChannelConnector, SshConnectRequest,
-    SshInputEvent, SshInputEventReceiver, SshSessionConfig, SshSessionStartup, SshShellConnector,
-    SshShellSession, ssh_input_event_channel,
+    RusshChannelOpener, RusshDirectTcpIpOpenPlan, RusshForwardCancellation, RusshForwardDeadlines,
+    RusshHostKeyPolicy, RusshPrivateKeyAuth, RusshRemoteTcpIpForwardPlan, SshAuthMethod,
+    SshChannelConnector, SshConnectRequest, SshInputEvent, SshInputEventReceiver, SshSessionConfig,
+    SshSessionStartup, SshShellConnector, SshShellSession, ssh_input_event_channel,
 };
 use serde::Serialize;
 
@@ -32,6 +32,11 @@ type KeyPassphraseDetector<'a> = dyn FnMut(&Path) -> Result<bool, Box<dyn Error>
 type OpenSshConfigResolver<'a> = dyn FnMut(&OpenSshTarget) -> Result<String, Box<dyn Error>> + 'a;
 
 const NATIVE_SSH_SESSION_ID: SessionId = SessionId::new(2);
+const NATIVE_FORWARD_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+const NATIVE_FORWARD_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
+const NATIVE_REMOTE_FORWARD_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
+const NATIVE_FORWARD_REPLY_TIMEOUT: Duration = Duration::from_secs(1);
+const NATIVE_FORWARD_ACCEPT_POLL: Duration = Duration::from_millis(5);
 
 struct NativeSecretPrompts<'a> {
     password_prompt: &'a mut SecretPrompt<'a>,
@@ -95,6 +100,12 @@ trait NativeLocalForwardStarter {
 }
 
 trait NativeLocalForwardHandle {
+    fn is_finished(&self) -> bool;
+
+    fn cancel(&mut self);
+
+    fn shutdown(&mut self, timeout: Duration) -> Result<(), Box<dyn Error>>;
+
     fn wait(&mut self) -> Result<(), Box<dyn Error>>;
 }
 
@@ -116,15 +127,20 @@ impl NativeLocalForwardStarter for ThreadedNativeLocalForwardStarter {
         forward: NativeLocalForward,
     ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>> {
         let listener = TcpListener::bind((forward.bind_host.as_str(), forward.bind_port))?;
+        listener.set_nonblocking(true)?;
         let opener = self.opener.clone();
-        let join_handle = thread::spawn(move || {
-            run_native_local_forward_listener(&listener, &opener, &request, &forward)
+        Ok(Box::new(ThreadedNativeLocalForwardHandle::spawn(
+            move |cancellation| {
+                run_native_local_forward_listener(
+                    &listener,
+                    &opener,
+                    &request,
+                    &forward,
+                    &cancellation,
+                )
                 .map_err(|error| error.to_string())
-        });
-
-        Ok(Box::new(ThreadedNativeLocalForwardHandle {
-            join_handle: Some(join_handle),
-        }))
+            },
+        )))
     }
 
     fn start_dynamic(
@@ -133,15 +149,14 @@ impl NativeLocalForwardStarter for ThreadedNativeLocalForwardStarter {
         forward: NativeDynamicForward,
     ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>> {
         let listener = TcpListener::bind((forward.bind_host.as_str(), forward.bind_port))?;
+        listener.set_nonblocking(true)?;
         let opener = self.opener.clone();
-        let join_handle = thread::spawn(move || {
-            run_native_dynamic_forward_listener(&listener, &opener, &request)
-                .map_err(|error| error.to_string())
-        });
-
-        Ok(Box::new(ThreadedNativeLocalForwardHandle {
-            join_handle: Some(join_handle),
-        }))
+        Ok(Box::new(ThreadedNativeLocalForwardHandle::spawn(
+            move |cancellation| {
+                run_native_dynamic_forward_listener(&listener, &opener, &request, &cancellation)
+                    .map_err(|error| error.to_string())
+            },
+        )))
     }
 
     fn start_remote(
@@ -149,34 +164,176 @@ impl NativeLocalForwardStarter for ThreadedNativeLocalForwardStarter {
         request: SshConnectRequest,
         forward: NativeRemoteForward,
     ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>> {
-        let mut opener = self.opener.clone();
         let remote_forward_plan = native_remote_tcpip_plan_for_remote_forward(&forward);
-        let join_handle = thread::spawn(move || {
-            opener
-                .start_remote_tcpip_forward(&request, &remote_forward_plan)
-                .map_err(|error| error.to_string())
-        });
-
-        Ok(Box::new(ThreadedNativeLocalForwardHandle {
-            join_handle: Some(join_handle),
-        }))
+        let cancellation = RusshForwardCancellation::new();
+        let mut remote_forward = self.opener.open_remote_tcpip_forward_with_lifecycle(
+            &request,
+            &remote_forward_plan,
+            &cancellation,
+            RusshForwardDeadlines::new(
+                NATIVE_FORWARD_STARTUP_TIMEOUT,
+                NATIVE_REMOTE_FORWARD_SHUTDOWN_TIMEOUT,
+            ),
+        )?;
+        Ok(Box::new(
+            ThreadedNativeLocalForwardHandle::spawn_with_cancellation(
+                cancellation,
+                move |cancellation| {
+                    remote_forward
+                        .wait_until_cancelled(&cancellation, NATIVE_REMOTE_FORWARD_SHUTDOWN_TIMEOUT)
+                        .map_err(|error| error.to_string())
+                },
+            ),
+        ))
     }
 }
 
 struct ThreadedNativeLocalForwardHandle {
+    cancellation: RusshForwardCancellation,
+    completion: std::sync::mpsc::Receiver<Result<(), String>>,
     join_handle: Option<thread::JoinHandle<Result<(), String>>>,
 }
 
-impl NativeLocalForwardHandle for ThreadedNativeLocalForwardHandle {
-    fn wait(&mut self) -> Result<(), Box<dyn Error>> {
-        let Some(join_handle) = self.join_handle.take() else {
-            return Ok(());
-        };
+impl ThreadedNativeLocalForwardHandle {
+    fn spawn(
+        worker: impl FnOnce(RusshForwardCancellation) -> Result<(), String> + Send + 'static,
+    ) -> Self {
+        let cancellation = RusshForwardCancellation::new();
+        Self::spawn_with_cancellation(cancellation, worker)
+    }
 
-        let result = join_handle
+    fn spawn_with_cancellation(
+        cancellation: RusshForwardCancellation,
+        worker: impl FnOnce(RusshForwardCancellation) -> Result<(), String> + Send + 'static,
+    ) -> Self {
+        let worker_cancellation = cancellation.clone();
+        let (completion_sender, completion) = std::sync::mpsc::sync_channel(1);
+        let join_handle = thread::spawn(move || {
+            let result = worker(worker_cancellation);
+            let completion_result = match &result {
+                Ok(()) => Ok(()),
+                Err(error) => Err(error.clone()),
+            };
+            let _ = completion_sender.send(completion_result);
+            result
+        });
+        Self {
+            cancellation,
+            completion,
+            join_handle: Some(join_handle),
+        }
+    }
+
+    fn join_after_completion(&mut self, timeout: Option<Duration>) -> Result<(), Box<dyn Error>> {
+        if self.join_handle.is_none() {
+            return Ok(());
+        }
+        let completion = match timeout {
+            Some(timeout) => match self.completion.recv_timeout(timeout) {
+                Ok(completion) => Some(completion),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    return Err("native SSH forwarding shutdown timed out".into());
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => None,
+            },
+            None => self.completion.recv().ok(),
+        };
+        let join_handle = self.join_handle.take().expect("join handle checked above");
+        let joined = join_handle
             .join()
-            .map_err(|_| "native SSH local forwarding listener panicked")?;
-        result.map_err(Into::into)
+            .map_err(|_| "native SSH forwarding worker panicked")?;
+        if let Some(completion) = completion {
+            completion?;
+        }
+        joined.map_err(Into::into)
+    }
+}
+
+impl NativeLocalForwardHandle for ThreadedNativeLocalForwardHandle {
+    fn is_finished(&self) -> bool {
+        self.join_handle
+            .as_ref()
+            .is_none_or(thread::JoinHandle::is_finished)
+    }
+
+    fn cancel(&mut self) {
+        self.cancellation.cancel();
+    }
+
+    fn shutdown(&mut self, timeout: Duration) -> Result<(), Box<dyn Error>> {
+        self.cancel();
+        self.join_after_completion(Some(timeout))
+    }
+
+    fn wait(&mut self) -> Result<(), Box<dyn Error>> {
+        self.join_after_completion(None)
+    }
+}
+
+impl Drop for ThreadedNativeLocalForwardHandle {
+    fn drop(&mut self) {
+        // Best-effort bounded fallback for cooperative workers. Normal paths
+        // call shutdown with the full forwarding deadline before Drop.
+        let _ = self.shutdown(Duration::from_millis(250));
+    }
+}
+
+fn shutdown_native_forward_handles(
+    handles: &mut [Box<dyn NativeLocalForwardHandle>],
+    timeout: Duration,
+) -> Result<(), Box<dyn Error>> {
+    for handle in handles.iter_mut() {
+        handle.cancel();
+    }
+
+    let deadline = Instant::now() + timeout;
+    let mut first_error = None;
+    for handle in handles.iter_mut() {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            first_error.get_or_insert_with(|| {
+                Box::<dyn Error>::from("native SSH forwarding shutdown timed out")
+            });
+            continue;
+        }
+        if let Err(error) = handle.shutdown(remaining) {
+            first_error.get_or_insert(error);
+        }
+    }
+
+    first_error.map_or(Ok(()), Err)
+}
+
+fn wait_for_native_forward_handles(
+    handles: &mut [Box<dyn NativeLocalForwardHandle>],
+    shutdown_timeout: Duration,
+) -> Result<(), Box<dyn Error>> {
+    loop {
+        if let Some(index) = handles.iter().position(|handle| handle.is_finished()) {
+            let completion_result = handles[index].wait();
+            let shutdown_result = shutdown_native_forward_handles(handles, shutdown_timeout);
+            return match completion_result {
+                Err(error) => Err(error),
+                Ok(()) => shutdown_result,
+            };
+        }
+        thread::park_timeout(NATIVE_FORWARD_ACCEPT_POLL);
+    }
+}
+
+fn retain_started_native_forward(
+    handles: &mut Vec<Box<dyn NativeLocalForwardHandle>>,
+    started: Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>>,
+) -> Result<(), Box<dyn Error>> {
+    match started {
+        Ok(handle) => {
+            handles.push(handle);
+            Ok(())
+        }
+        Err(startup_error) => {
+            let _ = shutdown_native_forward_handles(handles, NATIVE_FORWARD_SHUTDOWN_TIMEOUT);
+            Err(startup_error)
+        }
     }
 }
 
@@ -672,25 +829,28 @@ fn run_native_local_forward_listener(
     opener: &RusshChannelOpener,
     request: &SshConnectRequest,
     forward: &NativeLocalForward,
+    cancellation: &RusshForwardCancellation,
 ) -> Result<(), Box<dyn Error>> {
-    for stream in listener.incoming() {
-        let stream = stream?;
-        let mut opener = opener.clone();
-        let request = request.clone();
-        let forward = forward.clone();
-        thread::spawn(move || {
-            let _ = run_native_local_forward_connection(stream, &mut opener, request, &forward);
-        });
-    }
-
-    Ok(())
+    let opener = opener.clone();
+    let request = request.clone();
+    let forward = forward.clone();
+    run_native_forward_listener(listener, cancellation, move |stream, cancellation| {
+        run_native_local_forward_connection(
+            stream,
+            &opener,
+            request.clone(),
+            &forward,
+            cancellation,
+        )
+    })
 }
 
 fn run_native_local_forward_connection(
     local_stream: TcpStream,
-    opener: &mut RusshChannelOpener,
+    opener: &RusshChannelOpener,
     request: SshConnectRequest,
     forward: &NativeLocalForward,
+    cancellation: &RusshForwardCancellation,
 ) -> Result<(), Box<dyn Error>> {
     let peer_addr = local_stream.peer_addr()?;
     let direct_tcpip_plan = native_direct_tcpip_plan_for_local_forward(
@@ -698,82 +858,246 @@ fn run_native_local_forward_connection(
         peer_addr.ip().to_string(),
         peer_addr.port(),
     );
-    let channel = opener.open_direct_tcpip_channel(request, &direct_tcpip_plan)?;
-    let (mut remote_reader, mut remote_writer) = channel.into_read_writer();
-    let mut local_reader = local_stream.try_clone()?;
-    let mut local_writer = local_stream;
-
-    let upload = thread::spawn(move || {
-        io::copy(&mut local_reader, &mut remote_writer)
-            .map(|_| ())
-            .map_err(|error| error.to_string())
-    });
-    let download = io::copy(&mut remote_reader, &mut local_writer).map(|_| ());
-    let upload = upload
-        .join()
-        .map_err(|_| "native SSH local forwarding upload worker panicked")?;
-
-    download?;
-    upload.map_err(Into::into)
+    opener
+        .forward_direct_tcpip_stream(
+            request,
+            &direct_tcpip_plan,
+            local_stream,
+            cancellation,
+            RusshForwardDeadlines::new(
+                NATIVE_FORWARD_STARTUP_TIMEOUT,
+                NATIVE_REMOTE_FORWARD_SHUTDOWN_TIMEOUT,
+            ),
+        )
+        .map_err(Into::into)
 }
 
 fn run_native_dynamic_forward_listener(
     listener: &TcpListener,
     opener: &RusshChannelOpener,
     request: &SshConnectRequest,
+    cancellation: &RusshForwardCancellation,
 ) -> Result<(), Box<dyn Error>> {
-    for stream in listener.incoming() {
-        let stream = stream?;
-        let mut opener = opener.clone();
-        let request = request.clone();
-        thread::spawn(move || {
-            let _ = run_native_dynamic_forward_connection(stream, &mut opener, request);
-        });
-    }
-
-    Ok(())
+    let opener = opener.clone();
+    let request = request.clone();
+    run_native_forward_listener(listener, cancellation, move |stream, cancellation| {
+        run_native_dynamic_forward_connection(stream, &opener, request.clone(), cancellation)
+    })
 }
 
 fn run_native_dynamic_forward_connection(
     local_stream: TcpStream,
-    opener: &mut RusshChannelOpener,
+    opener: &RusshChannelOpener,
     request: SshConnectRequest,
+    cancellation: &RusshForwardCancellation,
 ) -> Result<(), Box<dyn Error>> {
+    local_stream.set_nonblocking(true)?;
     let peer_addr = local_stream.peer_addr()?;
     let mut socks_input = local_stream.try_clone()?;
     let mut socks_output = local_stream.try_clone()?;
-    let socks_request = read_socks5_connect_request(&mut socks_input, &mut socks_output)?;
+    let startup_deadline = Instant::now() + NATIVE_FORWARD_STARTUP_TIMEOUT;
+    let mut cancellable_input = CancellableForwardReader {
+        stream: &mut socks_input,
+        cancellation,
+        deadline: startup_deadline,
+    };
+    let mut cancellable_output = CancellableForwardWriter {
+        output: &mut socks_output,
+        cancellation,
+        deadline: startup_deadline,
+    };
+    let socks_request =
+        read_socks5_connect_request(&mut cancellable_input, &mut cancellable_output)?;
+    if cancellation.is_cancelled() {
+        return Err("native SSH forwarding cancelled".into());
+    }
     let direct_tcpip_plan = RusshDirectTcpIpOpenPlan::new(
         socks_request.target_host,
         socks_request.target_port,
         peer_addr.ip().to_string(),
         peer_addr.port(),
     );
-    let channel = match opener.open_direct_tcpip_channel(request, &direct_tcpip_plan) {
-        Ok(channel) => channel,
-        Err(error) => {
-            write_socks5_connect_reply(&mut socks_output, 0x01)?;
-            return Err(error.into());
+    let mut ready_sent = false;
+    let result = opener.forward_direct_tcpip_stream_with_ready(
+        request,
+        &direct_tcpip_plan,
+        local_stream,
+        cancellation,
+        RusshForwardDeadlines::new(
+            NATIVE_FORWARD_STARTUP_TIMEOUT,
+            NATIVE_REMOTE_FORWARD_SHUTDOWN_TIMEOUT,
+        ),
+        || {
+            cancellable_output.reset_deadline(NATIVE_FORWARD_REPLY_TIMEOUT);
+            write_socks5_connect_reply(&mut cancellable_output, 0x00)
+                .map_err(|error| rssh_ssh::SshSessionError::new(error.to_string()))?;
+            ready_sent = true;
+            Ok(())
+        },
+    );
+    if result.is_err() && !ready_sent && !cancellation.is_cancelled() {
+        cancellable_output.reset_deadline(NATIVE_FORWARD_REPLY_TIMEOUT);
+        let _ = write_socks5_connect_reply(&mut cancellable_output, 0x01);
+    }
+    result.map_err(Into::into)
+}
+
+fn run_native_forward_listener<F>(
+    listener: &TcpListener,
+    cancellation: &RusshForwardCancellation,
+    connection: F,
+) -> Result<(), Box<dyn Error>>
+where
+    F: Fn(TcpStream, &RusshForwardCancellation) -> Result<(), Box<dyn Error>>
+        + Clone
+        + Send
+        + 'static,
+{
+    let mut workers: Vec<thread::JoinHandle<Result<(), String>>> = Vec::new();
+    let mut worker_panicked = false;
+    let mut listener_error = None;
+    while !cancellation.is_cancelled() {
+        let mut index = 0;
+        while index < workers.len() {
+            if workers[index].is_finished() {
+                let worker = workers.swap_remove(index);
+                if worker.join().is_err() {
+                    worker_panicked = true;
+                    cancellation.cancel();
+                }
+            } else {
+                index += 1;
+            }
         }
-    };
-    write_socks5_connect_reply(&mut socks_output, 0x00)?;
 
-    let (mut remote_reader, mut remote_writer) = channel.into_read_writer();
-    let mut local_reader = local_stream.try_clone()?;
-    let mut local_writer = local_stream;
+        match listener.accept() {
+            Ok((stream, _)) => {
+                if cancellation.is_cancelled() {
+                    break;
+                }
+                let connection = connection.clone();
+                let worker_cancellation = cancellation.clone();
+                workers.push(thread::spawn(move || {
+                    connection(stream, &worker_cancellation).map_err(|error| error.to_string())
+                }));
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                thread::park_timeout(NATIVE_FORWARD_ACCEPT_POLL);
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => {
+                listener_error = Some(error);
+                cancellation.cancel();
+            }
+        }
+    }
 
-    let upload = thread::spawn(move || {
-        io::copy(&mut local_reader, &mut remote_writer)
-            .map(|_| ())
-            .map_err(|error| error.to_string())
-    });
-    let download = io::copy(&mut remote_reader, &mut local_writer).map(|_| ());
-    let upload = upload
-        .join()
-        .map_err(|_| "native SSH dynamic forwarding upload worker panicked")?;
+    for worker in workers {
+        if worker.join().is_err() {
+            worker_panicked = true;
+        }
+    }
+    if worker_panicked {
+        return Err("native SSH forwarding connection worker panicked".into());
+    }
+    if let Some(error) = listener_error {
+        return Err(error.into());
+    }
+    Ok(())
+}
 
-    download?;
-    upload.map_err(Into::into)
+struct CancellableForwardReader<'a> {
+    stream: &'a mut TcpStream,
+    cancellation: &'a RusshForwardCancellation,
+    deadline: Instant,
+}
+
+impl Read for CancellableForwardReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        loop {
+            if self.cancellation.is_cancelled() {
+                return Err(io::Error::other("native SSH forwarding cancelled"));
+            }
+            if Instant::now() >= self.deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "native SSH forwarding startup timed out",
+                ));
+            }
+            match self.stream.read(buffer) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    thread::park_timeout(NATIVE_FORWARD_ACCEPT_POLL);
+                }
+                result => return result,
+            }
+        }
+    }
+}
+
+struct CancellableForwardWriter<'a> {
+    output: &'a mut dyn Write,
+    cancellation: &'a RusshForwardCancellation,
+    deadline: Instant,
+}
+
+impl CancellableForwardWriter<'_> {
+    fn reset_deadline(&mut self, timeout: Duration) {
+        self.deadline = Instant::now() + timeout;
+    }
+
+    fn check_lifecycle(&self) -> io::Result<()> {
+        if self.cancellation.is_cancelled() {
+            return Err(io::Error::other("native SSH forwarding cancelled"));
+        }
+        if Instant::now() >= self.deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "native SSH forwarding startup timed out",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Write for CancellableForwardWriter<'_> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        loop {
+            self.check_lifecycle()?;
+            match self.output.write(buffer) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    thread::park_timeout(NATIVE_FORWARD_ACCEPT_POLL);
+                }
+                result => return result,
+            }
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        loop {
+            self.check_lifecycle()?;
+            match self.output.flush() {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    thread::park_timeout(NATIVE_FORWARD_ACCEPT_POLL);
+                }
+                result => return result,
+            }
+        }
+    }
 }
 
 fn write_socks5_connect_reply(output: &mut dyn Write, status: u8) -> Result<(), Box<dyn Error>> {
@@ -1083,20 +1407,21 @@ fn run_native_with_connector_forward_starter_resolver_secret_prompts_and_io(
 
     let mut forward_handles = Vec::new();
     for forward in forward_plan.local {
-        forward_handles.push(forward_starter.start(request.clone(), forward)?);
+        let started = forward_starter.start(request.clone(), forward);
+        retain_started_native_forward(&mut forward_handles, started)?;
     }
     for forward in forward_plan.dynamic {
-        forward_handles.push(forward_starter.start_dynamic(request.clone(), forward)?);
+        let started = forward_starter.start_dynamic(request.clone(), forward);
+        retain_started_native_forward(&mut forward_handles, started)?;
     }
     for forward in forward_plan.remote {
-        forward_handles.push(forward_starter.start_remote(request.clone(), forward)?);
+        let started = forward_starter.start_remote(request.clone(), forward);
+        retain_started_native_forward(&mut forward_handles, started)?;
     }
 
     if options.no_shell && !forward_handles.is_empty() {
-        for handle in &mut forward_handles {
-            handle.wait()?;
-        }
         lifecycle.mark_connected()?;
+        wait_for_native_forward_handles(&mut forward_handles, NATIVE_FORWARD_SHUTDOWN_TIMEOUT)?;
         return finish_native_ssh_success(
             options,
             &request,
@@ -1108,12 +1433,27 @@ fn run_native_with_connector_forward_starter_resolver_secret_prompts_and_io(
         );
     }
 
-    let session = connect_native_session(connector, request.clone(), &mut lifecycle)?;
-    let input = input.acquire_after_connect()?;
-    let outcome = rssh_ssh::run_connected_shell_with_events(session, input, output)?;
-    let io_counters = NativeSshIoCounters {
-        ssh_input_bytes: outcome.input_bytes,
-        ssh_output_bytes: outcome.output_bytes,
+    let shell_result = (|| -> Result<_, Box<dyn Error>> {
+        let session = connect_native_session(connector, request.clone(), &mut lifecycle)?;
+        let input = input.acquire_after_connect()?;
+        let outcome = rssh_ssh::run_connected_shell_with_events(session, input, output)?;
+        let io_counters = NativeSshIoCounters {
+            ssh_input_bytes: outcome.input_bytes,
+            ssh_output_bytes: outcome.output_bytes,
+        };
+        Ok((outcome, io_counters))
+    })();
+    let forward_shutdown_result =
+        shutdown_native_forward_handles(&mut forward_handles, NATIVE_FORWARD_SHUTDOWN_TIMEOUT);
+    let (outcome, io_counters) = match shell_result {
+        Ok(result) => {
+            forward_shutdown_result?;
+            result
+        }
+        Err(error) => {
+            let _ = forward_shutdown_result;
+            return Err(error);
+        }
     };
 
     finish_native_ssh_success(
@@ -1341,8 +1681,13 @@ fn native_key_needs_passphrase(path: &Path) -> Result<bool, Box<dyn Error>> {
 mod tests {
     use std::{
         io,
+        net::{TcpListener, TcpStream},
         path::{Path, PathBuf},
-        sync::{Arc, Mutex},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::{Duration, Instant},
     };
 
     use rssh_core::{
@@ -1368,6 +1713,366 @@ mod tests {
 
     fn empty_input_events() -> SshInputEventReceiver {
         input_events(&[])
+    }
+
+    fn unused_loopback_port() -> u16 {
+        TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    fn listener_is_released_within(port: u16, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        loop {
+            match TcpListener::bind(("127.0.0.1", port)) {
+                Ok(listener) => {
+                    drop(listener);
+                    return true;
+                }
+                Err(_) if Instant::now() < deadline => std::thread::yield_now(),
+                Err(_) => return false,
+            }
+        }
+    }
+
+    #[test]
+    fn dropping_native_local_forward_releases_listener_within_deadline() {
+        let port = unused_loopback_port();
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let mut starter =
+            super::ThreadedNativeLocalForwardStarter::new(rssh_ssh::RusshChannelOpener::default());
+        let handle = super::NativeLocalForwardStarter::start(
+            &mut starter,
+            request,
+            super::NativeLocalForward {
+                bind_host: "127.0.0.1".to_owned(),
+                bind_port: port,
+                target_host: "127.0.0.1".to_owned(),
+                target_port: 9,
+            },
+        )
+        .unwrap();
+
+        drop(handle);
+
+        assert!(listener_is_released_within(
+            port,
+            Duration::from_millis(250)
+        ));
+    }
+
+    #[test]
+    fn dropping_native_dynamic_forward_releases_listener_within_deadline() {
+        let port = unused_loopback_port();
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let mut starter =
+            super::ThreadedNativeLocalForwardStarter::new(rssh_ssh::RusshChannelOpener::default());
+        let handle = super::NativeLocalForwardStarter::start_dynamic(
+            &mut starter,
+            request,
+            super::NativeDynamicForward {
+                bind_host: "127.0.0.1".to_owned(),
+                bind_port: port,
+            },
+        )
+        .unwrap();
+
+        drop(handle);
+
+        assert!(listener_is_released_within(
+            port,
+            Duration::from_millis(250)
+        ));
+    }
+
+    #[test]
+    fn explicit_native_forward_shutdown_is_bounded_and_idempotent() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let mut starter =
+            super::ThreadedNativeLocalForwardStarter::new(rssh_ssh::RusshChannelOpener::default());
+
+        let local_port = unused_loopback_port();
+        let mut local = super::NativeLocalForwardStarter::start(
+            &mut starter,
+            request.clone(),
+            super::NativeLocalForward {
+                bind_host: "127.0.0.1".to_owned(),
+                bind_port: local_port,
+                target_host: "127.0.0.1".to_owned(),
+                target_port: 9,
+            },
+        )
+        .unwrap();
+        local.shutdown(Duration::from_millis(250)).unwrap();
+        local.shutdown(Duration::from_millis(250)).unwrap();
+        assert!(listener_is_released_within(
+            local_port,
+            Duration::from_millis(250)
+        ));
+
+        let dynamic_port = unused_loopback_port();
+        let mut dynamic = super::NativeLocalForwardStarter::start_dynamic(
+            &mut starter,
+            request,
+            super::NativeDynamicForward {
+                bind_host: "127.0.0.1".to_owned(),
+                bind_port: dynamic_port,
+            },
+        )
+        .unwrap();
+        dynamic.shutdown(Duration::from_millis(250)).unwrap();
+        dynamic.shutdown(Duration::from_millis(250)).unwrap();
+        assert!(listener_is_released_within(
+            dynamic_port,
+            Duration::from_millis(250)
+        ));
+    }
+
+    #[test]
+    fn native_forward_wait_reports_worker_panic() {
+        let mut handle = super::ThreadedNativeLocalForwardHandle::spawn(|_| {
+            panic!("forward worker panic");
+        });
+
+        let error = super::NativeLocalForwardHandle::wait(&mut handle).unwrap_err();
+
+        assert_eq!(error.to_string(), "native SSH forwarding worker panicked");
+    }
+
+    #[test]
+    fn dropping_native_forward_best_effort_joins_cooperative_worker() {
+        let exited = Arc::new(AtomicBool::new(false));
+        let worker_exited = Arc::clone(&exited);
+        let handle = super::ThreadedNativeLocalForwardHandle::spawn(move |cancellation| {
+            while !cancellation.is_cancelled() {
+                std::thread::yield_now();
+            }
+            std::thread::sleep(Duration::from_millis(25));
+            worker_exited.store(true, Ordering::Release);
+            Ok(())
+        });
+
+        drop(handle);
+
+        assert!(exited.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn native_listener_joins_active_connection_workers_on_cancellation() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let connection_started = Arc::new(AtomicBool::new(false));
+        let connection_exited = Arc::new(AtomicBool::new(false));
+        let started = Arc::clone(&connection_started);
+        let exited = Arc::clone(&connection_exited);
+        let handle = super::ThreadedNativeLocalForwardHandle::spawn(move |cancellation| {
+            super::run_native_forward_listener(&listener, &cancellation, move |_, cancellation| {
+                started.store(true, Ordering::Release);
+                while !cancellation.is_cancelled() {
+                    std::thread::yield_now();
+                }
+                std::thread::sleep(Duration::from_millis(25));
+                exited.store(true, Ordering::Release);
+                Ok(())
+            })
+            .map_err(|error| error.to_string())
+        });
+        let _client = TcpStream::connect(address).unwrap();
+        let started_deadline = Instant::now() + Duration::from_millis(250);
+        while !connection_started.load(Ordering::Acquire) && Instant::now() < started_deadline {
+            std::thread::yield_now();
+        }
+        assert!(connection_started.load(Ordering::Acquire));
+
+        drop(handle);
+
+        assert!(connection_exited.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn dynamic_forward_cancels_partial_socks_handshake() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let client = TcpStream::connect(address).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let cancellation = rssh_ssh::RusshForwardCancellation::new();
+        let worker_cancellation = cancellation.clone();
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let (completion_sender, completion) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let opener = rssh_ssh::RusshChannelOpener::default();
+            let result = super::run_native_dynamic_forward_connection(
+                server,
+                &opener,
+                request,
+                &worker_cancellation,
+            )
+            .map_err(|error| error.to_string());
+            let _ = completion_sender.send(result);
+        });
+        cancellation.cancel();
+
+        let result = completion
+            .recv_timeout(Duration::from_millis(250))
+            .expect("partial SOCKS handshake worker did not stop after cancellation");
+
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "native SSH forwarding cancelled"
+        );
+        drop(client);
+    }
+
+    #[test]
+    fn socks_writer_cancels_nonblocking_would_block_loop() {
+        struct NeverWritable;
+
+        impl std::io::Write for NeverWritable {
+            fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+                Err(io::Error::from(io::ErrorKind::WouldBlock))
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Err(io::Error::from(io::ErrorKind::WouldBlock))
+            }
+        }
+
+        let cancellation = rssh_ssh::RusshForwardCancellation::new();
+        let delayed_cancellation = cancellation.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            delayed_cancellation.cancel();
+        });
+        let mut output = NeverWritable;
+        let mut writer = super::CancellableForwardWriter {
+            output: &mut output,
+            cancellation: &cancellation,
+            deadline: Instant::now() + Duration::from_secs(1),
+        };
+
+        let error = std::io::Write::write_all(&mut writer, b"reply").unwrap_err();
+
+        assert_eq!(error.to_string(), "native SSH forwarding cancelled");
+    }
+
+    #[test]
+    fn socks_writer_resets_expired_deadline_for_success_and_failure_replies() {
+        let cancellation = rssh_ssh::RusshForwardCancellation::new();
+        let mut output = Vec::new();
+        let mut writer = super::CancellableForwardWriter {
+            output: &mut output,
+            cancellation: &cancellation,
+            deadline: Instant::now()
+                .checked_sub(Duration::from_millis(1))
+                .unwrap(),
+        };
+
+        writer.reset_deadline(Duration::from_secs(1));
+        super::write_socks5_connect_reply(&mut writer, 0x00).unwrap();
+        writer.deadline = Instant::now()
+            .checked_sub(Duration::from_millis(1))
+            .unwrap();
+        writer.reset_deadline(Duration::from_secs(1));
+        super::write_socks5_connect_reply(&mut writer, 0x01).unwrap();
+
+        assert_eq!(output[1], 0x00);
+        assert_eq!(output[11], 0x01);
+    }
+
+    #[test]
+    fn no_shell_waits_for_any_forward_then_cancels_and_joins_all() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut handles: Vec<Box<dyn super::NativeLocalForwardHandle>> = vec![
+            Box::new(CompletionMockForwardHandle::new(
+                "first",
+                false,
+                None,
+                Arc::clone(&events),
+            )),
+            Box::new(CompletionMockForwardHandle::new(
+                "second",
+                true,
+                Some("second forward failed"),
+                Arc::clone(&events),
+            )),
+            Box::new(CompletionMockForwardHandle::new(
+                "third",
+                false,
+                None,
+                Arc::clone(&events),
+            )),
+        ];
+
+        let error =
+            super::wait_for_native_forward_handles(&mut handles, Duration::from_millis(250))
+                .unwrap_err();
+
+        assert_eq!(error.to_string(), "second forward failed");
+        assert_eq!(
+            *events.lock().unwrap(),
+            [
+                "wait:second",
+                "cancel:first",
+                "cancel:second",
+                "cancel:third",
+                "shutdown:first",
+                "shutdown:second",
+                "shutdown:third",
+            ]
+        );
+    }
+
+    #[test]
+    fn native_forward_partial_startup_failure_rolls_back_started_handles() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let shell_state = Arc::new(Mutex::new(MockState::default()));
+        let mut connector = MockConnector {
+            state: Arc::clone(&shell_state),
+        };
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut starter = FailingSecondForwardStarter {
+            events: Arc::clone(&events),
+        };
+
+        let error = super::run_native_with_connector_forward_starter_and_io(
+            &SshOptions {
+                target: SshTarget::Direct(request),
+                remote_command: Vec::new(),
+                forwards: vec![
+                    crate::cli::SshForward::Local("127.0.0.1:15432:db.internal:5432".to_owned()),
+                    crate::cli::SshForward::Dynamic("127.0.0.1:1080".to_owned()),
+                ],
+                openssh_args: Vec::new(),
+                no_shell: false,
+                native: true,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+                console: crate::cli::ConsoleOptions::default(),
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            &mut starter,
+            empty_input_events(),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), "second forward startup failed");
+        assert!(shell_state.lock().unwrap().last_request.is_none());
+        assert_eq!(*events.lock().unwrap(), ["cancel:first", "shutdown:first"]);
     }
 
     #[test]
@@ -1857,6 +2562,46 @@ mod tests {
                 bind_port: 1080,
             }]
         );
+    }
+
+    #[test]
+    fn native_ssh_runner_shuts_down_all_forward_modes_after_shell() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let state = Arc::new(Mutex::new(MockState::default()));
+        let mut connector = MockConnector { state };
+        let forward_state = Arc::new(Mutex::new(MockForwardState::default()));
+        let mut forward_starter = MockForwardStarter {
+            state: Arc::clone(&forward_state),
+        };
+        let mut output = Vec::new();
+
+        super::run_native_with_connector_forward_starter_and_io(
+            &SshOptions {
+                target: SshTarget::Direct(request),
+                remote_command: Vec::new(),
+                forwards: vec![
+                    crate::cli::SshForward::Local("127.0.0.1:15432:db.internal:5432".to_owned()),
+                    crate::cli::SshForward::Dynamic("127.0.0.1:1080".to_owned()),
+                    crate::cli::SshForward::Remote("127.0.0.1:18080:127.0.0.1:8080".to_owned()),
+                ],
+                openssh_args: Vec::new(),
+                no_shell: false,
+                native: true,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+                console: crate::cli::ConsoleOptions::default(),
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            &mut forward_starter,
+            empty_input_events(),
+            &mut output,
+        )
+        .unwrap();
+
+        assert_eq!(forward_state.lock().unwrap().shutdowns, 3);
     }
 
     #[test]
@@ -2738,6 +3483,7 @@ mod tests {
         local: Vec<super::NativeLocalForward>,
         dynamic: Vec<super::NativeDynamicForward>,
         remote: Vec<super::NativeRemoteForward>,
+        shutdowns: usize,
     }
 
     struct MockForwardStarter {
@@ -2751,7 +3497,9 @@ mod tests {
             forward: super::NativeLocalForward,
         ) -> Result<Box<dyn super::NativeLocalForwardHandle>, Box<dyn std::error::Error>> {
             self.state.lock().unwrap().local.push(forward);
-            Ok(Box::new(MockForwardHandle))
+            Ok(Box::new(MockForwardHandle {
+                state: Arc::clone(&self.state),
+            }))
         }
 
         fn start_dynamic(
@@ -2760,7 +3508,9 @@ mod tests {
             forward: super::NativeDynamicForward,
         ) -> Result<Box<dyn super::NativeLocalForwardHandle>, Box<dyn std::error::Error>> {
             self.state.lock().unwrap().dynamic.push(forward);
-            Ok(Box::new(MockForwardHandle))
+            Ok(Box::new(MockForwardHandle {
+                state: Arc::clone(&self.state),
+            }))
         }
 
         fn start_remote(
@@ -2769,15 +3519,115 @@ mod tests {
             forward: super::NativeRemoteForward,
         ) -> Result<Box<dyn super::NativeLocalForwardHandle>, Box<dyn std::error::Error>> {
             self.state.lock().unwrap().remote.push(forward);
-            Ok(Box::new(MockForwardHandle))
+            Ok(Box::new(MockForwardHandle {
+                state: Arc::clone(&self.state),
+            }))
         }
     }
 
-    struct MockForwardHandle;
+    struct MockForwardHandle {
+        state: Arc<Mutex<MockForwardState>>,
+    }
 
     impl super::NativeLocalForwardHandle for MockForwardHandle {
+        fn is_finished(&self) -> bool {
+            true
+        }
+
+        fn cancel(&mut self) {}
+
+        fn shutdown(&mut self, _timeout: Duration) -> Result<(), Box<dyn std::error::Error>> {
+            self.state.lock().unwrap().shutdowns += 1;
+            Ok(())
+        }
+
         fn wait(&mut self) -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
+        }
+    }
+
+    struct CompletionMockForwardHandle {
+        name: &'static str,
+        finished: bool,
+        wait_error: Option<&'static str>,
+        events: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl CompletionMockForwardHandle {
+        fn new(
+            name: &'static str,
+            finished: bool,
+            wait_error: Option<&'static str>,
+            events: Arc<Mutex<Vec<String>>>,
+        ) -> Self {
+            Self {
+                name,
+                finished,
+                wait_error,
+                events,
+            }
+        }
+
+        fn record(&self, action: &str) {
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("{action}:{}", self.name));
+        }
+    }
+
+    impl super::NativeLocalForwardHandle for CompletionMockForwardHandle {
+        fn is_finished(&self) -> bool {
+            self.finished
+        }
+
+        fn cancel(&mut self) {
+            self.record("cancel");
+        }
+
+        fn shutdown(&mut self, _timeout: Duration) -> Result<(), Box<dyn std::error::Error>> {
+            self.record("shutdown");
+            Ok(())
+        }
+
+        fn wait(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+            self.record("wait");
+            self.wait_error.map_or(Ok(()), |error| Err(error.into()))
+        }
+    }
+
+    struct FailingSecondForwardStarter {
+        events: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl super::NativeLocalForwardStarter for FailingSecondForwardStarter {
+        fn start(
+            &mut self,
+            _request: SshConnectRequest,
+            _forward: super::NativeLocalForward,
+        ) -> Result<Box<dyn super::NativeLocalForwardHandle>, Box<dyn std::error::Error>> {
+            Ok(Box::new(CompletionMockForwardHandle::new(
+                "first",
+                false,
+                None,
+                Arc::clone(&self.events),
+            )))
+        }
+
+        fn start_dynamic(
+            &mut self,
+            _request: SshConnectRequest,
+            _forward: super::NativeDynamicForward,
+        ) -> Result<Box<dyn super::NativeLocalForwardHandle>, Box<dyn std::error::Error>> {
+            Err("second forward startup failed".into())
+        }
+
+        fn start_remote(
+            &mut self,
+            _request: SshConnectRequest,
+            _forward: super::NativeRemoteForward,
+        ) -> Result<Box<dyn super::NativeLocalForwardHandle>, Box<dyn std::error::Error>> {
+            unreachable!("remote forwarding is not part of this test")
         }
     }
 
