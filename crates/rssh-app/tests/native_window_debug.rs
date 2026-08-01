@@ -1,5 +1,7 @@
 #![cfg(windows)]
 
+mod common;
+
 use std::{
     process::Command,
     sync::{Mutex, MutexGuard},
@@ -156,23 +158,10 @@ fn injected_device_loss_rebuilds_direct_gpu_state_and_presents_the_same_frame() 
 
 #[test]
 fn static_native_window_reaches_ten_frames_without_external_damage() {
-    const COMMAND_INTENT: &str = "rssh-app -n window --frames 10 --metrics-json";
-    const ARGUMENTS: &[&str] = &["-n", "window", "--frames", "10", "--metrics-json"];
     let _native_window = native_window_test_guard();
-    let output = run_rssh_app(COMMAND_INTENT, ARGUMENTS);
-    let diagnostics = diagnostics(COMMAND_INTENT, ARGUMENTS, &output);
-    let metrics: serde_json::Value =
-        serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
-            panic!("static ten-frame probe emitted invalid metrics JSON: {error}\n{diagnostics}")
-        });
+    let probe = common::run_ten_frame_native_window(RSSH_APP_EXECUTABLE);
 
-    assert!(output.status.success(), "{diagnostics}");
-    assert_eq!(metrics["gpu_presented_frames"], 10, "{diagnostics}");
-    assert_eq!(metrics["gpu_text_rendered_frames"], 10, "{diagnostics}");
-    assert_eq!(
-        metrics["gpu_compatibility_frame_uploads"], 0,
-        "{diagnostics}"
-    );
+    common::assert_ten_frame_native_metrics(&probe);
 }
 
 #[test]

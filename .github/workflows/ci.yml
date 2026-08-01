@@ -15,8 +15,8 @@ jobs:
     runs-on: windows-2025
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
         with:
           components: clippy, rustfmt
       - run: cargo fmt --all -- --check
@@ -27,8 +27,8 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
       - run: cargo check --locked --workspace --all-targets
 
   deterministic-performance:
@@ -36,8 +36,8 @@ jobs:
     runs-on: windows-2025
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
       - name: Verify one metadata rebase per batched prune
         run: cargo test --locked -p rssh-terminal batched_scroll_prune_matches_incremental_prune
       - name: Verify deterministic work and chunk-size ratio
@@ -156,3 +156,96 @@ jobs:
             ratio_median = $ratioMedian
             threshold_violations = @()
           } | ConvertTo-Json -Depth 4 -Compress
+
+  native-terminal-e2e:
+    name: Native terminal E2E (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            target: windows-x86_64
+            pty_backend: windows-conpty
+          - runner: ubuntu-24.04
+            target: linux-x86_64
+            pty_backend: unix-pty
+          - runner: macos-15
+            target: macos-aarch64
+            pty_backend: unix-pty
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+
+      - name: Install Linux display servers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes openssh-client xvfb weston
+
+      - name: Build, validate version --json, and run native E2E
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: >-
+          ./scripts/ci/run-native-window.ps1
+          -Profile debug
+          -ExpectedTarget "${{ matrix.target }}"
+          -ExpectedPtyBackend "${{ matrix.pty_backend }}"
+
+      - name: Build, validate version --json, and run native E2E
+        if: runner.os == 'macOS'
+        shell: bash
+        run: >-
+          bash scripts/ci/run-native-window.sh
+          --profile debug
+          --expected-target "${{ matrix.target }}"
+          --expected-pty-backend "${{ matrix.pty_backend }}"
+
+      - name: Native E2E with Xvfb/X11
+        if: runner.os == 'Linux'
+        shell: bash
+        run: >-
+          xvfb-run -a
+          env -u WAYLAND_DISPLAY
+          bash scripts/ci/run-native-window.sh
+          --profile debug
+          --expected-target "${{ matrix.target }}"
+          --expected-pty-backend "${{ matrix.pty_backend }}"
+
+      - name: Native E2E with Weston/Wayland
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/rssh-wayland"
+          install -d -m 700 "$XDG_RUNTIME_DIR"
+          export WAYLAND_DISPLAY="wayland-rssh"
+          weston --backend=headless-backend.so --socket="$WAYLAND_DISPLAY" --idle-time=0 >"$RUNNER_TEMP/weston.log" 2>&1 &
+          weston_pid=$!
+          cleanup() {
+            phase_status=$?
+            trap - EXIT
+            if kill -0 "$weston_pid" 2>/dev/null; then
+              kill -TERM "$weston_pid"
+              wait "$weston_pid" || true
+            fi
+            exit "$phase_status"
+          }
+          trap cleanup EXIT
+          for _ in {1..100}; do
+            if [[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]]; then
+              break
+            fi
+            if ! kill -0 "$weston_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/weston.log"
+              exit 1
+            fi
+            sleep 0.1
+          done
+          test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+          env -u DISPLAY bash scripts/ci/run-native-window.sh \
+            --profile debug \
+            --expected-target "${{ matrix.target }}" \
+            --expected-pty-backend "${{ matrix.pty_backend }}"

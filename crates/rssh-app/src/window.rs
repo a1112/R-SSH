@@ -83587,10 +83587,8 @@ struct WindowMetrics {
 
 impl WindowMetrics {
     fn new() -> Self {
-        #[cfg(debug_assertions)]
-        let pty_linkage_enabled = std::env::var_os("RSSH_TEST_PTY_LINKAGE").is_some();
-        #[cfg(not(debug_assertions))]
-        let pty_linkage_enabled = false;
+        let pty_linkage_enabled =
+            std::env::var_os("RSSH_TEST_PTY_LINKAGE").as_deref() == Some(std::ffi::OsStr::new("1"));
         Self {
             spawn_started_at: Instant::now(),
             first_pty_byte: None,
