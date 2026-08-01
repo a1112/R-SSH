@@ -1,5 +1,6 @@
 mod marker;
 mod process;
+pub mod ssh;
 mod temp_home;
 
 pub use marker::platform_marker_command;
