@@ -6,6 +6,31 @@
 
 **Branch:** `codex/production-parity-foundation`
 
+## Implementation and Verification Status (2026-08-02)
+
+Tasks 1–25 are committed through `5744013e`. The forwarding-lifecycle,
+hermetic SSH, OpenSSH interoperability, deterministic PTY, six-target workflow,
+and packaging slices are recorded by `2d700785`, `afa3df11`, `93cc2ec2`,
+`3bb2dd3d`, `7efb6886`, and `5744013e`; the shared process-harness evidence fix
+is `83ade73a`; the Linux hosted OpenSSH dependency and service guard correction
+is `74f78bab`, extended to both release package-smoke paths by `f02acff6`.
+Task 26 local verification, documentation, static checks, and
+independent reviews are complete in this documentation change. The
+detailed requirement-to-evidence ledger is maintained in
+[Production Parity Verification](../production-parity-verification.md).
+
+| Evidence scope | Status | Boundary |
+| --- | --- | --- |
+| Windows x64 workspace, focused SSH/PTY/native-window checks, and local package smoke | verified locally on Windows x64 | Evidence is local to the 2026-08-02 verification session and does not establish another OS or architecture. |
+| Linux x64, macOS ARM64, Windows ARM64, Linux ARM64, and macOS x64 native jobs | defined in hosted workflow but not run in this local session | Workflow definitions are not successful runtime results. Commits `74f78bab` and `f02acff6` guard the native and release Linux `openssh-server` installs, but the independent real `sshd` and package paths were not run on the Windows host and have no linked hosted result. |
+| Protected performance comparison, signing, notarization, SBOM, provenance/attestation, and publication | requires protected/self-hosted environment | No protected artifact or performance result was produced in this local session. |
+| Hardware IME, Intel/AMD/NVIDIA/WARP/Mesa/Metal, RDP, and multi-DPI/HiDPI/Retina certification | not yet evidenced | These remain separate certification obligations. |
+
+This status does not claim that all six native targets passed or that R-SSH has
+100% WezTerm parity. The bounded compatibility work in this design remains
+subject to the explicit non-goals and the current
+[WezTerm parity gap tracker](../research/wezterm-parity-gap.md).
+
 ## Goal
 
 Raise R-SSH from a Windows-focused beta implementation to a production-oriented
@@ -39,7 +64,13 @@ font path behind compatibility seams.
 - Keep hardware/IME/GPU-vendor certification separate from deterministic hosted
   CI and run it on protected self-hosted machines.
 
-## Evidence and Root Causes
+## Pre-implementation Evidence and Root Causes
+
+The following evidence and present-tense descriptions capture the
+pre-implementation baseline investigated on 2026-07-28. They are retained as
+the rationale for the approved design; they are not a statement of the
+2026-08-02 implementation state. Current implementation evidence is recorded in
+[Production Parity Verification](../production-parity-verification.md).
 
 ### Windows debug GUI stack overflow
 

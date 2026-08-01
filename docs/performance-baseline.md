@@ -3,6 +3,45 @@
 This document is the source of truth for the terminal benchmark budgets enforced
 by CI and release workflows.
 
+## Verification status (2026-08-02)
+
+R-SSH's production native-window path presents through direct `wgpu`. The fixed
+`bench --json` render sample documented here still uses the CPU/offscreen
+`PixelRenderer`, however, so its render p95 is a regression proxy rather than
+evidence for GPU present latency or input-to-present latency.
+
+The following fixed-command observations were collected from commit
+`83ade73a9d11e165dc66e82e8f6ca1b910c2946c` and are **verified locally on
+Windows x64**:
+
+| Workload | Elapsed | Throughput | Chunk p95 | `PixelRenderer` p95 | RSS | Additional deterministic evidence |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `plain-scroll` | 282 ms | 3,705,635 B/s | 3,096 us | 527 us | 51,994,624 bytes | survivor clones `0`; history relocations `0` |
+| `ansi-scroll-query` | 257 ms | 4,065,596 B/s | 2,996 us | 361 us | 52,727,808 bytes | inspected bytes `1,499,241`; survivor clones `0`; history relocations `0` |
+
+Both invocations returned `ok: true` and an empty `threshold_violations` array
+for the checks evaluated by those commands. That result is not a performance
+certification: the local plain workload was below the approved 5 MiB/s design
+budget, and the query workload's chunk p95 was above the 2 ms stabilization
+target. The CPU/offscreen render values also do not measure the displayed frame.
+
+Current evidence status is:
+
+- **verified locally on Windows x64**: the two observations above and their
+  deterministic clone, relocation, and scanner counters;
+- **defined in hosted workflow but not run in this local session**: the
+  pull-request `deterministic-performance` job in
+  [`.github/workflows/ci.yml`](../.github/workflows/ci.yml);
+- **requires protected/self-hosted environment**: the fixed-machine release gate
+  in [`.github/workflows/release.yml`](../.github/workflows/release.yml), including
+  its protected baseline variables and reviewer-controlled environment;
+- **not yet evidenced**: a hosted or protected performance result for exact
+  commit `83ade73a9d11e165dc66e82e8f6ca1b910c2946c`, plus GPU-present and
+  input-to-present latency budgets.
+
+The cross-requirement evidence ledger is maintained in
+[`production-parity-verification.md`](production-parity-verification.md).
+
 ## Approved Budgets
 
 | Metric | Budget |
@@ -20,8 +59,9 @@ by CI and release workflows.
 | Resident memory | at most `268,435,456` bytes |
 
 The 16 ms render budget is currently an offscreen `PixelRenderer` proxy. It is
-not a GPU present or input-to-present measurement. The direct GPU presentation
-tasks replace this proxy with the final render/present gate.
+not a GPU present or input-to-present measurement. Direct `wgpu` presentation is
+implemented in the production native-window path, but the corresponding
+GPU-present and input-to-present performance gates are **not yet evidenced**.
 
 `metadata_rebase_batches` is cumulative across a benchmark run, so it must not
 be compared with `1` as a run-wide threshold. Hosted CI runs
@@ -31,7 +71,8 @@ field observable.
 
 ## Hosted Pull-Request Gate
 
-The `deterministic-performance` job runs on `windows-2025`. It enforces only
+The `deterministic-performance` job is **defined in hosted workflow but not run
+in this local session**. When run on `windows-2025`, it enforces only
 deterministic work and the relative 16 KiB/512 B throughput ratio. It does not
 enforce absolute elapsed time, CPU, or memory budgets on shared hosted runners.
 After one discarded warmup pair, it measures five 512 B/16 KiB pairs, alternates
@@ -49,7 +90,10 @@ and virtual memory, requested idle-CPU or RSS thresholds fail with
 
 ## Fixed Release Gate
 
-The release workflow uses a protected runner labeled
+The fixed release gate **requires protected/self-hosted environment** and was
+not run for exact commit `83ade73a9d11e165dc66e82e8f6ca1b910c2946c` in
+this local session. The release workflow is configured to use a protected
+runner labeled
 `self-hosted`, `Windows`, `X64`, and `rssh-performance`. Tag and manually
 dispatched releases cannot package or publish until this job succeeds. The job
 is serialized per machine class.

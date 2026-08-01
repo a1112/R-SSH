@@ -1,8 +1,37 @@
 # R-SSH Native Architecture
 
-R-SSH will be a native Rust SSH terminal client. The design separates terminal
-state, connection I/O, rendering, and product UI so each layer can be tested and
-replaced independently.
+R-SSH is a native Rust SSH terminal client at the **production-parity
+foundation** stage. The design separates terminal state, connection I/O,
+rendering, and product UI so each layer can be tested and replaced
+independently. The current foundation is bounded and evidence-driven; it is not
+a 100% WezTerm parity claim.
+
+## Verification Status
+
+At source commit `83ade73a` on 2026-08-02, the Rust 1.89 workspace gates and
+focused native GUI, real PTY, SSH/OpenSSH, and unpacked-package checks are
+**verified locally on Windows x64**. The six-target native matrices are
+**defined in hosted workflow but not run in this local session**. The
+fixed-runner performance, signing/notarization/attestation, and hardware
+certification work do not share one evidence state: release-integrity work
+**requires protected/self-hosted environment**, while hardware/IME/RDP/DPI
+certification is **not yet evidenced** and still needs a protected hardware
+environment and result workflow. The other five native targets and complete
+WezTerm compatibility are also **not yet evidenced**.
+
+Commit `74f78bab` adds the guarded Linux `openssh-server` dependency required by
+the isolated real-`sshd` contract. That workflow change passed local static and
+cleanup-semantics verification, but no exact-commit hosted Linux run is linked.
+Commit `f02acff6` extends the same guard to unsigned and protected release
+package-smoke jobs; only its local contract evidence is available here.
+
+The detailed boundary is recorded in the
+[production-parity verification record](production-parity-verification.md),
+[release contract](release-console.md),
+[performance baseline](performance-baseline.md),
+[approved design](plans/2026-07-28-production-parity-design.md),
+[implementation plan](plans/2026-07-28-production-parity-implementation.md),
+and [WezTerm parity gap tracker](research/wezterm-parity-gap.md).
 
 ## Goals
 
@@ -39,7 +68,8 @@ Renderer
   Font shaping, glyph atlas, damage tracking, GPU draw batches, presentation
 
 Storage and security
-  SQLite metadata, known hosts, DPAPI/Keychain/Secret Service, audit logs
+  Planned SQLite metadata and OS-backed secret storage; known_hosts and logs
+  remain explicit runtime boundaries
 ```
 
 ## Primary Data Flow
@@ -64,11 +94,16 @@ keyboard, mouse, paste, resize
   (`Workspace`, `Tab`, `Pane`, actions, IDs) used before runtime ownership.
 - `rssh-terminal`: VT parser boundary, grid, scrollback, selection, and input
   encoding.
-- `rssh-renderer`: renderer state, damage tracking, font atlas, and future
-  `wgpu` integration.
-- `rssh-ssh`: SSH session abstraction. Start with `russh`; keep `libssh2`
-  compatibility isolated behind this crate if needed.
+- `rssh-renderer`: deterministic CPU/offscreen rendering plus direct `wgpu`
+  surface presentation and bounded `glyphon` GPU text state.
+- `rssh-fonts`: `cosmic-text` shaping, configured font fallback, color-glyph
+  metadata, and deterministic bundled test fonts.
+- `rssh-ssh`: native `russh` sessions, authentication, full-duplex channels,
+  status propagation, and forwarding lifecycles. System OpenSSH SSH/SFTP/SCP
+  execution is integrated at the application boundary.
 - `rssh-pty`: local shell support through Windows ConPTY and Unix PTY.
+- `rssh-test-support`: hermetic SSH/SFTP fixtures and bounded process-tree test
+  support shared by integration and package smokes.
 - `rssh-app`: desktop entry point, native window, and user-facing action dispatch
   for app-shell state transitions.
 
@@ -3074,19 +3109,24 @@ keyboard, mouse, paste, resize
 
 ## Technology Choices
 
-Recommended initial stack:
+Current foundation stack:
 
 - `winit` for cross-platform native windows and input.
-- `wgpu` for GPU rendering across DirectX, Metal, Vulkan, and OpenGL backends.
-- `cosmic-text` first for shaping and font fallback; evaluate HarfBuzz bindings
-  if terminal compatibility requires lower-level control.
-- `russh` first for pure Rust SSH; keep `libssh2` as an optional fallback.
-- `portable-pty` as the first local PTY implementation reference, with direct
-  platform adapters later if the abstraction becomes limiting.
-- `rusqlite` or `sqlx` for local session metadata. Prefer `rusqlite` for a small
-  desktop app unless async database access becomes useful.
-- `keyring` or platform-specific APIs for secrets. Never store passwords or
-  private key passphrases in SQLite.
+- direct `wgpu` surfaces for GPU presentation, with `glyphon`-backed text
+  batches and bounded glyph caches; the CPU/offscreen renderer remains a
+  deterministic test and benchmark-proxy path.
+- `rssh-fonts` with `cosmic-text` for shaping and configured fallback.
+- native `russh` for in-process SSH and forwarding, alongside system OpenSSH
+  for interactive compatibility plus SFTP/SCP workflows.
+- platform PTY adapters for Windows ConPTY and Unix PTYs.
+
+Planned product layers:
+
+- SQLite-backed session and host metadata; `rusqlite` or `sqlx` remains an
+  implementation choice.
+- OS-backed secret storage through Windows DPAPI, macOS Keychain, or Linux
+  Secret Service. Passwords and private-key passphrases must never be stored in
+  plaintext or ordinary metadata storage.
 
 ## Error Handling
 
@@ -3107,6 +3147,7 @@ Recommended initial stack:
 - Use snapshot tests for terminal state after escape sequences.
 - Use loopback SSH fixtures before touching real servers.
 - Use local PTY integration tests gated by platform.
-- Use renderer pixel/screenshot tests once `wgpu` is introduced.
+- Keep deterministic renderer pixel/snapshot tests, and exercise direct `wgpu`
+  native-window presentation in platform E2E jobs.
 - Use fuzzing for the VT parser before handling untrusted network streams at
   scale.

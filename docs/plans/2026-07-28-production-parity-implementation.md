@@ -10,6 +10,38 @@
 
 ---
 
+## Implementation and Verification Status (2026-08-02)
+
+Tasks 1–25 are committed through `5744013e`; the Task 26 local verification,
+documentation, static checks, and independent reviews are complete in this
+documentation change. The most recent milestone evidence is:
+
+| Task | Commit | Slice |
+| --- | --- | --- |
+| 20 | `2d700785` | SSH forwarding lifecycle |
+| 21 | `afa3df11` | Hermetic loopback SSH fixture |
+| 22 | `93cc2ec2` | Native and system OpenSSH interoperability |
+| 23 | `3bb2dd3d` | Deterministic required real-PTY coverage |
+| 24 | `7efb6886` | Six-target native workflow definitions |
+| 25 | `5744013e` | Six-target package workflow and local Windows package path |
+| Harness evidence fix | `83ade73a` | Shared bounded subprocess/process-tree evidence |
+| Linux hosted SSH fix | `74f78bab` | Guarded `openssh-server` dependency and job-scoped contract |
+| Linux release SSH fix | `f02acff6` | Canonical service guard for unsigned and signed package smoke |
+
+The requirement-to-commit/test/metric/job mapping is in
+[Production Parity Verification](../production-parity-verification.md). The
+current evidence boundaries are:
+
+| Evidence tier | Status | Boundary |
+| --- | --- | --- |
+| Windows x64 local workspace, focused SSH/PTY/native-window checks, and package smoke | verified locally on Windows x64 | This is the only native runtime evidence produced by the local verification session. |
+| Linux x64, macOS ARM64, Windows ARM64, Linux ARM64, and macOS x64 jobs | defined in hosted workflow but not run in this local session | Commits `74f78bab` and `f02acff6` guard the native and release Linux `openssh-server` installs, but the independent real `sshd` and package paths were not run on the Windows host and have no linked hosted result. |
+| Protected performance, signing, notarization, SBOM, provenance/attestation, and publication | requires protected/self-hosted environment | No protected result or release artifact was produced in this local session. |
+| Hardware/IME/GPU-vendor/RDP/multi-DPI certification | not yet evidenced | The hosted deterministic matrix does not substitute for hardware certification. |
+
+This status does not claim six-platform success, production-release
+certification, or 100% WezTerm parity.
+
 ## Execution Rules
 
 - Work only in `E:\project\R-SSH\.worktrees\production-parity` on
@@ -1273,6 +1305,34 @@ git commit -m "docs: record production parity verification"
 ```
 
 ## Completion Criteria
+
+### Evidence-tier completion checklist (2026-08-02)
+
+- [x] **verified locally on Windows x64** — the fresh Windows x64 verification
+  covers the workspace gates and the focused SSH, PTY, debug/release
+  native-window, benchmark, and packaged-binary paths documented in
+  [Production Parity Verification](../production-parity-verification.md).
+- [ ] **defined in hosted workflow but not run in this local session** — Linux
+  x64, macOS ARM64, Windows ARM64, Linux ARM64, and macOS x64 native execution
+  remain dependent on successful hosted jobs. Commits `74f78bab` and
+  `f02acff6` guard the native and release `openssh-server` installs, but the
+  Linux-only independent real `sshd` interoperability and package paths were
+  not run locally on Windows and have no linked hosted result.
+- [ ] **requires protected/self-hosted environment** — protected performance
+  comparisons, signing, notarization, SBOM, provenance/attestation, and
+  publication remain unexecuted.
+- [ ] **not yet evidenced** — hardware IME, GPU-vendor/software-adapter, RDP,
+  and multi-DPI/HiDPI/Retina certification have no result in this session.
+
+Task 26's local documentation, static evidence checks, and independent reviews
+are complete in this change. The unchecked external evidence tiers remain open,
+and this checklist does not establish 100% WezTerm parity.
+
+### Original acceptance criteria (pre-implementation)
+
+The following criteria are retained from the approved 2026-07-28 plan. They
+describe the intended release gate and are not, by themselves, verification
+results.
 
 - Windows debug GUI subprocess exits cleanly without stack overflow.
 - Query scanning is linear and approved throughput/latency budgets pass.

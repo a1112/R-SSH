@@ -1,7 +1,37 @@
-# WezTerm Parity Gap Tracker (2026-06-09)
+# WezTerm Parity Gap Tracker
 
-This tracker is scoped to MVP 6 (App Shell v1). It captures what is complete and
-what remains before WezTerm-style parity in key UX/composition areas.
+## Current Production-Parity Snapshot (2026-08-02)
+
+Tasks 1–25 of the production-parity foundation are committed through
+`5744013e`; Task 26 local verification, documentation, static checks, and
+independent reviews are complete in this documentation change. Detailed
+requirement, test, metric, and workflow evidence is recorded in
+[Production Parity Verification](../production-parity-verification.md) and the
+[implementation plan](../plans/2026-07-28-production-parity-implementation.md).
+
+| Evidence scope | Status | Boundary |
+| --- | --- | --- |
+| Windows x64 local workspace, focused SSH/PTY/native-window checks, and local package smoke | verified locally on Windows x64 | This does not establish runtime behavior on another OS or architecture. |
+| Linux x64, macOS ARM64, Windows ARM64, Linux ARM64, and macOS x64 native jobs | defined in hosted workflow but not run in this local session | Commits `74f78bab` and `f02acff6` guard the native and release Linux `openssh-server` installs, but the independent real `sshd` and package paths were not run on the Windows host and have no linked hosted result. |
+| Protected performance, signing, notarization, SBOM, provenance/attestation, and publication | requires protected/self-hosted environment | No protected artifact or certification result was produced in this local session. |
+| Hardware IME, GPU-vendor/software-adapter, RDP, and multi-DPI/HiDPI/Retina certification | not yet evidenced | Deterministic hosted workflow definitions are not hardware certification. |
+
+The recent SSH/E2E/release slices are `2d700785` (Task 20), `afa3df11`
+(Task 21), `93cc2ec2` (Task 22), `3bb2dd3d` (Task 23), `7efb6886` (Task 24),
+and `5744013e` (Task 25). Shared bounded process-harness evidence is fixed by
+`83ade73a`; the Linux hosted OpenSSH dependency and service guard correction is
+`74f78bab`, extended to both release package-smoke paths by `f02acff6`.
+
+These production-foundation slices do not imply 100% WezTerm parity. Open
+areas include a general Lua VM and dynamic callback surface, real mux/domain
+protocol parity, hardware certification, and the other gaps retained below.
+
+## Historical App Shell v1 Snapshot (2026-06-09)
+
+The tables and detailed completion log below preserve the MVP 6 (App Shell v1)
+snapshot begun on 2026-06-09. They describe bounded feature slices and their
+historical scope; they are not a current production certification and do not
+override the 2026-08-02 evidence boundaries above.
 
 ## App-Shell Parity
 

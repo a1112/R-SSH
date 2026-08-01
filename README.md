@@ -1,18 +1,49 @@
 # R-SSH
 
 R-SSH is a native Rust route for a high-performance SSH terminal client. The
-target product shape is closer to XShell than to a web terminal: native window,
-GPU text rendering, direct SSH protocol integration, session management, SFTP,
-tunnels, logging, and secure key storage.
+target product shape is closer to XShell than to a web terminal: native windows,
+direct GPU text rendering, native and system SSH transports, session management,
+SFTP, tunnels, logging, and planned secure storage.
 
-The repository now includes MVP 1 for the terminal core, MVP 2 for a
-console-hosted local terminal path, MVP 3 for a native `winit` renderer demo,
-MVP 4 for a live PTY session inside the native window, MVP 5 for SSH
-boundary/session transport work, and MVP 6 for the first App Shell model.
+## Project Stage
 
-The current app can start a native window, spawn the platform shell through the
-local PTY layer, feed PTY output into the terminal grid, render live terminal
-cells, and write keyboard input back to the PTY.
+R-SSH is at the **production-parity foundation** stage. The repository has moved
+beyond its MVP 1-6 foundations: the native GUI presents through direct `wgpu`,
+text is shaped and resolved through the `rssh-fonts`/`cosmic-text` stack, and
+both the in-process `russh` transport and system OpenSSH integration are
+implemented. This stage is a bounded, evidence-driven production foundation;
+it is not a claim of production release certification or 100% WezTerm parity.
+
+Verification status at source commit `83ade73a` on 2026-08-02:
+
+- **verified locally on Windows x64**: Rust 1.89 workspace gates plus focused
+  native GUI, real PTY, SSH/OpenSSH interoperability, and fresh unpacked package
+  checks.
+- **defined in hosted workflow but not run in this local session**: the six
+  Windows/Linux/macOS x64/ARM64 native build and package jobs.
+- **requires protected/self-hosted environment**: fixed-runner performance
+  certification, release signing, macOS notarization/stapling, provenance
+  attestation, and publication.
+- **not yet evidenced**: successful runtime and package results for the other
+  five native targets, hardware/driver/IME/RDP/DPI certification, or a complete
+  WezTerm compatibility result. A protected hardware certification environment
+  and result workflow still need to be established.
+
+Commit `74f78bab` subsequently corrected the Linux native jobs to install
+`openssh-server` behind a restored `policy-rc.d` guard. Its YAML, shell,
+job-contract, cleanup-semantics, formatting, and Clippy checks passed locally;
+the hosted Linux jobs themselves were not run in this local session.
+Commit `f02acff6` applies the same canonical guard to unsigned and protected
+release package-smoke jobs; its local contract checks passed, but those hosted
+release jobs were likewise not run in this session.
+
+See the [production-parity verification record](docs/production-parity-verification.md),
+[release contract](docs/release-console.md),
+[performance baseline](docs/performance-baseline.md),
+[approved design](docs/plans/2026-07-28-production-parity-design.md),
+[implementation plan](docs/plans/2026-07-28-production-parity-implementation.md),
+and [bounded WezTerm gap tracker](docs/research/wezterm-parity-gap.md) for the
+evidence and remaining risks.
 
 MVP 6 keeps startup compatible: `rssh-app` still opens a single local PTY pane
 by default, but that runtime is now surfaced through typed app-shell state:
@@ -71,13 +102,17 @@ The default startup maps to workspace `1`, tab `1`, and pane `1`, with
 
 - Language: Rust.
 - Window and event loop: `winit`.
-- GPU renderer: `wgpu`.
-- Text shaping and font fallback: `cosmic-text` or HarfBuzz-backed equivalent.
-- SSH: start with pure Rust `russh`; keep `libssh2` as a fallback option for
-  algorithm and server compatibility.
+- GPU renderer: direct `wgpu` presentation with `glyphon` text batches, plus a
+  CPU/offscreen renderer for deterministic tests and benchmark proxies.
+- Text shaping and font fallback: the `rssh-fonts` crate backed by
+  `cosmic-text`, including the configured fallback stack.
+- SSH: an in-process `russh` backend for native sessions and forwarding, plus a
+  system OpenSSH backend for SSH/SFTP/SCP and compatibility-oriented options.
 - Local shell: Windows ConPTY and Unix PTY through a small internal abstraction.
-- Storage: SQLite for sessions and host metadata.
-- Secret storage: Windows DPAPI, macOS Keychain, and Linux Secret Service.
+- Planned storage: SQLite for sessions and host metadata; persistent product
+  storage is not part of the currently evidenced foundation.
+- Planned secret storage: Windows DPAPI, macOS Keychain, and Linux Secret
+  Service; passwords and key passphrases must not be persisted as plaintext.
 
 ## Workspace
 
@@ -88,6 +123,8 @@ crates/rssh-terminal  Terminal grid and VT parser boundary
 crates/rssh-renderer  Renderer boundary and damage tracking
 crates/rssh-ssh       SSH session boundary
 crates/rssh-pty       Local PTY boundary
+crates/rssh-fonts     Font discovery, shaping, fallback, and deterministic fonts
+crates/rssh-test-support  Hermetic SSH fixtures and bounded process-test support
 docs/                 Architecture and planning documents
 refs/                 Local reference source cache, ignored by Git
 ```
@@ -378,8 +415,8 @@ supported. Use `--user USER` when a username override is needed outside the
 `[USER@]HOST` target form. SCP-specific OpenSSH options `-3`, `-O`, `-T`, `-B`,
 `-p`, `-R`, `-s`, `-D`, `-S`, `-X`, and `-c` are passed through for protocol
 and transfer tuning.
-Add `--native` to use the experimental in-process `russh` path instead of
-spawning an interactive OpenSSH session. The native path supports `--host`
+Add `--native` to use the in-process `russh` path instead of spawning an
+interactive system OpenSSH session. The native path supports `--host`
 direct targets and `--target NAME` entries resolved through `ssh -G`, with
 agent, password-prompt, or private-key authentication, including encrypted
 private-key passphrase prompts. Use
@@ -436,23 +473,24 @@ Use `profile --check --file PATH` to validate every configured profile without
 starting a local process or network connection; add `--json` for a structured
 per-profile report that still exits non-zero when any profile is invalid.
 
-## Downloadable Console Build
+## Native Release Packages
 
-The `Release` GitHub Actions workflow builds the Windows console package
-`R-SSH-windows-x64.zip`. Manual workflow runs upload it as an artifact; tags
-starting with `v` also publish it as a GitHub Release asset. The workflow runs
-formatting, tests, clippy, release compilation, and packaged
-`rssh-app.exe version --json`, `rssh-app.exe doctor --json`, and
-`rssh-app.exe self-test --json` smoke tests, `rssh-app.exe bench --json`
-benchmark smoke with offscreen render frames, idle resource sampling, and
-deterministic work checks. Before packaging, a protected fixed Windows runner
-enforces the approved absolute budgets and same-machine 10% median-regression
-rule after two warmups and seven measured samples. The current 16 ms render
-budget is an offscreen `PixelRenderer` proxy, not GPU presentation. Bundled
-profile validation, a `window-smoke` profile `--metrics-json` check, plus
-`rssh-app.exe console` and `rssh-console.cmd` console-launcher smoke tests also
-run before upload. See
-`docs/release-console.md` and `docs/performance-baseline.md`.
+The `Release` GitHub Actions workflow defines package contracts for six native
+targets: Windows, Linux, and macOS on x64 and ARM64. Manual workflow artifacts
+are explicitly unsigned and non-releasable. A `v*` tag follows a protected DAG
+that requires fixed-runner performance certification, native package smokes,
+platform signing, macOS notarization/stapling where applicable, SBOM and
+provenance generation, and final publication gates.
+
+At commit `83ade73a` on 2026-08-02, the fresh Windows x64 archive and unpacked
+binary path were **verified locally on Windows x64**. The remaining five target
+jobs are **defined in hosted workflow but not run in this local session**.
+Protected performance, signing, notarization, and attestation
+**require protected/self-hosted environment**. Hardware/IME/RDP/DPI
+certification is **not yet evidenced** and still needs a protected hardware
+environment and result workflow. See the [native package contract](docs/release-console.md),
+[performance baseline](docs/performance-baseline.md), and
+[verification record](docs/production-parity-verification.md).
 
 ## MVP Status
 

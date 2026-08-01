@@ -1,11 +1,42 @@
 # Native Release Packages
 
-This document defines the six certified native terminal packages for R-SSH.
+This document defines the six target native terminal packages and their release
+workflow contract for R-SSH. It does not record six-platform certification.
+
+## Verification status (2026-08-02)
+
+The local package checkout used code baseline
+`83ade73a9d11e165dc66e82e8f6ca1b910c2946c`; current package evidence is:
+
+- **verified locally on Windows x64**: a freshly assembled, separately extracted
+  Windows x64 unsigned package passed the packaged-binary smoke checks. Its
+  manifest records `source_commit=local`, so it is local evidence rather than
+  an exact-commit provenance claim;
+- **defined in hosted workflow but not run in this local session**: the six-target
+  unsigned build/package/smoke matrix in
+  [`.github/workflows/release.yml`](../.github/workflows/release.yml). Commit
+  `f02acff6` guards both Linux package-smoke installation points against
+  starting the system OpenSSH service; its local static contract passed, but
+  neither hosted release job ran in this session;
+- **requires protected/self-hosted environment**: fixed performance, Windows
+  signing, Linux cosign, macOS signing/notarization/stapling, SBOM, provenance
+  attestation, and publication jobs, together with their environments, secrets,
+  reviewers, and `v*` tag ruleset prerequisites;
+- **not yet evidenced**: package-smoke results for Windows arm64, Linux x64,
+  Linux arm64, macOS x64, or macOS arm64, and any signed, notarized, attested, or
+  published artifact produced from exact commit
+  `83ade73a9d11e165dc66e82e8f6ca1b910c2946c`.
+
+No manual unsigned workflow run or protected tag-release DAG was executed in
+this local session. See the cross-requirement evidence ledger in
+[`production-parity-verification.md`](production-parity-verification.md) and the
+performance qualification in
+[`performance-baseline.md`](performance-baseline.md).
 
 ## Package
 
-The release workflow certifies performance on a protected fixed Windows runner,
-then builds and smokes these native artifacts:
+When its protected fixed-performance prerequisite succeeds, the release
+workflow is configured to build and smoke these native artifacts:
 
 - `R-SSH-windows-x64.zip`
 - `R-SSH-windows-arm64.zip`
@@ -38,21 +69,27 @@ provide `rssh-app` and `rssh-console.sh`. macOS packages provide
   on the repository default branch.
 - Versioned release: push a tag that starts with `v`, for example `v0.1.0`.
 
-Tag releases attach all six stable artifact names. Manual artifacts use an
+When the full protected tag-release DAG succeeds, it attaches all six stable
+artifact names. Manual artifacts use an
 `-unsigned` filename suffix and set `manifest.json`'s `signing.unsigned` to
 `true`. They are local/CI test artifacts and are not releasable; renaming an
 unsigned archive does not make it eligible for publication.
 
-The protected `performance` environment requires designated reviewers. A
-repository ruleset restricts `v*` tag creation to authorized release
-maintainers and requires the tagged commit to be reachable from the protected
-default branch. The workflow defaults to read-only contents permission;
+Release configuration must require designated reviewers on the protected
+`performance` environment. A repository ruleset must restrict `v*` tag creation
+to authorized release maintainers and require the tagged commit to be reachable
+from the protected default branch. These external GitHub settings are release
+prerequisites, not facts proved by this repository. The workflow defaults to
+read-only contents permission;
 fixed-runner checkout does not persist credentials, and only the isolated
 tag-publishing job receives `contents: write`.
 
 ## Verification Gates
 
-No release package is published until all gates pass:
+The workflow contract prevents publication until all configured gates pass.
+These gates are **defined in hosted workflow but not run in this local session**
+for exact commit `83ade73a9d11e165dc66e82e8f6ca1b910c2946c`; protected performance
+and release-integrity jobs **require protected/self-hosted environment**:
 
 - protected fixed-runner performance certification with two warmups, seven
   measured samples, approved absolute budgets, and the 10% same-machine
