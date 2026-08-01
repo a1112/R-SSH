@@ -354,6 +354,25 @@ public sealed class RsshCiOwnedProcess : IDisposable {
         }
     }
 
+    public static Process CaptureProcessIdentity(int processId, long expectedStartTimeUtcTicks) {
+        Process process = null;
+        try {
+            process = Process.GetProcessById(processId);
+            IntPtr unused = process.Handle;
+            long actualStartTimeUtcTicks = process.StartTime.ToUniversalTime().Ticks;
+            if (actualStartTimeUtcTicks != expectedStartTimeUtcTicks) {
+                throw new InvalidOperationException(
+                    "process identity mismatch for PID " + processId +
+                    ": observed start ticks " + actualStartTimeUtcTicks +
+                    ", expected " + expectedStartTimeUtcTicks);
+            }
+            return process;
+        } catch {
+            if (process != null) process.Dispose();
+            throw;
+        }
+    }
+
     public int ExitCode {
         get {
             uint exitCode;
@@ -483,6 +502,27 @@ function Complete-StreamBeforeDeadline {
   return $Task.Result
 }
 
+function Complete-ProcessIdentityBeforeDeadline {
+  param(
+    [Parameter(Mandatory = $true)]
+    [Diagnostics.Process] $Process,
+
+    [Parameter(Mandatory = $true)]
+    [DateTimeOffset] $Deadline,
+
+    [Parameter(Mandatory = $true)]
+    [string] $Name
+  )
+
+  if ($Process.HasExited) {
+    return
+  }
+  $remaining = Get-RemainingMilliseconds -Deadline $Deadline
+  if ($remaining -le 0 -or -not $Process.WaitForExit($remaining)) {
+    throw "$Name did not exit before the shared cleanup deadline"
+  }
+}
+
 function Resolve-NativeExecutable {
   param([Parameter(Mandatory = $true)] [string] $FilePath)
 
@@ -507,6 +547,8 @@ function Invoke-BoundedProcess {
     [Parameter(Mandatory = $true)]
     [int] $TimeoutSeconds,
 
+    [scriptblock] $CaptureDescendantForTest,
+
     [switch] $FailAssignmentForTest
   )
 
@@ -522,6 +564,8 @@ function Invoke-BoundedProcess {
   $process = $null
   $started = $false
   $jobClosed = $false
+  $cleanupDeadline = $null
+  $capturedDescendant = $null
   $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
   try {
     $ownedProcess = [RsshCiOwnedProcess]::Start(
@@ -536,12 +580,21 @@ function Invoke-BoundedProcess {
     $stderr = $ownedProcess.StandardError.ReadToEndAsync()
     $remaining = Get-RemainingMilliseconds -Deadline $deadline
     if ($remaining -le 0 -or -not $process.WaitForExit($remaining)) {
+      $cleanupDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+      if ($null -ne $CaptureDescendantForTest) {
+        $capturedDescendant = & $CaptureDescendantForTest $cleanupDeadline
+      }
       $ownedProcess.CloseJob()
       $jobClosed = $true
-      $cleanupDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
       $cleanupRemaining = Get-RemainingMilliseconds -Deadline $cleanupDeadline
       if ($cleanupRemaining -le 0 -or -not $process.WaitForExit($cleanupRemaining)) {
         throw "$Phase exceeded its ${TimeoutSeconds}s deadline and process-tree cleanup did not finish"
+      }
+      if ($null -ne $capturedDescendant) {
+        Complete-ProcessIdentityBeforeDeadline `
+          -Process $capturedDescendant `
+          -Deadline $cleanupDeadline `
+          -Name "$Phase captured descendant"
       }
       $timeoutStdout = Complete-StreamBeforeDeadline -Task $stdout -Deadline $cleanupDeadline -StreamName "$Phase stdout"
       $timeoutStderr = Complete-StreamBeforeDeadline -Task $stderr -Deadline $cleanupDeadline -StreamName "$Phase stderr"
@@ -569,7 +622,9 @@ function Invoke-BoundedProcess {
       $jobClosed = $true
     }
     if ($started -and -not $process.HasExited) {
-      $cleanupDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+      if ($null -eq $cleanupDeadline) {
+        $cleanupDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+      }
       $cleanupRemaining = Get-RemainingMilliseconds -Deadline $cleanupDeadline
       if ($cleanupRemaining -le 0 -or -not $process.WaitForExit($cleanupRemaining)) {
         throw "$Phase process-tree cleanup did not finish within 10s"
@@ -577,6 +632,9 @@ function Invoke-BoundedProcess {
     }
     if ($null -ne $ownedProcess) {
       $ownedProcess.Dispose()
+    }
+    if ($null -ne $capturedDescendant) {
+      $capturedDescendant.Dispose()
     }
   }
 }
@@ -644,12 +702,86 @@ function Assert-BoundedProcessHarness {
     }
   }
 
-  $sentinel = Join-Path ([IO.Path]::GetTempPath()) "rssh-ci-job-$PID-$([Guid]::NewGuid().ToString('N')).pid"
+  $identityMismatchRejected = $false
+  $unexpectedIdentity = $null
+  try {
+    $unexpectedIdentity = [RsshCiOwnedProcess]::CaptureProcessIdentity($PID, 0)
+  } catch {
+    $identityMismatchRejected = $_.Exception.Message -match "process identity mismatch"
+  } finally {
+    if ($null -ne $unexpectedIdentity) {
+      $unexpectedIdentity.Dispose()
+    }
+  }
+  if (-not $identityMismatchRejected) {
+    throw "process identity capture accepted a reused PID identity"
+  }
+
+  $runningProcess = Start-Process powershell.exe -ArgumentList @(
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    '$wait=[Threading.ManualResetEvent]::new($false);$wait.WaitOne()'
+  ) -PassThru
+  $runningIdentity = $null
+  try {
+    $runningIdentity = [RsshCiOwnedProcess]::CaptureProcessIdentity(
+      $runningProcess.Id,
+      $runningProcess.StartTime.ToUniversalTime().Ticks
+    )
+    $runningProcessRejected = $false
+    try {
+      Complete-ProcessIdentityBeforeDeadline `
+        -Process $runningIdentity `
+        -Deadline ([DateTimeOffset]::UtcNow.AddMilliseconds(100)) `
+        -Name "running process identity self-test"
+    } catch {
+      $runningProcessRejected = $_.Exception.Message -match "did not exit before the shared cleanup deadline"
+    }
+    if (-not $runningProcessRejected) {
+      throw "process identity cleanup accepted a process that was still running"
+    }
+  } finally {
+    if (-not $runningProcess.HasExited) {
+      Stop-Process -Id $runningProcess.Id -Force
+      if (-not $runningProcess.WaitForExit(10000)) {
+        throw "running process identity self-test cleanup exceeded 10s"
+      }
+    }
+    if ($null -ne $runningIdentity) {
+      $runningIdentity.Dispose()
+    }
+    $runningProcess.Dispose()
+  }
+
+  $identity = [Guid]::NewGuid().ToString("N")
+  $sentinel = Join-Path ([IO.Path]::GetTempPath()) "rssh-ci-job-$PID-$identity.json"
+  $readyEventName = "Local\rssh-ci-job-ready-$PID-$identity"
+  $readyEvent = [Threading.EventWaitHandle]::new(
+    $false,
+    [Threading.EventResetMode]::ManualReset,
+    $readyEventName
+  )
   $previousSentinel = $env:RSSH_CI_JOB_SENTINEL
+  $previousReadyEvent = $env:RSSH_CI_JOB_READY_EVENT
   $env:RSSH_CI_JOB_SENTINEL = $sentinel
+  $env:RSSH_CI_JOB_READY_EVENT = $readyEventName
   $timeoutScript = @'
 $grandchild = Start-Process powershell.exe -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', '$wait=[Threading.ManualResetEvent]::new($false);$wait.WaitOne()') -PassThru
-[IO.File]::WriteAllText($env:RSSH_CI_JOB_SENTINEL, [string]$grandchild.Id)
+$grandchildIdentity = [ordered]@{
+  pid = $grandchild.Id
+  start_time_utc_ticks = $grandchild.StartTime.ToUniversalTime().Ticks
+}
+[IO.File]::WriteAllText(
+  $env:RSSH_CI_JOB_SENTINEL,
+  ($grandchildIdentity | ConvertTo-Json -Compress)
+)
+$ready = [Threading.EventWaitHandle]::OpenExisting($env:RSSH_CI_JOB_READY_EVENT)
+try {
+  $null = $ready.Set()
+} finally {
+  $ready.Dispose()
+}
 [Console]::Out.Write('timeout-stdout-marker')
 [Console]::Error.Write('timeout-stderr-marker')
 $wait = [Threading.ManualResetEvent]::new($false)
@@ -659,11 +791,31 @@ $null = $wait.WaitOne()
     $timedOut = $false
     $timeoutDiagnostics = ""
     try {
+      $captureDescendant = {
+        param([Parameter(Mandatory = $true)] [DateTimeOffset] $CleanupDeadline)
+
+        $remaining = [Math]::Ceiling(
+          ($CleanupDeadline - [DateTimeOffset]::UtcNow).TotalMilliseconds
+        )
+        $remaining = [int] [Math]::Max(
+          0,
+          [Math]::Min($remaining, [int]::MaxValue)
+        )
+        if ($remaining -le 0 -or -not $readyEvent.WaitOne($remaining)) {
+          throw "job object timeout self-test did not observe its grandchild before cleanup deadline"
+        }
+        $grandchildIdentity = Get-Content -LiteralPath $sentinel -Raw | ConvertFrom-Json
+        return [RsshCiOwnedProcess]::CaptureProcessIdentity(
+          [int] $grandchildIdentity.pid,
+          [long] $grandchildIdentity.start_time_utc_ticks
+        )
+      }.GetNewClosure()
       $timeoutParameters = @{
         Phase = "job object timeout self-test"
         FilePath = "powershell.exe"
         ArgumentList = @("-NoProfile", "-NonInteractive", "-Command", $timeoutScript)
         TimeoutSeconds = 2
+        CaptureDescendantForTest = $captureDescendant
       }
       $null = Invoke-BoundedProcess @timeoutParameters
     } catch {
@@ -681,12 +833,10 @@ $null = $wait.WaitOne()
     if (-not (Test-Path -LiteralPath $sentinel)) {
       throw "job object timeout self-test did not record its grandchild PID"
     }
-    $grandchildPid = [int] (Get-Content -LiteralPath $sentinel -Raw)
-    if ($null -ne (Get-Process -Id $grandchildPid -ErrorAction SilentlyContinue)) {
-      throw "job object timeout self-test left grandchild PID $grandchildPid alive"
-    }
   } finally {
     $env:RSSH_CI_JOB_SENTINEL = $previousSentinel
+    $env:RSSH_CI_JOB_READY_EVENT = $previousReadyEvent
+    $readyEvent.Dispose()
     if (Test-Path -LiteralPath $sentinel) {
       Remove-Item -LiteralPath $sentinel -Force
     }
