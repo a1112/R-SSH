@@ -1,4 +1,5 @@
 use std::{
+    any::Any,
     borrow::Cow,
     cell::{Cell, Ref, RefCell},
     cmp::Reverse,
@@ -9,8 +10,8 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -24,7 +25,9 @@ use rssh_core::{
         PaneRotationDirection, ResizeDirection, SplitDirection,
     },
 };
-use rssh_pty::{PtyCommand, PtyExitStatus, PtySession, PtySize};
+use rssh_pty::{
+    PtyCommand, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus, PtySession, PtySize,
+};
 use rssh_renderer::gpu::{GpuFrameStatus, GpuPresentationMetrics};
 use rssh_renderer::{
     PixelRenderer, RenderBackgroundGradient, RenderBackgroundGradientBlend,
@@ -86,6 +89,10 @@ const CELL_WIDTH: u32 = 8;
 const CELL_HEIGHT: u32 = 16;
 const DEFAULT_WINDOW_TITLE: &str = "R-SSH";
 static NEXT_PANE_RUNTIME_TOKEN: AtomicU64 = AtomicU64::new(1);
+static PANE_PTY_REAPER_PENDING: AtomicUsize = AtomicUsize::new(0);
+static PANE_PTY_REAPER_THREADS: OnceLock<Mutex<Vec<thread::JoinHandle<()>>>> = OnceLock::new();
+type RetainedPanePtyOwnership = Box<dyn Any + Send>;
+static PANE_PTY_REAPER_RETAINED: OnceLock<Mutex<Vec<RetainedPanePtyOwnership>>> = OnceLock::new();
 const DEFAULT_DOMAIN_NAME: &str = "local";
 const DEFAULT_GUI_STARTUP_ARGS: &[&str] = &["start"];
 const DEFAULT_MUX_ENABLE_SSH_AGENT: bool = true;
@@ -82761,17 +82768,17 @@ impl PaneRuntime {
         self.rebuild_snapshot_after_main_screen_reflow();
     }
 
-    fn close(&mut self) {
+    fn close(&mut self) -> PanePtyCleanupOutcome {
         stop_pty_lifecycle(
             &mut self.session,
             &mut self.session_process_id,
             &mut self.session_tty_name,
             &mut self.writer,
             &mut self.reader_thread,
-        );
+        )
     }
 
-    fn finish_after_exit(&mut self) -> Option<PtyExitStatus> {
+    fn finish_after_exit(&mut self) -> PanePtyCleanupOutcome {
         finish_pty_lifecycle_after_exit(
             &mut self.session,
             &mut self.session_process_id,
@@ -82782,24 +82789,386 @@ impl PaneRuntime {
     }
 }
 
+trait PanePtySessionLifecycle: Send + 'static {
+    type MasterClose: PanePtyMasterCloseLifecycle;
+
+    fn stop_before(&mut self, timeout: Duration) -> Result<PtyExitStatus, String>;
+
+    fn finish_before(&mut self, timeout: Duration) -> Result<PtyExitStatus, String>;
+
+    fn begin_master_close(&mut self) -> Self::MasterClose;
+
+    fn reap_until_exit(&mut self);
+}
+
+impl PanePtySessionLifecycle for PtySession {
+    type MasterClose = PtyMasterClose;
+
+    fn stop_before(&mut self, timeout: Duration) -> Result<PtyExitStatus, String> {
+        self.terminate(timeout).map_err(|error| error.to_string())
+    }
+
+    fn finish_before(&mut self, timeout: Duration) -> Result<PtyExitStatus, String> {
+        self.wait_for_exit(timeout)
+            .map_err(|error| error.to_string())
+    }
+
+    fn begin_master_close(&mut self) -> Self::MasterClose {
+        PtySession::begin_master_close(self)
+    }
+
+    fn reap_until_exit(&mut self) {
+        const REAP_ATTEMPT: Duration = Duration::from_secs(2);
+        loop {
+            match self.terminate(REAP_ATTEMPT) {
+                Ok(_) => return,
+                Err(error) => {
+                    eprintln!(
+                        "pane PTY reaper is retaining a child after cleanup failure: {error}"
+                    );
+                    thread::park_timeout(Duration::from_millis(50));
+                }
+            }
+        }
+    }
+}
+
+enum PanePtyMasterCloseOutcome {
+    Completed,
+    Deferred,
+    Failed(String),
+    Panicked,
+    Retained,
+}
+
+trait PanePtyMasterCloseLifecycle: Send + 'static {
+    fn finish_before(&mut self, deadline: Instant) -> PanePtyMasterCloseOutcome;
+}
+
+impl PanePtyMasterCloseLifecycle for PtyMasterClose {
+    fn finish_before(&mut self, deadline: Instant) -> PanePtyMasterCloseOutcome {
+        match PtyMasterClose::finish_before(self, deadline) {
+            PtyMasterCloseStatus::Completed => PanePtyMasterCloseOutcome::Completed,
+            PtyMasterCloseStatus::Deferred => PanePtyMasterCloseOutcome::Deferred,
+            PtyMasterCloseStatus::Failed(error) => {
+                PanePtyMasterCloseOutcome::Failed(error.to_string())
+            }
+            PtyMasterCloseStatus::Panicked => PanePtyMasterCloseOutcome::Panicked,
+            PtyMasterCloseStatus::Retained => PanePtyMasterCloseOutcome::Retained,
+        }
+    }
+}
+
+struct PanePtyOwnership<S: PanePtySessionLifecycle> {
+    session: Option<S>,
+    writer: Option<Box<dyn Write + Send>>,
+    master_close: Option<S::MasterClose>,
+    reader_thread: Option<thread::JoinHandle<()>>,
+}
+
+impl<S: PanePtySessionLifecycle> PanePtyOwnership<S> {
+    fn reap(mut self) {
+        if let Some(session) = self.session.as_mut() {
+            loop {
+                let reaped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    session.reap_until_exit();
+                }));
+                if reaped.is_ok() {
+                    break;
+                }
+                eprintln!("pane PTY reaper session cleanup panicked; retaining ownership");
+                thread::park_timeout(Duration::from_millis(50));
+            }
+        }
+        if self.master_close.is_none()
+            && let Some(session) = self.session.as_mut()
+        {
+            self.master_close = Some(session.begin_master_close());
+        }
+        drop(self.writer.take());
+
+        let mut issues = Vec::new();
+        loop {
+            let complete = poll_pane_pty_io(&mut self, &mut issues);
+            for issue in issues.drain(..) {
+                report_pane_pty_reaper_issue(&issue);
+            }
+            if complete {
+                break;
+            }
+            thread::park_timeout(Duration::from_millis(5));
+        }
+    }
+}
+
+fn report_pane_pty_reaper_issue(issue: &str) {
+    eprintln!("pane PTY reaper cleanup issue: {issue}");
+    #[cfg(test)]
+    lock_pane_pty_reaper_reported_issues().push(issue.to_owned());
+}
+
+#[cfg(test)]
+fn pane_pty_reaper_reported_issues() -> &'static Mutex<Vec<String>> {
+    static REPORTED: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+    REPORTED.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+#[cfg(test)]
+fn lock_pane_pty_reaper_reported_issues() -> std::sync::MutexGuard<'static, Vec<String>> {
+    pane_pty_reaper_reported_issues()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(test)]
+fn take_pane_pty_reaper_reported_issues() -> Vec<String> {
+    std::mem::take(&mut *lock_pane_pty_reaper_reported_issues())
+}
+
+fn poll_pane_pty_io<S: PanePtySessionLifecycle>(
+    ownership: &mut PanePtyOwnership<S>,
+    issues: &mut Vec<String>,
+) -> bool {
+    let close_status = ownership
+        .master_close
+        .as_mut()
+        .map(|master_close| master_close.finish_before(Instant::now()));
+    match close_status {
+        Some(PanePtyMasterCloseOutcome::Completed) => drop(ownership.master_close.take()),
+        Some(PanePtyMasterCloseOutcome::Failed(error)) => {
+            issues.push(format!("pane PTY master close failed: {error}"));
+            drop(ownership.master_close.take());
+        }
+        Some(PanePtyMasterCloseOutcome::Panicked) => {
+            issues.push("pane PTY master close worker panicked".to_owned());
+            drop(ownership.master_close.take());
+        }
+        Some(PanePtyMasterCloseOutcome::Retained) => {
+            issues.push("pane PTY master close ownership was retained".to_owned());
+            drop(ownership.master_close.take());
+        }
+        Some(PanePtyMasterCloseOutcome::Deferred) | None => {}
+    }
+
+    if ownership
+        .reader_thread
+        .as_ref()
+        .is_some_and(thread::JoinHandle::is_finished)
+        && ownership
+            .reader_thread
+            .take()
+            .is_some_and(|reader_thread| reader_thread.join().is_err())
+    {
+        issues.push("pane PTY reader thread panicked".to_owned());
+    }
+
+    ownership.master_close.is_none() && ownership.reader_thread.is_none()
+}
+
+#[derive(Clone, Copy)]
+enum PanePtyCleanupOperation {
+    Stop,
+    Finish,
+}
+
+struct PanePtyCleanupOutcome {
+    status: Option<PtyExitStatus>,
+    issue: Option<String>,
+    transferred_to_reaper: bool,
+}
+
+impl PanePtyCleanupOutcome {
+    fn complete(status: Option<PtyExitStatus>) -> Self {
+        Self {
+            status,
+            issue: None,
+            transferred_to_reaper: false,
+        }
+    }
+}
+
+fn pane_pty_reaper_threads() -> &'static Mutex<Vec<thread::JoinHandle<()>>> {
+    PANE_PTY_REAPER_THREADS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn lock_pane_pty_reaper_threads() -> std::sync::MutexGuard<'static, Vec<thread::JoinHandle<()>>> {
+    pane_pty_reaper_threads()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn collect_finished_pane_pty_reapers() {
+    let mut threads = lock_pane_pty_reaper_threads();
+    let mut index = 0;
+    while index < threads.len() {
+        if threads[index].is_finished() {
+            let handle = threads.swap_remove(index);
+            if handle.join().is_err() {
+                eprintln!("pane PTY ownership reaper panicked");
+            }
+        } else {
+            index += 1;
+        }
+    }
+}
+
+#[cfg(test)]
+fn pane_pty_reaper_pending() -> usize {
+    collect_finished_pane_pty_reapers();
+    PANE_PTY_REAPER_PENDING.load(Ordering::Acquire)
+}
+
+fn transfer_pane_pty_ownership_to_reaper<S: PanePtySessionLifecycle>(
+    ownership: PanePtyOwnership<S>,
+) -> Result<(), String> {
+    struct PendingGuard;
+
+    impl Drop for PendingGuard {
+        fn drop(&mut self) {
+            PANE_PTY_REAPER_PENDING.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+
+    collect_finished_pane_pty_reapers();
+    let ownership = Arc::new(Mutex::new(Some(ownership)));
+    let ownership_for_thread = Arc::clone(&ownership);
+    PANE_PTY_REAPER_PENDING.fetch_add(1, Ordering::AcqRel);
+    match thread::Builder::new()
+        .name("rssh-pane-pty-reaper".to_owned())
+        .spawn(move || {
+            let _pending = PendingGuard;
+            let ownership = ownership_for_thread
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
+            if let Some(ownership) = ownership {
+                ownership.reap();
+            }
+        }) {
+        Ok(handle) => {
+            lock_pane_pty_reaper_threads().push(handle);
+            Ok(())
+        }
+        Err(error) => {
+            PANE_PTY_REAPER_PENDING.fetch_sub(1, Ordering::AcqRel);
+            PANE_PTY_REAPER_RETAINED
+                .get_or_init(|| Mutex::new(Vec::new()))
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(Box::new(ownership));
+            Err(format!(
+                "failed to start pane PTY reaper ({error}); ownership retained for process lifetime"
+            ))
+        }
+    }
+}
+
+fn cleanup_pane_pty_ownership<S: PanePtySessionLifecycle>(
+    mut ownership: PanePtyOwnership<S>,
+    operation: PanePtyCleanupOperation,
+    deadline: Instant,
+) -> PanePtyCleanupOutcome {
+    let status = if let Some(session) = ownership.session.as_mut() {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let result = match operation {
+            PanePtyCleanupOperation::Stop => session.stop_before(remaining),
+            PanePtyCleanupOperation::Finish => session.finish_before(remaining),
+        };
+        match result {
+            Ok(status) => {
+                ownership.master_close = Some(session.begin_master_close());
+                Some(status)
+            }
+            Err(error) => {
+                let action = match operation {
+                    PanePtyCleanupOperation::Stop => "terminate",
+                    PanePtyCleanupOperation::Finish => "wait",
+                };
+                let (transferred_to_reaper, transfer_note) =
+                    match transfer_pane_pty_ownership_to_reaper(ownership) {
+                        Ok(()) => (true, "transferred to reaper".to_owned()),
+                        Err(error) => (false, error),
+                    };
+                return PanePtyCleanupOutcome {
+                    status: None,
+                    issue: Some(format!(
+                        "pane PTY {action} failed: {error}; {transfer_note}"
+                    )),
+                    transferred_to_reaper,
+                };
+            }
+        }
+    } else {
+        None
+    };
+    drop(ownership.writer.take());
+
+    let mut issues = Vec::new();
+    while !poll_pane_pty_io(&mut ownership, &mut issues) {
+        let now = Instant::now();
+        if now >= deadline {
+            let (transferred_to_reaper, transfer_note) =
+                match transfer_pane_pty_ownership_to_reaper(ownership) {
+                    Ok(()) => (true, "transferred to reaper".to_owned()),
+                    Err(error) => (false, error),
+                };
+            let timeout_issue = format!(
+                "pane PTY close or reader drain did not finish before cleanup deadline; \
+                 {transfer_note}"
+            );
+            let issue = if issues.is_empty() {
+                timeout_issue
+            } else {
+                format!("{}; {timeout_issue}", issues.join("; "))
+            };
+            return PanePtyCleanupOutcome {
+                status,
+                issue: Some(issue),
+                transferred_to_reaper,
+            };
+        }
+        thread::park_timeout((deadline - now).min(Duration::from_millis(5)));
+    }
+
+    if !issues.is_empty() {
+        return PanePtyCleanupOutcome {
+            status,
+            issue: Some(issues.join("; ")),
+            transferred_to_reaper: false,
+        };
+    }
+    PanePtyCleanupOutcome::complete(status)
+}
+
+fn report_pane_pty_cleanup(context: &str, outcome: &PanePtyCleanupOutcome) {
+    if let Some(issue) = &outcome.issue {
+        let ownership = if outcome.transferred_to_reaper {
+            " (ownership retained by the process-lifetime reaper)"
+        } else {
+            ""
+        };
+        eprintln!("{context}: {issue}{ownership}");
+    }
+}
+
 fn stop_pty_lifecycle(
     session: &mut Option<PtySession>,
     session_process_id: &mut Option<u32>,
     session_tty_name: &mut Option<String>,
     writer: &mut Option<Box<dyn Write + Send>>,
     reader_thread: &mut Option<thread::JoinHandle<()>>,
-) {
-    drop(writer.take());
-    if let Some(mut session) = session.take() {
-        let _ = session.kill();
-        let _ = session.wait();
-        drop(session);
-    }
+) -> PanePtyCleanupOutcome {
+    const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+    let deadline = Instant::now() + CLOSE_TIMEOUT;
+    let ownership = PanePtyOwnership {
+        session: session.take(),
+        writer: writer.take(),
+        master_close: None,
+        reader_thread: reader_thread.take(),
+    };
     *session_process_id = None;
     *session_tty_name = None;
-    if let Some(reader_thread) = reader_thread.take() {
-        let _ = reader_thread.join();
-    }
+    cleanup_pane_pty_ownership(ownership, PanePtyCleanupOperation::Stop, deadline)
 }
 
 fn finish_pty_lifecycle_after_exit(
@@ -82808,16 +83177,18 @@ fn finish_pty_lifecycle_after_exit(
     session_tty_name: &mut Option<String>,
     writer: &mut Option<Box<dyn Write + Send>>,
     reader_thread: &mut Option<thread::JoinHandle<()>>,
-) -> Option<PtyExitStatus> {
-    drop(writer.take());
-    let status = session.as_mut().and_then(|session| session.wait().ok());
-    drop(session.take());
+) -> PanePtyCleanupOutcome {
+    const FINISH_TIMEOUT: Duration = Duration::from_secs(2);
+    let deadline = Instant::now() + FINISH_TIMEOUT;
+    let ownership = PanePtyOwnership {
+        session: session.take(),
+        writer: writer.take(),
+        master_close: None,
+        reader_thread: reader_thread.take(),
+    };
     *session_process_id = None;
     *session_tty_name = None;
-    if let Some(reader_thread) = reader_thread.take() {
-        let _ = reader_thread.join();
-    }
-    status
+    cleanup_pane_pty_ownership(ownership, PanePtyCleanupOperation::Finish, deadline)
 }
 
 fn allocate_pane_runtime_token_from(next_token: &AtomicU64) -> u64 {
@@ -86090,7 +86461,8 @@ impl NativeWindowApp {
                     .insert(previous_active_pane, previous_runtime);
             } else {
                 let mut previous_runtime = previous_runtime;
-                previous_runtime.close();
+                let cleanup = previous_runtime.close();
+                report_pane_pty_cleanup("removed pane PTY cleanup", &cleanup);
             }
         } else {
             self.install_active_runtime(previous_runtime);
@@ -86111,7 +86483,8 @@ impl NativeWindowApp {
         self.pane_runtimes.retain(|pane_id, runtime| {
             let keep = valid_pane_ids.contains(pane_id);
             if !keep {
-                runtime.close();
+                let cleanup = runtime.close();
+                report_pane_pty_cleanup("retired pane PTY cleanup", &cleanup);
             }
             keep
         });
@@ -100234,7 +100607,8 @@ impl NativeWindowApp {
                 .expect("validated inactive pane runtime must exist")
         };
         let previous_size = previous_runtime.runtime.terminal().grid().size();
-        previous_runtime.close();
+        let cleanup = previous_runtime.close();
+        report_pane_pty_cleanup("pane restart PTY cleanup", &cleanup);
 
         let mut blank_runtime = self.new_inactive_pane_runtime();
         blank_runtime.runtime.resize(previous_size);
@@ -100321,7 +100695,8 @@ impl NativeWindowApp {
             true
         } else {
             if let Some(mut runtime) = self.pane_runtimes.remove(&pane_id) {
-                runtime.close();
+                let cleanup = runtime.close();
+                report_pane_pty_cleanup("inactive pane read-error cleanup", &cleanup);
             }
             false
         };
@@ -104189,9 +104564,10 @@ impl NativeWindowApp {
             return self.finish_active_runtime_after_exit();
         }
 
-        self.pane_runtimes
-            .get_mut(&pane_id)
-            .and_then(PaneRuntime::finish_after_exit)
+        let runtime = self.pane_runtimes.get_mut(&pane_id)?;
+        let cleanup = runtime.finish_after_exit();
+        report_pane_pty_cleanup("inactive pane exit cleanup", &cleanup);
+        cleanup.status
     }
 
     fn apply_pane_exit_behavior(
@@ -104326,7 +104702,8 @@ impl Drop for NativeWindowApp {
         self.stop_active_runtime();
 
         for runtime in self.pane_runtimes.values_mut() {
-            runtime.close();
+            let cleanup = runtime.close();
+            report_pane_pty_cleanup("window drop pane PTY cleanup", &cleanup);
         }
 
         self.pane_runtimes.clear();
@@ -104335,23 +104712,26 @@ impl Drop for NativeWindowApp {
 
 impl NativeWindowApp {
     fn finish_active_runtime_after_exit(&mut self) -> Option<PtyExitStatus> {
-        finish_pty_lifecycle_after_exit(
-            &mut self.session,
-            &mut self.session_process_id,
-            &mut self.session_tty_name,
-            &mut self.writer,
-            &mut self.reader_thread,
-        )
-    }
-
-    fn stop_active_runtime(&mut self) {
-        stop_pty_lifecycle(
+        let cleanup = finish_pty_lifecycle_after_exit(
             &mut self.session,
             &mut self.session_process_id,
             &mut self.session_tty_name,
             &mut self.writer,
             &mut self.reader_thread,
         );
+        report_pane_pty_cleanup("active pane exit cleanup", &cleanup);
+        cleanup.status
+    }
+
+    fn stop_active_runtime(&mut self) {
+        let cleanup = stop_pty_lifecycle(
+            &mut self.session,
+            &mut self.session_process_id,
+            &mut self.session_tty_name,
+            &mut self.writer,
+            &mut self.reader_thread,
+        );
+        report_pane_pty_cleanup("active pane PTY cleanup", &cleanup);
     }
 }
 
@@ -132198,6 +132578,7 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         mpsc,
     };
+    use std::thread;
     use std::time::{Duration, Instant};
 
     use base64::{Engine, engine::general_purpose::STANDARD};
@@ -132207,7 +132588,7 @@ mod tests {
     use winit::window::CursorIcon;
 
     use rssh_core::app_shell::SplitDirection;
-    use rssh_pty::PtyExitStatus;
+    use rssh_pty::{PtyCommand, PtyExitStatus, PtySession, PtySize};
     use rssh_renderer::{
         RenderBackgroundImageAttachment, RenderGeometry, RenderScrollbarThumbSize,
         SCROLLBAR_THUMB_COLOR, TerminalRenderSnapshot, color_to_rgba, gpu::GpuFrameStatus,
@@ -132358,6 +132739,549 @@ mod tests {
         window_show_debug_overlay_shortcut, window_toggle_full_screen_shortcut,
         winit_window_level_for_native,
     };
+
+    struct RefusingPaneLifecycle {
+        reaper_started: Arc<AtomicUsize>,
+        release_reaper: mpsc::Receiver<()>,
+        dropped: Arc<AtomicUsize>,
+    }
+
+    struct ImmediatePaneMasterClose;
+
+    impl super::PanePtyMasterCloseLifecycle for ImmediatePaneMasterClose {
+        fn finish_before(&mut self, _deadline: Instant) -> super::PanePtyMasterCloseOutcome {
+            super::PanePtyMasterCloseOutcome::Completed
+        }
+    }
+
+    struct GatedPaneMasterClose {
+        released: Arc<AtomicUsize>,
+    }
+
+    impl super::PanePtyMasterCloseLifecycle for GatedPaneMasterClose {
+        fn finish_before(&mut self, _deadline: Instant) -> super::PanePtyMasterCloseOutcome {
+            if self.released.load(Ordering::Acquire) == 0 {
+                super::PanePtyMasterCloseOutcome::Deferred
+            } else {
+                super::PanePtyMasterCloseOutcome::Completed
+            }
+        }
+    }
+
+    struct GatedPaneLifecycle {
+        close_released: Arc<AtomicUsize>,
+        writer_dropped: Arc<AtomicUsize>,
+    }
+
+    impl super::PanePtySessionLifecycle for GatedPaneLifecycle {
+        type MasterClose = GatedPaneMasterClose;
+
+        fn stop_before(&mut self, _timeout: Duration) -> Result<PtyExitStatus, String> {
+            Ok(PtyExitStatus::from_exit_code(0))
+        }
+
+        fn finish_before(&mut self, _timeout: Duration) -> Result<PtyExitStatus, String> {
+            Ok(PtyExitStatus::from_exit_code(0))
+        }
+
+        fn begin_master_close(&mut self) -> Self::MasterClose {
+            assert_eq!(
+                self.writer_dropped.load(Ordering::Acquire),
+                0,
+                "master close must begin before the external writer is dropped"
+            );
+            GatedPaneMasterClose {
+                released: Arc::clone(&self.close_released),
+            }
+        }
+
+        fn reap_until_exit(&mut self) {}
+    }
+
+    struct ObservedPaneWriter(Arc<AtomicUsize>);
+
+    impl Write for ObservedPaneWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Drop for ObservedPaneWriter {
+        fn drop(&mut self) {
+            self.0.store(1, Ordering::Release);
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum FixedPaneMasterCloseMode {
+        Failed,
+        Panicked,
+        Retained,
+    }
+
+    struct FixedPaneMasterClose(FixedPaneMasterCloseMode);
+
+    impl super::PanePtyMasterCloseLifecycle for FixedPaneMasterClose {
+        fn finish_before(&mut self, _deadline: Instant) -> super::PanePtyMasterCloseOutcome {
+            match self.0 {
+                FixedPaneMasterCloseMode::Failed => {
+                    super::PanePtyMasterCloseOutcome::Failed("synthetic close failure".to_owned())
+                }
+                FixedPaneMasterCloseMode::Panicked => super::PanePtyMasterCloseOutcome::Panicked,
+                FixedPaneMasterCloseMode::Retained => super::PanePtyMasterCloseOutcome::Retained,
+            }
+        }
+    }
+
+    struct FixedPaneLifecycle(FixedPaneMasterCloseMode);
+
+    impl super::PanePtySessionLifecycle for FixedPaneLifecycle {
+        type MasterClose = FixedPaneMasterClose;
+
+        fn stop_before(&mut self, _timeout: Duration) -> Result<PtyExitStatus, String> {
+            Ok(PtyExitStatus::from_exit_code(0))
+        }
+
+        fn finish_before(&mut self, _timeout: Duration) -> Result<PtyExitStatus, String> {
+            Ok(PtyExitStatus::from_exit_code(0))
+        }
+
+        fn begin_master_close(&mut self) -> Self::MasterClose {
+            FixedPaneMasterClose(self.0)
+        }
+
+        fn reap_until_exit(&mut self) {}
+    }
+
+    struct RefusingFixedPaneLifecycle;
+
+    impl super::PanePtySessionLifecycle for RefusingFixedPaneLifecycle {
+        type MasterClose = FixedPaneMasterClose;
+
+        fn stop_before(&mut self, _timeout: Duration) -> Result<PtyExitStatus, String> {
+            Err("synthetic stop refusal".to_owned())
+        }
+
+        fn finish_before(&mut self, _timeout: Duration) -> Result<PtyExitStatus, String> {
+            Err("synthetic finish refusal".to_owned())
+        }
+
+        fn begin_master_close(&mut self) -> Self::MasterClose {
+            FixedPaneMasterClose(FixedPaneMasterCloseMode::Failed)
+        }
+
+        fn reap_until_exit(&mut self) {}
+    }
+
+    impl super::PanePtySessionLifecycle for RefusingPaneLifecycle {
+        type MasterClose = ImmediatePaneMasterClose;
+
+        fn stop_before(&mut self, _timeout: Duration) -> Result<PtyExitStatus, String> {
+            Err("synthetic terminate refusal".to_owned())
+        }
+
+        fn finish_before(&mut self, _timeout: Duration) -> Result<PtyExitStatus, String> {
+            Err("synthetic wait refusal".to_owned())
+        }
+
+        fn begin_master_close(&mut self) -> Self::MasterClose {
+            ImmediatePaneMasterClose
+        }
+
+        fn reap_until_exit(&mut self) {
+            self.reaper_started.store(1, Ordering::Release);
+            self.release_reaper.recv().unwrap();
+        }
+    }
+
+    impl Drop for RefusingPaneLifecycle {
+        fn drop(&mut self) {
+            self.dropped.store(1, Ordering::Release);
+        }
+    }
+
+    static PANE_PTY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn pane_pty_timeout_transfers_close_and_reader_as_one_reaper_job() {
+        let _test_lock = PANE_PTY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let baseline = super::pane_pty_reaper_pending();
+        let close_released = Arc::new(AtomicUsize::new(0));
+        let writer_dropped = Arc::new(AtomicUsize::new(0));
+        let reader_finished = Arc::new(AtomicUsize::new(0));
+        let (reader_release_sender, reader_release_receiver) = mpsc::channel();
+        let reader_finished_for_worker = Arc::clone(&reader_finished);
+        let reader_thread = thread::spawn(move || {
+            reader_release_receiver.recv().unwrap();
+            reader_finished_for_worker.store(1, Ordering::Release);
+        });
+        let ownership = super::PanePtyOwnership {
+            session: Some(GatedPaneLifecycle {
+                close_released: Arc::clone(&close_released),
+                writer_dropped: Arc::clone(&writer_dropped),
+            }),
+            writer: Some(Box::new(ObservedPaneWriter(Arc::clone(&writer_dropped)))),
+            master_close: None,
+            reader_thread: Some(reader_thread),
+        };
+
+        let outcome = super::cleanup_pane_pty_ownership(
+            ownership,
+            super::PanePtyCleanupOperation::Stop,
+            Instant::now(),
+        );
+
+        assert!(outcome.transferred_to_reaper);
+        assert_eq!(writer_dropped.load(Ordering::Acquire), 1);
+        assert_eq!(super::pane_pty_reaper_pending(), baseline + 1);
+        close_released.store(1, Ordering::Release);
+        let close_only_deadline = Instant::now() + Duration::from_millis(50);
+        while Instant::now() < close_only_deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(super::pane_pty_reaper_pending(), baseline + 1);
+        assert_eq!(reader_finished.load(Ordering::Acquire), 0);
+
+        reader_release_sender.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while super::pane_pty_reaper_pending() != baseline && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(super::pane_pty_reaper_pending(), baseline);
+        assert_eq!(reader_finished.load(Ordering::Acquire), 1);
+    }
+
+    #[test]
+    fn pane_pty_close_failure_and_panic_are_observable() {
+        let _test_lock = PANE_PTY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (mode, expected) in [
+            (FixedPaneMasterCloseMode::Failed, "synthetic close failure"),
+            (FixedPaneMasterCloseMode::Panicked, "close worker panicked"),
+        ] {
+            let outcome = super::cleanup_pane_pty_ownership(
+                super::PanePtyOwnership {
+                    session: Some(FixedPaneLifecycle(mode)),
+                    writer: None,
+                    master_close: None,
+                    reader_thread: None,
+                },
+                super::PanePtyCleanupOperation::Stop,
+                Instant::now() + Duration::from_secs(1),
+            );
+
+            assert!(!outcome.transferred_to_reaper);
+            assert!(outcome.issue.as_deref().unwrap().contains(expected));
+        }
+    }
+
+    #[test]
+    fn pane_pty_timeout_preserves_terminal_close_issue_when_reader_is_gated() {
+        let _test_lock = PANE_PTY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (mode, expected) in [
+            (FixedPaneMasterCloseMode::Failed, "synthetic close failure"),
+            (FixedPaneMasterCloseMode::Retained, "ownership was retained"),
+        ] {
+            let baseline = super::pane_pty_reaper_pending();
+            let (reader_release_sender, reader_release_receiver) = mpsc::channel();
+            let reader_thread = thread::spawn(move || reader_release_receiver.recv().unwrap());
+
+            let outcome = super::cleanup_pane_pty_ownership(
+                super::PanePtyOwnership {
+                    session: Some(FixedPaneLifecycle(mode)),
+                    writer: None,
+                    master_close: None,
+                    reader_thread: Some(reader_thread),
+                },
+                super::PanePtyCleanupOperation::Stop,
+                Instant::now(),
+            );
+
+            let issue = outcome.issue.as_deref().unwrap();
+            assert!(outcome.transferred_to_reaper);
+            assert!(issue.contains(expected), "missing terminal issue: {issue}");
+            assert!(
+                issue.contains("cleanup deadline"),
+                "missing timeout: {issue}"
+            );
+            assert!(
+                issue.contains("transferred to reaper"),
+                "missing transfer: {issue}"
+            );
+
+            reader_release_sender.send(()).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while super::pane_pty_reaper_pending() != baseline && Instant::now() < deadline {
+                std::thread::yield_now();
+            }
+            assert_eq!(super::pane_pty_reaper_pending(), baseline);
+        }
+    }
+
+    #[test]
+    fn pane_pty_reaper_reports_close_failure_before_gated_reader_finishes() {
+        let _test_lock = PANE_PTY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let baseline = super::pane_pty_reaper_pending();
+        drop(super::take_pane_pty_reaper_reported_issues());
+        let (reader_release_sender, reader_release_receiver) = mpsc::channel();
+        let reader_thread = thread::spawn(move || reader_release_receiver.recv().unwrap());
+
+        let outcome = super::cleanup_pane_pty_ownership(
+            super::PanePtyOwnership {
+                session: Some(RefusingFixedPaneLifecycle),
+                writer: None,
+                master_close: None,
+                reader_thread: Some(reader_thread),
+            },
+            super::PanePtyCleanupOperation::Stop,
+            Instant::now(),
+        );
+
+        assert!(outcome.transferred_to_reaper);
+        let report_deadline = Instant::now() + Duration::from_secs(1);
+        let mut reported = Vec::new();
+        while Instant::now() < report_deadline {
+            reported.extend(super::take_pane_pty_reaper_reported_issues());
+            if reported
+                .iter()
+                .any(|issue| issue.contains("synthetic close failure"))
+            {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        assert!(
+            reported
+                .iter()
+                .any(|issue| issue.contains("synthetic close failure")),
+            "close failure was not reported while the reader remained gated: {reported:?}"
+        );
+        assert_eq!(super::pane_pty_reaper_pending(), baseline + 1);
+
+        reader_release_sender.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while super::pane_pty_reaper_pending() != baseline && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(super::pane_pty_reaper_pending(), baseline);
+    }
+
+    fn process_exists_for_pane_pty_test(process_id: u32) -> bool {
+        let process_id = sysinfo::Pid::from_u32(process_id);
+        let mut system = sysinfo::System::new();
+        let _ = system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[process_id]), true);
+        system.process(process_id).is_some()
+    }
+
+    #[cfg(target_os = "windows")]
+    fn sleeping_pane_pty_command() -> PtyCommand {
+        PtyCommand::new("powershell.exe").with_args([
+            "-NoLogo",
+            "-NoProfile",
+            "-Command",
+            "Start-Sleep -Seconds 30",
+        ])
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn sleeping_pane_pty_command() -> PtyCommand {
+        PtyCommand::new("/bin/sh").with_args(["-c", "exec sleep 30"])
+    }
+
+    #[test]
+    fn pane_pty_stop_reaps_real_child_and_joins_real_reader() {
+        let _test_lock = PANE_PTY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut session = PtySession::spawn(
+            &sleeping_pane_pty_command(),
+            PtySize::try_new(80, 24).unwrap(),
+        )
+        .unwrap();
+        let process_id = session
+            .process_id()
+            .expect("real PTY must expose its child PID");
+        let mut reader = session.take_reader().unwrap();
+        let writer = session.take_writer().unwrap();
+        let (reader_finished_tx, reader_finished_rx) = mpsc::channel();
+        let reader_thread = thread::spawn(move || {
+            let result = io::copy(&mut reader, &mut io::sink()).map(|_| ());
+            reader_finished_tx.send(result).unwrap();
+        });
+        assert!(
+            process_exists_for_pane_pty_test(process_id),
+            "real PTY child {process_id} must be running before cleanup"
+        );
+
+        let outcome = super::cleanup_pane_pty_ownership(
+            super::PanePtyOwnership {
+                session: Some(session),
+                writer: Some(writer),
+                master_close: None,
+                reader_thread: Some(reader_thread),
+            },
+            super::PanePtyCleanupOperation::Stop,
+            Instant::now() + Duration::from_secs(2),
+        );
+
+        assert!(outcome.status.is_some());
+        assert_eq!(outcome.issue, None);
+        assert!(!outcome.transferred_to_reaper);
+        reader_finished_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("real PTY reader worker must finish before cleanup returns")
+            .expect("real PTY reader must finish without an I/O error");
+        assert!(
+            !process_exists_for_pane_pty_test(process_id),
+            "real PTY child {process_id} must be reaped before cleanup returns"
+        );
+    }
+
+    #[test]
+    fn pane_pty_stop_refusal_transfers_session_and_reader_to_observable_reaper() {
+        let _test_lock = PANE_PTY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let baseline = super::pane_pty_reaper_pending();
+        let reaper_started = Arc::new(AtomicUsize::new(0));
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let reader_finished = Arc::new(AtomicUsize::new(0));
+        let (release_reaper_tx, release_reaper_rx) = mpsc::channel();
+        let (release_reader_tx, release_reader_rx) = mpsc::channel();
+        let reader_finished_in_thread = Arc::clone(&reader_finished);
+        let reader = thread::spawn(move || {
+            release_reader_rx.recv().unwrap();
+            reader_finished_in_thread.store(1, Ordering::Release);
+        });
+        let ownership = super::PanePtyOwnership {
+            session: Some(RefusingPaneLifecycle {
+                reaper_started: Arc::clone(&reaper_started),
+                release_reaper: release_reaper_rx,
+                dropped: Arc::clone(&dropped),
+            }),
+            writer: None,
+            master_close: None,
+            reader_thread: Some(reader),
+        };
+
+        let outcome = super::cleanup_pane_pty_ownership(
+            ownership,
+            super::PanePtyCleanupOperation::Stop,
+            Instant::now() + Duration::from_millis(20),
+        );
+
+        assert!(outcome.transferred_to_reaper);
+        assert!(
+            outcome
+                .issue
+                .as_deref()
+                .unwrap()
+                .contains("terminate refusal")
+        );
+        assert!(super::pane_pty_reaper_pending() > baseline);
+        assert_eq!(dropped.load(Ordering::Acquire), 0);
+        assert_eq!(reader_finished.load(Ordering::Acquire), 0);
+        let start_deadline = Instant::now() + Duration::from_secs(1);
+        while reaper_started.load(Ordering::Acquire) == 0 && Instant::now() < start_deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(reaper_started.load(Ordering::Acquire), 1);
+        release_reaper_tx.send(()).unwrap();
+        assert_eq!(dropped.load(Ordering::Acquire), 0);
+        assert!(super::pane_pty_reaper_pending() > baseline);
+        assert_eq!(reader_finished.load(Ordering::Acquire), 0);
+        release_reader_tx.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while super::pane_pty_reaper_pending() > baseline && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(super::pane_pty_reaper_pending(), baseline);
+        assert_eq!(dropped.load(Ordering::Acquire), 1);
+        assert_eq!(reader_finished.load(Ordering::Acquire), 1);
+    }
+
+    #[test]
+    fn pane_pty_reader_panic_is_observable_after_session_cleanup() {
+        let _test_lock = PANE_PTY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let ownership = super::PanePtyOwnership {
+            session: None::<RefusingPaneLifecycle>,
+            writer: None,
+            master_close: None,
+            reader_thread: Some(thread::spawn(|| panic!("synthetic reader panic"))),
+        };
+
+        let outcome = super::cleanup_pane_pty_ownership(
+            ownership,
+            super::PanePtyCleanupOperation::Finish,
+            Instant::now() + Duration::from_secs(1),
+        );
+
+        assert!(!outcome.transferred_to_reaper);
+        assert!(
+            outcome
+                .issue
+                .as_deref()
+                .unwrap()
+                .contains("reader thread panicked")
+        );
+    }
+
+    #[test]
+    fn pane_pty_finish_refusal_is_observable_and_never_restores_runtime_ownership() {
+        let _test_lock = PANE_PTY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let baseline = super::pane_pty_reaper_pending();
+        let reaper_started = Arc::new(AtomicUsize::new(0));
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let (release_tx, release_rx) = mpsc::channel();
+        let ownership = super::PanePtyOwnership {
+            session: Some(RefusingPaneLifecycle {
+                reaper_started: Arc::clone(&reaper_started),
+                release_reaper: release_rx,
+                dropped: Arc::clone(&dropped),
+            }),
+            writer: None,
+            master_close: None,
+            reader_thread: None,
+        };
+
+        let outcome = super::cleanup_pane_pty_ownership(
+            ownership,
+            super::PanePtyCleanupOperation::Finish,
+            Instant::now() + Duration::from_millis(20),
+        );
+
+        assert!(outcome.status.is_none());
+        assert!(outcome.transferred_to_reaper);
+        assert!(outcome.issue.as_deref().unwrap().contains("wait refusal"));
+        assert_eq!(dropped.load(Ordering::Acquire), 0);
+        let start_deadline = Instant::now() + Duration::from_secs(1);
+        while reaper_started.load(Ordering::Acquire) == 0 && Instant::now() < start_deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(reaper_started.load(Ordering::Acquire), 1);
+        release_tx.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while super::pane_pty_reaper_pending() > baseline && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(super::pane_pty_reaper_pending(), baseline);
+        assert_eq!(dropped.load(Ordering::Acquire), 1);
+    }
 
     struct StartupTestDir(PathBuf);
 

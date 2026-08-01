@@ -664,18 +664,19 @@ fn pane_runtime_close_drops_writer_before_joining_reader() {
 }
 
 #[test]
-#[ignore = "spawns and terminates a real platform PTY"]
 fn real_pty_close_lifecycle_finishes_within_timeout() {
     let app = NativeWindowApp::new(None);
     let mut runtime = app.new_inactive_pane_runtime();
-    let mut session = PtySession::spawn(
-        &PtyCommand::default_shell(),
-        PtySize::try_new(80, 24).unwrap(),
-    )
-    .unwrap();
+    let command = if cfg!(windows) {
+        PtyCommand::new("cmd.exe").with_args(["/D", "/C", "ping -n 30 127.0.0.1 >NUL"])
+    } else {
+        PtyCommand::new("/bin/sh").with_args(["-lc", "sleep 30"])
+    };
+    let mut session = PtySession::spawn(&command, PtySize::try_new(80, 24).unwrap()).unwrap();
     let mut reader = session.take_reader().unwrap();
     runtime.writer = Some(Box::new(session.take_writer().unwrap()));
     runtime.session_process_id = session.process_id();
+    assert!(runtime.session_process_id.is_some_and(|pid| pid > 0));
     runtime.session = Some(session);
     runtime.reader_thread = Some(std::thread::spawn(move || {
         let mut buffer = [0_u8; 512];
@@ -687,14 +688,23 @@ fn real_pty_close_lifecycle_finishes_within_timeout() {
     }));
     let (sender, receiver) = std::sync::mpsc::channel();
 
-    std::thread::spawn(move || {
+    let close_thread = std::thread::spawn(move || {
         runtime.close();
-        let _ = sender.send(());
+        let _ = sender.send((runtime.session.is_none(), runtime.reader_thread.is_none()));
     });
 
-    receiver
+    let (session_reaped, reader_joined) = receiver
         .recv_timeout(Duration::from_secs(5))
         .expect("real PTY close lifecycle timed out");
+    close_thread.join().expect("PTY close worker panicked");
+    assert!(
+        session_reaped,
+        "PTY session was not reaped before close returned"
+    );
+    assert!(
+        reader_joined,
+        "PTY reader was not joined before close returned"
+    );
 }
 
 fn assert_restart_applies_title_after_target_projection_reset(restart_inactive: bool) {

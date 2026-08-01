@@ -1,10 +1,11 @@
 use std::{
+    collections::VecDeque,
     error::Error,
     fs::File,
     io::{self, IsTerminal, Read, Write},
     sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicU8, AtomicU16, AtomicU64, Ordering},
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicU8, AtomicU16, AtomicU64, AtomicUsize, Ordering},
         mpsc,
     },
     thread,
@@ -25,7 +26,9 @@ use rssh_core::{
     SessionId, TerminalSize,
     session::{SessionLifecycle, SessionState},
 };
-use rssh_pty::{PtyBackend, PtyExitStatus, PtySession, PtySize};
+use rssh_pty::{
+    PtyBackend, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus, PtySession, PtySize,
+};
 use rssh_terminal::{Cell, Color, CursorShape, Terminal, UnderlineStyle, VerticalAlign};
 use serde::Serialize;
 
@@ -53,17 +56,631 @@ use crate::{
 
 const LOCAL_CONSOLE_SESSION_ID: SessionId = SessionId::new(1);
 const DEFAULT_TERMINAL_NAME: &str = "xterm-256color";
+const LOCAL_WORKER_SHUTDOWN_BUDGET: Duration = Duration::from_secs(2);
 
+static LOCAL_WORKER_REAPER: OnceLock<LocalWorkerReaper> = OnceLock::new();
+
+#[derive(Clone, Copy)]
+struct LocalPtyTrace {
+    enabled: bool,
+    started_at: Instant,
+}
+
+impl LocalPtyTrace {
+    fn from_environment(started_at: Instant) -> Self {
+        Self {
+            enabled: std::env::var_os("RSSH_LOCAL_PTY_TRACE").is_some(),
+            started_at,
+        }
+    }
+
+    fn event(&self, message: std::fmt::Arguments<'_>) {
+        if self.enabled {
+            eprintln!("local-pty +{:?}: {message}", self.started_at.elapsed());
+        }
+    }
+}
+
+struct LocalTraceMarker {
+    pattern: Vec<u8>,
+    prefix: Vec<usize>,
+    matched: usize,
+    observed: bool,
+}
+
+impl LocalTraceMarker {
+    fn from_environment() -> Option<Self> {
+        let pattern = std::env::var_os("RSSH_LOCAL_PTY_TRACE_MARKER")?
+            .to_string_lossy()
+            .into_owned()
+            .into_bytes();
+        Self::new(pattern)
+    }
+
+    fn new(pattern: Vec<u8>) -> Option<Self> {
+        if pattern.is_empty() {
+            return None;
+        }
+        let mut prefix = vec![0; pattern.len()];
+        let mut matched = 0;
+        for index in 1..pattern.len() {
+            while matched > 0 && pattern[index] != pattern[matched] {
+                matched = prefix[matched - 1];
+            }
+            if pattern[index] == pattern[matched] {
+                matched += 1;
+                prefix[index] = matched;
+            }
+        }
+        Some(Self {
+            pattern,
+            prefix,
+            matched: 0,
+            observed: false,
+        })
+    }
+
+    fn feed(&mut self, bytes: &[u8]) -> bool {
+        if self.observed {
+            return false;
+        }
+        for &byte in bytes {
+            while self.matched > 0 && byte != self.pattern[self.matched] {
+                self.matched = self.prefix[self.matched - 1];
+            }
+            if byte == self.pattern[self.matched] {
+                self.matched += 1;
+                if self.matched == self.pattern.len() {
+                    self.observed = true;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
+enum LocalCloseProgress {
+    Completed,
+    Deferred,
+    Failed(Box<dyn Error + Send + Sync>),
+    Panicked,
+    Retained,
+}
+
+trait LocalMasterCloseOperation: Send {
+    fn finish_before(&mut self, deadline: Instant) -> LocalCloseProgress;
+}
+
+impl LocalMasterCloseOperation for PtyMasterClose {
+    fn finish_before(&mut self, deadline: Instant) -> LocalCloseProgress {
+        match PtyMasterClose::finish_before(self, deadline) {
+            PtyMasterCloseStatus::Completed => LocalCloseProgress::Completed,
+            PtyMasterCloseStatus::Deferred => LocalCloseProgress::Deferred,
+            PtyMasterCloseStatus::Failed(error) => LocalCloseProgress::Failed(Box::new(error)),
+            PtyMasterCloseStatus::Panicked => LocalCloseProgress::Panicked,
+            PtyMasterCloseStatus::Retained => LocalCloseProgress::Retained,
+        }
+    }
+}
+
+struct LocalPtyCloseGroup {
+    close: Option<Box<dyn LocalMasterCloseOperation>>,
+    reader: Option<thread::JoinHandle<()>>,
+    writer: Option<thread::JoinHandle<()>>,
+    reader_done: mpsc::Receiver<io::Result<()>>,
+    writer_done: mpsc::Receiver<io::Result<()>>,
+    reader_done_observed: bool,
+    writer_done_observed: bool,
+}
+
+impl LocalPtyCloseGroup {
+    fn new(
+        close: Box<dyn LocalMasterCloseOperation>,
+        reader: thread::JoinHandle<()>,
+        writer: thread::JoinHandle<()>,
+        reader_done: mpsc::Receiver<io::Result<()>>,
+        writer_done: mpsc::Receiver<io::Result<()>>,
+        reader_done_observed: bool,
+        writer_done_observed: bool,
+    ) -> Self {
+        Self {
+            close: Some(close),
+            reader: Some(reader),
+            writer: Some(writer),
+            reader_done,
+            writer_done,
+            reader_done_observed,
+            writer_done_observed,
+        }
+    }
+
+    fn poll_before(&mut self, deadline: Instant, errors: &mut Vec<io::Error>) -> bool {
+        if let Some(close) = self.close.as_mut() {
+            match close.finish_before(deadline) {
+                LocalCloseProgress::Deferred => {}
+                LocalCloseProgress::Completed => {
+                    self.close.take();
+                }
+                LocalCloseProgress::Retained => {
+                    errors.push(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "local PTY master close ownership was retained by the PTY global reaper",
+                    ));
+                    self.close.take();
+                }
+                LocalCloseProgress::Failed(error) => {
+                    errors.push(io::Error::other(error));
+                    self.close.take();
+                }
+                LocalCloseProgress::Panicked => {
+                    errors.push(io::Error::other("local PTY master close worker panicked"));
+                    self.close.take();
+                }
+            }
+        }
+        poll_local_group_worker(
+            &mut self.reader,
+            &self.reader_done,
+            self.reader_done_observed,
+            "local PTY reader",
+            errors,
+        );
+        poll_local_group_worker(
+            &mut self.writer,
+            &self.writer_done,
+            self.writer_done_observed,
+            "local PTY writer",
+            errors,
+        );
+        self.close.is_none() && self.reader.is_none() && self.writer.is_none()
+    }
+}
+
+fn poll_local_group_worker(
+    worker: &mut Option<thread::JoinHandle<()>>,
+    done: &mpsc::Receiver<io::Result<()>>,
+    done_already_observed: bool,
+    label: &str,
+    errors: &mut Vec<io::Error>,
+) {
+    if !worker.as_ref().is_some_and(thread::JoinHandle::is_finished) {
+        return;
+    }
+    let worker = worker.take().expect("finished local worker remains owned");
+    if worker.join().is_err() {
+        errors.push(io::Error::other(format!(
+            "{label} panicked while shutting down"
+        )));
+        return;
+    }
+    if done_already_observed {
+        return;
+    }
+    match done.try_recv() {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => errors.push(io::Error::new(
+            error.kind(),
+            format!("{label} failed: {error}"),
+        )),
+        Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => errors.push(
+            io::Error::other(format!("{label} completed without reporting its outcome")),
+        ),
+    }
+}
+
+enum LocalWorkerJob {
+    Thread {
+        worker: Option<thread::JoinHandle<()>>,
+        label: String,
+    },
+    PtyClose(LocalPtyCloseGroup),
+}
+
+impl LocalWorkerJob {
+    fn poll_before(&mut self, deadline: Instant, errors: &mut Vec<io::Error>) -> bool {
+        match self {
+            Self::Thread { worker, label } => {
+                if !worker.as_ref().is_some_and(thread::JoinHandle::is_finished) {
+                    return false;
+                }
+                if worker
+                    .take()
+                    .expect("finished local worker remains owned")
+                    .join()
+                    .is_err()
+                {
+                    errors.push(io::Error::other(format!(
+                        "{label} panicked after transfer to the local worker reaper"
+                    )));
+                }
+                true
+            }
+            Self::PtyClose(group) => group.poll_before(deadline, errors),
+        }
+    }
+}
+
+#[derive(Default)]
+struct LocalWorkerReaperState {
+    pending: AtomicUsize,
+    fallback: Mutex<Vec<LocalWorkerJob>>,
+    deferred_errors: Mutex<VecDeque<io::Error>>,
+}
+
+struct LocalWorkerReaper {
+    sender: mpsc::Sender<LocalWorkerJob>,
+    state: Arc<LocalWorkerReaperState>,
+}
+
+#[derive(Clone, Copy)]
+enum LocalWorkerTransfer {
+    ActiveSet,
+    Fallback,
+}
+
+impl LocalWorkerTransfer {
+    #[cfg(test)]
+    fn is_fallback(self) -> bool {
+        matches!(self, Self::Fallback)
+    }
+}
+
+impl LocalWorkerReaperState {
+    fn poll_job(&self, job: &mut LocalWorkerJob) -> bool {
+        let mut errors = Vec::new();
+        let finished = job.poll_before(Instant::now(), &mut errors);
+        self.deferred_errors
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .extend(errors);
+        finished
+    }
+
+    fn poll_fallback(&self) {
+        let mut fallback = self
+            .fallback
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut index = 0;
+        while index < fallback.len() {
+            if self.poll_job(&mut fallback[index]) {
+                fallback.swap_remove(index);
+                self.pending.fetch_sub(1, Ordering::SeqCst);
+            } else {
+                index += 1;
+            }
+        }
+    }
+
+    fn take_errors(&self) -> Vec<io::Error> {
+        self.poll_fallback();
+        self.deferred_errors
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .drain(..)
+            .collect()
+    }
+}
+
+impl LocalWorkerReaper {
+    fn start(name: &str) -> Self {
+        let (sender, receiver) = mpsc::channel();
+        let state = Arc::new(LocalWorkerReaperState::default());
+        let worker_state = Arc::clone(&state);
+        let spawn_result = thread::Builder::new()
+            .name(format!("rssh-local-worker-reaper-{name}"))
+            .spawn(move || local_worker_reaper_loop(&receiver, &worker_state));
+        if spawn_result.is_err() {
+            // Dropping the receiver makes every transfer use the process-lifetime
+            // fallback active set. Callers remain bounded and ownership is kept.
+        }
+        Self { sender, state }
+    }
+
+    #[cfg(test)]
+    fn disconnected(_name: &str) -> Self {
+        let (sender, receiver) = mpsc::channel();
+        drop(receiver);
+        Self {
+            sender,
+            state: Arc::new(LocalWorkerReaperState::default()),
+        }
+    }
+
+    fn enqueue(&self, worker: thread::JoinHandle<()>, label: &str) -> LocalWorkerTransfer {
+        self.enqueue_job(LocalWorkerJob::Thread {
+            worker: Some(worker),
+            label: label.to_owned(),
+        })
+    }
+
+    fn enqueue_group(&self, group: LocalPtyCloseGroup) -> LocalWorkerTransfer {
+        self.enqueue_job(LocalWorkerJob::PtyClose(group))
+    }
+
+    fn enqueue_job(&self, job: LocalWorkerJob) -> LocalWorkerTransfer {
+        self.state.pending.fetch_add(1, Ordering::SeqCst);
+        match self.sender.send(job) {
+            Ok(()) => LocalWorkerTransfer::ActiveSet,
+            Err(error) => {
+                self.state
+                    .fallback
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(error.0);
+                LocalWorkerTransfer::Fallback
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn pending(&self) -> usize {
+        self.state.poll_fallback();
+        self.state.pending.load(Ordering::SeqCst)
+    }
+
+    fn take_errors(&self) -> Vec<io::Error> {
+        self.state.take_errors()
+    }
+}
+
+fn local_worker_reaper_loop(
+    receiver: &mpsc::Receiver<LocalWorkerJob>,
+    state: &LocalWorkerReaperState,
+) {
+    let mut active = Vec::new();
+    loop {
+        let disconnected = match receiver.recv_timeout(Duration::from_millis(2)) {
+            Ok(job) => {
+                active.push(job);
+                false
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => false,
+            Err(mpsc::RecvTimeoutError::Disconnected) => true,
+        };
+        active.extend(receiver.try_iter());
+
+        let mut index = 0;
+        while index < active.len() {
+            if state.poll_job(&mut active[index]) {
+                active.swap_remove(index);
+                state.pending.fetch_sub(1, Ordering::SeqCst);
+            } else {
+                index += 1;
+            }
+        }
+        if disconnected && active.is_empty() {
+            return;
+        }
+    }
+}
+
+fn local_worker_reaper() -> &'static LocalWorkerReaper {
+    LOCAL_WORKER_REAPER.get_or_init(|| LocalWorkerReaper::start("global"))
+}
+
+fn local_worker_reaper_take_errors() -> Vec<io::Error> {
+    local_worker_reaper().take_errors()
+}
+
+fn join_local_worker_before(
+    worker: thread::JoinHandle<()>,
+    deadline: Instant,
+    label: &str,
+) -> io::Result<()> {
+    join_local_worker_before_with_reaper(worker, deadline, label, local_worker_reaper())
+}
+
+fn join_local_worker_before_with_reaper(
+    worker: thread::JoinHandle<()>,
+    deadline: Instant,
+    label: &str,
+    reaper: &LocalWorkerReaper,
+) -> io::Result<()> {
+    while !worker.is_finished() && Instant::now() < deadline {
+        thread::park_timeout(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(2)),
+        );
+    }
+
+    if worker.is_finished() {
+        return worker
+            .join()
+            .map_err(|_| io::Error::other(format!("{label} panicked while shutting down")));
+    }
+
+    let destination = reaper.enqueue(worker, label);
+    let destination = match destination {
+        LocalWorkerTransfer::ActiveSet => "transferred to reaper active set",
+        LocalWorkerTransfer::Fallback => "retained by fallback active set",
+    };
+    Err(io::Error::new(
+        io::ErrorKind::TimedOut,
+        format!("{label} did not stop before the deadline; {destination}"),
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn shutdown_local_pty(
+    mut session: PtySession,
+    reader_thread: thread::JoinHandle<()>,
+    writer_thread: thread::JoinHandle<()>,
+    input_thread: Option<thread::JoinHandle<()>>,
+    input_stop: &AtomicBool,
+    pty_input_sender: mpsc::Sender<Vec<u8>>,
+    reader_done_receiver: mpsc::Receiver<io::Result<()>>,
+    writer_done_receiver: mpsc::Receiver<io::Result<()>>,
+    reader_done_observed: bool,
+    writer_done_observed: bool,
+    child_reaped: bool,
+) -> Vec<io::Error> {
+    let deadline = Instant::now() + LOCAL_WORKER_SHUTDOWN_BUDGET;
+    let mut errors = local_worker_reaper_take_errors();
+
+    input_stop.store(true, Ordering::Release);
+    if let Some(input_thread) = input_thread
+        && let Err(error) = join_local_worker_before(input_thread, deadline, "local input worker")
+    {
+        errors.push(error);
+    }
+
+    if !child_reaped {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if let Err(error) = session.terminate(remaining) {
+            errors.push(io::Error::other(format!(
+                "local PTY child cleanup failed: {error}"
+            )));
+        }
+    }
+
+    // `begin_master_close` marks every writer proxy as closing before the final
+    // external sender is dropped and the writer worker can exit normally.
+    let master_close =
+        begin_close_before_sender_drop(|| session.begin_master_close(), pty_input_sender);
+    drop(session);
+    let group = LocalPtyCloseGroup::new(
+        Box::new(master_close),
+        reader_thread,
+        writer_thread,
+        reader_done_receiver,
+        writer_done_receiver,
+        reader_done_observed,
+        writer_done_observed,
+    );
+    finish_local_pty_close_group_before(group, deadline, local_worker_reaper(), &mut errors);
+
+    errors.extend(local_worker_reaper_take_errors());
+
+    errors
+}
+
+fn finish_local_pty_close_group_before(
+    mut group: LocalPtyCloseGroup,
+    deadline: Instant,
+    reaper: &LocalWorkerReaper,
+    errors: &mut Vec<io::Error>,
+) {
+    let mut first_poll = true;
+    loop {
+        let close_deadline = if first_poll { deadline } else { Instant::now() };
+        first_poll = false;
+        if group.poll_before(close_deadline, errors) {
+            return;
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        thread::park_timeout(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(2)),
+        );
+    }
+
+    let destination = match reaper.enqueue_group(group) {
+        LocalWorkerTransfer::ActiveSet => "transferred to reaper active set",
+        LocalWorkerTransfer::Fallback => "retained by fallback active set",
+    };
+    errors.push(io::Error::new(
+        io::ErrorKind::TimedOut,
+        format!("local PTY close group did not stop before the deadline; {destination}"),
+    ));
+}
+
+fn begin_close_before_sender_drop<Close, Sender>(
+    begin_close: impl FnOnce() -> Close,
+    sender: Sender,
+) -> Close {
+    let close = begin_close();
+    drop(sender);
+    close
+}
+
+#[derive(Debug)]
+struct LocalCleanupFailures {
+    errors: Vec<io::Error>,
+}
+
+impl std::fmt::Display for LocalCleanupFailures {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "local PTY cleanup failed: ")?;
+        for (index, error) in self.errors.iter().enumerate() {
+            if index > 0 {
+                formatter.write_str("; ")?;
+            }
+            write!(formatter, "{error}")?;
+        }
+        Ok(())
+    }
+}
+
+impl Error for LocalCleanupFailures {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.errors.first().map(|error| error as &dyn Error)
+    }
+}
+
+#[derive(Debug)]
+struct LocalPtyCompositeError {
+    primary: Box<dyn Error>,
+    cleanup: LocalCleanupFailures,
+}
+
+impl std::fmt::Display for LocalPtyCompositeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}; secondary cleanup failures: ", self.primary)?;
+        for (index, error) in self.cleanup.errors.iter().enumerate() {
+            if index > 0 {
+                formatter.write_str("; ")?;
+            }
+            write!(formatter, "{error}")?;
+        }
+        Ok(())
+    }
+}
+
+impl Error for LocalPtyCompositeError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(self.primary.as_ref())
+    }
+}
+
+fn combine_local_result<T>(
+    primary: Result<T, Box<dyn Error>>,
+    cleanup_errors: Vec<io::Error>,
+) -> Result<T, Box<dyn Error>> {
+    if cleanup_errors.is_empty() {
+        return primary;
+    }
+
+    let cleanup = LocalCleanupFailures {
+        errors: cleanup_errors,
+    };
+    match primary {
+        Ok(_) => Err(Box::new(cleanup)),
+        Err(primary) => Err(Box::new(LocalPtyCompositeError { primary, cleanup })),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
 pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     if options.console.preflight {
         diagnostics::ensure_console_dependencies()?;
     }
+    // Initialize the process-lifetime owner before spawning a child or worker,
+    // so every later timeout has a guaranteed transfer destination.
+    let _ = local_worker_reaper();
 
     let metrics_started_at = Instant::now();
+    let trace = LocalPtyTrace::from_environment(metrics_started_at);
     let size = resolve_local_size(options.size);
     let mut lifecycle = SessionLifecycle::new(LOCAL_CONSOLE_SESSION_ID);
     lifecycle.start_connecting()?;
     let mut session = PtySession::spawn(&options.command, size)?;
+    trace.event(format_args!("spawned child pid={:?}", session.process_id()));
     lifecycle.mark_connected()?;
     let mut reader = session.take_reader()?;
     let mut writer = session.take_writer()?;
@@ -79,45 +696,75 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     let output_control_sender = control_sender.clone();
     let runtime_state = LocalRuntimeState::new(size, options.mouse, local_terminal_name(options));
     let metrics = LocalMetricsCounters::default();
-    let output_state = runtime_state.output_state();
-    let output_metrics = metrics.clone();
+    let output_context = LocalOutputWorkerContext {
+        output_state: runtime_state.output_state(),
+        metrics: metrics.clone(),
+        osc52_policy: options.osc52_policy,
+        trace,
+    };
     let input_metrics = metrics.clone();
-    let osc52_policy = options.osc52_policy;
 
-    let _reader_thread = thread::spawn(move || {
+    let mut raw_mode = RawMode::enable()?;
+    let reader_thread = thread::spawn(move || {
+        trace.event(format_args!("reader started"));
         let result = copy_pty_output(
             &mut reader,
             &terminal_response_sender,
             &output_control_sender,
-            output_state,
-            &output_metrics,
-            osc52_policy,
             log_file.as_mut().map(|file| file as &mut dyn Write),
+            output_context,
         );
+        trace.event(format_args!("reader completed result={result:?}"));
         let _ = reader_done_sender.send(result);
     });
-    let _writer_thread = thread::spawn(move || {
-        let result = copy_pty_input(&mut writer, &pty_input_receiver, &input_metrics);
+    let writer_thread = thread::spawn(move || {
+        trace.event(format_args!("writer started"));
+        let result = copy_pty_input(&mut writer, &pty_input_receiver, &input_metrics, trace);
+        trace.event(format_args!("writer completed result={result:?}"));
         let _ = writer_done_sender.send(result);
     });
 
-    let mut raw_mode = RawMode::enable()?;
-    let _input_thread = spawn_input_thread(
+    let (input_thread, input_stop) = spawn_input_thread(
         pty_input_sender.clone(),
         control_sender,
         runtime_state.input_reporting.clone(),
     );
+    let mut reader_done_observed = false;
+    let mut writer_done_observed = false;
     let run_result = run_input_loop(
         &mut session,
         &reader_done_receiver,
         &writer_done_receiver,
         &control_receiver,
-        &mut raw_mode,
-        &runtime_state,
-        &metrics,
+        LocalInputLoopContext {
+            raw_mode: &mut raw_mode,
+            runtime_state: &runtime_state,
+            metrics: &metrics,
+            trace,
+            reader_done_observed: &mut reader_done_observed,
+            writer_done_observed: &mut writer_done_observed,
+        },
     );
 
-    drop(pty_input_sender);
+    trace.event(format_args!("cleanup started"));
+    let cleanup_errors = shutdown_local_pty(
+        session,
+        reader_thread,
+        writer_thread,
+        input_thread,
+        &input_stop,
+        pty_input_sender,
+        reader_done_receiver,
+        writer_done_receiver,
+        reader_done_observed,
+        writer_done_observed,
+        run_result.is_ok(),
+    );
+    trace.event(format_args!(
+        "cleanup completed errors={}",
+        cleanup_errors.len()
+    ));
+    let run_result = combine_local_result(run_result, cleanup_errors);
 
     if run_result.is_ok() {
         lifecycle.mark_disconnected()?;
@@ -125,41 +772,44 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     }
 
     let session_state = lifecycle.state();
-    drop(session);
 
-    if options.console.metrics_json {
-        if let Ok(status) = &run_result {
-            println!(
-                "{}",
-                LocalMetricsSnapshot::from_status(
-                    &options.command,
-                    size,
-                    metrics.snapshot(),
-                    metrics_started_at.elapsed(),
-                    session_state,
-                    status
-                )
-                .json_report()?
-            );
-        }
-    } else if options.console.metrics
-        && let Ok(status) = &run_result
-    {
-        print!(
-            "{}",
-            LocalMetricsSnapshot::from_status(
-                &options.command,
-                size,
-                metrics.snapshot(),
-                metrics_started_at.elapsed(),
-                session_state,
-                status
-            )
-            .report()
-        );
-    }
+    report_local_metrics(
+        options,
+        size,
+        &metrics,
+        metrics_started_at,
+        session_state,
+        run_result.as_ref().ok(),
+    )?;
 
     run_result
+}
+
+fn report_local_metrics(
+    options: &LocalOptions,
+    size: PtySize,
+    metrics: &LocalMetricsCounters,
+    started_at: Instant,
+    session_state: SessionState,
+    status: Option<&PtyExitStatus>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(status) = status else {
+        return Ok(());
+    };
+    let snapshot = LocalMetricsSnapshot::from_status(
+        &options.command,
+        size,
+        metrics.snapshot(),
+        started_at.elapsed(),
+        session_state,
+        status,
+    );
+    if options.console.metrics_json {
+        println!("{}", snapshot.json_report()?);
+    } else if options.console.metrics {
+        print!("{}", snapshot.report());
+    }
+    Ok(())
 }
 
 fn local_terminal_name(options: &LocalOptions) -> String {
@@ -204,6 +854,7 @@ impl Default for SharedTerminalSize {
     }
 }
 
+#[derive(Clone, Copy)]
 enum LocalControlEvent {
     Resize(PtySize),
     SetApplicationCursorKeys(bool),
@@ -550,9 +1201,37 @@ fn spawn_input_thread(
     pty_input_sender: mpsc::Sender<Vec<u8>>,
     control_sender: mpsc::Sender<LocalControlEvent>,
     input_reporting: InputReporting,
-) -> thread::JoinHandle<()> {
-    thread::spawn(move || {
-        loop {
+) -> (Option<thread::JoinHandle<()>>, Arc<AtomicBool>) {
+    let stop = Arc::new(AtomicBool::new(false));
+    spawn_input_thread_for_terminal(
+        io::stdin().is_terminal(),
+        pty_input_sender,
+        control_sender,
+        input_reporting,
+        stop,
+    )
+}
+
+fn spawn_input_thread_for_terminal(
+    is_terminal: bool,
+    pty_input_sender: mpsc::Sender<Vec<u8>>,
+    control_sender: mpsc::Sender<LocalControlEvent>,
+    input_reporting: InputReporting,
+    stop: Arc<AtomicBool>,
+) -> (Option<thread::JoinHandle<()>>, Arc<AtomicBool>) {
+    if !is_terminal {
+        return (None, stop);
+    }
+
+    let worker_stop = Arc::clone(&stop);
+    let worker = thread::spawn(move || {
+        while !worker_stop.load(Ordering::Acquire) {
+            match event::poll(Duration::from_millis(20)) {
+                Ok(false) => continue,
+                Err(_) => return,
+                Ok(true) => {}
+            }
+
             match event::read() {
                 Ok(
                     event @ (Event::Key(_)
@@ -582,7 +1261,8 @@ fn spawn_input_thread(
                 Err(_) => return,
             }
         }
-    })
+    });
+    (Some(worker), stop)
 }
 
 fn resolve_local_size(explicit: Option<PtySize>) -> PtySize {
@@ -685,19 +1365,32 @@ impl Drop for RawMode {
     }
 }
 
+struct LocalOutputWorkerContext {
+    output_state: LocalOutputState,
+    metrics: LocalMetricsCounters,
+    osc52_policy: Osc52Policy,
+    trace: LocalPtyTrace,
+}
+
 fn copy_pty_output(
     reader: &mut dyn Read,
     pty_input_sender: &mpsc::Sender<Vec<u8>>,
     control_sender: &mpsc::Sender<LocalControlEvent>,
-    output_state: LocalOutputState,
-    metrics: &LocalMetricsCounters,
-    osc52_policy: Osc52Policy,
     log: Option<&mut dyn Write>,
+    context: LocalOutputWorkerContext,
 ) -> io::Result<()> {
+    let LocalOutputWorkerContext {
+        output_state,
+        metrics,
+        osc52_policy,
+        trace,
+    } = context;
     let mut stdout = io::stdout().lock();
     let mut output = SessionLogWriter::new(&mut stdout, log, metrics.clone());
     let mut buffer = [0; 8192];
     let mut output_filter = TerminalOutputFilter::with_shared_size(output_state.terminal_size);
+    let mut first_output_seen = false;
+    let mut trace_marker = LocalTraceMarker::from_environment();
     output_filter.set_terminal_name(output_state.terminal_name);
     loop {
         match reader.read(&mut buffer) {
@@ -707,11 +1400,22 @@ fn copy_pty_output(
                 return Ok(());
             }
             Ok(count) => {
+                if !first_output_seen {
+                    trace.event(format_args!("first PTY output"));
+                    first_output_seen = true;
+                }
+                if trace_marker
+                    .as_mut()
+                    .is_some_and(|marker| marker.feed(&buffer[..count]))
+                {
+                    trace.event(format_args!("trace marker observed"));
+                }
                 metrics.add_pty_output(count as u64);
                 output_filter.write_with_clipboard(
                     &buffer[..count],
                     &mut output,
                     |response| {
+                        trace.event(format_args!("queued terminal response {response:?}"));
                         pty_input_sender.send(response.to_vec()).map_err(|_| {
                             io::Error::new(io::ErrorKind::BrokenPipe, "PTY input closed")
                         })
@@ -807,8 +1511,14 @@ fn copy_pty_input(
     writer: &mut dyn Write,
     pty_input_receiver: &mpsc::Receiver<Vec<u8>>,
     metrics: &LocalMetricsCounters,
+    trace: LocalPtyTrace,
 ) -> io::Result<()> {
     for bytes in pty_input_receiver {
+        trace.event(format_args!(
+            "writing {} PTY input bytes {:?}",
+            bytes.len(),
+            bytes
+        ));
         writer.write_all(&bytes)?;
         metrics.add_pty_input(bytes.len() as u64);
         writer.flush()?;
@@ -817,93 +1527,143 @@ fn copy_pty_input(
     Ok(())
 }
 
+struct LocalInputLoopContext<'a> {
+    raw_mode: &'a mut RawMode,
+    runtime_state: &'a LocalRuntimeState,
+    metrics: &'a LocalMetricsCounters,
+    trace: LocalPtyTrace,
+    reader_done_observed: &'a mut bool,
+    writer_done_observed: &'a mut bool,
+}
+
 fn run_input_loop(
     session: &mut PtySession,
     reader_done_receiver: &mpsc::Receiver<io::Result<()>>,
     writer_done_receiver: &mpsc::Receiver<io::Result<()>>,
     control_receiver: &mpsc::Receiver<LocalControlEvent>,
-    raw_mode: &mut RawMode,
-    runtime_state: &LocalRuntimeState,
-    metrics: &LocalMetricsCounters,
+    context: LocalInputLoopContext<'_>,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
-    let mut exited_status: Option<(PtyExitStatus, Instant)> = None;
+    let LocalInputLoopContext {
+        raw_mode,
+        runtime_state,
+        metrics,
+        trace,
+        reader_done_observed,
+        writer_done_observed,
+    } = context;
+    let mut exited_status: Option<PtyExitStatus> = None;
+    let mut completion_deadline: Option<Instant> = None;
+    let mut child_wait_logged = false;
 
     loop {
         if let Ok(reader_result) = reader_done_receiver.try_recv() {
+            *reader_done_observed = true;
             reader_result?;
-            let status = match exited_status {
-                Some((status, _)) => status,
-                None => session.wait()?,
-            };
-            return Ok(status);
+            completion_deadline
+                .get_or_insert_with(|| Instant::now() + LOCAL_WORKER_SHUTDOWN_BUDGET);
         }
 
         if let Ok(writer_result) = writer_done_receiver.try_recv() {
+            *writer_done_observed = true;
             writer_result?;
         }
 
         while let Ok(control_event) = control_receiver.try_recv() {
-            match control_event {
-                LocalControlEvent::Resize(size) => {
-                    session.resize(size)?;
-                    runtime_state.terminal_size.set(size);
-                    metrics.add_resize_event();
+            apply_local_control_event(control_event, session, raw_mode, runtime_state, metrics)?;
+        }
+
+        if exited_status.is_none() {
+            match session.try_wait()? {
+                Some(status) => {
+                    trace.event(format_args!("child reaped status={status:?}"));
+                    exited_status = Some(status);
+                    completion_deadline
+                        .get_or_insert_with(|| Instant::now() + LOCAL_WORKER_SHUTDOWN_BUDGET);
                 }
-                LocalControlEvent::SetApplicationCursorKeys(enabled) => {
-                    runtime_state
-                        .input_reporting
-                        .set_application_cursor_keys(enabled);
+                None if trace.enabled && !child_wait_logged => {
+                    trace.event(format_args!("child still running"));
+                    child_wait_logged = true;
                 }
-                LocalControlEvent::SetApplicationKeypad(enabled) => {
-                    runtime_state
-                        .input_reporting
-                        .set_application_keypad(enabled);
-                }
-                LocalControlEvent::SetBracketedPaste(enabled) => {
-                    runtime_state.input_reporting.set_bracketed_paste(enabled);
-                }
-                LocalControlEvent::SetMouseReporting(mode) => {
-                    let mode = if runtime_state.allow_application_reporting
-                        && raw_mode.set_mouse_capture(mode.reporting_enabled())?
-                    {
-                        mode
-                    } else {
-                        mode.with_reporting(MouseReportingMode::None)
-                    };
-                    runtime_state.input_reporting.set_mouse(mode);
-                }
-                LocalControlEvent::SetFocusReporting(enabled) => {
-                    let enabled = if runtime_state.allow_application_reporting {
-                        raw_mode.set_focus_change(enabled)?
-                    } else {
-                        false
-                    };
-                    runtime_state.input_reporting.set_focus(enabled);
-                }
-                LocalControlEvent::SetKittyKeyboardFlags(flags) => {
-                    runtime_state
-                        .input_reporting
-                        .set_kitty_keyboard_flags(flags);
-                }
-                LocalControlEvent::SetModifyOtherKeys(mode) => {
-                    runtime_state.input_reporting.set_modify_other_keys(mode);
-                }
-                LocalControlEvent::SetWin32InputMode(enabled) => {
-                    runtime_state.input_reporting.set_win32_input_mode(enabled);
-                }
+                None => {}
             }
         }
 
-        if let Some((status, exited_at)) = &exited_status {
-            if exited_at.elapsed() >= Duration::from_millis(100) {
-                return Ok(status.clone());
-            }
-        } else if let Some(status) = session.try_wait()? {
-            exited_status = Some((status, Instant::now()));
+        // The retained PTY master can keep the reader open even after the child
+        // has exited. Hand the reaped status to the ordered cleanup path, which
+        // closes the master before joining the reader and writer.
+        if let Some(status) = exited_status.take() {
+            return Ok(status);
         }
 
-        thread::sleep(Duration::from_millis(10));
+        if completion_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "local PTY child and reader did not finish within the shared completion budget",
+            )
+            .into());
+        }
+
+        match control_receiver.recv_timeout(Duration::from_millis(10)) {
+            Ok(event) => {
+                apply_local_control_event(event, session, raw_mode, runtime_state, metrics)?;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => thread::yield_now(),
+        }
     }
+}
+
+fn apply_local_control_event(
+    control_event: LocalControlEvent,
+    session: &mut PtySession,
+    raw_mode: &mut RawMode,
+    runtime_state: &LocalRuntimeState,
+    metrics: &LocalMetricsCounters,
+) -> Result<(), Box<dyn Error>> {
+    match control_event {
+        LocalControlEvent::Resize(size) => {
+            session.resize(size)?;
+            runtime_state.terminal_size.set(size);
+            metrics.add_resize_event();
+        }
+        LocalControlEvent::SetApplicationCursorKeys(enabled) => runtime_state
+            .input_reporting
+            .set_application_cursor_keys(enabled),
+        LocalControlEvent::SetApplicationKeypad(enabled) => runtime_state
+            .input_reporting
+            .set_application_keypad(enabled),
+        LocalControlEvent::SetBracketedPaste(enabled) => {
+            runtime_state.input_reporting.set_bracketed_paste(enabled);
+        }
+        LocalControlEvent::SetMouseReporting(mode) => {
+            let mode = if runtime_state.allow_application_reporting
+                && raw_mode.set_mouse_capture(mode.reporting_enabled())?
+            {
+                mode
+            } else {
+                mode.with_reporting(MouseReportingMode::None)
+            };
+            runtime_state.input_reporting.set_mouse(mode);
+        }
+        LocalControlEvent::SetFocusReporting(enabled) => {
+            let enabled = if runtime_state.allow_application_reporting {
+                raw_mode.set_focus_change(enabled)?
+            } else {
+                false
+            };
+            runtime_state.input_reporting.set_focus(enabled);
+        }
+        LocalControlEvent::SetKittyKeyboardFlags(flags) => runtime_state
+            .input_reporting
+            .set_kitty_keyboard_flags(flags),
+        LocalControlEvent::SetModifyOtherKeys(mode) => {
+            runtime_state.input_reporting.set_modify_other_keys(mode);
+        }
+        LocalControlEvent::SetWin32InputMode(enabled) => {
+            runtime_state.input_reporting.set_win32_input_mode(enabled);
+        }
+    }
+    Ok(())
 }
 
 struct TerminalOutputFilter {
@@ -3717,7 +4477,11 @@ fn kitty_modifier(key: KeyEvent) -> Option<u16> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::{
+        io::Write,
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
 
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MediaKeyCode,
@@ -3733,9 +4497,384 @@ mod tests {
     };
 
     use super::{
-        InputModes, InputReporting, Osc52Policy, TerminalOutputFilter, encode_input_event,
-        encode_key, resolve_local_size,
+        InputModes, InputReporting, LocalCloseProgress, LocalMasterCloseOperation,
+        LocalPtyCloseGroup, LocalTraceMarker, LocalWorkerReaper, Osc52Policy, TerminalOutputFilter,
+        begin_close_before_sender_drop, combine_local_result, encode_input_event, encode_key,
+        join_local_worker_before, join_local_worker_before_with_reaper, resolve_local_size,
+        spawn_input_thread_for_terminal,
     };
+
+    #[test]
+    fn local_worker_timeout_transfers_to_observable_reaper() {
+        let reaper = LocalWorkerReaper::start("test-timeout-transfer");
+        let (release_sender, release_receiver) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _ = release_receiver.recv();
+        });
+
+        let error =
+            join_local_worker_before_with_reaper(worker, Instant::now(), "test worker", &reaper)
+                .unwrap_err();
+        assert!(error.to_string().contains("transferred to reaper"));
+        assert_eq!(reaper.pending(), 1);
+
+        release_sender.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while reaper.pending() != 0 && Instant::now() < deadline {
+            std::thread::park_timeout(Duration::from_millis(2));
+        }
+        assert_eq!(reaper.pending(), 0);
+    }
+
+    #[test]
+    fn local_worker_panic_is_observable() {
+        let worker = std::thread::spawn(|| panic!("local worker panic seam"));
+        let deadline = Instant::now() + Duration::from_secs(1);
+
+        let error = join_local_worker_before(worker, deadline, "panic worker").unwrap_err();
+
+        assert!(error.to_string().contains("panicked"));
+    }
+
+    #[test]
+    fn permanently_blocked_reaper_job_does_not_starve_later_jobs() {
+        let reaper = LocalWorkerReaper::start("test-active-set");
+        let (permanent_sender, permanent_receiver) = mpsc::channel::<()>();
+        let permanent = std::thread::spawn(move || {
+            let _ = permanent_receiver.recv();
+        });
+        let permanent_error = join_local_worker_before_with_reaper(
+            permanent,
+            Instant::now(),
+            "permanent worker",
+            &reaper,
+        )
+        .unwrap_err();
+        assert!(
+            permanent_error
+                .to_string()
+                .contains("transferred to reaper")
+        );
+
+        let (release_sender, release_receiver) = mpsc::channel();
+        let later = std::thread::spawn(move || {
+            release_receiver.recv().unwrap();
+        });
+        join_local_worker_before_with_reaper(later, Instant::now(), "later worker", &reaper)
+            .unwrap_err();
+        release_sender.send(()).unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while reaper.pending() != 1 && Instant::now() < deadline {
+            std::thread::park_timeout(Duration::from_millis(2));
+        }
+        assert_eq!(
+            reaper.pending(),
+            1,
+            "later worker was starved by queue head"
+        );
+        permanent_sender.send(()).unwrap();
+        let teardown_deadline = Instant::now() + Duration::from_secs(1);
+        while reaper.pending() != 0 && Instant::now() < teardown_deadline {
+            std::thread::park_timeout(Duration::from_millis(2));
+        }
+        assert_eq!(reaper.pending(), 0);
+    }
+
+    #[test]
+    fn deferred_worker_panic_is_observable() {
+        let reaper = LocalWorkerReaper::start("test-deferred-panic");
+        let (release_sender, release_receiver) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            release_receiver.recv().unwrap();
+            panic!("deferred panic seam");
+        });
+        join_local_worker_before_with_reaper(
+            worker,
+            Instant::now(),
+            "deferred panic worker",
+            &reaper,
+        )
+        .unwrap_err();
+        release_sender.send(()).unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while reaper.pending() != 0 && Instant::now() < deadline {
+            std::thread::park_timeout(Duration::from_millis(2));
+        }
+        let errors = reaper.take_errors();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.to_string().contains("deferred panic worker panicked")),
+            "deferred panic was not reported: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn disconnected_reaper_retains_worker_without_blocking_caller() {
+        let reaper = LocalWorkerReaper::disconnected("test-fallback");
+        let (release_sender, release_receiver) = mpsc::channel();
+        let worker = std::thread::spawn(move || release_receiver.recv().unwrap());
+        let started = Instant::now();
+
+        let error = join_local_worker_before_with_reaper(
+            worker,
+            Instant::now(),
+            "fallback worker",
+            &reaper,
+        )
+        .unwrap_err();
+
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert!(error.to_string().contains("fallback active set"));
+        assert_eq!(reaper.pending(), 1);
+        release_sender.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while reaper.pending() != 0 && Instant::now() < deadline {
+            std::thread::park_timeout(Duration::from_millis(2));
+        }
+        assert_eq!(reaper.pending(), 0);
+    }
+
+    struct TestMasterClose {
+        complete: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl LocalMasterCloseOperation for TestMasterClose {
+        fn finish_before(&mut self, _deadline: Instant) -> LocalCloseProgress {
+            if self.complete.load(std::sync::atomic::Ordering::Acquire) {
+                LocalCloseProgress::Completed
+            } else {
+                LocalCloseProgress::Deferred
+            }
+        }
+    }
+
+    #[test]
+    fn pty_close_group_transfers_close_reader_writer_and_channels_atomically() {
+        let reaper = LocalWorkerReaper::disconnected("test-pty-group-fallback");
+        let close_complete = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (release_reader, reader_release) = mpsc::channel();
+        let (reader_done_sender, reader_done_receiver) = mpsc::channel();
+        let reader_worker = std::thread::spawn(move || {
+            reader_release.recv().unwrap();
+            reader_done_sender.send(Ok(())).unwrap();
+        });
+        let (release_writer, writer_release) = mpsc::channel();
+        let (writer_done_sender, writer_done_receiver) = mpsc::channel();
+        let writer_worker = std::thread::spawn(move || {
+            writer_release.recv().unwrap();
+            writer_done_sender.send(Ok(())).unwrap();
+        });
+        let group = LocalPtyCloseGroup::new(
+            Box::new(TestMasterClose {
+                complete: std::sync::Arc::clone(&close_complete),
+            }),
+            reader_worker,
+            writer_worker,
+            reader_done_receiver,
+            writer_done_receiver,
+            false,
+            false,
+        );
+
+        let transfer = reaper.enqueue_group(group);
+        assert!(transfer.is_fallback());
+        assert_eq!(reaper.pending(), 1);
+        release_writer.send(()).unwrap();
+        assert_eq!(
+            reaper.pending(),
+            1,
+            "partial group completion lost ownership"
+        );
+
+        close_complete.store(true, std::sync::atomic::Ordering::Release);
+        release_reader.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while reaper.pending() != 0 && Instant::now() < deadline {
+            std::thread::park_timeout(Duration::from_millis(2));
+        }
+        assert_eq!(reaper.pending(), 0);
+        assert!(reaper.take_errors().is_empty());
+    }
+
+    #[test]
+    fn local_close_flag_is_set_before_external_sender_drop() {
+        struct DropProbe {
+            closing: std::sync::Arc<std::sync::atomic::AtomicBool>,
+            observed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        }
+
+        impl Drop for DropProbe {
+            fn drop(&mut self) {
+                self.observed.store(
+                    self.closing.load(std::sync::atomic::Ordering::Acquire),
+                    std::sync::atomic::Ordering::Release,
+                );
+            }
+        }
+
+        let closing = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let observed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let probe = DropProbe {
+            closing: std::sync::Arc::clone(&closing),
+            observed: std::sync::Arc::clone(&observed),
+        };
+
+        begin_close_before_sender_drop(
+            || closing.store(true, std::sync::atomic::Ordering::Release),
+            probe,
+        );
+
+        assert!(observed.load(std::sync::atomic::Ordering::Acquire));
+    }
+
+    #[derive(Debug)]
+    struct TestCloseFailure;
+
+    impl std::fmt::Display for TestCloseFailure {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("deferred close failure seam")
+        }
+    }
+
+    impl std::error::Error for TestCloseFailure {}
+
+    struct FailingMasterClose;
+
+    impl LocalMasterCloseOperation for FailingMasterClose {
+        fn finish_before(&mut self, _deadline: Instant) -> LocalCloseProgress {
+            LocalCloseProgress::Failed(Box::new(TestCloseFailure))
+        }
+    }
+
+    #[test]
+    fn deferred_pty_close_failure_preserves_its_source() {
+        let reaper = LocalWorkerReaper::disconnected("test-pty-group-error");
+        let (reader_done_sender, reader_done_receiver) = mpsc::channel();
+        let reader_worker = std::thread::spawn(move || reader_done_sender.send(Ok(())).unwrap());
+        let (writer_done_sender, writer_done_receiver) = mpsc::channel();
+        let writer_worker = std::thread::spawn(move || writer_done_sender.send(Ok(())).unwrap());
+        reaper.enqueue_group(LocalPtyCloseGroup::new(
+            Box::new(FailingMasterClose),
+            reader_worker,
+            writer_worker,
+            reader_done_receiver,
+            writer_done_receiver,
+            false,
+            false,
+        ));
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while reaper.pending() != 0 && Instant::now() < deadline {
+            std::thread::park_timeout(Duration::from_millis(2));
+        }
+        let errors = reaper.take_errors();
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0]
+                .get_ref()
+                .and_then(|source| source.downcast_ref::<TestCloseFailure>())
+                .is_some(),
+            "deferred close error lost its structured source: {errors:?}"
+        );
+    }
+
+    struct RetainedMasterClose;
+
+    impl LocalMasterCloseOperation for RetainedMasterClose {
+        fn finish_before(&mut self, _deadline: Instant) -> LocalCloseProgress {
+            LocalCloseProgress::Retained
+        }
+    }
+
+    #[test]
+    fn retained_pty_close_is_observable() {
+        let owner = LocalWorkerReaper::disconnected("test-pty-group-retained");
+        let (reader_done_sender, reader_done_receiver) = mpsc::channel();
+        let reader_worker = std::thread::spawn(move || reader_done_sender.send(Ok(())).unwrap());
+        let (writer_done_sender, writer_done_receiver) = mpsc::channel();
+        let writer_worker = std::thread::spawn(move || writer_done_sender.send(Ok(())).unwrap());
+        owner.enqueue_group(LocalPtyCloseGroup::new(
+            Box::new(RetainedMasterClose),
+            reader_worker,
+            writer_worker,
+            reader_done_receiver,
+            writer_done_receiver,
+            false,
+            false,
+        ));
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while owner.pending() != 0 && Instant::now() < deadline {
+            std::thread::park_timeout(Duration::from_millis(2));
+        }
+        let errors = owner.take_errors();
+        assert!(
+            errors.iter().any(|error| error
+                .to_string()
+                .contains("retained by the PTY global reaper")),
+            "retained close was silent: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn nonterminal_input_does_not_spawn_a_worker() {
+        let (pty_sender, _pty_receiver) = mpsc::channel();
+        let (control_sender, _control_receiver) = mpsc::channel();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let (worker, returned_stop) = spawn_input_thread_for_terminal(
+            false,
+            pty_sender,
+            control_sender,
+            InputReporting::default(),
+            std::sync::Arc::clone(&stop),
+        );
+
+        assert!(worker.is_none());
+        assert!(std::sync::Arc::ptr_eq(&stop, &returned_stop));
+    }
+
+    #[test]
+    fn local_cleanup_keeps_primary_error_ahead_of_secondary_errors() {
+        #[derive(Debug)]
+        struct TypedPrimary;
+
+        impl std::fmt::Display for TypedPrimary {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("primary failure")
+            }
+        }
+
+        impl std::error::Error for TypedPrimary {}
+
+        let primary: Result<(), Box<dyn std::error::Error>> = Err(Box::new(TypedPrimary));
+
+        let error = combine_local_result(primary, vec![std::io::Error::other("secondary failure")])
+            .unwrap_err();
+        let message = error.to_string();
+
+        assert!(message.starts_with("primary failure"));
+        assert!(message.contains("secondary cleanup failures: secondary failure"));
+        assert!(
+            error
+                .source()
+                .and_then(|source| source.downcast_ref::<TypedPrimary>())
+                .is_some(),
+            "structured composite lost the primary source type"
+        );
+    }
+
+    #[test]
+    fn trace_marker_is_streaming_and_reports_only_the_first_match() {
+        let mut marker = LocalTraceMarker::new(b"needle".to_vec()).unwrap();
+
+        assert!(!marker.feed(b"noise nee"));
+        assert!(marker.feed(b"dle suffix needle"));
+        assert!(!marker.feed(b"needle"));
+    }
 
     #[test]
     fn encodes_text_input_as_utf8() {

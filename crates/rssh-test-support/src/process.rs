@@ -283,6 +283,12 @@ pub struct ChildGuard {
 }
 
 impl ChildGuard {
+    /// Return the guarded child process identifier while it is owned.
+    #[must_use]
+    pub fn process_id(&self) -> Option<u32> {
+        self.child.as_ref().map(Child::id)
+    }
+
     /// Spawns `command` with stdout and stderr redirected to bounded diagnostics.
     ///
     /// The child inherits no stdin. Values of explicitly configured environment
