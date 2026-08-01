@@ -1,4 +1,4 @@
-use std::{fmt::Write as _, process::Command, time::Duration};
+use std::{fmt::Write as _, path::Path, process::Command, time::Duration};
 
 use rssh_test_support::{ChildGuard, ChildOutput, platform_marker_command};
 
@@ -13,7 +13,8 @@ pub struct NativeWindowProbe {
     pub metrics: serde_json::Value,
 }
 
-pub fn run_ten_frame_native_window(executable: &str) -> NativeWindowProbe {
+pub fn run_ten_frame_native_window(executable: impl AsRef<Path>) -> NativeWindowProbe {
+    let executable = executable.as_ref();
     let framed_marker = format!("{PTY_LINK_BEGIN}{DETERMINISTIC_PAYLOAD}{PTY_LINK_END}");
     let marker_command = platform_marker_command(&framed_marker);
     let mut command = Command::new(executable);
@@ -103,6 +104,17 @@ pub fn assert_ten_frame_native_metrics(probe: &NativeWindowProbe) {
     assert_eq!(metrics["gpu_uncaptured_errors"], 0, "{diagnostics}");
     assert_eq!(metrics["gpu_device_losses"], 0, "{diagnostics}");
     assert_eq!(metrics["text_backend"], "shaped-gpu-atlas", "{diagnostics}");
+    for field in [
+        "gpu_text_prepared_glyphs",
+        "gpu_text_mask_glyphs",
+        "gpu_text_color_glyphs",
+        "gpu_text_block_glyphs",
+    ] {
+        assert!(
+            metrics[field].as_u64().is_some_and(|glyphs| glyphs > 0),
+            "font fixture specimen did not produce {field}\n{diagnostics}"
+        );
+    }
 
     assert_eq!(metrics["pty_linkage_found"], true, "{diagnostics}");
     assert_eq!(
@@ -126,7 +138,7 @@ fn digest_hex(digest: rssh_renderer::TerminalContentDigest) -> String {
     encoded
 }
 
-fn diagnostics(executable: &str, output: &ChildOutput) -> String {
+fn diagnostics(executable: impl std::fmt::Debug, output: &ChildOutput) -> String {
     format!(
         "executable: {executable:?}\nexit status: {:?} (code: {:?})\nstdout: {:?}\nstderr: {:?}",
         output.status,

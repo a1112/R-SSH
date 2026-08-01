@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "package": {
+    "name": "R-SSH",
+    "version": "__VERSION__",
+    "source_commit": "__SOURCE_COMMIT__"
+  },
+  "artifact": {
+    "name": "__ARTIFACT_NAME__",
+    "format": "__ARCHIVE_FORMAT__",
+    "rust_target": "__RUST_TARGET__",
+    "runtime_target": "__RUNTIME_TARGET__",
+    "pty_backend": "__PTY_BACKEND__",
+    "binary": "__BINARY_PATH__"
+  },
+  "signing": {
+    "status": "__SIGNING_STATUS__",
+    "unsigned": true
+  },
+  "requirements": {
+    "external_tools": ["ssh", "sftp", "scp"]
+  },
+  "required_files": [],
+  "files": []
+}

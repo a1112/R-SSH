@@ -1,4 +1,5 @@
 use std::{
+    env,
     io::{self, Read as _, Write as _},
     net::{TcpListener, TcpStream},
     process::Command,
@@ -16,6 +17,13 @@ use rssh_test_support::{
 
 const DEADLINE: Duration = Duration::from_secs(5);
 const PROCESS_DEADLINE: Duration = Duration::from_secs(15);
+
+fn packaged_or_cargo_app_executable() -> std::path::PathBuf {
+    env::var_os("RSSH_TEST_APP_EXECUTABLE").map_or_else(
+        || std::path::PathBuf::from(env!("CARGO_BIN_EXE_rssh-app")),
+        std::path::PathBuf::from,
+    )
+}
 
 #[test]
 fn required_openssh_probe_rejects_an_empty_path_with_a_nonzero_child_exit() {
@@ -160,7 +168,7 @@ fn rssh_app_system_openssh_entrypoint_runs_a_real_loopback_exec() {
     }
     let server = HermeticSshServer::start(DEADLINE).expect("start SSH fixture");
     prepare_identity_for_openssh(&server);
-    let mut command = Command::new(env!("CARGO_BIN_EXE_rssh-app"));
+    let mut command = Command::new(packaged_or_cargo_app_executable());
     server.temp_home().apply_to(&mut command);
     command
         .env_remove("SSH_AUTH_SOCK")
@@ -368,7 +376,7 @@ fn app_ssh_command(
     identity: &std::path::Path,
     known_hosts: &std::path::Path,
 ) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_rssh-app"));
+    let mut command = Command::new(packaged_or_cargo_app_executable());
     server.temp_home().apply_to(&mut command);
     command
         .env_remove("SSH_AUTH_SOCK")

@@ -1,14 +1,20 @@
 mod common;
 
-use std::{fs, path::PathBuf};
+use std::{env, fs, path::PathBuf};
 
 const RSSH_APP_EXECUTABLE: &str = env!("CARGO_BIN_EXE_rssh-app");
 
 #[test]
 fn native_window_e2e_presents_ten_frames_from_a_real_pty() {
-    let probe = common::run_ten_frame_native_window(RSSH_APP_EXECUTABLE);
+    let executable = packaged_or_cargo_app_executable();
+    let probe = common::run_ten_frame_native_window(&executable);
 
     common::assert_ten_frame_native_metrics(&probe);
+}
+
+fn packaged_or_cargo_app_executable() -> PathBuf {
+    env::var_os("RSSH_TEST_APP_EXECUTABLE")
+        .map_or_else(|| PathBuf::from(RSSH_APP_EXECUTABLE), PathBuf::from)
 }
 
 #[test]
@@ -41,8 +47,16 @@ fn workflow_contract_has_exact_pr_and_supplemental_runner_sets() {
 fn linux_display_and_strict_script_contracts_are_explicit() {
     let ci = read_repo_file(".github/workflows/ci.yml");
     let nightly = read_repo_file(".github/workflows/nightly.yml");
-    let powershell = read_repo_file("scripts/ci/run-native-window.ps1");
-    let shell = read_repo_file("scripts/ci/run-native-window.sh");
+    let powershell = format!(
+        "{}\n{}",
+        read_repo_file("scripts/ci/run-native-window.ps1"),
+        read_repo_file("scripts/ci/process-harness.ps1")
+    );
+    let shell = format!(
+        "{}\n{}",
+        read_repo_file("scripts/ci/run-native-window.sh"),
+        read_repo_file("scripts/ci/process-harness.sh")
+    );
 
     for workflow in [&ci, &nightly] {
         assert!(workflow.contains("xvfb-run"), "missing X11 native E2E");
@@ -114,6 +128,8 @@ fn linux_display_and_strict_script_contracts_are_explicit() {
             "shell script is missing {contract}"
         );
     }
+    assert!(powershell.contains("process-harness.ps1"));
+    assert!(shell.contains("source \"$script_dir/process-harness.sh\""));
 }
 
 #[test]

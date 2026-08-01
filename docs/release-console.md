@@ -1,20 +1,36 @@
-# Console Release Package
+# Native Release Packages
 
-This document defines the first downloadable console package for R-SSH.
+This document defines the six certified native terminal packages for R-SSH.
 
 ## Package
 
 The release workflow certifies performance on a protected fixed Windows runner,
-then builds `rssh-app` on `windows-latest` and publishes
-`R-SSH-windows-x64.zip`.
+then builds and smokes these native artifacts:
 
-The zip contains:
+- `R-SSH-windows-x64.zip`
+- `R-SSH-windows-arm64.zip`
+- `R-SSH-linux-x64.tar.gz`
+- `R-SSH-linux-arm64.tar.gz`
+- `R-SSH-macos-x64.tar.gz`
+- `R-SSH-macos-arm64.tar.gz`
 
-- `rssh-app.exe`
-- `rssh-console.cmd`
+Every unpacked package contains:
+
+- the native executable and platform console launcher
 - `README.md`
 - `LICENSE`
 - `examples/rssh-profiles.toml`
+- `licenses/fonts/`, with the licenses and provenance manifest for the embedded
+  deterministic Noto subsets
+- `manifest.json`, recording package/version, artifact format, Rust and runtime
+  targets, PTY backend, executable path, signing state, required files, and each
+  payload file's relative path, size, and SHA-256
+- `SHA256SUMS`, covering every package file except itself
+
+Windows packages provide `rssh-app.exe` and `rssh-console.cmd`. Linux packages
+provide `rssh-app` and `rssh-console.sh`. macOS packages provide
+`R-SSH.app/Contents/MacOS/rssh-app`, a root CLI launcher, and
+`rssh-console.sh`; the bundle `Info.plist` names the same executable and version.
 
 ## Release Triggers
 
@@ -22,8 +38,10 @@ The zip contains:
   on the repository default branch.
 - Versioned release: push a tag that starts with `v`, for example `v0.1.0`.
 
-Tag releases create a GitHub Release and attach `R-SSH-windows-x64.zip`.
-Manual runs upload the same zip as a workflow artifact.
+Tag releases attach all six stable artifact names. Manual artifacts use an
+`-unsigned` filename suffix and set `manifest.json`'s `signing.unsigned` to
+`true`. They are local/CI test artifacts and are not releasable; renaming an
+unsigned archive does not make it eligible for publication.
 
 The protected `performance` environment requires designated reviewers. A
 repository ruleset restricts `v*` tag creation to authorized release
@@ -34,23 +52,24 @@ tag-publishing job receives `contents: write`.
 
 ## Verification Gates
 
-The release package is not uploaded until all gates pass:
+No release package is published until all gates pass:
 
 - protected fixed-runner performance certification with two warmups, seven
   measured samples, approved absolute budgets, and the 10% same-machine
   median-regression rule described in `performance-baseline.md`
 - `cargo fmt --all -- --check`
-- `cargo test --workspace`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo build --release -p rssh-app`
-- `dist/R-SSH-windows-x64/rssh-app.exe version --json`
-- `dist/R-SSH-windows-x64/rssh-app.exe doctor --json`
-- `dist/R-SSH-windows-x64/rssh-app.exe self-test --json`
-- `dist/R-SSH-windows-x64/rssh-app.exe bench --json --render-frames 3 --idle-ms 1`
-- `dist/R-SSH-windows-x64/rssh-app.exe profile --check --file examples/rssh-profiles.toml`
-- `dist/R-SSH-windows-x64/rssh-app.exe profile --show window-smoke --file examples/rssh-profiles.toml`
-- `dist/R-SSH-windows-x64/rssh-app.exe console --preflight -- cmd.exe /C echo packaged-console-alias-smoke`
-- `dist/R-SSH-windows-x64/rssh-console.cmd --preflight -- cmd.exe /C echo packaged-console-launcher-smoke`
+- `cargo test --locked --workspace --all-targets`
+- `cargo clippy --locked --workspace --all-targets -- -D warnings`
+- `cargo build --locked --release -p rssh-app --all-targets`
+- unpacked `manifest.json`, required-file, executable-mode, and `SHA256SUMS`
+  validation where the platform exposes executable modes
+- packaged `version --json`, `doctor --json`, `self-test --json`, and
+  deterministic benchmark gates
+- a real packaged-binary OpenSSH loopback and ten-frame native GPU/PTY E2E,
+  selected through `RSSH_TEST_APP_EXECUTABLE`
+- packaged platform launcher preflight
+- protected signing, macOS notarization/stapling, SBOM generation, provenance
+  attestation, and a final signed-package smoke
 
 The packaged `version --json` smoke test proves that the downloaded executable
 can identify its app version, target, console mode, PTY backend, and native SSH
@@ -70,11 +89,44 @@ the deterministic algorithmic gates and fails the package smoke if
 `threshold_violations` is non-empty. Absolute timing, idle CPU, and RSS budgets
 are enforced only by the fixed-runner median job; the current 16 ms render
 budget is an offscreen `PixelRenderer` proxy rather than a GPU-present claim.
-The packaged profile checks prove that bundled examples validate and that
-`window-smoke` resolves
-`--metrics-json` for native-window automation. The packaged `console` smoke tests
-prove that both the explicit CLI alias and the Windows launcher enter the same
-console-hosted PTY path.
+The packaged launcher preflight proves that each platform launcher resolves only
+the executable inside the same unpacked package.
+
+## Reproducible local assembly
+
+The assembly scripts accept an already-built native binary, create the package
+directory, generate `manifest.json` and `SHA256SUMS`, and write the complete
+archive beside that directory. A local Windows x64 example is:
+
+```powershell
+cargo build --locked --release -p rssh-app --all-targets
+./scripts/ci/package-native.ps1 `
+  -Binary ./target/release/rssh-app.exe `
+  -PackageRoot ./dist/R-SSH-windows-x64-unsigned `
+  -ArtifactName R-SSH-windows-x64-unsigned.zip `
+  -RuntimeTarget windows-x86_64 `
+  -PtyBackend windows-conpty `
+  -Version 0.1.0 `
+  -Unsigned
+New-Item -ItemType Directory ./dist/local-smoke
+Expand-Archive `
+  -LiteralPath ./dist/R-SSH-windows-x64-unsigned.zip `
+  -DestinationPath ./dist/local-smoke
+./scripts/ci/package-smoke.ps1 `
+  -PackageRoot ./dist/local-smoke/R-SSH-windows-x64-unsigned `
+  -ExpectedTarget windows-x86_64 `
+  -ExpectedPtyBackend windows-conpty `
+  -ExpectedArtifactName R-SSH-windows-x64-unsigned.zip `
+  -ExpectedUnsigned
+```
+
+The POSIX scripts expose the corresponding `--binary`, `--package-root`,
+`--artifact-name`, `--runtime-target`, `--pty-backend`, `--version`,
+`--unsigned`, and `--expected-*` flags. Smoke scripts never execute a workspace
+replacement binary or extract an archive: `PackageRoot`/`--package-root` must
+identify the actual unpacked artifact being certified. Cargo may compile the
+Rust integration-test harness, but `RSSH_TEST_APP_EXECUTABLE` forces every
+tested app launch to use the validated executable inside that unpacked artifact.
 
 ## Console Startup After Download
 

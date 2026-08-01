@@ -35,10 +35,10 @@ jobs:
       RSSH_PERF_BASELINE_RSS_BYTES: ${{ vars.RSSH_PERF_BASELINE_RSS_BYTES }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
 
       - name: Build release benchmark
         run: cargo build --locked --release -p rssh-app
@@ -334,112 +334,670 @@ jobs:
             }
           } | ConvertTo-Json -Depth 4 -Compress
 
-  windows-console:
-    name: Windows console package
-    runs-on: windows-latest
+  build-package:
+    name: Build and test unsigned package (${{ matrix.runtime_target }})
     needs: fixed-performance
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - slug: windows-x64
+            runner: windows-2025
+            rust_target: x86_64-pc-windows-msvc
+            runtime_target: windows-x86_64
+            pty_backend: windows-conpty
+            package_root: R-SSH-windows-x64-unsigned
+            artifact: R-SSH-windows-x64.zip
+            unsigned_artifact: R-SSH-windows-x64-unsigned.zip
+            binary: target/release/rssh-app.exe
+          - slug: windows-arm64
+            runner: windows-11-arm
+            rust_target: aarch64-pc-windows-msvc
+            runtime_target: windows-aarch64
+            pty_backend: windows-conpty
+            package_root: R-SSH-windows-arm64-unsigned
+            artifact: R-SSH-windows-arm64.zip
+            unsigned_artifact: R-SSH-windows-arm64-unsigned.zip
+            binary: target/release/rssh-app.exe
+          - slug: linux-x64
+            runner: ubuntu-24.04
+            rust_target: x86_64-unknown-linux-gnu
+            runtime_target: linux-x86_64
+            pty_backend: unix-pty
+            package_root: R-SSH-linux-x64-unsigned
+            artifact: R-SSH-linux-x64.tar.gz
+            unsigned_artifact: R-SSH-linux-x64-unsigned.tar.gz
+            binary: target/release/rssh-app
+          - slug: linux-arm64
+            runner: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+            runtime_target: linux-aarch64
+            pty_backend: unix-pty
+            package_root: R-SSH-linux-arm64-unsigned
+            artifact: R-SSH-linux-arm64.tar.gz
+            unsigned_artifact: R-SSH-linux-arm64-unsigned.tar.gz
+            binary: target/release/rssh-app
+          - slug: macos-x64
+            runner: macos-15-intel
+            rust_target: x86_64-apple-darwin
+            runtime_target: macos-x86_64
+            pty_backend: unix-pty
+            package_root: R-SSH-macos-x64-unsigned
+            artifact: R-SSH-macos-x64.tar.gz
+            unsigned_artifact: R-SSH-macos-x64-unsigned.tar.gz
+            binary: target/release/rssh-app
+          - slug: macos-arm64
+            runner: macos-15
+            rust_target: aarch64-apple-darwin
+            runtime_target: macos-aarch64
+            pty_backend: unix-pty
+            package_root: R-SSH-macos-arm64-unsigned
+            artifact: R-SSH-macos-arm64.tar.gz
+            unsigned_artifact: R-SSH-macos-arm64-unsigned.tar.gz
+            binary: target/release/rssh-app
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+        with:
+          components: clippy, rustfmt
+
+      - name: Install Linux package-smoke dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes openssh-client openssh-server xvfb weston
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Test workspace
-        run: cargo test --workspace
+      - name: Test all workspace targets
+        run: cargo test --locked --workspace --all-targets
 
-      - name: Lint workspace
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Lint all workspace targets
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
-      - name: Build release binary
-        run: cargo build --release -p rssh-app
+      - name: Build native release binary
+        run: cargo build --locked --release -p rssh-app --all-targets
 
-      - name: Assemble package
+      - name: Assemble and unpack-smoke Windows artifact (native_window_e2e; --harness-self-test)
+        if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          RSSH_TEST_APP_EXECUTABLE: ${{ matrix.binary }}
+          RSSH_REQUIRE_OPENSSH: "1"
         run: |
-          $package = "dist/R-SSH-windows-x64"
-          New-Item -ItemType Directory -Force $package | Out-Null
-          Copy-Item target/release/rssh-app.exe "$package/rssh-app.exe"
-          Copy-Item packaging/rssh-console.cmd "$package/rssh-console.cmd"
-          Copy-Item README.md "$package/README.md"
-          Copy-Item LICENSE "$package/LICENSE"
-          New-Item -ItemType Directory -Force "$package/examples" | Out-Null
-          Copy-Item examples/rssh-profiles.toml "$package/examples/rssh-profiles.toml"
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $version = (& "${{ matrix.binary }}" version --json | ConvertFrom-Json).version
+          ./scripts/ci/package-native.ps1 `
+            -Binary "${{ matrix.binary }}" `
+            -PackageRoot "dist/${{ matrix.package_root }}" `
+            -ArtifactName "${{ matrix.unsigned_artifact }}" `
+            -RuntimeTarget "${{ matrix.runtime_target }}" `
+            -PtyBackend "${{ matrix.pty_backend }}" `
+            -Version $version `
+            -Unsigned
+          Expand-Archive `
+            -LiteralPath "dist/${{ matrix.unsigned_artifact }}" `
+            -DestinationPath dist/package-smoke `
+            -Force
+          ./scripts/ci/package-smoke.ps1 `
+            -PackageRoot "dist/package-smoke/${{ matrix.package_root }}" `
+            -ExpectedTarget "${{ matrix.runtime_target }}" `
+            -ExpectedPtyBackend "${{ matrix.pty_backend }}" `
+            -ExpectedArtifactName "${{ matrix.unsigned_artifact }}" `
+            -ExpectedUnsigned
 
-      - name: Smoke test packaged console
+      - name: Assemble and unpack-smoke Unix artifact (native_window_e2e; --harness-self-test)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          RSSH_TEST_APP_EXECUTABLE: ${{ matrix.binary }}
+          RSSH_REQUIRE_OPENSSH: "1"
+        run: |
+          set -euo pipefail
+          version=$("${{ matrix.binary }}" version --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+          bash scripts/ci/package-native.sh \
+            --binary "${{ matrix.binary }}" \
+            --package-root "dist/${{ matrix.package_root }}" \
+            --artifact-name "${{ matrix.unsigned_artifact }}" \
+            --runtime-target "${{ matrix.runtime_target }}" \
+            --pty-backend "${{ matrix.pty_backend }}" \
+            --version "$version" \
+            --unsigned
+          mkdir -p dist/package-smoke
+          tar -xzf "dist/${{ matrix.unsigned_artifact }}" -C dist/package-smoke
+          smoke=(bash scripts/ci/package-smoke.sh
+            --package-root "dist/package-smoke/${{ matrix.package_root }}"
+            --expected-target "${{ matrix.runtime_target }}"
+            --expected-pty-backend "${{ matrix.pty_backend }}"
+            --expected-artifact-name "${{ matrix.unsigned_artifact }}"
+            --expected-unsigned)
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            xvfb-run -a "${smoke[@]}"
+          else
+            "${smoke[@]}"
+          fi
+
+      - name: Upload immutable unsigned workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unsigned-${{ matrix.slug }}
+          path: dist/${{ matrix.unsigned_artifact }}
+          if-no-files-found: error
+
+  sign-windows:
+    name: Sign Windows package (${{ matrix.runtime_target }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-package
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    environment: release-windows-signing
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - slug: windows-x64
+            runner: windows-2025
+            runtime_target: windows-x86_64
+            pty_backend: windows-conpty
+            package_root: R-SSH-windows-x64
+            artifact: R-SSH-windows-x64.zip
+            unsigned_artifact: R-SSH-windows-x64-unsigned.zip
+          - slug: windows-arm64
+            runner: windows-11-arm
+            runtime_target: windows-aarch64
+            pty_backend: windows-conpty
+            package_root: R-SSH-windows-arm64
+            artifact: R-SSH-windows-arm64.zip
+            unsigned_artifact: R-SSH-windows-arm64-unsigned.zip
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: unsigned-${{ matrix.slug }}
+          path: dist
+
+      - name: Require protected Windows signing secrets and sign binary
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+          WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          foreach ($name in @(
+            "WINDOWS_SIGNING_CERTIFICATE_BASE64",
+            "WINDOWS_SIGNING_CERTIFICATE_PASSWORD",
+            "WINDOWS_TIMESTAMP_URL"
+          )) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "required protected signing secret $name is missing"
+            }
+          }
+          Expand-Archive "dist/${{ matrix.unsigned_artifact }}" dist/source -Force
+          $sourceBinary = Get-ChildItem dist/source -Recurse -File -Filter rssh-app.exe | Select-Object -First 1
+          if ($null -eq $sourceBinary) {
+            throw "unsigned package has no rssh-app.exe"
+          }
+          $certificate = Join-Path $env:RUNNER_TEMP "rssh-signing.pfx"
+          [IO.File]::WriteAllBytes(
+            $certificate,
+            [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE_BASE64)
+          )
+          try {
+            signtool sign /fd SHA256 /td SHA256 /tr $env:WINDOWS_TIMESTAMP_URL `
+              /f $certificate /p $env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD `
+              $sourceBinary.FullName
+            signtool verify /pa /all /v $sourceBinary.FullName
+            $signature = Get-AuthenticodeSignature -LiteralPath $sourceBinary.FullName
+            if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid) {
+              throw "Authenticode verification failed: $($signature.StatusMessage)"
+            }
+            $version = (& $sourceBinary.FullName version --json | ConvertFrom-Json).version
+            ./scripts/ci/package-native.ps1 `
+              -Binary $sourceBinary.FullName `
+              -PackageRoot "dist/${{ matrix.package_root }}" `
+              -ArtifactName "${{ matrix.artifact }}" `
+              -RuntimeTarget "${{ matrix.runtime_target }}" `
+              -PtyBackend "${{ matrix.pty_backend }}" `
+              -Version $version
+            $packageRoot = "dist/${{ matrix.package_root }}"
+            $manifestPath = Join-Path $packageRoot "manifest.json"
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            $manifest.signing.status = "authenticode-signed"
+            $manifest.signing.unsigned = $false
+            [IO.File]::WriteAllText(
+              $manifestPath,
+              (($manifest | ConvertTo-Json -Depth 8) + [Environment]::NewLine),
+              [Text.UTF8Encoding]::new($false)
+            )
+            $checksumLines = Get-ChildItem -LiteralPath $packageRoot -File -Recurse |
+              Where-Object Name -ne "SHA256SUMS" |
+              Sort-Object FullName |
+              ForEach-Object {
+                $relative = [IO.Path]::GetRelativePath($packageRoot, $_.FullName).Replace('\', '/')
+                $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                "$hash  $relative"
+              }
+            [IO.File]::WriteAllLines(
+              (Join-Path $packageRoot "SHA256SUMS"),
+              [string[]]$checksumLines,
+              [Text.Encoding]::ASCII
+            )
+            Compress-Archive -Path $packageRoot -DestinationPath "dist/${{ matrix.artifact }}" -Force
+          } finally {
+            Remove-Item -LiteralPath $certificate -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: signed-package-smoke Windows
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          Push-Location dist/R-SSH-windows-x64
-          ./rssh-app.exe version --json
-          ./rssh-app.exe doctor --json
-          $selfTest = ./rssh-app.exe self-test --json | ConvertFrom-Json
-          if ($selfTest.ok -ne $true) {
-            throw "self-test failed"
+          New-Item -ItemType Directory -Path dist/signed-package-smoke | Out-Null
+          Expand-Archive `
+            -LiteralPath "dist/${{ matrix.artifact }}" `
+            -DestinationPath dist/signed-package-smoke
+          $archivedBinary = (Resolve-Path `
+            "dist/signed-package-smoke/${{ matrix.package_root }}/rssh-app.exe").Path
+          signtool verify /pa /all /v $archivedBinary
+          $archivedSignature = Get-AuthenticodeSignature -LiteralPath $archivedBinary
+          if ($archivedSignature.Status -ne [Management.Automation.SignatureStatus]::Valid) {
+            throw "archived Authenticode verification failed: $($archivedSignature.StatusMessage)"
           }
-          $bench = ./rssh-app.exe bench --json --render-frames 3 --idle-ms 1 | ConvertFrom-Json
-          if ($bench.ok -ne $true) {
-            throw "bench threshold gate failed"
-          }
-          if ($bench.idle_sample_ms -ne 1) {
-            throw "bench idle sample did not use requested duration"
-          }
-          if ($bench.process_memory_bytes -le 0) {
-            throw "bench did not report process memory"
-          }
-          if ($null -eq $bench.idle_cpu_usage_percent -or $null -eq $bench.process_virtual_memory_bytes -or $null -eq $bench.process_accumulated_cpu_ms) {
-            throw "bench did not report idle CPU and process resource fields"
-          }
-          if ($bench.threshold_violations.Count -ne 0) {
-            throw "bench reported unexpected threshold violations"
-          }
-          ./rssh-app.exe profile --check --file examples/rssh-profiles.toml
-          $windowShow = ./rssh-app.exe profile --show window-smoke --file examples/rssh-profiles.toml
-          if ($windowShow -notmatch "--metrics-json") {
-            throw "window-smoke profile did not resolve --metrics-json"
-          }
-          ./rssh-app.exe console --preflight -- cmd.exe /C echo packaged-console-alias-smoke
-          ./rssh-console.cmd --preflight -- cmd.exe /C echo packaged-console-launcher-smoke
-          Pop-Location
+          ./scripts/ci/package-smoke.ps1 `
+            -PackageRoot "dist/signed-package-smoke/${{ matrix.package_root }}" `
+            -ExpectedTarget "${{ matrix.runtime_target }}" `
+            -ExpectedPtyBackend "${{ matrix.pty_backend }}" `
+            -ExpectedArtifactName "${{ matrix.artifact }}"
+          $hash = (Get-FileHash -Algorithm SHA256 "dist/${{ matrix.artifact }}").Hash.ToLowerInvariant()
+          "$hash  ${{ matrix.artifact }}" | Set-Content -NoNewline "dist/${{ matrix.artifact }}.SHA256SUMS"
 
-      - name: Compress package
-        shell: pwsh
-        run: |
-          $attempts = 5
-          for ($attempt = 1; $attempt -le $attempts; $attempt++) {
-            try {
-              Compress-Archive -Path dist/R-SSH-windows-x64 -DestinationPath dist/R-SSH-windows-x64.zip -Force
-              break
-            } catch {
-              if ($attempt -eq $attempts) {
-                throw
-              }
-              Start-Sleep -Seconds 2
-            }
-          }
-
-      - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload signed Windows artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: R-SSH-windows-x64
-          path: dist/R-SSH-windows-x64.zip
+          name: signed-${{ matrix.slug }}
+          path: |
+            dist/${{ matrix.artifact }}
+            dist/${{ matrix.artifact }}.SHA256SUMS
+          if-no-files-found: error
+
+  sign-linux:
+    name: Sign Linux package (${{ matrix.runtime_target }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-package
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    environment: release-linux-signing
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - slug: linux-x64
+            runner: ubuntu-24.04
+            runtime_target: linux-x86_64
+            pty_backend: unix-pty
+            package_root: R-SSH-linux-x64
+            artifact: R-SSH-linux-x64.tar.gz
+            unsigned_artifact: R-SSH-linux-x64-unsigned.tar.gz
+          - slug: linux-arm64
+            runner: ubuntu-24.04-arm
+            runtime_target: linux-aarch64
+            pty_backend: unix-pty
+            package_root: R-SSH-linux-arm64
+            artifact: R-SSH-linux-arm64.tar.gz
+            unsigned_artifact: R-SSH-linux-arm64-unsigned.tar.gz
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: unsigned-${{ matrix.slug }}
+          path: dist
+      - uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
+
+      - name: Assemble stable Linux artifact and detached cosign bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/source
+          tar -xzf "dist/${{ matrix.unsigned_artifact }}" -C dist/source
+          source_binary=$(find dist/source -type f -name rssh-app -print -quit)
+          test -n "$source_binary"
+          version=$("$source_binary" version --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+          bash scripts/ci/package-native.sh \
+            --binary "$source_binary" \
+            --package-root "dist/${{ matrix.package_root }}" \
+            --artifact-name "${{ matrix.artifact }}" \
+            --runtime-target "${{ matrix.runtime_target }}" \
+            --pty-backend "${{ matrix.pty_backend }}" \
+            --version "$version"
+          python3 - "dist/${{ matrix.package_root }}" cosign-detached <<'PY'
+          import hashlib, json, pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          manifest_path = root / "manifest.json"
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          manifest["signing"] = {"status": sys.argv[2], "unsigned": False}
+          manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          with (root / "SHA256SUMS").open("w", encoding="ascii", newline="\n") as output:
+              for path in sorted(p for p in root.rglob("*") if p.is_file() and p.name != "SHA256SUMS"):
+                  digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                  output.write(f"{digest}  {path.relative_to(root).as_posix()}\n")
+          PY
+          rm -f "dist/${{ matrix.artifact }}"
+          tar -czf "dist/${{ matrix.artifact }}" -C dist "${{ matrix.package_root }}"
+          (cd dist && sha256sum "${{ matrix.artifact }}" > "${{ matrix.artifact }}.SHA256SUMS")
+          cosign sign-blob --yes \
+            --bundle "dist/${{ matrix.artifact }}.sigstore.json" \
+            "dist/${{ matrix.artifact }}"
+          cosign verify-blob \
+            --bundle "dist/${{ matrix.artifact }}.sigstore.json" \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "dist/${{ matrix.artifact }}"
+
+      - name: signed-package-smoke Linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes openssh-client openssh-server xvfb
+          mkdir -p dist/signed-package-smoke
+          tar -xzf "dist/${{ matrix.artifact }}" -C dist/signed-package-smoke
+          xvfb-run -a bash scripts/ci/package-smoke.sh \
+            --package-root "dist/signed-package-smoke/${{ matrix.package_root }}" \
+            --expected-target "${{ matrix.runtime_target }}" \
+            --expected-pty-backend "${{ matrix.pty_backend }}" \
+            --expected-artifact-name "${{ matrix.artifact }}"
+
+      - name: Upload signed Linux artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed-${{ matrix.slug }}
+          path: |
+            dist/${{ matrix.artifact }}
+            dist/${{ matrix.artifact }}.SHA256SUMS
+            dist/${{ matrix.artifact }}.sigstore.json
+          if-no-files-found: error
+
+  sign-macos:
+    name: Sign and notarize macOS package (${{ matrix.runtime_target }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-package
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    environment: release-macos-signing
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - slug: macos-x64
+            runner: macos-15-intel
+            runtime_target: macos-x86_64
+            pty_backend: unix-pty
+            package_root: R-SSH-macos-x64
+            artifact: R-SSH-macos-x64.tar.gz
+            unsigned_artifact: R-SSH-macos-x64-unsigned.tar.gz
+          - slug: macos-arm64
+            runner: macos-15
+            runtime_target: macos-aarch64
+            pty_backend: unix-pty
+            package_root: R-SSH-macos-arm64
+            artifact: R-SSH-macos-arm64.tar.gz
+            unsigned_artifact: R-SSH-macos-arm64-unsigned.tar.gz
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: unsigned-${{ matrix.slug }}
+          path: dist
+
+      - name: Require protected Apple secrets, codesign, notarize, and staple
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_NOTARY_PRIVATE_KEY_BASE64: ${{ secrets.MACOS_NOTARY_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          for name in \
+            MACOS_CERTIFICATE_P12_BASE64 \
+            MACOS_CERTIFICATE_PASSWORD \
+            MACOS_SIGNING_IDENTITY \
+            MACOS_NOTARY_KEY_ID \
+            MACOS_NOTARY_ISSUER_ID \
+            MACOS_NOTARY_PRIVATE_KEY_BASE64
+          do
+            test -n "${!name:-}" || { echo "required protected signing secret $name is missing" >&2; exit 1; }
+          done
+          mkdir -p dist/source
+          tar -xzf "dist/${{ matrix.unsigned_artifact }}" -C dist/source
+          source_binary=$(find dist/source -type f -name rssh-app -print -quit)
+          test -n "$source_binary"
+          version=$("$source_binary" version --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+          bash scripts/ci/package-native.sh \
+            --binary "$source_binary" \
+            --package-root "dist/${{ matrix.package_root }}" \
+            --artifact-name "${{ matrix.artifact }}" \
+            --runtime-target "${{ matrix.runtime_target }}" \
+            --pty-backend "${{ matrix.pty_backend }}" \
+            --version "$version"
+
+          certificate="$RUNNER_TEMP/rssh-signing.p12"
+          notary_key="$RUNNER_TEMP/AuthKey_${MACOS_NOTARY_KEY_ID}.p8"
+          keychain="$RUNNER_TEMP/rssh-signing.keychain-db"
+          keychain_password=$(uuidgen)
+          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 -D > "$certificate"
+          printf '%s' "$MACOS_NOTARY_PRIVATE_KEY_BASE64" | base64 -D > "$notary_key"
+          cleanup() {
+            security delete-keychain "$keychain" >/dev/null 2>&1 || true
+            rm -f "$certificate" "$notary_key"
+          }
+          trap cleanup EXIT
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" login.keychain-db
+
+          app=$(find "dist/${{ matrix.package_root }}" -type d -name '*.app' -print -quit)
+          test -n "$app"
+          codesign --force --deep --options runtime --timestamp \
+            --sign "$MACOS_SIGNING_IDENTITY" \
+            --keychain "$keychain" \
+            "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          notary_zip="$RUNNER_TEMP/${{ matrix.slug }}-notary.zip"
+          ditto -c -k --keepParent "$app" "$notary_zip"
+          xcrun notarytool submit "$notary_zip" \
+            --key "$notary_key" \
+            --key-id "$MACOS_NOTARY_KEY_ID" \
+            --issuer "$MACOS_NOTARY_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$app"
+          xcrun stapler validate "$app"
+
+          python3 - "dist/${{ matrix.package_root }}" <<'PY'
+          import hashlib, json, pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          manifest_path = root / "manifest.json"
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          manifest["signing"] = {"status": "codesigned-notarized-stapled", "unsigned": False}
+          manifest["files"] = [
+              {
+                  "path": path.relative_to(root).as_posix(),
+                  "size": path.stat().st_size,
+                  "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+              for path in sorted(root.rglob("*"))
+              if path.is_file() and path.name not in ("manifest.json", "SHA256SUMS")
+          ]
+          manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          with (root / "SHA256SUMS").open("w", encoding="ascii", newline="\n") as output:
+              for path in sorted(p for p in root.rglob("*") if p.is_file() and p.name != "SHA256SUMS"):
+                  digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                  output.write(f"{digest}  {path.relative_to(root).as_posix()}\n")
+          PY
+          rm -f "dist/${{ matrix.artifact }}"
+          tar -czf "dist/${{ matrix.artifact }}" -C dist "${{ matrix.package_root }}"
+          (cd dist && shasum -a 256 "${{ matrix.artifact }}" > "${{ matrix.artifact }}.SHA256SUMS")
+
+      - name: signed-package-smoke macOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/signed-package-smoke
+          tar -xzf "dist/${{ matrix.artifact }}" -C dist/signed-package-smoke
+          archived_app="dist/signed-package-smoke/${{ matrix.package_root }}/R-SSH.app"
+          codesign --verify --deep --strict --verbose=2 "$archived_app"
+          xcrun stapler validate "$archived_app"
+          bash scripts/ci/package-smoke.sh \
+            --package-root "dist/signed-package-smoke/${{ matrix.package_root }}" \
+            --expected-target "${{ matrix.runtime_target }}" \
+            --expected-pty-backend "${{ matrix.pty_backend }}" \
+            --expected-artifact-name "${{ matrix.artifact }}"
+
+      - name: Upload signed and notarized macOS artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed-${{ matrix.slug }}
+          path: |
+            dist/${{ matrix.artifact }}
+            dist/${{ matrix.artifact }}.SHA256SUMS
+          if-no-files-found: error
+
+  attest-release:
+    name: SBOM and provenance (${{ matrix.artifact }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [sign-windows, sign-linux, sign-macos]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-provenance
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - slug: windows-x64
+            artifact: R-SSH-windows-x64.zip
+          - slug: windows-arm64
+            artifact: R-SSH-windows-arm64.zip
+          - slug: linux-x64
+            artifact: R-SSH-linux-x64.tar.gz
+          - slug: linux-arm64
+            artifact: R-SSH-linux-arm64.tar.gz
+          - slug: macos-x64
+            artifact: R-SSH-macos-x64.tar.gz
+          - slug: macos-arm64
+            artifact: R-SSH-macos-arm64.tar.gz
+
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed-${{ matrix.slug }}
+          path: dist
+      - name: Generate an SPDX SBOM for the final artifact
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: dist/${{ matrix.artifact }}
+          format: spdx-json
+          output-file: dist/${{ matrix.artifact }}.sbom.spdx.json
+          upload-artifact: false
+      - name: Attest final release provenance
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: dist/${{ matrix.artifact }}
+      - name: Upload certified release files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: certified-${{ matrix.slug }}
+          path: dist
+          if-no-files-found: error
 
   publish-release:
-    name: Publish GitHub release asset
+    name: Publish certified GitHub release assets
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: windows-console
+    needs: attest-release
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release-publish
     permissions:
       contents: write
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: R-SSH-windows-x64
+          pattern: certified-*
           path: dist
-      - env:
+          merge-multiple: true
+      - name: Reject unsigned or incomplete release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find dist -type f -iname '*unsigned*' -print -quit | grep -q .; then
+            echo "unsigned artifacts must never be published" >&2
+            exit 1
+          fi
+          for artifact in \
+            R-SSH-windows-x64.zip \
+            R-SSH-windows-arm64.zip \
+            R-SSH-linux-x64.tar.gz \
+            R-SSH-linux-arm64.tar.gz \
+            R-SSH-macos-x64.tar.gz \
+            R-SSH-macos-arm64.tar.gz
+          do
+            test -f "dist/$artifact"
+            test -f "dist/$artifact.SHA256SUMS"
+            test -f "dist/$artifact.sbom.spdx.json"
+          done
+          test -f dist/R-SSH-linux-x64.tar.gz.sigstore.json
+          test -f dist/R-SSH-linux-arm64.tar.gz.sigstore.json
+
+      - name: Create a complete draft and publish it atomically
+        shell: bash
+        env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" dist/R-SSH-windows-x64.zip --title "R-SSH $RELEASE_TAG" --notes "Windows console build for R-SSH."
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "release $RELEASE_TAG already exists; refusing to replace certified assets" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" --draft \
+            --title "R-SSH $RELEASE_TAG" \
+            --notes "Certified native terminal builds for Windows, Linux, and macOS on x64 and ARM64." \
+            dist/*
+          gh release edit "$RELEASE_TAG" --draft=false
