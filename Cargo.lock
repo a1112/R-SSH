@@ -3189,6 +3189,7 @@ dependencies = [
  "rssh-test-support",
  "serde",
  "serde_json",
+ "sha2",
  "sysinfo",
  "toml",
  "unicode-normalization",
@@ -3244,6 +3245,7 @@ name = "rssh-ssh"
 version = "0.1.0"
 dependencies = [
  "rssh-core",
+ "rssh-test-support",
  "russh",
  "tokio",
 ]

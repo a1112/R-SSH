@@ -57,6 +57,7 @@ pub struct CommandResponse {
 #[derive(Clone, Debug)]
 enum CommandTermination {
     Status(u32),
+    Stall,
     Signal {
         signal: russh::Sig,
         core_dumped: bool,
@@ -102,6 +103,8 @@ pub struct HermeticSshServerBuilder {
     passwords: HashMap<String, String>,
     authorized_keys: Vec<ssh_key::PublicKey>,
     commands: HashMap<String, CommandResponse>,
+    authentication_delay: Option<Duration>,
+    channel_open_delay: Option<Duration>,
     #[cfg(test)]
     never_finish_child_drop_delay: Option<Duration>,
     #[cfg(test)]
@@ -110,6 +113,14 @@ pub struct HermeticSshServerBuilder {
     worker_panic_before_ready: bool,
     #[cfg(test)]
     worker_panic_after_ready: bool,
+}
+
+struct FixtureBehavior {
+    authorized_keys: Vec<ssh_key::PublicKey>,
+    passwords: HashMap<String, String>,
+    commands: HashMap<String, CommandResponse>,
+    authentication_delay: Option<Duration>,
+    channel_open_delay: Option<Duration>,
 }
 
 impl HermeticSshServerBuilder {
@@ -131,6 +142,34 @@ impl HermeticSshServerBuilder {
     #[must_use]
     pub fn command(mut self, command: impl Into<String>, response: CommandResponse) -> Self {
         self.commands.insert(command.into(), response);
+        self
+    }
+
+    /// Delays every authentication decision to exercise client deadlines.
+    #[must_use]
+    pub const fn authentication_delay(mut self, delay: Duration) -> Self {
+        self.authentication_delay = Some(delay);
+        self
+    }
+
+    /// Delays session-channel confirmation to exercise client deadlines.
+    #[must_use]
+    pub const fn channel_open_delay(mut self, delay: Duration) -> Self {
+        self.channel_open_delay = Some(delay);
+        self
+    }
+
+    /// Accepts an exact command without sending output, EOF, or close.
+    #[must_use]
+    pub fn stalled_command(mut self, command: impl Into<String>) -> Self {
+        self.commands.insert(
+            command.into(),
+            CommandResponse {
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+                termination: CommandTermination::Stall,
+            },
+        );
         self
     }
 
@@ -345,17 +384,12 @@ impl HermeticSshServer {
         let worker_panic_before_ready = builder.worker_panic_before_ready;
         #[cfg(test)]
         let worker_panic_after_ready = builder.worker_panic_after_ready;
-        let mut authorized_keys = builder.authorized_keys;
-        authorized_keys.push(agent.public_key().clone());
-        let handler = FixtureHandler::new(
-            authorized_keys,
-            builder.passwords,
-            builder.commands,
+        let handler = build_fixture_handler(
+            builder,
+            agent.public_key().clone(),
             Arc::clone(&events),
             sftp.path().to_path_buf(),
             task_probe.clone(),
-            #[cfg(test)]
-            builder.never_finish_child_drop_delay,
         );
         let worker = thread::Builder::new()
             .name("rssh-hermetic-ssh".to_owned())
@@ -587,6 +621,31 @@ impl HermeticSshServer {
         }
         result
     }
+}
+
+fn build_fixture_handler(
+    builder: HermeticSshServerBuilder,
+    agent_public_key: ssh_key::PublicKey,
+    events: Arc<Mutex<Vec<SshEvent>>>,
+    sftp_root: PathBuf,
+    task_probe: SshTaskProbe,
+) -> FixtureHandler {
+    let mut authorized_keys = builder.authorized_keys;
+    authorized_keys.push(agent_public_key);
+    FixtureHandler::new(
+        FixtureBehavior {
+            authorized_keys,
+            passwords: builder.passwords,
+            commands: builder.commands,
+            authentication_delay: builder.authentication_delay,
+            channel_open_delay: builder.channel_open_delay,
+        },
+        events,
+        sftp_root,
+        task_probe,
+        #[cfg(test)]
+        builder.never_finish_child_drop_delay,
+    )
 }
 
 fn map_agent_teardown_error(source: io::Error, shutdown: ShutdownDeadline) -> SshFixtureError {

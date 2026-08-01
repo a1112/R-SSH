@@ -5,6 +5,8 @@ pub(super) struct FixtureHandler {
     authorized_keys: Vec<ssh_key::PublicKey>,
     passwords: HashMap<String, String>,
     commands: HashMap<String, CommandResponse>,
+    authentication_delay: Option<Duration>,
+    channel_open_delay: Option<Duration>,
     pub(super) events: Arc<Mutex<Vec<SshEvent>>>,
     sftp_root: PathBuf,
     channels: HashMap<ChannelId, Channel<Msg>>,
@@ -19,19 +21,26 @@ pub(super) struct FixtureHandler {
 
 impl FixtureHandler {
     pub(super) fn new(
-        authorized_keys: Vec<ssh_key::PublicKey>,
-        passwords: HashMap<String, String>,
-        commands: HashMap<String, CommandResponse>,
+        behavior: FixtureBehavior,
         events: Arc<Mutex<Vec<SshEvent>>>,
         sftp_root: PathBuf,
         task_probe: SshTaskProbe,
         #[cfg(test)] never_finish_child_drop_delay: Option<Duration>,
     ) -> Self {
         let tasks = ChildTaskTracker::new(&task_probe);
+        let FixtureBehavior {
+            authorized_keys,
+            passwords,
+            commands,
+            authentication_delay,
+            channel_open_delay,
+        } = behavior;
         Self {
             authorized_keys,
             passwords,
             commands,
+            authentication_delay,
+            channel_open_delay,
             events,
             sftp_root,
             channels: HashMap::new(),
@@ -47,9 +56,13 @@ impl FixtureHandler {
 
     pub(super) fn clone_for_session(&self) -> Self {
         Self::new(
-            self.authorized_keys.clone(),
-            self.passwords.clone(),
-            self.commands.clone(),
+            FixtureBehavior {
+                authorized_keys: self.authorized_keys.clone(),
+                passwords: self.passwords.clone(),
+                commands: self.commands.clone(),
+                authentication_delay: self.authentication_delay,
+                channel_open_delay: self.channel_open_delay,
+            },
             Arc::clone(&self.events),
             self.sftp_root.clone(),
             self.task_probe.clone(),
@@ -67,6 +80,9 @@ impl server::Handler for FixtureHandler {
         user: &str,
         public_key: &ssh_key::PublicKey,
     ) -> Result<server::Auth, Self::Error> {
+        if let Some(delay) = self.authentication_delay {
+            tokio::time::sleep(delay).await;
+        }
         let accepted = self.authorized_keys.iter().any(|key| key == public_key);
         record(
             &self.events,
@@ -88,6 +104,9 @@ impl server::Handler for FixtureHandler {
         user: &str,
         password: &str,
     ) -> Result<server::Auth, Self::Error> {
+        if let Some(delay) = self.authentication_delay {
+            tokio::time::sleep(delay).await;
+        }
         Ok(
             if self
                 .passwords
@@ -106,6 +125,9 @@ impl server::Handler for FixtureHandler {
         channel: Channel<Msg>,
         _session: &mut Session,
     ) -> Result<bool, Self::Error> {
+        if let Some(delay) = self.channel_open_delay {
+            tokio::time::sleep(delay).await;
+        }
         record(&self.events, SshEvent::SessionOpened);
         self.channels.insert(channel.id(), channel);
         #[cfg(test)]
@@ -529,6 +551,7 @@ fn finish_command(
     }
     match outcome.termination {
         CommandTermination::Status(status) => session.exit_status_request(channel, status)?,
+        CommandTermination::Stall => return Ok(()),
         CommandTermination::Signal {
             signal,
             core_dumped,

@@ -7,7 +7,7 @@ use std::{
     pin::Pin,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -492,12 +492,38 @@ impl RusshRemoteTcpIpForwardPlan {
     pub fn target(&self) -> (&str, u16) {
         (&self.target_host, self.target_port)
     }
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedRemoteForward {
+    plan: RusshRemoteTcpIpForwardPlan,
+    resolved_bind_port: Arc<AtomicU16>,
+}
+
+impl ResolvedRemoteForward {
+    fn new(plan: RusshRemoteTcpIpForwardPlan) -> Self {
+        let configured_port = plan.bind_port;
+        Self {
+            plan,
+            resolved_bind_port: Arc::new(AtomicU16::new(configured_port)),
+        }
+    }
+
+    fn resolve_bind_port(&self, bind_port: u16) {
+        self.resolved_bind_port.store(bind_port, Ordering::Release);
+    }
 
     fn matches_connected_endpoint(&self, connected_address: &str, connected_port: u32) -> bool {
-        self.bind_port == u16::try_from(connected_port).unwrap_or_default()
-            && (self.bind_host == connected_address
-                || self.bind_host == "0.0.0.0"
-                || self.bind_host == "::")
+        let resolved_port = self.resolved_bind_port.load(Ordering::Acquire);
+        resolved_port != 0
+            && resolved_port == u16::try_from(connected_port).unwrap_or_default()
+            && (self.plan.bind_host == connected_address
+                || self.plan.bind_host == "0.0.0.0"
+                || self.plan.bind_host == "::")
+    }
+
+    fn target(&self) -> (&str, u16) {
+        self.plan.target()
     }
 }
 
@@ -553,7 +579,11 @@ pub struct RusshChannelOpener {
     client_config: Arc<russh::client::Config>,
     host_key_policy: RusshHostKeyPolicy,
     known_hosts_path: Option<PathBuf>,
+    operation_timeout: Duration,
+    channel_inactivity_timeout: Option<Duration>,
 }
+
+const DEFAULT_SSH_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 impl Default for RusshChannelOpener {
     fn default() -> Self {
@@ -566,6 +596,8 @@ impl Default for RusshChannelOpener {
             client_config: Arc::new(client_config),
             host_key_policy: RusshHostKeyPolicy::RejectUnknown,
             known_hosts_path: None,
+            operation_timeout: DEFAULT_SSH_OPERATION_TIMEOUT,
+            channel_inactivity_timeout: None,
         }
     }
 }
@@ -577,6 +609,8 @@ impl RusshChannelOpener {
             client_config: Arc::new(client_config),
             host_key_policy: RusshHostKeyPolicy::RejectUnknown,
             known_hosts_path: None,
+            operation_timeout: DEFAULT_SSH_OPERATION_TIMEOUT,
+            channel_inactivity_timeout: None,
         }
     }
 
@@ -590,6 +624,29 @@ impl RusshChannelOpener {
     pub fn with_known_hosts_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.known_hosts_path = Some(path.into());
         self
+    }
+
+    /// Sets the absolute deadline for opening one SSH operation, including
+    /// connect, authentication, channel open, and channel startup requests.
+    #[must_use]
+    pub const fn with_operation_timeout(mut self, timeout: Duration) -> Self {
+        self.operation_timeout = timeout;
+        self
+    }
+
+    /// Sets the maximum time a channel reader may wait without receiving any
+    /// SSH channel message.
+    #[must_use]
+    pub const fn with_channel_inactivity_timeout(mut self, timeout: Duration) -> Self {
+        self.channel_inactivity_timeout = Some(timeout);
+        self
+    }
+
+    /// Returns the opt-in channel inactivity timeout. `None` leaves legitimate
+    /// quiet sessions unbounded by an inactivity policy.
+    #[must_use]
+    pub const fn channel_inactivity_timeout(&self) -> Option<Duration> {
+        self.channel_inactivity_timeout
     }
 
     #[must_use]
@@ -659,7 +716,7 @@ impl RusshChannelOpener {
         self.handler_for_host_with_remote_forward_lifecycle(
             host,
             port,
-            remote_forward,
+            ResolvedRemoteForward::new(remote_forward),
             RusshForwardCancellation::new(),
             Arc::new(RemoteForwardTaskTracker::default()),
             RusshForwardDeadlines::new(Duration::from_secs(30), Duration::from_secs(1)),
@@ -671,7 +728,7 @@ impl RusshChannelOpener {
         &self,
         host: impl Into<String>,
         port: u16,
-        remote_forward: RusshRemoteTcpIpForwardPlan,
+        remote_forward: ResolvedRemoteForward,
         forward_cancellation: RusshForwardCancellation,
         forward_task_tracker: Arc<RemoteForwardTaskTracker>,
         forward_deadlines: RusshForwardDeadlines,
@@ -707,12 +764,16 @@ impl RusshChannelOpener {
     ) -> Result<russh::client::Handle<RusshClientHandler>, SshSessionError> {
         let plan = self.connect_plan(&request);
         let (host, port) = plan.socket_addr();
-        russh::client::connect(
-            Arc::clone(&self.client_config),
-            (host, port),
-            self.handler_for_host(host, port),
+        tokio::time::timeout(
+            self.operation_timeout,
+            russh::client::connect(
+                Arc::clone(&self.client_config),
+                (host, port),
+                self.handler_for_host(host, port),
+            ),
         )
         .await
+        .map_err(|_| self.operation_deadline_error("connect"))?
         .map_err(|error| SshSessionError::new(format!("SSH connect failed: {error}")))
     }
 
@@ -730,7 +791,12 @@ impl RusshChannelOpener {
         auth_plan: &RusshAuthPlan,
     ) -> Result<RusshAuthOutcome, SshSessionError> {
         let mut backend = RusshHandleAuthenticationBackend { handle };
-        authenticate_auth_plan_with_backend(&mut backend, auth_plan).await
+        tokio::time::timeout(
+            self.operation_timeout,
+            authenticate_auth_plan_with_backend(&mut backend, auth_plan),
+        )
+        .await
+        .map_err(|_| self.operation_deadline_error("authentication"))?
     }
 
     /// Opens a russh session channel on an authenticated handle.
@@ -743,9 +809,9 @@ impl RusshChannelOpener {
         &self,
         handle: &russh::client::Handle<RusshClientHandler>,
     ) -> Result<russh::Channel<russh::client::Msg>, SshSessionError> {
-        handle
-            .channel_open_session()
+        tokio::time::timeout(self.operation_timeout, handle.channel_open_session())
             .await
+            .map_err(|_| self.operation_deadline_error("channel open"))?
             .map_err(|error| SshSessionError::new(format!("SSH channel open failed: {error}")))
     }
 
@@ -763,17 +829,20 @@ impl RusshChannelOpener {
         let (target_host, target_port) = plan.target();
         let (originator_host, originator_port) = plan.originator();
 
-        handle
-            .channel_open_direct_tcpip(
+        tokio::time::timeout(
+            self.operation_timeout,
+            handle.channel_open_direct_tcpip(
                 target_host,
                 target_port.into(),
                 originator_host,
                 originator_port.into(),
-            )
-            .await
-            .map_err(|error| {
-                SshSessionError::new(format!("SSH direct-tcpip channel open failed: {error}"))
-            })
+            ),
+        )
+        .await
+        .map_err(|_| self.operation_deadline_error("direct-tcpip channel open"))?
+        .map_err(|error| {
+            SshSessionError::new(format!("SSH direct-tcpip channel open failed: {error}"))
+        })
     }
 
     /// Opens an authenticated direct-tcpip channel using the same blocking
@@ -796,18 +865,32 @@ impl RusshChannelOpener {
                 SshSessionError::new(format!("SSH async runtime creation failed: {error}"))
             })?;
 
+        let operation_timeout = self.operation_timeout;
         let (handle, channel) = runtime.block_on(async {
-            let mut handle = self.connect_async(request).await?;
-            self.authenticate_async(&mut handle, plan.auth_plan())
-                .await?;
-            let channel = self
-                .open_direct_tcpip_channel_async(&handle, direct_tcpip_plan)
-                .await?;
+            tokio::time::timeout(operation_timeout, async {
+                let mut handle = self.connect_async(request).await?;
+                self.authenticate_async(&mut handle, plan.auth_plan())
+                    .await?;
+                let channel = self
+                    .open_direct_tcpip_channel_async(&handle, direct_tcpip_plan)
+                    .await?;
 
-            Ok::<_, SshSessionError>((handle, channel))
+                Ok::<_, SshSessionError>((handle, channel))
+            })
+            .await
+            .map_err(|_| {
+                SshSessionError::new(format!(
+                    "SSH direct-tcpip operation deadline exceeded after {operation_timeout:?}"
+                ))
+            })?
         })?;
 
-        Ok(RusshSshChannel::new(channel, handle, runtime))
+        Ok(RusshSshChannel::new_with_inactivity_timeout(
+            channel,
+            handle,
+            runtime,
+            self.channel_inactivity_timeout,
+        ))
     }
 
     /// Opens a dedicated direct-tcpip session and bridges it to `local_stream`
@@ -969,9 +1052,10 @@ impl RusshChannelOpener {
                 SshSessionError::new(format!("SSH async runtime creation failed: {error}"))
             })?;
         let remote_forward_plan = remote_forward_plan.clone();
+        let resolved_remote_forward = ResolvedRemoteForward::new(remote_forward_plan.clone());
         let task_tracker = Arc::new(RemoteForwardTaskTracker::default());
 
-        let handle = runtime.block_on(run_forward_startup(
+        let (handle, bound_port) = runtime.block_on(run_forward_startup(
             cancellation,
             deadlines.startup,
             async {
@@ -982,7 +1066,7 @@ impl RusshChannelOpener {
                     self.handler_for_host_with_remote_forward_lifecycle(
                         host,
                         port,
-                        remote_forward_plan.clone(),
+                        resolved_remote_forward.clone(),
                         cancellation.clone(),
                         Arc::clone(&task_tracker),
                         deadlines,
@@ -994,14 +1078,16 @@ impl RusshChannelOpener {
                     .await?;
 
                 let (bind_host, bind_port) = remote_forward_plan.bind();
-                handle
+                let bound_port = handle
                     .tcpip_forward(bind_host, u32::from(bind_port))
                     .await
                     .map_err(|error| {
                         SshSessionError::new(format!("SSH remote TCP forwarding failed: {error}"))
                     })?;
+                let bound_port = validated_remote_forward_bound_port(bound_port)?;
+                resolved_remote_forward.resolve_bind_port(bound_port);
 
-                Ok::<_, SshSessionError>(handle)
+                Ok::<_, SshSessionError>((handle, bound_port))
             },
         ))?;
 
@@ -1009,7 +1095,7 @@ impl RusshChannelOpener {
             runtime,
             handle: Some(handle),
             bind_host: remote_forward_plan.bind_host.clone(),
-            bind_port: remote_forward_plan.bind_port,
+            bind_port: bound_port,
             cancellation: cancellation.clone(),
             task_tracker,
             deadlines,
@@ -1027,48 +1113,73 @@ impl RusshChannelOpener {
         channel: &russh::Channel<russh::client::Msg>,
         startup_plan: &RusshChannelStartupPlan,
     ) -> Result<(), SshSessionError> {
-        for request in startup_plan.requests() {
-            match request {
-                RusshChannelStartupRequest::RequestPty {
-                    term,
-                    columns,
-                    rows,
-                    pixel_width,
-                    pixel_height,
-                } => {
-                    channel
-                        .request_pty(
-                            true,
-                            term,
-                            *columns,
-                            *rows,
-                            *pixel_width,
-                            *pixel_height,
-                            &[],
-                        )
-                        .await
-                        .map_err(|error| {
-                            SshSessionError::new(format!("SSH PTY request failed: {error}"))
+        tokio::time::timeout(self.operation_timeout, async {
+            for request in startup_plan.requests() {
+                match request {
+                    RusshChannelStartupRequest::RequestPty {
+                        term,
+                        columns,
+                        rows,
+                        pixel_width,
+                        pixel_height,
+                    } => {
+                        channel
+                            .request_pty(
+                                true,
+                                term,
+                                *columns,
+                                *rows,
+                                *pixel_width,
+                                *pixel_height,
+                                &[],
+                            )
+                            .await
+                            .map_err(|error| {
+                                SshSessionError::new(format!("SSH PTY request failed: {error}"))
+                            })?;
+                    }
+                    RusshChannelStartupRequest::RequestShell => {
+                        channel.request_shell(true).await.map_err(|error| {
+                            SshSessionError::new(format!("SSH shell request failed: {error}"))
                         })?;
-                }
-                RusshChannelStartupRequest::RequestShell => {
-                    channel.request_shell(true).await.map_err(|error| {
-                        SshSessionError::new(format!("SSH shell request failed: {error}"))
-                    })?;
-                }
-                RusshChannelStartupRequest::Exec { command } => {
-                    channel
-                        .exec(true, command.as_bytes())
-                        .await
-                        .map_err(|error| {
-                            SshSessionError::new(format!("SSH exec request failed: {error}"))
-                        })?;
+                    }
+                    RusshChannelStartupRequest::Exec { command } => {
+                        channel
+                            .exec(true, command.as_bytes())
+                            .await
+                            .map_err(|error| {
+                                SshSessionError::new(format!("SSH exec request failed: {error}"))
+                            })?;
+                    }
                 }
             }
-        }
 
-        Ok(())
+            Ok::<(), SshSessionError>(())
+        })
+        .await
+        .map_err(|_| self.operation_deadline_error("channel startup"))?
     }
+
+    fn operation_deadline_error(&self, stage: &str) -> SshSessionError {
+        SshSessionError::new(format!(
+            "SSH {stage} deadline exceeded after {:?}",
+            self.operation_timeout
+        ))
+    }
+}
+
+fn validated_remote_forward_bound_port(bound_port: u32) -> Result<u16, SshSessionError> {
+    let bound_port_u16 = u16::try_from(bound_port).map_err(|_| {
+        SshSessionError::new(format!(
+            "SSH remote TCP forwarding returned invalid port {bound_port}"
+        ))
+    })?;
+    if bound_port_u16 == 0 {
+        return Err(SshSessionError::new(
+            "SSH remote TCP forwarding returned invalid port 0",
+        ));
+    }
+    Ok(bound_port_u16)
 }
 
 struct RusshHandleAuthenticationBackend<'a> {
@@ -1221,7 +1332,7 @@ pub struct RusshClientHandler {
     host: Option<String>,
     port: Option<u16>,
     known_hosts_path: Option<PathBuf>,
-    remote_forwards: Vec<RusshRemoteTcpIpForwardPlan>,
+    remote_forwards: Vec<ResolvedRemoteForward>,
     forward_cancellation: Option<RusshForwardCancellation>,
     forward_task_tracker: Option<Arc<RemoteForwardTaskTracker>>,
     forward_deadlines: Option<RusshForwardDeadlines>,
@@ -1336,6 +1447,10 @@ trait RemoteForwardSession {
     async fn disconnect(&mut self) -> Result<(), SshSessionError>;
 
     async fn wait(&mut self) -> Result<(), SshSessionError>;
+
+    async fn wait_after_disconnect(&mut self) -> Result<(), SshSessionError> {
+        self.wait().await
+    }
 }
 
 impl RemoteForwardSession for russh::client::Handle<RusshClientHandler> {
@@ -1368,6 +1483,15 @@ impl RemoteForwardSession for russh::client::Handle<RusshClientHandler> {
         (&mut *self).await.map_err(|error| {
             SshSessionError::new(format!("SSH forwarding session failed: {error}"))
         })
+    }
+
+    async fn wait_after_disconnect(&mut self) -> Result<(), SshSessionError> {
+        match (&mut *self).await {
+            Ok(()) | Err(russh::Error::Disconnect) => Ok(()),
+            Err(error) => Err(SshSessionError::new(format!(
+                "SSH forwarding session failed: {error}"
+            ))),
+        }
     }
 }
 
@@ -1405,7 +1529,7 @@ where
     let shutdown = async {
         let cancel_result = session.cancel_tcpip_forward(bind_host, bind_port).await;
         let disconnect_result = session.disconnect().await;
-        let wait_result = session.wait().await;
+        let wait_result = session.wait_after_disconnect().await;
 
         let result = cancel_result.and(disconnect_result).and(wait_result);
         RemoteForwardShutdownOutcome {
@@ -1441,7 +1565,7 @@ where
     let shutdown = async {
         let cancel_result = session.cancel_tcpip_forward(bind_host, bind_port).await;
         let disconnect_result = session.disconnect().await;
-        let wait_result = session.wait().await;
+        let wait_result = session.wait_after_disconnect().await;
         completed_session.store(true, Ordering::Release);
         task_tracker.wait_for_empty().await;
 
@@ -1535,6 +1659,13 @@ pub struct RusshRemoteTcpIpForward {
 }
 
 impl RusshRemoteTcpIpForward {
+    /// Returns the actual server listener port. This differs from the request
+    /// when port zero asks the SSH server to allocate an available port.
+    #[must_use]
+    pub const fn bound_port(&self) -> u16 {
+        self.bind_port
+    }
+
     /// Waits until the remote forwarding session ends.
     ///
     /// # Errors
@@ -1660,11 +1791,20 @@ impl RusshSshChannel {
         handle: russh::client::Handle<RusshClientHandler>,
         runtime: tokio::runtime::Runtime,
     ) -> Self {
+        Self::new_with_inactivity_timeout(channel, handle, runtime, None)
+    }
+
+    fn new_with_inactivity_timeout(
+        channel: russh::Channel<russh::client::Msg>,
+        handle: russh::client::Handle<RusshClientHandler>,
+        runtime: tokio::runtime::Runtime,
+        inactivity_timeout: Option<Duration>,
+    ) -> Self {
         let (read_half, write_half) = channel.split();
         let runtime = Arc::new(runtime);
 
         Self {
-            reader: RusshChannelReader::new(read_half, Arc::clone(&runtime)),
+            reader: RusshChannelReader::new(read_half, Arc::clone(&runtime), inactivity_timeout),
             writer: RusshChannelWriter::new(write_half, handle, runtime),
         }
     }
@@ -1681,17 +1821,23 @@ pub struct RusshChannelReader {
     pending_read: VecDeque<u8>,
     result: SshSessionResult,
     finished: bool,
+    inactivity_timeout: Option<Duration>,
 }
 
 impl RusshChannelReader {
     #[must_use]
-    fn new(read_half: russh::ChannelReadHalf, runtime: Arc<tokio::runtime::Runtime>) -> Self {
+    fn new(
+        read_half: russh::ChannelReadHalf,
+        runtime: Arc<tokio::runtime::Runtime>,
+        inactivity_timeout: Option<Duration>,
+    ) -> Self {
         Self {
             read_half,
             runtime,
             pending_read: VecDeque::new(),
             result: SshSessionResult::default(),
             finished: false,
+            inactivity_timeout,
         }
     }
 
@@ -1723,7 +1869,20 @@ impl RusshChannelReader {
         }
 
         loop {
-            let message = self.runtime.block_on(self.read_half.wait());
+            let message = match self.inactivity_timeout {
+                Some(inactivity_timeout) => self
+                    .runtime
+                    .block_on(async {
+                        tokio::time::timeout(inactivity_timeout, self.read_half.wait()).await
+                    })
+                    .map_err(|_| {
+                        SshSessionError::new(format!(
+                            "SSH channel read inactivity deadline exceeded after \
+                             {inactivity_timeout:?}"
+                        ))
+                    })?,
+                None => self.runtime.block_on(self.read_half.wait()),
+            };
             match message.map_or(RusshReadAction::Finished, |message| {
                 apply_channel_message(&mut self.result, message)
             }) {
@@ -2070,17 +2229,31 @@ impl SshChannelOpener for RusshChannelOpener {
                 SshSessionError::new(format!("SSH async runtime creation failed: {error}"))
             })?;
 
+        let operation_timeout = self.operation_timeout;
         let (handle, channel) = runtime.block_on(async {
-            let mut handle = self.connect_async(request).await?;
-            self.authenticate_async(&mut handle, plan.auth_plan())
-                .await?;
-            let channel = self.open_session_channel_async(&handle).await?;
-            self.start_channel_async(&channel, &startup_plan).await?;
+            tokio::time::timeout(operation_timeout, async {
+                let mut handle = self.connect_async(request).await?;
+                self.authenticate_async(&mut handle, plan.auth_plan())
+                    .await?;
+                let channel = self.open_session_channel_async(&handle).await?;
+                self.start_channel_async(&channel, &startup_plan).await?;
 
-            Ok::<_, SshSessionError>((handle, channel))
+                Ok::<_, SshSessionError>((handle, channel))
+            })
+            .await
+            .map_err(|_| {
+                SshSessionError::new(format!(
+                    "SSH session operation deadline exceeded after {operation_timeout:?}"
+                ))
+            })?
         })?;
 
-        Ok(RusshSshChannel::new(channel, handle, runtime))
+        Ok(RusshSshChannel::new_with_inactivity_timeout(
+            channel,
+            handle,
+            runtime,
+            self.channel_inactivity_timeout,
+        ))
     }
 }
 
@@ -2095,6 +2268,31 @@ mod tests {
 
     type TestAuthFuture<'a> =
         Pin<Box<dyn Future<Output = Result<russh::client::AuthResult, SshSessionError>> + 'a>>;
+
+    #[test]
+    fn remote_forward_matcher_rejects_pending_and_wrong_ports_then_accepts_assigned_port() {
+        let forward = ResolvedRemoteForward::new(RusshRemoteTcpIpForwardPlan::new(
+            "127.0.0.1",
+            0,
+            "127.0.0.1",
+            9,
+        ));
+        assert!(!forward.matches_connected_endpoint("127.0.0.1", 0));
+        assert!(!forward.matches_connected_endpoint("127.0.0.1", 42_000));
+
+        forward.resolve_bind_port(42_000);
+
+        assert!(forward.matches_connected_endpoint("127.0.0.1", 42_000));
+        assert!(!forward.matches_connected_endpoint("127.0.0.1", 42_001));
+        assert!(!forward.matches_connected_endpoint("192.0.2.1", 42_000));
+    }
+
+    #[test]
+    fn remote_forward_bound_port_validation_rejects_zero_and_out_of_range_values() {
+        assert!(validated_remote_forward_bound_port(0).is_err());
+        assert!(validated_remote_forward_bound_port(u32::from(u16::MAX) + 1).is_err());
+        assert_eq!(validated_remote_forward_bound_port(42_000).unwrap(), 42_000);
+    }
 
     #[test]
     fn remote_exit_status_is_preserved() {

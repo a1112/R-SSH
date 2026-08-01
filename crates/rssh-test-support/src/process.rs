@@ -405,6 +405,38 @@ impl ChildGuard {
         }
     }
 
+    /// Polls the child once without blocking, returning captured output after
+    /// it exits and `None` while it remains active.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if child observation or output capture fails. An
+    /// observation failure also performs bounded cleanup before returning.
+    pub fn try_wait(&mut self) -> Result<Option<ChildOutput>, ChildGuardError> {
+        let Some(child) = self.child.as_mut() else {
+            return Err(missing_child_error("poll"));
+        };
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                self.child.take();
+                let (output, capture_error) = self.capture_output(status, false);
+                match capture_error {
+                    Some(source) => Err(build_completed_capture_error(
+                        output,
+                        source,
+                        &self.redactions,
+                    )),
+                    None => Ok(Some(output)),
+                }
+            }
+            Ok(None) => Ok(None),
+            Err(source) => match self.terminate_after_observation_error(source) {
+                Ok(_) => unreachable!("observation cleanup cannot succeed as a child result"),
+                Err(error) => Err(error),
+            },
+        }
+    }
+
     fn terminate_after_timeout(&mut self) -> Result<ChildOutput, ChildGuardError> {
         let Some(child) = self.child.as_mut() else {
             return Err(missing_child_error("terminate after timeout"));
@@ -955,14 +987,41 @@ mod tests {
 
     #[test]
     fn child_guard_kills_and_reaps_timed_out_child() {
-        let started = Instant::now();
         let secret = "super-sensitive-test-value";
         let mut command = timeout_command();
         command.env("RSSH_TEST_SECRET", secret);
-        let error = ChildGuard::spawn(command, Duration::from_millis(250))
-            .expect("spawn timeout helper")
-            .wait()
-            .expect_err("helper must time out");
+        let mut guard =
+            ChildGuard::spawn(command, Duration::from_secs(5)).expect("spawn timeout helper");
+        let readiness_deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let stdout = guard
+                .stdout
+                .snapshot()
+                .expect("snapshot timeout-helper stdout readiness");
+            let stderr = guard
+                .stderr
+                .snapshot()
+                .expect("snapshot timeout-helper stderr readiness");
+            let stdout_ready = stdout
+                .windows(b"child-started".len())
+                .any(|part| part == b"child-started");
+            let stderr_ready = stderr
+                .windows(secret.len())
+                .any(|part| part == secret.as_bytes());
+            if stdout_ready && stderr_ready {
+                break;
+            }
+            assert!(
+                Instant::now() < readiness_deadline,
+                "timeout helper readiness deadline"
+            );
+            thread::yield_now();
+        }
+        let timeout = Duration::from_millis(250);
+        guard.timeout = timeout;
+        guard.deadline = Instant::now() + timeout;
+        let started = Instant::now();
+        let error = guard.wait().expect_err("helper must time out");
 
         assert!(started.elapsed() < Duration::from_secs(5));
         assert!(!error.to_string().contains(secret));
@@ -1154,6 +1213,24 @@ mod tests {
 
         assert!(matches!(error, ChildGuardError::TimedOut { .. }));
         assert!(error.to_string().contains("transient kill failure"));
+    }
+
+    #[test]
+    fn nonblocking_poll_observes_child_completion_and_output() {
+        let mut guard =
+            ChildGuard::spawn(platform_marker_command("polled"), Duration::from_secs(5))
+                .expect("spawn polled child");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let output = loop {
+            if let Some(output) = guard.try_wait().expect("poll child") {
+                break output;
+            }
+            assert!(Instant::now() < deadline, "poll completion deadline");
+            thread::yield_now();
+        };
+
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"polled");
     }
 
     #[test]

@@ -252,6 +252,19 @@ impl SandboxedSftpSession {
             return Ok(PathBuf::new());
         }
         let requested = requested.strip_prefix("./").unwrap_or(requested);
+        // SFTP paths live in a virtual server namespace. OpenSSH canonicalizes
+        // relative batch operands through REALPATH and then sends `/name` back
+        // to the server, so one leading slash denotes this fixture root rather
+        // than the host operating-system root.
+        let requested = requested.strip_prefix('/').unwrap_or(requested);
+        if requested.contains('\\')
+            || requested
+                .as_bytes()
+                .get(1)
+                .is_some_and(|separator| *separator == b':')
+        {
+            return Err(StatusCode::PermissionDenied);
+        }
         let path = PathBuf::from(requested);
         if path.as_os_str().is_empty()
             || path.is_absolute()
@@ -619,13 +632,17 @@ fn apply_path_permissions(path: &Path, attrs: &FileAttributes) -> io::Result<()>
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, sync::Arc, time::Duration};
+    use std::{
+        path::{Path, PathBuf},
+        sync::Arc,
+        time::Duration,
+    };
 
     use russh::{client, keys::PrivateKeyWithHashAlg};
     use russh_sftp::client::SftpSession;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
-    use super::{SftpPathError, SftpRoot};
+    use super::{SandboxedSftpSession, SftpPathError, SftpRoot};
     use crate::ssh::{
         HermeticSshServer,
         redirect::{DanglingLeafRedirect, DirectoryRedirect},
@@ -668,6 +685,26 @@ mod tests {
             root.resolve_existing(absolute),
             Err(SftpPathError::UnsafePath { .. })
         ));
+    }
+
+    #[test]
+    fn protocol_virtual_absolute_path_matrix_preserves_root_and_rejects_escape_forms() {
+        assert_eq!(
+            SandboxedSftpSession::relative_path("/name").unwrap(),
+            PathBuf::from("name")
+        );
+        for rejected in [
+            "/../outside",
+            "//server/share",
+            "/C:/outside",
+            r"/C:\outside",
+            r"\outside",
+        ] {
+            assert!(
+                SandboxedSftpSession::relative_path(rejected).is_err(),
+                "unexpectedly accepted {rejected:?}"
+            );
+        }
     }
 
     #[test]
@@ -755,13 +792,37 @@ mod tests {
     fn real_sftp_subsystem_rejects_traversal_absolute_and_directory_redirect_escape() {
         let server = HermeticSshServer::start(DEADLINE).expect("start SSH fixture");
         let outside = tempfile::tempdir().unwrap();
+        std::fs::write(
+            server.sftp().path().join("virtual-root.txt"),
+            b"virtual-root",
+        )
+        .unwrap();
         std::fs::write(outside.path().join("secret.txt"), b"outside").unwrap();
         let redirect =
             DirectoryRedirect::create(outside.path(), &server.sftp().path().join("escape"))
                 .expect("create directory redirect without elevated privileges");
         runtime().block_on(async {
             let (ssh, sftp) = connect_sftp(&server).await;
+            let mut virtual_root = sftp.open("/virtual-root.txt").await.unwrap();
+            let mut virtual_contents = Vec::new();
+            virtual_root
+                .read_to_end(&mut virtual_contents)
+                .await
+                .unwrap();
+            assert_eq!(virtual_contents, b"virtual-root");
             assert!(sftp.create("../outside.txt").await.is_err());
+            for rejected in [
+                "/../outside.txt",
+                "//server/share",
+                "/C:/outside.txt",
+                r"/C:\outside.txt",
+                r"\outside.txt",
+            ] {
+                assert!(
+                    sftp.create(rejected).await.is_err(),
+                    "accepted {rejected:?}"
+                );
+            }
             let absolute = if cfg!(windows) {
                 r"C:\Windows\system.ini"
             } else {
@@ -769,6 +830,7 @@ mod tests {
             };
             assert!(sftp.open(absolute).await.is_err());
             assert!(sftp.open("escape/secret.txt").await.is_err());
+            assert!(sftp.open("/escape/secret.txt").await.is_err());
             assert!(sftp.create("escape/new.txt").await.is_err());
             sftp.close().await.unwrap();
             ssh.disconnect(russh::Disconnect::ByApplication, "SFTP security test", "")

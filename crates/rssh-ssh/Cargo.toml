@@ -11,5 +11,8 @@ russh = { version = "0.61.2", default-features = false, features = ["flate2", "r
 rssh-core = { path = "../rssh-core" }
 tokio = { version = "1", features = ["io-util", "net", "rt-multi-thread", "time"] }
 
+[dev-dependencies]
+rssh-test-support = { path = "../rssh-test-support" }
+
 [lints]
 workspace = true
