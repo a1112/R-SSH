@@ -86,6 +86,53 @@ fn package_smoke_and_machine_readable_manifests_are_mandatory() {
 }
 
 #[test]
+fn linux_release_jobs_guard_openssh_server_installation() {
+    let workflow = read_repo_file(".github/workflows/release.yml");
+    let ci = read_repo_file(".github/workflows/ci.yml");
+    let build = job_section(&workflow, "build-package", "sign-windows");
+    let sign_linux = job_section(&workflow, "sign-linux", "sign-macos");
+    let native_e2e = ci
+        .split("  native-terminal-e2e:\n")
+        .nth(1)
+        .expect("CI native-terminal-e2e job");
+
+    let build_install = named_step(build, "Install Linux package-smoke dependencies");
+    let signed_install = named_step(sign_linux, "signed-package-smoke Linux");
+    let ci_install = named_step(native_e2e, "Install Linux native E2E dependencies");
+    assert_linux_openssh_install_guard(build_install, "build-package");
+    assert_linux_openssh_install_guard(signed_install, "sign-linux");
+    assert_eq!(
+        openssh_guard_prefix(build_install),
+        openssh_guard_prefix(signed_install),
+        "release OpenSSH service guards must not drift between jobs"
+    );
+    assert_eq!(
+        openssh_guard_prefix(build_install),
+        openssh_guard_prefix(ci_install),
+        "release and CI OpenSSH service guards must not drift"
+    );
+}
+
+#[test]
+fn linux_release_guard_contract_does_not_accept_a_different_job() {
+    let workflow = r"
+jobs:
+  build-package:
+    steps:
+      - name: Install Linux package-smoke dependencies
+        run: apt-get install --yes openssh-server
+  decoy:
+    steps:
+      - name: guarded elsewhere
+        run: policy-rc.d backup_path restore_policy_rc exit 101
+";
+    let build = job_section(workflow, "build-package", "decoy");
+    let install = named_step(build, "Install Linux package-smoke dependencies");
+
+    assert!(missing_linux_openssh_guard(install).is_some());
+}
+
+#[test]
 fn tag_publication_requires_protected_signing_smoke_and_attestation() {
     let workflow = read_repo_file(".github/workflows/release.yml");
 
@@ -344,6 +391,72 @@ fn assert_sign_matrix(section: &str, entries: [(&str, &str, &str, &str, &str); 2
             "miswired signed artifact {slug}"
         );
     }
+}
+
+fn assert_linux_openssh_install_guard(step: &str, job: &str) {
+    if let Some(missing) = missing_linux_openssh_guard(step) {
+        panic!("{job} Linux OpenSSH install is missing {missing}");
+    }
+
+    let mut previous = None;
+    for marker in [
+        "sudo cp -a \"$policy_path\" \"$backup_path\"",
+        "trap restore_policy_rc EXIT",
+        "sudo rm -f -- \"$policy_path\"",
+        "sudo tee \"$policy_path\"",
+        "apt-get install --yes",
+    ] {
+        let position = step
+            .find(marker)
+            .unwrap_or_else(|| panic!("{job} Linux OpenSSH install is missing {marker}"));
+        if let Some(previous) = previous {
+            assert!(
+                previous < position,
+                "{job} Linux OpenSSH install orders {marker} before its prerequisite"
+            );
+        }
+        previous = Some(position);
+    }
+}
+
+fn missing_linux_openssh_guard(step: &str) -> Option<&'static str> {
+    [
+        "set -euo pipefail",
+        "policy-rc.d",
+        "backup_path",
+        "restore_policy_rc",
+        "exit 101",
+        "sudo cp -a \"$backup_path\" \"$policy_path\"",
+        "sudo chmod 0755 \"$policy_path\"",
+        "openssh-client",
+        "openssh-server",
+    ]
+    .into_iter()
+    .find(|contract| !step.contains(contract))
+}
+
+fn openssh_guard_prefix(step: &str) -> &str {
+    let start = step
+        .find("set -euo pipefail")
+        .expect("Linux OpenSSH guard start");
+    let update = "sudo apt-get update";
+    let end = step
+        .find(update)
+        .map(|offset| offset + update.len())
+        .expect("Linux OpenSSH guard apt update");
+    &step[start..end]
+}
+
+fn named_step<'a>(job: &'a str, name: &str) -> &'a str {
+    let marker = format!("      - name: {name}\n");
+    let start = job
+        .find(&marker)
+        .unwrap_or_else(|| panic!("missing step {name}"));
+    let after_header = start + marker.len();
+    let end = job[after_header..]
+        .find("\n      - ")
+        .map_or(job.len(), |offset| after_header + offset);
+    &job[start..end]
 }
 
 fn read_repo_file(path: &str) -> String {

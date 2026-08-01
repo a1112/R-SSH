@@ -410,7 +410,33 @@ jobs:
 
       - name: Install Linux package-smoke dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install --yes openssh-client openssh-server xvfb weston
+        run: |
+          set -euo pipefail
+          policy_path=/usr/sbin/policy-rc.d
+          backup_path="$RUNNER_TEMP/rssh-policy-rc.d.backup"
+          policy_existed=false
+          restore_policy_rc() {
+            phase_status=$?
+            trap - EXIT
+            sudo rm -f "$policy_path"
+            if [[ "$policy_existed" == true ]]; then
+              sudo cp -a "$backup_path" "$policy_path"
+            fi
+            sudo rm -f "$backup_path"
+            exit "$phase_status"
+          }
+          if sudo test -e "$policy_path" || sudo test -L "$policy_path"; then
+            sudo rm -f "$backup_path"
+            sudo cp -a "$policy_path" "$backup_path"
+            policy_existed=true
+          fi
+          trap restore_policy_rc EXIT
+          sudo rm -f -- "$policy_path"
+          printf '#!/bin/sh\nexit 101\n' | sudo tee "$policy_path" >/dev/null
+          sudo chmod 0755 "$policy_path"
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+            openssh-client openssh-server xvfb weston
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -719,8 +745,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          policy_path=/usr/sbin/policy-rc.d
+          backup_path="$RUNNER_TEMP/rssh-policy-rc.d.backup"
+          policy_existed=false
+          restore_policy_rc() {
+            phase_status=$?
+            trap - EXIT
+            sudo rm -f "$policy_path"
+            if [[ "$policy_existed" == true ]]; then
+              sudo cp -a "$backup_path" "$policy_path"
+            fi
+            sudo rm -f "$backup_path"
+            exit "$phase_status"
+          }
+          if sudo test -e "$policy_path" || sudo test -L "$policy_path"; then
+            sudo rm -f "$backup_path"
+            sudo cp -a "$policy_path" "$backup_path"
+            policy_existed=true
+          fi
+          trap restore_policy_rc EXIT
+          sudo rm -f -- "$policy_path"
+          printf '#!/bin/sh\nexit 101\n' | sudo tee "$policy_path" >/dev/null
+          sudo chmod 0755 "$policy_path"
           sudo apt-get update
-          sudo apt-get install --yes openssh-client openssh-server xvfb
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+            openssh-client openssh-server xvfb
           mkdir -p dist/signed-package-smoke
           tar -xzf "dist/${{ matrix.artifact }}" -C dist/signed-package-smoke
           xvfb-run -a bash scripts/ci/package-smoke.sh \
