@@ -39,9 +39,35 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
 
-      - name: Install Linux display servers
+      - name: Install Linux native E2E dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install --yes openssh-client xvfb weston
+        run: |
+          set -euo pipefail
+          policy_path=/usr/sbin/policy-rc.d
+          backup_path="$RUNNER_TEMP/rssh-policy-rc.d.backup"
+          policy_existed=false
+          restore_policy_rc() {
+            phase_status=$?
+            trap - EXIT
+            sudo rm -f "$policy_path"
+            if [[ "$policy_existed" == true ]]; then
+              sudo cp -a "$backup_path" "$policy_path"
+            fi
+            sudo rm -f "$backup_path"
+            exit "$phase_status"
+          }
+          if sudo test -e "$policy_path" || sudo test -L "$policy_path"; then
+            sudo rm -f "$backup_path"
+            sudo cp -a "$policy_path" "$backup_path"
+            policy_existed=true
+          fi
+          trap restore_policy_rc EXIT
+          sudo rm -f -- "$policy_path"
+          printf '#!/bin/sh\nexit 101\n' | sudo tee "$policy_path" >/dev/null
+          sudo chmod 0755 "$policy_path"
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+            openssh-client openssh-server xvfb weston
 
       - name: Build, validate version --json, and run native E2E
         if: runner.os == 'Windows'

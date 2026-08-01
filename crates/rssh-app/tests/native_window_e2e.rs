@@ -58,6 +58,7 @@ fn linux_display_and_strict_script_contracts_are_explicit() {
         read_repo_file("scripts/ci/process-harness.sh")
     );
 
+    assert_linux_openssh_server_contract([("CI", &ci), ("nightly", &nightly)]);
     for workflow in [&ci, &nightly] {
         assert!(workflow.contains("xvfb-run"), "missing X11 native E2E");
         assert!(workflow.contains("weston"), "missing Wayland native E2E");
@@ -130,6 +131,138 @@ fn linux_display_and_strict_script_contracts_are_explicit() {
     }
     assert!(powershell.contains("process-harness.ps1"));
     assert!(shell.contains("source \"$script_dir/process-harness.sh\""));
+}
+
+fn assert_linux_openssh_server_contract(workflows: [(&str, &str); 2]) {
+    let install_marker = "- name: Install Linux native E2E dependencies";
+    for (name, workflow) in workflows {
+        let native_e2e_job = workflow_job(workflow, "native-terminal-e2e")
+            .unwrap_or_else(|| panic!("{name} is missing the native-terminal-e2e job"));
+        let install_start = native_e2e_job
+            .find(install_marker)
+            .unwrap_or_else(|| panic!("{name} is missing the Linux dependency step"));
+        let after_marker = &native_e2e_job[install_start + install_marker.len()..];
+        let install_end = after_marker
+            .find("\n      - name: ")
+            .map_or(native_e2e_job.len(), |offset| {
+                install_start + install_marker.len() + offset
+            });
+        let install_step = &native_e2e_job[install_start..install_end];
+
+        assert!(install_step.contains("if: runner.os == 'Linux'"));
+        for package in ["openssh-client", "openssh-server", "xvfb", "weston"] {
+            assert!(
+                install_step.contains(package),
+                "{name} Linux dependency step is missing {package}"
+            );
+        }
+        for service_guard in [
+            "policy-rc.d",
+            "exit 101",
+            "trap restore_policy_rc EXIT",
+            "sudo cp -a \"$backup_path\" \"$policy_path\"",
+            "sudo chmod 0755 \"$policy_path\"",
+        ] {
+            assert!(
+                install_step.contains(service_guard),
+                "{name} Linux dependency step can start system ssh service: missing {service_guard}"
+            );
+        }
+        let mut previous = None;
+        for ordered_marker in [
+            "sudo cp -a \"$policy_path\" \"$backup_path\"",
+            "trap restore_policy_rc EXIT",
+            "sudo rm -f -- \"$policy_path\"",
+            "sudo tee \"$policy_path\"",
+            "apt-get install --yes",
+        ] {
+            let position = install_step.find(ordered_marker).unwrap_or_else(|| {
+                panic!("{name} Linux dependency step is missing {ordered_marker}")
+            });
+            if let Some(previous) = previous {
+                assert!(
+                    previous < position,
+                    "{name} Linux dependency step orders {ordered_marker} before its prerequisite"
+                );
+            }
+            previous = Some(position);
+        }
+        for e2e_step in [
+            "- name: Native E2E with Xvfb/X11",
+            "- name: Native E2E with Weston/Wayland",
+        ] {
+            let e2e_start = native_e2e_job
+                .find(e2e_step)
+                .unwrap_or_else(|| panic!("{name} is missing {e2e_step}"));
+            assert!(
+                install_start < e2e_start,
+                "{name} Linux dependencies must be installed before {e2e_step}"
+            );
+        }
+    }
+
+    let native_ssh = read_repo_file("crates/rssh-ssh/tests/loopback_native.rs");
+    for contract in [
+        concat!(
+            "#[cfg(target_os = \"linux\")]\n",
+            "#[test]\n",
+            "fn native_client_interoperates_with_an_isolated_real_openssh_sshd()"
+        ),
+        "(\"sshd\", \"-V\")",
+        "required Linux OpenSSH fixture tool {tool} missing",
+    ] {
+        assert!(
+            native_ssh.contains(contract),
+            "required Linux real-sshd probe is missing {contract}"
+        );
+    }
+    let function_start = native_ssh
+        .find("fn native_client_interoperates_with_an_isolated_real_openssh_sshd()")
+        .expect("required Linux real-sshd test function");
+    let attribute_start = native_ssh[..function_start]
+        .rfind("\n\n")
+        .map_or(0, |offset| offset + 2);
+    let attributes = &native_ssh[attribute_start..function_start];
+    assert!(
+        !attributes.lines().any(|line| {
+            let attribute = line.trim_start();
+            attribute.starts_with("#[") && attribute.contains("ignore")
+        }),
+        "required Linux real-sshd probe must not be ignored"
+    );
+}
+
+fn workflow_job<'a>(workflow: &'a str, job_name: &str) -> Option<&'a str> {
+    let marker = format!("\n  {job_name}:\n");
+    let start = workflow.find(&marker)? + 1;
+    let after_header = start + marker.len() - 1;
+    let remainder = &workflow[after_header..];
+    let end = remainder
+        .match_indices('\n')
+        .find_map(|(offset, _)| {
+            let next_line = &remainder[offset + 1..];
+            let line = next_line.lines().next()?;
+            (line.starts_with("  ") && !line.starts_with("   ") && line.ends_with(':'))
+                .then_some(after_header + offset)
+        })
+        .unwrap_or(workflow.len());
+    Some(&workflow[start..end])
+}
+
+#[test]
+fn linux_openssh_contract_is_scoped_to_the_native_e2e_job() {
+    let workflow = r"
+jobs:
+  quality:
+    steps:
+      - name: Install Linux native E2E dependencies
+  native-terminal-e2e:
+    steps:
+      - name: Native E2E with Xvfb/X11
+";
+
+    let job = workflow_job(workflow, "native-terminal-e2e").expect("native E2E job");
+    assert!(!job.contains("Install Linux native E2E dependencies"));
 }
 
 #[test]
