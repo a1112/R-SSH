@@ -98190,9 +98190,21 @@ impl NativeWindowApp {
                     // untouched because it disables this modern path.
                     label.prefix = "  ".to_owned();
                     label.suffix = if self.show_close_tab_button_in_tabs {
-                        " ×  ".to_owned()
+                        if active {
+                            // Give the focused tab a wider surface so it reads
+                            // as a distinct header tile at the compact 80-column
+                            // default size, while keeping the close hit target
+                            // anchored to the same glyph.
+                            " ×      ".to_owned()
+                        } else {
+                            " ×  ".to_owned()
+                        }
                     } else {
-                        "  ".to_owned()
+                        if active {
+                            "      ".to_owned()
+                        } else {
+                            "  ".to_owned()
+                        }
                     };
                 }
                 let allocated_title_width = if first_pass_title_width == 0 {
@@ -133623,9 +133635,9 @@ mod tests {
             .and_then(|layout| layout.tabs.first())
             .expect("default tab should be laid out");
         assert_eq!(tab.label.prefix, "  ");
-        assert_eq!(tab.label.suffix, " ×  ");
+        assert_eq!(tab.label.suffix, " ×      ");
         assert!(
-            tab.end_column.saturating_sub(tab.start_column) >= 11,
+            tab.end_column.saturating_sub(tab.start_column) >= 15,
             "modern active tab should retain target-like horizontal breathing room: {}..{}",
             tab.start_column,
             tab.end_column
