@@ -226,11 +226,12 @@ const LEGACY_TEST_CURSOR_FG_COLOR: Option<Color> = None;
 #[cfg(test)]
 const LEGACY_TEST_CURSOR_BG_COLOR: Color = LEGACY_TEST_FOREGROUND_COLOR;
 const DEFAULT_TAB_BAR_BACKGROUND_COLOR: Color = Color::Rgb(0x08, 0x0d, 0x18);
+const DEFAULT_MODERN_BRAND_BADGE_BACKGROUND: Color = Color::Rgb(0x1b, 0x2b, 0x44);
 const DEFAULT_TAB_BAR_ACTIVE_TAB_COLORS: NativeTabBarItemColors = NativeTabBarItemColors {
     fg_color: Some(Color::Rgb(0xf8, 0xfa, 0xfc)),
     // Give the active surface a restrained blue lift so it separates from
     // the tab strip without competing with the cyan brand accent.
-    bg_color: Some(Color::Rgb(0x1b, 0x2b, 0x44)),
+    bg_color: Some(DEFAULT_MODERN_BRAND_BADGE_BACKGROUND),
     intensity: Some(NativeFormatIntensity::Bold),
     underline: None,
     italic: None,
@@ -97203,10 +97204,26 @@ impl NativeWindowApp {
             write_tab_bar_segment(
                 &mut cells,
                 &mut column,
-                " [>_] ",
-                Color::Rgb(0x38, 0xbd, 0xf8),
+                " ",
+                tab_bar_foreground,
                 background,
+                false,
+            );
+            write_tab_bar_segment(
+                &mut cells,
+                &mut column,
+                "[>_]",
+                Color::Rgb(0x38, 0xbd, 0xf8),
+                DEFAULT_MODERN_BRAND_BADGE_BACKGROUND,
                 true,
+            );
+            write_tab_bar_segment(
+                &mut cells,
+                &mut column,
+                " ",
+                tab_bar_foreground,
+                background,
+                false,
             );
             write_tab_bar_segment(
                 &mut cells,
@@ -133723,6 +133740,24 @@ mod tests {
         assert_eq!(
             snapshot_cell(&snapshot, 0, u16::try_from(prompt_column).unwrap())
                 .expect("prompt mark cell should be visible")
+                .background,
+            Color::Rgb(0x1b, 0x2b, 0x44)
+        );
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, u16::try_from(prompt_column - 1).unwrap())
+                .expect("badge leading bracket cell should be visible")
+                .background,
+            Color::Rgb(0x1b, 0x2b, 0x44)
+        );
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, u16::try_from(prompt_column + 2).unwrap())
+                .expect("badge trailing bracket cell should be visible")
+                .background,
+            Color::Rgb(0x1b, 0x2b, 0x44)
+        );
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, u16::try_from(prompt_column - 2).unwrap())
+                .expect("badge leading spacer cell should be visible")
                 .background,
             Color::Rgb(0x08, 0x0d, 0x18)
         );
