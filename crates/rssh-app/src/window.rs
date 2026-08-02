@@ -252,7 +252,8 @@ const DEFAULT_TAB_BAR_INACTIVE_TAB_HOVER_COLORS: NativeTabBarItemColors =
         strikethrough: None,
     };
 const DEFAULT_TAB_BAR_NEW_TAB_COLORS: NativeTabBarItemColors = NativeTabBarItemColors {
-    fg_color: Some(Color::Rgb(0x38, 0xbd, 0xf8)),
+    // Keep the action legible without competing with the cyan brand accent.
+    fg_color: Some(Color::Rgb(0xd8, 0xe2, 0xf0)),
     bg_color: Some(Color::Rgb(0x08, 0x0d, 0x18)),
     intensity: None,
     underline: None,
@@ -261,6 +262,7 @@ const DEFAULT_TAB_BAR_NEW_TAB_COLORS: NativeTabBarItemColors = NativeTabBarItemC
 };
 const DEFAULT_TAB_BAR_NEW_TAB_HOVER_COLORS: NativeTabBarItemColors =
     DEFAULT_TAB_BAR_INACTIVE_TAB_HOVER_COLORS;
+const DEFAULT_MODERN_NEW_TAB_CHEVRON_FOREGROUND: Color = Color::Rgb(0x84, 0x92, 0xa6);
 const DEFAULT_ANSI_PALETTE_COLORS: [Color; 16] = [
     Color::Rgb(0x11, 0x18, 0x27),
     Color::Rgb(0xf8, 0x71, 0x71),
@@ -97433,7 +97435,7 @@ impl NativeWindowApp {
             *cell = tab_bar_render_cell(
                 new_tab_end,
                 '▾',
-                Color::Rgb(0x38, 0xbd, 0xf8),
+                DEFAULT_MODERN_NEW_TAB_CHEVRON_FOREGROUND,
                 background,
                 false,
             );
@@ -133581,7 +133583,7 @@ mod tests {
         assert_eq!(
             palette.tab_bar_new_tab.test_projection(),
             (
-                Some(Color::Rgb(0x38, 0xbd, 0xf8)),
+                Some(Color::Rgb(0xd8, 0xe2, 0xf0)),
                 Some(Color::Rgb(0x08, 0x0d, 0x18)),
                 None,
                 None,
@@ -133734,6 +133736,25 @@ mod tests {
         assert!(!tab_bar.contains("panes:"), "modern tab bar was {tab_bar:?}");
         assert!(tab_bar.contains('×'), "modern tab close marker was {tab_bar:?}");
         assert!(tab_bar.contains('▾'), "modern new-tab chevron was {tab_bar:?}");
+        let plus_column = tab_bar
+            .find('+')
+            .expect("modern new-tab plus marker should be visible");
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, u16::try_from(plus_column).unwrap())
+                .expect("new-tab plus cell should be visible")
+                .foreground,
+            Color::Rgb(0xd8, 0xe2, 0xf0)
+        );
+        let chevron_column = tab_bar
+            .chars()
+            .position(|character| character == '▾')
+            .expect("modern new-tab chevron should be visible");
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, u16::try_from(chevron_column).unwrap())
+                .expect("new-tab chevron cell should be visible")
+                .foreground,
+            Color::Rgb(0x84, 0x92, 0xa6)
+        );
         let layout = app.rendered_tab_bar_layout.borrow();
         let tab = layout
             .as_ref()
