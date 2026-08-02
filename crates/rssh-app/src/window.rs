@@ -133264,7 +133264,7 @@ mod tests {
 
     #[test]
     fn cursor_fallback_distinguishes_unconfigured_and_color_scheme_defaults() {
-        let mut app = NativeWindowApp::new(None);
+        let mut app = NativeWindowApp::new_with_visual_defaults(None);
         app.set_config_overrides(NativeConfigOverrides::default());
         assert_eq!(
             app.native_effective_config().cursor_bg_color,
@@ -204819,7 +204819,7 @@ return config
     fn window_title_formatter_receives_effective_config_snapshot() {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&seen);
-        let mut app = NativeWindowApp::new(None);
+        let mut app = NativeWindowApp::new_with_visual_defaults(None);
         app.tab_max_width = 28;
         app.status_update_interval = Duration::from_millis(1_250);
         app.window_title_formatter = Box::new(move |event| {
@@ -204980,26 +204980,36 @@ return config
                 color_scheme: None,
                 color_scheme_dirs: Vec::new(),
                 color_schemes: HashMap::new(),
-                resolved_palette: NativeResolvedPalette::default(),
+                resolved_palette: NativeResolvedPalette {
+                    cursor_fg: Some(super::DEFAULT_CURSOR_FG_COLOR),
+                    selection_bg: Some(super::DEFAULT_SELECTION_BG_COLOR),
+                    tab_bar_background: Some(super::DEFAULT_TAB_BAR_BACKGROUND_COLOR),
+                    tab_bar_active_tab: super::DEFAULT_TAB_BAR_ACTIVE_TAB_COLORS,
+                    tab_bar_inactive_tab: super::DEFAULT_TAB_BAR_INACTIVE_TAB_COLORS,
+                    tab_bar_inactive_tab_hover: super::DEFAULT_TAB_BAR_INACTIVE_TAB_HOVER_COLORS,
+                    tab_bar_new_tab: super::DEFAULT_TAB_BAR_NEW_TAB_COLORS,
+                    tab_bar_new_tab_hover: super::DEFAULT_TAB_BAR_NEW_TAB_HOVER_COLORS,
+                    ..NativeResolvedPalette::default()
+                },
                 foreground_color: DEFAULT_FOREGROUND_COLOR,
                 background_color: DEFAULT_BACKGROUND_COLOR,
                 ansi_palette: None,
                 indexed_palette: None,
                 selection_fg_color: None,
-                selection_bg_color: None,
+                selection_bg_color: Some(super::DEFAULT_SELECTION_BG_COLOR),
                 cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
                 cursor_border_color: None,
-                cursor_fg_color: None,
+                cursor_fg_color: Some(super::DEFAULT_CURSOR_FG_COLOR),
                 compose_cursor_color: None,
                 split_color: None,
                 scrollbar_thumb_color: None,
-                tab_bar_background_color: None,
+                tab_bar_background_color: Some(super::DEFAULT_TAB_BAR_BACKGROUND_COLOR),
                 tab_bar_inactive_tab_edge_color: None,
-                tab_bar_active_tab_colors: NativeTabBarItemColors::default(),
-                tab_bar_inactive_tab_colors: NativeTabBarItemColors::default(),
-                tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors::default(),
-                tab_bar_new_tab_colors: NativeTabBarItemColors::default(),
-                tab_bar_new_tab_hover_colors: NativeTabBarItemColors::default(),
+                tab_bar_active_tab_colors: super::DEFAULT_TAB_BAR_ACTIVE_TAB_COLORS,
+                tab_bar_inactive_tab_colors: super::DEFAULT_TAB_BAR_INACTIVE_TAB_COLORS,
+                tab_bar_inactive_tab_hover_colors: super::DEFAULT_TAB_BAR_INACTIVE_TAB_HOVER_COLORS,
+                tab_bar_new_tab_colors: super::DEFAULT_TAB_BAR_NEW_TAB_COLORS,
+                tab_bar_new_tab_hover_colors: super::DEFAULT_TAB_BAR_NEW_TAB_HOVER_COLORS,
                 tab_bar_style: NativeTabBarStyle::default(),
                 visual_bell_color: None,
                 notification_handling: DEFAULT_NOTIFICATION_HANDLING,
