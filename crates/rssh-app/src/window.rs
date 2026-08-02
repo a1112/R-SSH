@@ -159,7 +159,10 @@ const DEFAULT_LINE_STATE_CACHE_SIZE: usize = 1_024;
 const DEFAULT_LINE_QUAD_CACHE_SIZE: usize = 1_024;
 const DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE: usize = 1_024;
 const DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE: usize = 256;
-const DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(12_000);
+// Keep the native geometry and GPU emergency shaper on the same 15px visual
+// baseline.  The cell dimensions scale from this reference, so configured
+// font sizes continue to preserve their existing relative behavior.
+const DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(15_000);
 const DEFAULT_COMMAND_PALETTE_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(14_000);
 const DEFAULT_CHAR_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(18_000);
 const DEFAULT_PANE_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(36_000);
@@ -97141,6 +97144,19 @@ impl NativeWindowApp {
                     tab.right_edge.as_deref(),
                     style,
                 );
+
+                // Give the default active tab a visual breathing cell without
+                // changing its interactive bounds.  Keeping this paint-only
+                // margin preserves WezTerm-compatible mouse columns and the
+                // existing tab/new-tab hit targets while making the active
+                // tile read as a distinct surface in the modern chrome.
+                if active && self.tab_bar_style.is_empty() {
+                    if tab.start_column > 0
+                        && let Some(cell) = cells.get_mut(usize::from(tab.start_column - 1))
+                    {
+                        *cell = tab_bar_styled_render_cell(tab.start_column - 1, ' ', style);
+                    }
+                }
             }
         }
         if let Some(overflow_column) = visible_layout.overflow_column
@@ -133358,6 +133374,36 @@ mod tests {
             integrated_title_button_default_tab_bar_label(NativeIntegratedTitleButton::Close),
             " × "
         );
+    }
+
+    #[test]
+    fn modern_default_active_tab_paints_breathing_room_without_moving_hits() {
+        let app = NativeWindowApp::new_with_visual_defaults(None);
+        let snapshot = app.render_snapshot();
+        let layout = app.rendered_tab_bar_layout.borrow();
+        let tab = layout
+            .as_ref()
+            .and_then(|layout| layout.tabs.first())
+            .expect("default tab should be laid out");
+        let margin_column = tab.start_column.saturating_sub(1);
+
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, margin_column)
+                .expect("active tab margin cell should be visible")
+                .background,
+            Color::Rgb(0x17, 0x20, 0x33)
+        );
+        assert_eq!(app.tab_for_tab_bar_column(margin_column), None);
+        assert_eq!(app.tab_for_tab_bar_column(tab.start_column), Some(tab.tab_id));
+    }
+
+    #[test]
+    fn modern_default_font_matches_gpu_shaping_baseline() {
+        let app = NativeWindowApp::new_with_visual_defaults(None);
+
+        assert_eq!(app.font_size, NativeFontSize::from_millipoints(15_000));
+        assert_eq!(app.cell_width(), 9);
+        assert_eq!(app.cell_height(), 18);
     }
 
     #[test]
@@ -221713,16 +221759,16 @@ return config
             app.native_effective_config().font_size,
             NativeFontSize::from_millipoints(24_000)
         );
-        assert_eq!(app.cell_width(), CELL_WIDTH * 2);
-        assert_eq!(app.cell_height(), CELL_HEIGHT * 2);
+        assert_eq!(app.cell_width(), 14);
+        assert_eq!(app.cell_height(), 29);
 
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::IncreaseFontSize);
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ResetFontSize);
 
-        assert_eq!(app.cell_width(), CELL_WIDTH * 2);
-        assert_eq!(app.cell_height(), CELL_HEIGHT * 2);
+        assert_eq!(app.cell_width(), 14);
+        assert_eq!(app.cell_height(), 29);
     }
 
     #[test]
