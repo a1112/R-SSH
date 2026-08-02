@@ -97083,9 +97083,9 @@ impl NativeWindowApp {
             write_tab_bar_segment(
                 &mut cells,
                 &mut column,
-                ">_ ",
+                " >_ ",
+                DEFAULT_BACKGROUND_COLOR,
                 Color::Rgb(0x38, 0xbd, 0xf8),
-                background,
                 true,
             );
             write_tab_bar_segment(
@@ -98379,13 +98379,8 @@ impl NativeWindowApp {
         tab: &rssh_core::app_shell::Tab,
     ) -> Option<NativeTabTitle> {
         let default_title = self.tab_title_for_tab(tab);
-        let tab_bar_default_title = default_title.as_deref().map(|title| {
-            if tab.title().is_some() {
-                title.to_owned()
-            } else {
-                compact_terminal_tab_title(title)
-            }
-        });
+        let tab_bar_default_title =
+            self.tab_bar_default_title_for_tab(tab, default_title.as_deref());
         let tab_title = tab.title().map(str::to_owned);
         let tab_info = self.native_tab_information(position, tab, tab_title.clone());
         let tabs = self.native_window_tab_information();
@@ -98431,13 +98426,8 @@ impl NativeWindowApp {
         max_width: usize,
     ) -> Option<NativeTabTitle> {
         let default_title = self.tab_title_for_tab(tab);
-        let tab_bar_default_title = default_title.as_deref().map(|title| {
-            if tab.title().is_some() {
-                title.to_owned()
-            } else {
-                compact_terminal_tab_title(title)
-            }
-        });
+        let tab_bar_default_title =
+            self.tab_bar_default_title_for_tab(tab, default_title.as_deref());
         let tab_title = tab.title().map(str::to_owned);
         let tab_info = self.native_tab_information(position, tab, tab_title.clone());
         let tabs = self.native_window_tab_information();
@@ -98473,6 +98463,39 @@ impl NativeWindowApp {
         (self.tab_title_formatter)(&second_pass)
             .or(lua_tab_title)
             .or_else(|| tab_bar_default_title.map(NativeTabTitle::Text))
+    }
+
+    fn tab_bar_default_title_for_tab(
+        &self,
+        tab: &rssh_core::app_shell::Tab,
+        title: Option<&str>,
+    ) -> Option<String> {
+        let title = title?;
+        if tab.title().is_some() || !self.modern_tab_bar_uses_compact_labels() {
+            return Some(if tab.title().is_some() {
+                title.to_owned()
+            } else {
+                compact_terminal_tab_title(title)
+            });
+        }
+
+        // The modern chrome already identifies the application.  Give the
+        // default shell tab the same stable product label as the concept
+        // while retaining OSC/user-provided titles and non-shell programs.
+        let compact_title = compact_terminal_tab_title(title);
+        let is_default_shell_title = tab
+            .panes()
+            .iter()
+            .find(|pane| pane.id() == tab.active_pane_id())
+            .map(|pane| compact_terminal_tab_title(pane.launch().program()) == compact_title)
+            .unwrap_or(false);
+        if is_default_shell_title
+            && matches!(compact_title.as_str(), "Command Prompt" | "PowerShell")
+        {
+            Some("R-SSH".to_owned())
+        } else {
+            Some(compact_title)
+        }
     }
 
     fn native_resolved_palette(&self) -> NativeResolvedPalette {
@@ -133481,11 +133504,22 @@ mod tests {
 
     #[test]
     fn modern_default_active_tab_paints_breathing_room_without_moving_hits() {
-        let app = NativeWindowApp::new_with_visual_defaults(None);
+        let mut app = NativeWindowApp::new_with_visual_defaults(None);
+        app.handle_pty_output(b"\x1b]2;Command Prompt\x07")
+            .expect("default shell title should be accepted");
         assert_eq!(app.modern_tab_bar_brand_label(), Some(" >_ R-SSH "));
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("R-SSH"));
+        assert_eq!(
+            tab_bar.matches("R-SSH").count(),
+            2,
+            "modern chrome should show the brand and default tab title: {tab_bar:?}"
+        );
+        assert!(
+            !tab_bar.contains("Command Prompt"),
+            "default shell title should use the product label: {tab_bar:?}"
+        );
         let prompt_column = tab_bar
             .find(">_")
             .expect("modern brand prompt mark should be visible");
@@ -133493,6 +133527,12 @@ mod tests {
             snapshot_cell(&snapshot, 0, u16::try_from(prompt_column).unwrap())
                 .expect("prompt mark cell should be visible")
                 .foreground,
+            Color::Rgb(0x0b, 0x12, 0x20)
+        );
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, u16::try_from(prompt_column).unwrap())
+                .expect("prompt mark cell should be visible")
+                .background,
             Color::Rgb(0x38, 0xbd, 0xf8)
         );
         let product_column = tab_bar
@@ -133522,6 +133562,18 @@ mod tests {
         );
         assert_eq!(app.tab_for_tab_bar_column(margin_column), None);
         assert_eq!(app.tab_for_tab_bar_column(tab.start_column), Some(tab.tab_id));
+    }
+
+    #[test]
+    fn modern_default_tab_bar_preserves_custom_osc_title() {
+        let mut app = NativeWindowApp::new_with_visual_defaults(None);
+        app.handle_pty_output(b"\x1b]2;build-server\x07")
+            .expect("custom OSC title should be accepted");
+
+        let tab_bar = snapshot_row_text(&app.render_snapshot(), 0, TERMINAL_COLUMNS);
+
+        assert!(tab_bar.contains("build-server"), "tab bar was {tab_bar:?}");
+        assert_eq!(tab_bar.matches("R-SSH").count(), 1);
     }
 
     #[test]
