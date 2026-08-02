@@ -211,6 +211,7 @@ const DEFAULT_RENDER_BACKGROUND_RGBA: [u8; 4] = [0x0b, 0x12, 0x20, 0xff];
 const DEFAULT_WINDOW_CHROME_BORDER_RGBA: [u8; 4] = [0x33, 0x41, 0x55, 0xff];
 const DEFAULT_TAB_BAR_SEPARATOR_RGBA: [u8; 4] = [0x1e, 0x29, 0x3b, 0xff];
 const DEFAULT_FOREGROUND_COLOR: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
+const DEFAULT_MODERN_WINDOW_BUTTON_FOREGROUND_COLOR: Color = Color::Rgb(0xf8, 0xfa, 0xfc);
 const DEFAULT_BACKGROUND_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
 const DEFAULT_CURSOR_FG_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
 const DEFAULT_CURSOR_BG_COLOR: Color = Color::Rgb(0x67, 0xe8, 0xf9);
@@ -98035,7 +98036,13 @@ impl NativeWindowApp {
         let foreground = match button_foreground {
             Some(foreground) => foreground,
             None => match self.integrated_title_button_color {
-                NativeIntegratedTitleButtonColor::Auto => DEFAULT_FOREGROUND_COLOR,
+                NativeIntegratedTitleButtonColor::Auto => {
+                    if self.modern_tab_bar_uses_compact_labels() {
+                        DEFAULT_MODERN_WINDOW_BUTTON_FOREGROUND_COLOR
+                    } else {
+                        DEFAULT_FOREGROUND_COLOR
+                    }
+                }
                 NativeIntegratedTitleButtonColor::Color(color) => color,
             },
         };
@@ -133646,6 +133653,24 @@ mod tests {
         assert_eq!(
             integrated_title_button_default_tab_bar_label(NativeIntegratedTitleButton::Close),
             " × "
+        );
+    }
+
+    #[test]
+    fn modern_default_window_controls_use_bright_foreground() {
+        let app = NativeWindowApp::new_with_visual_defaults(None);
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let hide_column = tab_bar
+            .find('—')
+            .and_then(|column| u16::try_from(column).ok())
+            .expect("modern hide button should be visible");
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, hide_column)
+                .expect("modern hide button cell should be visible")
+                .foreground,
+            Color::Rgb(0xf8, 0xfa, 0xfc),
+            "modern window controls should use the bright title-bar foreground"
         );
     }
 
