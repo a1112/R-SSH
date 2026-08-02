@@ -132903,6 +132903,22 @@ mod tests {
     }
 
     static PANE_PTY_TEST_LOCK: Mutex<()> = Mutex::new(());
+    const TEST_ASYNC_FINALITY_BUDGET: Duration = Duration::from_secs(5);
+
+    fn wait_for_test_condition(description: &str, mut condition: impl FnMut() -> bool) {
+        let deadline = Instant::now() + TEST_ASYNC_FINALITY_BUDGET;
+        while !condition() {
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {description}"
+            );
+            thread::yield_now();
+        }
+    }
+
+    fn wait_for_thread_finished(worker: &thread::JoinHandle<()>, description: &str) {
+        wait_for_test_condition(description, || worker.is_finished());
+    }
 
     #[test]
     fn pane_pty_timeout_transfers_close_and_reader_as_one_reaper_job() {
@@ -133214,11 +133230,13 @@ mod tests {
         let _test_lock = PANE_PTY_TEST_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let reader_thread = thread::spawn(|| panic!("synthetic reader panic"));
+        wait_for_thread_finished(&reader_thread, "pane PTY panic reader");
         let ownership = super::PanePtyOwnership {
             session: None::<RefusingPaneLifecycle>,
             writer: None,
             master_close: None,
-            reader_thread: Some(thread::spawn(|| panic!("synthetic reader panic"))),
+            reader_thread: Some(reader_thread),
         };
 
         let outcome = super::cleanup_pane_pty_ownership(

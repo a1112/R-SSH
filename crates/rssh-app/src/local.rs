@@ -4504,6 +4504,23 @@ mod tests {
         spawn_input_thread_for_terminal,
     };
 
+    const TEST_ASYNC_FINALITY_BUDGET: Duration = Duration::from_secs(5);
+
+    fn wait_for_test_condition(description: &str, mut condition: impl FnMut() -> bool) {
+        let deadline = Instant::now() + TEST_ASYNC_FINALITY_BUDGET;
+        while !condition() {
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {description}"
+            );
+            std::thread::yield_now();
+        }
+    }
+
+    fn wait_for_thread_finished(worker: &std::thread::JoinHandle<()>, description: &str) {
+        wait_for_test_condition(description, || worker.is_finished());
+    }
+
     #[test]
     fn local_worker_timeout_transfers_to_observable_reaper() {
         let reaper = LocalWorkerReaper::start("test-timeout-transfer");
@@ -4529,9 +4546,9 @@ mod tests {
     #[test]
     fn local_worker_panic_is_observable() {
         let worker = std::thread::spawn(|| panic!("local worker panic seam"));
-        let deadline = Instant::now() + Duration::from_secs(1);
+        wait_for_thread_finished(&worker, "local panic worker");
 
-        let error = join_local_worker_before(worker, deadline, "panic worker").unwrap_err();
+        let error = join_local_worker_before(worker, Instant::now(), "panic worker").unwrap_err();
 
         assert!(error.to_string().contains("panicked"));
     }
@@ -4598,10 +4615,7 @@ mod tests {
         .unwrap_err();
         release_sender.send(()).unwrap();
 
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while reaper.pending() != 0 && Instant::now() < deadline {
-            std::thread::park_timeout(Duration::from_millis(2));
-        }
+        wait_for_test_condition("deferred panic worker reaping", || reaper.pending() == 0);
         let errors = reaper.take_errors();
         assert!(
             errors
