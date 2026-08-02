@@ -85,8 +85,12 @@ const TERMINAL_ROWS: u16 = 24;
 const DEFAULT_INITIAL_COLS: u16 = TERMINAL_COLUMNS;
 const DEFAULT_INITIAL_ROWS: u16 = TERMINAL_ROWS;
 const TAB_BAR_ROWS: u16 = 1;
-const CELL_WIDTH: u32 = 8;
-const CELL_HEIGHT: u32 = 16;
+// Keep the default grid geometry in physical pixels.  The native renderer and
+// the initial frame size use these values directly, so changing them here
+// updates the default 80x24 viewport without changing explicit font/line
+// height overrides or compatibility fixtures that provide their own sizes.
+const CELL_WIDTH: u32 = 9;
+const CELL_HEIGHT: u32 = 18;
 const DEFAULT_WINDOW_TITLE: &str = "R-SSH";
 static NEXT_PANE_RUNTIME_TOKEN: AtomicU64 = AtomicU64::new(1);
 static PANE_PTY_REAPER_PENDING: AtomicUsize = AtomicUsize::new(0);
@@ -229,10 +233,10 @@ const DEFAULT_UNDERLINE_POSITION: Option<NativeUnderlinePosition> = None;
 const DEFAULT_STRIKETHROUGH_POSITION: Option<NativeStrikethroughPosition> = None;
 const DEFAULT_FORCE_REVERSE_VIDEO_CURSOR: bool = false;
 const DEFAULT_WINDOW_PADDING: NativeWindowPadding = NativeWindowPadding {
-    left: NativeWindowPaddingDimension::Pixels(0),
-    right: NativeWindowPaddingDimension::Pixels(0),
-    top: NativeWindowPaddingDimension::Pixels(0),
-    bottom: NativeWindowPaddingDimension::Pixels(0),
+    left: NativeWindowPaddingDimension::Pixels(8),
+    right: NativeWindowPaddingDimension::Pixels(8),
+    top: NativeWindowPaddingDimension::Pixels(6),
+    bottom: NativeWindowPaddingDimension::Pixels(6),
 };
 const DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS: NativeBoldBrightensAnsiColors =
     NativeBoldBrightensAnsiColors::BrightAndBold;
@@ -220900,9 +220904,9 @@ return config
             app.runtime.terminal().grid().size(),
             rssh_core::TerminalSize::new(TERMINAL_COLUMNS, TERMINAL_ROWS)
         );
-        assert_eq!(app.frame_size_for_test(), (720, 450));
-        assert_eq!(app.window_frame.width, 720);
-        assert_eq!(app.window_frame.height, 450);
+        assert_eq!(app.frame_size_for_test(), (800, 500));
+        assert_eq!(app.window_frame.width, 800);
+        assert_eq!(app.window_frame.height, 500);
         assert!(
             app.native_effective_config()
                 .adjust_window_size_when_changing_font_size
@@ -220922,10 +220926,10 @@ return config
 
         assert_eq!(app.window_frame.width, FRAME_WIDTH);
         assert_eq!(app.window_frame.height, FRAME_HEIGHT);
-        assert_eq!(app.frame_size_for_test(), (639, 396));
+        assert_eq!(app.frame_size_for_test(), (720, 440));
         assert_eq!(
             app.runtime.terminal().grid().size(),
-            rssh_core::TerminalSize::new(71, 21)
+            rssh_core::TerminalSize::new(72, 21)
         );
         assert!(
             !app.native_effective_config()
@@ -221003,7 +221007,7 @@ return config
             app.native_effective_config().cell_width,
             NativeCellWidth::from_per_mille(1_500)
         );
-        assert_eq!(app.cell_width(), CELL_WIDTH * 3 / 2);
+        assert_eq!(app.cell_width(), (CELL_WIDTH * 3).div_ceil(2));
         assert_eq!(app.cell_height(), CELL_HEIGHT);
         assert_eq!(
             app.initial_frame_size(),
@@ -221015,7 +221019,7 @@ return config
         app.enter_command_palette_mode();
         app.command_palette_execute(WindowCommand::ResetFontSize);
 
-        assert_eq!(app.cell_width(), CELL_WIDTH * 3 / 2);
+        assert_eq!(app.cell_width(), (CELL_WIDTH * 3).div_ceil(2));
         assert_eq!(app.cell_height(), CELL_HEIGHT);
     }
 
@@ -268854,11 +268858,11 @@ act.Confirmation {
     #[test]
     fn derives_terminal_size_from_window_pixels() {
         assert_eq!(
-            terminal_size_from_window_pixels(640, FRAME_HEIGHT),
+            terminal_size_from_window_pixels(FRAME_WIDTH, FRAME_HEIGHT),
             rssh_core::TerminalSize::new(80, 24)
         );
         assert_eq!(
-            terminal_size_from_window_pixels(640, 384),
+            terminal_size_from_window_pixels(FRAME_WIDTH, FRAME_HEIGHT - CELL_HEIGHT),
             rssh_core::TerminalSize::new(80, 23)
         );
         assert_eq!(
