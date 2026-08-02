@@ -98017,6 +98017,11 @@ impl NativeWindowApp {
     }
 
     fn tab_bar_workspace_label(&self) -> String {
+        if self.modern_tab_bar_uses_compact_labels()
+            && self.app_shell.active_workspace().name() == DEFAULT_WORKSPACE_NAME
+        {
+            return String::new();
+        }
         format!(" ws:{} ", self.app_shell.active_workspace().name())
     }
 
@@ -133570,6 +133575,34 @@ mod tests {
         );
         assert_eq!(app.tab_for_tab_bar_column(margin_column), None);
         assert_eq!(app.tab_for_tab_bar_column(tab.start_column), Some(tab.tab_id));
+    }
+
+    #[test]
+    fn modern_default_compact_header_hides_default_workspace_label() {
+        let app = NativeWindowApp::new_with_visual_defaults(None);
+
+        let tab_bar = snapshot_row_text(&app.render_snapshot(), 0, TERMINAL_COLUMNS);
+
+        assert!(
+            !tab_bar.contains("ws:default"),
+            "modern compact header should reserve the workspace slot for the concept hierarchy: {tab_bar:?}"
+        );
+    }
+
+    #[test]
+    fn modern_compact_header_keeps_custom_workspace_label() {
+        let mut app = NativeWindowApp::new_with_visual_defaults(None);
+        let workspace = app.app_shell.active_workspace_id();
+        app.app_shell
+            .apply_action(AppAction::RenameWorkspace {
+                workspace,
+                name: "ops".to_owned(),
+            })
+            .expect("workspace rename should succeed");
+
+        let tab_bar = snapshot_row_text(&app.render_snapshot(), 0, TERMINAL_COLUMNS);
+
+        assert!(tab_bar.contains("ws:ops"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
