@@ -140,6 +140,7 @@ const FRAME_WIDTH: u32 = TERMINAL_COLUMNS as u32 * CELL_WIDTH;
 const FRAME_HEIGHT: u32 = (TERMINAL_ROWS as u32 + TAB_BAR_ROWS as u32) * CELL_HEIGHT;
 const DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS: u32 = 16;
 const DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS: u32 = 12;
+const MODERN_TAB_BAR_BRAND_GAP_COLUMNS: u16 = 2;
 const DOUBLE_CLICK_MAX_INTERVAL: Duration = Duration::from_millis(500);
 const DEFAULT_LEADER_TIMEOUT: Duration = Duration::from_millis(1_000);
 const DEFAULT_STATUS_UPDATE_INTERVAL: Duration = Duration::from_millis(1_000);
@@ -97096,6 +97097,7 @@ impl NativeWindowApp {
                 background,
                 true,
             );
+            column = column.saturating_add(MODERN_TAB_BAR_BRAND_GAP_COLUMNS);
         }
         write_tab_bar_segment(
             &mut cells,
@@ -98006,6 +98008,9 @@ impl NativeWindowApp {
             )
             .ok()?,
         )?;
+        if self.modern_tab_bar_uses_compact_labels() {
+            width = width.checked_add(MODERN_TAB_BAR_BRAND_GAP_COLUMNS)?;
+        }
         width = width
             .checked_add(u16::try_from(self.tab_bar_workspace_label().chars().count()).ok()?)?;
         if !self.left_status.is_empty() {
@@ -133603,6 +133608,30 @@ mod tests {
         let tab_bar = snapshot_row_text(&app.render_snapshot(), 0, TERMINAL_COLUMNS);
 
         assert!(tab_bar.contains("ws:ops"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn modern_default_header_separates_brand_from_active_tab() {
+        let app = NativeWindowApp::new_with_visual_defaults(None);
+        let snapshot = app.render_snapshot();
+        let tab_start_column = app
+            .rendered_tab_bar_layout
+            .borrow()
+            .as_ref()
+            .and_then(|layout| layout.tabs.first())
+            .map(|tab| tab.start_column)
+            .expect("default tab should be laid out");
+        let brand_width = app
+            .modern_tab_bar_brand_label()
+            .expect("modern brand should be present")
+            .chars()
+            .count();
+
+        assert_eq!(
+            usize::from(tab_start_column),
+            brand_width + usize::from(super::MODERN_TAB_BAR_BRAND_GAP_COLUMNS)
+        );
+        assert_eq!(snapshot_cell(&snapshot, 0, brand_width as u16).unwrap().ch, ' ');
     }
 
     #[test]
