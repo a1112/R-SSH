@@ -4016,7 +4016,14 @@ fn native_resolved_palette_with_overrides(
 fn native_resolved_palette_from_overrides(
     overrides: &NativeConfigOverrides,
 ) -> NativeResolvedPalette {
-    native_resolved_palette_with_overrides(&NativeResolvedPalette::default(), overrides)
+    // Color schemes historically use the light gray cursor fallback when a
+    // scheme omits `cursor_bg`. Keep that compatibility behavior in the
+    // resolved map as well as in the active window config reducer.
+    let base = NativeResolvedPalette {
+        cursor_bg: LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+        ..NativeResolvedPalette::default()
+    };
+    native_resolved_palette_with_overrides(&base, overrides)
 }
 
 #[expect(
@@ -132757,6 +132764,38 @@ mod tests {
     }
 
     #[test]
+    fn custom_color_scheme_map_uses_legacy_cursor_fallback() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+                local config = {}
+                config.color_schemes = {
+                  ['Minimal'] = {
+                    foreground = '#010203',
+                    background = '#040506',
+                  },
+                }
+                config.color_scheme = 'Minimal'
+                return config
+            "#,
+        )
+        .expect("expected custom color scheme without cursor_bg");
+
+        let scheme = overrides
+            .color_schemes
+            .as_ref()
+            .and_then(|schemes| schemes.get("Minimal"))
+            .expect("expected Minimal custom color scheme");
+        assert_eq!(scheme.cursor_bg, LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR);
+
+        app.set_config_overrides(overrides);
+        assert_eq!(
+            app.native_effective_config().cursor_bg_color,
+            LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR
+        );
+    }
+
+    #[test]
     fn modern_default_geometry_uses_target_grid() {
         assert_eq!(CELL_WIDTH, 9, "modern terminal cell width");
         assert_eq!(CELL_HEIGHT, 18, "modern terminal cell height");
@@ -144171,7 +144210,7 @@ return config
         let cases = [
             (
                 "Andromeda",
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 Color::Rgb(38, 42, 51),
                 Color::Rgb(248, 248, 240),
                 Some(Color::Rgb(207, 207, 194)),
@@ -144180,7 +144219,7 @@ return config
                 Color::Rgb(0, 0, 0),
                 Color::Rgb(205, 49, 49),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -148186,7 +148225,7 @@ return config
                 Color::Rgb(13, 188, 121),
                 Color::Rgb(229, 229, 16),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -152979,7 +153018,7 @@ return config
                 Color::Rgb(136, 185, 45),
                 Color::Rgb(241, 157, 26),
                 Color::Rgb(111, 117, 121),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 Some(Color::Rgb(235, 132, 19)),
             ),
             (
@@ -153091,7 +153130,7 @@ return config
                 Color::Rgb(0, 166, 0),
                 Color::Rgb(191, 191, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -153107,7 +153146,7 @@ return config
                 Color::Rgb(0, 166, 0),
                 Color::Rgb(191, 191, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -153123,7 +153162,7 @@ return config
                 Color::Rgb(0, 166, 0),
                 Color::Rgb(191, 191, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -153216,7 +153255,7 @@ return config
                 Color::Rgb(0, 166, 0),
                 Color::Rgb(153, 153, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -153232,7 +153271,7 @@ return config
                 Color::Rgb(0, 166, 0),
                 Color::Rgb(153, 153, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -154369,7 +154408,7 @@ return config
                 Color::Rgb(43, 175, 43),
                 Color::Rgb(190, 191, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -154385,7 +154424,7 @@ return config
                 Color::Rgb(43, 175, 43),
                 Color::Rgb(190, 191, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -154401,7 +154440,7 @@ return config
                 Color::Rgb(43, 175, 43),
                 Color::Rgb(190, 191, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -155477,7 +155516,7 @@ return config
                 Color::Rgb(0, 166, 0),
                 Color::Rgb(153, 153, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -155493,7 +155532,7 @@ return config
                 Color::Rgb(0, 166, 0),
                 Color::Rgb(153, 153, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -155509,7 +155548,7 @@ return config
                 Color::Rgb(0, 166, 0),
                 Color::Rgb(153, 153, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
         ];
@@ -155876,7 +155915,7 @@ return config
             ),
             (
                 "MaterialDark",
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 Color::Rgb(35, 35, 34),
                 Color::Rgb(22, 175, 202),
                 Some(Color::Rgb(223, 223, 223)),
@@ -158356,7 +158395,7 @@ return config
                 Color::Rgb(0, 166, 0),
                 Color::Rgb(153, 153, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -160028,7 +160067,7 @@ return config
                 Color::Rgb(0, 166, 0),
                 Color::Rgb(153, 153, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -160044,7 +160083,7 @@ return config
                 Color::Rgb(0, 166, 0),
                 Color::Rgb(153, 153, 0),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
         ];
@@ -160784,7 +160823,7 @@ return config
                 Color::Rgb(168, 255, 96),
                 Color::Rgb(191, 187, 31),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
@@ -160800,7 +160839,7 @@ return config
                 Color::Rgb(168, 255, 96),
                 Color::Rgb(191, 187, 31),
                 Color::Rgb(102, 102, 102),
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+                Color::Rgb(229, 229, 229),
                 None,
             ),
             (
