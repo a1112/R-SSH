@@ -97294,6 +97294,32 @@ impl NativeWindowApp {
                     {
                         *cell = tab_bar_styled_render_cell(tab.start_column - 1, ' ', style);
                     }
+
+                    // Clip one cell at each edge of the default active tile.
+                    // The compact prefix and trailing suffix are both blank,
+                    // so this creates a rounded/pill-like silhouette without
+                    // covering text or changing the tab hit rectangle.
+                    if tab.end_column.saturating_sub(tab.start_column) >= 3 {
+                        let corner_style = tab_bar_render_cell(
+                            tab.start_column,
+                            ' ',
+                            tab_bar_foreground,
+                            background,
+                            false,
+                        );
+                        if let Some(cell) = cells.get_mut(usize::from(tab.start_column)) {
+                            *cell = corner_style;
+                        }
+                        if let Some(cell) = cells.get_mut(usize::from(tab.end_column - 1)) {
+                            *cell = tab_bar_render_cell(
+                                tab.end_column - 1,
+                                ' ',
+                                tab_bar_foreground,
+                                background,
+                                false,
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -133688,6 +133714,20 @@ mod tests {
                 .expect("active tab margin cell should be visible")
                 .background,
             Color::Rgb(0x17, 0x20, 0x33)
+        );
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, tab.start_column)
+                .expect("active tab leading corner cell should be visible")
+                .background,
+            Color::Rgb(0x08, 0x0d, 0x18),
+            "modern active tile should clip its leading corner"
+        );
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, tab.end_column.saturating_sub(1))
+                .expect("active tab trailing corner cell should be visible")
+                .background,
+            Color::Rgb(0x08, 0x0d, 0x18),
+            "modern active tile should clip its trailing corner"
         );
         assert_eq!(app.tab_for_tab_bar_column(margin_column), None);
         assert_eq!(app.tab_for_tab_bar_column(tab.start_column), Some(tab.tab_id));
