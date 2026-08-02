@@ -98308,7 +98308,7 @@ impl NativeWindowApp {
                             // as a distinct header tile at the compact 80-column
                             // default size, while keeping the close hit target
                             // anchored to the same glyph.
-                            "     ×  ".to_owned()
+                            "            ×  ".to_owned()
                         } else {
                             " ×  ".to_owned()
                         }
@@ -133803,14 +133803,14 @@ mod tests {
             .and_then(|layout| layout.tabs.first())
             .expect("default tab should be laid out");
         assert_eq!(tab.label.prefix, "  ");
-        assert_eq!(tab.label.suffix, "     ×  ");
+        assert_eq!(tab.label.suffix, "            ×  ");
         assert_eq!(
             tab.close_column,
             Some(tab.end_column.saturating_sub(3)),
             "modern close target should sit near the active tile's trailing edge"
         );
         assert!(
-            tab.end_column.saturating_sub(tab.start_column) >= 15,
+            tab.end_column.saturating_sub(tab.start_column) >= 22,
             "modern active tab should retain target-like horizontal breathing room: {}..{}",
             tab.start_column,
             tab.end_column
