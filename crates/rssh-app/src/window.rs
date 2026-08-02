@@ -98004,7 +98004,10 @@ impl NativeWindowApp {
     }
 
     fn modern_tab_bar_brand_label(&self) -> Option<&'static str> {
-        self.modern_tab_bar_uses_compact_labels().then_some(" R-SSH ")
+        // Keep the brand close to the concept terminal glyph while using
+        // ASCII-only marks that are guaranteed by every fallback face.
+        self.modern_tab_bar_uses_compact_labels()
+            .then_some(" >_ R-SSH ")
     }
 
     fn modern_tab_bar_uses_compact_labels(&self) -> bool {
@@ -133444,7 +133447,7 @@ mod tests {
     #[test]
     fn modern_default_active_tab_paints_breathing_room_without_moving_hits() {
         let app = NativeWindowApp::new_with_visual_defaults(None);
-        assert_eq!(app.modern_tab_bar_brand_label(), Some(" R-SSH "));
+        assert_eq!(app.modern_tab_bar_brand_label(), Some(" >_ R-SSH "));
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("R-SSH"));
