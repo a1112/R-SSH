@@ -97272,7 +97272,7 @@ impl NativeWindowApp {
             // default new-tab hit target remains byte-for-byte compatible.
             *cell = tab_bar_render_cell(
                 new_tab_end,
-                '⌄',
+                '▾',
                 Color::Rgb(0x38, 0xbd, 0xf8),
                 background,
                 false,
@@ -133450,7 +133450,7 @@ mod tests {
         assert!(tab_bar.contains("R-SSH"));
         assert!(!tab_bar.contains("panes:"), "modern tab bar was {tab_bar:?}");
         assert!(tab_bar.contains('×'), "modern tab close marker was {tab_bar:?}");
-        assert!(tab_bar.contains('⌄'), "modern new-tab chevron was {tab_bar:?}");
+        assert!(tab_bar.contains('▾'), "modern new-tab chevron was {tab_bar:?}");
         let layout = app.rendered_tab_bar_layout.borrow();
         let tab = layout
             .as_ref()

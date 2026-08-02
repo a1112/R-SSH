@@ -624,7 +624,10 @@ mod tests {
         let mut catalog = bundled_emergency_font_catalog().expect("fixture font catalog");
         let mut shaper = TerminalShaper::new(bundled_emergency_font_config());
         let row = shaper
-            .shape_row(&mut catalog, "中文显示测试 日本語 한국어 العربية हिन्दी")
+            .shape_row(
+                &mut catalog,
+                "中文显示测试 日本語 한국어 العربية हिन्दी ×▾—□…",
+            )
             .expect("shape common CLI UI scripts");
 
         assert!(
