@@ -402,6 +402,35 @@ fn renderer_owned_gpu_planner_composites_configured_background_layers() {
 }
 
 #[test]
+fn renderer_owned_gpu_planner_rounds_frame_border_corners() {
+    let _gpu = gpu_test_guard();
+    let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+    terminal.feed(b"\x1b[?25l");
+    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+    let geometry = RenderGeometry::new(8, 8, 1, 1).with_frame_border(rgba(200, 210, 220, 255));
+    let mut planner = PixelRenderer::new();
+    let background = rgba(10, 20, 30, 255);
+    planner.set_default_background(background);
+    let graph = planner.prepare_gpu_frame(&snapshot, geometry, None, 0);
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 4096).expect("renderer");
+    let actual = renderer
+        .render_headless_rgba8(&graph, Duration::from_secs(5))
+        .expect("rounded frame border readback");
+    let pixel = |x: usize, y: usize| {
+        let start = (y * 8 + x) * 4;
+        &actual[start..start + 4]
+    };
+
+    assert_eq!(pixel(0, 0), background);
+    assert_eq!(pixel(1, 0), rgba(200, 210, 220, 255));
+    assert_eq!(pixel(0, 1), rgba(200, 210, 220, 255));
+    assert_eq!(pixel(2, 2), background);
+}
+
+#[test]
 fn renderer_owned_gpu_planner_preserves_gradient_stops_and_reuses_the_texture() {
     let _gpu = gpu_test_guard();
     let mut terminal = Terminal::new(TerminalSize::new(1, 1));

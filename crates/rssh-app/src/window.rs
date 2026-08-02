@@ -84413,7 +84413,22 @@ fn paint_frame_border(
             pixel.copy_from_slice(&color);
         }
     };
-    for x in 0..width {
+    if width < 3 || height < 3 {
+        for x in 0..width {
+            set_pixel(frame, x, 0);
+            set_pixel(frame, x, height.saturating_sub(1));
+        }
+        for y in 1..height.saturating_sub(1) {
+            set_pixel(frame, 0, y);
+            set_pixel(frame, width.saturating_sub(1), y);
+        }
+        return;
+    }
+
+    // Leave the four outermost pixels untouched so the 1px chrome reads as a
+    // subtle rounded frame instead of a hard square corner.  The framebuffer
+    // is already filled with the active background before this overlay runs.
+    for x in 1..width.saturating_sub(1) {
         set_pixel(frame, x, 0);
         set_pixel(frame, x, height.saturating_sub(1));
     }
@@ -134006,8 +134021,18 @@ mod tests {
         let width = usize::try_from(frame_width).unwrap();
         assert_eq!(
             frame_pixel_at(&frame, width, 0, 0),
+            super::DEFAULT_RENDER_BACKGROUND_RGBA,
+            "modern chrome should leave the outer frame corner rounded"
+        );
+        assert_eq!(
+            frame_pixel_at(&frame, width, 1, 0),
             super::DEFAULT_WINDOW_CHROME_BORDER_RGBA,
-            "modern chrome should outline the outer frame"
+            "modern chrome should begin the rounded border one pixel inward"
+        );
+        assert_eq!(
+            frame_pixel_at(&frame, width, 0, 1),
+            super::DEFAULT_WINDOW_CHROME_BORDER_RGBA,
+            "modern chrome should preserve the rounded border side"
         );
         assert_eq!(
             frame_pixel_at(&frame, width, 4, 4),

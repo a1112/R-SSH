@@ -1935,10 +1935,13 @@ impl PixelRenderer {
         );
         let frame_rect = gpu::PixelRect::new(0, 0, geometry.target_width, geometry.target_height);
         if let Some(border) = geometry.frame_border_color {
+            // Fill the target first, then draw the one-pixel frame with its
+            // corner pixels omitted. This gives the modern chrome a subtle
+            // rounded silhouette without changing the content viewport.
             graph.push_quad(gpu::GpuQuad::new(
                 gpu::GpuLayer::PaneBackground,
                 frame_rect,
-                border,
+                self.default_background,
             ));
             if geometry.target_width > 2 && geometry.target_height > 2 {
                 graph.push_quad(gpu::GpuQuad::new(
@@ -1950,6 +1953,44 @@ impl PixelRenderer {
                         geometry.target_height.saturating_sub(2),
                     ),
                     self.default_background,
+                ));
+                graph.push_quad(gpu::GpuQuad::new(
+                    gpu::GpuLayer::PaneBackground,
+                    gpu::PixelRect::new(1, 0, geometry.target_width.saturating_sub(2), 1),
+                    border,
+                ));
+                graph.push_quad(gpu::GpuQuad::new(
+                    gpu::GpuLayer::PaneBackground,
+                    gpu::PixelRect::new(
+                        1,
+                        geometry.target_height.saturating_sub(1),
+                        geometry.target_width.saturating_sub(2),
+                        1,
+                    ),
+                    border,
+                ));
+                graph.push_quad(gpu::GpuQuad::new(
+                    gpu::GpuLayer::PaneBackground,
+                    gpu::PixelRect::new(0, 1, 1, geometry.target_height.saturating_sub(2)),
+                    border,
+                ));
+                graph.push_quad(gpu::GpuQuad::new(
+                    gpu::GpuLayer::PaneBackground,
+                    gpu::PixelRect::new(
+                        geometry.target_width.saturating_sub(1),
+                        1,
+                        1,
+                        geometry.target_height.saturating_sub(2),
+                    ),
+                    border,
+                ));
+            } else {
+                // There is no room for a rounded corner on a degenerate
+                // target; preserve the historical full-frame border there.
+                graph.push_quad(gpu::GpuQuad::new(
+                    gpu::GpuLayer::PaneBackground,
+                    frame_rect,
+                    border,
                 ));
             }
         } else {
