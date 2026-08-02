@@ -140,6 +140,7 @@ const FRAME_WIDTH: u32 = TERMINAL_COLUMNS as u32 * CELL_WIDTH;
 const FRAME_HEIGHT: u32 = (TERMINAL_ROWS as u32 + TAB_BAR_ROWS as u32) * CELL_HEIGHT;
 const DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS: u32 = 16;
 const DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS: u32 = 12;
+const MODERN_TAB_BAR_BRAND_INSET_COLUMNS: u16 = 2;
 const MODERN_TAB_BAR_BRAND_GAP_COLUMNS: u16 = 2;
 const DOUBLE_CLICK_MAX_INTERVAL: Duration = Duration::from_millis(500);
 const DEFAULT_LEADER_TIMEOUT: Duration = Duration::from_millis(1_000);
@@ -97196,6 +97197,7 @@ impl NativeWindowApp {
             }
         }
         if self.modern_tab_bar_brand_label().is_some() {
+            column = column.saturating_add(MODERN_TAB_BAR_BRAND_INSET_COLUMNS);
             // The brand is a visual-only segment.  Workspace and tab labels
             // remain unchanged so WezTerm formatters and hit testing retain
             // their existing semantics.  Keep the prompt mark cyan while the
@@ -98169,6 +98171,9 @@ impl NativeWindowApp {
         } else {
             0
         })?;
+        if self.modern_tab_bar_brand_label().is_some() {
+            width = width.checked_add(MODERN_TAB_BAR_BRAND_INSET_COLUMNS)?;
+        }
         width = width.checked_add(
             u16::try_from(
                 self.modern_tab_bar_brand_label()
@@ -133878,9 +133883,19 @@ mod tests {
 
         assert_eq!(
             usize::from(tab_start_column),
-            brand_width + usize::from(super::MODERN_TAB_BAR_BRAND_GAP_COLUMNS)
+            usize::from(super::MODERN_TAB_BAR_BRAND_INSET_COLUMNS)
+                + brand_width
+                + usize::from(super::MODERN_TAB_BAR_BRAND_GAP_COLUMNS)
         );
-        assert_eq!(snapshot_cell(&snapshot, 0, brand_width as u16).unwrap().ch, ' ');
+        let brand_end_column = usize::from(super::MODERN_TAB_BAR_BRAND_INSET_COLUMNS) + brand_width;
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, u16::try_from(brand_end_column).unwrap())
+                .unwrap()
+                .ch,
+            ' '
+        );
+        assert_eq!(snapshot_cell(&snapshot, 0, 0).unwrap().ch, ' ');
+        assert_eq!(snapshot_cell(&snapshot, 0, 1).unwrap().ch, ' ');
     }
 
     #[test]
