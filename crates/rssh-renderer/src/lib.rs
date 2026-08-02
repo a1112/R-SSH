@@ -183,6 +183,12 @@ pub struct RenderGeometry {
     pub content_y: u32,
     pub content_width: u32,
     pub content_height: u32,
+    /// Optional one-pixel frame chrome painted outside the content viewport.
+    ///
+    /// This is deliberately part of the surface geometry rather than the
+    /// terminal snapshot so the physical frame never changes PTY dimensions,
+    /// cell placement, or hit testing.
+    pub frame_border_color: Option<[u8; 4]>,
 }
 
 impl RenderGeometry {
@@ -202,6 +208,7 @@ impl RenderGeometry {
             content_y: 0,
             content_width: target_width,
             content_height: target_height,
+            frame_border_color: None,
         }
     }
 
@@ -211,6 +218,12 @@ impl RenderGeometry {
         self.content_y = y.min(self.target_height);
         self.content_width = width.min(self.target_width.saturating_sub(self.content_x));
         self.content_height = height.min(self.target_height.saturating_sub(self.content_y));
+        self
+    }
+
+    #[must_use]
+    pub fn with_frame_border(mut self, color: [u8; 4]) -> Self {
+        self.frame_border_color = Some(color);
         self
     }
 }
@@ -1911,11 +1924,32 @@ impl PixelRenderer {
             geometry.content_width,
             geometry.content_height,
         );
-        graph.push_quad(gpu::GpuQuad::new(
-            gpu::GpuLayer::PaneBackground,
-            gpu::PixelRect::new(0, 0, geometry.target_width, geometry.target_height),
-            self.default_background,
-        ));
+        let frame_rect = gpu::PixelRect::new(0, 0, geometry.target_width, geometry.target_height);
+        if let Some(border) = geometry.frame_border_color {
+            graph.push_quad(gpu::GpuQuad::new(
+                gpu::GpuLayer::PaneBackground,
+                frame_rect,
+                border,
+            ));
+            if geometry.target_width > 2 && geometry.target_height > 2 {
+                graph.push_quad(gpu::GpuQuad::new(
+                    gpu::GpuLayer::PaneBackground,
+                    gpu::PixelRect::new(
+                        1,
+                        1,
+                        geometry.target_width.saturating_sub(2),
+                        geometry.target_height.saturating_sub(2),
+                    ),
+                    self.default_background,
+                ));
+            }
+        } else {
+            graph.push_quad(gpu::GpuQuad::new(
+                gpu::GpuLayer::PaneBackground,
+                frame_rect,
+                self.default_background,
+            ));
+        }
         if let Some(background) = self.prepared_gpu_background(snapshot, geometry) {
             graph.push_background_texture(background.decoded, background.texture, viewport);
         } else {

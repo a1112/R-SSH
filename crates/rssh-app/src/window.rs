@@ -208,6 +208,7 @@ const DEFAULT_TEXT_BLINK_RAPID_EASE_IN: NativeEasingFunction = NativeEasingFunct
 const DEFAULT_TEXT_BLINK_RAPID_EASE_OUT: NativeEasingFunction = NativeEasingFunction::Linear;
 const DEFAULT_RENDER_FOREGROUND_RGBA: [u8; 4] = [0xd8, 0xe2, 0xf0, 0xff];
 const DEFAULT_RENDER_BACKGROUND_RGBA: [u8; 4] = [0x0b, 0x12, 0x20, 0xff];
+const DEFAULT_WINDOW_CHROME_BORDER_RGBA: [u8; 4] = [0x33, 0x41, 0x55, 0xff];
 const DEFAULT_FOREGROUND_COLOR: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
 const DEFAULT_BACKGROUND_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
 const DEFAULT_CURSOR_FG_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
@@ -84294,6 +84295,7 @@ fn render_framebuffer_with_state(
             geometry.cell_width,
             geometry.cell_height,
         );
+        paint_frame_border(frame, geometry, geometry.frame_border_color);
         if let Some(scrollbar) = scrollbar {
             renderer.render_scrollbar(scrollbar, frame, geometry);
             redraw_frame_ui_rows(renderer, snapshot, frame, geometry, damage_row_offset);
@@ -84325,6 +84327,7 @@ fn render_aligned_framebuffer(
     background: [u8; 4],
 ) {
     fill_framebuffer(frame, background);
+    paint_frame_border(frame, geometry, geometry.frame_border_color);
     if placement.width == 0 || placement.height == 0 {
         return;
     }
@@ -84372,12 +84375,46 @@ fn render_aligned_framebuffer(
         placement.x,
         placement.y,
     );
+    paint_frame_border(frame, geometry, geometry.frame_border_color);
 }
 
 #[cfg(test)]
 fn fill_framebuffer(frame: &mut [u8], color: [u8; 4]) {
     for pixel in frame.chunks_exact_mut(4) {
         pixel.copy_from_slice(&color);
+    }
+}
+
+#[cfg(test)]
+fn paint_frame_border(
+    frame: &mut [u8],
+    geometry: RenderGeometry,
+    color: Option<[u8; 4]>,
+) {
+    let Some(color) = color else {
+        return;
+    };
+    if geometry.target_width == 0 || geometry.target_height == 0 {
+        return;
+    }
+    let width = usize::try_from(geometry.target_width).unwrap_or(0);
+    let height = usize::try_from(geometry.target_height).unwrap_or(0);
+    if width == 0 || height == 0 {
+        return;
+    }
+    let set_pixel = |frame: &mut [u8], x: usize, y: usize| {
+        let index = (y * width + x) * 4;
+        if let Some(pixel) = frame.get_mut(index..index.saturating_add(4)) {
+            pixel.copy_from_slice(&color);
+        }
+    };
+    for x in 0..width {
+        set_pixel(frame, x, 0);
+        set_pixel(frame, x, height.saturating_sub(1));
+    }
+    for y in 1..height.saturating_sub(1) {
+        set_pixel(frame, 0, y);
+        set_pixel(frame, width.saturating_sub(1), y);
     }
 }
 
@@ -91815,12 +91852,7 @@ impl NativeWindowApp {
         let scrollbar = self.scrollback_scrollbar();
         let surface_geometry = self.render_geometry();
         let placement = self.frame_content_placement();
-        let geometry = surface_geometry.with_content_rect(
-            placement.x,
-            placement.y,
-            placement.width,
-            placement.height,
-        );
+        let geometry = self.frame_render_geometry(surface_geometry, placement);
         let snapshot = self.render_snapshot();
         self.record_missing_glyph_warnings(&snapshot);
         let damage_row_offset = self.terminal_frame_row_offset();
@@ -91893,8 +91925,8 @@ impl NativeWindowApp {
     fn render_framebuffer(&mut self, frame: &mut [u8]) -> FrameRenderMode {
         self.refresh_renderer_animation_clock();
         let scrollbar = self.scrollback_scrollbar();
-        let geometry = self.render_geometry();
         let placement = self.frame_content_placement();
+        let geometry = self.frame_render_geometry(self.render_geometry(), placement);
         let snapshot = self.render_snapshot();
         self.record_missing_glyph_warnings(&snapshot);
         let damage_row_offset = self.terminal_frame_row_offset();
@@ -95335,6 +95367,34 @@ impl NativeWindowApp {
             self.cell_width(),
             self.cell_height(),
         )
+    }
+
+    fn frame_render_geometry(
+        &self,
+        geometry: RenderGeometry,
+        placement: NativeFrameContentPlacement,
+    ) -> RenderGeometry {
+        let geometry = geometry.with_content_rect(
+            placement.x,
+            placement.y,
+            placement.width,
+            placement.height,
+        );
+        let has_outer_margin = placement.x > 0
+            && placement.y > 0
+            && placement
+                .x
+                .saturating_add(placement.width)
+                < geometry.target_width
+            && placement
+                .y
+                .saturating_add(placement.height)
+                < geometry.target_height;
+        if self.modern_tab_bar_brand && has_outer_margin {
+            geometry.with_frame_border(DEFAULT_WINDOW_CHROME_BORDER_RGBA)
+        } else {
+            geometry
+        }
     }
 
     fn frame_content_placement(&self) -> NativeFrameContentPlacement {
@@ -133813,6 +133873,35 @@ mod tests {
         assert_eq!(
             app.runtime.terminal().grid().size(),
             rssh_core::TerminalSize::new(TERMINAL_COLUMNS, TERMINAL_ROWS)
+        );
+    }
+
+    #[test]
+    fn modern_default_frame_chrome_border_stays_outside_terminal_content() {
+        let mut app = NativeWindowApp::new_with_visual_defaults(None);
+        app.handle_window_resize(app.initial_frame_size())
+            .expect("default frame should resize");
+        let (frame_width, frame_height) = app.frame_size_for_test();
+        let mut frame =
+            vec![0; usize::try_from(frame_width.saturating_mul(frame_height) * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let width = usize::try_from(frame_width).unwrap();
+        assert_eq!(
+            frame_pixel_at(&frame, width, 0, 0),
+            super::DEFAULT_WINDOW_CHROME_BORDER_RGBA,
+            "modern chrome should outline the outer frame"
+        );
+        assert_eq!(
+            frame_pixel_at(&frame, width, 4, 4),
+            super::DEFAULT_RENDER_BACKGROUND_RGBA,
+            "chrome must preserve the existing physical padding"
+        );
+        assert_eq!(
+            app.runtime.terminal().grid().size(),
+            rssh_core::TerminalSize::new(TERMINAL_COLUMNS, TERMINAL_ROWS),
+            "chrome must not consume terminal rows or columns"
         );
     }
 
