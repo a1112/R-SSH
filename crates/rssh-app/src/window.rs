@@ -97200,8 +97200,8 @@ impl NativeWindowApp {
                 &mut cells,
                 &mut column,
                 " >_ ",
-                DEFAULT_BACKGROUND_COLOR,
                 Color::Rgb(0x38, 0xbd, 0xf8),
+                background,
                 true,
             );
             write_tab_bar_segment(
@@ -133714,13 +133714,13 @@ mod tests {
             snapshot_cell(&snapshot, 0, u16::try_from(prompt_column).unwrap())
                 .expect("prompt mark cell should be visible")
                 .foreground,
-            Color::Rgb(0x0b, 0x12, 0x20)
+            Color::Rgb(0x38, 0xbd, 0xf8)
         );
         assert_eq!(
             snapshot_cell(&snapshot, 0, u16::try_from(prompt_column).unwrap())
                 .expect("prompt mark cell should be visible")
                 .background,
-            Color::Rgb(0x38, 0xbd, 0xf8)
+            Color::Rgb(0x08, 0x0d, 0x18)
         );
         let product_column = tab_bar
             .find("R-SSH")
