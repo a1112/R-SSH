@@ -262,7 +262,11 @@ impl WindowGpu {
                 frame.geometry,
                 frame.damage,
                 frame.paint,
-                scale_factor_f32(frame.window.scale_factor())?,
+                // `RenderGeometry` and the surface are already expressed in
+                // physical pixels.  Applying the window scale factor again
+                // would rasterize 16px cells as 20px glyphs on a 125% display,
+                // causing glyphs to clip into adjacent terminal rows.
+                1.0,
                 1.0,
             )?;
         let status = self
@@ -419,30 +423,29 @@ impl Drop for WindowGpu {
     }
 }
 
-fn scale_factor_f32(scale_factor: f64) -> Result<f32, io::Error> {
-    if !scale_factor.is_finite()
-        || scale_factor < f64::from(f32::MIN_POSITIVE)
-        || scale_factor > f64::from(f32::MAX)
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("window scale factor {scale_factor:?} is outside the finite f32 range"),
-        ));
-    }
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "the finite f32 range is validated immediately before this conversion"
-    )]
-    let converted = scale_factor as f32;
-    Ok(converted)
-}
-
 fn bundled_emergency_text_backend(
     context: &GpuContext,
 ) -> Result<GpuLayerRenderer, Box<dyn Error>> {
-    use rssh_fonts::{FontCatalog, FontConfig, FontSource, RasterCacheConfig};
+    use rssh_fonts::RasterCacheConfig;
 
-    let catalog = FontCatalog::from_sources(
+    let catalog = bundled_emergency_font_catalog()?;
+    let font_config = bundled_emergency_font_config();
+    let format = context
+        .surface_format()
+        .ok_or_else(|| io::Error::other("direct text fixture requires a surface format"))?;
+    let mut renderer = GpuLayerRenderer::new(context, format, 64 * 1024)?;
+    renderer.enable_text(
+        catalog,
+        font_config,
+        GpuTextConfig::new(4 * 1024 * 1024, RasterCacheConfig::new(4 * 1024 * 1024)),
+    )?;
+    Ok(renderer)
+}
+
+fn bundled_emergency_font_catalog() -> Result<rssh_fonts::FontCatalog, Box<dyn Error>> {
+    use rssh_fonts::{FontCatalog, FontSource};
+
+    let mut catalog = FontCatalog::from_sources(
         "en-US",
         [
             FontSource::new(
@@ -477,26 +480,101 @@ fn bundled_emergency_text_backend(
             ),
         ],
     )?;
-    let font_config = FontConfig::new("Noto Sans")
+    load_platform_font_sources(&mut catalog);
+    Ok(catalog)
+}
+
+fn load_platform_font_sources(catalog: &mut rssh_fonts::FontCatalog) {
+    use rssh_fonts::FontSource;
+
+    #[cfg(target_os = "windows")]
+    const CANDIDATES: &[(&str, &str)] = &[
+        (
+            "NotoSansSC.system.ttf",
+            r"C:\Windows\Fonts\NotoSansSC-VF.ttf",
+        ),
+        (
+            "NotoSansJP.system.ttf",
+            r"C:\Windows\Fonts\NotoSansJP-VF.ttf",
+        ),
+        ("MicrosoftYaHei.system.ttc", r"C:\Windows\Fonts\msyh.ttc"),
+        ("Meiryo.system.ttc", r"C:\Windows\Fonts\meiryo.ttc"),
+        ("MalgunGothic.system.ttf", r"C:\Windows\Fonts\malgun.ttf"),
+        ("SegoeUI.system.ttf", r"C:\Windows\Fonts\segoeui.ttf"),
+        ("NirmalaUI.system.ttc", r"C:\Windows\Fonts\Nirmala.ttc"),
+        ("SegoeUIEmoji.system.ttf", r"C:\Windows\Fonts\seguiemj.ttf"),
+    ];
+    #[cfg(target_os = "linux")]
+    const CANDIDATES: &[(&str, &str)] = &[
+        (
+            "NotoSansCJK.system.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        ),
+        (
+            "NotoSansArabic.system.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
+        ),
+        (
+            "NotoSansDevanagari.system.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf",
+        ),
+        (
+            "NotoColorEmoji.system.ttf",
+            "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+        ),
+    ];
+    #[cfg(target_os = "macos")]
+    const CANDIDATES: &[(&str, &str)] = &[
+        (
+            "HiraginoSansGB.system.ttc",
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        ),
+        (
+            "HiraginoSans.system.ttc",
+            "/System/Library/Fonts/Hiragino Sans.ttc",
+        ),
+        (
+            "AppleSDGothicNeo.system.ttc",
+            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+        ),
+        (
+            "ArialUnicode.system.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        ),
+        (
+            "AppleColorEmoji.system.ttc",
+            "/System/Library/Fonts/Apple Color Emoji.ttc",
+        ),
+    ];
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    const CANDIDATES: &[(&str, &str)] = &[];
+
+    for &(label, path) in CANDIDATES {
+        let Ok(source) = FontSource::from_file(path) else {
+            continue;
+        };
+        let _ = catalog.load_source(FontSource::new(label, source.bytes().to_vec()));
+    }
+}
+
+fn bundled_emergency_font_config() -> rssh_fonts::FontConfig {
+    rssh_fonts::FontConfig::new("Noto Sans")
         .with_fallbacks([
             "Noto Sans SC",
+            "Noto Sans JP",
             "Noto Sans Arabic",
             "Noto Sans Devanagari",
             "Noto Sans Hebrew",
             "Noto Sans Symbols 2",
             "Noto Color Emoji",
+            "Microsoft YaHei",
+            "Meiryo",
+            "Malgun Gothic",
+            "Segoe UI",
+            "Nirmala UI",
+            "Segoe UI Emoji",
         ])
-        .with_font_size(16.0);
-    let format = context
-        .surface_format()
-        .ok_or_else(|| io::Error::other("direct text fixture requires a surface format"))?;
-    let mut renderer = GpuLayerRenderer::new(context, format, 64 * 1024)?;
-    renderer.enable_text(
-        catalog,
-        font_config,
-        GpuTextConfig::new(4 * 1024 * 1024, RasterCacheConfig::new(4 * 1024 * 1024)),
-    )?;
-    Ok(renderer)
+        .with_font_size(16.0)
 }
 
 #[cfg(test)]
@@ -505,19 +583,28 @@ mod tests {
     use std::cell::{Cell, RefCell};
 
     use rssh_core::TerminalSize;
+    use rssh_fonts::TerminalShaper;
     use rssh_renderer::terminal_snapshot_content_digest;
     use rssh_terminal::Terminal;
 
+    #[cfg(target_os = "windows")]
     #[test]
-    fn scale_factor_conversion_rejects_non_finite_and_out_of_range_values() {
-        let converted = scale_factor_f32(1.25).expect("ordinary DPI scale");
-        assert!((converted - 1.25).abs() <= f32::EPSILON);
-        for invalid in [0.0, f64::NAN, f64::INFINITY, f64::from(f32::MAX) * 2.0] {
-            assert!(
-                scale_factor_f32(invalid).is_err(),
-                "{invalid:?} must not reach GPU raster scaling"
-            );
-        }
+    fn emergency_font_catalog_covers_common_cli_ui_scripts() {
+        let mut catalog = bundled_emergency_font_catalog().expect("fixture font catalog");
+        let mut shaper = TerminalShaper::new(bundled_emergency_font_config());
+        let row = shaper
+            .shape_row(&mut catalog, "中文显示测试 日本語 한국어 العربية हिन्दी")
+            .expect("shape common CLI UI scripts");
+
+        assert!(
+            row.clusters.iter().all(|cluster| !cluster.is_tofu),
+            "emergency GPU font catalog must not render common UI scripts as tofu: {:?}",
+            row.clusters
+                .iter()
+                .filter(|cluster| cluster.is_tofu)
+                .map(|cluster| &row.text[cluster.byte_range.clone()])
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

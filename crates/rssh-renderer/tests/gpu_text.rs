@@ -737,6 +737,56 @@ fn local_row_damage_preserves_cached_glyphs_on_untouched_rows() {
 }
 
 #[test]
+fn damage_render_matches_full_frame_after_terminal_scroll() {
+    let _gpu = gpu_test_guard();
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let geometry = RenderGeometry::new(8 * 16, 3 * 24, 16, 24);
+    let paint = TextPaintConfig::default();
+    let first = {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 3));
+        terminal.feed(b"A\r\nB\r\nC");
+        terminal.take_damage();
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        terminal.feed(b"\r\nD");
+        let damage = terminal.take_damage();
+        (
+            snapshot,
+            damage,
+            TerminalRenderSnapshot::from_terminal(&terminal),
+        )
+    };
+
+    let mut damaged_renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 64 * 1024)
+            .expect("layer renderer");
+    damaged_renderer
+        .enable_text(catalog(), font_config(), config(4 * 1024 * 1024))
+        .expect("enable GPU text");
+    damaged_renderer
+        .prepare_text(&first.0, geometry, &[], &paint, 1.0, 1.0)
+        .expect("prepare initial frame");
+    let _ = render_prepared(&mut damaged_renderer, geometry, paint.default_background);
+    damaged_renderer
+        .prepare_text(&first.2, geometry, &first.1, &paint, 1.0, 1.0)
+        .expect("prepare damaged frame");
+    let damaged = render_prepared(&mut damaged_renderer, geometry, paint.default_background);
+
+    let mut full_renderer =
+        GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 64 * 1024)
+            .expect("full layer renderer");
+    full_renderer
+        .enable_text(catalog(), font_config(), config(4 * 1024 * 1024))
+        .expect("enable full GPU text");
+    full_renderer
+        .prepare_text(&first.2, geometry, &[], &paint, 1.0, 1.0)
+        .expect("prepare full frame");
+    let full = render_prepared(&mut full_renderer, geometry, paint.default_background);
+
+    assert_eq!(damaged, full, "damage render diverged from full redraw");
+}
+
+#[test]
 fn ordinary_glyph_overhang_survives_inside_a_run_but_not_across_a_hard_boundary() {
     let _gpu = gpu_test_guard();
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
