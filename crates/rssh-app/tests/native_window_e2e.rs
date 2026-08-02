@@ -12,6 +12,15 @@ fn native_window_e2e_presents_ten_frames_from_a_real_pty() {
     common::assert_ten_frame_native_metrics(&probe);
 }
 
+#[test]
+fn native_window_e2e_preserves_gpu_text_at_windows_scale_factors() {
+    let executable = packaged_or_cargo_app_executable();
+    for scale_factor in [1.0, 1.25, 1.5] {
+        let probe = common::run_ten_frame_native_window_at_scale(&executable, Some(scale_factor));
+        common::assert_ten_frame_native_metrics(&probe);
+    }
+}
+
 fn packaged_or_cargo_app_executable() -> PathBuf {
     env::var_os("RSSH_TEST_APP_EXECUTABLE")
         .map_or_else(|| PathBuf::from(RSSH_APP_EXECUTABLE), PathBuf::from)

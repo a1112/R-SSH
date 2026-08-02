@@ -14,6 +14,13 @@ pub struct NativeWindowProbe {
 }
 
 pub fn run_ten_frame_native_window(executable: impl AsRef<Path>) -> NativeWindowProbe {
+    run_ten_frame_native_window_at_scale(executable, None)
+}
+
+pub fn run_ten_frame_native_window_at_scale(
+    executable: impl AsRef<Path>,
+    scale_factor: impl Into<Option<f64>>,
+) -> NativeWindowProbe {
     let executable = executable.as_ref();
     let framed_marker = format!("{PTY_LINK_BEGIN}{DETERMINISTIC_PAYLOAD}{PTY_LINK_END}");
     let marker_command = platform_marker_command(&framed_marker);
@@ -24,6 +31,12 @@ pub fn run_ten_frame_native_window(executable: impl AsRef<Path>) -> NativeWindow
         .args(marker_command.get_args())
         .env("RSSH_TEST_DIRECT_GPU_TEXT", "1")
         .env("RSSH_TEST_PTY_LINKAGE", "1");
+    if let Some(scale_factor) = scale_factor.into() {
+        command.env(
+            "RSSH_TEST_WINDOW_SCALE_FACTOR",
+            format!("{scale_factor:.2}"),
+        );
+    }
     for (name, value) in marker_command.get_envs() {
         if let Some(value) = value {
             command.env(name, value);

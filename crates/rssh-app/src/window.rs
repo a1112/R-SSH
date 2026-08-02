@@ -91761,7 +91761,9 @@ impl NativeWindowApp {
             window_attributes_with_class(window_attributes, self.initial_window_class.as_deref());
 
         let window = Arc::new(event_loop.create_window(window_attributes)?);
-        self.apply_window_scale_factor(window.scale_factor());
+        self.apply_window_scale_factor(
+            test_window_scale_factor().unwrap_or_else(|| window.scale_factor()),
+        );
         let size = window.inner_size();
         let high_performance = matches!(
             self.webgpu_power_preference,
@@ -132522,6 +132524,24 @@ fn window_dpi_from_scale_factor(scale_factor: f64) -> u32 {
 }
 
 #[cfg(debug_assertions)]
+fn parse_test_window_scale_factor(value: &str) -> Option<f64> {
+    let scale_factor = value.parse::<f64>().ok()?;
+    (scale_factor.is_finite() && (0.5..=4.0).contains(&scale_factor)).then_some(scale_factor)
+}
+
+#[cfg(debug_assertions)]
+fn test_window_scale_factor() -> Option<f64> {
+    std::env::var("RSSH_TEST_WINDOW_SCALE_FACTOR")
+        .ok()
+        .and_then(|value| parse_test_window_scale_factor(&value))
+}
+
+#[cfg(not(debug_assertions))]
+const fn test_window_scale_factor() -> Option<f64> {
+    None
+}
+
+#[cfg(debug_assertions)]
 fn test_resize_after_first_present() -> Option<PhysicalSize<u32>> {
     const MAX_TEST_WINDOW_DIMENSION: u32 = 16_384;
 
@@ -133193,7 +133213,7 @@ mod tests {
         config_lifecycle::ConfigDiscoveryInputs,
         terminal_modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode},
         terminal_runtime::TerminalNotification,
-        window::builtin_color_scheme_toml,
+        window::{builtin_color_scheme_toml, parse_test_window_scale_factor},
     };
 
     #[test]
@@ -240187,6 +240207,21 @@ return config
                 },
             ]
         );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn test_window_scale_factor_accepts_supported_windows_buckets_only() {
+        assert_eq!(parse_test_window_scale_factor("1"), Some(1.0));
+        assert_eq!(parse_test_window_scale_factor("1.25"), Some(1.25));
+        assert_eq!(parse_test_window_scale_factor("1.5"), Some(1.5));
+        for invalid in ["0", "0.49", "4.01", "nan", "not-a-scale"] {
+            assert_eq!(
+                parse_test_window_scale_factor(invalid),
+                None,
+                "invalid scale factor {invalid:?} must be ignored"
+            );
+        }
     }
 
     #[test]

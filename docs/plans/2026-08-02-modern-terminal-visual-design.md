@@ -67,3 +67,7 @@ Windows 优先 Cascadia Mono；macOS 优先 Menlo/Monaco；Linux 优先 Noto San
 - 100%、125% 和 150% Windows 缩放下的行距与基线。
 
 自动验证包括字体选择/fallback、默认调色板、padding、损坏区域与完整重绘一致性、GPU 文本、原生窗口 E2E 和全 workspace 测试。
+
+Windows native E2E 在 debug harness 中可通过
+RSSH_TEST_WINDOW_SCALE_FACTOR=1.0|1.25|1.5 重放常见缩放档位；该注入只用于验证
+窗口 DPI、字体栅格和 GPU present，不改变 release 用户行为。
