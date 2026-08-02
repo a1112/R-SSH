@@ -228,7 +228,9 @@ const LEGACY_TEST_CURSOR_BG_COLOR: Color = LEGACY_TEST_FOREGROUND_COLOR;
 const DEFAULT_TAB_BAR_BACKGROUND_COLOR: Color = Color::Rgb(0x08, 0x0d, 0x18);
 const DEFAULT_TAB_BAR_ACTIVE_TAB_COLORS: NativeTabBarItemColors = NativeTabBarItemColors {
     fg_color: Some(Color::Rgb(0xf8, 0xfa, 0xfc)),
-    bg_color: Some(Color::Rgb(0x17, 0x20, 0x33)),
+    // Give the active surface a restrained blue lift so it separates from
+    // the tab strip without competing with the cyan brand accent.
+    bg_color: Some(Color::Rgb(0x1b, 0x2b, 0x44)),
     intensity: Some(NativeFormatIntensity::Bold),
     underline: None,
     italic: None,
@@ -133548,7 +133550,7 @@ mod tests {
             palette.tab_bar_active_tab.test_projection(),
             (
                 Some(Color::Rgb(0xf8, 0xfa, 0xfc)),
-                Some(Color::Rgb(0x17, 0x20, 0x33)),
+                Some(Color::Rgb(0x1b, 0x2b, 0x44)),
                 Some("Bold"),
                 None,
                 None,
@@ -133774,7 +133776,7 @@ mod tests {
             snapshot_cell(&snapshot, 0, margin_column)
                 .expect("active tab margin cell should be visible")
                 .background,
-            Color::Rgb(0x17, 0x20, 0x33)
+            Color::Rgb(0x1b, 0x2b, 0x44)
         );
         assert_eq!(
             snapshot_cell(&snapshot, 0, tab.start_column)
@@ -193683,7 +193685,7 @@ return config
         );
         assert_eq!(
             base_cell.background,
-            rssh_terminal::Color::Rgb(0x17, 0x20, 0x33)
+            rssh_terminal::Color::Rgb(0x1b, 0x2b, 0x44)
         );
         assert_eq!(
             base_cell.underline_style,
@@ -193749,7 +193751,7 @@ return config
         );
         assert_eq!(
             plain_cell.background,
-            rssh_terminal::Color::Rgb(0x17, 0x20, 0x33)
+            rssh_terminal::Color::Rgb(0x1b, 0x2b, 0x44)
         );
     }
 
