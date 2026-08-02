@@ -98118,11 +98118,11 @@ impl NativeWindowApp {
                     // diagnostic index/pane-count prefix from the default
                     // visual treatment.  Explicit tab formatting remains
                     // untouched because it disables this modern path.
-                    label.prefix = " ".to_owned();
+                    label.prefix = "  ".to_owned();
                     label.suffix = if self.show_close_tab_button_in_tabs {
-                        " × ".to_owned()
+                        " ×  ".to_owned()
                     } else {
-                        " ".to_owned()
+                        "  ".to_owned()
                     };
                 }
                 let allocated_title_width = if first_pass_title_width == 0 {
@@ -133552,6 +133552,14 @@ mod tests {
             .as_ref()
             .and_then(|layout| layout.tabs.first())
             .expect("default tab should be laid out");
+        assert_eq!(tab.label.prefix, "  ");
+        assert_eq!(tab.label.suffix, " ×  ");
+        assert!(
+            tab.end_column.saturating_sub(tab.start_column) >= 11,
+            "modern active tab should retain target-like horizontal breathing room: {}..{}",
+            tab.start_column,
+            tab.end_column
+        );
         let margin_column = tab.start_column.saturating_sub(1);
 
         assert_eq!(
