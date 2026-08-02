@@ -203,10 +203,6 @@ const DEFAULT_BACKGROUND_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
 const DEFAULT_CURSOR_FG_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
 const DEFAULT_CURSOR_BG_COLOR: Color = Color::Rgb(0x67, 0xe8, 0xf9);
 const DEFAULT_SELECTION_BG_COLOR: Color = Color::Rgba(0x33, 0x41, 0x55, 0xb3);
-// Color schemes retain WezTerm's historical cursor fallback when they omit a
-// cursor color.  This keeps scheme compatibility independent from the R-SSH
-// application's modern no-scheme default above.
-const LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR: Color = Color::Rgb(229, 229, 229);
 const DEFAULT_ANSI_PALETTE_COLORS: [Color; 16] = [
     Color::Rgb(0x11, 0x18, 0x27),
     Color::Rgb(0xf8, 0x71, 0x71),
@@ -3732,7 +3728,7 @@ impl Default for NativeResolvedPalette {
             foreground: DEFAULT_FOREGROUND_COLOR,
             background: DEFAULT_BACKGROUND_COLOR,
             cursor_fg: None,
-            cursor_bg: LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
+            cursor_bg: DEFAULT_CURSOR_BG_COLOR,
             cursor_border: None,
             selection_fg: None,
             selection_bg: None,
@@ -98793,15 +98789,11 @@ impl NativeWindowApp {
         self.renderer
             .set_indexed_palette(self.indexed_palette.map(native_indexed_palette_to_rgba));
         self.selection_fg_color = overrides.selection_fg_color;
-        self.selection_bg_color = overrides.selection_bg_color;
         let color_scheme_selected = overrides.color_scheme.is_some() || overrides.colors.is_some();
-        self.cursor_bg_color = overrides
-            .cursor_bg_color
-            .unwrap_or(if color_scheme_selected {
-                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR
-            } else {
-                DEFAULT_CURSOR_BG_COLOR
-            });
+        self.selection_bg_color = overrides
+            .selection_bg_color
+            .or_else(|| (!color_scheme_selected).then_some(DEFAULT_SELECTION_BG_COLOR));
+        self.cursor_bg_color = overrides.cursor_bg_color.unwrap_or(DEFAULT_CURSOR_BG_COLOR);
         self.renderer.set_default_cursor_color(color_to_rgba(
             self.cursor_bg_color,
             DEFAULT_RENDER_FOREGROUND_RGBA,
@@ -98811,7 +98803,9 @@ impl NativeWindowApp {
             self.cursor_border_color
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
-        self.cursor_fg_color = overrides.cursor_fg_color;
+        self.cursor_fg_color = overrides
+            .cursor_fg_color
+            .or_else(|| (!color_scheme_selected).then_some(DEFAULT_CURSOR_FG_COLOR));
         self.renderer.set_default_cursor_foreground(
             self.cursor_fg_color
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
@@ -132720,6 +132714,19 @@ mod tests {
                 top: NativeWindowPaddingDimension::Pixels(3),
                 bottom: NativeWindowPaddingDimension::Pixels(4),
             }
+        );
+    }
+
+    #[test]
+    fn modern_default_cursor_and_selection_survive_empty_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides::default());
+
+        let palette = app.native_resolved_palette();
+        assert_eq!(palette.cursor_fg, Some(Color::Rgb(0x0b, 0x12, 0x20)));
+        assert_eq!(
+            palette.selection_bg,
+            Some(Color::Rgba(0x33, 0x41, 0x55, 0xb3))
         );
     }
 
