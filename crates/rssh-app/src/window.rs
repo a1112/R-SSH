@@ -97067,15 +97067,25 @@ impl NativeWindowApp {
                 );
             }
         }
-        if let Some(brand) = self.modern_tab_bar_brand_label() {
+        if self.modern_tab_bar_brand_label().is_some() {
             // The brand is a visual-only segment.  Workspace and tab labels
             // remain unchanged so WezTerm formatters and hit testing retain
-            // their existing semantics.
+            // their existing semantics.  Keep the prompt mark cyan while the
+            // product name follows the terminal foreground for the same
+            // hierarchy as the concept header.
             write_tab_bar_segment(
                 &mut cells,
                 &mut column,
-                brand,
+                ">_ ",
                 Color::Rgb(0x38, 0xbd, 0xf8),
+                background,
+                true,
+            );
+            write_tab_bar_segment(
+                &mut cells,
+                &mut column,
+                "R-SSH ",
+                tab_bar_foreground,
                 background,
                 true,
             );
@@ -133451,6 +133461,24 @@ mod tests {
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("R-SSH"));
+        let prompt_column = tab_bar
+            .find(">_")
+            .expect("modern brand prompt mark should be visible");
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, u16::try_from(prompt_column).unwrap())
+                .expect("prompt mark cell should be visible")
+                .foreground,
+            Color::Rgb(0x38, 0xbd, 0xf8)
+        );
+        let product_column = tab_bar
+            .find("R-SSH")
+            .expect("modern product name should be visible");
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, u16::try_from(product_column).unwrap())
+                .expect("product name cell should be visible")
+                .foreground,
+            Color::Rgb(0xd8, 0xe2, 0xf0)
+        );
         assert!(!tab_bar.contains("panes:"), "modern tab bar was {tab_bar:?}");
         assert!(tab_bar.contains('×'), "modern tab close marker was {tab_bar:?}");
         assert!(tab_bar.contains('▾'), "modern new-tab chevron was {tab_bar:?}");
