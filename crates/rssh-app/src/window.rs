@@ -138,6 +138,8 @@ const DEFAULT_FONT_SIZE_SCALE: f64 = 1.0;
 const FONT_SIZE_STEP: f64 = 1.1;
 const FRAME_WIDTH: u32 = TERMINAL_COLUMNS as u32 * CELL_WIDTH;
 const FRAME_HEIGHT: u32 = (TERMINAL_ROWS as u32 + TAB_BAR_ROWS as u32) * CELL_HEIGHT;
+const DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS: u32 = 16;
+const DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS: u32 = 12;
 const DOUBLE_CLICK_MAX_INTERVAL: Duration = Duration::from_millis(500);
 const DEFAULT_LEADER_TIMEOUT: Duration = Duration::from_millis(1_000);
 const DEFAULT_STATUS_UPDATE_INTERVAL: Duration = Duration::from_millis(1_000);
@@ -1102,6 +1104,24 @@ struct NativeWindowPadding {
     right: NativeWindowPaddingDimension,
     top: NativeWindowPaddingDimension,
     bottom: NativeWindowPaddingDimension,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct NativeWindowPaddingPixels {
+    left: u32,
+    right: u32,
+    top: u32,
+    bottom: u32,
+}
+
+impl NativeWindowPaddingPixels {
+    const fn horizontal(self) -> u32 {
+        self.left.saturating_add(self.right)
+    }
+
+    const fn vertical(self) -> u32 {
+        self.top.saturating_add(self.bottom)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83309,8 +83329,8 @@ impl NativeWindowFrame {
         Self {
             x: 0,
             y: 0,
-            width: FRAME_WIDTH,
-            height: FRAME_HEIGHT,
+            width: FRAME_WIDTH + DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS,
+            height: FRAME_HEIGHT + DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS,
         }
     }
 
@@ -83881,22 +83901,34 @@ fn damage_region_cells(region: DamageRegion) -> u64 {
     u64::from(region.width).saturating_mul(u64::from(region.height))
 }
 
-fn padding_dimension_to_cells(
+fn padding_dimension_to_pixels(
     dimension: NativeWindowPaddingDimension,
     cell_pixels: u32,
     axis_pixels: u32,
     dpi: u32,
-) -> u16 {
-    let pixels = match dimension {
+) -> u32 {
+    match dimension {
         NativeWindowPaddingDimension::Pixels(pixels) => pixels,
         NativeWindowPaddingDimension::Points(points) => {
             points.saturating_mul(dpi).saturating_add(36) / 72
         }
         NativeWindowPaddingDimension::Percent(percent) => axis_pixels.saturating_mul(percent) / 100,
         NativeWindowPaddingDimension::CellFractionPerMille(per_mille) => {
-            return u16::try_from(per_mille.saturating_add(999) / 1_000).unwrap_or(u16::MAX);
+            cell_pixels.saturating_mul(per_mille) / 1_000
         }
-    };
+    }
+}
+
+fn padding_dimension_to_cells(
+    dimension: NativeWindowPaddingDimension,
+    cell_pixels: u32,
+    axis_pixels: u32,
+    dpi: u32,
+) -> u16 {
+    if let NativeWindowPaddingDimension::CellFractionPerMille(per_mille) = dimension {
+        return u16::try_from(per_mille.saturating_add(999) / 1_000).unwrap_or(u16::MAX);
+    }
+    let pixels = padding_dimension_to_pixels(dimension, cell_pixels, axis_pixels, dpi);
     padding_pixels_to_cells(pixels, cell_pixels)
 }
 
@@ -83906,6 +83938,75 @@ fn padding_pixels_to_cells(pixels: u32, cell_pixels: u32) -> u16 {
     }
 
     u16::try_from(pixels.div_ceil(cell_pixels)).unwrap_or(u16::MAX)
+}
+
+fn window_padding_pixels_for_terminal_size(
+    padding: NativeWindowPadding,
+    terminal_width: u32,
+    terminal_height: u32,
+    cell_width: u32,
+    cell_height: u32,
+    dpi: u32,
+) -> NativeWindowPaddingPixels {
+    NativeWindowPaddingPixels {
+        left: padding_dimension_to_pixels(padding.left, cell_width, terminal_width, dpi),
+        right: padding_dimension_to_pixels(padding.right, cell_width, terminal_width, dpi),
+        top: padding_dimension_to_pixels(padding.top, cell_height, terminal_height, dpi),
+        bottom: padding_dimension_to_pixels(padding.bottom, cell_height, terminal_height, dpi),
+    }
+}
+
+fn content_axis_pixels_from_window_pixels(
+    total_pixels: u32,
+    reserved_pixels: u32,
+    cell_pixels: u32,
+    start: NativeWindowPaddingDimension,
+    end: NativeWindowPaddingDimension,
+    dpi: u32,
+) -> u32 {
+    let available = total_pixels.saturating_sub(reserved_pixels);
+    let mut content = available;
+    // Percent padding is relative to terminal content. Iterate to resolve the
+    // otherwise circular relationship between the outer frame and its content.
+    for _ in 0..4 {
+        let start_pixels = padding_dimension_to_pixels(start, cell_pixels, content, dpi);
+        let end_pixels = padding_dimension_to_pixels(end, cell_pixels, content, dpi);
+        content = available.saturating_sub(start_pixels.saturating_add(end_pixels));
+    }
+    content
+}
+
+fn terminal_size_from_window_pixels_with_padding(
+    width: u32,
+    height: u32,
+    cell_width: u32,
+    cell_height: u32,
+    padding: NativeWindowPadding,
+    dpi: u32,
+) -> TerminalSize {
+    let cell_width = cell_width.max(1);
+    let cell_height = cell_height.max(1);
+    let content_width = content_axis_pixels_from_window_pixels(
+        width,
+        0,
+        cell_width,
+        padding.left,
+        padding.right,
+        dpi,
+    );
+    let content_height = content_axis_pixels_from_window_pixels(
+        height,
+        u32::from(TAB_BAR_ROWS).saturating_mul(cell_height),
+        cell_height,
+        padding.top,
+        padding.bottom,
+        dpi,
+    );
+    let columns = u16::try_from((content_width / cell_width).clamp(1, u32::from(u16::MAX)))
+        .expect("column count is clamped to u16");
+    let rows = u16::try_from((content_height / cell_height).clamp(1, u32::from(u16::MAX)))
+        .expect("row count is clamped to u16");
+    TerminalSize::new(columns, rows)
 }
 
 fn metric_option(value: Option<u128>) -> String {
@@ -84475,8 +84576,8 @@ impl NativeWindowApp {
                 runtime,
                 snapshot,
                 window_title: DEFAULT_WINDOW_TITLE.to_owned(),
-                frame_width: FRAME_WIDTH,
-                frame_height: FRAME_HEIGHT,
+                frame_width: FRAME_WIDTH + DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS,
+                frame_height: FRAME_HEIGHT + DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS,
                 window_frame: NativeWindowFrame::initial(),
                 frame_limit,
                 initial_window_class,
@@ -85301,16 +85402,40 @@ impl NativeWindowApp {
     }
 
     fn initial_frame_size(&self) -> PhysicalSize<u32> {
+        let terminal_width = u32::from(self.initial_cols) * self.cell_width();
+        let terminal_height = u32::from(self.initial_rows) * self.cell_height();
+        let padding = window_padding_pixels_for_terminal_size(
+            self.window_padding,
+            terminal_width,
+            terminal_height,
+            self.cell_width(),
+            self.cell_height(),
+            self.window_dpi,
+        );
         PhysicalSize::new(
-            u32::from(self.initial_cols) * self.cell_width(),
-            u32::from(self.initial_rows.saturating_add(TAB_BAR_ROWS)) * self.cell_height(),
+            terminal_width.saturating_add(padding.horizontal()),
+            u32::from(self.initial_rows.saturating_add(TAB_BAR_ROWS))
+                .saturating_mul(self.cell_height())
+                .saturating_add(padding.vertical()),
         )
     }
 
     fn frame_size_for_terminal_size(&self, terminal_size: TerminalSize) -> PhysicalSize<u32> {
+        let terminal_width = u32::from(terminal_size.columns) * self.cell_width();
+        let terminal_height = u32::from(terminal_size.rows) * self.cell_height();
+        let padding = window_padding_pixels_for_terminal_size(
+            self.window_padding,
+            terminal_width,
+            terminal_height,
+            self.cell_width(),
+            self.cell_height(),
+            self.window_dpi,
+        );
         PhysicalSize::new(
-            u32::from(terminal_size.columns) * self.cell_width(),
-            u32::from(terminal_size.rows.saturating_add(TAB_BAR_ROWS)) * self.cell_height(),
+            terminal_width.saturating_add(padding.horizontal()),
+            u32::from(terminal_size.rows.saturating_add(TAB_BAR_ROWS))
+                .saturating_mul(self.cell_height())
+                .saturating_add(padding.vertical()),
         )
     }
 
@@ -95044,18 +95169,29 @@ impl NativeWindowApp {
     }
 
     fn frame_content_placement(&self) -> NativeFrameContentPlacement {
+        let terminal = self.runtime.terminal().grid().size();
+        let terminal_width = u32::from(terminal.columns).saturating_mul(self.cell_width());
+        let terminal_height = u32::from(terminal.rows).saturating_mul(self.cell_height());
+        let padding = window_padding_pixels_for_terminal_size(
+            self.window_padding,
+            terminal_width,
+            terminal_height,
+            self.cell_width(),
+            self.cell_height(),
+            self.window_dpi,
+        );
+        let available_width = self.frame_width.saturating_sub(padding.horizontal());
+        let available_height = self.frame_height.saturating_sub(padding.vertical());
         if !self.window_content_alignment_is_configured() {
             return NativeFrameContentPlacement {
-                x: 0,
-                y: 0,
-                width: self.frame_width,
-                height: self.frame_height,
+                x: padding.left.min(self.frame_width),
+                y: padding.top.min(self.frame_height),
+                width: available_width,
+                height: available_height,
             };
         }
 
-        let content_width = u32::from(self.runtime.terminal().grid().size().columns)
-            .saturating_mul(self.cell_width())
-            .min(self.frame_width);
+        let content_width = terminal_width.min(available_width);
         let content_height = u32::from(
             self.runtime
                 .terminal()
@@ -95065,15 +95201,18 @@ impl NativeWindowApp {
                 .saturating_add(self.tab_bar_rows()),
         )
         .saturating_mul(self.cell_height())
-        .min(self.frame_height);
-        let horizontal_gap = self.frame_width.saturating_sub(content_width);
-        let vertical_gap = self.frame_height.saturating_sub(content_height);
+        .min(available_height);
+        let horizontal_gap = available_width.saturating_sub(content_width);
+        let vertical_gap = available_height.saturating_sub(content_height);
         NativeFrameContentPlacement {
-            x: self
-                .window_content_alignment
-                .horizontal
-                .offset(horizontal_gap),
-            y: self.window_content_alignment.vertical.offset(vertical_gap),
+            x: padding.left.saturating_add(
+                self.window_content_alignment
+                    .horizontal
+                    .offset(horizontal_gap),
+            ),
+            y: padding
+                .top
+                .saturating_add(self.window_content_alignment.vertical.offset(vertical_gap)),
             width: content_width,
             height: content_height,
         }
@@ -95094,7 +95233,8 @@ impl NativeWindowApp {
     fn terminal_content_pixel_height(&self) -> u32 {
         if !self.window_content_alignment_is_configured() {
             return self
-                .frame_height
+                .frame_content_placement()
+                .height
                 .saturating_sub(self.tab_bar_pixel_height());
         }
 
@@ -95557,45 +95697,14 @@ impl NativeWindowApp {
         pane_id: rssh_core::PaneId,
         size: rssh_core::TerminalSize,
     ) -> PaneRenderRect {
-        let cell_width = self.cell_width();
-        let cell_height = self.cell_height();
-        let terminal_width = u32::from(size.columns).saturating_mul(cell_width);
-        let terminal_height = u32::from(size.rows).saturating_mul(cell_height);
-        let left = padding_dimension_to_cells(
-            self.window_padding.left,
-            cell_width,
-            terminal_width,
-            self.window_dpi,
-        )
-        .min(size.columns.saturating_sub(1));
-        let top = padding_dimension_to_cells(
-            self.window_padding.top,
-            cell_height,
-            terminal_height,
-            self.window_dpi,
-        )
-        .min(size.rows.saturating_sub(1));
-        let right = padding_dimension_to_cells(
-            self.window_padding.right,
-            cell_width,
-            terminal_width,
-            self.window_dpi,
-        )
-        .min(size.columns.saturating_sub(left).saturating_sub(1));
-        let bottom = padding_dimension_to_cells(
-            self.window_padding.bottom,
-            cell_height,
-            terminal_height,
-            self.window_dpi,
-        )
-        .min(size.rows.saturating_sub(top).saturating_sub(1));
-
+        // Padding is a physical frame margin, not terminal grid space. Keep
+        // the PTY dimensions intact so a visual inset never hides rows/cols.
         PaneRenderRect {
             pane_id,
-            row: self.terminal_frame_row_offset().saturating_add(top),
-            column: left,
-            rows: size.rows.saturating_sub(top).saturating_sub(bottom),
-            columns: size.columns.saturating_sub(left).saturating_sub(right),
+            row: self.terminal_frame_row_offset(),
+            column: 0,
+            rows: size.rows,
+            columns: size.columns,
         }
     }
 
@@ -104475,11 +104584,13 @@ impl NativeWindowApp {
 
         let cell_width = self.cell_width();
         let cell_height = self.cell_height();
-        let terminal_size = terminal_size_from_window_pixels_with_cell_size(
+        let terminal_size = terminal_size_from_window_pixels_with_padding(
             size.width,
             size.height,
             cell_width,
             cell_height,
+            self.window_padding,
+            self.window_dpi,
         );
         let old_terminal_size = self.runtime.terminal().grid().size();
         let split_resize = self
@@ -104504,9 +104615,10 @@ impl NativeWindowApp {
             self.frame_width = size.width;
             self.frame_height = size.height;
         } else {
-            self.frame_width = u32::from(terminal_size.columns) * cell_width;
-            self.frame_height =
-                u32::from(terminal_size.rows.saturating_add(TAB_BAR_ROWS)) * cell_height;
+            // Preserve the physical outer frame size. The terminal grid is
+            // derived from the interior after subtracting pixel padding.
+            self.frame_width = size.width;
+            self.frame_height = size.height;
         }
 
         let pty_size = PtySize::try_new(terminal_size.columns, terminal_size.rows)?;
@@ -132807,6 +132919,74 @@ mod tests {
         assert_eq!(FRAME_HEIGHT, 450, "24-row frame plus tab bar height");
     }
 
+    #[test]
+    fn modern_default_padding_is_outer_physical_margin() {
+        let app = NativeWindowApp::new(None);
+        assert_eq!(
+            app.initial_frame_size(),
+            PhysicalSize::new(
+                FRAME_WIDTH + DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS,
+                FRAME_HEIGHT + DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS,
+            )
+        );
+
+        let terminal_size = terminal_size_from_window_pixels_with_padding(
+            FRAME_WIDTH + DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS,
+            FRAME_HEIGHT + DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS,
+            CELL_WIDTH,
+            CELL_HEIGHT,
+            DEFAULT_WINDOW_PADDING,
+            96,
+        );
+        assert_eq!(
+            terminal_size,
+            rssh_core::TerminalSize::new(TERMINAL_COLUMNS, TERMINAL_ROWS)
+        );
+    }
+
+    #[test]
+    fn modern_default_padding_does_not_consume_terminal_rows_or_columns() {
+        let mut app = NativeWindowApp::new(None);
+        let frame_size = app.initial_frame_size();
+        app.handle_window_resize(frame_size)
+            .expect("default frame should resize");
+
+        assert_eq!(
+            app.frame_size_for_test(),
+            (
+                FRAME_WIDTH + DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS,
+                FRAME_HEIGHT + DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS,
+            )
+        );
+        assert_eq!(
+            app.runtime.terminal().grid().size(),
+            rssh_core::TerminalSize::new(TERMINAL_COLUMNS, TERMINAL_ROWS)
+        );
+    }
+
+    #[test]
+    fn modern_default_padding_mouse_mapping_excludes_margin() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_window_resize(app.initial_frame_size())
+            .expect("default frame should resize");
+
+        let inside = PhysicalPosition::new(
+            f64::from(8 + CELL_WIDTH / 2),
+            f64::from(6 + CELL_HEIGHT + CELL_HEIGHT / 2),
+        );
+        assert_eq!(app.window_mouse_cell(inside), Some((0, 0)));
+        assert_eq!(
+            app.window_mouse_cell(PhysicalPosition::new(4.0, inside.y)),
+            None,
+            "left outer padding is not a terminal cell"
+        );
+        assert_eq!(
+            app.window_mouse_cell(PhysicalPosition::new(inside.x, 8.0)),
+            None,
+            "tab bar and top outer padding are not terminal cells"
+        );
+    }
+
     use super::{
         AppAction, AppShellError, CELL_HEIGHT, CELL_WIDTH,
         DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE, DEFAULT_ALLOW_DOWNLOAD_PROTOCOLS,
@@ -132858,6 +133038,7 @@ mod tests {
         DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER, DEFAULT_WEBGPU_POWER_PREFERENCE,
         DEFAULT_WIN32_SYSTEM_BACKDROP, DEFAULT_WINDOW_BACKGROUND_OPACITY,
         DEFAULT_WINDOW_CONTENT_ALIGNMENT, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
+        DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS, DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS,
         DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
         LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR, NativeAnsiColor, NativeAudibleBell,
         NativeBidiDirection, NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines,
@@ -132933,7 +133114,8 @@ mod tests {
         pty_command_from_pane_launch_with_term_session_id, quick_select_options_from_query,
         quote_dropped_file_name, should_focus_materialized_window, show_launcher_args_from_query,
         split_pane_source_size_delta, tab_bar_new_tab_label, tab_bar_pixel_height,
-        tab_bar_tab_label, terminal_size_from_window_pixels, window_application_hide_shortcut,
+        tab_bar_tab_label, terminal_size_from_window_pixels,
+        terminal_size_from_window_pixels_with_padding, window_application_hide_shortcut,
         window_char_select_shortcut, window_clear_scrollback_shortcut,
         window_copy_destination_for_shortcut, window_copy_mode_shortcut, window_font_size_shortcut,
         window_hide_shortcut, window_paste_source_for_shortcut, window_quick_select_shortcut,
