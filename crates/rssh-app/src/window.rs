@@ -209,7 +209,7 @@ const DEFAULT_TEXT_BLINK_RAPID_EASE_OUT: NativeEasingFunction = NativeEasingFunc
 const DEFAULT_RENDER_FOREGROUND_RGBA: [u8; 4] = [0xd8, 0xe2, 0xf0, 0xff];
 const DEFAULT_RENDER_BACKGROUND_RGBA: [u8; 4] = [0x0b, 0x12, 0x20, 0xff];
 const DEFAULT_WINDOW_CHROME_BORDER_RGBA: [u8; 4] = [0x47, 0x55, 0x69, 0xff];
-const DEFAULT_TAB_BAR_SEPARATOR_RGBA: [u8; 4] = [0x1e, 0x29, 0x3b, 0xff];
+const DEFAULT_TAB_BAR_SEPARATOR_RGBA: [u8; 4] = [0x2b, 0x3b, 0x53, 0xff];
 const DEFAULT_FOREGROUND_COLOR: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
 const DEFAULT_MODERN_WINDOW_BUTTON_FOREGROUND_COLOR: Color = Color::Rgb(0xf8, 0xfa, 0xfc);
 const DEFAULT_BACKGROUND_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
@@ -134043,6 +134043,11 @@ mod tests {
             super::DEFAULT_WINDOW_CHROME_BORDER_RGBA,
             [0x47, 0x55, 0x69, 0xff],
             "modern chrome should use the concept's quiet slate outline"
+        );
+        assert_eq!(
+            super::DEFAULT_TAB_BAR_SEPARATOR_RGBA,
+            [0x2b, 0x3b, 0x53, 0xff],
+            "modern chrome should keep the tab/content boundary visible"
         );
         assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
 
