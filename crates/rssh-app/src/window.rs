@@ -97214,7 +97214,23 @@ impl NativeWindowApp {
             write_tab_bar_segment(
                 &mut cells,
                 &mut column,
-                "[>_]",
+                "[",
+                Color::Rgb(0x38, 0xbd, 0xf8),
+                DEFAULT_MODERN_BRAND_BADGE_BACKGROUND,
+                true,
+            );
+            write_tab_bar_segment(
+                &mut cells,
+                &mut column,
+                ">_",
+                Color::Rgb(0x38, 0xbd, 0xf8),
+                DEFAULT_MODERN_BRAND_BADGE_BACKGROUND,
+                false,
+            );
+            write_tab_bar_segment(
+                &mut cells,
+                &mut column,
+                "]",
                 Color::Rgb(0x38, 0xbd, 0xf8),
                 DEFAULT_MODERN_BRAND_BADGE_BACKGROUND,
                 true,
@@ -133786,6 +133802,24 @@ mod tests {
                 .expect("badge trailing bracket cell should be visible")
                 .background,
             Color::Rgb(0x1b, 0x2b, 0x44)
+        );
+        assert!(
+            snapshot_cell(&snapshot, 0, u16::try_from(prompt_column - 1).unwrap())
+                .expect("badge leading bracket cell should be visible")
+                .bold,
+            "modern badge outline should carry the stronger edge treatment"
+        );
+        assert!(
+            !snapshot_cell(&snapshot, 0, u16::try_from(prompt_column).unwrap())
+                .expect("prompt mark cell should be visible")
+                .bold,
+            "modern badge prompt should stay at normal weight inside the outline"
+        );
+        assert!(
+            snapshot_cell(&snapshot, 0, u16::try_from(prompt_column + 2).unwrap())
+                .expect("badge trailing bracket cell should be visible")
+                .bold,
+            "modern badge outline should carry the stronger edge treatment"
         );
         assert_eq!(
             snapshot_cell(&snapshot, 0, u16::try_from(prompt_column - 2).unwrap())
