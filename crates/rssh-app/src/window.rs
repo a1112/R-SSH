@@ -141,7 +141,7 @@ const FRAME_HEIGHT: u32 = (TERMINAL_ROWS as u32 + TAB_BAR_ROWS as u32) * CELL_HE
 const DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS: u32 = 16;
 const DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS: u32 = 12;
 const MODERN_TAB_BAR_BRAND_INSET_COLUMNS: u16 = 2;
-const MODERN_TAB_BAR_BRAND_GAP_COLUMNS: u16 = 2;
+const MODERN_TAB_BAR_BRAND_GAP_COLUMNS: u16 = 3;
 const DOUBLE_CLICK_MAX_INTERVAL: Duration = Duration::from_millis(500);
 const DEFAULT_LEADER_TIMEOUT: Duration = Duration::from_millis(1_000);
 const DEFAULT_STATUS_UPDATE_INTERVAL: Duration = Duration::from_millis(1_000);
@@ -133890,7 +133890,7 @@ mod tests {
             usize::from(tab_start_column),
             usize::from(super::MODERN_TAB_BAR_BRAND_INSET_COLUMNS)
                 + brand_width
-                + usize::from(super::MODERN_TAB_BAR_BRAND_GAP_COLUMNS)
+                + 3
         );
         let brand_end_column = usize::from(super::MODERN_TAB_BAR_BRAND_INSET_COLUMNS) + brand_width;
         assert_eq!(
