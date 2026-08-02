@@ -607,6 +607,59 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn modern_default_font_prefers_cascadia_mono_and_preserves_terminal_cells() {
+        let config = bundled_emergency_font_config();
+        assert_eq!(config.primary(), "Cascadia Mono");
+
+        let mut catalog = bundled_emergency_font_catalog().expect("fixture font catalog");
+        let mut shaper = TerminalShaper::new(config);
+        let row = shaper
+            .shape_row(&mut catalog, "R-SSH 你好 😀")
+            .expect("shape modern terminal sample");
+
+        assert_eq!(row.metrics.font_size, 15.0);
+        assert_eq!(
+            row.clusters
+                .iter()
+                .map(|cluster| cluster.cell_span.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                0..1,
+                1..2,
+                2..3,
+                3..4,
+                4..5,
+                5..6,
+                6..8,
+                8..10,
+                10..11,
+                11..13,
+            ],
+            "shaping must preserve the terminal's logical cell spans"
+        );
+
+        for cluster in &row.clusters {
+            let text = &row.text[cluster.byte_range.clone()];
+            if text
+                .chars()
+                .all(|character| character.is_ascii() && character != ' ')
+            {
+                assert_eq!(
+                    cluster.font_family, "Cascadia Mono",
+                    "Latin terminal glyphs should use the preferred monospace face"
+                );
+            }
+            if text.chars().any(|character| "你好".contains(character)) {
+                assert!(
+                    !cluster.is_tofu,
+                    "CJK fallback must resolve a visible glyph"
+                );
+            }
+        }
+    }
+
     #[test]
     fn native_app_manifest_has_no_pixels_runtime_dependency() {
         let manifest: toml::Value =

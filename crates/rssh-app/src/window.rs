@@ -132604,6 +132604,110 @@ mod tests {
         window::builtin_color_scheme_toml,
     };
 
+    #[test]
+    fn modern_default_palette_and_padding() {
+        let app = NativeWindowApp::new(None);
+        let palette = app.native_resolved_palette();
+
+        assert_eq!(
+            palette.foreground,
+            Color::Rgb(0xd8, 0xe2, 0xf0),
+            "modern terminal foreground"
+        );
+        assert_eq!(
+            palette.background,
+            Color::Rgb(0x0b, 0x12, 0x20),
+            "modern terminal background"
+        );
+        assert_eq!(
+            palette.cursor_bg,
+            Color::Rgb(0x67, 0xe8, 0xf9),
+            "modern terminal cursor"
+        );
+        assert_eq!(
+            app.window_padding,
+            NativeWindowPadding {
+                left: NativeWindowPaddingDimension::Pixels(8),
+                right: NativeWindowPaddingDimension::Pixels(8),
+                top: NativeWindowPaddingDimension::Pixels(6),
+                bottom: NativeWindowPaddingDimension::Pixels(6),
+            },
+            "modern terminal content padding"
+        );
+
+        assert_eq!(
+            palette.ansi,
+            [
+                Color::Rgb(0x11, 0x18, 0x27),
+                Color::Rgb(0xf8, 0x71, 0x71),
+                Color::Rgb(0x4a, 0xde, 0x80),
+                Color::Rgb(0xfb, 0xbf, 0x24),
+                Color::Rgb(0x60, 0xa5, 0xfa),
+                Color::Rgb(0xc0, 0x84, 0xfc),
+                Color::Rgb(0x22, 0xd3, 0xee),
+                Color::Rgb(0xcb, 0xd5, 0xe1),
+            ],
+            "modern ANSI base palette"
+        );
+        assert_eq!(
+            palette.brights,
+            [
+                Color::Rgb(0x64, 0x74, 0x8b),
+                Color::Rgb(0xfb, 0x71, 0x85),
+                Color::Rgb(0x86, 0xef, 0xac),
+                Color::Rgb(0xfd, 0xe0, 0x47),
+                Color::Rgb(0x93, 0xc5, 0xfd),
+                Color::Rgb(0xd8, 0xb4, 0xfe),
+                Color::Rgb(0x67, 0xe8, 0xf9),
+                Color::Rgb(0xf8, 0xfa, 0xfc),
+            ],
+            "modern ANSI bright palette"
+        );
+    }
+
+    #[test]
+    fn modern_default_overrides_retain_color_and_padding_precedence() {
+        let override_ansi = [Color::Rgb(1, 2, 3); 16];
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            foreground_color: Some(Color::Rgb(4, 5, 6)),
+            background_color: Some(Color::Rgb(7, 8, 9)),
+            cursor_bg_color: Some(Color::Rgb(10, 11, 12)),
+            ansi_palette: Some(override_ansi),
+            window_padding: Some(NativeWindowPadding {
+                left: NativeWindowPaddingDimension::Pixels(1),
+                right: NativeWindowPaddingDimension::Pixels(2),
+                top: NativeWindowPaddingDimension::Pixels(3),
+                bottom: NativeWindowPaddingDimension::Pixels(4),
+            }),
+            ..NativeConfigOverrides::default()
+        });
+
+        let palette = app.native_resolved_palette();
+        assert_eq!(palette.foreground, Color::Rgb(4, 5, 6));
+        assert_eq!(palette.background, Color::Rgb(7, 8, 9));
+        assert_eq!(palette.cursor_bg, Color::Rgb(10, 11, 12));
+        assert_eq!(palette.ansi, [Color::Rgb(1, 2, 3); 8]);
+        assert_eq!(palette.brights, [Color::Rgb(1, 2, 3); 8]);
+        assert_eq!(
+            app.window_padding,
+            NativeWindowPadding {
+                left: NativeWindowPaddingDimension::Pixels(1),
+                right: NativeWindowPaddingDimension::Pixels(2),
+                top: NativeWindowPaddingDimension::Pixels(3),
+                bottom: NativeWindowPaddingDimension::Pixels(4),
+            }
+        );
+    }
+
+    #[test]
+    fn modern_default_geometry_uses_target_grid() {
+        assert_eq!(CELL_WIDTH, 9, "modern terminal cell width");
+        assert_eq!(CELL_HEIGHT, 18, "modern terminal cell height");
+        assert_eq!(FRAME_WIDTH, 720, "80-column frame width");
+        assert_eq!(FRAME_HEIGHT, 450, "24-row frame plus tab bar height");
+    }
+
     use super::{
         AppAction, AppShellError, CELL_HEIGHT, CELL_WIDTH,
         DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE, DEFAULT_ALLOW_DOWNLOAD_PROTOCOLS,
