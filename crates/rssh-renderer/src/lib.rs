@@ -5620,7 +5620,14 @@ impl TerminalRenderSnapshot {
     pub fn missing_glyphs(&self) -> Vec<char> {
         let mut missing = Vec::new();
         for cell in &self.cells {
-            if BASIC_FONTS.get(cell.ch).is_none() && !missing.contains(&cell.ch) {
+            // The native GPU path supplies the modern terminal UI symbols
+            // from its configured fallback catalog.  Keep the compatibility
+            // warning focused on characters that neither the legacy 8x8
+            // renderer nor the guaranteed UI fallback set can represent.
+            if BASIC_FONTS.get(cell.ch).is_none()
+                && !modern_ui_fallback_glyph(cell.ch)
+                && !missing.contains(&cell.ch)
+            {
                 missing.push(cell.ch);
             }
         }
@@ -6091,6 +6098,16 @@ impl TerminalRenderSnapshot {
             })
             .collect();
     }
+}
+
+/// Glyphs used by the modern tab bar and native window chrome.
+///
+/// These are intentionally kept small and explicit: the GPU font catalog
+/// carries the actual outlines, while this predicate prevents the legacy
+/// compatibility diagnostic from reporting known fallback-backed UI glyphs
+/// as missing before the GPU pass has shaped them.
+fn modern_ui_fallback_glyph(character: char) -> bool {
+    matches!(character, '×' | '▾' | '—' | '□')
 }
 
 fn blend_selection_background(selection_background: Color, cell_background: Color) -> Color {
@@ -7058,6 +7075,18 @@ mod tests {
         let snapshot = TerminalRenderSnapshot::from_grid(&grid);
 
         assert_eq!(snapshot.missing_glyphs(), vec!['中']);
+    }
+
+    #[test]
+    fn render_snapshot_treats_modern_ui_symbols_as_fallback_backed() {
+        let mut grid = TerminalGrid::new(TerminalSize::new(4, 1));
+        for (column, ch) in [(0, '×'), (1, '▾'), (2, '—'), (3, '□')] {
+            grid.set(0, column, Cell::with_char(ch));
+        }
+
+        let snapshot = TerminalRenderSnapshot::from_grid(&grid);
+
+        assert!(snapshot.missing_glyphs().is_empty());
     }
 
     #[test]
