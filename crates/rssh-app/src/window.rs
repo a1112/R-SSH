@@ -97199,7 +97199,7 @@ impl NativeWindowApp {
             write_tab_bar_segment(
                 &mut cells,
                 &mut column,
-                " >_ ",
+                " [>_] ",
                 Color::Rgb(0x38, 0xbd, 0xf8),
                 background,
                 true,
@@ -98181,7 +98181,7 @@ impl NativeWindowApp {
         // Keep the brand close to the concept terminal glyph while using
         // ASCII-only marks that are guaranteed by every fallback face.
         self.modern_tab_bar_uses_compact_labels()
-            .then_some(" >_ R-SSH ")
+            .then_some(" [>_] R-SSH ")
     }
 
     fn modern_tab_bar_uses_compact_labels(&self) -> bool {
@@ -133694,7 +133694,7 @@ mod tests {
         let mut app = NativeWindowApp::new_with_visual_defaults(None);
         app.handle_pty_output(b"\x1b]2;Command Prompt\x07")
             .expect("default shell title should be accepted");
-        assert_eq!(app.modern_tab_bar_brand_label(), Some(" >_ R-SSH "));
+        assert_eq!(app.modern_tab_bar_brand_label(), Some(" [>_] R-SSH "));
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("R-SSH"));
