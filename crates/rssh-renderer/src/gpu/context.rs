@@ -941,12 +941,7 @@ impl GpuContext {
             GpuContextError::message("context has no presentation surface".into())
         })?;
         let capabilities = surface.get_capabilities(&self.adapter);
-        let format = capabilities
-            .formats
-            .iter()
-            .copied()
-            .find(wgpu::TextureFormat::is_srgb)
-            .or_else(|| capabilities.formats.first().copied())
+        let format = Self::preferred_surface_format(&capabilities.formats)
             .ok_or_else(|| GpuContextError::message("surface exposes no formats".into()))?;
         let present_mode = capabilities
             .present_modes
@@ -992,6 +987,17 @@ impl GpuContext {
         self.surface_config = Some(config);
         self.suspended = false;
         Ok(())
+    }
+
+    fn preferred_surface_format(formats: &[wgpu::TextureFormat]) -> Option<wgpu::TextureFormat> {
+        // Terminal colors are already screen-space RGBA bytes. A linear
+        // surface keeps the GPU path from applying an extra sRGB transfer.
+        formats
+            .iter()
+            .copied()
+            .find(|format| !format.is_srgb())
+            .or_else(|| formats.iter().copied().find(wgpu::TextureFormat::is_srgb))
+            .or_else(|| formats.first().copied())
     }
 
     fn recreate_surface(&mut self) -> Result<(), GpuContextError> {
@@ -1082,6 +1088,9 @@ impl GpuContext {
             &pipeline.bind_group_layout,
             &pipeline.sampler,
             &pipeline.layout_uniform,
+            self.surface_config
+                .as_ref()
+                .map_or(wgpu::TextureFormat::Rgba8Unorm, |config| config.format),
             width,
             height,
         ));
@@ -1144,14 +1153,8 @@ fn recovery_surface_config(
         .formats
         .contains(&previous.format)
         .then_some(previous.format)
-        .or_else(|| {
-            capabilities
-                .formats
-                .iter()
-                .copied()
-                .find(wgpu::TextureFormat::is_srgb)
-        })
-        .or_else(|| capabilities.formats.first().copied())
+        .filter(|format| !format.is_srgb())
+        .or_else(|| GpuContext::preferred_surface_format(&capabilities.formats))
         .ok_or_else(|| GpuContextError::message("recovered surface exposes no formats".into()))?;
     let present_mode = capabilities
         .present_modes
@@ -1432,6 +1435,7 @@ impl UploadFrame {
         bind_group_layout: &wgpu::BindGroupLayout,
         sampler: &wgpu::Sampler,
         layout_uniform: &wgpu::Buffer,
+        surface_format: wgpu::TextureFormat,
         width: u32,
         height: u32,
     ) -> Self {
@@ -1445,7 +1449,11 @@ impl UploadFrame {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: if surface_format.is_srgb() {
+                wgpu::TextureFormat::Rgba8UnormSrgb
+            } else {
+                wgpu::TextureFormat::Rgba8Unorm
+            },
             usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
@@ -1592,6 +1600,22 @@ mod tests {
 
     fn assert_close(actual: f32, expected: f32) {
         assert!((actual - expected).abs() <= f32::EPSILON);
+    }
+
+    #[test]
+    fn preferred_surface_format_preserves_terminal_srgb_values() {
+        assert_eq!(
+            GpuContext::preferred_surface_format(&[
+                wgpu::TextureFormat::Bgra8UnormSrgb,
+                wgpu::TextureFormat::Bgra8Unorm,
+            ]),
+            Some(wgpu::TextureFormat::Bgra8Unorm)
+        );
+        assert_eq!(
+            GpuContext::preferred_surface_format(&[wgpu::TextureFormat::Rgba8UnormSrgb]),
+            Some(wgpu::TextureFormat::Rgba8UnormSrgb)
+        );
+        assert_eq!(GpuContext::preferred_surface_format(&[]), None);
     }
 
     #[test]

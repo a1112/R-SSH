@@ -97042,7 +97042,7 @@ impl NativeWindowApp {
             &mut column,
             &self.tab_bar_workspace_label(),
             tab_bar_foreground,
-            Color::Rgb(18, 18, 22),
+            background,
             true,
         );
         if !self.left_status.is_empty() {
@@ -97050,7 +97050,7 @@ impl NativeWindowApp {
                 &mut cells,
                 &mut column,
                 &format!("{} ", self.left_status),
-                tab_bar_segment_style(tab_bar_foreground, Color::Rgb(18, 18, 22), false),
+                tab_bar_segment_style(tab_bar_foreground, background, false),
             );
         }
 
@@ -97063,16 +97063,15 @@ impl NativeWindowApp {
                 let active = tab.active;
                 let hovered_style = tab.hovered && !active;
 
-                let default_foreground = if active {
-                    Color::Rgb(20, 20, 20)
+                let defaults = if active {
+                    DEFAULT_TAB_BAR_ACTIVE_TAB_COLORS
+                } else if hovered_style {
+                    DEFAULT_TAB_BAR_INACTIVE_TAB_HOVER_COLORS
                 } else {
-                    Color::Rgb(210, 210, 210)
+                    DEFAULT_TAB_BAR_INACTIVE_TAB_COLORS
                 };
-                let default_background = if active {
-                    Color::Rgb(238, 238, 238)
-                } else {
-                    Color::Rgb(58, 58, 64)
-                };
+                let default_foreground = defaults.fg_color.unwrap_or(tab_bar_foreground);
+                let default_background = defaults.bg_color.unwrap_or(background);
                 let item_colors = if active {
                     self.tab_bar_active_tab_colors
                 } else if hovered_style {
@@ -97145,6 +97144,11 @@ impl NativeWindowApp {
             } else {
                 self.tab_bar_new_tab_colors
             };
+            let new_tab_defaults = if new_tab_hovered {
+                DEFAULT_TAB_BAR_NEW_TAB_HOVER_COLORS
+            } else {
+                DEFAULT_TAB_BAR_NEW_TAB_COLORS
+            };
             let (left_edge, right_edge) = if new_tab_hovered {
                 (
                     self.tab_bar_style
@@ -97164,8 +97168,8 @@ impl NativeWindowApp {
             };
             let style = tab_bar_item_segment_style(
                 new_tab_colors,
-                Color::Rgb(230, 230, 230),
-                Color::Rgb(46, 56, 48),
+                new_tab_defaults.fg_color.unwrap_or(tab_bar_foreground),
+                new_tab_defaults.bg_color.unwrap_or(background),
                 true,
             );
             let visible_cells = &mut cells[..usize::from(new_tab_end.min(columns))];
@@ -97212,7 +97216,7 @@ impl NativeWindowApp {
             write_right_aligned_tab_bar_segment_with_reserved(
                 &mut cells,
                 &self.right_status,
-                tab_bar_segment_style(tab_bar_foreground, Color::Rgb(18, 18, 22), false),
+                tab_bar_segment_style(tab_bar_foreground, background, false),
                 right_integrated_title_buttons_width,
             );
         }
@@ -97246,7 +97250,7 @@ impl NativeWindowApp {
     fn window_frame_title_bar_background_color(&self) -> Color {
         let default = self
             .tab_bar_background_color
-            .unwrap_or(Color::Rgb(34, 34, 38));
+            .unwrap_or(DEFAULT_TAB_BAR_BACKGROUND_COLOR);
         if self.window_focused {
             self.window_frame_appearance
                 .active_titlebar_bg
@@ -97259,7 +97263,7 @@ impl NativeWindowApp {
     }
 
     fn window_frame_title_bar_foreground_color(&self) -> Color {
-        let default = Color::Rgb(228, 228, 228);
+        let default = DEFAULT_FOREGROUND_COLOR;
         if self.window_focused {
             self.window_frame_appearance
                 .active_titlebar_fg
@@ -97804,7 +97808,7 @@ impl NativeWindowApp {
         let foreground = match button_foreground {
             Some(foreground) => foreground,
             None => match self.integrated_title_button_color {
-                NativeIntegratedTitleButtonColor::Auto => Color::Rgb(230, 230, 230),
+                NativeIntegratedTitleButtonColor::Auto => DEFAULT_FOREGROUND_COLOR,
                 NativeIntegratedTitleButtonColor::Color(color) => color,
             },
         };
@@ -133206,6 +133210,16 @@ mod tests {
                 None,
             ),
             "modern new-tab button style"
+        );
+        assert_eq!(
+            app.window_frame_title_bar_background_color(),
+            Color::Rgb(0x08, 0x0d, 0x18),
+            "window frame should inherit the modern tab bar background"
+        );
+        assert_eq!(
+            app.window_frame_title_bar_foreground_color(),
+            Color::Rgb(0xd8, 0xe2, 0xf0),
+            "window frame should inherit the modern terminal foreground"
         );
     }
 
