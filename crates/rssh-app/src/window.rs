@@ -196,28 +196,34 @@ const DEFAULT_TEXT_BLINK_EASE_IN: NativeEasingFunction = NativeEasingFunction::L
 const DEFAULT_TEXT_BLINK_EASE_OUT: NativeEasingFunction = NativeEasingFunction::Linear;
 const DEFAULT_TEXT_BLINK_RAPID_EASE_IN: NativeEasingFunction = NativeEasingFunction::Linear;
 const DEFAULT_TEXT_BLINK_RAPID_EASE_OUT: NativeEasingFunction = NativeEasingFunction::Linear;
-const DEFAULT_RENDER_FOREGROUND_RGBA: [u8; 4] = [229, 229, 229, 255];
-const DEFAULT_RENDER_BACKGROUND_RGBA: [u8; 4] = [12, 12, 12, 255];
-const DEFAULT_FOREGROUND_COLOR: Color = Color::Rgb(229, 229, 229);
-const DEFAULT_BACKGROUND_COLOR: Color = Color::Rgb(12, 12, 12);
-const DEFAULT_CURSOR_BG_COLOR: Color = DEFAULT_FOREGROUND_COLOR;
+const DEFAULT_RENDER_FOREGROUND_RGBA: [u8; 4] = [0xd8, 0xe2, 0xf0, 0xff];
+const DEFAULT_RENDER_BACKGROUND_RGBA: [u8; 4] = [0x0b, 0x12, 0x20, 0xff];
+const DEFAULT_FOREGROUND_COLOR: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
+const DEFAULT_BACKGROUND_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
+const DEFAULT_CURSOR_FG_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
+const DEFAULT_CURSOR_BG_COLOR: Color = Color::Rgb(0x67, 0xe8, 0xf9);
+const DEFAULT_SELECTION_BG_COLOR: Color = Color::Rgba(0x33, 0x41, 0x55, 0xb3);
+// Color schemes retain WezTerm's historical cursor fallback when they omit a
+// cursor color.  This keeps scheme compatibility independent from the R-SSH
+// application's modern no-scheme default above.
+const LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR: Color = Color::Rgb(229, 229, 229);
 const DEFAULT_ANSI_PALETTE_COLORS: [Color; 16] = [
-    Color::Rgb(0, 0, 0),
-    Color::Rgb(205, 49, 49),
-    Color::Rgb(13, 188, 121),
-    Color::Rgb(229, 229, 16),
-    Color::Rgb(36, 114, 200),
-    Color::Rgb(188, 63, 188),
-    Color::Rgb(17, 168, 205),
-    Color::Rgb(229, 229, 229),
-    Color::Rgb(102, 102, 102),
-    Color::Rgb(241, 76, 76),
-    Color::Rgb(35, 209, 139),
-    Color::Rgb(245, 245, 67),
-    Color::Rgb(59, 142, 234),
-    Color::Rgb(214, 112, 214),
-    Color::Rgb(41, 184, 219),
-    Color::Rgb(255, 255, 255),
+    Color::Rgb(0x11, 0x18, 0x27),
+    Color::Rgb(0xf8, 0x71, 0x71),
+    Color::Rgb(0x4a, 0xde, 0x80),
+    Color::Rgb(0xfb, 0xbf, 0x24),
+    Color::Rgb(0x60, 0xa5, 0xfa),
+    Color::Rgb(0xc0, 0x84, 0xfc),
+    Color::Rgb(0x22, 0xd3, 0xee),
+    Color::Rgb(0xcb, 0xd5, 0xe1),
+    Color::Rgb(0x64, 0x74, 0x8b),
+    Color::Rgb(0xfb, 0x71, 0x85),
+    Color::Rgb(0x86, 0xef, 0xac),
+    Color::Rgb(0xfd, 0xe0, 0x47),
+    Color::Rgb(0x93, 0xc5, 0xfd),
+    Color::Rgb(0xd8, 0xb4, 0xfe),
+    Color::Rgb(0x67, 0xe8, 0xf9),
+    Color::Rgb(0xf8, 0xfa, 0xfc),
 ];
 const DEFAULT_CURSOR_STYLE: NativeCursorStyle = NativeCursorStyle::SteadyBlock;
 const DEFAULT_CURSOR_THICKNESS: Option<NativeCursorThickness> = None;
@@ -3726,7 +3732,7 @@ impl Default for NativeResolvedPalette {
             foreground: DEFAULT_FOREGROUND_COLOR,
             background: DEFAULT_BACKGROUND_COLOR,
             cursor_fg: None,
-            cursor_bg: DEFAULT_CURSOR_BG_COLOR,
+            cursor_bg: LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
             cursor_border: None,
             selection_fg: None,
             selection_bg: None,
@@ -84588,10 +84594,10 @@ impl NativeWindowApp {
                 ansi_palette: None,
                 indexed_palette: None,
                 selection_fg_color: None,
-                selection_bg_color: None,
+                selection_bg_color: Some(DEFAULT_SELECTION_BG_COLOR),
                 cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
                 cursor_border_color: None,
-                cursor_fg_color: None,
+                cursor_fg_color: Some(DEFAULT_CURSOR_FG_COLOR),
                 compose_cursor_color: None,
                 split_color: None,
                 scrollbar_thumb_color: None,
@@ -98788,7 +98794,14 @@ impl NativeWindowApp {
             .set_indexed_palette(self.indexed_palette.map(native_indexed_palette_to_rgba));
         self.selection_fg_color = overrides.selection_fg_color;
         self.selection_bg_color = overrides.selection_bg_color;
-        self.cursor_bg_color = overrides.cursor_bg_color.unwrap_or(DEFAULT_CURSOR_BG_COLOR);
+        let color_scheme_selected = overrides.color_scheme.is_some() || overrides.colors.is_some();
+        self.cursor_bg_color = overrides
+            .cursor_bg_color
+            .unwrap_or(if color_scheme_selected {
+                LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR
+            } else {
+                DEFAULT_CURSOR_BG_COLOR
+            });
         self.renderer.set_default_cursor_color(color_to_rgba(
             self.cursor_bg_color,
             DEFAULT_RENDER_FOREGROUND_RGBA,
@@ -132623,6 +132636,16 @@ mod tests {
             palette.cursor_bg,
             Color::Rgb(0x67, 0xe8, 0xf9),
             "modern terminal cursor"
+        );
+        assert_eq!(
+            palette.cursor_fg,
+            Some(Color::Rgb(0x0b, 0x12, 0x20)),
+            "modern terminal cursor foreground"
+        );
+        assert_eq!(
+            palette.selection_bg,
+            Some(Color::Rgba(0x33, 0x41, 0x55, 0xb3)),
+            "modern terminal selection background"
         );
         assert_eq!(
             app.window_padding,
