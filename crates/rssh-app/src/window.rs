@@ -233,7 +233,7 @@ const DEFAULT_TAB_BAR_ACTIVE_TAB_COLORS: NativeTabBarItemColors = NativeTabBarIt
     // Give the active surface a restrained blue lift so it separates from
     // the tab strip without competing with the cyan brand accent.
     bg_color: Some(DEFAULT_MODERN_BRAND_BADGE_BACKGROUND),
-    intensity: Some(NativeFormatIntensity::Bold),
+    intensity: Some(NativeFormatIntensity::Normal),
     underline: None,
     italic: None,
     strikethrough: None,
@@ -133573,7 +133573,7 @@ mod tests {
             (
                 Some(Color::Rgb(0xf8, 0xfa, 0xfc)),
                 Some(Color::Rgb(0x1b, 0x2b, 0x44)),
-                Some("Bold"),
+                Some("Normal"),
                 None,
                 None,
                 None,
