@@ -130515,9 +130515,9 @@ fn integrated_title_button_default_tab_bar_label(
     button: NativeIntegratedTitleButton,
 ) -> &'static str {
     match button {
-        NativeIntegratedTitleButton::Hide => " . ",
-        NativeIntegratedTitleButton::Maximize => " - ",
-        NativeIntegratedTitleButton::Close => " X ",
+        NativeIntegratedTitleButton::Hide => " — ",
+        NativeIntegratedTitleButton::Maximize => " □ ",
+        NativeIntegratedTitleButton::Close => " × ",
     }
 }
 
@@ -133345,6 +133345,22 @@ mod tests {
     }
 
     #[test]
+    fn modern_default_tab_bar_uses_native_window_glyphs() {
+        assert_eq!(
+            integrated_title_button_default_tab_bar_label(NativeIntegratedTitleButton::Hide),
+            " — "
+        );
+        assert_eq!(
+            integrated_title_button_default_tab_bar_label(NativeIntegratedTitleButton::Maximize),
+            " □ "
+        );
+        assert_eq!(
+            integrated_title_button_default_tab_bar_label(NativeIntegratedTitleButton::Close),
+            " × "
+        );
+    }
+
+    #[test]
     fn modern_default_window_decorations_match_platform_visual_target() {
         let app = NativeWindowApp::new_with_visual_defaults(None);
 
@@ -133638,6 +133654,7 @@ mod tests {
         WindowSwitchToWorkspaceOptions, WindowUserEvent, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         compact_terminal_tab_title,
+        integrated_title_button_default_tab_bar_label,
         default_gui_startup_args, default_hyperlink_rules, default_integrated_title_buttons,
         default_mux_env_remove, default_native_unix_domains,
         default_skip_close_confirmation_for_processes_named, default_tiling_desktop_environments,
@@ -174723,7 +174740,12 @@ return config
 
         assert_eq!(
             app.missing_glyph_warnings_for_test(),
-            ["CONFIG ERROR missing glyph for codepoint U+4E2D ('中')"]
+            [
+                "CONFIG ERROR missing glyph for codepoint U+2014 ('—')",
+                "CONFIG ERROR missing glyph for codepoint U+25A1 ('□')",
+                "CONFIG ERROR missing glyph for codepoint U+00D7 ('×')",
+                "CONFIG ERROR missing glyph for codepoint U+4E2D ('中')",
+            ]
         );
     }
 
@@ -194891,7 +194913,7 @@ return config
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
 
         assert!(
-            tab_bar.starts_with(" X  .  ws:default"),
+            tab_bar.starts_with(" ×  —  ws:default"),
             "tab bar was {tab_bar:?}"
         );
     }
@@ -194922,9 +194944,9 @@ return config
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
 
-        assert!(tab_bar.ends_with(" .  -  X "), "tab bar was {tab_bar:?}");
+        assert!(tab_bar.ends_with(" —  □  × "), "tab bar was {tab_bar:?}");
         assert!(
-            tab_bar.contains("READY .  -  X "),
+            tab_bar.contains("READY —  □  × "),
             "tab bar was {tab_bar:?}"
         );
     }
@@ -195103,7 +195125,10 @@ return config
 
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
-        let close_column = tab_bar.find('X').expect("close button should render");
+        let close_column = tab_bar
+            .chars()
+            .position(|character| character == '×')
+            .expect("close button should render");
         let close_cell = snapshot_cell(&snapshot, 0, u16::try_from(close_column).unwrap_or(0))
             .expect("expected close button cell");
 
@@ -195258,9 +195283,18 @@ return config
 
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
-        let hide_column = tab_bar.find('.').expect("hide button should render");
-        let maximize_column = tab_bar.find('-').expect("maximize button should render");
-        let close_column = tab_bar.find('X').expect("close button should render");
+        let hide_column = tab_bar
+            .chars()
+            .position(|character| character == '—')
+            .expect("hide button should render");
+        let maximize_column = tab_bar
+            .chars()
+            .position(|character| character == '□')
+            .expect("maximize button should render");
+        let close_column = tab_bar
+            .chars()
+            .position(|character| character == '×')
+            .expect("close button should render");
 
         let x = u32::try_from(hide_column).unwrap_or(0) * CELL_WIDTH;
         app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
