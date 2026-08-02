@@ -189,6 +189,8 @@ pub struct RenderGeometry {
     /// terminal snapshot so the physical frame never changes PTY dimensions,
     /// cell placement, or hit testing.
     pub frame_border_color: Option<[u8; 4]>,
+    /// Optional horizontal chrome separator in target-surface pixel space.
+    pub frame_separator: Option<(u32, [u8; 4])>,
 }
 
 impl RenderGeometry {
@@ -209,6 +211,7 @@ impl RenderGeometry {
             content_width: target_width,
             content_height: target_height,
             frame_border_color: None,
+            frame_separator: None,
         }
     }
 
@@ -224,6 +227,12 @@ impl RenderGeometry {
     #[must_use]
     pub fn with_frame_border(mut self, color: [u8; 4]) -> Self {
         self.frame_border_color = Some(color);
+        self
+    }
+
+    #[must_use]
+    pub fn with_frame_separator(mut self, y: u32, color: [u8; 4]) -> Self {
+        self.frame_separator = Some((y, color));
         self
     }
 }
@@ -2065,6 +2074,16 @@ impl PixelRenderer {
                 protected_ui_rows,
                 self.window_dpi,
             );
+        }
+        if let Some((y, color)) = geometry.frame_separator
+            && y < geometry.target_height
+            && geometry.target_width > 2
+        {
+            graph.push_quad(gpu::GpuQuad::new(
+                gpu::GpuLayer::TabBar,
+                gpu::PixelRect::new(1, y, geometry.target_width.saturating_sub(2), 1),
+                color,
+            ));
         }
         graph
     }

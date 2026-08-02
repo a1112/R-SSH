@@ -209,6 +209,7 @@ const DEFAULT_TEXT_BLINK_RAPID_EASE_OUT: NativeEasingFunction = NativeEasingFunc
 const DEFAULT_RENDER_FOREGROUND_RGBA: [u8; 4] = [0xd8, 0xe2, 0xf0, 0xff];
 const DEFAULT_RENDER_BACKGROUND_RGBA: [u8; 4] = [0x0b, 0x12, 0x20, 0xff];
 const DEFAULT_WINDOW_CHROME_BORDER_RGBA: [u8; 4] = [0x33, 0x41, 0x55, 0xff];
+const DEFAULT_TAB_BAR_SEPARATOR_RGBA: [u8; 4] = [0x1e, 0x29, 0x3b, 0xff];
 const DEFAULT_FOREGROUND_COLOR: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
 const DEFAULT_BACKGROUND_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
 const DEFAULT_CURSOR_FG_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
@@ -84300,6 +84301,7 @@ fn render_framebuffer_with_state(
             renderer.render_scrollbar(scrollbar, frame, geometry);
             redraw_frame_ui_rows(renderer, snapshot, frame, geometry, damage_row_offset);
         }
+        paint_frame_separator(frame, geometry, geometry.frame_separator);
         pending_frame_damage.clear();
         *frame_needs_full_repaint = false;
         return FrameRenderMode::Full;
@@ -84311,6 +84313,7 @@ fn render_framebuffer_with_state(
         renderer.render_scrollbar(scrollbar, frame, geometry);
         redraw_frame_ui_rows(renderer, snapshot, frame, geometry, damage_row_offset);
     }
+    paint_frame_separator(frame, geometry, geometry.frame_separator);
     FrameRenderMode::Damage
 }
 
@@ -84376,6 +84379,7 @@ fn render_aligned_framebuffer(
         placement.y,
     );
     paint_frame_border(frame, geometry, geometry.frame_border_color);
+    paint_frame_separator(frame, geometry, geometry.frame_separator);
 }
 
 #[cfg(test)]
@@ -84415,6 +84419,29 @@ fn paint_frame_border(
     for y in 1..height.saturating_sub(1) {
         set_pixel(frame, 0, y);
         set_pixel(frame, width.saturating_sub(1), y);
+    }
+}
+
+#[cfg(test)]
+fn paint_frame_separator(
+    frame: &mut [u8],
+    geometry: RenderGeometry,
+    separator: Option<(u32, [u8; 4])>,
+) {
+    let Some((y, color)) = separator else {
+        return;
+    };
+    if y >= geometry.target_height || geometry.target_width <= 2 {
+        return;
+    }
+    let width = usize::try_from(geometry.target_width).unwrap_or(0);
+    let y = usize::try_from(y).unwrap_or(usize::MAX);
+    let start = (y * width + 1) * 4;
+    let length = usize::try_from(geometry.target_width.saturating_sub(2)).unwrap_or(0) * 4;
+    if let Some(row) = frame.get_mut(start..start.saturating_add(length)) {
+        for pixel in row.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&color);
+        }
     }
 }
 
@@ -95390,8 +95417,20 @@ impl NativeWindowApp {
                 .y
                 .saturating_add(placement.height)
                 < geometry.target_height;
-        if self.modern_tab_bar_brand && has_outer_margin {
+        let modern_chrome = self.modern_tab_bar_brand && has_outer_margin;
+        let geometry = if modern_chrome {
             geometry.with_frame_border(DEFAULT_WINDOW_CHROME_BORDER_RGBA)
+        } else {
+            geometry
+        };
+        if modern_chrome && self.tab_bar_is_visible() && !self.tab_bar_at_bottom {
+            geometry.with_frame_separator(
+                placement
+                    .y
+                    .saturating_add(self.cell_height())
+                    .saturating_sub(1),
+                DEFAULT_TAB_BAR_SEPARATOR_RGBA,
+            )
         } else {
             geometry
         }
@@ -133909,6 +133948,12 @@ mod tests {
             frame_pixel_at(&frame, width, 4, 4),
             super::DEFAULT_RENDER_BACKGROUND_RGBA,
             "chrome must preserve the existing physical padding"
+        );
+        let tab_bar_separator_y = 6 + CELL_HEIGHT - 1;
+        assert_eq!(
+            frame_pixel_at(&frame, width, 4, tab_bar_separator_y as usize),
+            super::DEFAULT_TAB_BAR_SEPARATOR_RGBA,
+            "modern chrome should separate the tab row from terminal content"
         );
         assert_eq!(
             app.runtime.terminal().grid().size(),
