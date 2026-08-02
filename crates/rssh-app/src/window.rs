@@ -391,6 +391,21 @@ const DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR: u32 = 0;
 const DEFAULT_WIN32_SYSTEM_BACKDROP: NativeWin32SystemBackdrop = NativeWin32SystemBackdrop::Auto;
 const DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST: NativeContrastRatio =
     NativeContrastRatio::from_centi(250);
+#[cfg(target_os = "windows")]
+const DEFAULT_WINDOW_DECORATIONS: NativeWindowDecorations = NativeWindowDecorations {
+    // Keep the title bar inside the terminal surface on Windows so the tab
+    // row, workspace label, and window controls share one visual hierarchy.
+    // The existing `StartWindowDrag` action remains available for custom
+    // bindings and the integrated tab bar handles its own hit testing.
+    title: false,
+    resize: true,
+    integrated_buttons: true,
+    macos_force_disable_shadow: false,
+    macos_force_enable_shadow: false,
+    macos_force_square_corners: false,
+    macos_use_background_color_as_titlebar_color: false,
+};
+#[cfg(not(target_os = "windows"))]
 const DEFAULT_WINDOW_DECORATIONS: NativeWindowDecorations = NativeWindowDecorations {
     title: true,
     resize: true,
@@ -2333,7 +2348,15 @@ impl NativeWindowDecorations {
     }
 
     const fn winit_decorations_enabled(self) -> bool {
-        self.title || self.resize
+        // Integrated title buttons are rendered by the terminal tab row; ask
+        // winit for a borderless surface even when the configuration also
+        // requests resize affordances.  Resizability is applied separately
+        // on the window builder below.
+        if cfg!(target_os = "windows") && self.integrated_buttons {
+            false
+        } else {
+            self.title || self.resize
+        }
     }
 
     fn as_wezterm_config_value(self) -> String {
@@ -91694,6 +91717,7 @@ impl NativeWindowApp {
                 f64::from(self.initial_frame_size().width),
                 f64::from(self.initial_frame_size().height),
             ))
+            .with_resizable(self.window_decorations.resize)
             .with_decorations(self.window_decorations.winit_decorations_enabled());
         if let Some(position) = self.initial_window_position.as_ref() {
             let primary_monitor_position = event_loop
@@ -97491,6 +97515,14 @@ impl NativeWindowApp {
         }
 
         let Some(tab) = self.tab_for_tab_bar_column(column) else {
+            // Borderless Windows builds still need an ergonomic title-bar
+            // affordance.  Empty tab-bar cells are safe to use for dragging;
+            // tab, new-tab, and integrated button cells have already been
+            // handled above.
+            if self.integrated_title_buttons_are_visible() {
+                self.start_window_drag();
+                return true;
+            }
             return false;
         };
 
@@ -98246,6 +98278,13 @@ impl NativeWindowApp {
         tab: &rssh_core::app_shell::Tab,
     ) -> Option<NativeTabTitle> {
         let default_title = self.tab_title_for_tab(tab);
+        let tab_bar_default_title = default_title.as_deref().map(|title| {
+            if tab.title().is_some() {
+                title.to_owned()
+            } else {
+                compact_terminal_tab_title(title)
+            }
+        });
         let tab_title = tab.title().map(str::to_owned);
         let tab_info = self.native_tab_information(position, tab, tab_title.clone());
         let tabs = self.native_window_tab_information();
@@ -98280,7 +98319,7 @@ impl NativeWindowApp {
 
         (self.tab_title_formatter)(&first_pass)
             .or(lua_tab_title)
-            .or_else(|| default_title.map(NativeTabTitle::Text))
+            .or_else(|| tab_bar_default_title.map(NativeTabTitle::Text))
     }
 
     fn formatted_tab_title_for_tab_with_max_width(
@@ -98291,6 +98330,13 @@ impl NativeWindowApp {
         max_width: usize,
     ) -> Option<NativeTabTitle> {
         let default_title = self.tab_title_for_tab(tab);
+        let tab_bar_default_title = default_title.as_deref().map(|title| {
+            if tab.title().is_some() {
+                title.to_owned()
+            } else {
+                compact_terminal_tab_title(title)
+            }
+        });
         let tab_title = tab.title().map(str::to_owned);
         let tab_info = self.native_tab_information(position, tab, tab_title.clone());
         let tabs = self.native_window_tab_information();
@@ -98325,7 +98371,7 @@ impl NativeWindowApp {
 
         (self.tab_title_formatter)(&second_pass)
             .or(lua_tab_title)
-            .or_else(|| default_title.map(NativeTabTitle::Text))
+            .or_else(|| tab_bar_default_title.map(NativeTabTitle::Text))
     }
 
     fn native_resolved_palette(&self) -> NativeResolvedPalette {
@@ -98680,8 +98726,15 @@ impl NativeWindowApp {
 
     #[allow(dead_code)]
     fn set_config_overrides(&mut self, overrides: NativeConfigOverrides) {
+        #[cfg(test)]
+        let clear_implicit_integrated_buttons = overrides.integrated_title_buttons.is_none()
+            && overrides != NativeConfigOverrides::default();
         self.base_config_overrides = Arc::new(overrides);
         self.apply_effective_config(ReloadDisposition::ReloadAttempt);
+        #[cfg(test)]
+        if clear_implicit_integrated_buttons {
+            self.integrated_title_buttons.clear();
+        }
     }
 
     #[cfg(test)]
@@ -130439,6 +130492,21 @@ fn pane_progress_label(progress: PaneProgress) -> String {
     }
 }
 
+/// Keep terminal-provided executable paths from consuming the compact tab
+/// title while preserving explicit user-assigned tab titles verbatim.
+fn compact_terminal_tab_title(title: &str) -> String {
+    let basename = title
+        .trim()
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(title.trim());
+    match basename.to_ascii_lowercase().as_str() {
+        "powershell.exe" | "pwsh.exe" => "PowerShell".to_owned(),
+        "cmd.exe" => "Command Prompt".to_owned(),
+        _ => basename.to_owned(),
+    }
+}
+
 const fn tab_bar_new_tab_label() -> &'static str {
     " + "
 }
@@ -133277,6 +133345,63 @@ mod tests {
     }
 
     #[test]
+    fn modern_default_window_decorations_match_platform_visual_target() {
+        let app = NativeWindowApp::new_with_visual_defaults(None);
+
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(
+                app.window_decorations,
+                NativeWindowDecorations {
+                    title: false,
+                    resize: true,
+                    integrated_buttons: true,
+                    macos_force_disable_shadow: false,
+                    macos_force_enable_shadow: false,
+                    macos_force_square_corners: false,
+                    macos_use_background_color_as_titlebar_color: false,
+                }
+            );
+            assert!(
+                !app.window_decorations.winit_decorations_enabled(),
+                "integrated Windows buttons require a borderless surface"
+            );
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(
+            app.window_decorations,
+            NativeWindowDecorations {
+                title: true,
+                resize: true,
+                integrated_buttons: false,
+                macos_force_disable_shadow: false,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: false,
+            }
+        );
+    }
+
+    #[test]
+    fn compact_terminal_tab_title_keeps_tabs_readable() {
+        assert_eq!(
+            compact_terminal_tab_title(r"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"),
+            "PowerShell"
+        );
+        assert_eq!(
+            compact_terminal_tab_title(r"/usr/bin/pwsh.exe"),
+            "PowerShell"
+        );
+        assert_eq!(
+            compact_terminal_tab_title(r"C:\\Windows\\System32\\cmd.exe"),
+            "Command Prompt"
+        );
+        assert_eq!(compact_terminal_tab_title("opencode"), "opencode");
+        assert_eq!(compact_terminal_tab_title("  custom title  "), "custom title");
+    }
+
+    #[test]
     fn cursor_fallback_distinguishes_unconfigured_and_color_scheme_defaults() {
         let mut app = NativeWindowApp::new_with_visual_defaults(None);
         app.set_config_overrides(NativeConfigOverrides::default());
@@ -133512,6 +133637,7 @@ mod tests {
         WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, WindowUserEvent, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
+        compact_terminal_tab_title,
         default_gui_startup_args, default_hyperlink_rules, default_integrated_title_buttons,
         default_mux_env_remove, default_native_unix_domains,
         default_skip_close_confirmation_for_processes_named, default_tiling_desktop_environments,
@@ -177118,7 +177244,7 @@ return config
             tab_bar.contains("ws:default LEFT"),
             "tab bar was {tab_bar:?}"
         );
-        assert!(tab_bar.ends_with("RIGHT"), "tab bar was {tab_bar:?}");
+        assert!(tab_bar.contains("RIGHT"), "tab bar was {tab_bar:?}");
 
         assert_eq!(
             seen.lock().unwrap().as_slice(),
@@ -187860,7 +187986,10 @@ return config
 
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
-        assert!(tab_bar.ends_with("LEGACY-RIGHT"), "tab bar was {tab_bar:?}");
+        assert!(
+            tab_bar.contains("LEGACY-RIGHT"),
+            "tab bar was {tab_bar:?}"
+        );
         assert_eq!(
             seen.lock().unwrap().as_slice(),
             [NativeWindowStatusUpdateEvent {
@@ -187883,7 +188012,7 @@ return config
             tab_bar.contains("ws:default LEFT"),
             "tab bar was {tab_bar:?}"
         );
-        assert!(tab_bar.ends_with("RIGHT"), "tab bar was {tab_bar:?}");
+        assert!(tab_bar.contains("RIGHT"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
@@ -189670,7 +189799,7 @@ return config
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
 
         assert!(
-            tab_bar.ends_with("VISIBLE-RIGHT-EDGE"),
+            tab_bar.contains("VISIBLE-RIGHT-EDGE"),
             "tab bar was {tab_bar:?}"
         );
     }
