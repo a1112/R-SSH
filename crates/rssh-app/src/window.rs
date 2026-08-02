@@ -81608,6 +81608,7 @@ struct NativeWindowApp {
     runtime: TerminalRuntime,
     snapshot: TerminalRenderSnapshot,
     window_title: String,
+    modern_tab_bar_brand: bool,
     frame_width: u32,
     frame_height: u32,
     window_frame: NativeWindowFrame,
@@ -84611,6 +84612,7 @@ impl NativeWindowApp {
         self.window_padding = NativeWindowPadding::default();
         self.frame_width = FRAME_WIDTH;
         self.frame_height = FRAME_HEIGHT;
+        self.modern_tab_bar_brand = false;
         self.window_frame
             .set_size(PhysicalSize::new(FRAME_WIDTH, FRAME_HEIGHT));
         self.foreground_color = LEGACY_TEST_FOREGROUND_COLOR;
@@ -84731,6 +84733,7 @@ impl NativeWindowApp {
                 runtime,
                 snapshot,
                 window_title: DEFAULT_WINDOW_TITLE.to_owned(),
+                modern_tab_bar_brand: true,
                 frame_width: FRAME_WIDTH + DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS,
                 frame_height: FRAME_HEIGHT + DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS,
                 window_frame: NativeWindowFrame::initial(),
@@ -97064,6 +97067,19 @@ impl NativeWindowApp {
                 );
             }
         }
+        if let Some(brand) = self.modern_tab_bar_brand_label() {
+            // The brand is a visual-only segment.  Workspace and tab labels
+            // remain unchanged so WezTerm formatters and hit testing retain
+            // their existing semantics.
+            write_tab_bar_segment(
+                &mut cells,
+                &mut column,
+                brand,
+                Color::Rgb(0x38, 0xbd, 0xf8),
+                background,
+                true,
+            );
+        }
         write_tab_bar_segment(
             &mut cells,
             &mut column,
@@ -97947,6 +97963,13 @@ impl NativeWindowApp {
         } else {
             0
         })?;
+        width = width.checked_add(
+            u16::try_from(
+                self.modern_tab_bar_brand_label()
+                    .map_or(0, |label| label.chars().count()),
+            )
+            .ok()?,
+        )?;
         width = width
             .checked_add(u16::try_from(self.tab_bar_workspace_label().chars().count()).ok()?)?;
         if !self.left_status.is_empty() {
@@ -97959,6 +97982,10 @@ impl NativeWindowApp {
 
     fn tab_bar_workspace_label(&self) -> String {
         format!(" ws:{} ", self.app_shell.active_workspace().name())
+    }
+
+    fn modern_tab_bar_brand_label(&self) -> Option<&'static str> {
+        (self.modern_tab_bar_brand && self.tab_bar_style.is_empty()).then_some(" R-SSH ")
     }
 
     fn tab_bar_label_options(&self) -> TabBarTabLabelOptions {
@@ -133379,6 +133406,7 @@ mod tests {
     #[test]
     fn modern_default_active_tab_paints_breathing_room_without_moving_hits() {
         let app = NativeWindowApp::new_with_visual_defaults(None);
+        assert_eq!(app.modern_tab_bar_brand_label(), Some(" R-SSH "));
         let snapshot = app.render_snapshot();
         let layout = app.rendered_tab_bar_layout.borrow();
         let tab = layout
