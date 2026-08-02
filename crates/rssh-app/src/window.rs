@@ -97084,9 +97084,13 @@ impl NativeWindowApp {
             &mut cells,
             &mut column,
             &self.tab_bar_workspace_label(),
-            tab_bar_foreground,
+            if self.modern_tab_bar_uses_compact_labels() {
+                Color::Rgb(0x84, 0x92, 0xa6)
+            } else {
+                tab_bar_foreground
+            },
             background,
-            true,
+            !self.modern_tab_bar_uses_compact_labels(),
         );
         if !self.left_status.is_empty() {
             write_tab_bar_ansi_segment(
@@ -97258,6 +97262,21 @@ impl NativeWindowApp {
                     style,
                 );
             }
+        }
+        if self.modern_tab_bar_uses_compact_labels()
+            && let Some(new_tab_end) = visible_layout.new_tab_end_column
+            && let Some(cell) = cells.get_mut(usize::from(new_tab_end))
+            && cell.ch == ' '
+        {
+            // Keep the chevron outside the interactive '+' segment so the
+            // default new-tab hit target remains byte-for-byte compatible.
+            *cell = tab_bar_render_cell(
+                new_tab_end,
+                '⌄',
+                Color::Rgb(0x38, 0xbd, 0xf8),
+                background,
+                false,
+            );
         }
 
         let right_integrated_title_buttons_items =
@@ -97985,7 +98004,11 @@ impl NativeWindowApp {
     }
 
     fn modern_tab_bar_brand_label(&self) -> Option<&'static str> {
-        (self.modern_tab_bar_brand && self.tab_bar_style.is_empty()).then_some(" R-SSH ")
+        self.modern_tab_bar_uses_compact_labels().then_some(" R-SSH ")
+    }
+
+    fn modern_tab_bar_uses_compact_labels(&self) -> bool {
+        self.modern_tab_bar_brand && self.tab_bar_style.is_empty()
     }
 
     fn tab_bar_label_options(&self) -> TabBarTabLabelOptions {
@@ -98061,7 +98084,7 @@ impl NativeWindowApp {
                 let first_pass_title_width = first_pass_title
                     .as_ref()
                     .map_or(0, native_tab_title_visible_width);
-                let label = tab_bar_tab_label_segments(
+                let mut label = tab_bar_tab_label_segments(
                     position,
                     tab.id(),
                     tab.panes().len(),
@@ -98070,6 +98093,18 @@ impl NativeWindowApp {
                     Self::tab_progress_for_tab(tab),
                     self.tab_bar_label_options(),
                 );
+                if self.modern_tab_bar_uses_compact_labels() {
+                    // Keep the close marker in the suffix, but remove the
+                    // diagnostic index/pane-count prefix from the default
+                    // visual treatment.  Explicit tab formatting remains
+                    // untouched because it disables this modern path.
+                    label.prefix = " ".to_owned();
+                    label.suffix = if self.show_close_tab_button_in_tabs {
+                        " × ".to_owned()
+                    } else {
+                        " ".to_owned()
+                    };
+                }
                 let allocated_title_width = if first_pass_title_width == 0 {
                     tab_width_max.max(1)
                 } else {
@@ -98137,7 +98172,10 @@ impl NativeWindowApp {
                 );
                 let close_column = if self.show_close_tab_button_in_tabs {
                     let prefix_text = tab_bar_ansi_plain_text(&label.prefix);
-                    if let Some(offset) = prefix_text.chars().position(|ch| ch == 'x') {
+                    if let Some(offset) = prefix_text
+                        .chars()
+                        .position(|ch| ch == 'x' || ch == '×')
+                    {
                         Some(
                             left_edge_end_column
                                 .saturating_add(u16::try_from(offset).unwrap_or(u16::MAX)),
@@ -98145,7 +98183,7 @@ impl NativeWindowApp {
                     } else {
                         tab_bar_ansi_plain_text(&label.suffix)
                             .chars()
-                            .position(|ch| ch == 'x')
+                            .position(|ch| ch == 'x' || ch == '×')
                             .map(|offset| {
                                 title_end_column
                                     .saturating_add(u16::try_from(offset).unwrap_or(u16::MAX))
@@ -133408,6 +133446,11 @@ mod tests {
         let app = NativeWindowApp::new_with_visual_defaults(None);
         assert_eq!(app.modern_tab_bar_brand_label(), Some(" R-SSH "));
         let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("R-SSH"));
+        assert!(!tab_bar.contains("panes:"), "modern tab bar was {tab_bar:?}");
+        assert!(tab_bar.contains('×'), "modern tab close marker was {tab_bar:?}");
+        assert!(tab_bar.contains('⌄'), "modern new-tab chevron was {tab_bar:?}");
         let layout = app.rendered_tab_bar_layout.borrow();
         let tab = layout
             .as_ref()
