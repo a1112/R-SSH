@@ -98028,8 +98028,17 @@ impl NativeWindowApp {
         if hovered { hover.or(normal) } else { normal }
             .cloned()
             .unwrap_or_else(|| {
+                let label = if self.modern_tab_bar_uses_compact_labels() {
+                    match button {
+                        NativeIntegratedTitleButton::Hide => "  —  ",
+                        NativeIntegratedTitleButton::Maximize => "  □  ",
+                        NativeIntegratedTitleButton::Close => "  ×  ",
+                    }
+                } else {
+                    integrated_title_button_default_tab_bar_label(button)
+                };
                 vec![NativeFormatItem::Text(
-                    integrated_title_button_default_tab_bar_label(button).to_owned(),
+                    label.to_owned(),
                 )]
             })
     }
@@ -133695,6 +133704,24 @@ mod tests {
             integrated_title_button_default_tab_bar_label(NativeIntegratedTitleButton::Close),
             " × "
         );
+    }
+
+    #[test]
+    fn modern_default_window_controls_keep_target_spacing() {
+        let app = NativeWindowApp::new_with_visual_defaults(None);
+        for button in [
+            NativeIntegratedTitleButton::Hide,
+            NativeIntegratedTitleButton::Maximize,
+            NativeIntegratedTitleButton::Close,
+        ] {
+            assert_eq!(
+                super::native_format_items_visible_width(
+                    &app.integrated_title_button_tab_bar_items(button, false)
+                ),
+                5,
+                "modern default window control should reserve two breathing columns per side"
+            );
+        }
     }
 
     #[test]
