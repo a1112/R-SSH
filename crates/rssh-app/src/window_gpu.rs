@@ -490,6 +490,19 @@ fn load_platform_font_sources(catalog: &mut rssh_fonts::FontCatalog) {
     #[cfg(target_os = "windows")]
     const CANDIDATES: &[(&str, &str)] = &[
         (
+            "CascadiaMono.system.ttf",
+            r"C:\Windows\Fonts\CascadiaMono.ttf",
+        ),
+        (
+            "CascadiaCode.system.ttf",
+            r"C:\Windows\Fonts\CascadiaCode.ttf",
+        ),
+        (
+            "SourceCodePro.system.ttf",
+            r"C:\Windows\Fonts\SourceCodePro-Regular.ttf",
+        ),
+        ("Consolas.system.ttf", r"C:\Windows\Fonts\consola.ttf"),
+        (
             "NotoSansSC.system.ttf",
             r"C:\Windows\Fonts\NotoSansSC-VF.ttf",
         ),
@@ -506,6 +519,14 @@ fn load_platform_font_sources(catalog: &mut rssh_fonts::FontCatalog) {
     ];
     #[cfg(target_os = "linux")]
     const CANDIDATES: &[(&str, &str)] = &[
+        (
+            "NotoSansMono.system.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf",
+        ),
+        (
+            "DejaVuSansMono.system.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        ),
         (
             "NotoSansCJK.system.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
@@ -525,6 +546,8 @@ fn load_platform_font_sources(catalog: &mut rssh_fonts::FontCatalog) {
     ];
     #[cfg(target_os = "macos")]
     const CANDIDATES: &[(&str, &str)] = &[
+        ("Menlo.system.ttc", "/System/Library/Fonts/Menlo.ttc"),
+        ("Monaco.system.dfont", "/System/Library/Fonts/Monaco.dfont"),
         (
             "HiraginoSansGB.system.ttc",
             "/System/Library/Fonts/Hiragino Sans GB.ttc",
@@ -558,8 +581,16 @@ fn load_platform_font_sources(catalog: &mut rssh_fonts::FontCatalog) {
 }
 
 fn bundled_emergency_font_config() -> rssh_fonts::FontConfig {
-    rssh_fonts::FontConfig::new("Noto Sans")
+    rssh_fonts::FontConfig::new("Cascadia Mono")
         .with_fallbacks([
+            "Cascadia Code",
+            "Source Code Pro",
+            "Consolas",
+            "Menlo",
+            "Monaco",
+            "Noto Sans Mono",
+            "DejaVu Sans Mono",
+            "Noto Sans",
             "Noto Sans SC",
             "Noto Sans JP",
             "Noto Sans Arabic",
@@ -574,7 +605,7 @@ fn bundled_emergency_font_config() -> rssh_fonts::FontConfig {
             "Nirmala UI",
             "Segoe UI Emoji",
         ])
-        .with_font_size(16.0)
+        .with_font_size(15.0)
 }
 
 #[cfg(test)]
