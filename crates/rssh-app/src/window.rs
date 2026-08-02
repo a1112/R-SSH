@@ -84613,6 +84613,11 @@ impl NativeWindowApp {
         self.frame_width = FRAME_WIDTH;
         self.frame_height = FRAME_HEIGHT;
         self.modern_tab_bar_brand = false;
+        // Keep the synthetic test window on the pre-modern tab-bar geometry.
+        // Production Windows windows intentionally default to integrated title
+        // buttons, but legacy layout tests must not inherit those right-edge
+        // controls unless they opt in through an explicit override.
+        self.window_decorations.integrated_buttons = false;
         self.window_frame
             .set_size(PhysicalSize::new(FRAME_WIDTH, FRAME_HEIGHT));
         self.foreground_color = LEGACY_TEST_FOREGROUND_COLOR;
@@ -174908,12 +174913,7 @@ return config
 
         assert_eq!(
             app.missing_glyph_warnings_for_test(),
-            [
-                "CONFIG ERROR missing glyph for codepoint U+2014 ('—')",
-                "CONFIG ERROR missing glyph for codepoint U+25A1 ('□')",
-                "CONFIG ERROR missing glyph for codepoint U+00D7 ('×')",
-                "CONFIG ERROR missing glyph for codepoint U+4E2D ('中')",
-            ]
+            ["CONFIG ERROR missing glyph for codepoint U+4E2D ('中')"]
         );
     }
 
