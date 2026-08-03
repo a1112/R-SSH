@@ -291,6 +291,7 @@ const DEFAULT_TAB_BAR_NEW_TAB_HOVER_COLORS: NativeTabBarItemColors =
 const DEFAULT_MODERN_NEW_TAB_CHEVRON_FOREGROUND: Color = Color::Rgb(0xa5, 0xb4, 0xc7);
 const DEFAULT_MODERN_TAB_CLOSE_HOVER_FOREGROUND: Color = Color::Rgb(0x0b, 0x12, 0x20);
 const DEFAULT_MODERN_TAB_CLOSE_HOVER_BACKGROUND: Color = Color::Rgb(0xf8, 0x71, 0x71);
+const DEFAULT_MODERN_WINDOW_BUTTON_HOVER_BACKGROUND: Color = Color::Rgb(0x1e, 0x29, 0x3b);
 const DEFAULT_ANSI_PALETTE_COLORS: [Color; 16] = [
     Color::Rgb(0x11, 0x18, 0x27),
     Color::Rgb(0xf8, 0x71, 0x71),
@@ -98151,12 +98152,21 @@ impl NativeWindowApp {
         background: Color,
         hovered: bool,
     ) -> TabBarSegmentStyle {
-        let button_background = if hovered {
+        let configured_button_background = if hovered {
             self.window_frame_appearance.button_hover_bg
         } else {
             self.window_frame_appearance.button_bg
-        }
-        .unwrap_or(background);
+        };
+        let button_background = configured_button_background.unwrap_or_else(|| {
+            if hovered
+                && self.modern_tab_bar_uses_compact_labels()
+                && self.window_frame_appearance.button_bg.is_none()
+            {
+                DEFAULT_MODERN_WINDOW_BUTTON_HOVER_BACKGROUND
+            } else {
+                background
+            }
+        });
         let button_foreground = if hovered {
             self.window_frame_appearance.button_hover_fg
         } else {
@@ -133830,6 +133840,46 @@ mod tests {
                 .foreground,
             Color::Rgb(0xf8, 0xfa, 0xfc),
             "modern window controls should use the bright title-bar foreground"
+        );
+    }
+
+    #[test]
+    fn modern_default_window_controls_use_surface_on_hover() {
+        let mut app = NativeWindowApp::new_with_visual_defaults(None);
+        let snapshot = app.render_snapshot();
+        let close_column = (0..TERMINAL_COLUMNS)
+            .find(|column| {
+                app.integrated_title_button_for_tab_bar_column(*column)
+                    == Some(NativeIntegratedTitleButton::Close)
+                    && snapshot_cell(&snapshot, 0, *column)
+                        .is_some_and(|cell| cell.ch == '×')
+            })
+            .expect("modern close control should have a tab-bar hit column");
+        let resting = snapshot_cell(&snapshot, 0, close_column)
+            .expect("resting modern close control should be visible");
+        assert_eq!(resting.ch, '×');
+        assert_eq!(resting.background, Color::Rgb(0x08, 0x0d, 0x18));
+        assert_eq!(resting.foreground, Color::Rgb(0xf8, 0xfa, 0xfc));
+
+        let x = app
+            .frame_content_pixel_left()
+            .saturating_add(u32::from(close_column).saturating_mul(CELL_WIDTH))
+            .saturating_add(CELL_WIDTH / 2);
+        let y = app
+            .frame_content_pixel_top()
+            .saturating_add(CELL_HEIGHT / 2);
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), f64::from(y)))
+            .expect("window control hover should be accepted");
+        let hovered_snapshot = app.render_snapshot();
+        let hovered = snapshot_cell(&hovered_snapshot, 0, close_column)
+            .expect("hovered modern close control should be visible");
+
+        assert_eq!(hovered.ch, '×');
+        assert_eq!(hovered.foreground, Color::Rgb(0xf8, 0xfa, 0xfc));
+        assert_eq!(
+            hovered.background,
+            Color::Rgb(0x1e, 0x29, 0x3b),
+            "modern window controls should lift onto a slate hover surface"
         );
     }
 
