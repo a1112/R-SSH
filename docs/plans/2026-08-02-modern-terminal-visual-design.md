@@ -15,7 +15,7 @@
 
 采用现代深海蓝方案：
 
-- 主字体：Cascadia Mono；不可用时依次使用 Source Code Pro、Consolas 和现有 Noto Sans fixture。
+- 主字体：Windows 使用 Cascadia Mono，macOS 使用 Menlo，Linux 使用 Noto Sans Mono；不可用时依次使用 Source Code Pro、Consolas 和现有 Noto Sans fixture。命令面板、选择器和窗口 frame 默认沿用同一平台等宽家族，显式 WezTerm 字体配置仍优先。
 - 字体 fallback：保留 Noto Sans SC/JP、Microsoft YaHei、Meiryo、Malgun Gothic、Segoe UI、Nirmala UI 和 emoji 字体。
 - 终端背景：`#0B1220`。
 - 默认前景：`#D8E2F0`。

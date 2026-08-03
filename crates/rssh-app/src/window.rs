@@ -3488,7 +3488,14 @@ const DEFAULT_WINDOW_CONTENT_ALIGNMENT: NativeWindowContentAlignment =
         vertical: NativeVerticalContentAlignment::Top,
     };
 
-const DEFAULT_WINDOW_FRAME_FONT: &str = "Roboto";
+#[cfg(target_os = "windows")]
+const DEFAULT_WINDOW_FRAME_FONT: &str = "Cascadia Mono";
+#[cfg(target_os = "macos")]
+const DEFAULT_WINDOW_FRAME_FONT: &str = "Menlo";
+#[cfg(target_os = "linux")]
+const DEFAULT_WINDOW_FRAME_FONT: &str = "Noto Sans Mono";
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+const DEFAULT_WINDOW_FRAME_FONT: &str = "Cascadia Mono";
 
 #[cfg(target_os = "windows")]
 const DEFAULT_WINDOW_FRAME_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(10_000);
@@ -242346,7 +242353,16 @@ return config
             NativeFontSize::from_millipoints(12_000)
         };
 
-        assert_eq!(effective.font, Some("Roboto".to_owned()));
+        let expected_font = if cfg!(target_os = "windows") {
+            "Cascadia Mono"
+        } else if cfg!(target_os = "macos") {
+            "Menlo"
+        } else if cfg!(target_os = "linux") {
+            "Noto Sans Mono"
+        } else {
+            "Cascadia Mono"
+        };
+        assert_eq!(effective.font, Some(expected_font.to_owned()));
         assert_eq!(effective.font_size, Some(expected_font_size));
     }
 
