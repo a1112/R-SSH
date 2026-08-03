@@ -217,6 +217,8 @@ const DEFAULT_BACKGROUND_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
 const DEFAULT_CURSOR_FG_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
 const DEFAULT_CURSOR_BG_COLOR: Color = Color::Rgb(0x67, 0xe8, 0xf9);
 const DEFAULT_SELECTION_BG_COLOR: Color = Color::Rgba(0x33, 0x41, 0x55, 0xb3);
+const DEFAULT_QUICK_SELECT_LABEL_FG_COLOR: Color = Color::Rgb(0x0b, 0x12, 0x20);
+const DEFAULT_QUICK_SELECT_LABEL_BG_COLOR: Color = Color::Rgb(0x38, 0xbd, 0xf8);
 const LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR: Color = Color::Rgb(229, 229, 229);
 #[cfg(test)]
 const LEGACY_TEST_FOREGROUND_COLOR: Color = Color::Rgb(229, 229, 229);
@@ -128348,10 +128350,10 @@ fn quick_select_cells_for_pane(
         .saturating_add(StableRowIndex::try_from(size.rows).unwrap_or(StableRowIndex::MAX));
     let foreground = palette
         .quick_select_label_fg
-        .map_or(Color::Rgb(12, 12, 14), native_color_spec_to_render_color);
+        .map_or(DEFAULT_QUICK_SELECT_LABEL_FG_COLOR, native_color_spec_to_render_color);
     let background = palette
         .quick_select_label_bg
-        .map_or(Color::Rgb(255, 209, 102), native_color_spec_to_render_color);
+        .map_or(DEFAULT_QUICK_SELECT_LABEL_BG_COLOR, native_color_spec_to_render_color);
     let input_prefix = quick_select.input.to_ascii_lowercase();
     let mut cells = Vec::new();
 
@@ -210287,6 +210289,31 @@ return config
         assert_eq!(label_cell.ch, 'a');
         assert_eq!(label_cell.foreground, Color::Rgb(4, 5, 6));
         assert_eq!(label_cell.background, Color::Indexed(4));
+        assert!(!label_cell.inverse);
+    }
+
+    #[test]
+    fn window_quick_select_uses_modern_default_label_colors() {
+        let mut app = NativeWindowApp::new_with_visual_defaults(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
+        app.handle_pty_output(b"https://example.com")
+            .expect("quick-select fixture output");
+
+        app.enter_quick_select_mode();
+        let snapshot = app.render_snapshot();
+        let label_cell =
+            snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("quick-select label cell");
+
+        assert_eq!(
+            label_cell.foreground,
+            Color::Rgb(0x0b, 0x12, 0x20),
+            "modern quick-select labels should use the terminal background as ink"
+        );
+        assert_eq!(
+            label_cell.background,
+            Color::Rgb(0x38, 0xbd, 0xf8),
+            "modern quick-select labels should use the cyan focus accent"
+        );
         assert!(!label_cell.inverse);
     }
 
