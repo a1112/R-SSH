@@ -23,6 +23,10 @@ mod terminal_query_dcs;
 mod terminal_runtime;
 mod version;
 mod visible_output;
+// This compatibility aggregate is intentionally generated/monolithic and is
+// too large for rustfmt's current allocation strategy. Keep the rest of the
+// crate under the workspace-wide formatter without attempting to reformat it.
+#[rustfmt::skip]
 mod window;
 mod window_gpu;
 
