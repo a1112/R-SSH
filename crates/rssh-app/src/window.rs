@@ -97425,12 +97425,20 @@ impl NativeWindowApp {
                     self.tab_bar_style.new_tab_right.as_deref(),
                 )
             };
-            let style = tab_bar_item_segment_style(
+            let mut style = tab_bar_item_segment_style(
                 new_tab_colors,
                 new_tab_defaults.fg_color.unwrap_or(tab_bar_foreground),
                 new_tab_defaults.bg_color.unwrap_or(background),
                 true,
             );
+            if self.modern_tab_bar_uses_compact_labels()
+                && !new_tab_hovered
+                && self.tab_bar_new_tab_colors == DEFAULT_TAB_BAR_NEW_TAB_COLORS
+            {
+                // Keep the default '+' in the same high-emphasis tier as the
+                // title controls while leaving explicit WezTerm colors intact.
+                style.foreground = DEFAULT_MODERN_WINDOW_BUTTON_FOREGROUND_COLOR;
+            }
             let visible_cells = &mut cells[..usize::from(new_tab_end.min(columns))];
             if self.tab_bar_style.new_tab.is_some()
                 || (new_tab_hovered && self.tab_bar_style.new_tab_hover.is_some())
@@ -133879,7 +133887,8 @@ mod tests {
             snapshot_cell(&snapshot, 0, u16::try_from(plus_column).unwrap())
                 .expect("new-tab plus cell should be visible")
                 .foreground,
-            Color::Rgb(0xd8, 0xe2, 0xf0)
+            Color::Rgb(0xf8, 0xfa, 0xfc),
+            "modern new-tab plus should share the high-emphasis title foreground"
         );
         let chevron_column = tab_bar
             .chars()
