@@ -97247,7 +97247,7 @@ impl NativeWindowApp {
                 &mut cells,
                 &mut column,
                 "R-SSH ",
-                tab_bar_foreground,
+                DEFAULT_MODERN_WINDOW_BUTTON_FOREGROUND_COLOR,
                 background,
                 false,
             );
@@ -133859,7 +133859,8 @@ mod tests {
             snapshot_cell(&snapshot, 0, u16::try_from(product_column).unwrap())
                 .expect("product name cell should be visible")
                 .foreground,
-            Color::Rgb(0xd8, 0xe2, 0xf0)
+            Color::Rgb(0xf8, 0xfa, 0xfc),
+            "modern product name should share the high-emphasis title foreground"
         );
         assert!(
             !snapshot_cell(&snapshot, 0, u16::try_from(product_column).unwrap())
