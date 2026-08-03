@@ -270,7 +270,9 @@ const DEFAULT_TAB_BAR_NEW_TAB_COLORS: NativeTabBarItemColors = NativeTabBarItemC
 };
 const DEFAULT_TAB_BAR_NEW_TAB_HOVER_COLORS: NativeTabBarItemColors =
     DEFAULT_TAB_BAR_INACTIVE_TAB_HOVER_COLORS;
-const DEFAULT_MODERN_NEW_TAB_CHEVRON_FOREGROUND: Color = Color::Rgb(0x84, 0x92, 0xa6);
+// Keep the menu affordance visibly readable beside the high-emphasis '+',
+// while remaining quieter than the title controls and tab labels.
+const DEFAULT_MODERN_NEW_TAB_CHEVRON_FOREGROUND: Color = Color::Rgb(0xa5, 0xb4, 0xc7);
 const DEFAULT_ANSI_PALETTE_COLORS: [Color; 16] = [
     Color::Rgb(0x11, 0x18, 0x27),
     Color::Rgb(0xf8, 0x71, 0x71),
@@ -133906,7 +133908,7 @@ mod tests {
             snapshot_cell(&snapshot, 0, u16::try_from(chevron_column).unwrap())
                 .expect("new-tab chevron cell should be visible")
                 .foreground,
-            Color::Rgb(0x84, 0x92, 0xa6)
+            Color::Rgb(0xa5, 0xb4, 0xc7)
         );
         let layout = app.rendered_tab_bar_layout.borrow();
         assert_eq!(
