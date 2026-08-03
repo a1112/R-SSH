@@ -19,6 +19,7 @@
 - 字体 fallback：保留 Noto Sans SC/JP、Microsoft YaHei、Meiryo、Malgun Gothic、Segoe UI、Nirmala UI 和 emoji 字体。
 - 终端背景：`#0B1220`。
 - 默认前景：`#D8E2F0`。
+- 命令面板和字符选择使用 `#101827` 浮层与 `#D8E2F0` 前景；pane 选择保持终端内容可见，但使用 `#0B1220` 的 90% 不透明浮层和同一前景层级。
 - 弱化前景：`#8492A6`。
 - 光标：`#67E8F9`，光标文字使用深色背景色。
 - 选区：蓝灰色半透明效果，对比清晰但不刺眼。

@@ -168,12 +168,12 @@ const DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(15_00
 const DEFAULT_COMMAND_PALETTE_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(14_000);
 const DEFAULT_CHAR_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(18_000);
 const DEFAULT_PANE_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(36_000);
-const DEFAULT_COMMAND_PALETTE_FG_COLOR: Color = Color::Rgb(191, 191, 191);
-const DEFAULT_COMMAND_PALETTE_BG_COLOR: Color = Color::Rgb(0x33, 0x33, 0x33);
-const DEFAULT_CHAR_SELECT_FG_COLOR: Color = Color::Rgb(191, 191, 191);
-const DEFAULT_CHAR_SELECT_BG_COLOR: Color = Color::Rgb(0x33, 0x33, 0x33);
-const DEFAULT_PANE_SELECT_FG_COLOR: Color = Color::Rgb(191, 191, 191);
-const DEFAULT_PANE_SELECT_BG_COLOR: Color = Color::Rgba(0, 0, 0, 127);
+const DEFAULT_COMMAND_PALETTE_FG_COLOR: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
+const DEFAULT_COMMAND_PALETTE_BG_COLOR: Color = Color::Rgb(0x10, 0x18, 0x27);
+const DEFAULT_CHAR_SELECT_FG_COLOR: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
+const DEFAULT_CHAR_SELECT_BG_COLOR: Color = Color::Rgb(0x10, 0x18, 0x27);
+const DEFAULT_PANE_SELECT_FG_COLOR: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
+const DEFAULT_PANE_SELECT_BG_COLOR: Color = Color::Rgba(0x0b, 0x12, 0x20, 0xe6);
 const PANE_CLOSE_BUTTON_FOREGROUND: Color = Color::Rgb(255, 255, 255);
 const PANE_CLOSE_BUTTON_BACKGROUND: Color = Color::Rgb(176, 42, 42);
 const PANE_INSPECTION_FOREGROUND: Color = Color::Rgb(236, 255, 255);
@@ -238071,27 +238071,27 @@ return config
         );
         assert_eq!(
             effective.command_palette_fg_color,
-            Some(Color::Rgb(191, 191, 191))
+            Some(Color::Rgb(0xd8, 0xe2, 0xf0))
         );
         assert_eq!(
             effective.command_palette_bg_color,
-            Some(Color::Rgb(0x33, 0x33, 0x33))
+            Some(Color::Rgb(0x10, 0x18, 0x27))
         );
         assert_eq!(
             effective.char_select_fg_color,
-            Some(Color::Rgb(191, 191, 191))
+            Some(Color::Rgb(0xd8, 0xe2, 0xf0))
         );
         assert_eq!(
             effective.char_select_bg_color,
-            Some(Color::Rgb(0x33, 0x33, 0x33))
+            Some(Color::Rgb(0x10, 0x18, 0x27))
         );
         assert_eq!(
             effective.pane_select_fg_color,
-            Some(Color::Rgb(191, 191, 191))
+            Some(Color::Rgb(0xd8, 0xe2, 0xf0))
         );
         assert_eq!(
             effective.pane_select_bg_color,
-            Some(Color::Rgba(0, 0, 0, 127))
+            Some(Color::Rgba(0x0b, 0x12, 0x20, 0xe6))
         );
     }
 
