@@ -97451,7 +97451,7 @@ impl NativeWindowApp {
                 write_tab_bar_ansi_segment(
                     visible_cells,
                     &mut column,
-                    tab_bar_new_tab_label(),
+                    self.modern_tab_bar_new_tab_label(),
                     style,
                 );
                 write_tab_bar_format_items_if_configured(
@@ -97963,7 +97963,9 @@ impl NativeWindowApp {
         if let Some(left_edge) = left_edge {
             items.extend_from_slice(left_edge);
         }
-        items.push(NativeFormatItem::Text(tab_bar_new_tab_label().to_owned()));
+        items.push(NativeFormatItem::Text(
+            self.modern_tab_bar_new_tab_label().to_owned(),
+        ));
         if let Some(right_edge) = right_edge {
             items.extend_from_slice(right_edge);
         }
@@ -98226,6 +98228,14 @@ impl NativeWindowApp {
             return String::new();
         }
         format!(" ws:{} ", self.app_shell.active_workspace().name())
+    }
+
+    fn modern_tab_bar_new_tab_label(&self) -> &'static str {
+        if self.modern_tab_bar_uses_compact_labels() {
+            " +  "
+        } else {
+            tab_bar_new_tab_label()
+        }
     }
 
     fn modern_tab_bar_brand_label(&self) -> Option<&'static str> {
@@ -133846,7 +133856,8 @@ mod tests {
         assert!(tab_bar.contains('×'), "modern tab close marker was {tab_bar:?}");
         assert!(tab_bar.contains('▾'), "modern new-tab chevron was {tab_bar:?}");
         let plus_column = tab_bar
-            .find('+')
+            .chars()
+            .position(|character| character == '+')
             .expect("modern new-tab plus marker should be visible");
         assert_eq!(
             snapshot_cell(&snapshot, 0, u16::try_from(plus_column).unwrap())
@@ -133858,6 +133869,10 @@ mod tests {
             .chars()
             .position(|character| character == '▾')
             .expect("modern new-tab chevron should be visible");
+        assert!(
+            chevron_column >= plus_column.saturating_add(3),
+            "modern new-tab controls should keep a breathing column between + and ▾: +={plus_column}, ▾={chevron_column}"
+        );
         assert_eq!(
             snapshot_cell(&snapshot, 0, u16::try_from(chevron_column).unwrap())
                 .expect("new-tab chevron cell should be visible")
@@ -133865,6 +133880,22 @@ mod tests {
             Color::Rgb(0x84, 0x92, 0xa6)
         );
         let layout = app.rendered_tab_bar_layout.borrow();
+        assert_eq!(
+            layout
+                .as_ref()
+                .and_then(|layout| layout.new_tab_end_column),
+            Some(u16::try_from(chevron_column).unwrap()),
+            "modern chevron should begin immediately after the interactive + segment"
+        );
+        assert_eq!(
+            layout
+                .as_ref()
+                .and_then(|layout| layout.new_tab_start_column)
+                .zip(layout.as_ref().and_then(|layout| layout.new_tab_end_column))
+                .map(|(start, end)| end.saturating_sub(start)),
+            Some(4),
+            "modern + control should reserve its leading/trailing breathing columns"
+        );
         let tab = layout
             .as_ref()
             .and_then(|layout| layout.tabs.first())
