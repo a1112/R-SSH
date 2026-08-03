@@ -97223,7 +97223,7 @@ impl NativeWindowApp {
                 &mut cells,
                 &mut column,
                 ">_",
-                Color::Rgb(0x38, 0xbd, 0xf8),
+                tab_bar_foreground,
                 DEFAULT_MODERN_BRAND_BADGE_BACKGROUND,
                 false,
             );
@@ -133793,7 +133793,8 @@ mod tests {
             snapshot_cell(&snapshot, 0, u16::try_from(prompt_column).unwrap())
                 .expect("prompt mark cell should be visible")
                 .foreground,
-            Color::Rgb(0x38, 0xbd, 0xf8)
+            Color::Rgb(0xd8, 0xe2, 0xf0),
+            "modern badge prompt should use the readable terminal foreground"
         );
         assert_eq!(
             snapshot_cell(&snapshot, 0, u16::try_from(prompt_column).unwrap())
@@ -133808,10 +133809,24 @@ mod tests {
             Color::Rgb(0x1b, 0x2b, 0x44)
         );
         assert_eq!(
+            snapshot_cell(&snapshot, 0, u16::try_from(prompt_column - 1).unwrap())
+                .expect("badge leading bracket cell should be visible")
+                .foreground,
+            Color::Rgb(0x38, 0xbd, 0xf8),
+            "modern badge outline should keep its cyan accent"
+        );
+        assert_eq!(
             snapshot_cell(&snapshot, 0, u16::try_from(prompt_column + 2).unwrap())
                 .expect("badge trailing bracket cell should be visible")
                 .background,
             Color::Rgb(0x1b, 0x2b, 0x44)
+        );
+        assert_eq!(
+            snapshot_cell(&snapshot, 0, u16::try_from(prompt_column + 2).unwrap())
+                .expect("badge trailing bracket cell should be visible")
+                .foreground,
+            Color::Rgb(0x38, 0xbd, 0xf8),
+            "modern badge outline should keep its cyan accent"
         );
         assert!(
             snapshot_cell(&snapshot, 0, u16::try_from(prompt_column - 1).unwrap())
