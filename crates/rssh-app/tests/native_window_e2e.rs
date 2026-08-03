@@ -117,7 +117,9 @@ try {
     }
     Start-Sleep -Milliseconds 50
   } while ([DateTime]::UtcNow -lt $deadline)
-  throw 'native window did not expose an HWND before the probe deadline'
+  $process.Refresh()
+  $exitCode = if ($process.HasExited) { $process.ExitCode } else { '<running>' }
+  throw ('native window did not expose an HWND before the probe deadline: executable={0} pid={1} exited={2} exit-code={3} main-hwnd=0x{4:x}' -f $env:RSSH_STYLE_PROBE_EXE, $process.Id, $process.HasExited, $exitCode, $process.MainWindowHandle.ToInt64())
 } finally {
   Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 }

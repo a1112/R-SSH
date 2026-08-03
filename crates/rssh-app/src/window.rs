@@ -12,6 +12,7 @@ use std::{
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicU64, AtomicUsize, Ordering},
+        mpsc,
     },
     thread,
     time::{Duration, Instant},
@@ -54,7 +55,9 @@ use unicode_width::UnicodeWidthStr;
 #[cfg(target_os = "macos")]
 use winit::platform::macos::WindowExtMacOS;
 #[cfg(target_os = "windows")]
-use winit::platform::windows::WindowAttributesExtWindows;
+use winit::platform::windows::{
+    CornerPreference, WindowAttributesExtWindows, WindowExtWindows,
+};
 use winit::{
     application::ApplicationHandler,
     dpi::{PhysicalPosition, PhysicalSize},
@@ -81690,6 +81693,7 @@ struct NativeWindowApp {
     writer: Option<Box<dyn Write + Send>>,
     session_log: Option<Box<dyn Write + Send>>,
     reader_thread: Option<thread::JoinHandle<()>>,
+    writer_thread: Option<thread::JoinHandle<()>>,
     active_runtime_generation: u64,
     modifiers: ModifiersState,
     left_alt_pressed: bool,
@@ -82445,6 +82449,17 @@ impl NativeWindowManager {
             WindowUserEvent::ReadError { error, .. } => {
                 app.handle_pane_runtime_read_error(pane_id, &error)
             }
+            WindowUserEvent::WriteCompleted {
+                byte_count,
+                elapsed,
+                ..
+            } => {
+                app.handle_pane_input_write_completed(byte_count, elapsed);
+                false
+            }
+            WindowUserEvent::WriteError { error, .. } => {
+                app.handle_pane_runtime_write_error(pane_id, &error)
+            }
         };
 
         self.collect_pending_window_apps_from_app(&mut app);
@@ -82768,6 +82783,19 @@ enum WindowUserEvent {
         runtime_generation: u64,
         error: String,
     },
+    WriteCompleted {
+        window_id: rssh_core::WindowId,
+        pane_id: rssh_core::PaneId,
+        runtime_generation: u64,
+        byte_count: usize,
+        elapsed: Duration,
+    },
+    WriteError {
+        window_id: rssh_core::WindowId,
+        pane_id: rssh_core::PaneId,
+        runtime_generation: u64,
+        error: String,
+    },
 }
 
 impl WindowUserEvent {
@@ -82781,6 +82809,12 @@ impl WindowUserEvent {
                 window_id, pane_id, ..
             }
             | Self::ReadError {
+                window_id, pane_id, ..
+            }
+            | Self::WriteCompleted {
+                window_id, pane_id, ..
+            }
+            | Self::WriteError {
                 window_id, pane_id, ..
             } => Some((*window_id, *pane_id)),
         }
@@ -82797,9 +82831,121 @@ impl WindowUserEvent {
             }
             | Self::ReadError {
                 runtime_generation, ..
+            }
+            | Self::WriteCompleted {
+                runtime_generation, ..
+            }
+            | Self::WriteError {
+                runtime_generation, ..
             } => Some(*runtime_generation),
         }
     }
+}
+
+#[cfg(any(test, target_os = "windows"))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct NativeWindowChromePolicy {
+    undecorated_shadow: bool,
+    rounded_corners: bool,
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn native_window_chrome_policy_for_platform(
+    platform: &str,
+    decorations: NativeWindowDecorations,
+) -> NativeWindowChromePolicy {
+    let integrated_windows_chrome = platform == "windows" && decorations.integrated_buttons;
+    NativeWindowChromePolicy {
+        undecorated_shadow: integrated_windows_chrome,
+        rounded_corners: integrated_windows_chrome,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn native_window_chrome_policy(
+    decorations: NativeWindowDecorations,
+) -> NativeWindowChromePolicy {
+    native_window_chrome_policy_for_platform(std::env::consts::OS, decorations)
+}
+
+struct QueuedPaneWriter {
+    sender: mpsc::Sender<Vec<u8>>,
+}
+
+struct PaneInputWorkerContext {
+    event_proxy: EventLoopProxy<WindowUserEvent>,
+    window_id: rssh_core::WindowId,
+    pane_id: rssh_core::PaneId,
+    runtime_generation: u64,
+}
+
+impl Write for QueuedPaneWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.sender
+            .send(bytes.to_vec())
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "pane PTY writer stopped"))?;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn start_pane_input_queue(
+    writer: &mut Option<Box<dyn Write + Send>>,
+    writer_thread: &mut Option<thread::JoinHandle<()>>,
+    context: Option<PaneInputWorkerContext>,
+) -> io::Result<()> {
+    if writer.is_none() || writer_thread.is_some() {
+        return Ok(());
+    }
+
+    let mut blocking_writer = writer
+        .take()
+        .expect("pane writer presence was checked before queue startup");
+    let (sender, receiver) = mpsc::channel::<Vec<u8>>();
+    *writer_thread = Some(
+        thread::Builder::new()
+            .name("rssh-pane-pty-writer".to_owned())
+            .spawn(move || {
+                while let Ok(bytes) = receiver.recv() {
+                    let started = Instant::now();
+                    if let Err(error) = blocking_writer
+                        .write_all(&bytes)
+                        .and_then(|()| blocking_writer.flush())
+                    {
+                        if let Some(context) = &context {
+                            let _ = context.event_proxy.send_event(WindowUserEvent::WriteError {
+                                window_id: context.window_id,
+                                pane_id: context.pane_id,
+                                runtime_generation: context.runtime_generation,
+                                error: error.to_string(),
+                            });
+                        } else {
+                            eprintln!("PTY write error: {error}");
+                        }
+                        break;
+                    }
+                    if let Some(context) = &context
+                        && context
+                            .event_proxy
+                            .send_event(WindowUserEvent::WriteCompleted {
+                                window_id: context.window_id,
+                                pane_id: context.pane_id,
+                                runtime_generation: context.runtime_generation,
+                                byte_count: bytes.len(),
+                                elapsed: started.elapsed(),
+                            })
+                            .is_err()
+                    {
+                        break;
+                    }
+                }
+            })?,
+    );
+    *writer = Some(Box::new(QueuedPaneWriter { sender }));
+    Ok(())
 }
 
 struct PaneRuntime {
@@ -82809,6 +82955,7 @@ struct PaneRuntime {
     session_tty_name: Option<String>,
     writer: Option<Box<dyn Write + Send>>,
     reader_thread: Option<thread::JoinHandle<()>>,
+    writer_thread: Option<thread::JoinHandle<()>>,
     runtime_generation: u64,
     snapshot: TerminalRenderSnapshot,
     ui: PaneUiState,
@@ -82943,6 +83090,7 @@ impl PaneRuntime {
             &mut self.session_tty_name,
             &mut self.writer,
             &mut self.reader_thread,
+            &mut self.writer_thread,
         )
     }
 
@@ -82953,6 +83101,7 @@ impl PaneRuntime {
             &mut self.session_tty_name,
             &mut self.writer,
             &mut self.reader_thread,
+            &mut self.writer_thread,
         )
     }
 }
@@ -83032,6 +83181,7 @@ struct PanePtyOwnership<S: PanePtySessionLifecycle> {
     writer: Option<Box<dyn Write + Send>>,
     master_close: Option<S::MasterClose>,
     reader_thread: Option<thread::JoinHandle<()>>,
+    writer_thread: Option<thread::JoinHandle<()>>,
 }
 
 impl<S: PanePtySessionLifecycle> PanePtyOwnership<S> {
@@ -83130,7 +83280,21 @@ fn poll_pane_pty_io<S: PanePtySessionLifecycle>(
         issues.push("pane PTY reader thread panicked".to_owned());
     }
 
-    ownership.master_close.is_none() && ownership.reader_thread.is_none()
+    if ownership
+        .writer_thread
+        .as_ref()
+        .is_some_and(thread::JoinHandle::is_finished)
+        && ownership
+            .writer_thread
+            .take()
+            .is_some_and(|writer_thread| writer_thread.join().is_err())
+    {
+        issues.push("pane PTY writer thread panicked".to_owned());
+    }
+
+    ownership.master_close.is_none()
+        && ownership.reader_thread.is_none()
+        && ownership.writer_thread.is_none()
 }
 
 #[derive(Clone, Copy)]
@@ -83325,6 +83489,7 @@ fn stop_pty_lifecycle(
     session_tty_name: &mut Option<String>,
     writer: &mut Option<Box<dyn Write + Send>>,
     reader_thread: &mut Option<thread::JoinHandle<()>>,
+    writer_thread: &mut Option<thread::JoinHandle<()>>,
 ) -> PanePtyCleanupOutcome {
     const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
     let deadline = Instant::now() + CLOSE_TIMEOUT;
@@ -83333,6 +83498,7 @@ fn stop_pty_lifecycle(
         writer: writer.take(),
         master_close: None,
         reader_thread: reader_thread.take(),
+        writer_thread: writer_thread.take(),
     };
     *session_process_id = None;
     *session_tty_name = None;
@@ -83345,6 +83511,7 @@ fn finish_pty_lifecycle_after_exit(
     session_tty_name: &mut Option<String>,
     writer: &mut Option<Box<dyn Write + Send>>,
     reader_thread: &mut Option<thread::JoinHandle<()>>,
+    writer_thread: &mut Option<thread::JoinHandle<()>>,
 ) -> PanePtyCleanupOutcome {
     const FINISH_TIMEOUT: Duration = Duration::from_secs(2);
     let deadline = Instant::now() + FINISH_TIMEOUT;
@@ -83353,6 +83520,7 @@ fn finish_pty_lifecycle_after_exit(
         writer: writer.take(),
         master_close: None,
         reader_thread: reader_thread.take(),
+        writer_thread: writer_thread.take(),
     };
     *session_process_id = None;
     *session_tty_name = None;
@@ -84900,6 +85068,7 @@ impl NativeWindowApp {
                 writer: None,
                 session_log: None,
                 reader_thread: None,
+                writer_thread: None,
                 active_runtime_generation: 0,
                 modifiers: ModifiersState::empty(),
                 left_alt_pressed: false,
@@ -87024,6 +87193,7 @@ impl NativeWindowApp {
         let session_tty_name = self.session_tty_name.take();
         let writer = self.writer.take();
         let reader_thread = self.reader_thread.take();
+        let writer_thread = self.writer_thread.take();
         let runtime_generation = std::mem::replace(&mut self.active_runtime_generation, 0);
         let ui = std::mem::take(&mut self.active_ui);
         self.clear_derived_selection_projection_for_shell_action();
@@ -87056,6 +87226,7 @@ impl NativeWindowApp {
             session_tty_name,
             writer,
             reader_thread,
+            writer_thread,
             runtime_generation,
             snapshot: old_snapshot,
             ui,
@@ -87073,6 +87244,7 @@ impl NativeWindowApp {
             session_tty_name: None,
             writer: None,
             reader_thread: None,
+            writer_thread: None,
             runtime_generation: 0,
             snapshot,
             ui: PaneUiState::default(),
@@ -87127,6 +87299,7 @@ impl NativeWindowApp {
         self.session_tty_name = runtime.session_tty_name.take();
         self.writer = runtime.writer.take();
         self.reader_thread = runtime.reader_thread.take();
+        self.writer_thread = runtime.writer_thread.take();
         self.active_runtime_generation = runtime.runtime_generation;
         self.active_ui = std::mem::take(&mut runtime.ui);
         self.update_selection_projection();
@@ -87151,6 +87324,7 @@ impl NativeWindowApp {
             self.session_tty_name = None;
             self.writer = None;
             self.reader_thread = None;
+            self.writer_thread = None;
             return;
         }
 
@@ -87163,6 +87337,7 @@ impl NativeWindowApp {
                 self.session_tty_name = None;
                 self.writer = None;
                 self.reader_thread = None;
+                self.writer_thread = None;
             }
         }
     }
@@ -91908,11 +92083,18 @@ impl NativeWindowApp {
 
     fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), Box<dyn Error>> {
         let initial_size = self.initial_frame_size();
+        #[cfg(target_os = "windows")]
+        let chrome_policy = native_window_chrome_policy(self.window_decorations);
         let mut window_attributes = Window::default_attributes()
             .with_title(self.window_title.clone())
             .with_inner_size(initial_size)
             .with_resizable(self.window_decorations.resize)
             .with_decorations(self.window_decorations.winit_decorations_enabled());
+        #[cfg(target_os = "windows")]
+        {
+            window_attributes =
+                window_attributes.with_undecorated_shadow(chrome_policy.undecorated_shadow);
+        }
         if let Some(position) = self.initial_window_position.as_ref() {
             let primary_monitor_position = event_loop
                 .primary_monitor()
@@ -91949,6 +92131,10 @@ impl NativeWindowApp {
             window_attributes_with_class(window_attributes, self.initial_window_class.as_deref());
 
         let window = Arc::new(event_loop.create_window(window_attributes)?);
+        #[cfg(target_os = "windows")]
+        if chrome_policy.rounded_corners {
+            window.set_corner_preference(CornerPreference::Round);
+        }
         self.apply_window_scale_factor(
             test_window_scale_factor().unwrap_or_else(|| window.scale_factor()),
         );
@@ -101702,6 +101888,22 @@ impl NativeWindowApp {
         close_window
     }
 
+    fn handle_pane_runtime_write_error(&mut self, pane_id: rssh_core::PaneId, error: &str) -> bool {
+        let close_window = if pane_id == self.app_shell.active_pane_id() {
+            eprintln!("PTY write error: {error}");
+            self.stop_active_runtime();
+            true
+        } else {
+            if let Some(mut runtime) = self.pane_runtimes.remove(&pane_id) {
+                let cleanup = runtime.close();
+                report_pane_pty_cleanup("inactive pane write-error cleanup", &cleanup);
+            }
+            false
+        };
+        self.clear_pane_inspection_if_invalid();
+        close_window
+    }
+
     fn spawn_pane_runtime_for_active_pane(&mut self) -> Result<PaneRuntime, Box<dyn Error>> {
         self.spawn_pane_runtime_for_pane(self.app_shell.active_pane_id())
     }
@@ -101757,6 +101959,18 @@ impl NativeWindowApp {
         let session_tty_name = session.tty_name();
         let mut reader = session.take_reader()?;
         let writer = session.take_writer()?;
+        let mut queued_writer: Option<Box<dyn Write + Send>> = Some(Box::new(writer));
+        let mut writer_thread = None;
+        start_pane_input_queue(
+            &mut queued_writer,
+            &mut writer_thread,
+            Some(PaneInputWorkerContext {
+                event_proxy: event_proxy.clone(),
+                window_id: self.app_window_id,
+                pane_id,
+                runtime_generation,
+            }),
+        )?;
         let app_window_id = self.app_window_id;
         let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
 
@@ -101805,8 +102019,9 @@ impl NativeWindowApp {
             session: Some(session),
             session_process_id,
             session_tty_name,
-            writer: Some(Box::new(writer)),
+            writer: queued_writer,
             reader_thread: Some(reader_thread),
+            writer_thread,
             runtime_generation,
             snapshot,
             ui: PaneUiState::default(),
@@ -101839,6 +102054,7 @@ impl NativeWindowApp {
     }
 
     fn write_pty_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
+        let worker_reports_completion = self.writer_thread.is_some();
         let Some(writer) = self.writer.as_mut() else {
             return Ok(());
         };
@@ -101846,8 +102062,10 @@ impl NativeWindowApp {
         let started = Instant::now();
         writer.write_all(bytes)?;
         writer.flush()?;
-        self.metrics
-            .record_input_write(bytes.len(), started.elapsed());
+        if !worker_reports_completion {
+            self.metrics
+                .record_input_write(bytes.len(), started.elapsed());
+        }
         if self.scroll_to_bottom_on_input && !bytes.is_empty() {
             self.set_scrollback_offset(0);
         }
@@ -101867,14 +102085,17 @@ impl NativeWindowApp {
         let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) else {
             return Ok(());
         };
+        let worker_reports_completion = runtime.writer_thread.is_some();
         let Some(writer) = runtime.writer.as_mut() else {
             return Ok(());
         };
         let started = Instant::now();
         writer.write_all(bytes)?;
         writer.flush()?;
-        self.metrics
-            .record_input_write(bytes.len(), started.elapsed());
+        if !worker_reports_completion {
+            self.metrics
+                .record_input_write(bytes.len(), started.elapsed());
+        }
         if self.scroll_to_bottom_on_input && !bytes.is_empty() {
             runtime.ui.stable_viewport.main_top = None;
             runtime
@@ -101898,6 +102119,10 @@ impl NativeWindowApp {
         bytes: &[u8],
     ) -> io::Result<()> {
         self.write_pty_bytes_to_pane(pane_id, bytes)
+    }
+
+    fn handle_pane_input_write_completed(&mut self, byte_count: usize, elapsed: Duration) {
+        self.metrics.record_input_write(byte_count, elapsed);
     }
 
     fn metrics_snapshot(&self) -> WindowMetricsSnapshot {
@@ -105721,6 +105946,7 @@ impl NativeWindowApp {
             &mut self.session_tty_name,
             &mut self.writer,
             &mut self.reader_thread,
+            &mut self.writer_thread,
         );
         report_pane_pty_cleanup("active pane exit cleanup", &cleanup);
         cleanup.status
@@ -105733,6 +105959,7 @@ impl NativeWindowApp {
             &mut self.session_tty_name,
             &mut self.writer,
             &mut self.reader_thread,
+            &mut self.writer_thread,
         );
         report_pane_pty_cleanup("active pane PTY cleanup", &cleanup);
     }
@@ -133213,6 +133440,31 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     event_loop.exit();
                 }
             }
+            WindowUserEvent::WriteCompleted {
+                pane_id,
+                runtime_generation,
+                byte_count,
+                elapsed,
+                ..
+            } => {
+                if !self.pane_runtime_generation_matches(pane_id, runtime_generation) {
+                    return;
+                }
+                self.handle_pane_input_write_completed(byte_count, elapsed);
+            }
+            WindowUserEvent::WriteError {
+                pane_id,
+                runtime_generation,
+                error,
+                ..
+            } => {
+                if !self.pane_runtime_generation_matches(pane_id, runtime_generation) {
+                    return;
+                }
+                if self.handle_pane_runtime_write_error(pane_id, &error) {
+                    event_loop.exit();
+                }
+            }
         }
     }
 
@@ -134947,6 +135199,7 @@ mod tests {
             writer: Some(Box::new(ObservedPaneWriter(Arc::clone(&writer_dropped)))),
             master_close: None,
             reader_thread: Some(reader_thread),
+            writer_thread: None,
         };
 
         let outcome = super::cleanup_pane_pty_ownership(
@@ -134990,6 +135243,7 @@ mod tests {
                     writer: None,
                     master_close: None,
                     reader_thread: None,
+                    writer_thread: None,
                 },
                 super::PanePtyCleanupOperation::Stop,
                 Instant::now() + Duration::from_secs(1),
@@ -135019,6 +135273,7 @@ mod tests {
                     writer: None,
                     master_close: None,
                     reader_thread: Some(reader_thread),
+                    writer_thread: None,
                 },
                 super::PanePtyCleanupOperation::Stop,
                 Instant::now(),
@@ -135061,6 +135316,7 @@ mod tests {
                 writer: None,
                 master_close: None,
                 reader_thread: Some(reader_thread),
+                writer_thread: None,
             },
             super::PanePtyCleanupOperation::Stop,
             Instant::now(),
@@ -135148,6 +135404,7 @@ mod tests {
                 writer: Some(writer),
                 master_close: None,
                 reader_thread: Some(reader_thread),
+                writer_thread: None,
             },
             super::PanePtyCleanupOperation::Stop,
             Instant::now() + Duration::from_secs(2),
@@ -135191,6 +135448,7 @@ mod tests {
             writer: None,
             master_close: None,
             reader_thread: Some(reader),
+            writer_thread: None,
         };
 
         let outcome = super::cleanup_pane_pty_ownership(
@@ -135241,6 +135499,7 @@ mod tests {
             writer: None,
             master_close: None,
             reader_thread: Some(reader_thread),
+            writer_thread: None,
         };
 
         let outcome = super::cleanup_pane_pty_ownership(
@@ -135257,6 +135516,36 @@ mod tests {
                 .unwrap()
                 .contains("reader thread panicked")
         );
+    }
+
+    #[test]
+    fn pane_pty_cleanup_joins_input_writer_worker() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut writer: Option<Box<dyn Write + Send>> =
+            Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let mut writer_thread = None;
+        super::start_pane_input_queue(&mut writer, &mut writer_thread, None).unwrap();
+        writer
+            .as_mut()
+            .unwrap()
+            .write_all(b"queued-before-close")
+            .unwrap();
+
+        let outcome = super::cleanup_pane_pty_ownership(
+            super::PanePtyOwnership {
+                session: None::<RefusingPaneLifecycle>,
+                writer,
+                master_close: None,
+                reader_thread: None,
+                writer_thread,
+            },
+            super::PanePtyCleanupOperation::Finish,
+            Instant::now() + Duration::from_secs(1),
+        );
+
+        assert_eq!(outcome.issue, None);
+        assert!(!outcome.transferred_to_reaper);
+        assert_eq!(written.lock().unwrap().as_slice(), b"queued-before-close");
     }
 
     #[test]
@@ -135277,6 +135566,7 @@ mod tests {
             writer: None,
             master_close: None,
             reader_thread: None,
+            writer_thread: None,
         };
 
         let outcome = super::cleanup_pane_pty_ownership(
@@ -175294,17 +175584,97 @@ return config
     }
 
     #[test]
-    fn window_app_collects_input_write_metrics() {
+    fn window_app_records_input_metrics_on_worker_completion() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        super::start_pane_input_queue(&mut app.writer, &mut app.writer_thread, None).unwrap();
 
         app.write_pty_bytes(b"abc").unwrap();
+
+        assert_eq!(app.metrics_snapshot().input_writes, 0);
+        wait_for_test_condition("input write metrics payload", || {
+            written.lock().unwrap().as_slice() == b"abc"
+        });
+        app.handle_pane_input_write_completed(3, Duration::from_micros(25));
 
         let metrics = app.metrics_snapshot();
         assert_eq!(written.lock().unwrap().as_slice(), b"abc");
         assert_eq!(metrics.input_writes, 1);
         assert_eq!(metrics.input_bytes, 3);
+    }
+
+    #[test]
+    fn windows_integrated_title_bar_requests_native_shadow_and_round_corners() {
+        let policy = super::native_window_chrome_policy_for_platform(
+            "windows",
+            NativeWindowDecorations {
+                title: false,
+                resize: true,
+                integrated_buttons: true,
+                macos_force_disable_shadow: false,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: false,
+            },
+        );
+
+        assert!(policy.undecorated_shadow);
+        assert!(policy.rounded_corners);
+        assert_eq!(
+            super::native_window_chrome_policy_for_platform(
+                "windows",
+                NativeWindowDecorations {
+                    title: true,
+                    resize: true,
+                    integrated_buttons: false,
+                    macos_force_disable_shadow: false,
+                    macos_force_enable_shadow: false,
+                    macos_force_square_corners: false,
+                    macos_use_background_color_as_titlebar_color: false,
+                },
+            ),
+            super::NativeWindowChromePolicy::default()
+        );
+    }
+
+    #[test]
+    fn pane_input_queue_returns_before_blocking_writer() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(DelayedWriter {
+            delay: Duration::from_millis(100),
+            written: Arc::clone(&written),
+        }));
+        super::start_pane_input_queue(&mut app.writer, &mut app.writer_thread, None).unwrap();
+
+        let started = Instant::now();
+        app.write_pty_bytes(b"responsive").unwrap();
+        let dispatch_elapsed = started.elapsed();
+
+        assert!(
+            dispatch_elapsed < Duration::from_millis(40),
+            "PTY input dispatch blocked the window event loop for {dispatch_elapsed:?}"
+        );
+        wait_for_test_condition("delayed PTY input write", || {
+            written.lock().unwrap().as_slice() == b"responsive"
+        });
+    }
+
+    #[test]
+    fn pane_input_queue_preserves_fifo_order() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        super::start_pane_input_queue(&mut app.writer, &mut app.writer_thread, None).unwrap();
+
+        for chunk in [b"one".as_slice(), b"-two", b"-three"] {
+            app.write_pty_bytes(chunk).unwrap();
+        }
+
+        wait_for_test_condition("ordered PTY input writes", || {
+            written.lock().unwrap().as_slice() == b"one-two-three"
+        });
     }
 
     #[test]
@@ -271114,6 +271484,23 @@ act.Confirmation {
     impl Write for SharedWriter {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct DelayedWriter {
+        delay: Duration,
+        written: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Write for DelayedWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            thread::sleep(self.delay);
+            self.written.lock().unwrap().extend_from_slice(buf);
             Ok(buf.len())
         }
 
