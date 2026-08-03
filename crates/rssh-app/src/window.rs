@@ -186,8 +186,9 @@ const DEFAULT_UI_SUBDUED_FOREGROUND: Color = Color::Rgb(0x84, 0x92, 0xa6);
 const DEFAULT_SPLIT_ACTIVE_COLOR: Color = Color::Rgb(0x38, 0xbd, 0xf8);
 const DEFAULT_SPLIT_INACTIVE_COLOR: Color = Color::Rgb(0x47, 0x55, 0x69);
 const DEFAULT_SPLIT_BACKGROUND_COLOR: Color = Color::Rgb(0x10, 0x18, 0x27);
-const PANE_CLOSE_BUTTON_FOREGROUND: Color = Color::Rgb(255, 255, 255);
-const PANE_CLOSE_BUTTON_BACKGROUND: Color = Color::Rgb(176, 42, 42);
+const PANE_CLOSE_BUTTON_GLYPH: char = '×';
+const PANE_CLOSE_BUTTON_FOREGROUND: Color = Color::Rgb(0x0b, 0x12, 0x20);
+const PANE_CLOSE_BUTTON_BACKGROUND: Color = Color::Rgb(0xf8, 0x71, 0x71);
 const PANE_INSPECTION_FOREGROUND: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
 const PANE_INSPECTION_BACKGROUND: Color = Color::Rgb(0x1b, 0x2b, 0x44);
 const DEFAULT_CELL_WIDTH: NativeCellWidth = NativeCellWidth::from_per_mille(1_000);
@@ -95654,8 +95655,7 @@ impl NativeWindowApp {
                     columns: size.columns,
                 }
             });
-            let pane_base =
-                pane_local_overlay_snapshot(self.snapshot.clone(), rect, &pane_close_button_cells);
+            let pane_base = self.snapshot.clone();
             let snapshot = pane_presentation_snapshot(
                 pane_base,
                 self.runtime.terminal(),
@@ -95683,6 +95683,7 @@ impl NativeWindowApp {
             let snapshot = hyperlink_rules_snapshot(snapshot, &self.hyperlink_rules);
             return snapshot
                 .with_viewport(rect.row, rect.column, rect.rows, rect.columns)
+                .with_overlay_cells(pane_close_button_cells)
                 .with_overlay_cells(self.pane_badge_cells(&layout))
                 .with_overlay_cells(self.pane_inspection_cells(&layout))
                 .with_overlay_cells(self.pane_select_cells(&layout))
@@ -95710,8 +95711,7 @@ impl NativeWindowApp {
                 };
                 (&runtime.snapshot, runtime.runtime.terminal(), &runtime.ui)
             };
-            let pane_base =
-                pane_local_overlay_snapshot(base.clone(), rect, &pane_close_button_cells);
+            let pane_base = base.clone();
             let mut pane_snapshot = pane_presentation_snapshot(
                 pane_base,
                 terminal,
@@ -95771,6 +95771,7 @@ impl NativeWindowApp {
                     .with_row_offset(self.terminal_frame_row_offset())
             })
             .with_overlay_cells(self.pane_separator_cells(&layout))
+            .with_overlay_cells(pane_close_button_cells)
             .with_overlay_cells(self.pane_badge_cells(&layout))
             .with_overlay_cells(self.pane_inspection_cells(&layout))
             .with_overlay_cells(self.pane_select_cells(&layout))
@@ -96141,7 +96142,7 @@ impl NativeWindowApp {
                 ui_render_cell(
                     row,
                     column,
-                    'x',
+                    PANE_CLOSE_BUTTON_GLYPH,
                     PANE_CLOSE_BUTTON_FOREGROUND,
                     PANE_CLOSE_BUTTON_BACKGROUND,
                     true,
@@ -131167,6 +131168,7 @@ fn pane_close_button_position(rect: PaneRenderRect) -> Option<(u16, u16)> {
     (rect.row < row_end && column < column_end).then_some((rect.row, column))
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn pane_local_overlay_snapshot(
     base: TerminalRenderSnapshot,
     rect: PaneRenderRect,
@@ -261797,7 +261799,9 @@ act.Confirmation {
             let (row, column) =
                 super::pane_close_button_position(*rect).expect("close button fits pane");
             let cell = snapshot_cell(&snapshot, row, column).expect("rendered close button");
-            assert_eq!(cell.ch, 'x');
+            assert_eq!(cell.ch, '×');
+            assert_eq!(cell.foreground, Color::Rgb(0x0b, 0x12, 0x20));
+            assert_eq!(cell.background, Color::Rgb(0xf8, 0x71, 0x71));
 
             app.mouse_position =
                 Some((column, row.saturating_sub(app.terminal_frame_row_offset())));
