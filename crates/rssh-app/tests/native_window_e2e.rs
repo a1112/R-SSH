@@ -96,9 +96,12 @@ public static class RsshWindowStyleProbe {
   }
 }
 '@
-$process = Start-Process -FilePath $env:RSSH_STYLE_PROBE_EXE -ArgumentList @('--skip-config', 'start', '--no-auto-connect') -PassThru
+$process = Start-Process -FilePath $env:RSSH_STYLE_PROBE_EXE -ArgumentList @('--skip-config', 'start', '--always-new-process', '--no-auto-connect') -PassThru
 try {
-  $deadline = [DateTime]::UtcNow.AddSeconds(5)
+  # Native GPU startup can be serialized behind the other real-window tests
+  # in this binary. Keep the probe budget aligned with the 30-second native
+  # process deadline instead of treating a slow HWND creation as a style bug.
+  $deadline = [DateTime]::UtcNow.AddSeconds(30)
   do {
     $clientFillsWindow = $false
     $description = ''
