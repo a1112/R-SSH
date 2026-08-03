@@ -188,8 +188,8 @@ const DEFAULT_SPLIT_INACTIVE_COLOR: Color = Color::Rgb(0x47, 0x55, 0x69);
 const DEFAULT_SPLIT_BACKGROUND_COLOR: Color = Color::Rgb(0x10, 0x18, 0x27);
 const PANE_CLOSE_BUTTON_FOREGROUND: Color = Color::Rgb(255, 255, 255);
 const PANE_CLOSE_BUTTON_BACKGROUND: Color = Color::Rgb(176, 42, 42);
-const PANE_INSPECTION_FOREGROUND: Color = Color::Rgb(236, 255, 255);
-const PANE_INSPECTION_BACKGROUND: Color = Color::Rgb(32, 78, 102);
+const PANE_INSPECTION_FOREGROUND: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
+const PANE_INSPECTION_BACKGROUND: Color = Color::Rgb(0x1b, 0x2b, 0x44);
 const DEFAULT_CELL_WIDTH: NativeCellWidth = NativeCellWidth::from_per_mille(1_000);
 const DEFAULT_LINE_HEIGHT: NativeLineHeight = NativeLineHeight::from_per_mille(1_000);
 const DEFAULT_FONT_ANTIALIAS: NativeFontAntialias = NativeFontAntialias::Greyscale;
@@ -196950,6 +196950,24 @@ return config
 
         assert_eq!(separator.foreground, Color::Rgb(0x38, 0xbd, 0xf8));
         assert_eq!(separator.background, Color::Rgb(0x10, 0x18, 0x27));
+    }
+
+    #[test]
+    fn pane_inspection_uses_modern_surface_defaults() {
+        let cells = super::pane_inspection_cells_for_rect(
+            &["inspect".to_owned()],
+            super::PaneRenderRect {
+                pane_id: rssh_core::PaneId::new(1),
+                row: 2,
+                column: 3,
+                rows: 1,
+                columns: 8,
+            },
+        );
+        let first = cells.first().expect("expected pane inspection cell");
+
+        assert_eq!(first.foreground, Color::Rgb(0xd8, 0xe2, 0xf0));
+        assert_eq!(first.background, Color::Rgb(0x1b, 0x2b, 0x44));
     }
 
     #[test]
