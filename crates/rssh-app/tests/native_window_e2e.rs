@@ -103,10 +103,14 @@ try {
     $clientFillsWindow = $false
     $description = ''
     if ([RsshWindowStyleProbe]::TryGetMainWindowFrame([uint32]$process.Id, [ref]$clientFillsWindow, [ref]$description)) {
-      if (-not $clientFillsWindow) {
+      if ($clientFillsWindow) {
+        exit 0
+      }
+      if ([DateTime]::UtcNow -ge $deadline) {
         throw ('integrated titlebar window retained a native frame inset: {0}' -f $description)
       }
-      exit 0
+      Start-Sleep -Milliseconds 50
+      continue
     }
     Start-Sleep -Milliseconds 50
   } while ([DateTime]::UtcNow -lt $deadline)

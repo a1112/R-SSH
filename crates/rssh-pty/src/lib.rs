@@ -279,6 +279,124 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_prefers_cmd_shim_over_extensionless_script() {
+        let root = temporary_windows_command_dir("cmd-shim");
+        std::fs::write(root.join("claude"), b"#!/bin/sh\necho unix\n").unwrap();
+        std::fs::write(root.join("claude.cmd"), b"@echo off\necho windows\n").unwrap();
+
+        let command = PtyCommand::new("claude")
+            .with_args(["--version", "value with spaces"])
+            .with_env("PATH", root.to_string_lossy());
+        let argv = command.to_builder().get_argv().clone();
+
+        assert_eq!(
+            std::path::Path::new(&argv[0])
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("cmd.exe")
+        );
+        assert_eq!(argv[1].to_string_lossy(), "/D");
+        assert_eq!(argv[2].to_string_lossy(), "/S");
+        assert_eq!(argv[3].to_string_lossy(), "/C");
+        assert_eq!(
+            argv[4].to_string_lossy(),
+            root.join("claude.cmd").to_string_lossy()
+        );
+        assert_eq!(argv[5].to_string_lossy(), "--version");
+        assert_eq!(argv[6].to_string_lossy(), "value with spaces");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_launches_cmd_shim_through_conpty() {
+        let _guard = CAPTURE_REAPER_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let root = temporary_windows_command_dir("cmd-shim-spawn");
+        std::fs::write(root.join("rssh-shim"), b"#!/bin/sh\necho unix\n").unwrap();
+        std::fs::write(
+            root.join("rssh-shim.cmd"),
+            b"@echo off\r\necho rssh-windows-shim-ok\r\n",
+        )
+        .unwrap();
+        let path = std::env::join_paths([
+            root.as_os_str(),
+            std::env::var_os("PATH")
+                .as_deref()
+                .unwrap_or_else(|| std::ffi::OsStr::new("")),
+        ])
+        .unwrap();
+
+        let command = PtyCommand::new("rssh-shim")
+            .with_arg("--version")
+            .with_env("PATH", path.to_string_lossy());
+        let output = PtySession::capture_output(
+            &command,
+            PtySize::try_new(80, 24).unwrap(),
+            Duration::from_secs(5),
+        )
+        .unwrap();
+
+        assert!(
+            String::from_utf8_lossy(&output).contains("rssh-windows-shim-ok"),
+            "captured PTY output: {:?}",
+            String::from_utf8_lossy(&output)
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_wraps_explicit_powershell_script() {
+        let root = temporary_windows_command_dir("powershell-script");
+        let script = root.join("tool.ps1");
+        std::fs::write(&script, b"Write-Output ok\n").unwrap();
+
+        let command = PtyCommand::new(script.to_string_lossy().to_string())
+            .with_arg("--version")
+            .to_builder();
+        let argv = command.get_argv();
+
+        assert_eq!(argv[0].to_string_lossy(), "powershell.exe");
+        assert_eq!(argv[1].to_string_lossy(), "-NoLogo");
+        assert_eq!(argv[2].to_string_lossy(), "-NoProfile");
+        assert_eq!(argv[3].to_string_lossy(), "-ExecutionPolicy");
+        assert_eq!(argv[4].to_string_lossy(), "Bypass");
+        assert_eq!(argv[5].to_string_lossy(), "-File");
+        assert_eq!(argv[6].to_string_lossy(), script.to_string_lossy());
+        assert_eq!(argv[7].to_string_lossy(), "--version");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_keeps_native_executable_commands_direct() {
+        let command = PtyCommand::new("tool.exe")
+            .with_arg("--version")
+            .to_builder();
+        let argv = command.get_argv();
+
+        assert_eq!(argv[0].to_string_lossy(), "tool.exe");
+        assert_eq!(argv[1].to_string_lossy(), "--version");
+    }
+
+    #[cfg(windows)]
+    fn temporary_windows_command_dir(label: &str) -> std::path::PathBuf {
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after the Unix epoch")
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("rssh-pty-{label}-{}-{suffix}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
     #[test]
     fn command_validation_rejects_empty_program() {
         let command = PtyCommand::new("");
@@ -1690,8 +1808,23 @@ impl PtyCommand {
     }
 
     fn to_builder(&self) -> CommandBuilder {
-        let mut builder = CommandBuilder::new(&self.program);
-        for arg in &self.args {
+        #[cfg(windows)]
+        let (program, args) = {
+            let path = self
+                .env
+                .iter()
+                .find_map(|(key, value)| key.eq_ignore_ascii_case("PATH").then_some(value))
+                .map(std::ffi::OsString::from)
+                .or_else(|| std::env::var_os("PATH"));
+            let resolved = resolve_windows_command(&self.program, &self.args, path.as_deref());
+            (resolved.program, resolved.args)
+        };
+
+        #[cfg(not(windows))]
+        let (program, args) = (&self.program, &self.args);
+
+        let mut builder = CommandBuilder::new(program);
+        for arg in args {
             builder.arg(arg);
         }
         for (key, value) in &self.env {
@@ -1701,6 +1834,139 @@ impl PtyCommand {
             builder.cwd(cwd);
         }
         builder
+    }
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WindowsCommandResolution {
+    program: PathBuf,
+    args: Vec<String>,
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowsProgramKind {
+    Native,
+    CmdShim,
+    PowerShellScript,
+}
+
+#[cfg(windows)]
+// Windows CreateProcess cannot launch the extensionless Unix shim that npm
+// places next to its `.cmd` and `.ps1` wrappers. Resolve those wrappers before
+// handing the command to portable-pty so ConPTY receives a real executable.
+fn resolve_windows_command(
+    program: &str,
+    args: &[String],
+    path: Option<&std::ffi::OsStr>,
+) -> WindowsCommandResolution {
+    let (program_path, kind) = find_windows_program(program, path);
+    let mut resolved_args = Vec::new();
+
+    match kind {
+        WindowsProgramKind::Native => resolved_args.extend(args.iter().cloned()),
+        WindowsProgramKind::CmdShim => {
+            resolved_args.extend([
+                "/D".to_owned(),
+                "/S".to_owned(),
+                "/C".to_owned(),
+                program_path.to_string_lossy().into_owned(),
+            ]);
+            resolved_args.extend(args.iter().cloned());
+        }
+        WindowsProgramKind::PowerShellScript => {
+            resolved_args.extend([
+                "-NoLogo".to_owned(),
+                "-NoProfile".to_owned(),
+                "-ExecutionPolicy".to_owned(),
+                "Bypass".to_owned(),
+                "-File".to_owned(),
+                program_path.to_string_lossy().into_owned(),
+            ]);
+            resolved_args.extend(args.iter().cloned());
+        }
+    }
+
+    let resolved_program = match kind {
+        WindowsProgramKind::Native => program_path,
+        WindowsProgramKind::CmdShim => {
+            std::env::var_os("ComSpec").map_or_else(|| PathBuf::from("cmd.exe"), PathBuf::from)
+        }
+        WindowsProgramKind::PowerShellScript => PathBuf::from("powershell.exe"),
+    };
+
+    WindowsCommandResolution {
+        program: resolved_program,
+        args: resolved_args,
+    }
+}
+
+#[cfg(windows)]
+fn find_windows_program(
+    program: &str,
+    path: Option<&std::ffi::OsStr>,
+) -> (PathBuf, WindowsProgramKind) {
+    let input = Path::new(program);
+
+    if let Some(kind) = windows_program_kind(input) {
+        return (input.to_owned(), kind);
+    }
+
+    let has_directory = input.is_absolute()
+        || input
+            .parent()
+            .is_some_and(|parent| !parent.as_os_str().is_empty());
+    if has_directory {
+        if let Some((path, kind)) = windows_sidecar(input) {
+            return (path, kind);
+        }
+        return (input.to_owned(), WindowsProgramKind::Native);
+    }
+
+    if let Some(path) = path {
+        for directory in std::env::split_paths(path) {
+            let candidate = directory.join(input);
+            if let Some((path, kind)) = windows_sidecar(&candidate) {
+                return (path, kind);
+            }
+        }
+
+        for directory in std::env::split_paths(path) {
+            let candidate = directory.join(input);
+            if candidate.is_file() {
+                return (candidate, WindowsProgramKind::Native);
+            }
+        }
+    }
+
+    if let Some((path, kind)) = windows_sidecar(input) {
+        return (path, kind);
+    }
+
+    (input.to_owned(), WindowsProgramKind::Native)
+}
+
+#[cfg(windows)]
+fn windows_sidecar(base: &Path) -> Option<(PathBuf, WindowsProgramKind)> {
+    [
+        ("com", WindowsProgramKind::Native),
+        ("exe", WindowsProgramKind::Native),
+        ("bat", WindowsProgramKind::CmdShim),
+        ("cmd", WindowsProgramKind::CmdShim),
+        ("ps1", WindowsProgramKind::PowerShellScript),
+    ]
+    .into_iter()
+    .map(|(extension, kind)| (base.with_extension(extension), kind))
+    .find(|(candidate, _)| candidate.is_file())
+}
+
+#[cfg(windows)]
+fn windows_program_kind(program: &Path) -> Option<WindowsProgramKind> {
+    match program.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "bat" | "cmd" => Some(WindowsProgramKind::CmdShim),
+        "ps1" => Some(WindowsProgramKind::PowerShellScript),
+        _ => Some(WindowsProgramKind::Native),
     }
 }
 
