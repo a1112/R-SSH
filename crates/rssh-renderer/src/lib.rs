@@ -237,8 +237,8 @@ impl RenderGeometry {
     }
 }
 
-pub const SCROLLBAR_TRACK_COLOR: [u8; 4] = [46, 46, 46, 255];
-pub const SCROLLBAR_THUMB_COLOR: [u8; 4] = [172, 172, 172, 255];
+pub const SCROLLBAR_TRACK_COLOR: [u8; 4] = [0x10, 0x18, 0x27, 0xff];
+pub const SCROLLBAR_THUMB_COLOR: [u8; 4] = [0x47, 0x55, 0x69, 0xff];
 pub const SCROLLBAR_WIDTH: u32 = 4;
 const DEFAULT_DPI: u32 = 96;
 pub type RenderIndexedPalette = [Option<[u8; 4]>; 256];
@@ -8939,6 +8939,12 @@ mod tests {
 
         assert_eq!(pixel_at(&target, 16, 15, 0), SCROLLBAR_TRACK_COLOR);
         assert_eq!(pixel_at(&target, 16, 15, 31), SCROLLBAR_THUMB_COLOR);
+    }
+
+    #[test]
+    fn modern_default_scrollback_scrollbar_uses_deep_blue_surface_colors() {
+        assert_eq!(SCROLLBAR_TRACK_COLOR, [0x10, 0x18, 0x27, 0xff]);
+        assert_eq!(SCROLLBAR_THUMB_COLOR, [0x47, 0x55, 0x69, 0xff]);
     }
 
     #[test]
