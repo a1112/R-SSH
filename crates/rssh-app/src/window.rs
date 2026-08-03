@@ -97249,7 +97249,7 @@ impl NativeWindowApp {
                 "R-SSH ",
                 tab_bar_foreground,
                 background,
-                true,
+                false,
             );
             column = column.saturating_add(MODERN_TAB_BAR_BRAND_GAP_COLUMNS);
         }
@@ -133835,6 +133835,12 @@ mod tests {
                 .expect("product name cell should be visible")
                 .foreground,
             Color::Rgb(0xd8, 0xe2, 0xf0)
+        );
+        assert!(
+            !snapshot_cell(&snapshot, 0, u16::try_from(product_column).unwrap())
+                .expect("product name cell should be visible")
+                .bold,
+            "modern product name should stay at normal weight beside the outlined badge"
         );
         assert!(!tab_bar.contains("panes:"), "modern tab bar was {tab_bar:?}");
         assert!(tab_bar.contains('×'), "modern tab close marker was {tab_bar:?}");
