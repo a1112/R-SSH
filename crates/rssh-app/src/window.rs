@@ -174,6 +174,15 @@ const DEFAULT_CHAR_SELECT_FG_COLOR: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
 const DEFAULT_CHAR_SELECT_BG_COLOR: Color = Color::Rgb(0x10, 0x18, 0x27);
 const DEFAULT_PANE_SELECT_FG_COLOR: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
 const DEFAULT_PANE_SELECT_BG_COLOR: Color = Color::Rgba(0x0b, 0x12, 0x20, 0xe6);
+// Keep transient action surfaces on the same deep-blue/cyan system as the
+// terminal and tab chrome.  These defaults are intentionally separate from
+// command/character selector body colors so explicit WezTerm overrides keep
+// their existing precedence while selected rows remain visually consistent.
+const DEFAULT_UI_ACCENT_FOREGROUND: Color = Color::Rgb(0x0b, 0x12, 0x20);
+const DEFAULT_UI_ACCENT_BACKGROUND: Color = Color::Rgb(0x38, 0xbd, 0xf8);
+const DEFAULT_UI_SURFACE_FOREGROUND: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
+const DEFAULT_UI_SURFACE_BACKGROUND: Color = Color::Rgb(0x1b, 0x2b, 0x44);
+const DEFAULT_UI_SUBDUED_FOREGROUND: Color = Color::Rgb(0x84, 0x92, 0xa6);
 const PANE_CLOSE_BUTTON_FOREGROUND: Color = Color::Rgb(255, 255, 255);
 const PANE_CLOSE_BUTTON_BACKGROUND: Color = Color::Rgb(176, 42, 42);
 const PANE_INSPECTION_FOREGROUND: Color = Color::Rgb(236, 255, 255);
@@ -96683,8 +96692,8 @@ impl NativeWindowApp {
                 rect.row,
                 column,
                 ch,
-                Color::Rgb(255, 209, 102),
-                Color::Rgb(45, 45, 52),
+                DEFAULT_UI_SURFACE_FOREGROUND,
+                DEFAULT_UI_SURFACE_BACKGROUND,
                 true,
             ));
         }
@@ -96741,13 +96750,13 @@ impl NativeWindowApp {
             let entry_index = start + visible_index;
             let is_selected = start + visible_index == selected;
             let foreground = if is_selected {
-                Color::Rgb(18, 18, 22)
+                DEFAULT_UI_ACCENT_FOREGROUND
             } else {
                 self.command_palette_fg_color
                     .unwrap_or(DEFAULT_COMMAND_PALETTE_FG_COLOR)
             };
             let background = if is_selected {
-                Color::Rgb(255, 209, 102)
+                DEFAULT_UI_ACCENT_BACKGROUND
             } else {
                 self.command_palette_bg_color
                     .unwrap_or(DEFAULT_COMMAND_PALETTE_BG_COLOR)
@@ -96773,10 +96782,10 @@ impl NativeWindowApp {
             {
                 let shortcut_fg = self
                     .launcher_label_fg
-                    .map_or(Color::Rgb(255, 255, 255), native_color_spec_to_render_color);
+                    .map_or(DEFAULT_UI_ACCENT_FOREGROUND, native_color_spec_to_render_color);
                 let shortcut_bg = self
                     .launcher_label_bg
-                    .map_or(Color::Rgb(0, 0, 0), native_color_spec_to_render_color);
+                    .map_or(DEFAULT_UI_ACCENT_BACKGROUND, native_color_spec_to_render_color);
                 let mut column = 0usize;
                 for ch in shortcut_label.chars().take(usize::from(columns)) {
                     if let Some(cell) = cells.get_mut(row_start + column) {
@@ -96840,10 +96849,10 @@ impl NativeWindowApp {
             .then(|| quick_select_labels_for_alphabet(&input_selector.alphabet, choices.len()));
         let shortcut_fg = self
             .input_selector_label_fg
-            .map_or(Color::Rgb(255, 255, 255), native_color_spec_to_render_color);
+            .map_or(DEFAULT_UI_ACCENT_FOREGROUND, native_color_spec_to_render_color);
         let shortcut_bg = self
             .input_selector_label_bg
-            .map_or(Color::Rgb(0, 0, 0), native_color_spec_to_render_color);
+            .map_or(DEFAULT_UI_ACCENT_BACKGROUND, native_color_spec_to_render_color);
         let mut cells = Vec::with_capacity(visible_rows.saturating_mul(usize::from(size.columns)));
 
         for (visible_index, choice) in choices.iter().skip(start).take(visible_rows).enumerate() {
@@ -96851,13 +96860,13 @@ impl NativeWindowApp {
             let choice_index = start + visible_index;
             let is_selected = choice_index == selected;
             let foreground = if is_selected {
-                Color::Rgb(18, 18, 22)
+                DEFAULT_UI_ACCENT_FOREGROUND
             } else {
                 self.command_palette_fg_color
                     .unwrap_or(DEFAULT_COMMAND_PALETTE_FG_COLOR)
             };
             let background = if is_selected {
-                Color::Rgb(255, 209, 102)
+                DEFAULT_UI_ACCENT_BACKGROUND
             } else {
                 self.command_palette_bg_color
                     .unwrap_or(DEFAULT_COMMAND_PALETTE_BG_COLOR)
@@ -96954,13 +96963,13 @@ impl NativeWindowApp {
             let row = first_row.saturating_add(u16::try_from(visible_index).unwrap_or(u16::MAX));
             let is_selected = start + visible_index == selected;
             let foreground = if is_selected {
-                Color::Rgb(18, 18, 22)
+                DEFAULT_UI_ACCENT_FOREGROUND
             } else {
                 self.char_select_fg_color
                     .unwrap_or(DEFAULT_CHAR_SELECT_FG_COLOR)
             };
             let background = if is_selected {
-                Color::Rgb(255, 209, 102)
+                DEFAULT_UI_ACCENT_BACKGROUND
             } else {
                 self.char_select_bg_color
                     .unwrap_or(DEFAULT_CHAR_SELECT_BG_COLOR)
@@ -97016,8 +97025,8 @@ impl NativeWindowApp {
                     row,
                     column,
                     ' ',
-                    Color::Rgb(226, 234, 255),
-                    Color::Rgb(24, 32, 48),
+                    DEFAULT_UI_SURFACE_FOREGROUND,
+                    DEFAULT_COMMAND_PALETTE_BG_COLOR,
                     true,
                 ));
             }
@@ -97111,14 +97120,14 @@ impl NativeWindowApp {
             let row = first_row.saturating_add(u16::try_from(visible_index).unwrap_or(u16::MAX));
             let is_selected = start + visible_index == selected;
             let foreground = if is_selected {
-                Color::Rgb(18, 18, 22)
+                DEFAULT_UI_ACCENT_FOREGROUND
             } else {
-                Color::Rgb(228, 228, 228)
+                DEFAULT_UI_SUBDUED_FOREGROUND
             };
             let background = if is_selected {
-                Color::Rgb(255, 209, 102)
+                DEFAULT_UI_ACCENT_BACKGROUND
             } else {
-                Color::Rgb(38, 40, 48)
+                DEFAULT_COMMAND_PALETTE_BG_COLOR
             };
 
             let row_start = cells.len();
@@ -134315,6 +134324,8 @@ mod tests {
         DEFAULT_CHAR_SELECT_FG_COLOR, DEFAULT_CHAR_SELECT_FONT_SIZE, DEFAULT_CHECK_FOR_UPDATES,
         DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS, DEFAULT_COMMAND_PALETTE_BG_COLOR,
         DEFAULT_COMMAND_PALETTE_FG_COLOR, DEFAULT_COMMAND_PALETTE_FONT_SIZE,
+        DEFAULT_UI_ACCENT_BACKGROUND, DEFAULT_UI_ACCENT_FOREGROUND, DEFAULT_UI_SURFACE_BACKGROUND,
+        DEFAULT_UI_SURFACE_FOREGROUND,
         DEFAULT_CURSOR_BG_COLOR, DEFAULT_CUSTOM_BLOCK_GLYPHS, DEFAULT_DEBUG_KEY_EVENTS,
         DEFAULT_DETECT_PASSWORD_INPUT, DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
         DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_DISPLAY_PIXEL_GEOMETRY,
@@ -210219,6 +210230,20 @@ return config
     }
 
     #[test]
+    fn window_command_palette_uses_modern_selected_surface_by_default() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(48, 8));
+        app.enter_command_palette_mode();
+
+        let snapshot = app.render_snapshot();
+        let selected = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0)
+            .expect("expected selected command palette row");
+
+        assert_eq!(selected.foreground, DEFAULT_UI_ACCENT_FOREGROUND);
+        assert_eq!(selected.background, DEFAULT_UI_ACCENT_BACKGROUND);
+    }
+
+    #[test]
     fn window_title_includes_quick_select_status() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
@@ -217645,6 +217670,18 @@ return config
     }
 
     #[test]
+    fn window_tab_navigator_uses_modern_selected_surface_by_default() {
+        let mut app = NativeWindowApp::new(None);
+        app.command_palette_execute(WindowCommand::ShowTabNavigator);
+
+        let snapshot = app.render_snapshot();
+        let selected = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0)
+            .expect("expected selected tab-navigator row");
+        assert_eq!(selected.foreground, DEFAULT_UI_ACCENT_FOREGROUND);
+        assert_eq!(selected.background, DEFAULT_UI_ACCENT_BACKGROUND);
+    }
+
+    #[test]
     fn window_command_palette_labels_wezterm_activate_window_relative_actions() {
         assert_eq!(WindowCommand::ActivateWindow(2).label(), "Activate Window");
         assert_eq!(
@@ -222630,6 +222667,16 @@ return config
         app.command_palette_execute(WindowCommand::ShowDebugOverlay);
 
         let snapshot = app.render_snapshot();
+        let first_overlay_cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0)
+            .expect("expected first debug overlay cell");
+        assert_eq!(
+            first_overlay_cell.foreground,
+            DEFAULT_UI_SURFACE_FOREGROUND
+        );
+        assert_eq!(
+            first_overlay_cell.background,
+            DEFAULT_COMMAND_PALETTE_BG_COLOR
+        );
         let first_terminal_row = snapshot_row_text(&snapshot, TAB_BAR_ROWS, TERMINAL_COLUMNS);
         assert!(
             first_terminal_row.contains("Debug Overlay"),
@@ -246429,6 +246476,40 @@ act.Confirmation {
     }
 
     #[test]
+    fn window_input_selector_uses_modern_selected_surface_by_default() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(48, 8));
+
+        assert!(app.command_palette_execute(WindowCommand::InputSelector(
+            WindowInputSelectorOptions {
+                title: "Pick Reply".to_owned(),
+                choices: vec![
+                    WindowInputSelectorChoice {
+                        label: "No thanks".to_owned(),
+                        id: Some("decline".to_owned()),
+                    },
+                    WindowInputSelectorChoice {
+                        label: "LGTM".to_owned(),
+                        id: Some("lgtm".to_owned()),
+                    },
+                ],
+                alphabet: Some("ab".to_owned()),
+                ..WindowInputSelectorOptions::default()
+            },
+        )));
+
+        let snapshot = app.render_snapshot();
+        let shortcut = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0)
+            .expect("expected input-selector shortcut label");
+        let selected = snapshot_cell(&snapshot, TAB_BAR_ROWS, 2)
+            .expect("expected selected input-selector row");
+        assert_eq!(shortcut.foreground, DEFAULT_UI_ACCENT_FOREGROUND);
+        assert_eq!(shortcut.background, DEFAULT_UI_ACCENT_BACKGROUND);
+        assert_eq!(selected.foreground, DEFAULT_UI_ACCENT_FOREGROUND);
+        assert_eq!(selected.background, DEFAULT_UI_ACCENT_BACKGROUND);
+    }
+
+    #[test]
     fn window_app_input_selector_default_mode_number_selects_choice() {
         let events = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&events);
@@ -248125,6 +248206,10 @@ act.Confirmation {
             first_terminal_row.starts_with("> 😀 U+1F600"),
             "first terminal row was {first_terminal_row:?}"
         );
+        let selected = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0)
+            .expect("expected selected char-select row");
+        assert_eq!(selected.foreground, DEFAULT_UI_ACCENT_FOREGROUND);
+        assert_eq!(selected.background, DEFAULT_UI_ACCENT_BACKGROUND);
 
         app.handle_keyboard_input_event(
             &Key::Named(NamedKey::Enter),
@@ -261826,7 +261911,8 @@ act.Confirmation {
         let snapshot = app.render_snapshot();
         let cell = snapshot_cell(&snapshot, row, column).expect("badge cell at pane corner");
         assert_eq!(cell.ch, ' ');
-        assert_eq!(cell.background, Color::Rgb(45, 45, 52));
+        assert_eq!(cell.foreground, DEFAULT_UI_SURFACE_FOREGROUND);
+        assert_eq!(cell.background, DEFAULT_UI_SURFACE_BACKGROUND);
 
         app.mouse_position = Some((column, row.saturating_sub(app.terminal_frame_row_offset())));
         assert!(app.pane_close_button_at_mouse_position().is_none());
