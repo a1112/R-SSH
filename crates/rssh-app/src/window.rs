@@ -183,6 +183,9 @@ const DEFAULT_UI_ACCENT_BACKGROUND: Color = Color::Rgb(0x38, 0xbd, 0xf8);
 const DEFAULT_UI_SURFACE_FOREGROUND: Color = Color::Rgb(0xd8, 0xe2, 0xf0);
 const DEFAULT_UI_SURFACE_BACKGROUND: Color = Color::Rgb(0x1b, 0x2b, 0x44);
 const DEFAULT_UI_SUBDUED_FOREGROUND: Color = Color::Rgb(0x84, 0x92, 0xa6);
+const DEFAULT_SPLIT_ACTIVE_COLOR: Color = Color::Rgb(0x38, 0xbd, 0xf8);
+const DEFAULT_SPLIT_INACTIVE_COLOR: Color = Color::Rgb(0x47, 0x55, 0x69);
+const DEFAULT_SPLIT_BACKGROUND_COLOR: Color = Color::Rgb(0x10, 0x18, 0x27);
 const PANE_CLOSE_BUTTON_FOREGROUND: Color = Color::Rgb(255, 255, 255);
 const PANE_CLOSE_BUTTON_BACKGROUND: Color = Color::Rgb(176, 42, 42);
 const PANE_INSPECTION_FOREGROUND: Color = Color::Rgb(236, 255, 255);
@@ -96359,11 +96362,11 @@ impl NativeWindowApp {
         for separator in &layout.separators {
             let active = separator.source_pane == active_pane || separator.new_pane == active_pane;
             let foreground = self.split_color.unwrap_or(if active {
-                Color::Rgb(80, 170, 255)
+                DEFAULT_SPLIT_ACTIVE_COLOR
             } else {
-                Color::Rgb(125, 125, 132)
+                DEFAULT_SPLIT_INACTIVE_COLOR
             });
-            let background = Color::Rgb(22, 22, 26);
+            let background = DEFAULT_SPLIT_BACKGROUND_COLOR;
             let ch = if separator.columns == 1 { '|' } else { '-' };
             for row in separator.row..separator.row.saturating_add(separator.rows) {
                 for column in separator.column..separator.column.saturating_add(separator.columns) {
@@ -196932,6 +196935,24 @@ return config
     }
 
     #[test]
+    fn window_app_uses_modern_default_split_separator_surface() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let separator = snapshot_cell(&snapshot, TAB_BAR_ROWS, 39)
+            .expect("expected default split separator");
+
+        assert_eq!(separator.foreground, Color::Rgb(0x38, 0xbd, 0xf8));
+        assert_eq!(separator.background, Color::Rgb(0x10, 0x18, 0x27));
+    }
+
+    #[test]
     fn window_app_applies_wezterm_split_color_to_separator() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -196962,7 +196983,7 @@ return config
 
         assert_eq!(separator.ch, '|');
         assert_eq!(separator.foreground, Color::Rgb(1, 2, 3));
-        assert_eq!(separator.background, Color::Rgb(22, 22, 26));
+        assert_eq!(separator.background, Color::Rgb(0x10, 0x18, 0x27));
     }
 
     #[test]
