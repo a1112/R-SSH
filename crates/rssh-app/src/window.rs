@@ -289,6 +289,8 @@ const DEFAULT_TAB_BAR_NEW_TAB_HOVER_COLORS: NativeTabBarItemColors =
 // Keep the menu affordance visibly readable beside the high-emphasis '+',
 // while remaining quieter than the title controls and tab labels.
 const DEFAULT_MODERN_NEW_TAB_CHEVRON_FOREGROUND: Color = Color::Rgb(0xa5, 0xb4, 0xc7);
+const DEFAULT_MODERN_TAB_CLOSE_HOVER_FOREGROUND: Color = Color::Rgb(0x0b, 0x12, 0x20);
+const DEFAULT_MODERN_TAB_CLOSE_HOVER_BACKGROUND: Color = Color::Rgb(0xf8, 0x71, 0x71);
 const DEFAULT_ANSI_PALETTE_COLORS: [Color; 16] = [
     Color::Rgb(0x11, 0x18, 0x27),
     Color::Rgb(0xf8, 0x71, 0x71),
@@ -97405,6 +97407,31 @@ impl NativeWindowApp {
                         }
                     }
                 }
+
+                // Keep the default close affordance quiet at rest, but make
+                // the destructive action unmistakable on hover.  This is a
+                // paint-only override: explicit tab colors or tab-bar format
+                // items retain their WezTerm-defined appearance and the
+                // close hit column remains unchanged.
+                let close_hovered = self.modern_tab_bar_uses_compact_labels()
+                    && hover_column == tab.close_column
+                    && ((active
+                        && self.tab_bar_active_tab_colors == DEFAULT_TAB_BAR_ACTIVE_TAB_COLORS)
+                        || (!active
+                            && self.tab_bar_inactive_tab_hover_colors
+                                == DEFAULT_TAB_BAR_INACTIVE_TAB_HOVER_COLORS));
+                if close_hovered
+                    && let Some(close_column) = tab.close_column
+                    && let Some(cell) = cells.get_mut(usize::from(close_column))
+                {
+                    *cell = tab_bar_render_cell(
+                        close_column,
+                        '×',
+                        DEFAULT_MODERN_TAB_CLOSE_HOVER_FOREGROUND,
+                        DEFAULT_MODERN_TAB_CLOSE_HOVER_BACKGROUND,
+                        false,
+                    );
+                }
             }
         }
         if let Some(overflow_column) = visible_layout.overflow_column
@@ -133993,6 +134020,50 @@ mod tests {
         );
         assert_eq!(app.tab_for_tab_bar_column(margin_column), None);
         assert_eq!(app.tab_for_tab_bar_column(tab.start_column), Some(tab.tab_id));
+    }
+
+    #[test]
+    fn modern_default_tab_close_hover_uses_destructive_surface() {
+        let mut app = NativeWindowApp::new_with_visual_defaults(None);
+        let snapshot = app.render_snapshot();
+        let close_column = app
+            .rendered_tab_bar_layout
+            .borrow()
+            .as_ref()
+            .and_then(|layout| layout.tabs.first())
+            .and_then(|tab| tab.close_column)
+            .expect("modern default tab should expose a close target");
+
+        let resting_cell = snapshot_cell(&snapshot, 0, close_column)
+            .expect("resting tab close cell should be visible");
+        assert_eq!(resting_cell.ch, '×');
+        assert_eq!(resting_cell.foreground, Color::Rgb(0xf8, 0xfa, 0xfc));
+        assert_eq!(resting_cell.background, Color::Rgb(0x1b, 0x2b, 0x44));
+
+        let x = app
+            .frame_content_pixel_left()
+            .saturating_add(u32::from(close_column).saturating_mul(CELL_WIDTH))
+            .saturating_add(CELL_WIDTH / 2);
+        let y = app
+            .frame_content_pixel_top()
+            .saturating_add(CELL_HEIGHT / 2);
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), f64::from(y)))
+            .expect("tab close hover should be accepted");
+        let hovered_snapshot = app.render_snapshot();
+        let hovered_cell = snapshot_cell(&hovered_snapshot, 0, close_column)
+            .expect("hovered tab close cell should be visible");
+
+        assert_eq!(hovered_cell.ch, '×');
+        assert_eq!(
+            hovered_cell.foreground,
+            Color::Rgb(0x0b, 0x12, 0x20),
+            "hovered tab close should use the dark modern foreground"
+        );
+        assert_eq!(
+            hovered_cell.background,
+            Color::Rgb(0xf8, 0x71, 0x71),
+            "hovered tab close should use the modern destructive surface"
+        );
     }
 
     #[test]
