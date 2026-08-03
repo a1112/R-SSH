@@ -4,7 +4,7 @@
 
 **Goal:** Ship a modern dark default appearance using Cascadia Mono, a balanced deep-blue ANSI palette, concept-scale 17px/10x21 terminal density, comfortable padding, and a clearly layered tab bar without weakening Unicode or WezTerm configuration compatibility.
 
-**Architecture:** Keep all appearance changes in the existing native-window defaults and GPU font bootstrap so user configuration retains precedence. Platform font loading remains best-effort with embedded fixtures as the final fallback; terminal grid geometry and GPU raster size change together to preserve row and column alignment. The modern default density is intentionally larger than the legacy compatibility fixtures, while explicit WezTerm font/grid/padding values continue to win.
+**Architecture:** Keep all appearance changes in the existing native-window defaults and GPU font bootstrap so user configuration retains precedence. Platform font loading remains best-effort with embedded fixtures as the final fallback; terminal grid geometry and GPU raster size change together to preserve row and column alignment. The modern default density is intentionally larger than the legacy compatibility fixtures, while explicit WezTerm font/grid/padding values continue to win. DPI is applied exactly once: logical terminal metrics become physical cells, the GPU atlas rasterizes at the same effective scale, and monitor transitions resize the physical window while preserving terminal rows and columns.
 
 **Tech Stack:** Rust 2024, winit, wgpu, glyphon, rssh-fonts/cosmic-text, native window screenshot E2E, built-in ImageGen for the concept mockup.
 

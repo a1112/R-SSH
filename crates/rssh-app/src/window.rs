@@ -57,7 +57,7 @@ use winit::platform::macos::WindowExtMacOS;
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::{
     application::ApplicationHandler,
-    dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
+    dpi::{PhysicalPosition, PhysicalSize},
     event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey},
@@ -84033,7 +84033,13 @@ fn padding_dimension_to_pixels(
     dpi: u32,
 ) -> u32 {
     match dimension {
-        NativeWindowPaddingDimension::Pixels(pixels) => pixels,
+        NativeWindowPaddingDimension::Pixels(pixels) => {
+            let scaled = u64::from(pixels)
+                .saturating_mul(u64::from(dpi.max(1)))
+                .saturating_add(u64::from(DEFAULT_WINDOW_DPI / 2))
+                / u64::from(DEFAULT_WINDOW_DPI);
+            u32::try_from(scaled).unwrap_or(u32::MAX)
+        }
         NativeWindowPaddingDimension::Points(points) => {
             points.saturating_mul(dpi).saturating_add(36) / 72
         }
@@ -85756,29 +85762,55 @@ impl NativeWindowApp {
     }
 
     fn cell_width(&self) -> u32 {
+        let dpi_scale = if self.modern_tab_bar_brand {
+            self.window_dpi_scale()
+        } else {
+            1.0
+        };
         scaled_cell_dimension(
             if self.modern_tab_bar_brand {
                 MODERN_CELL_WIDTH
             } else {
                 CELL_WIDTH
             },
-            self.font_size_scale_against_default()
+            dpi_scale
+                * self.font_size_scale_against_default()
                 * self.font_size_scale
                 * self.cell_width.as_f64(),
         )
     }
 
     fn cell_height(&self) -> u32 {
+        let dpi_scale = if self.modern_tab_bar_brand {
+            self.window_dpi_scale()
+        } else {
+            1.0
+        };
         scaled_cell_dimension(
             if self.modern_tab_bar_brand {
                 MODERN_CELL_HEIGHT
             } else {
                 CELL_HEIGHT
             },
-            self.font_size_scale_against_default()
+            dpi_scale
+                * self.font_size_scale_against_default()
                 * self.font_size_scale
                 * self.line_height.as_f64(),
         )
+    }
+
+    fn window_dpi_scale(&self) -> f64 {
+        f64::from(self.window_dpi.max(1)) / f64::from(DEFAULT_WINDOW_DPI)
+    }
+
+    fn gpu_dpi_scale(&self) -> f32 {
+        #[allow(clippy::cast_possible_truncation)]
+        let scale = self.window_dpi_scale() as f32;
+        if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        }
     }
 
     fn font_size_scale_against_default(&self) -> f64 {
@@ -91875,12 +91907,10 @@ impl NativeWindowApp {
     }
 
     fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), Box<dyn Error>> {
+        let initial_size = self.initial_frame_size();
         let mut window_attributes = Window::default_attributes()
             .with_title(self.window_title.clone())
-            .with_inner_size(LogicalSize::new(
-                f64::from(self.initial_frame_size().width),
-                f64::from(self.initial_frame_size().height),
-            ))
+            .with_inner_size(initial_size)
             .with_resizable(self.window_decorations.resize)
             .with_decorations(self.window_decorations.winit_decorations_enabled());
         if let Some(position) = self.initial_window_position.as_ref() {
@@ -91922,7 +91952,11 @@ impl NativeWindowApp {
         self.apply_window_scale_factor(
             test_window_scale_factor().unwrap_or_else(|| window.scale_factor()),
         );
-        let size = window.inner_size();
+        let size = window
+            .request_inner_size(self.initial_frame_size())
+            .unwrap_or_else(|| window.inner_size());
+        self.frame_width = size.width;
+        self.frame_height = size.height;
         let high_performance = matches!(
             self.webgpu_power_preference,
             NativeWebGpuPowerPreference::HighPerformance
@@ -91960,6 +91994,14 @@ impl NativeWindowApp {
         let window_dpi = self.configured_dpi.unwrap_or(self.detected_window_dpi);
         self.window_dpi = window_dpi;
         self.renderer.set_window_dpi(window_dpi);
+        self.apply_window_resize_increments();
+        if let Some(window) = self.window.as_ref() {
+            let terminal_size = self.runtime.terminal().grid().size();
+            let requested_size = self.frame_size_for_terminal_size(terminal_size);
+            if window.inner_size() != requested_size {
+                let _ = window.request_inner_size(requested_size);
+            }
+        }
     }
 
     fn draw_frame(&mut self, event_loop: &ActiveEventLoop) {
@@ -91988,6 +92030,7 @@ impl NativeWindowApp {
             self.renderer
                 .prepare_gpu_frame(&snapshot, geometry, scrollbar, damage_row_offset);
         self.metrics.record_terminal_linkage_snapshot(&snapshot);
+        let gpu_dpi_scale = self.gpu_dpi_scale();
 
         let outcome = if let (Some(gpu), Some(window)) = (self.gpu.as_mut(), self.window.as_ref()) {
             gpu.present(
@@ -91997,6 +92040,7 @@ impl NativeWindowApp {
                 &damage,
                 &self.renderer.text_paint_config(),
                 &graph,
+                gpu_dpi_scale,
             )
         } else {
             Ok(GpuFrameStatus::Skipped)
@@ -133593,7 +133637,7 @@ mod tests {
     use winit::keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey};
     use winit::window::CursorIcon;
 
-    use rssh_core::app_shell::SplitDirection;
+    use rssh_core::{TerminalSize, app_shell::SplitDirection};
     use rssh_pty::{PtyCommand, PtyExitStatus, PtySession, PtySize};
     use rssh_renderer::{
         RenderBackgroundImageAttachment, RenderGeometry, RenderScrollbarThumbSize,
@@ -134285,6 +134329,35 @@ mod tests {
             }
         );
         assert_eq!(super::MODERN_DEFAULT_TAB_MAX_WIDTH, 20);
+    }
+
+    #[test]
+    fn modern_default_geometry_scales_for_high_dpi_displays() {
+        let mut app = NativeWindowApp::new_with_visual_defaults(None);
+
+        app.apply_window_scale_factor(2.0);
+
+        assert_eq!(app.window_dpi, 192);
+        assert!((app.gpu_dpi_scale() - 2.0).abs() < f32::EPSILON);
+        assert_eq!(app.cell_width(), 20);
+        assert_eq!(app.cell_height(), 42);
+        assert_eq!(
+            app.initial_frame_size(),
+            PhysicalSize::new(1_656, 1_090),
+            "80x24 modern content should retain its logical size at 200% DPI"
+        );
+        assert_eq!(
+            terminal_size_from_window_pixels_with_padding(
+                1_656,
+                1_090,
+                app.cell_width(),
+                app.cell_height(),
+                app.window_padding,
+                app.window_dpi,
+            ),
+            TerminalSize::new(80, 24),
+            "physical resizing must not double the PTY columns or rows"
+        );
     }
 
     #[test]

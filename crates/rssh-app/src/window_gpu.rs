@@ -35,6 +35,7 @@ struct WindowGpuFrame<'a> {
     damage: &'a [DamageRegion],
     paint: &'a TextPaintConfig,
     graph: &'a RenderGraph,
+    dpi_scale: f32,
 }
 
 #[derive(Debug, Default)]
@@ -197,6 +198,7 @@ impl WindowGpu {
         damage: &[DamageRegion],
         paint: &TextPaintConfig,
         graph: &RenderGraph,
+        dpi_scale: f32,
     ) -> Result<GpuFrameStatus, Box<dyn Error>> {
         #[cfg(debug_assertions)]
         if !self.test_device_loss_injected
@@ -212,6 +214,7 @@ impl WindowGpu {
             damage,
             paint,
             graph,
+            dpi_scale,
         };
         let mut recovery = std::mem::take(&mut self.recovery);
         let state = RefCell::new(self);
@@ -262,11 +265,7 @@ impl WindowGpu {
                 frame.geometry,
                 frame.damage,
                 frame.paint,
-                // `RenderGeometry` and the surface are already expressed in
-                // physical pixels.  Applying the window scale factor again
-                // would rasterize 16px cells as 20px glyphs on a 125% display,
-                // causing glyphs to clip into adjacent terminal rows.
-                1.0,
+                frame.dpi_scale,
                 1.0,
             )?;
         let status = self
@@ -605,7 +604,7 @@ fn bundled_emergency_font_config() -> rssh_fonts::FontConfig {
             "Nirmala UI",
             "Segoe UI Emoji",
         ])
-        .with_font_size(15.0)
+        .with_font_size(17.0)
 }
 
 #[cfg(test)]
@@ -653,7 +652,7 @@ mod tests {
             .shape_row(&mut catalog, "R-SSH 你好 😀")
             .expect("shape modern terminal sample");
 
-        assert_eq!(row.metrics.font_size, 15.0);
+        assert_eq!(row.metrics.font_size, 17.0);
         assert_eq!(
             row.clusters
                 .iter()
