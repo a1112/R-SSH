@@ -91935,7 +91935,6 @@ impl NativeWindowApp {
         let placement = self.frame_content_placement();
         let geometry = self.frame_render_geometry(surface_geometry, placement);
         let snapshot = self.render_snapshot();
-        self.record_missing_glyph_warnings(&snapshot);
         let damage_row_offset = self.terminal_frame_row_offset();
         if self.has_visible_split_layout() {
             self.frame_needs_full_repaint = true;
@@ -91980,6 +91979,16 @@ impl NativeWindowApp {
                 return;
             }
         };
+
+        if presented {
+            let missing_glyphs = self
+                .gpu
+                .as_ref()
+                .and_then(|gpu| gpu.direct_text_metrics())
+                .map(|(report, _)| report.missing_glyphs.clone())
+                .unwrap_or_default();
+            self.record_missing_glyph_codepoints(missing_glyphs);
+        }
 
         self.metrics.record_render_frame(started.elapsed());
         if !presented {
@@ -92030,12 +92039,20 @@ impl NativeWindowApp {
         mode
     }
 
+    #[cfg(test)]
     fn record_missing_glyph_warnings(&mut self, snapshot: &TerminalRenderSnapshot) {
+        self.record_missing_glyph_codepoints(snapshot.missing_glyphs());
+    }
+
+    fn record_missing_glyph_codepoints<I>(&mut self, glyphs: I)
+    where
+        I: IntoIterator<Item = char>,
+    {
         if !self.warn_about_missing_glyphs {
             return;
         }
 
-        for glyph in snapshot.missing_glyphs() {
+        for glyph in glyphs {
             if !self.missing_glyph_warning_codepoints.insert(glyph) {
                 continue;
             }

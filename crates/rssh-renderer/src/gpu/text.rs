@@ -82,6 +82,9 @@ pub struct GpuTextAtlasMetrics {
 pub struct GpuTextPrepareReport {
     pub prepared_rows: Vec<u16>,
     pub shaped_glyphs: usize,
+    /// Source codepoints whose shaped cluster is not covered by the configured
+    /// font catalog and therefore rendered as a tofu glyph.
+    pub missing_glyphs: Vec<char>,
     pub mask_glyphs: usize,
     pub color_glyphs: usize,
     pub custom_block_glyphs: usize,
@@ -547,6 +550,13 @@ impl GpuText {
                 .shape_clusters(&mut self.catalog, &plan.clusters)
                 .map_err(|error| GpuLayerError::message(format!("shape GPU text row: {error}")))?;
             report.shaped_glyphs = report.shaped_glyphs.saturating_add(shaped.glyphs.len());
+            for cluster in shaped.clusters.iter().filter(|cluster| cluster.is_tofu) {
+                for codepoint in shaped.text[cluster.byte_range.clone()].chars() {
+                    if !report.missing_glyphs.contains(&codepoint) {
+                        report.missing_glyphs.push(codepoint);
+                    }
+                }
+            }
             let scale_x = geometry.cell_width as f32 / shaped.metrics.cell_width;
             let visual_starts = crate::text::visual_cell_starts(&shaped);
             let baseline = geometry.content_y as f32
@@ -1124,6 +1134,48 @@ mod tests {
         let grayscale = subpixel_to_grayscale(&rgba_subpixel);
         assert_eq!(grayscale, [7, 19]);
         assert_eq!(grayscale.len(), rgba_subpixel.len() / 4);
+    }
+
+    #[test]
+    fn prepare_report_tracks_real_tofu_without_flagging_configured_cjk_fallback() {
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let geometry = RenderGeometry::new(32, 48, 16, 24);
+        let paint = TextPaintConfig::default();
+        let mut renderer =
+            GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 64 * 1024)
+                .expect("renderer");
+        renderer
+            .enable_text(catalog(), font_config(), test_config(256))
+            .expect("enable text");
+
+        let fallback_report = renderer
+            .prepare_text(
+                &multiline_snapshot("中文", 4, 1),
+                geometry,
+                &[],
+                &paint,
+                1.0,
+                1.0,
+            )
+            .expect("shape configured CJK fallback");
+        assert!(
+            fallback_report.missing_glyphs.is_empty(),
+            "configured CJK fallback must not be reported as tofu: {:?}",
+            fallback_report.missing_glyphs
+        );
+
+        let tofu_report = renderer
+            .prepare_text(
+                &multiline_snapshot("\u{10ffff}", 4, 1),
+                geometry,
+                &[],
+                &paint,
+                1.0,
+                1.0,
+            )
+            .expect("shape uncovered scalar");
+        assert_eq!(tofu_report.missing_glyphs, ['\u{10ffff}']);
     }
 
     #[test]
