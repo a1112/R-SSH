@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Ship a modern dark default appearance using Cascadia Mono, a balanced deep-blue ANSI palette, comfortable padding, and a clearly layered tab bar without weakening Unicode or WezTerm configuration compatibility.
+**Goal:** Ship a modern dark default appearance using Cascadia Mono, a balanced deep-blue ANSI palette, concept-scale 17px/10x21 terminal density, comfortable padding, and a clearly layered tab bar without weakening Unicode or WezTerm configuration compatibility.
 
-**Architecture:** Keep all appearance changes in the existing native-window defaults and GPU font bootstrap so user configuration retains precedence. Platform font loading remains best-effort with embedded fixtures as the final fallback; terminal grid geometry and GPU raster size change together to preserve row and column alignment.
+**Architecture:** Keep all appearance changes in the existing native-window defaults and GPU font bootstrap so user configuration retains precedence. Platform font loading remains best-effort with embedded fixtures as the final fallback; terminal grid geometry and GPU raster size change together to preserve row and column alignment. The modern default density is intentionally larger than the legacy compatibility fixtures, while explicit WezTerm font/grid/padding values continue to win.
 
 **Tech Stack:** Rust 2024, winit, wgpu, glyphon, rssh-fonts/cosmic-text, native window screenshot E2E, built-in ImageGen for the concept mockup.
 
@@ -189,7 +189,7 @@ Expected: FAIL against the current 8x16 zero-padding defaults.
 
 **Step 3: Implement the geometry defaults**
 
-Set `CELL_WIDTH` to 9, `CELL_HEIGHT` to 18, and `DEFAULT_WINDOW_PADDING` to 8/8/6/6 pixels. Update only tests whose expectations intentionally derive from the constants; do not mechanically change fixed compatibility fixtures that validate explicit 8x16 input.
+Add modern-only geometry defaults of `10x21` cells and `14/14/10/10` pixels of padding, and use them for the modern production window. Keep the legacy `CELL_WIDTH`/`CELL_HEIGHT` and padding constants unchanged for compatibility fixtures and explicit legacy input; update only tests whose expectations intentionally derive from the modern defaults.
 
 **Step 4: Run geometry and native window tests**
 

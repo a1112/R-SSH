@@ -91,6 +91,12 @@ const TAB_BAR_ROWS: u16 = 1;
 // height overrides or compatibility fixtures that provide their own sizes.
 const CELL_WIDTH: u32 = 9;
 const CELL_HEIGHT: u32 = 18;
+// Modern native windows use a more relaxed visual grid than legacy/test
+// fixtures.  Keeping the compatibility constants above unchanged means
+// explicit WezTerm geometry and the legacy renderer remain byte-for-byte
+// stable while production defaults can follow the concept target.
+const MODERN_CELL_WIDTH: u32 = 10;
+const MODERN_CELL_HEIGHT: u32 = 21;
 const DEFAULT_WINDOW_TITLE: &str = "R-SSH";
 static NEXT_PANE_RUNTIME_TOKEN: AtomicU64 = AtomicU64::new(1);
 static PANE_PTY_REAPER_PENDING: AtomicUsize = AtomicUsize::new(0);
@@ -136,10 +142,12 @@ const DEFAULT_WARN_ABOUT_MISSING_GLYPHS: bool = true;
 const DEBUG_OVERLAY_MAX_LOG_LINES: usize = 16;
 const DEFAULT_FONT_SIZE_SCALE: f64 = 1.0;
 const FONT_SIZE_STEP: f64 = 1.1;
+#[cfg(test)]
 const FRAME_WIDTH: u32 = TERMINAL_COLUMNS as u32 * CELL_WIDTH;
+#[cfg(test)]
 const FRAME_HEIGHT: u32 = (TERMINAL_ROWS as u32 + TAB_BAR_ROWS as u32) * CELL_HEIGHT;
-const DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS: u32 = 16;
-const DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS: u32 = 12;
+const MODERN_WINDOW_PADDING_HORIZONTAL_PIXELS: u32 = 28;
+const MODERN_WINDOW_PADDING_VERTICAL_PIXELS: u32 = 20;
 const MODERN_TAB_BAR_BRAND_INSET_COLUMNS: u16 = 2;
 const MODERN_TAB_BAR_BRAND_GAP_COLUMNS: u16 = 3;
 const DOUBLE_CLICK_MAX_INTERVAL: Duration = Duration::from_millis(500);
@@ -161,10 +169,11 @@ const DEFAULT_LINE_STATE_CACHE_SIZE: usize = 1_024;
 const DEFAULT_LINE_QUAD_CACHE_SIZE: usize = 1_024;
 const DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE: usize = 1_024;
 const DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE: usize = 256;
-// Keep the native geometry and GPU emergency shaper on the same 15px visual
-// baseline.  The cell dimensions scale from this reference, so configured
-// font sizes continue to preserve their existing relative behavior.
+// Modern native windows and the GPU emergency shaper share a 17px visual
+// baseline. Legacy/test fixtures retain the 15px compatibility default; each
+// path scales configured font sizes from its own baseline.
 const DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(15_000);
+const MODERN_DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(17_000);
 const DEFAULT_COMMAND_PALETTE_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(14_000);
 const DEFAULT_CHAR_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(18_000);
 const DEFAULT_PANE_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(36_000);
@@ -322,10 +331,20 @@ const DEFAULT_WINDOW_PADDING: NativeWindowPadding = NativeWindowPadding {
     top: NativeWindowPaddingDimension::Pixels(6),
     bottom: NativeWindowPaddingDimension::Pixels(6),
 };
+const MODERN_DEFAULT_WINDOW_PADDING: NativeWindowPadding = NativeWindowPadding {
+    left: NativeWindowPaddingDimension::Pixels(14),
+    right: NativeWindowPaddingDimension::Pixels(14),
+    top: NativeWindowPaddingDimension::Pixels(10),
+    bottom: NativeWindowPaddingDimension::Pixels(10),
+};
 const DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS: NativeBoldBrightensAnsiColors =
     NativeBoldBrightensAnsiColors::BrightAndBold;
 const DEFAULT_WINDOW_DPI: u32 = 96;
 const DEFAULT_TAB_MAX_WIDTH: usize = 16;
+const MODERN_DEFAULT_TAB_MAX_WIDTH: usize = 20;
+const MODERN_FRAME_WIDTH: u32 = TERMINAL_COLUMNS as u32 * MODERN_CELL_WIDTH;
+const MODERN_FRAME_HEIGHT: u32 =
+    (TERMINAL_ROWS as u32 + TAB_BAR_ROWS as u32) * MODERN_CELL_HEIGHT;
 const DEFAULT_TERM: &str = "xterm-256color";
 const DEFAULT_ENQ_ANSWERBACK: &str = "";
 const DEFAULT_SHOW_CLOSE_TAB_BUTTON_IN_TABS: bool = true;
@@ -83440,15 +83459,6 @@ struct NativeWindowFrame {
 }
 
 impl NativeWindowFrame {
-    const fn initial() -> Self {
-        Self {
-            x: 0,
-            y: 0,
-            width: FRAME_WIDTH + DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS,
-            height: FRAME_HEIGHT + DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS,
-        }
-    }
-
     fn set_position(&mut self, position: PhysicalPosition<i32>) {
         self.x = position.x;
         self.y = position.y;
@@ -84739,6 +84749,8 @@ impl NativeWindowApp {
         self.window_decorations.integrated_buttons = false;
         self.window_frame
             .set_size(PhysicalSize::new(FRAME_WIDTH, FRAME_HEIGHT));
+        self.font_size = DEFAULT_FONT_SIZE;
+        self.tab_max_width = DEFAULT_TAB_MAX_WIDTH;
         self.foreground_color = LEGACY_TEST_FOREGROUND_COLOR;
         self.background_color = LEGACY_TEST_BACKGROUND_COLOR;
         self.selection_bg_color = None;
@@ -84800,7 +84812,7 @@ impl NativeWindowApp {
                 font_fallbacks: Vec::new(),
                 font_attributes: NativeFontAttributes::default(),
                 font_rules: Vec::new(),
-                font_size: DEFAULT_FONT_SIZE,
+                font_size: MODERN_DEFAULT_FONT_SIZE,
                 cell_width: DEFAULT_CELL_WIDTH,
                 cell_widths: Vec::new(),
                 line_height: DEFAULT_LINE_HEIGHT,
@@ -84858,9 +84870,14 @@ impl NativeWindowApp {
                 snapshot,
                 window_title: DEFAULT_WINDOW_TITLE.to_owned(),
                 modern_tab_bar_brand: true,
-                frame_width: FRAME_WIDTH + DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS,
-                frame_height: FRAME_HEIGHT + DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS,
-                window_frame: NativeWindowFrame::initial(),
+                frame_width: MODERN_FRAME_WIDTH + MODERN_WINDOW_PADDING_HORIZONTAL_PIXELS,
+                frame_height: MODERN_FRAME_HEIGHT + MODERN_WINDOW_PADDING_VERTICAL_PIXELS,
+                window_frame: NativeWindowFrame {
+                    x: 0,
+                    y: 0,
+                    width: MODERN_FRAME_WIDTH + MODERN_WINDOW_PADDING_HORIZONTAL_PIXELS,
+                    height: MODERN_FRAME_HEIGHT + MODERN_WINDOW_PADDING_VERTICAL_PIXELS,
+                },
                 frame_limit,
                 initial_window_class,
                 initial_window_position,
@@ -84939,7 +84956,7 @@ impl NativeWindowApp {
                 integrated_title_button_color: DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
                 integrated_title_button_style: DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
                 inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
-                tab_max_width: DEFAULT_TAB_MAX_WIDTH,
+                tab_max_width: MODERN_DEFAULT_TAB_MAX_WIDTH,
                 command_palette_rows: None,
                 command_palette_font: None,
                 command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
@@ -85177,7 +85194,7 @@ impl NativeWindowApp {
                 force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
                 reverse_video_cursor_min_contrast: DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
                 text_min_contrast_ratio: None,
-                window_padding: DEFAULT_WINDOW_PADDING,
+                window_padding: MODERN_DEFAULT_WINDOW_PADDING,
                 #[cfg(test)]
                 legacy_test_geometry: false,
                 window_content_alignment: DEFAULT_WINDOW_CONTENT_ALIGNMENT,
@@ -85740,8 +85757,12 @@ impl NativeWindowApp {
 
     fn cell_width(&self) -> u32 {
         scaled_cell_dimension(
-            CELL_WIDTH,
-            self.font_size.scale_against_default()
+            if self.modern_tab_bar_brand {
+                MODERN_CELL_WIDTH
+            } else {
+                CELL_WIDTH
+            },
+            self.font_size_scale_against_default()
                 * self.font_size_scale
                 * self.cell_width.as_f64(),
         )
@@ -85749,11 +85770,24 @@ impl NativeWindowApp {
 
     fn cell_height(&self) -> u32 {
         scaled_cell_dimension(
-            CELL_HEIGHT,
-            self.font_size.scale_against_default()
+            if self.modern_tab_bar_brand {
+                MODERN_CELL_HEIGHT
+            } else {
+                CELL_HEIGHT
+            },
+            self.font_size_scale_against_default()
                 * self.font_size_scale
                 * self.line_height.as_f64(),
         )
+    }
+
+    fn font_size_scale_against_default(&self) -> f64 {
+        if self.modern_tab_bar_brand {
+            f64::from(self.font_size.millipoints)
+                / f64::from(MODERN_DEFAULT_FONT_SIZE.millipoints)
+        } else {
+            self.font_size.scale_against_default()
+        }
     }
 
     fn show_debug_overlay(&mut self) {
@@ -99232,7 +99266,11 @@ impl NativeWindowApp {
         self.configured_dpi = overrides.dpi;
         self.dpi_by_screen = overrides.dpi_by_screen.clone().unwrap_or_default();
         self.apply_effective_window_dpi();
-        self.tab_max_width = overrides.tab_max_width.unwrap_or(DEFAULT_TAB_MAX_WIDTH);
+        self.tab_max_width = overrides.tab_max_width.unwrap_or(if self.modern_tab_bar_brand {
+            MODERN_DEFAULT_TAB_MAX_WIDTH
+        } else {
+            DEFAULT_TAB_MAX_WIDTH
+        });
         self.apply_status_update_interval_override(overrides.status_update_interval_ms);
         self.lua_tab_title = overrides.lua_tab_title.clone();
         self.lua_window_title = overrides.lua_window_title.clone();
@@ -99315,7 +99353,11 @@ impl NativeWindowApp {
         self.font_fallbacks = overrides.font_fallbacks.clone().unwrap_or_default();
         self.font_attributes = overrides.font_attributes.clone().unwrap_or_default();
         self.font_rules = overrides.font_rules.clone().unwrap_or_default();
-        self.font_size = overrides.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+        self.font_size = overrides.font_size.unwrap_or(if self.modern_tab_bar_brand {
+            MODERN_DEFAULT_FONT_SIZE
+        } else {
+            DEFAULT_FONT_SIZE
+        });
         self.cell_width = overrides.cell_width.unwrap_or(DEFAULT_CELL_WIDTH);
         self.cell_widths = overrides.cell_widths.clone().unwrap_or_default();
         self.line_height = overrides.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
@@ -100299,7 +100341,11 @@ impl NativeWindowApp {
             self.frame_needs_full_repaint = true;
             return;
         }
-        self.window_padding = window_padding.unwrap_or(DEFAULT_WINDOW_PADDING);
+        self.window_padding = window_padding.unwrap_or(if self.modern_tab_bar_brand {
+            MODERN_DEFAULT_WINDOW_PADDING
+        } else {
+            DEFAULT_WINDOW_PADDING
+        });
         self.frame_needs_full_repaint = true;
     }
 
@@ -133599,10 +133645,10 @@ mod tests {
         assert_eq!(
             app.window_padding,
             NativeWindowPadding {
-                left: NativeWindowPaddingDimension::Pixels(8),
-                right: NativeWindowPaddingDimension::Pixels(8),
-                top: NativeWindowPaddingDimension::Pixels(6),
-                bottom: NativeWindowPaddingDimension::Pixels(6),
+                left: NativeWindowPaddingDimension::Pixels(14),
+                right: NativeWindowPaddingDimension::Pixels(14),
+                top: NativeWindowPaddingDimension::Pixels(10),
+                bottom: NativeWindowPaddingDimension::Pixels(10),
             },
             "modern terminal content padding"
         );
@@ -133880,11 +133926,13 @@ mod tests {
 
         let x = app
             .frame_content_pixel_left()
-            .saturating_add(u32::from(close_column).saturating_mul(CELL_WIDTH))
-            .saturating_add(CELL_WIDTH / 2);
+            .saturating_add(
+                u32::from(close_column).saturating_mul(super::MODERN_CELL_WIDTH),
+            )
+            .saturating_add(super::MODERN_CELL_WIDTH / 2);
         let y = app
             .frame_content_pixel_top()
-            .saturating_add(CELL_HEIGHT / 2);
+            .saturating_add(super::MODERN_CELL_HEIGHT / 2);
         app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), f64::from(y)))
             .expect("window control hover should be accepted");
         let hovered_snapshot = app.render_snapshot();
@@ -134109,11 +134157,13 @@ mod tests {
 
         let x = app
             .frame_content_pixel_left()
-            .saturating_add(u32::from(close_column).saturating_mul(CELL_WIDTH))
-            .saturating_add(CELL_WIDTH / 2);
+            .saturating_add(
+                u32::from(close_column).saturating_mul(super::MODERN_CELL_WIDTH),
+            )
+            .saturating_add(super::MODERN_CELL_WIDTH / 2);
         let y = app
             .frame_content_pixel_top()
-            .saturating_add(CELL_HEIGHT / 2);
+            .saturating_add(super::MODERN_CELL_HEIGHT / 2);
         app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), f64::from(y)))
             .expect("tab close hover should be accepted");
         let hovered_snapshot = app.render_snapshot();
@@ -134211,9 +134261,30 @@ mod tests {
     fn modern_default_font_matches_gpu_shaping_baseline() {
         let app = NativeWindowApp::new_with_visual_defaults(None);
 
-        assert_eq!(app.font_size, NativeFontSize::from_millipoints(15_000));
-        assert_eq!(app.cell_width(), 9);
-        assert_eq!(app.cell_height(), 18);
+        assert_eq!(app.font_size, NativeFontSize::from_millipoints(17_000));
+        assert_eq!(app.cell_width(), 10);
+        assert_eq!(app.cell_height(), 21);
+    }
+
+    #[test]
+    fn modern_default_visual_density_matches_concept_target() {
+        assert_eq!(
+            super::MODERN_DEFAULT_FONT_SIZE,
+            NativeFontSize::from_millipoints(17_000),
+            "the concept uses a more readable default terminal scale"
+        );
+        assert_eq!(super::MODERN_CELL_WIDTH, 10);
+        assert_eq!(super::MODERN_CELL_HEIGHT, 21);
+        assert_eq!(
+            super::MODERN_DEFAULT_WINDOW_PADDING,
+            NativeWindowPadding {
+                left: NativeWindowPaddingDimension::Pixels(14),
+                right: NativeWindowPaddingDimension::Pixels(14),
+                top: NativeWindowPaddingDimension::Pixels(10),
+                bottom: NativeWindowPaddingDimension::Pixels(10),
+            }
+        );
+        assert_eq!(super::MODERN_DEFAULT_TAB_MAX_WIDTH, 20);
     }
 
     #[test]
@@ -134326,10 +134397,10 @@ mod tests {
 
     #[test]
     fn modern_default_geometry_uses_target_grid() {
-        assert_eq!(CELL_WIDTH, 9, "modern terminal cell width");
-        assert_eq!(CELL_HEIGHT, 18, "modern terminal cell height");
-        assert_eq!(FRAME_WIDTH, 720, "80-column frame width");
-        assert_eq!(FRAME_HEIGHT, 450, "24-row frame plus tab bar height");
+        assert_eq!(super::MODERN_CELL_WIDTH, 10, "modern terminal cell width");
+        assert_eq!(super::MODERN_CELL_HEIGHT, 21, "modern terminal cell height");
+        assert_eq!(super::MODERN_FRAME_WIDTH, 800, "80-column frame width");
+        assert_eq!(super::MODERN_FRAME_HEIGHT, 525, "24-row frame plus tab bar height");
     }
 
     #[test]
@@ -134338,17 +134409,17 @@ mod tests {
         assert_eq!(
             app.initial_frame_size(),
             PhysicalSize::new(
-                FRAME_WIDTH + DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS,
-                FRAME_HEIGHT + DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS,
+                super::MODERN_FRAME_WIDTH + super::MODERN_WINDOW_PADDING_HORIZONTAL_PIXELS,
+                super::MODERN_FRAME_HEIGHT + super::MODERN_WINDOW_PADDING_VERTICAL_PIXELS,
             )
         );
 
         let terminal_size = terminal_size_from_window_pixels_with_padding(
-            FRAME_WIDTH + DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS,
-            FRAME_HEIGHT + DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS,
-            CELL_WIDTH,
-            CELL_HEIGHT,
-            DEFAULT_WINDOW_PADDING,
+            super::MODERN_FRAME_WIDTH + super::MODERN_WINDOW_PADDING_HORIZONTAL_PIXELS,
+            super::MODERN_FRAME_HEIGHT + super::MODERN_WINDOW_PADDING_VERTICAL_PIXELS,
+            super::MODERN_CELL_WIDTH,
+            super::MODERN_CELL_HEIGHT,
+            super::MODERN_DEFAULT_WINDOW_PADDING,
             96,
         );
         assert_eq!(
@@ -134367,8 +134438,8 @@ mod tests {
         assert_eq!(
             app.frame_size_for_test(),
             (
-                FRAME_WIDTH + DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS,
-                FRAME_HEIGHT + DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS,
+                super::MODERN_FRAME_WIDTH + super::MODERN_WINDOW_PADDING_HORIZONTAL_PIXELS,
+                super::MODERN_FRAME_HEIGHT + super::MODERN_WINDOW_PADDING_VERTICAL_PIXELS,
             )
         );
         assert_eq!(
@@ -134419,7 +134490,7 @@ mod tests {
             super::DEFAULT_RENDER_BACKGROUND_RGBA,
             "chrome must preserve the existing physical padding"
         );
-        let tab_bar_separator_y = 6 + CELL_HEIGHT - 1;
+        let tab_bar_separator_y = 10 + super::MODERN_CELL_HEIGHT - 1;
         assert_eq!(
             frame_pixel_at(&frame, width, 4, tab_bar_separator_y as usize),
             super::DEFAULT_TAB_BAR_SEPARATOR_RGBA,
@@ -134439,8 +134510,10 @@ mod tests {
             .expect("default frame should resize");
 
         let inside = PhysicalPosition::new(
-            f64::from(8 + CELL_WIDTH / 2),
-            f64::from(6 + CELL_HEIGHT + CELL_HEIGHT / 2),
+            f64::from(14 + super::MODERN_CELL_WIDTH / 2),
+            f64::from(
+                10 + super::MODERN_CELL_HEIGHT + super::MODERN_CELL_HEIGHT / 2,
+            ),
         );
         assert_eq!(app.window_mouse_cell(inside), Some((0, 0)));
         assert_eq!(
@@ -134507,8 +134580,8 @@ mod tests {
         DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
         DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER, DEFAULT_WEBGPU_POWER_PREFERENCE,
         DEFAULT_WIN32_SYSTEM_BACKDROP, DEFAULT_WINDOW_BACKGROUND_OPACITY,
-        DEFAULT_WINDOW_CONTENT_ALIGNMENT, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
-        DEFAULT_WINDOW_PADDING_HORIZONTAL_PIXELS, DEFAULT_WINDOW_PADDING_VERTICAL_PIXELS,
+        DEFAULT_WINDOW_CONTENT_ALIGNMENT, DEFAULT_WINDOW_DECORATIONS,
+        MODERN_DEFAULT_FONT_SIZE, MODERN_DEFAULT_WINDOW_PADDING,
         DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
         LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR, NativeAnsiColor, NativeAudibleBell,
         NativeBidiDirection, NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines,
@@ -205994,7 +206067,7 @@ return config
                 font_fallbacks: Vec::new(),
                 font_attributes: NativeFontAttributes::default(),
                 font_rules: Vec::new(),
-                font_size: DEFAULT_FONT_SIZE,
+                font_size: MODERN_DEFAULT_FONT_SIZE,
                 cell_width: DEFAULT_CELL_WIDTH,
                 cell_widths: Vec::new(),
                 line_height: DEFAULT_LINE_HEIGHT,
@@ -206050,7 +206123,7 @@ return config
                 strikethrough_position: DEFAULT_STRIKETHROUGH_POSITION,
                 force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
                 reverse_video_cursor_min_contrast: DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-                window_padding: DEFAULT_WINDOW_PADDING,
+                window_padding: MODERN_DEFAULT_WINDOW_PADDING,
                 window_content_alignment: DEFAULT_WINDOW_CONTENT_ALIGNMENT,
                 initial_cols: TERMINAL_COLUMNS,
                 initial_rows: TERMINAL_ROWS,
