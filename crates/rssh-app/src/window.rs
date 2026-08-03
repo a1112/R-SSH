@@ -228,11 +228,15 @@ const LEGACY_TEST_CURSOR_FG_COLOR: Option<Color> = None;
 const LEGACY_TEST_CURSOR_BG_COLOR: Color = LEGACY_TEST_FOREGROUND_COLOR;
 const DEFAULT_TAB_BAR_BACKGROUND_COLOR: Color = Color::Rgb(0x08, 0x0d, 0x18);
 const DEFAULT_MODERN_BRAND_BADGE_BACKGROUND: Color = Color::Rgb(0x1b, 0x2b, 0x44);
+// Keep the active tab one layer quieter than the cyan-outlined product badge;
+// the concept uses this restrained blue surface to keep focus without making
+// the entire header read as one bright block.
+const DEFAULT_MODERN_ACTIVE_TAB_BACKGROUND: Color = Color::Rgb(0x17, 0x20, 0x33);
 const DEFAULT_TAB_BAR_ACTIVE_TAB_COLORS: NativeTabBarItemColors = NativeTabBarItemColors {
     fg_color: Some(Color::Rgb(0xf8, 0xfa, 0xfc)),
     // Give the active surface a restrained blue lift so it separates from
     // the tab strip without competing with the cyan brand accent.
-    bg_color: Some(DEFAULT_MODERN_BRAND_BADGE_BACKGROUND),
+    bg_color: Some(DEFAULT_MODERN_ACTIVE_TAB_BACKGROUND),
     intensity: Some(NativeFormatIntensity::Normal),
     underline: None,
     italic: None,
@@ -133615,7 +133619,7 @@ mod tests {
             palette.tab_bar_active_tab.test_projection(),
             (
                 Some(Color::Rgb(0xf8, 0xfa, 0xfc)),
-                Some(Color::Rgb(0x1b, 0x2b, 0x44)),
+                Some(Color::Rgb(0x17, 0x20, 0x33)),
                 Some("Normal"),
                 None,
                 None,
@@ -133944,7 +133948,7 @@ mod tests {
             snapshot_cell(&snapshot, 0, margin_column)
                 .expect("active tab margin cell should be visible")
                 .background,
-            Color::Rgb(0x1b, 0x2b, 0x44)
+            Color::Rgb(0x17, 0x20, 0x33)
         );
         assert_eq!(
             snapshot_cell(&snapshot, 0, tab.start_column)
@@ -193873,7 +193877,7 @@ return config
         );
         assert_eq!(
             base_cell.background,
-            rssh_terminal::Color::Rgb(0x1b, 0x2b, 0x44)
+            rssh_terminal::Color::Rgb(0x17, 0x20, 0x33)
         );
         assert_eq!(
             base_cell.underline_style,
@@ -193939,7 +193943,7 @@ return config
         );
         assert_eq!(
             plain_cell.background,
-            rssh_terminal::Color::Rgb(0x1b, 0x2b, 0x44)
+            rssh_terminal::Color::Rgb(0x17, 0x20, 0x33)
         );
     }
 
