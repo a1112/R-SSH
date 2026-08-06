@@ -53,7 +53,7 @@ use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 #[cfg(target_os = "macos")]
-use winit::platform::macos::WindowExtMacOS;
+use winit::platform::macos::{WindowAttributesExtMacOS, WindowExtMacOS};
 #[cfg(target_os = "windows")]
 use winit::platform::windows::{
     CornerPreference, WindowAttributesExtWindows, WindowExtWindows,
@@ -465,7 +465,20 @@ const DEFAULT_WINDOW_DECORATIONS: NativeWindowDecorations = NativeWindowDecorati
     macos_force_square_corners: false,
     macos_use_background_color_as_titlebar_color: false,
 };
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+const DEFAULT_WINDOW_DECORATIONS: NativeWindowDecorations = NativeWindowDecorations {
+    // Keep AppKit's traffic-light controls and resize/shadow behavior, but
+    // extend the renderer into a transparent title bar so the tab strip is
+    // the only visible top-level chrome.
+    title: true,
+    resize: true,
+    integrated_buttons: true,
+    macos_force_disable_shadow: false,
+    macos_force_enable_shadow: false,
+    macos_force_square_corners: false,
+    macos_use_background_color_as_titlebar_color: true,
+};
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 const DEFAULT_WINDOW_DECORATIONS: NativeWindowDecorations = NativeWindowDecorations {
     title: true,
     resize: true,
@@ -81884,6 +81897,7 @@ struct NativeWindowApp {
     ime_preedit_rendering: NativeImePreeditRendering,
     macos_forward_to_ime_modifier_mask: ModifiersState,
     ime_preedit: Option<String>,
+    last_ime_cursor_area: Cell<Option<(u32, u32, u32, u32)>>,
     dead_key_active: bool,
     dead_key_text: Option<String>,
     xim_im_name: Option<String>,
@@ -82011,6 +82025,7 @@ struct NativeWindowApp {
     window_title_formatter: Box<WindowTitleFormatter>,
     #[cfg(test)]
     applied_window_titles: RefCell<Option<Vec<String>>>,
+    applied_window_title: RefCell<Option<String>>,
     update_status_handler: Box<WindowStatusUpdateHandler>,
     update_right_status_handler: Box<WindowRightStatusUpdateHandler>,
     notification_handler: Box<dyn FnMut(&TerminalNotification) -> bool + Send>,
@@ -82444,7 +82459,8 @@ impl NativeWindowManager {
             }
             WindowUserEvent::Exited { .. } => {
                 let status = app.finish_pane_runtime_after_exit(pane_id);
-                app.apply_pane_exit_behavior_after_exit(pane_id, status)
+                let close_window = app.apply_pane_exit_behavior_after_exit(pane_id, status);
+                app.defer_automatic_close_for_frame_limit(close_window)
             }
             WindowUserEvent::ReadError { error, .. } => {
                 app.handle_pane_runtime_read_error(pane_id, &error)
@@ -82866,6 +82882,39 @@ fn native_window_chrome_policy(
     decorations: NativeWindowDecorations,
 ) -> NativeWindowChromePolicy {
     native_window_chrome_policy_for_platform(std::env::consts::OS, decorations)
+}
+
+#[cfg(any(test, target_os = "macos"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NativeMacosWindowChromePolicy {
+    unified_titlebar: bool,
+    has_shadow: bool,
+}
+
+#[cfg(any(test, target_os = "macos"))]
+fn native_macos_window_chrome_policy_for_platform(
+    platform: &str,
+    decorations: NativeWindowDecorations,
+) -> NativeMacosWindowChromePolicy {
+    let unified_titlebar = platform == "macos"
+        && decorations.title
+        && decorations.integrated_buttons;
+    let has_shadow = if decorations.macos_force_disable_shadow {
+        false
+    } else {
+        decorations.macos_force_enable_shadow || decorations.resize || decorations.title
+    };
+    NativeMacosWindowChromePolicy {
+        unified_titlebar,
+        has_shadow,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn native_macos_window_chrome_policy(
+    decorations: NativeWindowDecorations,
+) -> NativeMacosWindowChromePolicy {
+    native_macos_window_chrome_policy_for_platform(std::env::consts::OS, decorations)
 }
 
 struct QueuedPaneWriter {
@@ -85264,6 +85313,7 @@ impl NativeWindowApp {
                 ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
                 macos_forward_to_ime_modifier_mask: DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
                 ime_preedit: None,
+                last_ime_cursor_area: Cell::new(None),
                 dead_key_active: false,
                 dead_key_text: None,
                 xim_im_name: None,
@@ -85392,6 +85442,7 @@ impl NativeWindowApp {
                 window_title_formatter: Box::new(format_window_title),
                 #[cfg(test)]
                 applied_window_titles: RefCell::new(None),
+                applied_window_title: RefCell::new(None),
                 update_status_handler: Box::new(dispatch_window_update_status),
                 update_right_status_handler: Box::new(dispatch_window_update_right_status),
                 notification_handler: Box::new(show_window_notification),
@@ -92095,6 +92146,20 @@ impl NativeWindowApp {
             window_attributes =
                 window_attributes.with_undecorated_shadow(chrome_policy.undecorated_shadow);
         }
+        #[cfg(target_os = "macos")]
+        {
+            let chrome_policy = native_macos_window_chrome_policy(self.window_decorations);
+            if chrome_policy.unified_titlebar {
+                window_attributes = window_attributes
+                    .with_titlebar_transparent(true)
+                    .with_title_hidden(true)
+                    .with_fullsize_content_view(true)
+                    // The terminal body must remain selectable. Window drag
+                    // starts only from non-interactive tab-bar cells below.
+                    .with_movable_by_window_background(false);
+            }
+            window_attributes = window_attributes.with_has_shadow(chrome_policy.has_shadow);
+        }
         if let Some(position) = self.initial_window_position.as_ref() {
             let primary_monitor_position = event_loop
                 .primary_monitor()
@@ -92131,6 +92196,10 @@ impl NativeWindowApp {
             window_attributes_with_class(window_attributes, self.initial_window_class.as_deref());
 
         let window = Arc::new(event_loop.create_window(window_attributes)?);
+        // winit keeps IME delivery disabled by default.  Without explicitly
+        // enabling it, macOS can show the candidate UI but no Commit/Preedit
+        // events reach the terminal input path.
+        window.set_ime_allowed(self.use_ime);
         #[cfg(target_os = "windows")]
         if chrome_policy.rounded_corners {
             window.set_corner_preference(CornerPreference::Round);
@@ -92159,10 +92228,12 @@ impl NativeWindowApp {
 
         self.window = Some(window);
         self.gpu = Some(Box::new(gpu));
+        self.last_ime_cursor_area.set(None);
         if let Some(window) = &self.window {
             window.set_cursor_visible(self.mouse_cursor_visible);
         }
         self.refresh_window_frame_from_window();
+        self.update_ime_cursor_area();
 
         Ok(())
     }
@@ -92192,6 +92263,7 @@ impl NativeWindowApp {
 
     fn draw_frame(&mut self, event_loop: &ActiveEventLoop) {
         self.refresh_renderer_animation_clock();
+        self.update_ime_cursor_area();
         let scrollbar = self.scrollback_scrollbar();
         let surface_geometry = self.render_geometry();
         let placement = self.frame_content_placement();
@@ -92273,6 +92345,78 @@ impl NativeWindowApp {
         {
             event_loop.exit();
         }
+    }
+
+    /// Keeps the native IME candidate window anchored to the active terminal
+    /// cell.  winit expects physical client-area coordinates and converts them
+    /// to the platform's logical coordinate system (including macOS's Retina
+    /// scale) before asking AppKit for the candidate rectangle.
+    fn update_ime_cursor_area(&self) {
+        if !self.use_ime {
+            self.last_ime_cursor_area.set(None);
+            return;
+        }
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        let layout = self.pane_render_layout();
+        let active_pane = self.app_shell.active_pane_id();
+        let Some(rect) = layout
+            .panes
+            .iter()
+            .find(|rect| rect.pane_id == active_pane)
+            .copied()
+        else {
+            return;
+        };
+        if rect.rows == 0 || rect.columns == 0 {
+            return;
+        }
+
+        let (cursor_row, cursor_column) = self.runtime.terminal().cursor();
+        let Some((position, size)) = Self::ime_cursor_area_pixels(
+            self.frame_content_pixel_left(),
+            self.frame_content_pixel_top(),
+            self.cell_width(),
+            self.cell_height(),
+            rect,
+            cursor_row,
+            cursor_column,
+        ) else {
+            return;
+        };
+        let key = (position.x, position.y, size.width, size.height);
+        if self.last_ime_cursor_area.get() == Some(key) {
+            return;
+        }
+        window.set_ime_cursor_area(position, size);
+        self.last_ime_cursor_area.set(Some(key));
+    }
+
+    fn ime_cursor_area_pixels(
+        frame_content_pixel_left: u32,
+        frame_content_pixel_top: u32,
+        cell_width: u32,
+        cell_height: u32,
+        rect: PaneRenderRect,
+        cursor_row: u16,
+        cursor_column: u16,
+    ) -> Option<(PhysicalPosition<u32>, PhysicalSize<u32>)> {
+        if rect.rows == 0 || rect.columns == 0 || cell_width == 0 || cell_height == 0 {
+            return None;
+        }
+        let row = cursor_row.min(rect.rows.saturating_sub(1));
+        let column = cursor_column.min(rect.columns.saturating_sub(1));
+        let x = frame_content_pixel_left
+            .saturating_add(u32::from(rect.column).saturating_mul(cell_width))
+            .saturating_add(u32::from(column).saturating_mul(cell_width));
+        let y = frame_content_pixel_top
+            .saturating_add(u32::from(rect.row).saturating_mul(cell_height))
+            .saturating_add(u32::from(row).saturating_mul(cell_height));
+        Some((
+            PhysicalPosition::new(x, y),
+            PhysicalSize::new(cell_width, cell_height),
+        ))
     }
 
     #[cfg(test)]
@@ -97591,6 +97735,7 @@ impl NativeWindowApp {
         let generation = self.rendered_tab_bar_generation.get().wrapping_add(1);
         self.rendered_tab_bar_generation.set(generation);
         visible_layout.generation = generation;
+        visible_layout.generation = generation;
         if self.show_tabs_in_tab_bar {
             for tab in &visible_layout.tabs {
                 let active = tab.active;
@@ -97715,6 +97860,17 @@ impl NativeWindowApp {
                     );
                 }
             }
+        }
+        if let Some(overflow_column) = visible_layout.leading_overflow_column
+            && let Some(cell) = cells.get_mut(usize::from(overflow_column))
+        {
+            let style = tab_bar_item_segment_style(
+                self.tab_bar_inactive_tab_colors,
+                tab_bar_foreground,
+                background,
+                true,
+            );
+            *cell = tab_bar_styled_render_cell(overflow_column, '‹', style);
         }
         if let Some(overflow_column) = visible_layout.overflow_column
             && let Some(cell) = cells.get_mut(usize::from(overflow_column))
@@ -98095,6 +98251,20 @@ impl NativeWindowApp {
             return true;
         }
 
+        if button == MouseButton::Middle {
+            let Some(tab) = self.tab_for_tab_bar_column(column) else {
+                return false;
+            };
+            if let Err(error) = self.dispatch_close_tab_action(
+                tab,
+                self.switch_to_last_active_tab_when_closing_tab,
+            ) {
+                eprintln!("tab bar middle-click close failed: {error:?}");
+                return false;
+            }
+            return true;
+        }
+
         if button != MouseButton::Left {
             return false;
         }
@@ -98111,11 +98281,10 @@ impl NativeWindowApp {
         }
 
         let Some(tab) = self.tab_for_tab_bar_column(column) else {
-            // Borderless Windows builds still need an ergonomic title-bar
-            // affordance.  Empty tab-bar cells are safe to use for dragging;
-            // tab, new-tab, and integrated button cells have already been
-            // handled above.
-            if self.integrated_title_buttons_are_visible() {
+            // Unified/borderless chrome still needs an ergonomic title-bar
+            // affordance. Empty tab-bar cells are safe to use for dragging;
+            // tab, new-tab, and title-button cells were handled above.
+            if self.tab_bar_provides_window_drag_region() {
                 self.start_window_drag();
                 return true;
             }
@@ -98332,8 +98501,8 @@ impl NativeWindowApp {
 
     fn macos_native_integrated_title_button_spacer_width(&self) -> usize {
         if self.window_decorations.integrated_buttons
+            && self.window_decorations.title
             && self.integrated_title_button_style == NativeIntegratedTitleButtonStyle::MacOsNative
-            && !self.use_fancy_tab_bar
             && !self.tab_bar_at_bottom
         {
             10
@@ -98350,6 +98519,16 @@ impl NativeWindowApp {
     fn integrated_title_buttons_are_right_aligned(&self) -> bool {
         self.integrated_title_buttons_are_visible()
             && self.integrated_title_button_alignment == NativeIntegratedTitleButtonAlignment::Right
+    }
+
+    fn tab_bar_provides_window_drag_region(&self) -> bool {
+        self.integrated_title_buttons_are_visible()
+            || (cfg!(target_os = "macos")
+                && self.window_decorations.title
+                && self.window_decorations.integrated_buttons
+                && self.integrated_title_button_style
+                    == NativeIntegratedTitleButtonStyle::MacOsNative
+                && !self.tab_bar_at_bottom)
     }
 
     fn integrated_title_buttons_tab_bar_items(
@@ -98665,6 +98844,9 @@ impl NativeWindowApp {
         } else {
             usize::MAX
         };
+        let title_context = self
+            .show_tabs_in_tab_bar
+            .then(|| self.tab_bar_title_context());
         let active_tab_id = self.app_shell.active_tab_id();
         let mut cursor = left_prefix_width;
         let mut tabs = Vec::new();
@@ -98672,7 +98854,13 @@ impl NativeWindowApp {
         if self.show_tabs_in_tab_bar {
             for (position, tab) in self.app_shell.active_workspace().tabs().iter().enumerate() {
                 let active = tab.id() == active_tab_id;
-                let first_pass_title = self.formatted_tab_title_for_tab_first_pass(position, tab);
+                let first_pass_title = self.formatted_tab_title_for_tab_first_pass_with_context(
+                    position,
+                    tab,
+                    title_context
+                        .as_ref()
+                        .expect("tab title context must exist when tabs are rendered"),
+                );
                 let title_text = first_pass_title.as_ref().map(NativeTabTitle::plain_text);
                 let first_pass_title_width = first_pass_title
                     .as_ref()
@@ -98740,11 +98928,14 @@ impl NativeWindowApp {
                     (normal_left_edge, normal_right_edge)
                 };
                 let title = self
-                    .formatted_tab_title_for_tab_with_max_width(
+                    .formatted_tab_title_for_tab_with_max_width_and_context(
                         position,
                         tab,
                         hovered,
                         tab_width_max,
+                        title_context
+                            .as_ref()
+                            .expect("tab title context must exist when tabs are rendered"),
                     )
                     .or(first_pass_title)
                     .unwrap_or_else(|| NativeTabTitle::Text(label.title.clone()));
@@ -98832,6 +99023,35 @@ impl NativeWindowApp {
             None
         };
         let visible_tab_end = overflow_column.unwrap_or(tab_area_end);
+        let active_tab_was_outside_view = tabs_were_clipped
+            && tabs
+                .iter()
+                .find(|tab| tab.active)
+                .is_some_and(|tab| tab.start_column >= visible_tab_end);
+        let mut leading_overflow_column = None;
+        if active_tab_was_outside_view
+            && let Some(active_position) = tabs.iter().position(|tab| tab.active)
+        {
+            // Move the viewport to the active tab instead of leaving keyboard-
+            // selected or newly-created tabs hidden beyond the right edge.
+            // A leading chevron communicates that earlier tabs still exist.
+            leading_overflow_column = (tab_area_end > left_prefix_width)
+                .then_some(left_prefix_width);
+            let mut relocated_cursor = left_prefix_width
+                .saturating_add(u16::from(leading_overflow_column.is_some()));
+            tabs = tabs
+                .into_iter()
+                .skip(active_position)
+                .map(|mut tab| {
+                    tab.reposition(relocated_cursor);
+                    relocated_cursor = tab.end_column;
+                    tab.hovered = hover_column.is_some_and(|column| {
+                        column >= tab.start_column && column < tab.end_column
+                    });
+                    tab
+                })
+                .collect();
+        }
         tabs.retain(|tab| tab.start_column < visible_tab_end);
         for tab in &mut tabs {
             tab.end_column = tab.end_column.min(visible_tab_end);
@@ -98865,6 +99085,7 @@ impl NativeWindowApp {
 
         TabBarVisibleLayout {
             tabs,
+            leading_overflow_column,
             overflow_column,
             new_tab_start_column,
             new_tab_end_column,
@@ -98958,37 +99179,43 @@ impl NativeWindowApp {
             .map_or(PaneProgress::None, rssh_core::app_shell::Pane::progress)
     }
 
-    fn formatted_tab_title_for_tab_first_pass(
+    fn tab_bar_title_context(&self) -> TabBarTitleContext {
+        TabBarTitleContext {
+            config: self.native_effective_config(),
+            tabs: self.native_window_tab_information(),
+            active_pane_info: self.native_pane_information_for_tab(self.app_shell.active_tab()),
+        }
+    }
+
+    fn formatted_tab_title_for_tab_first_pass_with_context(
         &self,
         position: usize,
         tab: &rssh_core::app_shell::Tab,
+        context: &TabBarTitleContext,
     ) -> Option<NativeTabTitle> {
-        let default_title = self.tab_title_for_tab(tab);
+        let default_title = self.tab_bar_title_source_for_tab(tab);
         let tab_bar_default_title =
             self.tab_bar_default_title_for_tab(tab, default_title.as_deref());
         let tab_title = tab.title().map(str::to_owned);
         let tab_info = self.native_tab_information(position, tab, tab_title.clone());
-        let tabs = self.native_window_tab_information();
-        let active_tab_panes = self.native_pane_information_for_tab(self.app_shell.active_tab());
-        let config = self.native_effective_config();
         let title_format = |hover, max_width| NativeTabTitleFormat {
             default_title: default_title.clone(),
             tab: tab.id(),
             active_pane: tab.active_pane_id(),
             tab_index: position,
             tab_count: self.app_shell.active_workspace().tabs().len(),
-            pane_count: active_tab_panes.len(),
+            pane_count: context.active_pane_info.len(),
             is_active: tab.id() == self.app_shell.active_tab_id(),
             is_last_active: Some(tab.id()) == self.app_shell.last_active_tab_id(),
             hover,
             max_width,
-            config: config.clone(),
+            config: context.config.clone(),
             window_id: self.app_window_id,
             window_title: self.window_title.clone(),
             tab_title: tab_title.clone(),
             active_pane_info: tab_info.active_pane.clone(),
-            tabs: tabs.clone(),
-            panes: active_tab_panes.clone(),
+            tabs: context.tabs.clone(),
+            panes: context.active_pane_info.clone(),
             tab_info: tab_info.clone(),
         };
 
@@ -99003,39 +99230,37 @@ impl NativeWindowApp {
             .or_else(|| tab_bar_default_title.map(NativeTabTitle::Text))
     }
 
-    fn formatted_tab_title_for_tab_with_max_width(
+    fn formatted_tab_title_for_tab_with_max_width_and_context(
         &self,
         position: usize,
         tab: &rssh_core::app_shell::Tab,
         hover: bool,
         max_width: usize,
+        context: &TabBarTitleContext,
     ) -> Option<NativeTabTitle> {
-        let default_title = self.tab_title_for_tab(tab);
+        let default_title = self.tab_bar_title_source_for_tab(tab);
         let tab_bar_default_title =
             self.tab_bar_default_title_for_tab(tab, default_title.as_deref());
         let tab_title = tab.title().map(str::to_owned);
         let tab_info = self.native_tab_information(position, tab, tab_title.clone());
-        let tabs = self.native_window_tab_information();
-        let active_tab_panes = self.native_pane_information_for_tab(self.app_shell.active_tab());
-        let config = self.native_effective_config();
         let title_format = |hover, max_width| NativeTabTitleFormat {
             default_title: default_title.clone(),
             tab: tab.id(),
             active_pane: tab.active_pane_id(),
             tab_index: position,
             tab_count: self.app_shell.active_workspace().tabs().len(),
-            pane_count: active_tab_panes.len(),
+            pane_count: context.active_pane_info.len(),
             is_active: tab.id() == self.app_shell.active_tab_id(),
             is_last_active: Some(tab.id()) == self.app_shell.last_active_tab_id(),
             hover,
             max_width,
-            config: config.clone(),
+            config: context.config.clone(),
             window_id: self.app_window_id,
             window_title: self.window_title.clone(),
             tab_title: tab_title.clone(),
             active_pane_info: tab_info.active_pane.clone(),
-            tabs: tabs.clone(),
-            panes: active_tab_panes.clone(),
+            tabs: context.tabs.clone(),
+            panes: context.active_pane_info.clone(),
             tab_info: tab_info.clone(),
         };
 
@@ -99048,6 +99273,21 @@ impl NativeWindowApp {
         (self.tab_title_formatter)(&second_pass)
             .or(lua_tab_title)
             .or_else(|| tab_bar_default_title.map(NativeTabTitle::Text))
+    }
+
+    fn tab_bar_title_source_for_tab(&self, tab: &rssh_core::app_shell::Tab) -> Option<String> {
+        if let Some(title) = self.tab_title_for_tab(tab) {
+            return Some(title);
+        }
+        if !self.modern_tab_bar_uses_compact_labels() {
+            return None;
+        }
+
+        tab.panes()
+            .iter()
+            .find(|pane| pane.id() == tab.active_pane_id())
+            .map(|pane| compact_terminal_tab_title(pane.launch().program()))
+            .filter(|title| !title.is_empty())
     }
 
     fn tab_bar_default_title_for_tab(
@@ -100153,6 +100393,11 @@ impl NativeWindowApp {
         self.macos_forward_to_ime_modifier_mask = overrides
             .macos_forward_to_ime_modifier_mask
             .unwrap_or(DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK);
+        if let Some(window) = self.window.as_ref() {
+            window.set_ime_allowed(self.use_ime);
+        }
+        self.last_ime_cursor_area.set(None);
+        self.update_ime_cursor_area();
         if !self.use_ime || self.ime_preedit_rendering != NativeImePreeditRendering::Builtin {
             self.ime_preedit = None;
         }
@@ -101709,21 +101954,25 @@ impl NativeWindowApp {
     }
 
     fn apply_window_title(&self) {
+        let title = self.effective_window_title();
         #[cfg(test)]
         if self.applied_window_titles.borrow().is_some() {
-            let title = self.effective_window_title();
             self.applied_window_titles
                 .borrow_mut()
                 .as_mut()
                 .expect("checked title observer")
                 .push(title.clone());
-            if let Some(window) = &self.window {
-                window.set_title(&title);
-            }
-            return;
         }
         if let Some(window) = &self.window {
-            window.set_title(&self.effective_window_title());
+            let changed = self
+                .applied_window_title
+                .borrow()
+                .as_deref()
+                != Some(title.as_str());
+            if changed {
+                window.set_title(&title);
+                *self.applied_window_title.borrow_mut() = Some(title);
+            }
         }
     }
 
@@ -105829,6 +106078,20 @@ impl NativeWindowApp {
         self.apply_pane_exit_behavior(pane_id, &status)
     }
 
+    fn defer_automatic_close_for_frame_limit(&mut self, close_window: bool) -> bool {
+        if close_window && self.frame_limit_redraw_pending() {
+            // `--frames` is a bounded presentation/probe contract. A short
+            // child can exit before Metal presents the requested frames, so
+            // keep the last pane/window alive until `draw_frame` reaches the
+            // limit. Normal application sessions have no frame limit and keep
+            // their configured exit behavior unchanged.
+            let _ = self.take_window_close_request();
+            return false;
+        }
+
+        close_window
+    }
+
     fn close_pane_after_exit(&mut self, pane_id: rssh_core::PaneId) -> bool {
         if let Err(error) = self.dispatch_close_pane_action(pane_id) {
             eprintln!("pane exit close action failed: {error:?}");
@@ -106061,7 +106324,15 @@ fn encode_window_key_with_kitty_event(
 ) -> Vec<u8> {
     let alt = modifiers.alt_key();
 
-    if key_event_kind != KittyKeyEventKind::Press {
+    // Winit reports macOS key auto-repeat as a pressed event with
+    // `key.repeat = true`.  Kitty's event protocol is opt-in; when no Kitty
+    // keyboard flags are active, repeat events must follow the regular
+    // terminal encoding path.  Treating every non-press as a Kitty event
+    // made the encoder return an empty buffer in the default configuration,
+    // which stopped long-press Backspace/Delete (and repeated text) after the
+    // initial key press.  Releases remain protocol-only and intentionally do
+    // not emit bytes unless Kitty event reporting is enabled.
+    if key_event_kind == KittyKeyEventKind::Release {
         return encode_kitty_event_window_key(
             key,
             physical_key,
@@ -106071,6 +106342,19 @@ fn encode_window_key_with_kitty_event(
             key_event_kind,
         )
         .unwrap_or_default();
+    }
+    if key_event_kind == KittyKeyEventKind::Repeat
+        && kitty_keyboard_flags != 0
+        && let Some(bytes) = encode_kitty_event_window_key(
+            key,
+            physical_key,
+            text,
+            modifiers,
+            kitty_keyboard_flags,
+            key_event_kind,
+        )
+    {
+        return bytes;
     }
 
     if let Some(bytes) = encode_kitty_modifier_window_key(
@@ -127446,17 +127730,7 @@ fn default_char_select_recently_used_path() -> Option<PathBuf> {
 }
 
 fn default_rssh_state_dir() -> Option<PathBuf> {
-    if cfg!(windows) {
-        return std::env::var_os("LOCALAPPDATA")
-            .or_else(|| std::env::var_os("APPDATA"))
-            .map(PathBuf::from)
-            .map(|path| path.join("R-SSH"));
-    }
-
-    std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| user_home_dir().map(|path| path.join(".local").join("state")))
-        .map(|path| path.join("rssh"))
+    crate::platform::state_dir()
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
@@ -129845,12 +130119,39 @@ struct TabBarVisibleTabLayout {
     close_column: Option<u16>,
 }
 
+impl TabBarVisibleTabLayout {
+    fn reposition(&mut self, start_column: u16) {
+        let previous_start = self.start_column;
+        let translate = |column: u16| {
+            start_column.saturating_add(column.saturating_sub(previous_start))
+        };
+        self.start_column = start_column;
+        self.end_column = translate(self.end_column);
+        self.left_edge_end_column = translate(self.left_edge_end_column);
+        self.prefix_end_column = translate(self.prefix_end_column);
+        self.title_end_column = translate(self.title_end_column);
+        self.suffix_end_column = translate(self.suffix_end_column);
+        self.close_column = self.close_column.map(translate);
+    }
+}
+
 struct TabBarVisibleLayout {
     tabs: Vec<TabBarVisibleTabLayout>,
+    leading_overflow_column: Option<u16>,
     overflow_column: Option<u16>,
     new_tab_start_column: Option<u16>,
     new_tab_end_column: Option<u16>,
     generation: u64,
+}
+
+// The tab formatter receives owned information for compatibility with the
+// existing WezTerm-style hook API.  Build the expensive window-wide pieces
+// once per layout and clone them into each event instead of recomputing the
+// full effective config and all tab metadata for every tab/two-pass call.
+struct TabBarTitleContext {
+    config: NativeEffectiveConfig,
+    tabs: Vec<NativeTabInformation>,
+    active_pane_info: Vec<NativePaneInformation>,
 }
 
 #[derive(Clone, Copy)]
@@ -133409,9 +133710,11 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
 
                 if pane_id == self.app_shell.active_pane_id()
                     && self.window.is_some()
-                    && let Some(window) = &self.window
                 {
-                    window.request_redraw();
+                    self.update_ime_cursor_area();
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
                 }
             }
             WindowUserEvent::Exited {
@@ -133423,7 +133726,8 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     return;
                 }
                 let status = self.finish_pane_runtime_after_exit(pane_id);
-                if self.apply_pane_exit_behavior_after_exit(pane_id, status) {
+                let close_window = self.apply_pane_exit_behavior_after_exit(pane_id, status);
+                if self.defer_automatic_close_for_frame_limit(close_window) {
                     event_loop.exit();
                 }
             }
@@ -133491,6 +133795,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     event_loop.exit();
                     return;
                 }
+                self.update_ime_cursor_area();
                 if self.take_window_close_request() {
                     event_loop.exit();
                 }
@@ -133518,13 +133823,27 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
+                let previous_tab_bar_hover = self.tab_bar_hover_column();
                 if let Err(error) = self.handle_cursor_moved(position) {
                     eprintln!("PTY mouse error: {error}");
                     event_loop.exit();
+                } else if previous_tab_bar_hover != self.tab_bar_hover_column()
+                    && let Some(window) = &self.window
+                {
+                    // The tab bar is rendered into the terminal snapshot, so
+                    // AppKit does not invalidate it automatically on pointer
+                    // motion.  Repaint only when the hover target changes;
+                    // this keeps close/new-tab feedback responsive without
+                    // turning every mouse move into a full frame request.
+                    window.request_redraw();
                 }
             }
             WindowEvent::CursorLeft { .. } => {
+                let was_tab_bar_hovered = self.tab_bar_hover_column().is_some();
                 self.handle_cursor_left();
+                if was_tab_bar_hovered && let Some(window) = &self.window {
+                    window.request_redraw();
+                }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Err(error) = self.handle_mouse_input(state, button) {
@@ -133557,10 +133876,13 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                 if let Err(error) = self.handle_window_resize(size) {
                     eprintln!("resize error: {error}");
                     event_loop.exit();
+                } else {
+                    self.update_ime_cursor_area();
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.apply_window_scale_factor(scale_factor);
+                self.update_ime_cursor_area();
             }
             WindowEvent::RedrawRequested => {
                 self.draw_frame(event_loop);
@@ -133871,6 +134193,7 @@ fn hex_value(byte: u8) -> Option<u8> {
     reason = "integration scenarios intentionally cover complete compatibility lifecycles"
 )]
 mod tests {
+    use super::PaneRenderRect;
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::io::{self, Write};
     use std::path::{Path, PathBuf};
@@ -133907,6 +134230,24 @@ mod tests {
         terminal_runtime::TerminalNotification,
         window::{builtin_color_scheme_toml, parse_test_window_scale_factor},
     };
+
+    #[test]
+    fn ime_cursor_area_tracks_tab_bar_and_split_pane_offsets() {
+        let rect = PaneRenderRect {
+            pane_id: rssh_core::PaneId::new(2),
+            row: 1,
+            column: 17,
+            rows: 10,
+            columns: 20,
+        };
+        let (position, size) = NativeWindowApp::ime_cursor_area_pixels(
+            14, 8, 9, 18, rect, 3, 4,
+        )
+        .expect("non-empty pane has an IME area");
+
+        assert_eq!(position, PhysicalPosition::new(14 + 17 * 9 + 4 * 9, 8 + 18 + 3 * 18));
+        assert_eq!(size, PhysicalSize::new(9, 18));
+    }
 
     #[test]
     fn modern_default_palette_and_padding() {
@@ -134526,11 +134867,14 @@ mod tests {
 
         assert_eq!(
             usize::from(tab_start_column),
-            usize::from(super::MODERN_TAB_BAR_BRAND_INSET_COLUMNS)
+            app.macos_native_integrated_title_button_spacer_width()
+                + usize::from(super::MODERN_TAB_BAR_BRAND_INSET_COLUMNS)
                 + brand_width
                 + 3
         );
-        let brand_end_column = usize::from(super::MODERN_TAB_BAR_BRAND_INSET_COLUMNS) + brand_width;
+        let brand_end_column = app.macos_native_integrated_title_button_spacer_width()
+            + usize::from(super::MODERN_TAB_BAR_BRAND_INSET_COLUMNS)
+            + brand_width;
         assert_eq!(
             snapshot_cell(&snapshot, 0, u16::try_from(brand_end_column).unwrap())
                 .unwrap()
@@ -134539,6 +134883,23 @@ mod tests {
         );
         assert_eq!(snapshot_cell(&snapshot, 0, 0).unwrap().ch, ' ');
         assert_eq!(snapshot_cell(&snapshot, 0, 1).unwrap().ch, ' ');
+    }
+
+    #[test]
+    fn modern_default_header_shows_launch_program_before_osc_title() {
+        let app = NativeWindowApp::new_with_visual_defaults(None);
+        let snapshot = app.render_snapshot();
+        let layout = app.rendered_tab_bar_layout.borrow();
+        let tab = layout
+            .as_ref()
+            .and_then(|layout| layout.tabs.first())
+            .expect("default tab should be laid out");
+
+        assert!(
+            !tab.title.plain_text().trim().is_empty(),
+            "modern title bar should not leave a newly-created shell tab blank: {:?}",
+            snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS)
+        );
     }
 
     #[test]
@@ -134636,7 +134997,21 @@ mod tests {
             );
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            app.window_decorations,
+            NativeWindowDecorations {
+                title: true,
+                resize: true,
+                integrated_buttons: true,
+                macos_force_disable_shadow: false,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: true,
+            }
+        );
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         assert_eq!(
             app.window_decorations,
             NativeWindowDecorations {
@@ -134649,6 +135024,35 @@ mod tests {
                 macos_use_background_color_as_titlebar_color: false,
             }
         );
+    }
+
+    #[test]
+    fn macos_default_chrome_uses_unified_titlebar_and_native_shadow() {
+        let policy = super::native_macos_window_chrome_policy_for_platform(
+            "macos",
+            NativeWindowDecorations {
+                title: true,
+                resize: true,
+                integrated_buttons: true,
+                macos_force_disable_shadow: false,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: true,
+            },
+        );
+
+        assert!(policy.unified_titlebar);
+        assert!(policy.has_shadow);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_fancy_tab_bar_reserves_native_traffic_light_space() {
+        let app = NativeWindowApp::new_with_visual_defaults(None);
+
+        assert_eq!(app.macos_native_integrated_title_button_spacer_width(), 10);
+        assert!(app.tab_bar_provides_window_drag_region());
+        assert!(app.use_fancy_tab_bar);
     }
 
     #[test]
@@ -139016,6 +139420,55 @@ mod tests {
                 3,
                 0,
                 KittyKeyEventKind::Release
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn encodes_repeated_window_keys_without_kitty_protocol() {
+        // macOS sends auto-repeat as a second Pressed event.  The default
+        // terminal path must keep emitting the same byte as the initial key
+        // press so a long-held Backspace continues deleting input.
+        assert_eq!(
+            encode_window_key_with_kitty_event(
+                &Key::Named(NamedKey::Backspace),
+                PhysicalKey::Code(WinitKeyCode::Backspace),
+                None,
+                ModifiersState::empty(),
+                false,
+                false,
+                0,
+                0,
+                KittyKeyEventKind::Repeat,
+            ),
+            b"\x7f"
+        );
+        assert_eq!(
+            encode_window_key_with_kitty_event(
+                &Key::Character("a".into()),
+                PhysicalKey::Code(WinitKeyCode::KeyA),
+                Some("a"),
+                ModifiersState::empty(),
+                false,
+                false,
+                0,
+                0,
+                KittyKeyEventKind::Repeat,
+            ),
+            b"a"
+        );
+        assert!(
+            encode_window_key_with_kitty_event(
+                &Key::Named(NamedKey::Backspace),
+                PhysicalKey::Code(WinitKeyCode::Backspace),
+                None,
+                ModifiersState::empty(),
+                false,
+                false,
+                0,
+                0,
+                KittyKeyEventKind::Release,
             )
             .is_empty()
         );
@@ -195283,6 +195736,52 @@ return config
     }
 
     #[test]
+    fn tab_bar_overflow_keeps_newly_activated_tab_visible() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+        for _ in 0..4 {
+            app.dispatch_app_action(AppAction::NewTab { launch: None })
+                .unwrap();
+        }
+        let active_tab = app.active_tab_id();
+
+        let tab_bar = snapshot_row_text(&app.render_snapshot(), 0, 32);
+        let layout = app.rendered_tab_bar_layout.borrow();
+        let layout = layout.as_ref().expect("rendered tab bar layout");
+
+        assert!(
+            layout.tabs.iter().any(|tab| tab.tab_id == active_tab),
+            "active tab {active_tab:?} must remain visible in {tab_bar:?}"
+        );
+        assert!(layout.leading_overflow_column.is_some());
+        assert!(tab_bar.contains('‹'), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn middle_click_closes_visible_tab_without_activating_it() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_focused = true;
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        let active_tab = app.active_tab_id();
+        let columns = rendered_tab_body_columns(&mut app);
+        let (inactive_tab, inactive_column) = columns
+            .iter()
+            .find(|(tab, _)| *tab != active_tab)
+            .copied()
+            .expect("inactive tab body");
+
+        move_mouse_to_tab_bar_column(&mut app, inactive_column);
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Middle)
+                .unwrap()
+        );
+
+        assert_eq!(app.active_tab_id(), active_tab);
+        assert!(!active_workspace_tab_ids(&app).contains(&inactive_tab));
+    }
+
+    #[test]
     fn dragging_tab_bar_reorders_tabs() {
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::NewTab { launch: None })
@@ -248546,6 +249045,26 @@ act.Confirmation {
     }
 
     #[test]
+    fn window_app_repeated_backspace_continues_writing_to_pty() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        for kind in [KittyKeyEventKind::Press, KittyKeyEventKind::Repeat] {
+            app.handle_keyboard_input_event(
+                &Key::Named(NamedKey::Backspace),
+                PhysicalKey::Code(WinitKeyCode::Backspace),
+                None,
+                ElementState::Pressed,
+                kind,
+            )
+            .unwrap();
+        }
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"\x7f\x7f");
+    }
+
+    #[test]
     fn window_app_enable_csi_u_key_encoding_switches_modified_ascii_input() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -264157,6 +264676,28 @@ act.Confirmation {
             .apply_pane_exit_behavior(rssh_core::PaneId::new(1), &PtyExitStatus::from_exit_code(0));
 
         assert!(close_window);
+        assert!(app.window_close_requested_for_test());
+    }
+
+    #[test]
+    fn window_app_frame_limit_defers_short_child_automatic_close() {
+        let mut app = NativeWindowApp::new(Some(10));
+        let close_window = app
+            .apply_pane_exit_behavior(rssh_core::PaneId::new(1), &PtyExitStatus::from_exit_code(0));
+
+        assert!(close_window);
+        assert!(!app.defer_automatic_close_for_frame_limit(close_window));
+        assert!(!app.window_close_requested_for_test());
+        assert!(app.frame_limit_redraw_pending());
+    }
+
+    #[test]
+    fn window_app_without_frame_limit_keeps_automatic_close_behavior() {
+        let mut app = NativeWindowApp::new(None);
+        let close_window = app
+            .apply_pane_exit_behavior(rssh_core::PaneId::new(1), &PtyExitStatus::from_exit_code(0));
+
+        assert!(app.defer_automatic_close_for_frame_limit(close_window));
         assert!(app.window_close_requested_for_test());
     }
 

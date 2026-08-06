@@ -592,6 +592,9 @@ fn bundled_emergency_font_config() -> rssh_fonts::FontConfig {
             "Noto Sans",
             "Noto Sans SC",
             "Noto Sans JP",
+            "Hiragino Sans GB",
+            "Arial Unicode MS",
+            "Apple SD Gothic Neo",
             "Noto Sans Arabic",
             "Noto Sans Devanagari",
             "Noto Sans Hebrew",
@@ -613,6 +616,7 @@ mod tests {
     use std::cell::{Cell, RefCell};
 
     use rssh_core::TerminalSize;
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     use rssh_fonts::TerminalShaper;
     use rssh_renderer::terminal_snapshot_content_digest;
     use rssh_terminal::Terminal;
@@ -632,6 +636,26 @@ mod tests {
         assert!(
             row.clusters.iter().all(|cluster| !cluster.is_tofu),
             "emergency GPU font catalog must not render common UI scripts as tofu: {:?}",
+            row.clusters
+                .iter()
+                .filter(|cluster| cluster.is_tofu)
+                .map(|cluster| &row.text[cluster.byte_range.clone()])
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn emergency_font_catalog_covers_mac_cjk_fallback() {
+        let mut catalog = bundled_emergency_font_catalog().expect("fixture font catalog");
+        let mut shaper = TerminalShaper::new(bundled_emergency_font_config());
+        let row = shaper
+            .shape_row(&mut catalog, "中文显示测试 日本語繁體字")
+            .expect("shape macOS CJK terminal sample");
+
+        assert!(
+            row.clusters.iter().all(|cluster| !cluster.is_tofu),
+            "macOS system CJK fallback must not render Chinese or Japanese as tofu: {:?}",
             row.clusters
                 .iter()
                 .filter(|cluster| cluster.is_tofu)

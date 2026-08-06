@@ -44,6 +44,12 @@ def group_is_alive():
         os.killpg(process_group, 0)
     except ProcessLookupError:
         return False
+    except PermissionError:
+        # Darwin can report EPERM after the session leader exits and its last
+        # descendant is killed/reparented. The group is no longer one this
+        # wrapper can own or wait on; treating that terminal state as alive
+        # would turn successful cleanup into a harness failure.
+        return False
     return True
 
 def wait_for_leader_until(deadline):
@@ -67,7 +73,7 @@ def terminate_tree():
         return
     try:
         os.killpg(process_group, signal.SIGTERM)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         pass
     term_deadline = time.monotonic() + 5
     wait_for_leader_until(term_deadline)
@@ -75,7 +81,7 @@ def terminate_tree():
     if group_is_alive():
         try:
             os.killpg(process_group, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
         kill_deadline = time.monotonic() + 5
         wait_for_leader_until(kill_deadline)

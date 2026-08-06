@@ -118,6 +118,9 @@ assert plist['CFBundleExecutable'] == 'rssh-app'
 assert plist['CFBundleShortVersionString'] == manifest['package']['version']
 assert plist['CFBundleVersion'] == manifest['package']['version']
 assert plist['LSArchitecturePriority'] == [expected_arch]
+assert plist['LSMinimumSystemVersion'] == '11.0'
+assert plist['NSHighResolutionCapable'] is True
+assert plist['NSSupportsAutomaticGraphicsSwitching'] is True
 cli_version = json.load(open(sys.argv[3], encoding='utf-8'))
 assert cli_version['target'] == sys.argv[2]
 PY

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "R-SSH",
+        "width": 1200,
+        "height": 760,
+        "minWidth": 640,
+        "minHeight": 360,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true
+      }
+    ]
+  }
+}

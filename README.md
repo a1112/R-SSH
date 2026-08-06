@@ -19,13 +19,18 @@ Verification status at source commit `83ade73a` on 2026-08-02:
 - **verified locally on Windows x64**: Rust 1.89 workspace gates plus focused
   native GUI, real PTY, SSH/OpenSSH interoperability, and fresh unpacked package
   checks.
-- **defined in hosted workflow but not run in this local session**: the six
-  Windows/Linux/macOS x64/ARM64 native build and package jobs.
+- **verified locally on macOS ARM64 for the current adaptation**: Rust 1.89
+  all-target compilation, Unix PTY and self-test probes, a release `.app`,
+  unpacked package checks, real OpenSSH loopback, and Metal ten-frame native
+  presentation.
+- **defined in hosted workflow but not run for the remaining targets in this
+  local session**: Windows ARM64, Linux x64/ARM64, and macOS x64 native build and
+  package jobs.
 - **requires protected/self-hosted environment**: fixed-runner performance
   certification, release signing, macOS notarization/stapling, provenance
   attestation, and publication.
 - **not yet evidenced**: successful runtime and package results for the other
-  five native targets, hardware/driver/IME/RDP/DPI certification, or a complete
+  four native targets, hardware/driver/IME/RDP/DPI certification, or a complete
   WezTerm compatibility result. A protected hardware certification environment
   and result workflow still need to be established.
 
@@ -40,6 +45,7 @@ release jobs were likewise not run in this session.
 See the [production-parity verification record](docs/production-parity-verification.md),
 [release contract](docs/release-console.md),
 [performance baseline](docs/performance-baseline.md),
+[macOS cross-platform adaptation](docs/plans/2026-08-04-macos-cross-platform-adaptation.md),
 [approved design](docs/plans/2026-07-28-production-parity-design.md),
 [implementation plan](docs/plans/2026-07-28-production-parity-implementation.md),
 and [bounded WezTerm gap tracker](docs/research/wezterm-parity-gap.md) for the
@@ -57,6 +63,12 @@ rotation, relative and absolute tab-order movement, and pane-select Activate,
 swap, and move-to-new-tab/window overlays, plus command-palette selection
 clearing, CopyTo/PasteFrom actions for the system clipboard plus
 PrimarySelection command routing, and paste-from-clipboard into the active pane.
+On macOS the default native window uses a transparent full-size AppKit titlebar:
+the tab strip extends into the titlebar while retaining native traffic-light
+controls, resizing, rounded corners, and shadow. Empty tab-strip space drags the
+window. Overflowing tab strips keep the active tab visible, mark hidden tabs at
+the leading and trailing edges, and support browser-style middle-click close in
+addition to drag reordering, wheel navigation, and Command-number shortcuts.
 The command palette also exposes Clear Scrollback (`ScrollbackOnly`) and Clear
 Scrollback And Viewport (`ScrollbackAndViewport`), Reset Terminal, and
 scrollback navigation actions for top/bottom, page, line, and OSC 133
@@ -125,11 +137,88 @@ crates/rssh-ssh       SSH session boundary
 crates/rssh-pty       Local PTY boundary
 crates/rssh-fonts     Font discovery, shaping, fallback, and deterministic fonts
 crates/rssh-test-support  Hermetic SSH fixtures and bounded process-test support
+crates/rssh-web       Loopback WebSocket PTY bridge for the browser client
+web/                  TypeScript/xterm.js browser terminal client
+tauri/                Tauri desktop shell for the Web terminal client
 docs/                 Architecture and planning documents
 refs/                 Local reference source cache, ignored by Git
 ```
 
 ## Local Commands
+
+### Web terminal
+
+Build the browser assets, then start the loopback WebSocket PTY bridge. The
+server prints a one-time authenticated URL; open that URL in a modern browser.
+
+```sh
+cd web
+npm install
+npm run build
+cd ..
+cargo run -p rssh-web -- --listen 127.0.0.1:7788 --web-root web/dist
+```
+
+The initial Web version starts the platform default local shell through
+`rssh-pty`, uses xterm.js for VT parsing/rendering, and terminates the shell when
+the browser connection closes. It is intentionally loopback-only; remote
+deployment and detached/reconnect sessions are not enabled.
+
+For frontend development, start the Rust bridge with the Vite origin allowed,
+open its printed bootstrap URL once to establish the local cookie, then run the
+Vite server in a second terminal:
+
+```sh
+cargo run -p rssh-web -- --listen 127.0.0.1:7788 \
+  --web-root web/dist --allowed-origin http://127.0.0.1:5173
+cd web
+npm run dev
+```
+
+Open `http://127.0.0.1:5173` after the bootstrap step. The Vite proxy forwards
+`/api` and its WebSocket upgrade to the Rust bridge.
+
+### Tauri terminal
+
+The Tauri desktop client reuses the same `web/` xterm.js UI. Its Rust host
+starts `rssh-web` in-process on a random loopback port, navigates the window to
+the authenticated local page, and shuts the bridge down with the app. The
+desktop window is frameless: the Web header provides the drag region and
+minimize/maximize/close controls, while the standalone browser view keeps
+those desktop-only controls hidden. On macOS the controls use traffic-light
+styling with a transparent, shadowed window surface.
+
+```sh
+cd web
+npm install
+npm run build
+cd ../tauri
+npm install
+npm run dev
+```
+
+Create a release bundle with `npm run build` from `tauri/`. The Tauri bundle
+includes the compiled Web assets and the generated application icons.
+
+macOS/Linux quick start:
+
+```sh
+cargo fmt --all
+cargo test --workspace
+cargo build --release -p rssh-app
+./target/release/rssh-app version --json
+./target/release/rssh-app doctor
+./target/release/rssh-app self-test --json
+cargo run -p rssh-app
+cargo run -p rssh-app -- local -- /bin/sh -lc 'printf "console-smoke\\n"'
+```
+
+On macOS, the default shell uses `$SHELL` and falls back to `/bin/zsh` for
+Finder/LaunchServices launches. Mutable UI state defaults to
+`~/Library/Application Support/R-SSH`; setting `XDG_STATE_HOME` overrides that
+location for CLI and hermetic workflows.
+
+Windows and full compatibility command inventory:
 
 ```powershell
 cargo fmt --all
@@ -567,6 +656,14 @@ environment and result workflow. See the [native package contract](docs/release-
   movement including Move Tab To entries, and pane-select
   Activate/swap/move-to-new-tab/window modes in the native window.
   See `docs/mvp-6-app-shell-v1.md`.
+
+- Web terminal initial bridge: `rssh-web` serves the authenticated loopback
+  WebSocket PTY endpoint and the `web/` xterm.js client supports interactive
+  shell input, raw PTY output, resize, process exit, and bounded session
+  cleanup. See `docs/plans/2026-08-05-web-terminal-design.md` for the protocol
+  and security boundary.
+- Tauri Web shell: `tauri/` embeds the same Web client, starts the loopback
+  bridge in-process, and reuses the authenticated page without a sidecar.
 
 ## Reference Sources
 

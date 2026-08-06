@@ -1,0 +1,241 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  background: #080b10;
+  color: #d6deeb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #080b10;
+}
+
+html[data-tauri-window],
+html[data-tauri-window] body {
+  background: transparent;
+}
+
+body {
+  display: flex;
+}
+
+.terminal-shell {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  margin: 16px;
+  overflow: hidden;
+  border: 1px solid #263241;
+  border-radius: 10px;
+  background: #0d1117;
+  box-shadow: 0 20px 70px rgb(0 0 0 / 35%);
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-bottom: 1px solid #212b38;
+  background: #111821;
+  color: #8b98a9;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.titlebar-drag-region {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  order: 1;
+}
+
+.titlebar-drag-spacer {
+  align-self: stretch;
+  flex: 1;
+  min-width: 16px;
+}
+
+.brand {
+  color: #79c0ff;
+  font-weight: 700;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: 0.03em;
+  text-transform: none;
+}
+
+.header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  order: 2;
+}
+
+.restart {
+  border: 1px solid #344255;
+  border-radius: 5px;
+  padding: 4px 8px;
+  background: #18212c;
+  color: #d6deeb;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.restart:hover {
+  border-color: #79c0ff;
+  color: #ffffff;
+}
+
+.window-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  margin-left: 10px;
+  order: 3;
+  -webkit-app-region: no-drag;
+}
+
+.window-controls[hidden] {
+  display: none;
+}
+
+.window-control {
+  display: inline-flex;
+  width: 28px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #8b98a9;
+  cursor: pointer;
+  font: 18px/1 ui-sans-serif, system-ui, sans-serif;
+}
+
+.window-control-minimize {
+  order: 1;
+}
+
+.window-control-maximize {
+  order: 2;
+}
+
+.window-control-close {
+  order: 3;
+}
+
+.window-control:hover {
+  background: #263241;
+  color: #ffffff;
+}
+
+.window-control-close:hover {
+  background: #b33a45;
+}
+
+.window-controls[data-platform='macos'] {
+  gap: 8px;
+  margin: 0 4px 0 2px;
+  order: 0;
+}
+
+.window-controls[data-platform='macos'] .window-control {
+  width: 13px;
+  height: 13px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: rgb(15 23 42 / 70%);
+  font: 10px/1 ui-sans-serif, system-ui, sans-serif;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+
+.window-controls[data-platform='macos'] .window-control span {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.window-controls[data-platform='macos']:hover .window-control span,
+.window-controls[data-platform='macos'] .window-control:focus-visible span {
+  opacity: 1;
+}
+
+.window-controls[data-platform='macos'] .window-control-close {
+  background: #ff5f57;
+  border-color: #e0443e;
+  order: 0;
+}
+
+.window-controls[data-platform='macos'] .window-control-minimize {
+  background: #febc2e;
+  border-color: #d89a1e;
+}
+
+.window-controls[data-platform='macos'] .window-control-maximize {
+  background: #28c840;
+  border-color: #1ca333;
+}
+
+.window-controls[data-platform='macos'] .window-control:hover {
+  background: inherit;
+  filter: brightness(0.93);
+  transform: scale(1.05);
+}
+
+.window-controls[data-platform='macos'] .window-control:active {
+  transform: scale(0.9);
+}
+
+.header-actions,
+.restart,
+.window-controls {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.status::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8b98a9;
+  content: '';
+}
+
+.status[data-state='open']::before {
+  background: #56d364;
+}
+
+.status[data-state='failed']::before,
+.status[data-state='exited']::before {
+  background: #ff7b72;
+}
+
+.terminal-container {
+  flex: 1;
+  min-height: 0;
+  padding: 14px;
+}
+
+.xterm {
+  height: 100%;
+}

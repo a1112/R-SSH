@@ -22,11 +22,15 @@
   <string>__VERSION__</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.developer-tools</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>11.0</string>
   <key>LSArchitecturePriority</key>
   <array>
     <string>__ARCHITECTURE__</string>
   </array>
   <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
 </dict>
 </plist>

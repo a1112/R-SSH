@@ -11,6 +11,7 @@ mod cli;
 mod config_lifecycle;
 mod diagnostics;
 mod local;
+mod platform;
 mod profiles;
 mod scp;
 mod self_test;

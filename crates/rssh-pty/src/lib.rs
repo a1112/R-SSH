@@ -50,13 +50,14 @@ mod tests {
 
     use super::{
         CaptureProgress, CaptureReapJob, CaptureThreadJoin, CursorPositionQueryScanner,
-        FORCE_PROCESS_DEFER, FORCE_SESSION_DROP_DEFER, PtyBackend, PtyCloseIo, PtyCommand,
-        PtyError, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus, PtyReaderProxy, PtySession,
-        PtySize, PtyWriterProxy, STREAM_ACQUISITION_FAULT, capture_cleanup_panic_count,
-        capture_reaper_deferred_count, capture_reaper_error_count,
-        capture_reaper_last_process_ownership, capture_reaper_retained_count, defer_capture_job,
-        join_capture_thread_before, observe_reaped_master_close, pending_capture_cleanup_count,
-        pending_master_close_count, take_capture_reaper_errors, terminate_child_before,
+        DefaultShellPlatform, FORCE_PROCESS_DEFER, FORCE_SESSION_DROP_DEFER, PtyBackend,
+        PtyCloseIo, PtyCommand, PtyError, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus,
+        PtyReaderProxy, PtySession, PtySize, PtyWriterProxy, STREAM_ACQUISITION_FAULT,
+        capture_cleanup_panic_count, capture_reaper_deferred_count, capture_reaper_error_count,
+        capture_reaper_last_process_ownership, capture_reaper_retained_count,
+        default_shell_program_from, defer_capture_job, join_capture_thread_before,
+        observe_reaped_master_close, pending_capture_cleanup_count, pending_master_close_count,
+        take_capture_reaper_errors, terminate_child_before,
     };
 
     static CAPTURE_REAPER_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -231,6 +232,46 @@ mod tests {
         let command = PtyCommand::default_shell();
 
         assert!(!command.program().is_empty());
+    }
+
+    #[test]
+    fn macos_default_shell_falls_back_to_zsh() {
+        assert_eq!(
+            default_shell_program_from(DefaultShellPlatform::Macos, None, None),
+            "/bin/zsh"
+        );
+    }
+
+    #[test]
+    fn configured_shell_wins_on_macos() {
+        assert_eq!(
+            default_shell_program_from(
+                DefaultShellPlatform::Macos,
+                None,
+                Some(std::ffi::OsStr::new("/opt/homebrew/bin/fish")),
+            ),
+            "/opt/homebrew/bin/fish"
+        );
+    }
+
+    #[test]
+    fn empty_shell_environment_uses_platform_fallback() {
+        assert_eq!(
+            default_shell_program_from(
+                DefaultShellPlatform::Unix,
+                None,
+                Some(std::ffi::OsStr::new("")),
+            ),
+            "/bin/sh"
+        );
+        assert_eq!(
+            default_shell_program_from(
+                DefaultShellPlatform::Windows,
+                Some(std::ffi::OsStr::new("")),
+                None,
+            ),
+            "cmd.exe"
+        );
     }
 
     #[test]
@@ -1674,6 +1715,54 @@ Get-CimInstance Win32_Process | Where-Object { $ids -contains [uint32]$_.Process
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DefaultShellPlatform {
+    Windows,
+    Macos,
+    Unix,
+}
+
+impl DefaultShellPlatform {
+    const fn current() -> Self {
+        if cfg!(windows) {
+            Self::Windows
+        } else if cfg!(target_os = "macos") {
+            Self::Macos
+        } else {
+            Self::Unix
+        }
+    }
+}
+
+fn default_shell_program() -> String {
+    default_shell_program_from(
+        DefaultShellPlatform::current(),
+        std::env::var_os("COMSPEC").as_deref(),
+        std::env::var_os("SHELL").as_deref(),
+    )
+}
+
+fn default_shell_program_from(
+    platform: DefaultShellPlatform,
+    comspec: Option<&std::ffi::OsStr>,
+    shell: Option<&std::ffi::OsStr>,
+) -> String {
+    let configured = match platform {
+        DefaultShellPlatform::Windows => comspec,
+        DefaultShellPlatform::Macos | DefaultShellPlatform::Unix => shell,
+    };
+    if let Some(configured) = configured.filter(|value| !value.is_empty()) {
+        return configured.to_string_lossy().into_owned();
+    }
+
+    match platform {
+        DefaultShellPlatform::Windows => "cmd.exe",
+        DefaultShellPlatform::Macos => "/bin/zsh",
+        DefaultShellPlatform::Unix => "/bin/sh",
+    }
+    .to_owned()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PtyCommand {
     program: String,
@@ -1695,11 +1784,7 @@ impl PtyCommand {
 
     #[must_use]
     pub fn default_shell() -> Self {
-        if cfg!(windows) {
-            Self::new(std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_owned()))
-        } else {
-            Self::new(std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned()))
-        }
+        Self::new(default_shell_program())
     }
 
     #[must_use]

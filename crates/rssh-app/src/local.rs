@@ -1280,7 +1280,14 @@ fn fallback_pty_size() -> PtySize {
     PtySize::try_new(80, 24).expect("fallback PTY size is valid")
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RawModeState {
+    Disabled,
+    Enabled,
+}
+
 struct RawMode {
+    state: RawModeState,
     bracketed_paste: bool,
     mouse_capture: bool,
     focus_change: bool,
@@ -1288,6 +1295,19 @@ struct RawMode {
 
 impl RawMode {
     fn enable() -> io::Result<Self> {
+        Self::enable_for_terminal(io::stdin().is_terminal())
+    }
+
+    fn enable_for_terminal(is_terminal: bool) -> io::Result<Self> {
+        if !is_terminal {
+            return Ok(Self {
+                state: RawModeState::Disabled,
+                bracketed_paste: false,
+                mouse_capture: false,
+                focus_change: false,
+            });
+        }
+
         terminal::enable_raw_mode()?;
 
         let bracketed_paste = if io::stdout().is_terminal() {
@@ -1298,6 +1318,7 @@ impl RawMode {
         };
 
         Ok(Self {
+            state: RawModeState::Enabled,
             bracketed_paste,
             mouse_capture: false,
             focus_change: false,
@@ -1361,7 +1382,9 @@ impl Drop for RawMode {
             let mut stdout = io::stdout();
             let _ = execute!(stdout, DisableBracketedPaste);
         }
-        let _ = terminal::disable_raw_mode();
+        if self.state == RawModeState::Enabled {
+            let _ = terminal::disable_raw_mode();
+        }
     }
 }
 
@@ -4498,10 +4521,10 @@ mod tests {
 
     use super::{
         InputModes, InputReporting, LocalCloseProgress, LocalMasterCloseOperation,
-        LocalPtyCloseGroup, LocalTraceMarker, LocalWorkerReaper, Osc52Policy, TerminalOutputFilter,
-        begin_close_before_sender_drop, combine_local_result, encode_input_event, encode_key,
-        join_local_worker_before, join_local_worker_before_with_reaper, resolve_local_size,
-        spawn_input_thread_for_terminal,
+        LocalPtyCloseGroup, LocalTraceMarker, LocalWorkerReaper, Osc52Policy, RawMode,
+        RawModeState, TerminalOutputFilter, begin_close_before_sender_drop, combine_local_result,
+        encode_input_event, encode_key, join_local_worker_before,
+        join_local_worker_before_with_reaper, resolve_local_size, spawn_input_thread_for_terminal,
     };
 
     const TEST_ASYNC_FINALITY_BUDGET: Duration = Duration::from_secs(5);
@@ -4849,6 +4872,16 @@ mod tests {
 
         assert!(worker.is_none());
         assert!(std::sync::Arc::ptr_eq(&stop, &returned_stop));
+    }
+
+    #[test]
+    fn nonterminal_input_does_not_enable_raw_mode() {
+        let raw_mode = RawMode::enable_for_terminal(false).unwrap();
+
+        assert_eq!(raw_mode.state, RawModeState::Disabled);
+        assert!(!raw_mode.bracketed_paste);
+        assert!(!raw_mode.mouse_capture);
+        assert!(!raw_mode.focus_change);
     }
 
     #[test]

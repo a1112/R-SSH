@@ -1,6 +1,10 @@
 /target/
 /.worktrees/
 /dist/
+web/dist/
+web/node_modules/
+tauri/node_modules/
+tauri/src-tauri/gen/
 
 # Local reference source cache. Keep only metadata committed.
 /refs/*

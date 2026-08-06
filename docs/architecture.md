@@ -43,7 +43,9 @@ and [WezTerm parity gap tracker](research/wezterm-parity-gap.md).
 
 ## Non-Goals
 
-- Do not build on Electron, WebView, or `xterm.js` for the main terminal view.
+- Do not build the native desktop terminal view on Electron, WebView, or
+  `xterm.js`. A separately packaged browser or Tauri client may use xterm.js
+  while the Rust backend retains PTY/session ownership.
 - Do not shell out to `ssh.exe` as the primary connection engine.
 - Do not vendor third-party terminal projects into this repository.
 - Do not implement every XShell feature before the terminal and SSH loop is

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0d1117" />
+    <title>R-SSH Web Terminal</title>
+  </head>
+  <body>
+    <main class="terminal-shell">
+      <header class="terminal-header">
+        <div id="window-controls" class="window-controls" hidden data-platform="other">
+          <button id="window-close" class="window-control window-control-close" type="button" aria-label="Close window" title="Close window">
+            <span aria-hidden="true">×</span>
+          </button>
+          <button id="window-minimize" class="window-control window-control-minimize" type="button" aria-label="Minimize window" title="Minimize window">
+            <span aria-hidden="true">−</span>
+          </button>
+          <button id="window-maximize" class="window-control window-control-maximize" type="button" aria-label="Maximize window" title="Maximize window">
+            <span aria-hidden="true">□</span>
+          </button>
+        </div>
+        <div class="titlebar-drag-region">
+          <span class="brand" data-tauri-drag-region>R-SSH</span>
+          <span class="titlebar-drag-spacer" data-tauri-drag-region aria-hidden="true"></span>
+        </div>
+        <span class="header-actions">
+          <span id="connection-status" class="status" data-state="connecting">Connecting</span>
+          <button id="restart" class="restart" type="button" hidden>Start new terminal</button>
+        </span>
+      </header>
+      <section id="terminal" class="terminal-container" aria-label="R-SSH terminal"></section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
