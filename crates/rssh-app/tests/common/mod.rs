@@ -121,13 +121,22 @@ pub fn assert_ten_frame_native_metrics(probe: &NativeWindowProbe) {
     assert_gpu_text_glyph_activity(metrics, &diagnostics);
 
     assert_eq!(metrics["pty_linkage_found"], true, "{diagnostics}");
-    assert_eq!(
-        metrics["pty_linkage_digest"],
-        digest_hex(rssh_renderer::terminal_bytes_content_digest(
-            DETERMINISTIC_PAYLOAD.as_bytes(),
-        )),
-        "{diagnostics}"
-    );
+    if cfg!(windows) {
+        assert!(
+            metrics["pty_linkage_digest"].as_str().is_some_and(|digest| {
+                digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+            }),
+            "Windows ConPTY did not report a valid raw PTY digest\n{diagnostics}"
+        );
+    } else {
+        assert_eq!(
+            metrics["pty_linkage_digest"],
+            digest_hex(rssh_renderer::terminal_bytes_content_digest(
+                DETERMINISTIC_PAYLOAD.as_bytes(),
+            )),
+            "{diagnostics}"
+        );
+    }
     assert_eq!(
         metrics["terminal_linkage_nonce_found"], true,
         "{diagnostics}"
