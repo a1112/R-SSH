@@ -177352,7 +177352,7 @@ return config
 
     #[test]
     fn window_app_interpolates_session_hostname_in_iterm_badge_format() {
-        let expected_suffix = local_host_name().map_or_else(
+        let expected_suffix = super::local_host_name().map_or_else(
             || " host: ".to_owned(),
             |host| format!(" host: {host} "),
         );
@@ -178841,7 +178841,7 @@ return config
 
     #[test]
     fn window_app_interpolates_iterm2_localhost_name_in_iterm_badge_format() {
-        let expected_suffix = local_host_name().map_or_else(
+        let expected_suffix = super::local_host_name().map_or_else(
             || " local: ".to_owned(),
             |host| format!(" local: {host} "),
         );
