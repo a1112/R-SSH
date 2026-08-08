@@ -339,14 +339,16 @@ mod tests {
             Some("cmd.exe")
         );
         assert_eq!(argv[1].to_string_lossy(), "/D");
-        assert_eq!(argv[2].to_string_lossy(), "/S");
-        assert_eq!(argv[3].to_string_lossy(), "/C");
+        assert_eq!(argv[2].to_string_lossy(), "/V:OFF");
+        assert_eq!(argv[3].to_string_lossy(), "/S");
+        assert_eq!(argv[4].to_string_lossy(), "/C");
+        assert_eq!(argv[5].to_string_lossy(), "call");
         assert_eq!(
-            argv[4].to_string_lossy(),
-            root.join("claude.cmd").to_string_lossy()
+            argv[6].to_string_lossy(),
+            root.join("claude.cmd").display().to_string()
         );
-        assert_eq!(argv[5].to_string_lossy(), "--version");
-        assert_eq!(argv[6].to_string_lossy(), "value with spaces");
+        assert_eq!(argv[7].to_string_lossy(), "--version");
+        assert_eq!(argv[8].to_string_lossy(), "value with spaces");
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -361,7 +363,8 @@ mod tests {
         std::fs::write(root.join("rssh-shim"), b"#!/bin/sh\necho unix\n").unwrap();
         std::fs::write(
             root.join("rssh-shim.cmd"),
-            b"@echo off\r\necho rssh-windows-shim-ok\r\n",
+            b"@echo off\r\necho rssh-windows-shim-ok\r\necho [%~1]\r\necho [%~2]\r\n\
+              echo [%~3]\r\necho [%~4]\r\n",
         )
         .unwrap();
         let path = std::env::join_paths([
@@ -373,7 +376,12 @@ mod tests {
         .unwrap();
 
         let command = PtyCommand::new("rssh-shim")
-            .with_arg("--version")
+            .with_args([
+                "value with spaces",
+                "'single quote'",
+                r"\\server\share",
+                "-leading",
+            ])
             .with_env("PATH", path.to_string_lossy());
         let output = PtySession::capture_output(
             &command,
@@ -387,6 +395,18 @@ mod tests {
             "captured PTY output: {:?}",
             String::from_utf8_lossy(&output)
         );
+        let output = String::from_utf8_lossy(&output);
+        for expected in [
+            "[value with spaces]",
+            "['single quote']",
+            r"[\\server\share]",
+            "[-leading]",
+        ] {
+            assert!(
+                output.contains(expected),
+                "missing {expected:?} in captured PTY output: {output:?}"
+            );
+        }
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -402,14 +422,126 @@ mod tests {
             .to_builder();
         let argv = command.get_argv();
 
-        assert_eq!(argv[0].to_string_lossy(), "powershell.exe");
+        assert_eq!(
+            std::path::Path::new(&argv[0])
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("powershell.exe")
+        );
         assert_eq!(argv[1].to_string_lossy(), "-NoLogo");
         assert_eq!(argv[2].to_string_lossy(), "-NoProfile");
-        assert_eq!(argv[3].to_string_lossy(), "-ExecutionPolicy");
-        assert_eq!(argv[4].to_string_lossy(), "Bypass");
-        assert_eq!(argv[5].to_string_lossy(), "-File");
-        assert_eq!(argv[6].to_string_lossy(), script.to_string_lossy());
-        assert_eq!(argv[7].to_string_lossy(), "--version");
+        assert_eq!(argv[3].to_string_lossy(), "-NonInteractive");
+        assert_eq!(argv[4].to_string_lossy(), "-File");
+        assert_eq!(argv[5].to_string_lossy(), script.to_string_lossy());
+        assert_eq!(argv[6].to_string_lossy(), "--version");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_powershell_script_preserves_metacharacter_arguments() {
+        let _guard = CAPTURE_REAPER_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let root = temporary_windows_command_dir("powershell-script-args");
+        let script = root.join("argv.ps1");
+        std::fs::write(
+            &script,
+            b"$args | ForEach-Object { $hex = \
+              [BitConverter]::ToString([Text.Encoding]::UTF8.GetBytes([string]$_)); \
+              Write-Output (\"RSSH_ARG:{0}:END\" -f $hex) }\r\n",
+        )
+        .unwrap();
+        let arguments = [
+            "%PATH%",
+            "!value!",
+            "a&b",
+            "a|b",
+            "a^b",
+            "\"quoted\"",
+            "'single quote'",
+            "value with spaces",
+            "Unicode-终端",
+            r"\\server\share",
+            "-leading",
+            "line1\nline2",
+        ];
+        let command = PtyCommand::new(script.to_string_lossy())
+            .with_args(arguments)
+            .without_env("TERM");
+
+        let output = PtySession::capture_output(
+            &command,
+            PtySize::try_new(120, 30).unwrap(),
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        let output = String::from_utf8_lossy(&output);
+
+        for argument in arguments {
+            let expected = argument
+                .as_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<Vec<_>>()
+                .join("-");
+            let marker = format!("RSSH_ARG:{expected}:END");
+            assert!(
+                output.contains(&marker),
+                "PowerShell lost argument {argument:?}; expected {expected:?} in {output:?}"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_rejects_cmd_shim_arguments_with_shell_metacharacters() {
+        let root = temporary_windows_command_dir("cmd-shim-unsafe-args");
+        std::fs::write(root.join("tool.cmd"), b"@echo off\r\n").unwrap();
+
+        for argument in [
+            "%PATH%",
+            "!value!",
+            "a&b",
+            "a|b",
+            "a^b",
+            "<input",
+            ">output",
+            "(group)",
+            "\"quoted\"",
+            "line1\nline2",
+        ] {
+            let error = PtyCommand::new(root.join("tool.cmd").to_string_lossy())
+                .with_arg(argument)
+                .validate()
+                .unwrap_err();
+
+            assert!(
+                matches!(error, PtyError::InvalidCommand(message) if message.contains("argument 0")),
+                "unsafe cmd.exe argument must fail closed: {argument:?}"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_accepts_cmd_shim_arguments_without_shell_metacharacters() {
+        let root = temporary_windows_command_dir("cmd-shim-safe-args");
+        std::fs::write(root.join("tool.cmd"), b"@echo off\r\n").unwrap();
+        let command = PtyCommand::new(root.join("tool.cmd").to_string_lossy()).with_args([
+            "value with spaces",
+            "'single quote'",
+            "Unicode-终端",
+            r"\\server\share",
+            "-leading",
+        ]);
+
+        command.validate().unwrap();
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -1099,6 +1231,7 @@ Get-CimInstance Win32_Process | Where-Object { $ids -contains [uint32]$_.Process
         assert!(scanner.buffered_len() < b"\x1b[6n".len());
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn unix_platform_echo_passes_untrusted_text_as_a_positional_argument() {
         let text = "'\";$HOME$(touch nope)`touch nope`\nUnicode: 世界";
@@ -1106,6 +1239,43 @@ Get-CimInstance Win32_Process | Where-Object { $ids -contains [uint32]$_.Process
 
         assert_eq!(command.program(), "/bin/sh");
         assert_eq!(command.args(), ["-c", "printf '%s\\n' \"$1\"", "--", text]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_platform_echo_passes_untrusted_text_through_environment() {
+        let _guard = CAPTURE_REAPER_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let text = "literal & echo RSSH_INJECTED | %PATH% !value! ^ \"quoted\"\nUnicode: 终端";
+        let command = PtyCommand::platform_echo(text);
+
+        assert_eq!(
+            command.args(),
+            [
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); \
+                 [Console]::Out.WriteLine($env:RSSH_PTY_ECHO)"
+            ]
+        );
+        assert_eq!(command.env_value("RSSH_PTY_ECHO"), Some(text));
+
+        let output = PtySession::capture_output(
+            &command,
+            PtySize::try_new(120, 30).unwrap(),
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        let output = String::from_utf8_lossy(&output);
+        let normalized_output = output.replace("\r\n", "\n");
+
+        assert!(
+            normalized_output.contains(text),
+            "PowerShell must print metacharacters as data: {output:?}"
+        );
     }
 
     #[test]
@@ -1790,13 +1960,28 @@ impl PtyCommand {
     #[must_use]
     pub fn platform_echo(text: impl Into<String>) -> Self {
         let text = text.into();
-        if cfg!(windows) {
-            Self::new("cmd.exe").with_args(["/C", "echo", text.as_str()])
-        } else {
+
+        #[cfg(windows)]
+        {
+            Self::new(windows_powershell_program().to_string_lossy())
+                .with_args([
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); \
+                     [Console]::Out.WriteLine($env:RSSH_PTY_ECHO)",
+                ])
+                .with_env("RSSH_PTY_ECHO", text)
+        }
+
+        #[cfg(not(windows))]
+        {
             Self::unix_platform_echo(text)
         }
     }
 
+    #[cfg(not(windows))]
     fn unix_platform_echo(text: impl Into<String>) -> Self {
         let text = text.into();
         Self::new("/bin/sh").with_args(["-c", "printf '%s\\n' \"$1\"", "--", text.as_str()])
@@ -1881,7 +2066,9 @@ impl PtyCommand {
     ///
     /// # Errors
     ///
-    /// Returns [`PtyError::InvalidCommand`] when the command program is empty.
+    /// Returns [`PtyError::InvalidCommand`] when the command program is empty,
+    /// or on Windows when a `.cmd`/`.bat` invocation contains characters that
+    /// `cmd.exe` cannot safely preserve as argument data.
     pub fn validate(&self) -> Result<(), PtyError> {
         if self.program.trim().is_empty() {
             return Err(PtyError::InvalidCommand(
@@ -1889,18 +2076,31 @@ impl PtyCommand {
             ));
         }
 
+        #[cfg(windows)]
+        {
+            let path = self.windows_path();
+            let (program, kind) = find_windows_program(&self.program, path.as_deref());
+            if kind == WindowsProgramKind::CmdShim {
+                validate_windows_cmd_invocation(&program, &self.args)?;
+            }
+        }
+
         Ok(())
+    }
+
+    #[cfg(windows)]
+    fn windows_path(&self) -> Option<std::ffi::OsString> {
+        self.env
+            .iter()
+            .find_map(|(key, value)| key.eq_ignore_ascii_case("PATH").then_some(value))
+            .map(std::ffi::OsString::from)
+            .or_else(|| std::env::var_os("PATH"))
     }
 
     fn to_builder(&self) -> CommandBuilder {
         #[cfg(windows)]
         let (program, args) = {
-            let path = self
-                .env
-                .iter()
-                .find_map(|(key, value)| key.eq_ignore_ascii_case("PATH").then_some(value))
-                .map(std::ffi::OsString::from)
-                .or_else(|| std::env::var_os("PATH"));
+            let path = self.windows_path();
             let resolved = resolve_windows_command(&self.program, &self.args, path.as_deref());
             (resolved.program, resolved.args)
         };
@@ -1954,18 +2154,19 @@ fn resolve_windows_command(
         WindowsProgramKind::CmdShim => {
             resolved_args.extend([
                 "/D".to_owned(),
+                "/V:OFF".to_owned(),
                 "/S".to_owned(),
                 "/C".to_owned(),
-                program_path.to_string_lossy().into_owned(),
+                "call".to_owned(),
             ]);
+            resolved_args.push(program_path.to_string_lossy().into_owned());
             resolved_args.extend(args.iter().cloned());
         }
         WindowsProgramKind::PowerShellScript => {
             resolved_args.extend([
                 "-NoLogo".to_owned(),
                 "-NoProfile".to_owned(),
-                "-ExecutionPolicy".to_owned(),
-                "Bypass".to_owned(),
+                "-NonInteractive".to_owned(),
                 "-File".to_owned(),
                 program_path.to_string_lossy().into_owned(),
             ]);
@@ -1975,16 +2176,67 @@ fn resolve_windows_command(
 
     let resolved_program = match kind {
         WindowsProgramKind::Native => program_path,
-        WindowsProgramKind::CmdShim => {
-            std::env::var_os("ComSpec").map_or_else(|| PathBuf::from("cmd.exe"), PathBuf::from)
-        }
-        WindowsProgramKind::PowerShellScript => PathBuf::from("powershell.exe"),
+        WindowsProgramKind::CmdShim => windows_system32_program("cmd.exe"),
+        WindowsProgramKind::PowerShellScript => windows_powershell_program(),
     };
 
     WindowsCommandResolution {
         program: resolved_program,
         args: resolved_args,
     }
+}
+
+#[cfg(windows)]
+fn validate_windows_cmd_invocation(program: &Path, args: &[String]) -> Result<(), PtyError> {
+    if let Some(character) = unsupported_windows_cmd_character(&program.to_string_lossy()) {
+        return Err(PtyError::InvalidCommand(format!(
+            "cmd.exe cannot safely launch a .cmd/.bat path containing {character:?}; use a path \
+             without command-shell metacharacters"
+        )));
+    }
+
+    for (index, argument) in args.iter().enumerate() {
+        if let Some(character) = unsupported_windows_cmd_character(argument) {
+            return Err(PtyError::InvalidCommand(format!(
+                "cmd.exe cannot safely pass argument {index} containing {character:?} to a \
+                 .cmd/.bat program; use a native executable or PowerShell script"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn unsupported_windows_cmd_character(value: &str) -> Option<char> {
+    value.chars().find(|character| {
+        matches!(
+            character,
+            '%' | '!' | '&' | '|' | '^' | '<' | '>' | '(' | ')' | '"' | '\r' | '\n' | '\0'
+        )
+    })
+}
+
+#[cfg(windows)]
+fn windows_system32_program(name: &str) -> PathBuf {
+    std::env::var_os("SystemRoot").map_or_else(
+        || PathBuf::from(name),
+        |root| PathBuf::from(root).join("System32").join(name),
+    )
+}
+
+#[cfg(windows)]
+fn windows_powershell_program() -> PathBuf {
+    std::env::var_os("SystemRoot").map_or_else(
+        || PathBuf::from("powershell.exe"),
+        |root| {
+            PathBuf::from(root)
+                .join("System32")
+                .join("WindowsPowerShell")
+                .join("v1.0")
+                .join("powershell.exe")
+        },
+    )
 }
 
 #[cfg(windows)]

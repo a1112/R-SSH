@@ -101,6 +101,11 @@ impl WebServer {
 
     #[cfg(test)]
     #[must_use]
+    /// Returns the bound listener address.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the already-bound listener no longer exposes its local address.
     pub fn local_addr(&self) -> SocketAddr {
         self.listener
             .local_addr()
@@ -731,6 +736,10 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the full WebSocket and PTY protocol round trip belongs in one integration test"
+    )]
     async fn authenticated_websocket_round_trips_a_real_pty() {
         let server = WebServer::bind(WebServerConfig {
             listen: "127.0.0.1:0".parse().unwrap(),
@@ -788,7 +797,14 @@ mod tests {
         } else {
             b"printf web-socket-test\nexit\n".to_vec()
         };
-        socket.send(Message::Binary(input.into())).await.unwrap();
+        let mut input_sent = false;
+        if !cfg!(windows) {
+            socket
+                .send(Message::Binary(input.clone().into()))
+                .await
+                .unwrap();
+            input_sent = true;
+        }
         let mut output = Vec::new();
         let mut saw_exit = false;
         while let Some(message) = time::timeout(Duration::from_secs(3), socket.next())
@@ -796,7 +812,23 @@ mod tests {
             .unwrap()
         {
             match message.unwrap() {
-                Message::Binary(bytes) => output.extend_from_slice(&bytes),
+                Message::Binary(bytes) => {
+                    output.extend_from_slice(&bytes);
+                    if cfg!(windows)
+                        && !input_sent
+                        && output.windows(4).any(|window| window == b"\x1b[6n")
+                    {
+                        socket
+                            .send(Message::Binary(b"\x1b[1;1R".to_vec().into()))
+                            .await
+                            .unwrap();
+                        socket
+                            .send(Message::Binary(input.clone().into()))
+                            .await
+                            .unwrap();
+                        input_sent = true;
+                    }
+                }
                 Message::Text(text) if text.contains("\"exit\"") => {
                     saw_exit = true;
                     break;
@@ -804,11 +836,16 @@ mod tests {
                 _ => {}
             }
         }
+        assert!(input_sent, "terminal never became ready for input");
         assert!(saw_exit, "websocket never delivered PTY exit message");
         assert!(String::from_utf8_lossy(&output).contains("web-socket-test"));
+        drop(socket);
 
         let _ = shutdown_tx.send(());
-        server_task.await.unwrap();
+        time::timeout(Duration::from_secs(3), server_task)
+            .await
+            .expect("web server did not shut down")
+            .unwrap();
     }
 
     async fn bootstrap_cookie(address: SocketAddr, token: &str) -> String {

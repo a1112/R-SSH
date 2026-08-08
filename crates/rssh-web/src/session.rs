@@ -308,15 +308,14 @@ fn spawn_supervisor(
             };
 
             writer_stop.store(true, Ordering::Release);
-            let reader_finished = reader_done.recv_timeout(READER_DRAIN_TIMEOUT).is_ok();
-            if !reader_finished {
-                pty.close_master();
-                if reader_done
-                    .recv_timeout(Duration::from_millis(250))
-                    .is_err()
-                {
-                    return;
-                }
+            let _master_close = pty.begin_master_close();
+            if reader_done.recv_timeout(READER_DRAIN_TIMEOUT).is_err() {
+                let _ = events.blocking_send(SessionEvent::Error {
+                    code: "PTY_DRAIN_TIMEOUT",
+                    message: "terminal output did not finish draining",
+                    fatal: true,
+                });
+                return;
             }
             if let Some(status) = exit_status {
                 let _ = events.blocking_send(SessionEvent::Exit(status));
@@ -345,20 +344,30 @@ mod tests {
         } else {
             rssh_pty::PtyCommand::new("/bin/sh").with_args(["-c", "printf web-pty-test"])
         };
-        let mut session =
-            WebPtySession::spawn(&command, TerminalDimensions { cols: 80, rows: 24 }).unwrap();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_time()
             .build()
             .unwrap();
         runtime.block_on(async {
+            let mut session =
+                WebPtySession::spawn(&command, TerminalDimensions { cols: 80, rows: 24 }).unwrap();
             let mut output = Vec::new();
+            let mut answered_cursor_query = false;
             let deadline = tokio::time::sleep(Duration::from_secs(3));
             tokio::pin!(deadline);
             loop {
                 tokio::select! {
                     event = session.events().recv() => match event {
-                        Some(SessionEvent::Output(bytes)) => output.extend(bytes),
+                        Some(SessionEvent::Output(bytes)) => {
+                            output.extend(bytes);
+                            if cfg!(windows)
+                                && !answered_cursor_query
+                                && output.windows(4).any(|window| window == b"\x1b[6n")
+                            {
+                                session.try_send_input(b"\x1b[1;1R".to_vec()).unwrap();
+                                answered_cursor_query = true;
+                            }
+                        }
                         Some(SessionEvent::Exit(status)) => {
                             assert!(status.success());
                             break;

@@ -102,10 +102,28 @@ fn default_native_window_uses_direct_gpu_text_without_compatibility_uploads() {
 
 #[test]
 fn injected_device_loss_rebuilds_direct_gpu_state_and_presents_the_same_frame() {
+    const BASELINE_COMMAND_INTENT: &str = "rssh-app -n window --frames 1 --metrics-json";
     const COMMAND_INTENT: &str =
         "RSSH_TEST_GPU_DEVICE_LOSS=1 rssh-app -n window --frames 1 --metrics-json";
     const ARGUMENTS: &[&str] = &["-n", "window", "--frames", "1", "--metrics-json"];
     let _native_window = native_window_test_guard();
+    let baseline_output = run_rssh_app(BASELINE_COMMAND_INTENT, ARGUMENTS);
+    let baseline_diagnostics = diagnostics(BASELINE_COMMAND_INTENT, ARGUMENTS, &baseline_output);
+    assert!(baseline_output.status.success(), "{baseline_diagnostics}");
+    let baseline_metrics: serde_json::Value = serde_json::from_slice(&baseline_output.stdout)
+        .unwrap_or_else(|error| {
+            panic!(
+                "device-loss baseline emitted invalid metrics JSON: {error}\n{baseline_diagnostics}"
+            )
+        });
+    // wgpu's test injection panics before recovery on software-only adapters.
+    if baseline_metrics["gpu_software_adapter"]
+        .as_bool()
+        .unwrap_or(false)
+    {
+        return;
+    }
+
     let mut command = Command::new(RSSH_APP_EXECUTABLE);
     command
         .args(ARGUMENTS)
@@ -246,17 +264,7 @@ fn native_window_reports_real_gpu_presentation_for_one_and_ten_frames() {
         assert_eq!(metrics["text_backend"], "shaped-gpu-atlas", "{diagnostics}");
         assert_eq!(metrics["gpu_text_rendered_frames"], frames, "{diagnostics}");
         if frames == 10 {
-            for field in [
-                "gpu_text_prepared_glyphs",
-                "gpu_text_mask_glyphs",
-                "gpu_text_color_glyphs",
-                "gpu_text_block_glyphs",
-            ] {
-                assert!(
-                    metrics[field].as_u64().is_some_and(|count| count > 0),
-                    "{field} did not observe the PTY specimen\n{diagnostics}"
-                );
-            }
+            common::assert_gpu_text_glyph_activity(&metrics, &diagnostics);
             assert_native_unicode_linkage(&metrics, &expected_raw_digest, &diagnostics);
         }
     }

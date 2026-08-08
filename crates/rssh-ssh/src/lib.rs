@@ -125,12 +125,18 @@ impl std::error::Error for SshStartupError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SshSessionStartup {
     Shell,
+    /// Execute one program with the provided argument vector.
+    ///
+    /// The native SSH backend preserves these argument boundaries by quoting
+    /// every token for the remote POSIX shell. Callers must not place shell
+    /// syntax such as pipelines or redirections in this vector and expect it
+    /// to be interpreted.
     Command(Vec<String>),
     NoShell,
 }
 
 impl SshSessionStartup {
-    /// Creates a remote command startup request.
+    /// Creates a remote command startup request with argv semantics.
     ///
     /// # Errors
     ///
@@ -1424,7 +1430,7 @@ mod tests {
         });
 
         let remote_output = output_rx.recv_timeout(Duration::from_millis(250));
-        input_tx.send(SshInputEvent::Eof).unwrap();
+        let _ = input_tx.send(SshInputEvent::Eof);
         done_rx
             .recv_timeout(Duration::from_secs(1))
             .expect("shell runner did not finish after input EOF")
@@ -2122,9 +2128,38 @@ mod tests {
                     pixel_height: 0,
                 },
                 RusshChannelStartupRequest::Exec {
-                    command: "uptime".to_owned()
+                    command: "'uptime'".to_owned()
                 }
             ]
+        );
+    }
+
+    #[test]
+    fn russh_remote_command_preserves_posix_argument_boundaries() {
+        let open_plan = SshChannelOpenPlan {
+            pty_size: None,
+            startup: SshSessionStartup::Command(vec![
+                "printf".to_owned(),
+                "%s".to_owned(),
+                "a b".to_owned(),
+                "\"quoted\"".to_owned(),
+                "a;b".to_owned(),
+                "$(id)".to_owned(),
+                "line1\nline2".to_owned(),
+                "'single quote'".to_owned(),
+                String::new(),
+            ]),
+        };
+
+        let plan = RusshChannelStartupPlan::from_open_plan(&open_plan);
+
+        assert_eq!(
+            plan.requests(),
+            &[RusshChannelStartupRequest::Exec {
+                command: "'printf' '%s' 'a b' '\"quoted\"' 'a;b' '$(id)' \
+                          'line1\nline2' ''\"'\"'single quote'\"'\"'' ''"
+                    .to_owned(),
+            }]
         );
     }
 

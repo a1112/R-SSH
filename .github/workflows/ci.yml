@@ -19,8 +19,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
         with:
           components: clippy, rustfmt
+      - name: Build web assets
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Run focused Web PTY tests
+        run: cargo test --locked -p rssh-web --lib
       - run: cargo test --locked --workspace --all-targets
 
   msrv:
@@ -29,6 +35,23 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+      - name: Install Linux native dependencies
+        run: |
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            librsvg2-dev \
+            wget
+      - name: Build web assets
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
       - run: cargo check --locked --workspace --all-targets
 
   deterministic-performance:
@@ -209,7 +232,7 @@ jobs:
           sudo chmod 0755 "$policy_path"
           sudo apt-get update
           sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
-            openssh-client openssh-server xvfb weston
+            libxkbcommon-x11-0 openssh-client openssh-server weston xvfb
 
       - name: Build, validate version --json, and run native E2E
         if: runner.os == 'Windows'

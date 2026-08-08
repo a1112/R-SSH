@@ -190,6 +190,7 @@ impl WindowGpu {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn present(
         &mut self,
         window: &Window,
@@ -676,7 +677,7 @@ mod tests {
             .shape_row(&mut catalog, "R-SSH 你好 😀")
             .expect("shape modern terminal sample");
 
-        assert_eq!(row.metrics.font_size, 17.0);
+        assert!((row.metrics.font_size - 17.0).abs() < f32::EPSILON);
         assert_eq!(
             row.clusters
                 .iter()
