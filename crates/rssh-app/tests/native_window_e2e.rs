@@ -66,7 +66,7 @@ public static class RsshWindowStyleProbe {
       return false;
     }
     RECT rect;
-    if (!GetWindowRect(hWnd, out rect) || rect.Right - rect.Left < 100 || rect.Bottom - rect.Top < 100) {
+    if (!GetWindowRect(hWnd, out rect)) {
       return false;
     }
     RECT clientRect;
@@ -81,13 +81,14 @@ public static class RsshWindowStyleProbe {
     var windowHeight = rect.Bottom - rect.Top;
     var clientWidth = clientRect.Right - clientRect.Left;
     var clientHeight = clientRect.Bottom - clientRect.Top;
-    clientFillsWindow = clientOrigin.X == rect.Left
+    var style = GetWindowLongPtr(hWnd, -16).ToInt64();
+    clientFillsWindow = (style & 0x00c00000L) == 0
+      && clientOrigin.X == rect.Left
       && clientOrigin.Y == rect.Top
       && clientWidth == windowWidth
       && clientHeight == windowHeight;
     var title = new StringBuilder(512);
     GetWindowText(hWnd, title, title.Capacity);
-    var style = GetWindowLongPtr(hWnd, -16).ToInt64();
     description = string.Format("hwnd=0x{0:x} style=0x{1:x8} title={2} window={3},{4},{5},{6} client-origin={7},{8} client={9},{10}",
       hWnd.ToInt64(), style, title, rect.Left, rect.Top, rect.Right, rect.Bottom,
       clientOrigin.X, clientOrigin.Y, clientWidth, clientHeight);
