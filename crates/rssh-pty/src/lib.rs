@@ -342,13 +342,13 @@ mod tests {
         assert_eq!(argv[2].to_string_lossy(), "/V:OFF");
         assert_eq!(argv[3].to_string_lossy(), "/S");
         assert_eq!(argv[4].to_string_lossy(), "/C");
+        assert_eq!(argv[5].to_string_lossy(), "call");
         assert_eq!(
-            argv[5].to_string_lossy(),
-            format!(
-                "\"\"{}\" \"--version\" \"value with spaces\"\"",
-                root.join("claude.cmd").display()
-            )
+            argv[6].to_string_lossy(),
+            root.join("claude.cmd").display().to_string()
         );
+        assert_eq!(argv[7].to_string_lossy(), "--version");
+        assert_eq!(argv[8].to_string_lossy(), "value with spaces");
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -448,8 +448,9 @@ mod tests {
         let script = root.join("argv.ps1");
         std::fs::write(
             &script,
-            b"$args | ForEach-Object { \
-              [BitConverter]::ToString([Text.Encoding]::UTF8.GetBytes([string]$_)) }\r\n",
+            b"$args | ForEach-Object { $hex = \
+              [BitConverter]::ToString([Text.Encoding]::UTF8.GetBytes([string]$_)); \
+              Write-Output (\"RSSH_ARG:{0}:END\" -f $hex) }\r\n",
         )
         .unwrap();
         let arguments = [
@@ -485,8 +486,9 @@ mod tests {
                 .map(|byte| format!("{byte:02X}"))
                 .collect::<Vec<_>>()
                 .join("-");
+            let marker = format!("RSSH_ARG:{expected}:END");
             assert!(
-                output.lines().any(|line| line.trim() == expected),
+                output.contains(&marker),
                 "PowerShell lost argument {argument:?}; expected {expected:?} in {output:?}"
             );
         }
@@ -1255,7 +1257,8 @@ Get-CimInstance Win32_Process | Where-Object { $ids -contains [uint32]$_.Process
                 "-NoProfile",
                 "-NonInteractive",
                 "-Command",
-                "[Console]::Out.WriteLine($env:RSSH_PTY_ECHO)"
+                "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); \
+                 [Console]::Out.WriteLine($env:RSSH_PTY_ECHO)"
             ]
         );
         assert_eq!(command.env_value("RSSH_PTY_ECHO"), Some(text));
@@ -1965,7 +1968,8 @@ impl PtyCommand {
                     "-NoProfile",
                     "-NonInteractive",
                     "-Command",
-                    "[Console]::Out.WriteLine($env:RSSH_PTY_ECHO)",
+                    "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); \
+                     [Console]::Out.WriteLine($env:RSSH_PTY_ECHO)",
                 ])
                 .with_env("RSSH_PTY_ECHO", text)
         }
@@ -2152,8 +2156,10 @@ fn resolve_windows_command(
                 "/V:OFF".to_owned(),
                 "/S".to_owned(),
                 "/C".to_owned(),
+                "call".to_owned(),
             ]);
-            resolved_args.push(windows_cmd_command_line(&program_path, args));
+            resolved_args.push(program_path.to_string_lossy().into_owned());
+            resolved_args.extend(args.iter().cloned());
         }
         WindowsProgramKind::PowerShellScript => {
             resolved_args.extend([
@@ -2198,25 +2204,6 @@ fn validate_windows_cmd_invocation(program: &Path, args: &[String]) -> Result<()
     }
 
     Ok(())
-}
-
-#[cfg(windows)]
-fn windows_cmd_command_line(program: &Path, args: &[String]) -> String {
-    let mut command = String::from("\"");
-    push_windows_cmd_quoted(&mut command, &program.to_string_lossy());
-    for argument in args {
-        command.push(' ');
-        push_windows_cmd_quoted(&mut command, argument);
-    }
-    command.push('"');
-    command
-}
-
-#[cfg(windows)]
-fn push_windows_cmd_quoted(command: &mut String, value: &str) {
-    command.push('"');
-    command.push_str(value);
-    command.push('"');
 }
 
 #[cfg(windows)]
