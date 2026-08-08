@@ -1270,9 +1270,10 @@ Get-CimInstance Win32_Process | Where-Object { $ids -contains [uint32]$_.Process
         )
         .unwrap();
         let output = String::from_utf8_lossy(&output);
+        let normalized_output = output.replace("\r\n", "\n");
 
         assert!(
-            output.contains(text),
+            normalized_output.contains(text),
             "PowerShell must print metacharacters as data: {output:?}"
         );
     }
