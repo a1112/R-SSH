@@ -123,9 +123,11 @@ pub fn assert_ten_frame_native_metrics(probe: &NativeWindowProbe) {
     assert_eq!(metrics["pty_linkage_found"], true, "{diagnostics}");
     if cfg!(windows) {
         assert!(
-            metrics["pty_linkage_digest"].as_str().is_some_and(|digest| {
-                digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
-            }),
+            metrics["pty_linkage_digest"]
+                .as_str()
+                .is_some_and(|digest| {
+                    digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+                }),
             "Windows ConPTY did not report a valid raw PTY digest\n{diagnostics}"
         );
     } else {
