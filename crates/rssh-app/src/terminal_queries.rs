@@ -3,7 +3,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 const MAX_OSC_COLOR_QUERY_KINDS: usize = 256;
 const MAX_OSC_COLOR_QUERY_BYTES: usize = 16 * 1024;
 const MAX_CLIPBOARD_BYTES: usize = 1024 * 1024;
-const MAX_CLIPBOARD_BASE64_BYTES: usize = ((MAX_CLIPBOARD_BYTES + 2) / 3) * 4;
+const MAX_CLIPBOARD_BASE64_BYTES: usize = MAX_CLIPBOARD_BYTES.div_ceil(3) * 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ControlFamily {
