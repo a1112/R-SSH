@@ -26,6 +26,7 @@ fn native_window_e2e_preserves_gpu_text_at_windows_scale_factors() {
 
 #[cfg(target_os = "windows")]
 #[test]
+#[allow(clippy::too_many_lines)]
 fn native_window_e2e_uses_borderless_integrated_titlebar() {
     let executable = packaged_or_cargo_app_executable();
     let script = r#"

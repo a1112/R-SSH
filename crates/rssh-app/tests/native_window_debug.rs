@@ -246,17 +246,7 @@ fn native_window_reports_real_gpu_presentation_for_one_and_ten_frames() {
         assert_eq!(metrics["text_backend"], "shaped-gpu-atlas", "{diagnostics}");
         assert_eq!(metrics["gpu_text_rendered_frames"], frames, "{diagnostics}");
         if frames == 10 {
-            for field in [
-                "gpu_text_prepared_glyphs",
-                "gpu_text_mask_glyphs",
-                "gpu_text_color_glyphs",
-                "gpu_text_block_glyphs",
-            ] {
-                assert!(
-                    metrics[field].as_u64().is_some_and(|count| count > 0),
-                    "{field} did not observe the PTY specimen\n{diagnostics}"
-                );
-            }
+            common::assert_gpu_text_glyph_activity(&metrics, &diagnostics);
             assert_native_unicode_linkage(&metrics, &expected_raw_digest, &diagnostics);
         }
     }

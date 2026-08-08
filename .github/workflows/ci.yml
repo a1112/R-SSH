@@ -230,7 +230,7 @@ jobs:
           sudo chmod 0755 "$policy_path"
           sudo apt-get update
           sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
-            openssh-client openssh-server xvfb weston
+            libxkbcommon-x11-0 openssh-client openssh-server weston xvfb
 
       - name: Build, validate version --json, and run native E2E
         if: runner.os == 'Windows'

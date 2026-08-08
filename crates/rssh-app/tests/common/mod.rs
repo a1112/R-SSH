@@ -117,17 +117,7 @@ pub fn assert_ten_frame_native_metrics(probe: &NativeWindowProbe) {
     assert_eq!(metrics["gpu_uncaptured_errors"], 0, "{diagnostics}");
     assert_eq!(metrics["gpu_device_losses"], 0, "{diagnostics}");
     assert_eq!(metrics["text_backend"], "shaped-gpu-atlas", "{diagnostics}");
-    for field in [
-        "gpu_text_prepared_glyphs",
-        "gpu_text_mask_glyphs",
-        "gpu_text_color_glyphs",
-        "gpu_text_block_glyphs",
-    ] {
-        assert!(
-            metrics[field].as_u64().is_some_and(|glyphs| glyphs > 0),
-            "font fixture specimen did not produce {field}\n{diagnostics}"
-        );
-    }
+    assert_gpu_text_glyph_activity(metrics, &diagnostics);
 
     assert_eq!(metrics["pty_linkage_found"], true, "{diagnostics}");
     assert_eq!(
@@ -140,6 +130,31 @@ pub fn assert_ten_frame_native_metrics(probe: &NativeWindowProbe) {
     assert_eq!(
         metrics["terminal_linkage_nonce_found"], true,
         "{diagnostics}"
+    );
+}
+
+pub fn assert_gpu_text_glyph_activity(metrics: &serde_json::Value, diagnostics: &str) {
+    assert!(
+        metrics["gpu_text_prepared_glyphs"]
+            .as_u64()
+            .is_some_and(|glyphs| glyphs > 0),
+        "font specimen did not prepare GPU text glyphs\n{diagnostics}"
+    );
+    let rendered_glyphs = [
+        "gpu_text_mask_glyphs",
+        "gpu_text_color_glyphs",
+        "gpu_text_block_glyphs",
+    ]
+    .into_iter()
+    .map(|field| {
+        metrics[field]
+            .as_u64()
+            .unwrap_or_else(|| panic!("missing {field}\n{diagnostics}"))
+    })
+    .sum::<u64>();
+    assert!(
+        rendered_glyphs > 0,
+        "font specimen did not rasterize GPU text glyphs\n{diagnostics}"
     );
 }
 

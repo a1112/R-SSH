@@ -190,6 +190,7 @@ impl WindowGpu {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn present(
         &mut self,
         window: &Window,

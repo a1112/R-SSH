@@ -92350,7 +92350,7 @@ impl NativeWindowApp {
     /// Keeps the native IME candidate window anchored to the active terminal
     /// cell.  winit expects physical client-area coordinates and converts them
     /// to the platform's logical coordinate system (including macOS's Retina
-    /// scale) before asking AppKit for the candidate rectangle.
+    /// scale) before asking `AppKit` for the candidate rectangle.
     fn update_ime_cursor_area(&self) {
         if !self.use_ime {
             self.last_ime_cursor_area.set(None);
@@ -96275,7 +96275,7 @@ impl NativeWindowApp {
                     .with_cells_mapped(|mut cell| {
                         let color = self
                             .visual_bell_color
-                            .unwrap_or_else(|| match cell.foreground {
+                            .unwrap_or(match cell.foreground {
                                 Color::Default => self.foreground_color,
                                 color => color,
                             });
@@ -98879,7 +98879,7 @@ impl NativeWindowApp {
                     // diagnostic index/pane-count prefix from the default
                     // visual treatment.  Explicit tab formatting remains
                     // untouched because it disables this modern path.
-                    label.prefix = "  ".to_owned();
+                    "  ".clone_into(&mut label.prefix);
                     label.suffix = if self.show_close_tab_button_in_tabs {
                         if active {
                             // Give the focused tab a wider surface so it reads
@@ -98890,12 +98890,10 @@ impl NativeWindowApp {
                         } else {
                             " ×  ".to_owned()
                         }
+                    } else if active {
+                        "      ".to_owned()
                     } else {
-                        if active {
-                            "      ".to_owned()
-                        } else {
-                            "  ".to_owned()
-                        }
+                        "  ".to_owned()
                     };
                 }
                 let allocated_title_width = if first_pass_title_width == 0 {
@@ -99312,8 +99310,9 @@ impl NativeWindowApp {
             .panes()
             .iter()
             .find(|pane| pane.id() == tab.active_pane_id())
-            .map(|pane| compact_terminal_tab_title(pane.launch().program()) == compact_title)
-            .unwrap_or(false);
+            .is_some_and(|pane| {
+                compact_terminal_tab_title(pane.launch().program()) == compact_title
+            });
         if is_default_shell_title
             && matches!(compact_title.as_str(), "Command Prompt" | "PowerShell")
         {
@@ -102157,6 +102156,7 @@ impl NativeWindowApp {
         self.spawn_pane_runtime_for_pane(self.app_shell.active_pane_id())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn spawn_pane_runtime_for_pane(
         &mut self,
         pane_id: rssh_core::PaneId,
@@ -133561,6 +133561,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
