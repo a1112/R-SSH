@@ -352,12 +352,22 @@ mod tests {
             let mut session =
                 WebPtySession::spawn(&command, TerminalDimensions { cols: 80, rows: 24 }).unwrap();
             let mut output = Vec::new();
+            let mut answered_cursor_query = false;
             let deadline = tokio::time::sleep(Duration::from_secs(3));
             tokio::pin!(deadline);
             loop {
                 tokio::select! {
                     event = session.events().recv() => match event {
-                        Some(SessionEvent::Output(bytes)) => output.extend(bytes),
+                        Some(SessionEvent::Output(bytes)) => {
+                            output.extend(bytes);
+                            if cfg!(windows)
+                                && !answered_cursor_query
+                                && output.windows(4).any(|window| window == b"\x1b[6n")
+                            {
+                                session.try_send_input(b"\x1b[1;1R".to_vec()).unwrap();
+                                answered_cursor_query = true;
+                            }
+                        }
                         Some(SessionEvent::Exit(status)) => {
                             assert!(status.success());
                             break;

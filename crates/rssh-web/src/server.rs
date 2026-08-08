@@ -793,7 +793,14 @@ mod tests {
         } else {
             b"printf web-socket-test\nexit\n".to_vec()
         };
-        socket.send(Message::Binary(input.into())).await.unwrap();
+        let mut input_sent = false;
+        if !cfg!(windows) {
+            socket
+                .send(Message::Binary(input.clone().into()))
+                .await
+                .unwrap();
+            input_sent = true;
+        }
         let mut output = Vec::new();
         let mut saw_exit = false;
         while let Some(message) = time::timeout(Duration::from_secs(3), socket.next())
@@ -801,7 +808,23 @@ mod tests {
             .unwrap()
         {
             match message.unwrap() {
-                Message::Binary(bytes) => output.extend_from_slice(&bytes),
+                Message::Binary(bytes) => {
+                    output.extend_from_slice(&bytes);
+                    if cfg!(windows)
+                        && !input_sent
+                        && output.windows(4).any(|window| window == b"\x1b[6n")
+                    {
+                        socket
+                            .send(Message::Binary(b"\x1b[1;1R".to_vec().into()))
+                            .await
+                            .unwrap();
+                        socket
+                            .send(Message::Binary(input.clone().into()))
+                            .await
+                            .unwrap();
+                        input_sent = true;
+                    }
+                }
                 Message::Text(text) if text.contains("\"exit\"") => {
                     saw_exit = true;
                     break;
@@ -809,6 +832,7 @@ mod tests {
                 _ => {}
             }
         }
+        assert!(input_sent, "terminal never became ready for input");
         assert!(saw_exit, "websocket never delivered PTY exit message");
         assert!(String::from_utf8_lossy(&output).contains("web-socket-test"));
         drop(socket);
