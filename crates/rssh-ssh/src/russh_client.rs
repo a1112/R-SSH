@@ -311,7 +311,7 @@ impl RusshChannelStartupPlan {
             }
             SshSessionStartup::Command(command) => {
                 requests.push(RusshChannelStartupRequest::Exec {
-                    command: command.join(" "),
+                    command: encode_posix_remote_command(command),
                 });
             }
             SshSessionStartup::NoShell => {}
@@ -324,6 +324,26 @@ impl RusshChannelStartupPlan {
     pub fn requests(&self) -> &[RusshChannelStartupRequest] {
         &self.requests
     }
+}
+
+fn encode_posix_remote_command(arguments: &[String]) -> String {
+    arguments
+        .iter()
+        .map(|argument| {
+            let mut quoted = String::with_capacity(argument.len() + 2);
+            quoted.push('\'');
+            for character in argument.chars() {
+                if character == '\'' {
+                    quoted.push_str("'\"'\"'");
+                } else {
+                    quoted.push(character);
+                }
+            }
+            quoted.push('\'');
+            quoted
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

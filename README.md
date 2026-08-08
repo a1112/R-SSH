@@ -320,6 +320,12 @@ cargo test -p rssh-ssh
 `window -e <program> [args...]`, `start <program> [args...]`, or
 `start -e <program> [args...]` starts a custom command inside the native window;
 without an explicit program, the native window starts the platform default shell.
+On Windows, extensionless commands may resolve to `.cmd`, `.bat`, or `.ps1`
+wrappers. R-SSH rejects `.cmd`/`.bat` paths and arguments containing `cmd.exe`
+metacharacters because Windows cannot preserve untrusted batch arguments
+reliably; use a native executable or a PowerShell script when those characters
+are data. Explicit `.ps1` launches are non-interactive and honor the machine's
+configured PowerShell execution policy.
 Use `window --log PATH` to write visible native-window terminal output to a
 session log file.
 `console` is the explicit console-hosted startup path; `local` remains a
@@ -529,6 +535,11 @@ SSH config; `--user`, `--port`, `--password`, and `--key` can still override
 the generated OpenSSH command when needed.
 Add `-- <command> [args...]` after the SSH options to run a remote command
 instead of opening the default interactive shell.
+The native `russh` backend treats this form as an argument vector and quotes
+each token for the remote POSIX shell, so spaces and shell metacharacters remain
+part of the original argument. To request pipelines, redirections, or other
+shell syntax deliberately, invoke a shell explicitly, for example
+`-- sh -lc 'printf "%s\n" "$HOME" | head -1'`.
 Use `--local-forward`, `--remote-forward`, or `--dynamic-forward` with OpenSSH
 forward specs for tunnels. Add `--no-shell` when the session should only keep
 the tunnel open. The OpenSSH short aliases `-L`, `-R`, `-D`, and `-N` work on
