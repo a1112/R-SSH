@@ -24,8 +24,7 @@ pub const READER_DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 // Real ConPTY sessions can interfere when the Rust test harness starts them
 // simultaneously, so crate-level PTY integration probes share this lock.
 #[cfg(test)]
-pub(crate) static PTY_TEST_LOCK: tokio::sync::Mutex<()> =
-    tokio::sync::Mutex::const_new(());
+pub(crate) static PTY_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Debug)]
 pub enum SessionEvent {
