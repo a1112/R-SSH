@@ -1430,7 +1430,7 @@ mod tests {
         });
 
         let remote_output = output_rx.recv_timeout(Duration::from_millis(250));
-        input_tx.send(SshInputEvent::Eof).unwrap();
+        let _ = input_tx.send(SshInputEvent::Eof);
         done_rx
             .recv_timeout(Duration::from_secs(1))
             .expect("shell runner did not finish after input EOF")

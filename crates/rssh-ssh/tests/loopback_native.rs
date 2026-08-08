@@ -233,7 +233,7 @@ fn native_connect_auth_and_channel_open_share_one_total_operation_deadline() {
 #[test]
 fn native_channel_read_and_missing_eof_have_a_bounded_inactivity_deadline() {
     let server = HermeticSshServer::builder()
-        .stalled_command("native-stalled-output")
+        .stalled_command("'native-stalled-output'")
         .start(DEADLINE)
         .expect("start stalled-output fixture");
     let probe = server.task_probe();
@@ -290,7 +290,7 @@ fn default_channel_reader_allows_legitimate_silence_before_output() {
 fn native_exec_and_shell_preserve_pty_resize_output_and_exit_status() {
     let server = HermeticSshServer::builder()
         .command(
-            "native-status",
+            "'native-status'",
             CommandResponse::status(b"native-stdout", b"", 42),
         )
         .start(DEADLINE)
