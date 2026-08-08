@@ -133777,6 +133777,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
         self.shutdown_gpu_for_window_close();
     }
 
+    #[allow(clippy::too_many_lines)]
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -253113,11 +253114,13 @@ act.Confirmation {
     }
 
     fn default_effective_config() -> NativeEffectiveConfig {
-        let mut resolved_palette = NativeResolvedPalette::default();
-        resolved_palette.foreground = super::LEGACY_TEST_FOREGROUND_COLOR;
-        resolved_palette.background = super::LEGACY_TEST_BACKGROUND_COLOR;
-        resolved_palette.cursor_fg = super::LEGACY_TEST_CURSOR_FG_COLOR;
-        resolved_palette.cursor_bg = super::LEGACY_TEST_CURSOR_BG_COLOR;
+        let resolved_palette = NativeResolvedPalette {
+            foreground: super::LEGACY_TEST_FOREGROUND_COLOR,
+            background: super::LEGACY_TEST_BACKGROUND_COLOR,
+            cursor_fg: super::LEGACY_TEST_CURSOR_FG_COLOR,
+            cursor_bg: super::LEGACY_TEST_CURSOR_BG_COLOR,
+            ..NativeResolvedPalette::default()
+        };
 
         NativeEffectiveConfig {
             dpi: super::DEFAULT_WINDOW_DPI,

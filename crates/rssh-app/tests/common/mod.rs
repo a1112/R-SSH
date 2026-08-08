@@ -3,7 +3,8 @@ use std::{fmt::Write as _, path::Path, process::Command, time::Duration};
 use rssh_test_support::{ChildGuard, ChildOutput, platform_marker_command};
 
 const PROCESS_DEADLINE: Duration = Duration::from_secs(30);
-const DETERMINISTIC_PAYLOAD: &str = "rssh-task24-native-e2e|office 中 مرحبا नमस्ते שלום 😀 █";
+// Keep the framed marker below 80 columns so ConPTY does not inject a line wrap.
+const DETERMINISTIC_PAYLOAD: &str = "rssh-e2e|office 中 مرحبا नमस्ते שלום 😀 █";
 const PTY_LINK_BEGIN: &str = "RSSH-LINK-BEGIN|";
 const PTY_LINK_END: &str = "|RSSH-LINK-END";
 const STACK_OVERFLOW_MESSAGE: &str = "overflowed its stack";

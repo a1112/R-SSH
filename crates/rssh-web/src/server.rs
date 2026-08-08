@@ -101,6 +101,11 @@ impl WebServer {
 
     #[cfg(test)]
     #[must_use]
+    /// Returns the bound listener address.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the already-bound listener no longer exposes its local address.
     pub fn local_addr(&self) -> SocketAddr {
         self.listener
             .local_addr()
