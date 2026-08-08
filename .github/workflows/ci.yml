@@ -377,6 +377,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
         with:
           components: llvm-tools-preview
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - name: Install Linux native dependencies
         run: |
           sudo apt-get update
@@ -389,6 +394,10 @@ jobs:
             libxdo-dev \
             librsvg2-dev \
             xvfb
+      - name: Build Web assets for Tauri resources
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
       - name: Generate and enforce coverage
         run: |
           cargo install cargo-llvm-cov --version 0.8.7 --locked
