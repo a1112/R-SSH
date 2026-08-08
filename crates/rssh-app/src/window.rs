@@ -92288,6 +92288,10 @@ impl NativeWindowApp {
             self.renderer
                 .prepare_gpu_frame(&snapshot, geometry, scrollbar, damage_row_offset);
         self.metrics.record_terminal_linkage_snapshot(&snapshot);
+        if self.frame_limit_probe_ready() {
+            event_loop.exit();
+            return;
+        }
         let gpu_dpi_scale = self.gpu_dpi_scale();
 
         let outcome = if let (Some(gpu), Some(window)) = (self.gpu.as_mut(), self.window.as_ref()) {
@@ -92339,10 +92343,7 @@ impl NativeWindowApp {
             let _ = window.request_inner_size(size);
             window.request_redraw();
         }
-        if self
-            .frame_limit
-            .is_some_and(|limit| self.rendered_frames >= limit)
-        {
+        if self.frame_limit_probe_ready() {
             event_loop.exit();
         }
     }
@@ -92502,6 +92503,17 @@ impl NativeWindowApp {
     fn frame_limit_redraw_pending(&self) -> bool {
         self.frame_limit
             .is_some_and(|limit| self.rendered_frames < limit)
+    }
+
+    fn frame_limit_probe_ready(&self) -> bool {
+        self.frame_limit
+            .is_some_and(|limit| self.rendered_frames >= limit)
+            && (!self.metrics.pty_linkage_enabled
+                || self.metrics.terminal_linkage_nonce_found)
+    }
+
+    fn frame_limit_probe_pending(&self) -> bool {
+        self.frame_limit.is_some() && !self.frame_limit_probe_ready()
     }
 
     fn frame_limit_redraw_deadline(&self, now: Instant) -> Option<Instant> {
@@ -106079,12 +106091,13 @@ impl NativeWindowApp {
     }
 
     fn defer_automatic_close_for_frame_limit(&mut self, close_window: bool) -> bool {
-        if close_window && self.frame_limit_redraw_pending() {
+        if close_window && self.frame_limit_probe_pending() {
             // `--frames` is a bounded presentation/probe contract. A short
-            // child can exit before Metal presents the requested frames, so
-            // keep the last pane/window alive until `draw_frame` reaches the
-            // limit. Normal application sessions have no frame limit and keep
-            // their configured exit behavior unchanged.
+            // child can exit before the requested frames are presented or a
+            // requested PTY linkage marker reaches the terminal snapshot, so
+            // keep the last pane/window alive until both conditions hold.
+            // Normal application sessions have no frame limit and keep their
+            // configured exit behavior unchanged.
             let _ = self.take_window_close_request();
             return false;
         }
@@ -134528,6 +134541,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "windows")]
     fn modern_default_window_controls_use_bright_foreground() {
         let app = NativeWindowApp::new_with_visual_defaults(None);
         let snapshot = app.render_snapshot();
@@ -134546,6 +134560,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "windows")]
     fn modern_default_window_controls_use_surface_on_hover() {
         let mut app = NativeWindowApp::new_with_visual_defaults(None);
         let snapshot = app.render_snapshot();
@@ -134588,6 +134603,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "windows")]
     fn modern_default_active_tab_paints_breathing_room_without_moving_hits() {
         let mut app = NativeWindowApp::new_with_visual_defaults(None);
         app.handle_pty_output(b"\x1b]2;Command Prompt\x07")
@@ -177336,10 +177352,10 @@ return config
 
     #[test]
     fn window_app_interpolates_session_hostname_in_iterm_badge_format() {
-        let expected_host = std::env::var("COMPUTERNAME")
-            .or_else(|_| std::env::var("HOSTNAME"))
-            .expect("test requires COMPUTERNAME or HOSTNAME");
-        let expected_suffix = format!(" host: {expected_host} ");
+        let expected_suffix = local_host_name().map_or_else(
+            || " host: ".to_owned(),
+            |host| format!(" host: {host} "),
+        );
         let mut app = NativeWindowApp::new(None);
 
         app.handle_pty_output(
@@ -178825,9 +178841,10 @@ return config
 
     #[test]
     fn window_app_interpolates_iterm2_localhost_name_in_iterm_badge_format() {
-        let expected_host = std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME"));
-        let expected_host = expected_host.expect("test requires COMPUTERNAME or HOSTNAME");
-        let expected_suffix = format!(" local: {expected_host} ");
+        let expected_suffix = local_host_name().map_or_else(
+            || " local: ".to_owned(),
+            |host| format!(" local: {host} "),
+        );
         let mut app = NativeWindowApp::new(None);
 
         app.handle_pty_output(
@@ -264697,6 +264714,21 @@ act.Confirmation {
         assert!(!app.defer_automatic_close_for_frame_limit(close_window));
         assert!(!app.window_close_requested_for_test());
         assert!(app.frame_limit_redraw_pending());
+    }
+
+    #[test]
+    fn window_app_frame_limit_waits_for_requested_linkage_after_limit() {
+        let mut app = NativeWindowApp::new(Some(10));
+        app.metrics.pty_linkage_enabled = true;
+        app.rendered_frames = 10;
+
+        assert!(!app.frame_limit_probe_ready());
+        assert!(app.frame_limit_probe_pending());
+
+        app.metrics.terminal_linkage_nonce_found = true;
+
+        assert!(app.frame_limit_probe_ready());
+        assert!(!app.frame_limit_probe_pending());
     }
 
     #[test]
