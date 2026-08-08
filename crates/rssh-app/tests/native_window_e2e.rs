@@ -1,14 +1,20 @@
 mod common;
 
-use std::{env, fs, path::PathBuf};
+use std::{
+    env, fs,
+    path::PathBuf,
+    sync::{Mutex, MutexGuard},
+};
 
 #[cfg(target_os = "windows")]
 use std::process::Command;
 
 const RSSH_APP_EXECUTABLE: &str = env!("CARGO_BIN_EXE_rssh-app");
+static NATIVE_WINDOW_E2E_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn native_window_e2e_presents_ten_frames_from_a_real_pty() {
+    let _native_window = native_window_e2e_guard();
     let executable = packaged_or_cargo_app_executable();
     let probe = common::run_ten_frame_native_window(&executable);
 
@@ -17,6 +23,7 @@ fn native_window_e2e_presents_ten_frames_from_a_real_pty() {
 
 #[test]
 fn native_window_e2e_preserves_gpu_text_at_windows_scale_factors() {
+    let _native_window = native_window_e2e_guard();
     let executable = packaged_or_cargo_app_executable();
     for scale_factor in [1.0, 1.25, 1.5, 2.0] {
         let probe = common::run_ten_frame_native_window_at_scale(&executable, Some(scale_factor));
@@ -28,6 +35,7 @@ fn native_window_e2e_preserves_gpu_text_at_windows_scale_factors() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn native_window_e2e_uses_borderless_integrated_titlebar() {
+    let _native_window = native_window_e2e_guard();
     let executable = packaged_or_cargo_app_executable();
     let script = r#"
 $ErrorActionPreference = 'Stop'
@@ -136,6 +144,12 @@ try {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn native_window_e2e_guard() -> MutexGuard<'static, ()> {
+    NATIVE_WINDOW_E2E_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn packaged_or_cargo_app_executable() -> PathBuf {
