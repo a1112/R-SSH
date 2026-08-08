@@ -44,17 +44,13 @@ using System;
 using System.Text;
 using System.Runtime.InteropServices;
 public static class RsshWindowStyleProbe {
-  private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
   [StructLayout(LayoutKind.Sequential)] private struct RECT {
     public int Left;
     public int Top;
     public int Right;
     public int Bottom;
   }
-  [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
-  [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
-  [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
   [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
   [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
   [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT point);
@@ -63,45 +59,39 @@ public static class RsshWindowStyleProbe {
     public int X;
     public int Y;
   }
-  public static bool TryGetMainWindowFrame(uint targetProcessId, out bool clientFillsWindow, out string description) {
-    bool fillsWindow = false;
-    bool matched = false;
-    string foundDescription = "";
-    EnumWindows((hWnd, _) => {
-      uint processId;
-      GetWindowThreadProcessId(hWnd, out processId);
-      if (processId != targetProcessId || !IsWindowVisible(hWnd)) {
-        return true;
-      }
-      RECT rect;
-      GetWindowRect(hWnd, out rect);
-      if (rect.Right - rect.Left < 100 || rect.Bottom - rect.Top < 100) {
-        return true;
-      }
-      RECT clientRect;
-      GetClientRect(hWnd, out clientRect);
-      var clientOrigin = new POINT();
-      ClientToScreen(hWnd, ref clientOrigin);
-      var windowWidth = rect.Right - rect.Left;
-      var windowHeight = rect.Bottom - rect.Top;
-      var clientWidth = clientRect.Right - clientRect.Left;
-      var clientHeight = clientRect.Bottom - clientRect.Top;
-      fillsWindow = clientOrigin.X == rect.Left
-        && clientOrigin.Y == rect.Top
-        && clientWidth == windowWidth
-        && clientHeight == windowHeight;
-      var title = new StringBuilder(512);
-      GetWindowText(hWnd, title, title.Capacity);
-      var style = GetWindowLongPtr(hWnd, -16).ToInt64();
-      foundDescription = string.Format("hwnd=0x{0:x} style=0x{1:x8} title={2} window={3},{4},{5},{6} client-origin={7},{8} client={9},{10}",
-        hWnd.ToInt64(), style, title, rect.Left, rect.Top, rect.Right, rect.Bottom,
-        clientOrigin.X, clientOrigin.Y, clientWidth, clientHeight);
-      matched = true;
+  public static bool TryGetWindowFrame(IntPtr hWnd, out bool clientFillsWindow, out string description) {
+    clientFillsWindow = false;
+    description = "";
+    if (hWnd == IntPtr.Zero) {
       return false;
-    }, IntPtr.Zero);
-    clientFillsWindow = fillsWindow;
-    description = foundDescription;
-    return matched;
+    }
+    RECT rect;
+    if (!GetWindowRect(hWnd, out rect) || rect.Right - rect.Left < 100 || rect.Bottom - rect.Top < 100) {
+      return false;
+    }
+    RECT clientRect;
+    if (!GetClientRect(hWnd, out clientRect)) {
+      return false;
+    }
+    var clientOrigin = new POINT();
+    if (!ClientToScreen(hWnd, ref clientOrigin)) {
+      return false;
+    }
+    var windowWidth = rect.Right - rect.Left;
+    var windowHeight = rect.Bottom - rect.Top;
+    var clientWidth = clientRect.Right - clientRect.Left;
+    var clientHeight = clientRect.Bottom - clientRect.Top;
+    clientFillsWindow = clientOrigin.X == rect.Left
+      && clientOrigin.Y == rect.Top
+      && clientWidth == windowWidth
+      && clientHeight == windowHeight;
+    var title = new StringBuilder(512);
+    GetWindowText(hWnd, title, title.Capacity);
+    var style = GetWindowLongPtr(hWnd, -16).ToInt64();
+    description = string.Format("hwnd=0x{0:x} style=0x{1:x8} title={2} window={3},{4},{5},{6} client-origin={7},{8} client={9},{10}",
+      hWnd.ToInt64(), style, title, rect.Left, rect.Top, rect.Right, rect.Bottom,
+      clientOrigin.X, clientOrigin.Y, clientWidth, clientHeight);
+    return true;
   }
 }
 '@
@@ -114,7 +104,8 @@ try {
   do {
     $clientFillsWindow = $false
     $description = ''
-    if ([RsshWindowStyleProbe]::TryGetMainWindowFrame([uint32]$process.Id, [ref]$clientFillsWindow, [ref]$description)) {
+    $process.Refresh()
+    if ([RsshWindowStyleProbe]::TryGetWindowFrame($process.MainWindowHandle, [ref]$clientFillsWindow, [ref]$description)) {
       if ($clientFillsWindow) {
         exit 0
       }
