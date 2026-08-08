@@ -736,6 +736,10 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the full WebSocket and PTY protocol round trip belongs in one integration test"
+    )]
     async fn authenticated_websocket_round_trips_a_real_pty() {
         let server = WebServer::bind(WebServerConfig {
             listen: "127.0.0.1:0".parse().unwrap(),
