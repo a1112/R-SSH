@@ -35,13 +35,13 @@ pub struct IdentityFixture {
 }
 
 impl IdentityFixture {
-    /// Generates a runtime RSA identity and encrypts its OpenSSH private-key file.
+    /// Generates a runtime Ed25519 identity and encrypts its OpenSSH private-key file.
     ///
     /// # Errors
     ///
     /// Returns an error if key generation, encryption, temporary storage, encoding,
     /// writing, or private-key permission setup fails.
-    pub fn runtime_rsa_encrypted(passphrase: impl Into<String>) -> io::Result<Self> {
+    pub fn runtime_ed25519_encrypted(passphrase: impl Into<String>) -> io::Result<Self> {
         let passphrase = passphrase.into();
         if passphrase.is_empty() {
             return Err(io::Error::new(
@@ -50,17 +50,21 @@ impl IdentityFixture {
             ));
         }
         let directory = tempfile::Builder::new()
-            .prefix("rssh-rsa-identity-")
+            .prefix("rssh-ed25519-identity-")
             .tempdir()?;
-        let private_key = PrivateKey::random(&mut rand::rng(), Algorithm::Rsa { hash: None })
-            .map_err(|error| io::Error::other(format!("generate fixture RSA identity: {error}")))?;
+        let private_key =
+            PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).map_err(|error| {
+                io::Error::other(format!("generate fixture Ed25519 identity: {error}"))
+            })?;
         let encrypted = private_key
             .encrypt(&mut rand::rng(), passphrase.as_bytes())
-            .map_err(|error| io::Error::other(format!("encrypt fixture RSA identity: {error}")))?;
-        let encoded = encrypted
-            .to_openssh(LineEnding::LF)
-            .map_err(|error| io::Error::other(format!("encode fixture RSA identity: {error}")))?;
-        let identity_path = directory.path().join("id_rsa");
+            .map_err(|error| {
+                io::Error::other(format!("encrypt fixture Ed25519 identity: {error}"))
+            })?;
+        let encoded = encrypted.to_openssh(LineEnding::LF).map_err(|error| {
+            io::Error::other(format!("encode fixture Ed25519 identity: {error}"))
+        })?;
+        let identity_path = directory.path().join("id_ed25519");
         std::fs::write(&identity_path, encoded.as_bytes())?;
         restrict_private_key_permissions(&identity_path)?;
         Ok(Self {
@@ -387,19 +391,16 @@ mod tests {
     use super::{AgentFixture, Algorithm, PrivateKey};
 
     #[test]
-    fn runtime_rsa_identity_exposes_encrypted_key_material() {
-        let identity = super::IdentityFixture::runtime_rsa_encrypted("fixture-passphrase")
-            .expect("generate encrypted RSA identity");
-        assert!(matches!(
-            identity.public_key().algorithm(),
-            Algorithm::Rsa { .. }
-        ));
+    fn runtime_ed25519_identity_exposes_encrypted_key_material() {
+        let identity = super::IdentityFixture::runtime_ed25519_encrypted("fixture-passphrase")
+            .expect("generate encrypted Ed25519 identity");
+        assert_eq!(identity.public_key().algorithm(), Algorithm::Ed25519);
         assert_eq!(identity.passphrase(), Some("fixture-passphrase"));
         let encrypted = std::fs::read_to_string(identity.identity_path()).unwrap();
         assert!(encrypted.contains("BEGIN OPENSSH PRIVATE KEY"));
         let decrypted =
             russh::keys::load_secret_key(identity.identity_path(), identity.passphrase())
-                .expect("decrypt generated RSA identity");
+                .expect("decrypt generated Ed25519 identity");
         assert_eq!(decrypted.public_key(), identity.public_key());
     }
 

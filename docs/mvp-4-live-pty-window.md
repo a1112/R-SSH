@@ -111,9 +111,11 @@ in the native `winit` window.
   52 (`ESC]52;...`), UTF-8 C1 OSC/ST (`U+009D`/`U+009C`), and legacy raw C1 OSC
   52 (`0x9d52;...`) forms. OSC 52-like bytes embedded inside unrelated OSC or
   ST-terminated control-string payloads are ignored by the clipboard tracker,
-  including split payloads.
+  including split payloads. Decoded clipboard writes larger than 1 MiB are
+  rejected before reaching the system clipboard.
 - `rssh-app window --osc52 off|write|read-write` controls whether PTY-side
   OSC 52 clipboard writes and read queries are allowed; the default is `write`.
+  Remote `rssh-app ssh` sessions use the stricter `off` default.
 - The native window supports basic local text selection when PTY mouse
   reporting is inactive; selected text is highlighted and can be copied with
   `Ctrl+Shift+C` or `Ctrl+Insert`. A double click selects the contiguous

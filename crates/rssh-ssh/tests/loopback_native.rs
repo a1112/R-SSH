@@ -58,12 +58,12 @@ fn read_channel(
 }
 
 #[test]
-fn native_authentication_matrix_accepts_password_and_encrypted_rsa_and_rejects_bad_password() {
-    let rsa = IdentityFixture::runtime_rsa_encrypted("native-rsa-passphrase")
-        .expect("generate encrypted RSA identity");
+fn native_authentication_matrix_accepts_password_and_encrypted_ed25519_and_rejects_bad_password() {
+    let identity = IdentityFixture::runtime_ed25519_encrypted("native-ed25519-passphrase")
+        .expect("generate encrypted Ed25519 identity");
     let server = HermeticSshServer::builder()
         .password("password-user", "correct-password")
-        .authorize_public_key(rsa.public_key().clone())
+        .authorize_public_key(identity.public_key().clone())
         .start(DEADLINE)
         .expect("start SSH fixture");
     let mut opener = trusted_opener(&server);
@@ -84,17 +84,17 @@ fn native_authentication_matrix_accepts_password_and_encrypted_rsa_and_rejects_b
         .with_startup(SshSessionStartup::NoShell);
     assert!(opener.open_channel(rejected).is_err());
 
-    let rsa_request = SshConnectRequest::private_key(
-        config(&server, "rsa-user"),
-        rsa.identity_path(),
-        rsa.passphrase().map(str::to_owned),
+    let key_request = SshConnectRequest::private_key(
+        config(&server, "ed25519-user"),
+        identity.identity_path(),
+        identity.passphrase().map(str::to_owned),
     )
-    .expect("build RSA request")
+    .expect("build Ed25519 request")
     .with_startup(SshSessionStartup::NoShell);
-    let mut rsa_channel = opener
-        .open_channel(rsa_request)
-        .expect("encrypted RSA authentication");
-    rsa_channel.close_channel().expect("close RSA channel");
+    let mut key_channel = opener
+        .open_channel(key_request)
+        .expect("encrypted Ed25519 authentication");
+    key_channel.close_channel().expect("close Ed25519 channel");
 
     server.stop(DEADLINE).expect("stop SSH fixture");
 }
@@ -170,7 +170,7 @@ fn native_connect_auth_and_channel_open_share_one_total_operation_deadline() {
         let (_connection, _) = listener.accept().expect("accept stalled SSH client");
         let _ = stop_rx.recv_timeout(DEADLINE);
     });
-    let identity = IdentityFixture::runtime_rsa_encrypted("stalled-listener-key")
+    let identity = IdentityFixture::runtime_ed25519_encrypted("stalled-listener-key")
         .expect("create isolated client key");
     let stalled_request = SshConnectRequest::private_key(
         SshSessionConfig::new(

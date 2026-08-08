@@ -1,8 +1,8 @@
 use std::{
     net::{IpAddr, SocketAddr},
     path::{Component, Path, PathBuf},
-    sync::Arc,
-    time::Duration,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use axum::{
@@ -29,6 +29,8 @@ use crate::{
 
 pub const DEFAULT_MAX_SESSIONS: usize = 8;
 const BOOTSTRAP_TOKEN_BYTES: usize = 32;
+const SESSION_TOKEN_BYTES: usize = 32;
+const BOOTSTRAP_TTL: Duration = Duration::from_secs(60);
 const SESSION_ID_BYTES: usize = 16;
 const OPEN_TIMEOUT: Duration = Duration::from_secs(5);
 const SOCKET_SEND_TIMEOUT: Duration = Duration::from_secs(2);
@@ -46,7 +48,7 @@ pub struct WebServerConfig {
 #[derive(Clone)]
 struct WebAppState {
     web_root: Arc<PathBuf>,
-    auth_token: Arc<str>,
+    auth: Arc<AuthState>,
     host: Arc<str>,
     origin: Arc<str>,
     sessions: Arc<Semaphore>,
@@ -55,6 +57,69 @@ struct WebAppState {
 pub struct WebServer {
     listener: TcpListener,
     state: WebAppState,
+    bootstrap_token: Arc<str>,
+}
+
+#[derive(Debug)]
+struct AuthState {
+    tokens: Mutex<AuthTokens>,
+}
+
+#[derive(Debug)]
+struct AuthTokens {
+    bootstrap: Option<BootstrapTicket>,
+    session_token: Option<String>,
+}
+
+#[derive(Debug)]
+struct BootstrapTicket {
+    token: Arc<str>,
+    expires_at: Instant,
+}
+
+impl AuthState {
+    fn new(token: Arc<str>, expires_at: Instant) -> Self {
+        Self {
+            tokens: Mutex::new(AuthTokens {
+                bootstrap: Some(BootstrapTicket { token, expires_at }),
+                session_token: None,
+            }),
+        }
+    }
+
+    fn redeem(&self, candidate: &str, now: Instant) -> Option<String> {
+        let mut tokens = self.lock_tokens();
+        let ticket = tokens.bootstrap.as_ref()?;
+        if now >= ticket.expires_at
+            || !constant_time_equal(candidate.as_bytes(), ticket.token.as_bytes())
+        {
+            return None;
+        }
+
+        tokens.bootstrap = None;
+        let session_token = generate_token(SESSION_TOKEN_BYTES);
+        tokens.session_token = Some(session_token.clone());
+        Some(session_token)
+    }
+
+    fn matches_session(&self, candidate: &str) -> bool {
+        self.lock_tokens()
+            .session_token
+            .as_deref()
+            .is_some_and(|token| constant_time_equal(candidate.as_bytes(), token.as_bytes()))
+    }
+
+    fn revoke(&self) {
+        let mut tokens = self.lock_tokens();
+        tokens.bootstrap = None;
+        tokens.session_token = None;
+    }
+
+    fn lock_tokens(&self) -> std::sync::MutexGuard<'_, AuthTokens> {
+        self.tokens
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 impl WebServer {
@@ -78,25 +143,26 @@ impl WebServer {
             .allowed_origin
             .unwrap_or_else(|| format!("http://{host}"))
             .into();
-        let auth_token: Arc<str> = generate_token(BOOTSTRAP_TOKEN_BYTES).into();
+        let bootstrap_token: Arc<str> = generate_token(BOOTSTRAP_TOKEN_BYTES).into();
         Ok(Self {
             listener,
             state: WebAppState {
                 web_root: Arc::new(config.web_root),
-                auth_token,
+                auth: Arc::new(AuthState::new(
+                    bootstrap_token.clone(),
+                    Instant::now() + BOOTSTRAP_TTL,
+                )),
                 host,
                 origin,
                 sessions: Arc::new(Semaphore::new(config.max_sessions)),
             },
+            bootstrap_token,
         })
     }
 
     #[must_use]
     pub fn bootstrap_url(&self) -> String {
-        format!(
-            "http://{}/?token={}",
-            self.state.host, self.state.auth_token
-        )
+        format!("http://{}/?token={}", self.state.host, self.bootstrap_token)
     }
 
     #[cfg(test)]
@@ -130,12 +196,15 @@ impl WebServer {
     where
         F: std::future::Future<Output = ()> + Send + 'static,
     {
+        let auth = self.state.auth.clone();
         let router = app_router(self.state);
         let listener = self.listener;
-        axum::serve(listener, router)
+        let result = axum::serve(listener, router)
             .with_graceful_shutdown(shutdown)
             .await
-            .map_err(ServerError::Io)
+            .map_err(ServerError::Io);
+        auth.revoke();
+        result
     }
 }
 
@@ -157,22 +226,25 @@ async fn root(
     headers: HeaderMap,
 ) -> Response {
     if let Some(token) = query.token.as_deref() {
-        if constant_time_equal(token.as_bytes(), state.auth_token.as_bytes()) {
+        if let Some(session_token) = state.auth.redeem(token, Instant::now()) {
             let mut response = Redirect::temporary("/").into_response();
             response
                 .headers_mut()
-                .insert(header::SET_COOKIE, cookie_header(&state.auth_token));
-            return response;
+                .insert(header::SET_COOKIE, cookie_header(&session_token));
+            return harden_bootstrap_response(response);
         }
-        return error_response(StatusCode::UNAUTHORIZED, "invalid bootstrap token");
+        return harden_bootstrap_response(error_response(
+            StatusCode::UNAUTHORIZED,
+            "invalid or expired bootstrap token",
+        ));
     }
     if !http_authenticated(&headers, &state) {
-        return error_response(
+        return harden_bootstrap_response(error_response(
             StatusCode::UNAUTHORIZED,
             "open the bootstrap URL printed by rssh-web",
-        );
+        ));
     }
-    serve_file(&state.web_root, Path::new("index.html")).await
+    harden_bootstrap_response(serve_file(&state.web_root, Path::new("index.html")).await)
 }
 
 #[derive(Debug, Deserialize)]
@@ -480,7 +552,7 @@ async fn send_error_and_close(
 }
 
 fn http_authenticated(headers: &HeaderMap, state: &WebAppState) -> bool {
-    cookie_matches(headers, &state.auth_token)
+    cookie_matches(headers, &state.auth)
 }
 
 fn websocket_authenticated(headers: &HeaderMap, state: &WebAppState) -> bool {
@@ -492,10 +564,10 @@ fn websocket_authenticated(headers: &HeaderMap, state: &WebAppState) -> bool {
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|origin| origin == state.origin.as_ref());
-    host_matches && origin_matches && cookie_matches(headers, &state.auth_token)
+    host_matches && origin_matches && cookie_matches(headers, &state.auth)
 }
 
-fn cookie_matches(headers: &HeaderMap, token: &str) -> bool {
+fn cookie_matches(headers: &HeaderMap, auth: &AuthState) -> bool {
     let Some(cookie) = headers
         .get(header::COOKIE)
         .and_then(|value| value.to_str().ok())
@@ -505,16 +577,25 @@ fn cookie_matches(headers: &HeaderMap, token: &str) -> bool {
     cookie
         .split(';')
         .filter_map(|part| part.trim().split_once('='))
-        .any(|(name, value)| {
-            name == COOKIE_NAME && constant_time_equal(value.as_bytes(), token.as_bytes())
-        })
+        .any(|(name, value)| name == COOKIE_NAME && auth.matches_session(value))
 }
 
 fn cookie_header(token: &str) -> HeaderValue {
     HeaderValue::from_str(&format!(
         "{COOKIE_NAME}={token}; HttpOnly; Path=/; SameSite=Strict"
     ))
-    .expect("bootstrap token is a valid cookie value")
+    .expect("session token is a valid cookie value")
+}
+
+fn harden_bootstrap_response(mut response: Response) -> Response {
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, max-age=0"),
+    );
+    response
+        .headers_mut()
+        .insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    response
 }
 
 async fn serve_file(root: &Path, relative: &Path) -> Response {
@@ -626,7 +707,8 @@ mod tests {
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
         path::PathBuf,
-        time::Duration,
+        sync::Arc,
+        time::{Duration, Instant},
     };
 
     use axum::http::{HeaderMap, HeaderValue, header};
@@ -643,15 +725,20 @@ mod tests {
     };
 
     use super::{
-        WebAppState, WebServer, WebServerConfig, constant_time_equal, cookie_matches,
+        AuthState, WebAppState, WebServer, WebServerConfig, constant_time_equal, cookie_matches,
         host_for_address, validate_open, websocket_authenticated,
     };
     use crate::protocol::TerminalDimensions;
 
     fn state() -> WebAppState {
+        let auth = Arc::new(AuthState::new(
+            "bootstrap-ticket".into(),
+            Instant::now() + Duration::from_secs(60),
+        ));
+        auth.lock_tokens().session_token = Some("test-token".to_owned());
         WebAppState {
             web_root: PathBuf::from("web/dist").into(),
-            auth_token: "test-token".into(),
+            auth,
             host: "127.0.0.1:7788".into(),
             origin: "http://127.0.0.1:7788".into(),
             sessions: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
@@ -678,12 +765,35 @@ mod tests {
             header::COOKIE,
             HeaderValue::from_static("other=ok; rssh_web_auth=test-token"),
         );
-        assert!(cookie_matches(&headers, &state.auth_token));
+        assert!(cookie_matches(&headers, &state.auth));
         headers.insert(
             header::COOKIE,
             HeaderValue::from_static("rssh_web_auth=wrong"),
         );
-        assert!(!cookie_matches(&headers, &state.auth_token));
+        assert!(!cookie_matches(&headers, &state.auth));
+    }
+
+    #[test]
+    fn bootstrap_ticket_is_single_use_and_rotates_into_a_session_token() {
+        let now = Instant::now();
+        let auth = AuthState::new("bootstrap-ticket".into(), now + Duration::from_secs(60));
+
+        let session_token = auth.redeem("bootstrap-ticket", now).unwrap();
+        assert_ne!(session_token, "bootstrap-ticket");
+        assert!(auth.matches_session(&session_token));
+        assert!(auth.redeem("bootstrap-ticket", now).is_none());
+    }
+
+    #[test]
+    fn invalid_or_expired_bootstrap_ticket_cannot_create_a_session() {
+        let now = Instant::now();
+        let auth = AuthState::new("bootstrap-ticket".into(), now + Duration::from_secs(60));
+        assert!(auth.redeem("wrong-ticket", now).is_none());
+        assert!(
+            auth.redeem("bootstrap-ticket", now + Duration::from_secs(60))
+                .is_none()
+        );
+        assert!(!auth.matches_session("bootstrap-ticket"));
     }
 
     #[test]
@@ -751,7 +861,7 @@ mod tests {
         .unwrap();
         let address = server.local_addr();
         let host = host_for_address(address);
-        let token = server.state.auth_token.to_string();
+        let token = server.bootstrap_token.to_string();
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let server_task = tokio::spawn(async move {
             server
@@ -763,6 +873,10 @@ mod tests {
         });
 
         let cookie = bootstrap_cookie(address, &token).await;
+        assert!(
+            !cookie.ends_with(&token),
+            "bootstrap ticket must not become the session cookie"
+        );
         let mut request = format!("ws://{host}/api/v1/terminal")
             .into_client_request()
             .unwrap();

@@ -1,0 +1,11 @@
+R-SSH
+Copyright (c) R-SSH contributors
+
+This distribution includes locally patched source copies of these projects:
+
+- glyphon 0.12.0, licensed under MIT OR Apache-2.0 OR Zlib.
+- gpu-allocator 0.28.0, licensed under MIT OR Apache-2.0.
+
+Their license texts are retained in the corresponding directories under
+`vendor/`. The complete third-party dependency and license inventory is
+generated from the locked dependency graph by the release workflow.
