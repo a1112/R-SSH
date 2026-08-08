@@ -1229,6 +1229,7 @@ Get-CimInstance Win32_Process | Where-Object { $ids -contains [uint32]$_.Process
         assert!(scanner.buffered_len() < b"\x1b[6n".len());
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn unix_platform_echo_passes_untrusted_text_as_a_positional_argument() {
         let text = "'\";$HOME$(touch nope)`touch nope`\nUnicode: 世界";
@@ -1958,7 +1959,7 @@ impl PtyCommand {
 
         #[cfg(windows)]
         {
-            return Self::new(windows_powershell_program().to_string_lossy())
+            Self::new(windows_powershell_program().to_string_lossy())
                 .with_args([
                     "-NoLogo",
                     "-NoProfile",
@@ -1966,7 +1967,7 @@ impl PtyCommand {
                     "-Command",
                     "[Console]::Out.WriteLine($env:RSSH_PTY_ECHO)",
                 ])
-                .with_env("RSSH_PTY_ECHO", text);
+                .with_env("RSSH_PTY_ECHO", text)
         }
 
         #[cfg(not(windows))]
@@ -1975,6 +1976,7 @@ impl PtyCommand {
         }
     }
 
+    #[cfg(not(windows))]
     fn unix_platform_echo(text: impl Into<String>) -> Self {
         let text = text.into();
         Self::new("/bin/sh").with_args(["-c", "printf '%s\\n' \"$1\"", "--", text.as_str()])

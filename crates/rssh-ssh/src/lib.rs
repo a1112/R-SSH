@@ -2157,7 +2157,7 @@ mod tests {
             plan.requests(),
             &[RusshChannelStartupRequest::Exec {
                 command: "'printf' '%s' 'a b' '\"quoted\"' 'a;b' '$(id)' \
-                          'line1\nline2' '\"'\"'single quote'\"'\"'' ''"
+                          'line1\nline2' ''\"'\"'single quote'\"'\"'' ''"
                     .to_owned(),
             }]
         );
