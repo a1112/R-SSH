@@ -737,6 +737,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn authenticated_websocket_round_trips_a_real_pty() {
+        let _pty_guard = crate::session::PTY_TEST_LOCK.lock().await;
         let server = WebServer::bind(WebServerConfig {
             listen: "127.0.0.1:0".parse().unwrap(),
             web_root: PathBuf::from("web/dist"),
