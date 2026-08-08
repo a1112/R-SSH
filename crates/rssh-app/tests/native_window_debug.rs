@@ -117,7 +117,10 @@ fn injected_device_loss_rebuilds_direct_gpu_state_and_presents_the_same_frame() 
             )
         });
     // wgpu's test injection panics before recovery on software-only adapters.
-    if baseline_metrics["gpu_software_adapter"].as_bool().unwrap_or(false) {
+    if baseline_metrics["gpu_software_adapter"]
+        .as_bool()
+        .unwrap_or(false)
+    {
         return;
     }
 
