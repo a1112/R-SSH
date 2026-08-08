@@ -21,11 +21,6 @@ pub const READ_CHUNK_BYTES: usize = 8192;
 pub const SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(750);
 pub const READER_DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 
-// Real ConPTY sessions can interfere when the Rust test harness starts them
-// simultaneously, so crate-level PTY integration probes share this lock.
-#[cfg(test)]
-pub(crate) static PTY_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 #[derive(Debug)]
 pub enum SessionEvent {
     Output(Vec<u8>),
@@ -313,15 +308,14 @@ fn spawn_supervisor(
             };
 
             writer_stop.store(true, Ordering::Release);
-            let reader_finished = reader_done.recv_timeout(READER_DRAIN_TIMEOUT).is_ok();
-            if !reader_finished {
-                pty.close_master();
-                if reader_done
-                    .recv_timeout(Duration::from_millis(250))
-                    .is_err()
-                {
-                    return;
-                }
+            let _master_close = pty.begin_master_close();
+            if reader_done.recv_timeout(READER_DRAIN_TIMEOUT).is_err() {
+                let _ = events.blocking_send(SessionEvent::Error {
+                    code: "PTY_DRAIN_TIMEOUT",
+                    message: "terminal output did not finish draining",
+                    fatal: true,
+                });
+                return;
             }
             if let Some(status) = exit_status {
                 let _ = events.blocking_send(SessionEvent::Exit(status));
@@ -355,7 +349,6 @@ mod tests {
             .build()
             .unwrap();
         runtime.block_on(async {
-            let _pty_guard = super::PTY_TEST_LOCK.lock().await;
             let mut session =
                 WebPtySession::spawn(&command, TerminalDimensions { cols: 80, rows: 24 }).unwrap();
             let mut output = Vec::new();
