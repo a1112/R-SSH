@@ -812,9 +812,13 @@ mod tests {
         }
         assert!(saw_exit, "websocket never delivered PTY exit message");
         assert!(String::from_utf8_lossy(&output).contains("web-socket-test"));
+        drop(socket);
 
         let _ = shutdown_tx.send(());
-        server_task.await.unwrap();
+        time::timeout(Duration::from_secs(3), server_task)
+            .await
+            .expect("web server did not shut down")
+            .unwrap();
     }
 
     async fn bootstrap_cookie(address: SocketAddr, token: &str) -> String {
