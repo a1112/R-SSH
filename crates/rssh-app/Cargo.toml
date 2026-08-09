@@ -14,12 +14,12 @@ notify = "8"
 pollster = "0.4"
 regex = "1"
 rpassword = "7"
-rssh-core = { path = "../rssh-core" }
-rssh-fonts = { path = "../rssh-fonts" }
-rssh-pty = { path = "../rssh-pty" }
-rssh-renderer = { path = "../rssh-renderer" }
-rssh-ssh = { path = "../rssh-ssh" }
-rssh-terminal = { path = "../rssh-terminal" }
+rssh-core = { path = "../rssh-core", version = "0.1.0" }
+rssh-fonts = { path = "../rssh-fonts", version = "0.1.0" }
+rssh-pty = { path = "../rssh-pty", version = "0.1.0" }
+rssh-renderer = { path = "../rssh-renderer", version = "0.1.0" }
+rssh-ssh = { path = "../rssh-ssh", version = "0.1.0" }
+rssh-terminal = { path = "../rssh-terminal", version = "0.1.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sysinfo = { version = "=0.36.1", default-features = false, features = ["system"] }
@@ -32,7 +32,7 @@ wezterm-color-types = "=0.3.0"
 winit = "0.30"
 
 [dev-dependencies]
-rssh-test-support = { path = "../rssh-test-support" }
+rssh-test-support = { path = "../rssh-test-support", version = "0.1.0" }
 sha2 = "0.11"
 
 [lints]

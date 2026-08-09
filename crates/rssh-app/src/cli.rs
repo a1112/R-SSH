@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{net::IpAddr, path::PathBuf};
 
 use rssh_core::TerminalSize;
 use rssh_pty::{PtyCommand, PtySize};
@@ -230,7 +230,6 @@ pub enum NativeHostKeyPolicy {
     AcceptUnknown,
 }
 
-#[derive(Default)]
 struct SshParseState {
     host: Option<String>,
     target: Option<String>,
@@ -248,6 +247,29 @@ struct SshParseState {
     console: ConsoleOptions,
     osc52_policy: Osc52Policy,
     log: Option<PathBuf>,
+}
+
+impl Default for SshParseState {
+    fn default() -> Self {
+        Self {
+            host: None,
+            target: None,
+            username: None,
+            port: None,
+            columns: None,
+            rows: None,
+            auth: None,
+            remote_command: Vec::new(),
+            forwards: Vec::new(),
+            openssh_args: Vec::new(),
+            no_shell: false,
+            native: false,
+            native_host_key_policy: NativeHostKeyPolicy::default(),
+            console: ConsoleOptions::default(),
+            osc52_policy: Osc52Policy::Off,
+            log: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1392,10 +1414,34 @@ fn parse_ssh_forward_option(
     match option_name.as_str() {
         "-L" | "--local-forward" => state.forwards.push(SshForward::Local(spec)),
         "-R" | "--remote-forward" => state.forwards.push(SshForward::Remote(spec)),
-        "-D" | "--dynamic-forward" => state.forwards.push(SshForward::Dynamic(spec)),
+        "-D" | "--dynamic-forward" => {
+            require_loopback_dynamic_forward(&spec)?;
+            state.forwards.push(SshForward::Dynamic(spec));
+        }
         _ => unreachable!("only SSH forwarding options call this helper"),
     }
     Ok(())
+}
+
+fn require_loopback_dynamic_forward(spec: &str) -> Result<(), String> {
+    let Some((host, _port)) = spec.rsplit_once(':') else {
+        return Ok(());
+    };
+    let host = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host);
+    let is_loopback = host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback());
+    if is_loopback {
+        Ok(())
+    } else {
+        Err(format!(
+            "dynamic forwarding rejects non-loopback bind address {host:?}; the SOCKS5 listener has no authentication"
+        ))
+    }
 }
 
 fn set_explicit_ssh_target(state: &mut SshParseState, target: &str) -> Result<(), String> {
@@ -2758,7 +2804,7 @@ mod tests {
     }
 
     #[test]
-    fn defaults_osc52_policy_to_wezterm_write_only() {
+    fn defaults_local_osc52_to_write_only_and_remote_ssh_to_off() {
         assert_eq!(super::Osc52Policy::default(), super::Osc52Policy::WriteOnly);
         assert!(super::Osc52Policy::default().allows_write());
         assert!(!super::Osc52Policy::default().allows_query());
@@ -2785,7 +2831,7 @@ mod tests {
         let AppCommand::Ssh(options) = parsed else {
             panic!("expected ssh command");
         };
-        assert_eq!(options.osc52_policy, super::Osc52Policy::WriteOnly);
+        assert_eq!(options.osc52_policy, super::Osc52Policy::Off);
     }
 
     #[test]
@@ -3626,6 +3672,48 @@ mod tests {
             ]
         );
         assert!(options.no_shell);
+    }
+
+    #[test]
+    fn rejects_unauthenticated_socks5_on_non_loopback_bind_addresses() {
+        for spec in ["0.0.0.0:1080", "192.0.2.10:1080", "[::]:1080", "proxy:1080"] {
+            let error = parse_args([
+                "rssh-app",
+                "ssh",
+                "--target",
+                "prod",
+                "--dynamic-forward",
+                spec,
+            ])
+            .unwrap_err();
+            assert!(
+                error.contains("rejects non-loopback bind address"),
+                "{error}"
+            );
+            assert!(error.contains("no authentication"), "{error}");
+        }
+    }
+
+    #[test]
+    fn accepts_loopback_only_socks5_bind_addresses() {
+        for spec in ["1080", "127.0.0.1:1080", "localhost:1080", "[::1]:1080"] {
+            let parsed = parse_args([
+                "rssh-app",
+                "ssh",
+                "--target",
+                "prod",
+                "--dynamic-forward",
+                spec,
+            ])
+            .unwrap();
+            let AppCommand::Ssh(options) = parsed else {
+                panic!("expected ssh command");
+            };
+            assert_eq!(
+                options.forwards,
+                [super::SshForward::Dynamic(spec.to_owned())]
+            );
+        }
     }
 
     #[test]

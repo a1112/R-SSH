@@ -400,16 +400,16 @@ fn all_openssh_tools_default_to_noninteractive_publickey_only_authentication() {
 }
 
 #[test]
-fn builder_accepts_password_and_additional_encrypted_rsa_identity() {
-    let rsa = IdentityFixture::runtime_rsa_encrypted("fixture-rsa-passphrase")
-        .expect("generate RSA fixture identity");
-    let rsa_private = Arc::new(
-        russh::keys::load_secret_key(rsa.identity_path(), rsa.passphrase())
-            .expect("decrypt RSA fixture identity"),
+fn builder_accepts_password_and_additional_encrypted_ed25519_identity() {
+    let identity = IdentityFixture::runtime_ed25519_encrypted("fixture-ed25519-passphrase")
+        .expect("generate Ed25519 fixture identity");
+    let private_key = Arc::new(
+        russh::keys::load_secret_key(identity.identity_path(), identity.passphrase())
+            .expect("decrypt Ed25519 fixture identity"),
     );
     let server = HermeticSshServer::builder()
         .password("password-user", "fixture-password")
-        .authorize_public_key(rsa.public_key().clone())
+        .authorize_public_key(identity.public_key().clone())
         .start(DEADLINE)
         .expect("start configured SSH fixture");
     let address = server.address();
@@ -434,7 +434,7 @@ fn builder_accepts_password_and_additional_encrypted_rsa_identity() {
             .await
             .unwrap();
 
-        let mut rsa_client = client::connect(
+        let mut key_client = client::connect(
             Arc::new(client::Config::default()),
             address,
             ExpectedHostKey(host_key),
@@ -442,8 +442,11 @@ fn builder_accepts_password_and_additional_encrypted_rsa_identity() {
         .await
         .unwrap();
         assert!(
-            rsa_client
-                .authenticate_publickey("rsa-user", PrivateKeyWithHashAlg::new(rsa_private, None),)
+            key_client
+                .authenticate_publickey(
+                    "ed25519-user",
+                    PrivateKeyWithHashAlg::new(private_key, None),
+                )
                 .await
                 .unwrap()
                 .success()

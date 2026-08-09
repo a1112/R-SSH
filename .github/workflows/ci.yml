@@ -16,12 +16,21 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
         with:
           components: clippy, rustfmt
-      - name: Build web assets
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Verify web assets
         run: |
           npm --prefix web ci
+          npm --prefix web run lint
+          npm --prefix web test
           npm --prefix web run build
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
@@ -34,7 +43,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - name: Install Linux native dependencies
         run: |
           sudo apt-get update
@@ -60,6 +76,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
       - name: Verify one metadata rebase per batched prune
         run: cargo test --locked -p rssh-terminal batched_scroll_prune_matches_incremental_prune
@@ -298,3 +316,151 @@ jobs:
             --profile debug \
             --expected-target "${{ matrix.target }}" \
             --expected-pty-backend "${{ matrix.pty_backend }}"
+
+  security:
+    name: Dependency and license security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            tauri/package-lock.json
+      - name: Audit Rust advisories
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit
+      - name: Enforce Rust source, license, and ban policy
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          rust-version: "1.89.0"
+          command: check
+      - name: Audit Node lockfiles
+        run: |
+          npm --prefix web audit --audit-level=high
+          npm --prefix tauri audit --audit-level=high
+      - name: Record security evidence
+        run: >-
+          python3 scripts/ci/write-evidence-manifest.py
+          --output evidence/security.json
+          --gate cargo-audit
+          --gate cargo-deny
+          --gate npm-audit-web
+          --gate npm-audit-tauri
+          --command "cargo audit"
+          --command "cargo deny check --all-features"
+          --command "npm audit --audit-level=high"
+      - name: Upload security evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-evidence-${{ github.sha }}
+          path: evidence/security.json
+          if-no-files-found: error
+
+  coverage:
+    name: Rust coverage baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+        with:
+          components: llvm-tools-preview
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install Linux native dependencies
+        run: |
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+            build-essential \
+            libayatana-appindicator3-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxkbcommon-x11-0 \
+            libxdo-dev \
+            librsvg2-dev \
+            xvfb
+      - name: Build Web assets for Tauri resources
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
+      - name: Generate and enforce coverage
+        run: |
+          cargo install cargo-llvm-cov --version 0.8.7 --locked
+          xvfb-run -a env -u WAYLAND_DISPLAY cargo llvm-cov --locked --workspace \
+            --lcov --output-path coverage.lcov --fail-under-lines 35
+      - name: Record coverage evidence
+        run: >-
+          python3 scripts/ci/write-evidence-manifest.py
+          --output evidence/coverage.json
+          --gate rust-line-coverage-35
+          --command "cargo llvm-cov --locked --workspace --fail-under-lines 35"
+      - name: Upload coverage evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-evidence-${{ github.sha }}
+          path: |
+            coverage.lcov
+            evidence/coverage.json
+          if-no-files-found: error
+
+  web-quality:
+    name: Web lint, unit, and browser E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install Web dependencies
+        run: npm --prefix web ci
+      - name: Lint, test, and build Web client
+        run: |
+          npm --prefix web run lint
+          npm --prefix web test
+          npm --prefix web run build
+      - name: Build loopback Web PTY bridge
+        run: cargo build --locked -p rssh-web
+      - name: Install Chromium
+        run: npx --prefix web playwright install --with-deps chromium
+      - name: Run browser E2E
+        run: npm --prefix web run test:e2e
+      - name: Record Web evidence
+        run: >-
+          python3 scripts/ci/write-evidence-manifest.py
+          --output evidence/web.json
+          --gate web-eslint
+          --gate web-vitest
+          --gate web-build
+          --gate web-playwright
+          --command "npm --prefix web run lint"
+          --command "npm --prefix web test"
+          --command "npm --prefix web run build"
+          --command "npm --prefix web run test:e2e"
+      - name: Upload Web evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: web-evidence-${{ github.sha }}
+          path: evidence/web.json
+          if-no-files-found: error

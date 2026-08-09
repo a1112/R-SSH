@@ -223,7 +223,8 @@ fn native_window_reports_real_gpu_presentation_for_one_and_ten_frames() {
         }
         let argument_refs = arguments.iter().map(String::as_str).collect::<Vec<_>>();
         let command_intent = format!("rssh-app -n window --frames {frames} --metrics-json");
-        let output = run_rssh_app_with_direct_gpu_text(&command_intent, &argument_refs);
+        let output =
+            run_rssh_app_with_direct_gpu_text(&command_intent, &argument_refs, frames == 10);
         let diagnostics = diagnostics(&command_intent, &argument_refs, &output);
 
         assert!(
@@ -384,12 +385,16 @@ fn run_rssh_app(command_intent: &str, args: &[&str]) -> ChildOutput {
     })
 }
 
-fn run_rssh_app_with_direct_gpu_text(command_intent: &str, args: &[&str]) -> ChildOutput {
+fn run_rssh_app_with_direct_gpu_text(
+    command_intent: &str,
+    args: &[&str],
+    require_pty_linkage: bool,
+) -> ChildOutput {
     let mut command = Command::new(RSSH_APP_EXECUTABLE);
-    command
-        .args(args)
-        .env("RSSH_TEST_DIRECT_GPU_TEXT", "1")
-        .env("RSSH_TEST_PTY_LINKAGE", "1");
+    command.args(args).env("RSSH_TEST_DIRECT_GPU_TEXT", "1");
+    if require_pty_linkage {
+        command.env("RSSH_TEST_PTY_LINKAGE", "1");
+    }
     ChildGuard::spawn(command, PROCESS_DEADLINE)
         .unwrap_or_else(|error| {
             panic!(

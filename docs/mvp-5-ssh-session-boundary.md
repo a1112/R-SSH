@@ -448,7 +448,8 @@ SSH-boundary tests cover:
 - native local-forward startup before shell startup, using an injectable
   forward starter
 - native dynamic-forward bind parsing, SOCKS5 no-auth CONNECT parsing, and
-  dynamic-forward startup before shell startup
+  dynamic-forward startup before shell startup, with non-loopback listeners
+  rejected because the SOCKS5 method has no client authentication
 - native SSH text and JSON metrics, including SSH input/output bytes, for russh
   shell sessions
 - native OpenSSH config-target parsing through resolved `ssh -G` output before

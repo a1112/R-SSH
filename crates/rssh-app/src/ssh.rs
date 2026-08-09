@@ -1,7 +1,7 @@
 use std::{
     error::Error,
     io::{self, Read, Write},
-    net::{Ipv4Addr, Ipv6Addr, TcpListener, TcpStream},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::Command,
     thread,
@@ -690,6 +690,16 @@ fn parse_native_dynamic_forward(spec: &str) -> Result<NativeDynamicForward, Box<
         return Err(
             format!("invalid native dynamic-forward spec {spec:?}; host cannot be empty").into(),
         );
+    }
+    if !bind_host.eq_ignore_ascii_case("localhost")
+        && !bind_host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+    {
+        return Err(format!(
+            "native dynamic-forward rejects non-loopback bind address {bind_host:?}; the SOCKS5 listener has no authentication"
+        )
+        .into());
     }
 
     Ok(NativeDynamicForward {
@@ -2812,6 +2822,23 @@ mod tests {
                 bind_port: 1080,
             }]
         );
+    }
+
+    #[test]
+    fn native_dynamic_forward_parser_rejects_non_loopback_listeners() {
+        for spec in ["0.0.0.0:1080", "192.0.2.10:1080", "proxy:1080"] {
+            let error = super::parse_native_dynamic_forward(spec).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("rejects non-loopback bind address"),
+                "{error}"
+            );
+        }
+
+        for spec in ["1080", "127.0.0.1:1080", "localhost:1080"] {
+            super::parse_native_dynamic_forward(spec).unwrap();
+        }
     }
 
     #[test]

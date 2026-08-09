@@ -7,12 +7,12 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-russh = { version = "0.61.2", default-features = false, features = ["flate2", "ring", "rsa"] }
-rssh-core = { path = "../rssh-core" }
+russh = { version = "0.61.2", default-features = false, features = ["flate2", "ring"] }
+rssh-core = { path = "../rssh-core", version = "0.1.0" }
 tokio = { version = "1", features = ["io-util", "net", "rt-multi-thread", "time"] }
 
 [dev-dependencies]
-rssh-test-support = { path = "../rssh-test-support" }
+rssh-test-support = { path = "../rssh-test-support", version = "0.1.0" }
 
 [lints]
 workspace = true

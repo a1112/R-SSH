@@ -2,6 +2,8 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 const MAX_OSC_COLOR_QUERY_KINDS: usize = 256;
 const MAX_OSC_COLOR_QUERY_BYTES: usize = 16 * 1024;
+const MAX_CLIPBOARD_BYTES: usize = 1024 * 1024;
+const MAX_CLIPBOARD_BASE64_BYTES: usize = MAX_CLIPBOARD_BYTES.div_ceil(3) * 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ControlFamily {
@@ -369,18 +371,26 @@ fn parse_clipboard(body: &[u8]) -> Option<ClipboardCommand> {
         if payload == b"?" {
             return Some(ClipboardCommand::Query(selection));
         }
-        let text = String::from_utf8(STANDARD.decode(payload).ok()?).ok()?;
-        Some(ClipboardCommand::Write(text))
+        Some(ClipboardCommand::Write(decode_clipboard_payload(payload)?))
     } else if osc_selector_is(selector, b"1337") {
         let payload = content
             .strip_prefix(b"Copy=;")
             .or_else(|| content.strip_prefix(b"CopyToClipboard=;"))?;
-        Some(ClipboardCommand::Write(
-            String::from_utf8(STANDARD.decode(payload).ok()?).ok()?,
-        ))
+        Some(ClipboardCommand::Write(decode_clipboard_payload(payload)?))
     } else {
         None
     }
+}
+
+fn decode_clipboard_payload(payload: &[u8]) -> Option<String> {
+    if payload.len() > MAX_CLIPBOARD_BASE64_BYTES {
+        return None;
+    }
+    let decoded = STANDARD.decode(payload).ok()?;
+    if decoded.len() > MAX_CLIPBOARD_BYTES {
+        return None;
+    }
+    String::from_utf8(decoded).ok()
 }
 
 fn parse_private_mode_sequence(body: &[u8]) -> Option<PrivateModeSequence> {
@@ -1467,10 +1477,13 @@ impl TerminalQueryScanner {
 
 #[cfg(test)]
 mod tests {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
     use super::{
         ClipboardCommand, ControlFamily, FixedQuery, KeyModifierOptions, KittyKeyboardApplyMode,
-        KittyKeyboardMode, KittyKeyboardOperation, MAX_OSC_COLOR_QUERY_KINDS, PrivateModeSequence,
-        ScannedSegment, SemanticControl, TerminalQueryScanner,
+        KittyKeyboardMode, KittyKeyboardOperation, MAX_CLIPBOARD_BYTES, MAX_OSC_COLOR_QUERY_KINDS,
+        PrivateModeSequence, ScannedSegment, SemanticControl, TerminalQueryScanner,
+        decode_clipboard_payload,
     };
 
     fn scan_in_chunks(input: &[u8], chunk_size: usize) -> (Vec<ScannedSegment>, u64) {
@@ -1673,6 +1686,20 @@ mod tests {
                 "query {query:?}"
             );
         }
+    }
+
+    #[test]
+    fn clipboard_payload_decode_enforces_the_one_megabyte_limit() {
+        let allowed = vec![b'a'; MAX_CLIPBOARD_BYTES];
+        let oversized = vec![b'a'; MAX_CLIPBOARD_BYTES + 1];
+
+        assert_eq!(
+            decode_clipboard_payload(STANDARD.encode(&allowed).as_bytes())
+                .unwrap()
+                .len(),
+            MAX_CLIPBOARD_BYTES
+        );
+        assert!(decode_clipboard_payload(STANDARD.encode(&oversized).as_bytes()).is_none());
     }
 
     #[test]

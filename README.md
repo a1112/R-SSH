@@ -162,7 +162,9 @@ cargo run -p rssh-web -- --listen 127.0.0.1:7788 --web-root web/dist
 The initial Web version starts the platform default local shell through
 `rssh-pty`, uses xterm.js for VT parsing/rendering, and terminates the shell when
 the browser connection closes. It is intentionally loopback-only; remote
-deployment and detached/reconnect sessions are not enabled.
+deployment and detached/reconnect sessions are not enabled. The printed URL
+contains a 60-second, single-use ticket; redemption issues a separate session
+cookie and replaying the URL is rejected.
 
 For frontend development, start the Rust bridge with the Vite origin allowed,
 open its printed bootstrap URL once to establish the local cookie, then run the
@@ -401,9 +403,11 @@ sequences, WezTerm-style RGBA dynamic color specs for `OSC 10`/`11`/`12`,
 `OSC 110`/`OSC 111` foreground/background reset, `OSC 112` cursor-color reset,
 and `OSC 104` indexed-palette reset.
 OSC 52 clipboard writes are handled in the console path so local and
-OpenSSH-backed terminal programs can use terminal clipboard integration. The
-default OSC 52 policy is WezTerm-style write-only: PTY-side read queries are
-ignored unless `--osc52 read-write` is selected explicitly. Use
+OpenSSH-backed terminal programs can use terminal clipboard integration. Local
+terminal and window commands retain the WezTerm-style write-only default, while
+remote `ssh` sessions default to `off`. PTY-side read queries are ignored unless
+`--osc52 read-write` is selected explicitly, and decoded clipboard writes are
+limited to 1 MiB. Use
 `--osc52 off|write|read-write` on `console`/`local`, `ssh`, or `window` to
 control whether PTY-side OSC 52 clipboard writes and read queries are allowed.
 PTY-backed local, window, and OpenSSH child processes receive
@@ -522,12 +526,18 @@ OpenSSH passthrough flags such as `-J`, `-F`, `-o`, `-W`, and `-T` require the
 OpenSSH console backend and are rejected with `--native`.
 Native `--local-forward` and `--dynamic-forward` start in-process listeners and
 open russh `direct-tcpip` channels for accepted local TCP or SOCKS5 CONNECT
-requests. Native `--remote-forward` requests a server-side TCP listener and
+requests. Dynamic forwarding rejects non-loopback bind addresses because its
+SOCKS5 listener has no client authentication. Native `--remote-forward`
+requests a server-side TCP listener and
 maps incoming forwarded connections back to the configured local target.
 Native SSH also honors `--metrics` and `--metrics-json`, reporting the
 `NativeRussh` backend, resolved host/user/port, startup size, final session
 state, SSH input/output bytes, elapsed time, and exit result without logging
 password or key material.
+Native SSH accepts Ed25519 and supported ECDSA private keys. Native RSA
+private-key authentication is disabled because the Rust RSA implementation has
+an unresolved timing-side-channel advisory; use the OpenSSH backend when a
+legacy RSA identity is unavoidable.
 Use `--password` as a flag when you want OpenSSH to prompt in the terminal; do
 not pass password or key-passphrase values as command arguments.
 Use `--target NAME` to reuse an OpenSSH `Host NAME` entry from your existing
