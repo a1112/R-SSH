@@ -33,6 +33,8 @@ jobs:
           npm --prefix web test
           npm --prefix web run build
       - run: cargo fmt --all -- --check
+      - name: Enforce shrinking Rust architecture budgets
+        run: python scripts/ci/check-rust-architecture.py --policy scripts/ci/architecture-policy.json
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Run focused Web PTY tests
         run: cargo test --locked -p rssh-web --lib

@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "roots": [
+    "crates/rssh-app/src",
+    "crates/rssh-native/src",
+    "crates/rssh-runtime/src",
+    "crates/rssh-config/src"
+  ],
+  "generated_globs": [
+    "**/generated/**",
+    "**/generated.rs"
+  ],
+  "production_excluded_globs": [
+    "**/*_tests.rs"
+  ],
+  "limits": {
+    "file_lines": 8000,
+    "struct_fields": 64,
+    "impl_lines": 2000,
+    "function_lines": 300,
+    "rustfmt_skip": 0,
+    "unbounded_channels": 0,
+    "forbidden_dependencies": 0
+  },
+  "migration": {
+    "initial_ceilings": {
+      "crates/rssh-app/src/config_lifecycle.rs": {
+        "unbounded_channels": 2,
+        "forbidden_dependencies": 2
+      },
+      "crates/rssh-app/src/local.rs": {
+        "file_lines": 10971,
+        "unbounded_channels": 6
+      },
+      "crates/rssh-app/src/main.rs": {
+        "rustfmt_skip": 1
+      },
+      "crates/rssh-app/src/self_test.rs": {
+        "unbounded_channels": 1
+      },
+      "crates/rssh-app/src/terminal_queries.rs": {
+        "function_lines": 667
+      },
+      "crates/rssh-app/src/window.rs": {
+        "file_lines": 272115,
+        "struct_fields": 417,
+        "impl_lines": 21385,
+        "function_lines": 2168,
+        "unbounded_channels": 9
+      }
+    },
+    "budgets": {
+      "crates/rssh-app/src/config_lifecycle.rs": {
+        "unbounded_channels": 2,
+        "forbidden_dependencies": 2
+      },
+      "crates/rssh-app/src/local.rs": {
+        "file_lines": 10971,
+        "unbounded_channels": 6
+      },
+      "crates/rssh-app/src/main.rs": {
+        "rustfmt_skip": 1
+      },
+      "crates/rssh-app/src/self_test.rs": {
+        "unbounded_channels": 1
+      },
+      "crates/rssh-app/src/terminal_queries.rs": {
+        "function_lines": 667
+      },
+      "crates/rssh-app/src/window.rs": {
+        "file_lines": 272115,
+        "struct_fields": 417,
+        "impl_lines": 21385,
+        "function_lines": 2168,
+        "unbounded_channels": 9
+      }
+    }
+  },
+  "forbidden_dependencies": [
+    {
+      "scope": "crates/rssh-app/src/config_lifecycle.rs",
+      "patterns": ["crate::window"]
+    },
+    {
+      "scope": "crates/rssh-config/src/**",
+      "patterns": ["crate::window", "rssh_native", "winit"]
+    }
+  ]
+}
