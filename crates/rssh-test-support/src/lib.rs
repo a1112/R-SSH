@@ -3,6 +3,8 @@ mod openssh;
 mod process;
 pub mod ssh;
 mod temp_home;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 pub use marker::platform_marker_command;
 pub use openssh::{OpenSshClientTool, OpenSshProbePolicy, probe_openssh_tools_from_environment};

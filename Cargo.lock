@@ -4905,6 +4905,7 @@ dependencies = [
 name = "rssh-test-support"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "futures",
  "junction",
  "rand 0.10.1",

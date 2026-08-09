@@ -7,11 +7,14 @@ use std::{
 };
 
 #[cfg(target_os = "windows")]
-use std::process::Command;
+use rssh_test_support::{ChildGuard, windows::wait_for_owned_window_frame};
+#[cfg(target_os = "windows")]
+use std::{
+    process::Command,
+    time::{Duration, Instant},
+};
 
 const RSSH_APP_EXECUTABLE: &str = env!("CARGO_BIN_EXE_rssh-app");
-#[cfg(target_os = "windows")]
-const UNOBSERVABLE_WINDOW_MARKER: &str = "RSSH_WINDOW_STYLE_UNOBSERVABLE";
 static NATIVE_WINDOW_E2E_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
@@ -35,122 +38,21 @@ fn native_window_e2e_preserves_gpu_text_at_windows_scale_factors() {
 
 #[cfg(target_os = "windows")]
 #[test]
-#[allow(clippy::too_many_lines)]
 fn native_window_e2e_uses_borderless_integrated_titlebar() {
     let _native_window = native_window_e2e_guard();
     let executable = packaged_or_cargo_app_executable();
-    let script = r#"
-$ErrorActionPreference = 'Stop'
-Add-Type @'
-using System;
-using System.Text;
-using System.Runtime.InteropServices;
-public static class RsshWindowStyleProbe {
-  [StructLayout(LayoutKind.Sequential)] private struct RECT {
-    public int Left;
-    public int Top;
-    public int Right;
-    public int Bottom;
-  }
-  [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
-  [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-  [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
-  [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref POINT point);
-  [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
-  [StructLayout(LayoutKind.Sequential)] private struct POINT {
-    public int X;
-    public int Y;
-  }
-  public static bool TryGetWindowFrame(IntPtr hWnd, out bool clientFillsWindow, out string description) {
-    clientFillsWindow = false;
-    description = "";
-    if (hWnd == IntPtr.Zero) {
-      return false;
-    }
-    RECT rect;
-    if (!GetWindowRect(hWnd, out rect)) {
-      return false;
-    }
-    RECT clientRect;
-    if (!GetClientRect(hWnd, out clientRect)) {
-      return false;
-    }
-    var clientOrigin = new POINT();
-    if (!ClientToScreen(hWnd, ref clientOrigin)) {
-      return false;
-    }
-    var windowWidth = rect.Right - rect.Left;
-    var windowHeight = rect.Bottom - rect.Top;
-    var clientWidth = clientRect.Right - clientRect.Left;
-    var clientHeight = clientRect.Bottom - clientRect.Top;
-    var style = GetWindowLongPtr(hWnd, -16).ToInt64();
-    clientFillsWindow = (style & 0x00c00000L) == 0
-      && clientOrigin.X == rect.Left
-      && clientOrigin.Y == rect.Top
-      && clientWidth == windowWidth
-      && clientHeight == windowHeight;
-    var title = new StringBuilder(512);
-    GetWindowText(hWnd, title, title.Capacity);
-    description = string.Format("hwnd=0x{0:x} style=0x{1:x8} title={2} window={3},{4},{5},{6} client-origin={7},{8} client={9},{10}",
-      hWnd.ToInt64(), style, title, rect.Left, rect.Top, rect.Right, rect.Bottom,
-      clientOrigin.X, clientOrigin.Y, clientWidth, clientHeight);
-    return true;
-  }
-}
-'@
-$process = Start-Process -FilePath $env:RSSH_STYLE_PROBE_EXE -ArgumentList @('--skip-config', '-n', 'window') -PassThru
-try {
-  # Native GPU startup can be serialized behind the other real-window tests
-  # in this binary. Keep the probe budget aligned with the 30-second native
-  # process deadline instead of treating a slow HWND creation as a style bug.
-  $deadline = [DateTime]::UtcNow.AddSeconds(30)
-  do {
-    $clientFillsWindow = $false
-    $description = ''
-    $process.Refresh()
-    if ([RsshWindowStyleProbe]::TryGetWindowFrame($process.MainWindowHandle, [ref]$clientFillsWindow, [ref]$description)) {
-      if ($clientFillsWindow) {
-        exit 0
-      }
-      if ([DateTime]::UtcNow -ge $deadline) {
-        throw ('integrated titlebar window retained a native frame inset: {0}' -f $description)
-      }
-      Start-Sleep -Milliseconds 50
-      continue
-    }
-    Start-Sleep -Milliseconds 50
-  } while ([DateTime]::UtcNow -lt $deadline)
-  $process.Refresh()
-  $exitCode = if ($process.HasExited) { $process.ExitCode } else { '<running>' }
-  if ($env:GITHUB_ACTIONS -eq 'true' -and $process.MainWindowHandle -ne [IntPtr]::Zero) {
-    [Console]::Error.WriteLine(('RSSH_WINDOW_STYLE_UNOBSERVABLE: the non-interactive runner exposed hwnd=0x{0:x} but denied frame queries' -f $process.MainWindowHandle.ToInt64()))
-    exit 77
-  }
-  throw ('native window did not expose an HWND before the probe deadline: executable={0} pid={1} exited={2} exit-code={3} main-hwnd=0x{4:x}' -f $env:RSSH_STYLE_PROBE_EXE, $process.Id, $process.HasExited, $exitCode, $process.MainWindowHandle.ToInt64())
-} finally {
-  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-}
-"#;
-    let output = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .env("RSSH_STYLE_PROBE_EXE", executable)
-        .output()
-        .expect("run native window decoration probe");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if output.status.code() == Some(77)
-        && env::var("GITHUB_ACTIONS").is_ok_and(|value| value == "true")
-        && stderr.contains(UNOBSERVABLE_WINDOW_MARKER)
-    {
-        eprintln!(
-            "skipping external window-style assertion because the hosted runner denied HWND frame queries: {stderr}"
-        );
-        return;
-    }
+    let mut command = Command::new(&executable);
+    command.args(["--skip-config", "-n", "window"]);
+    let process = ChildGuard::spawn(command, Duration::from_secs(35))
+        .expect("spawn native window decoration fixture");
+    let process_id = process.process_id().expect("native window process ID");
+    let observation =
+        wait_for_owned_window_frame(process_id, Instant::now() + Duration::from_secs(30))
+            .expect("observe native window frame");
+
     assert!(
-        output.status.success(),
-        "native window decoration probe failed: stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        stderr
+        observation.has_borderless_client_area(),
+        "integrated titlebar window retained a native frame inset: {observation:#?}"
     );
 }
 

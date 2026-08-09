@@ -7,6 +7,7 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
+base64 = "0.22"
 futures = "0.3"
 rand = "0.10.1"
 russh = { version = "0.61.2", default-features = false, features = ["flate2", "ring"] }
