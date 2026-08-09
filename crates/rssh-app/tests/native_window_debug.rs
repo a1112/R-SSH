@@ -223,11 +223,8 @@ fn native_window_reports_real_gpu_presentation_for_one_and_ten_frames() {
         }
         let argument_refs = arguments.iter().map(String::as_str).collect::<Vec<_>>();
         let command_intent = format!("rssh-app -n window --frames {frames} --metrics-json");
-        let output = run_rssh_app_with_direct_gpu_text(
-            &command_intent,
-            &argument_refs,
-            frames == 10,
-        );
+        let output =
+            run_rssh_app_with_direct_gpu_text(&command_intent, &argument_refs, frames == 10);
         let diagnostics = diagnostics(&command_intent, &argument_refs, &output);
 
         assert!(
