@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://r-ssh.dev/schemas/performance-scorecard-v1.json",
+  "title": "R-SSH performance scorecard baseline",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "baseline_commit",
+    "recorded_at",
+    "machine",
+    "protocol",
+    "runtime",
+    "build",
+    "commands"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "baseline_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "recorded_at": { "type": "string", "format": "date" },
+    "machine": { "$ref": "#/$defs/machine" },
+    "protocol": { "$ref": "#/$defs/protocol" },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workloads"],
+      "properties": {
+        "workloads": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ansi-scroll-query", "plain-scroll", "ansi-scroll"],
+          "properties": {
+            "ansi-scroll-query": { "$ref": "#/$defs/runtimeWorkload" },
+            "plain-scroll": { "$ref": "#/$defs/runtimeWorkload" },
+            "ansi-scroll": { "$ref": "#/$defs/runtimeWorkload" }
+          }
+        }
+      }
+    },
+    "build": { "$ref": "#/$defs/build" },
+    "commands": {
+      "type": "object",
+      "minProperties": 6,
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "nonNegativeInteger": { "type": "integer", "minimum": 0 },
+    "positiveInteger": { "type": "integer", "minimum": 1 },
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "os_caption",
+        "os_version",
+        "os_build",
+        "arch",
+        "cpu",
+        "power_profile",
+        "rustc",
+        "cargo",
+        "toolchain_host"
+      ],
+      "properties": {
+        "os": { "const": "windows" },
+        "os_caption": { "type": "string", "minLength": 1 },
+        "os_version": { "type": "string", "minLength": 1 },
+        "os_build": { "type": "string", "minLength": 1 },
+        "arch": { "const": "x86_64" },
+        "cpu": { "type": "string", "minLength": 1 },
+        "power_profile": { "type": "string", "minLength": 1 },
+        "rustc": { "const": "1.89.0" },
+        "cargo": { "const": "1.89.0" },
+        "toolchain_host": { "const": "x86_64-pc-windows-msvc" }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "warmups",
+        "samples",
+        "bytes",
+        "chunk_size",
+        "render_frames",
+        "idle_ms",
+        "sample_order",
+        "same_machine_required"
+      ],
+      "properties": {
+        "warmups": { "const": 2 },
+        "samples": { "const": 7 },
+        "bytes": { "const": 1048576 },
+        "chunk_size": { "const": 8192 },
+        "render_frames": { "const": 30 },
+        "idle_ms": { "const": 1000 },
+        "sample_order": { "type": "string", "minLength": 1 },
+        "same_machine_required": { "const": true }
+      }
+    },
+    "runtimeMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "throughput_bytes_per_sec",
+        "chunk_p95_us",
+        "render_frame_p95_us",
+        "process_memory_bytes",
+        "process_virtual_memory_bytes",
+        "elapsed_ms",
+        "inspected_query_bytes",
+        "scrolled_survivor_cell_clones",
+        "history_row_relocations",
+        "metadata_rebase_batches"
+      ],
+      "properties": {
+        "throughput_bytes_per_sec": { "$ref": "#/$defs/positiveInteger" },
+        "chunk_p95_us": { "$ref": "#/$defs/nonNegativeInteger" },
+        "render_frame_p95_us": { "$ref": "#/$defs/nonNegativeInteger" },
+        "process_memory_bytes": { "$ref": "#/$defs/positiveInteger" },
+        "process_virtual_memory_bytes": { "$ref": "#/$defs/positiveInteger" },
+        "elapsed_ms": { "$ref": "#/$defs/positiveInteger" },
+        "inspected_query_bytes": { "$ref": "#/$defs/nonNegativeInteger" },
+        "scrolled_survivor_cell_clones": { "$ref": "#/$defs/nonNegativeInteger" },
+        "history_row_relocations": { "$ref": "#/$defs/nonNegativeInteger" },
+        "metadata_rebase_batches": { "$ref": "#/$defs/nonNegativeInteger" }
+      }
+    },
+    "runtimeGates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "throughput_bytes_per_sec_min",
+        "chunk_p95_us_max",
+        "render_frame_p95_us_max",
+        "process_memory_bytes_max",
+        "scrolled_survivor_cell_clones_max",
+        "history_row_relocations_max",
+        "inspected_query_bytes_max"
+      ],
+      "properties": {
+        "throughput_bytes_per_sec_min": { "$ref": "#/$defs/positiveInteger" },
+        "chunk_p95_us_max": { "$ref": "#/$defs/positiveInteger" },
+        "render_frame_p95_us_max": { "$ref": "#/$defs/positiveInteger" },
+        "process_memory_bytes_max": { "$ref": "#/$defs/positiveInteger" },
+        "scrolled_survivor_cell_clones_max": { "const": 0 },
+        "history_row_relocations_max": { "const": 0 },
+        "inspected_query_bytes_max": { "$ref": "#/$defs/positiveInteger" }
+      }
+    },
+    "runtimeWorkload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "gates"],
+      "properties": {
+        "baseline": { "$ref": "#/$defs/runtimeMetrics" },
+        "gates": { "$ref": "#/$defs/runtimeGates" }
+      }
+    },
+    "buildMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clean_check_ms",
+        "warm_check_ms",
+        "package_rebuild_ms",
+        "test_no_run_ms",
+        "target_bytes",
+        "largest_harness_bytes",
+        "unit_execution_ms",
+        "release_executable_bytes",
+        "unit_tests_listed",
+        "unit_tests_passed",
+        "unit_tests_ignored"
+      ],
+      "properties": {
+        "clean_check_ms": { "$ref": "#/$defs/positiveInteger" },
+        "warm_check_ms": { "$ref": "#/$defs/positiveInteger" },
+        "package_rebuild_ms": { "$ref": "#/$defs/positiveInteger" },
+        "test_no_run_ms": { "$ref": "#/$defs/positiveInteger" },
+        "target_bytes": { "$ref": "#/$defs/positiveInteger" },
+        "largest_harness_bytes": { "$ref": "#/$defs/positiveInteger" },
+        "unit_execution_ms": { "$ref": "#/$defs/positiveInteger" },
+        "release_executable_bytes": { "$ref": "#/$defs/positiveInteger" },
+        "unit_tests_listed": { "$ref": "#/$defs/positiveInteger" },
+        "unit_tests_passed": { "$ref": "#/$defs/positiveInteger" },
+        "unit_tests_ignored": { "$ref": "#/$defs/nonNegativeInteger" }
+      }
+    },
+    "buildGates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clean_check_ms_max",
+        "package_rebuild_ms_max",
+        "test_no_run_ms_max",
+        "target_bytes_max",
+        "largest_harness_bytes_max",
+        "unit_execution_ms_max",
+        "release_executable_bytes_max"
+      ],
+      "properties": {
+        "clean_check_ms_max": { "$ref": "#/$defs/positiveInteger" },
+        "package_rebuild_ms_max": { "$ref": "#/$defs/positiveInteger" },
+        "test_no_run_ms_max": { "$ref": "#/$defs/positiveInteger" },
+        "target_bytes_max": { "$ref": "#/$defs/positiveInteger" },
+        "largest_harness_bytes_max": { "$ref": "#/$defs/positiveInteger" },
+        "unit_execution_ms_max": { "$ref": "#/$defs/positiveInteger" },
+        "release_executable_bytes_max": { "$ref": "#/$defs/positiveInteger" }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "gates"],
+      "properties": {
+        "baseline": { "$ref": "#/$defs/buildMetrics" },
+        "gates": { "$ref": "#/$defs/buildGates" }
+      }
+    }
+  }
+}

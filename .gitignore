@@ -27,3 +27,4 @@ Thumbs.db
 *.profraw
 coverage.lcov
 /evidence/
+/scripts/perf/results/

@@ -41,7 +41,7 @@ must enforce at least these final limits:
 | Package-only rebuild | `<= 12.7 s` |
 | App tests no-run | `<= 66.3 s` |
 | Unit-harness execution | `<= 15.0 s` |
-| Comparable test target size | `<= 5,439,619,117 bytes` |
+| Comparable test target size | `<= 5,439,619,116 bytes` |
 | Largest app test harness | `<= 55.7 MB` |
 | Release executable | `<= 25.62 MB` |
 | Runtime/controller coverage | `>= 90%` line coverage |
