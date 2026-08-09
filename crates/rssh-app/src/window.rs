@@ -92269,6 +92269,18 @@ impl NativeWindowApp {
         let placement = self.frame_content_placement();
         let geometry = self.frame_render_geometry(surface_geometry, placement);
         let snapshot = self.render_snapshot();
+        if self.frame_limit_reached() {
+            // A frame limit is an exact presentation contract.  When a probe
+            // also asks for PTY linkage, later output may still need to reach
+            // the terminal snapshot after the final frame.  Observe that
+            // state, but never prepare or present an additional frame while
+            // waiting for it.
+            self.metrics.record_terminal_linkage_snapshot(&snapshot);
+            if self.frame_limit_probe_ready() {
+                event_loop.exit();
+            }
+            return;
+        }
         let damage_row_offset = self.terminal_frame_row_offset();
         if self.has_visible_split_layout() {
             self.frame_needs_full_repaint = true;
@@ -92288,10 +92300,6 @@ impl NativeWindowApp {
             self.renderer
                 .prepare_gpu_frame(&snapshot, geometry, scrollbar, damage_row_offset);
         self.metrics.record_terminal_linkage_snapshot(&snapshot);
-        if self.frame_limit_probe_ready() {
-            event_loop.exit();
-            return;
-        }
         let gpu_dpi_scale = self.gpu_dpi_scale();
 
         let outcome = if let (Some(gpu), Some(window)) = (self.gpu.as_mut(), self.window.as_ref()) {
@@ -92505,9 +92513,13 @@ impl NativeWindowApp {
             .is_some_and(|limit| self.rendered_frames < limit)
     }
 
-    fn frame_limit_probe_ready(&self) -> bool {
+    fn frame_limit_reached(&self) -> bool {
         self.frame_limit
             .is_some_and(|limit| self.rendered_frames >= limit)
+    }
+
+    fn frame_limit_probe_ready(&self) -> bool {
+        self.frame_limit_reached()
             && (!self.metrics.pty_linkage_enabled
                 || self.metrics.terminal_linkage_nonce_found)
     }
