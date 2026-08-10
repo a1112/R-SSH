@@ -52,7 +52,7 @@
     "budgets": {
       "crates/rssh-app/src/config_lifecycle.rs": {
         "unbounded_channels": 2,
-        "forbidden_dependencies": 2
+        "forbidden_dependencies": 0
       },
       "crates/rssh-app/src/local.rs": {
         "file_lines": 10971,
@@ -83,7 +83,7 @@
     },
     {
       "scope": "crates/rssh-config/src/**",
-      "patterns": ["crate::window", "rssh_native", "winit"]
+      "patterns": ["crate::window", "notify", "rssh_native", "winit"]
     }
   ]
 }

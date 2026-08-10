@@ -70,7 +70,7 @@ use winit::{
 use crate::{
     cli::{Osc52Policy, WindowOptions, WindowPosition, WindowPositionOrigin},
     config_lifecycle::{
-        ConfigDiscoveryInputs, EffectiveNativeConfig, NativeConfigLifecycle, NativeConfigLoadError,
+        ConfigDiscoveryInputs, NativeConfigLoadError, bind_native_config_projection,
         validate_cli_config_overrides,
     },
     terminal_input::{TerminalKey, encode_terminal_key},
@@ -82,7 +82,7 @@ use crate::{
     terminal_runtime::{TerminalNotification, TerminalProgress, TerminalRuntime},
     window_gpu::WindowGpu,
 };
-
+bind_native_config_projection!(NativeConfigOverrides, native_config_overrides_from_wezterm_lua_config, automatically_reload_config);
 const TERMINAL_COLUMNS: u16 = 80;
 const TERMINAL_ROWS: u16 = 24;
 const DEFAULT_INITIAL_COLS: u16 = TERMINAL_COLUMNS;
@@ -57969,7 +57969,7 @@ impl NativeWindowApp {
     }
 
     fn set_base_config(&mut self, config: &EffectiveNativeConfig, disposition: ReloadDisposition) {
-        self.base_config_overrides = Arc::clone(&config.overrides);
+        self.base_config_overrides = Arc::clone(&config.config);
         self.base_config_generation = config.generation;
         self.base_config_source.clone_from(&config.source);
         self.derived_config_environment = config.publication.variables().clone();
