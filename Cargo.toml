@@ -5,6 +5,7 @@ members = [
     "crates/rssh-core",
     "crates/rssh-terminal",
     "crates/rssh-renderer",
+    "crates/rssh-runtime",
     "crates/rssh-ssh",
     "crates/rssh-pty",
     "crates/rssh-test-support",

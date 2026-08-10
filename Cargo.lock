@@ -4879,6 +4879,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rssh-runtime"
+version = "0.1.0"
+dependencies = [
+ "rssh-core",
+]
+
+[[package]]
 name = "rssh-ssh"
 version = "0.1.0"
 dependencies = [
