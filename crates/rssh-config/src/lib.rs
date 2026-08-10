@@ -2,6 +2,7 @@ mod diagnostic;
 mod diff;
 mod model;
 mod patch;
+pub mod schemes;
 mod validate;
 
 pub use diagnostic::ConfigDiagnostic;
