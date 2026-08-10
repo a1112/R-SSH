@@ -1,6 +1,6 @@
 use std::{fmt, num::NonZeroU64, sync::Arc, time::Duration};
 
-use rssh_core::{DamageRegion, PaneId, app_shell::PaneProgress};
+use rssh_core::{DamageRegion, PaneId};
 
 use crate::RuntimeBatchMetrics;
 
@@ -206,6 +206,113 @@ impl EffectSequence {
     }
 }
 
+/// A typed discontinuity in the ordered runtime effect stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectSequenceError {
+    /// One or more effect positions were skipped.
+    Gap {
+        /// Next sequence required by the cursor.
+        expected: EffectSequence,
+        /// Later sequence observed in the batch.
+        observed: EffectSequence,
+    },
+    /// An already consumed or older effect position was observed.
+    DuplicateOrOutOfOrder {
+        /// Next sequence required by the cursor.
+        expected: EffectSequence,
+        /// Duplicate or older sequence observed in the batch.
+        observed: EffectSequence,
+    },
+    /// The maximum effect position was already consumed.
+    Exhausted {
+        /// Sequence observed after exhaustion.
+        observed: EffectSequence,
+    },
+}
+
+impl fmt::Display for EffectSequenceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Gap { expected, observed } => write!(
+                formatter,
+                "effect sequence gap: expected {}, observed {}",
+                expected.get(),
+                observed.get()
+            ),
+            Self::DuplicateOrOutOfOrder { expected, observed } => write!(
+                formatter,
+                "duplicate or out-of-order effect: expected {}, observed {}",
+                expected.get(),
+                observed.get()
+            ),
+            Self::Exhausted { observed } => write!(
+                formatter,
+                "effect sequence exhausted before observed {}",
+                observed.get()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for EffectSequenceError {}
+
+/// Retains the next required effect sequence across runtime batches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EffectSequenceCursor {
+    expected: Option<EffectSequence>,
+}
+
+impl EffectSequenceCursor {
+    /// Creates a cursor that requires `expected` as its first effect.
+    #[must_use]
+    pub const fn new(expected: EffectSequence) -> Self {
+        Self {
+            expected: Some(expected),
+        }
+    }
+
+    /// Returns the next required sequence, or `None` after accepting the maximum.
+    #[must_use]
+    pub const fn expected(&self) -> Option<EffectSequence> {
+        self.expected
+    }
+
+    /// Validates effects in order and retains the next requirement for later batches.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EffectSequenceError::Gap`] when an effect is missing,
+    /// [`EffectSequenceError::DuplicateOrOutOfOrder`] for an already consumed
+    /// position, or [`EffectSequenceError::Exhausted`] for an effect after
+    /// [`EffectSequence::MAX`]. The cursor remains at the first rejected
+    /// position.
+    pub fn validate_batch<S>(
+        &mut self,
+        batch: &RuntimeBatch<S>,
+    ) -> Result<(), EffectSequenceError> {
+        for effect in &batch.effects {
+            let observed = effect.sequence();
+            let Some(expected) = self.expected else {
+                return Err(EffectSequenceError::Exhausted { observed });
+            };
+            if observed > expected {
+                return Err(EffectSequenceError::Gap { expected, observed });
+            }
+            if observed < expected {
+                return Err(EffectSequenceError::DuplicateOrOutOfOrder { expected, observed });
+            }
+            self.expected = expected.next().ok();
+        }
+        Ok(())
+    }
+}
+
+impl Default for EffectSequenceCursor {
+    fn default() -> Self {
+        Self::new(EffectSequence::FIRST)
+    }
+}
+
 /// Reports whether a command entered the runtime's bounded work queue.
 #[must_use = "submission results must be handled so input is never silently dropped"]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -231,6 +338,20 @@ pub enum MetadataChange<T> {
     Clear,
 }
 
+/// Transport-neutral progress state reported by terminal integrations.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RuntimeProgress {
+    /// No progress is currently reported.
+    #[default]
+    None,
+    /// Work completion percentage.
+    Percentage(u8),
+    /// Failed work completion percentage.
+    Error(u8),
+    /// Work is active but has no numeric completion value.
+    Indeterminate,
+}
+
 /// One changed pane user variable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserVarDelta {
@@ -250,7 +371,7 @@ pub struct PaneMetadataDelta {
     /// Changed badge-format expression, if any.
     pub badge_format: Option<MetadataChange<String>>,
     /// Changed progress state, if any.
-    pub progress: Option<MetadataChange<PaneProgress>>,
+    pub progress: Option<MetadataChange<RuntimeProgress>>,
     /// Changed user variables in terminal-observation order.
     pub user_vars: Vec<UserVarDelta>,
 }

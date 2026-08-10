@@ -9,15 +9,42 @@ use std::{
 
 use rssh_core::{DamageRegion, PaneId, TerminalSize};
 use rssh_runtime::{
-    EffectSequence, MetadataChange, PaneGeneration, PaneMetadataDelta, PaneTokenAllocator,
-    RuntimeBatch, RuntimeBatchMetrics, RuntimeEffect, RuntimeEffectKind, RuntimeRevision,
-    SequenceKind, SessionControl, SessionExit, SessionParts, SessionTransport, SubmitResult,
-    UserVarDelta,
+    EffectSequence, EffectSequenceCursor, EffectSequenceError, MetadataChange, PaneGeneration,
+    PaneMetadataDelta, PaneToken, PaneTokenAllocator, RuntimeBatch, RuntimeBatchMetrics,
+    RuntimeEffect, RuntimeEffectKind, RuntimeProgress, RuntimeRevision, SequenceKind,
+    SessionControl, SessionExit, SessionParts, SessionTransport, SubmitResult, UserVarDelta,
 };
 
 #[derive(Debug, PartialEq, Eq)]
 struct NeutralSnapshot {
     text: String,
+}
+
+fn effect_batch(
+    pane: PaneToken,
+    revision: RuntimeRevision,
+    sequences: &[EffectSequence],
+) -> RuntimeBatch<NeutralSnapshot> {
+    RuntimeBatch {
+        pane,
+        revision,
+        snapshot: None,
+        damage: Vec::new(),
+        metadata: PaneMetadataDelta::default(),
+        effects: sequences
+            .iter()
+            .copied()
+            .map(|sequence| {
+                RuntimeEffect::new(
+                    sequence,
+                    RuntimeEffectKind::Bell {
+                        count: NonZeroU64::MIN,
+                    },
+                )
+            })
+            .collect(),
+        metrics: RuntimeBatchMetrics::default(),
+    }
 }
 
 #[test]
@@ -72,6 +99,130 @@ fn revisions_and_effect_sequences_are_strictly_monotonic() {
 }
 
 #[test]
+fn effect_sequence_cursor_retains_continuity_across_runtime_batches() {
+    let mut allocator = PaneTokenAllocator::new();
+    let pane = allocator.issue(PaneId::new(5)).expect("pane token");
+    let first = EffectSequence::FIRST;
+    let second = first.next().expect("second sequence");
+    let third = second.next().expect("third sequence");
+    let fourth = third.next().expect("fourth sequence");
+    let first_batch = effect_batch(pane, RuntimeRevision::FIRST, &[first, second]);
+    let second_batch = effect_batch(
+        pane,
+        RuntimeRevision::FIRST.next().expect("second revision"),
+        &[third],
+    );
+    let mut cursor = EffectSequenceCursor::default();
+
+    cursor
+        .validate_batch(&first_batch)
+        .expect("first batch is contiguous");
+    assert_eq!(cursor.expected(), Some(third));
+    cursor
+        .validate_batch(&second_batch)
+        .expect("second batch continues the same stream");
+    assert_eq!(cursor.expected(), Some(fourth));
+}
+
+#[test]
+fn effect_sequence_cursor_reports_cross_batch_gaps() {
+    let mut allocator = PaneTokenAllocator::new();
+    let pane = allocator.issue(PaneId::new(6)).expect("pane token");
+    let first = EffectSequence::FIRST;
+    let expected = first.next().expect("second sequence");
+    let observed = expected.next().expect("third sequence");
+    let first_batch = effect_batch(pane, RuntimeRevision::FIRST, &[first]);
+    let gap_batch = effect_batch(
+        pane,
+        RuntimeRevision::FIRST.next().expect("second revision"),
+        &[observed],
+    );
+    let mut cursor = EffectSequenceCursor::default();
+
+    cursor
+        .validate_batch(&first_batch)
+        .expect("initial effect is contiguous");
+    assert_eq!(
+        cursor
+            .validate_batch(&gap_batch)
+            .expect_err("a missing cross-batch effect must be rejected"),
+        EffectSequenceError::Gap { expected, observed }
+    );
+    assert_eq!(cursor.expected(), Some(expected));
+}
+
+#[test]
+fn effect_sequence_cursor_reports_duplicates_and_out_of_order_effects() {
+    let mut allocator = PaneTokenAllocator::new();
+    let pane = allocator.issue(PaneId::new(7)).expect("pane token");
+    let first = EffectSequence::FIRST;
+    let second = first.next().expect("second sequence");
+    let expected = second.next().expect("third sequence");
+    let accepted_batch = effect_batch(pane, RuntimeRevision::FIRST, &[first, second]);
+    let duplicate_batch = effect_batch(
+        pane,
+        RuntimeRevision::FIRST.next().expect("second revision"),
+        &[second],
+    );
+    let out_of_order_batch = effect_batch(
+        pane,
+        RuntimeRevision::FIRST.next().expect("second revision"),
+        &[first],
+    );
+    let mut cursor = EffectSequenceCursor::default();
+
+    cursor
+        .validate_batch(&accepted_batch)
+        .expect("initial effects are contiguous");
+    assert_eq!(
+        cursor
+            .validate_batch(&duplicate_batch)
+            .expect_err("a duplicate must be rejected"),
+        EffectSequenceError::DuplicateOrOutOfOrder {
+            expected,
+            observed: second,
+        }
+    );
+    assert_eq!(
+        cursor
+            .validate_batch(&out_of_order_batch)
+            .expect_err("an out-of-order effect must be rejected"),
+        EffectSequenceError::DuplicateOrOutOfOrder {
+            expected,
+            observed: first,
+        }
+    );
+    assert_eq!(cursor.expected(), Some(expected));
+}
+
+#[test]
+fn effect_sequence_cursor_exhausts_after_accepting_max_without_wrapping() {
+    let mut allocator = PaneTokenAllocator::new();
+    let pane = allocator.issue(PaneId::new(8)).expect("pane token");
+    let max_batch = effect_batch(pane, RuntimeRevision::FIRST, &[EffectSequence::MAX]);
+    let after_max_batch = effect_batch(
+        pane,
+        RuntimeRevision::FIRST.next().expect("second revision"),
+        &[EffectSequence::MAX],
+    );
+    let mut cursor = EffectSequenceCursor::new(EffectSequence::MAX);
+
+    cursor
+        .validate_batch(&max_batch)
+        .expect("the maximum sequence remains valid once");
+    assert_eq!(cursor.expected(), None);
+    assert_eq!(
+        cursor
+            .validate_batch(&after_max_batch)
+            .expect_err("an exhausted cursor must reject every later effect"),
+        EffectSequenceError::Exhausted {
+            observed: EffectSequence::MAX,
+        }
+    );
+    assert_eq!(cursor.expected(), None);
+}
+
+#[test]
 fn submit_result_preserves_explicit_retry_hint() {
     let retry_after = Duration::from_millis(17);
     let result = SubmitResult::Backpressured { retry_after };
@@ -84,6 +235,20 @@ fn submit_result_preserves_explicit_retry_hint() {
     );
     assert_ne!(result, SubmitResult::Accepted);
     assert_ne!(result, SubmitResult::Closed);
+}
+
+#[test]
+fn runtime_progress_preserves_every_neutral_state() {
+    assert_eq!(RuntimeProgress::default(), RuntimeProgress::None);
+    assert_eq!(
+        RuntimeProgress::Percentage(73),
+        RuntimeProgress::Percentage(73)
+    );
+    assert_eq!(RuntimeProgress::Error(19), RuntimeProgress::Error(19));
+    assert_eq!(
+        RuntimeProgress::Indeterminate,
+        RuntimeProgress::Indeterminate
+    );
 }
 
 #[test]
@@ -148,7 +313,7 @@ fn runtime_batches_carry_snapshots_damage_metadata_metrics_and_ordered_effects()
             title: Some(MetadataChange::Set("shell".to_owned())),
             working_directory: Some(MetadataChange::Clear),
             badge_format: Some(MetadataChange::Set("production".to_owned())),
-            progress: None,
+            progress: Some(MetadataChange::Set(RuntimeProgress::Percentage(42))),
             user_vars: vec![UserVarDelta {
                 name: "profile".to_owned(),
                 value: MetadataChange::Set("dev".to_owned()),
@@ -196,6 +361,10 @@ fn runtime_batches_carry_snapshots_damage_metadata_metrics_and_ordered_effects()
     assert_eq!(
         batch_one.metadata.badge_format,
         Some(MetadataChange::Set("production".to_owned()))
+    );
+    assert_eq!(
+        batch_one.metadata.progress,
+        Some(MetadataChange::Set(RuntimeProgress::Percentage(42)))
     );
     assert_eq!(batch_one.metrics.transport_bytes, 32);
 
@@ -308,6 +477,8 @@ fn public_runtime_values_are_send_and_sync() {
     assert_send_sync::<PaneGeneration>();
     assert_send_sync::<RuntimeRevision>();
     assert_send_sync::<EffectSequence>();
+    assert_send_sync::<EffectSequenceCursor>();
+    assert_send_sync::<EffectSequenceError>();
     assert_send_sync::<PaneTokenAllocator>();
     assert_send_sync::<RuntimeEffect>();
     assert_send_sync::<PaneMetadataDelta>();
@@ -350,6 +521,7 @@ fn crate_manifest_and_public_source_are_transport_and_platform_neutral() {
         "winit::",
         "wgpu::",
         "raw_window_handle",
+        "app_shell",
         "std::sync::mpsc",
         "crossbeam_channel",
         "Sender<",
