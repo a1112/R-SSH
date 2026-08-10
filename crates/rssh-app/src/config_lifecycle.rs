@@ -326,12 +326,12 @@ impl<T: NativeConfigProjection> NativeConfigLifecycle<T> {
     }
 
     pub(crate) fn install_initial_attempt(&mut self, attempt: NativeConfigLoadAttempt<T>) {
-        let _ = self.core.install_initial_attempt(attempt, |_, _| ());
+        let _ = self.core.install_attempt(attempt, |_, _| ());
         self.refresh_watched_paths();
     }
 
     pub(crate) fn install_runtime_attempt(&mut self, attempt: NativeConfigLoadAttempt<T>) -> bool {
-        let event = self.core.install_runtime_attempt(attempt, |_, _| ());
+        let event = self.core.install_attempt(attempt, |_, _| ());
         self.refresh_watched_paths();
         matches!(event, ConfigLifecycleEvent::Applied { .. })
     }

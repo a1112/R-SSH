@@ -95,7 +95,7 @@ fn missing_optional_file_falls_through_while_missing_required_file_is_rejected()
     assert_eq!(optional_attempt.resolved, ResolvedConfigSource::Defaults);
     assert_eq!(optional_attempt.result.as_ref().unwrap(), &defaults);
     let ConfigLifecycleEvent::Applied { snapshot, .. } =
-        optional.install_initial_attempt(optional_attempt, config_diff)
+        optional.install_attempt(optional_attempt, config_diff)
     else {
         panic!("all optional sources missing must install resolved defaults");
     };
@@ -122,7 +122,7 @@ fn missing_optional_file_falls_through_while_missing_required_file_is_rejected()
         ConfigSourceErrorKind::Io(std::io::ErrorKind::NotFound)
     ));
     let ConfigLifecycleEvent::Rejected { snapshot, .. } =
-        required.install_initial_attempt(required_attempt, config_diff)
+        required.install_attempt(required_attempt, config_diff)
     else {
         panic!("missing required source must reject the initial attempt");
     };
@@ -150,8 +150,7 @@ fn valid_reload_returns_new_snapshot_typed_diff_and_generation() {
         EffectiveConfig::default(),
     );
 
-    let first =
-        lifecycle.install_initial_attempt(lifecycle.attempt_reload(parse_config), config_diff);
+    let first = lifecycle.install_attempt(lifecycle.attempt_reload(parse_config), config_diff);
     let ConfigLifecycleEvent::Applied { snapshot, diff } = first else {
         panic!("valid initial source must be applied");
     };
@@ -161,8 +160,7 @@ fn valid_reload_returns_new_snapshot_typed_diff_and_generation() {
     assert!(diff.font.unwrap().family);
 
     fs::write(&path, "[font]\nfamily = 'second'\n").unwrap();
-    let second =
-        lifecycle.install_runtime_attempt(lifecycle.attempt_reload(parse_config), config_diff);
+    let second = lifecycle.install_attempt(lifecycle.attempt_reload(parse_config), config_diff);
     let ConfigLifecycleEvent::Applied { snapshot, diff } = second else {
         panic!("valid runtime source must be applied");
     };
@@ -171,13 +169,53 @@ fn valid_reload_returns_new_snapshot_typed_diff_and_generation() {
     assert!(diff.font.unwrap().family);
     assert!(diff.terminal.is_none());
 
-    let unchanged =
-        lifecycle.install_runtime_attempt(lifecycle.attempt_reload(parse_config), config_diff);
+    let unchanged = lifecycle.install_attempt(lifecycle.attempt_reload(parse_config), config_diff);
     let ConfigLifecycleEvent::Applied { snapshot, diff } = unchanged else {
         panic!("an unchanged but valid reload is still a successful reload");
     };
     assert_eq!(snapshot.generation, 3);
     assert!(diff.is_empty());
+}
+
+#[test]
+fn single_install_api_keeps_generation_monotonic_across_repeated_successes() {
+    let root = TestDir::new("monotonic-generation");
+    let path = root.join("config.toml");
+    fs::write(&path, "[font]\nfamily = 'stable'\n").unwrap();
+    let mut lifecycle = ConfigLifecycle::<EffectiveConfig, String>::new(
+        discovery(),
+        false,
+        Some(path),
+        EffectiveConfig::default(),
+    );
+
+    let initial = lifecycle.install_attempt(lifecycle.attempt_reload(parse_config), config_diff);
+    assert!(matches!(
+        initial,
+        ConfigLifecycleEvent::Applied {
+            snapshot: rssh_config::ConfigSnapshot { generation: 1, .. },
+            ..
+        }
+    ));
+
+    let runtime = lifecycle.install_attempt(lifecycle.attempt_reload(parse_config), config_diff);
+    assert!(matches!(
+        runtime,
+        ConfigLifecycleEvent::Applied {
+            snapshot: rssh_config::ConfigSnapshot { generation: 2, .. },
+            ..
+        }
+    ));
+
+    let repeated_install =
+        lifecycle.install_attempt(lifecycle.attempt_reload(parse_config), config_diff);
+    let ConfigLifecycleEvent::Applied { snapshot, .. } = repeated_install else {
+        panic!("a valid repeated install must still be applied");
+    };
+    assert_eq!(
+        snapshot.generation, 3,
+        "a public install operation must never move generation backward"
+    );
 }
 
 #[test]
@@ -192,12 +230,12 @@ fn invalid_reload_retains_the_exact_last_known_good_arc_and_generation() {
         EffectiveConfig::default(),
     );
     let initial = lifecycle.attempt_reload(parse_config);
-    lifecycle.install_initial_attempt(initial, config_diff);
+    lifecycle.install_attempt(initial, config_diff);
     let last_known_good = lifecycle.snapshot();
 
     fs::write(&path, "[font\nfamily = 'broken'\n").unwrap();
     let invalid = lifecycle.attempt_reload(parse_config);
-    let event = lifecycle.install_runtime_attempt(invalid, config_diff);
+    let event = lifecycle.install_attempt(invalid, config_diff);
     let ConfigLifecycleEvent::Rejected {
         snapshot,
         diagnostic,
@@ -241,6 +279,15 @@ fn fixed_window_debounce_coalesces_a_burst_without_extending_deadline() {
     assert!(!debounce.take_ready(start + Duration::from_millis(199)));
     assert!(debounce.take_ready(first_deadline));
     assert!(!debounce.take_ready(first_deadline));
+}
+
+#[test]
+fn debounce_duration_overflow_becomes_immediately_ready_without_panicking() {
+    let now = Instant::now();
+    let mut debounce = FixedWindowDebouncer::new(Duration::MAX);
+
+    assert_eq!(debounce.observe(SourceChange::Changed, now), Some(now));
+    assert!(debounce.take_ready(now));
 }
 
 #[test]

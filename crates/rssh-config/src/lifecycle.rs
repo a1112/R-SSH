@@ -152,45 +152,25 @@ impl<T: Clone, E: Clone + std::fmt::Display> ConfigLifecycle<T, E> {
         self.inputs.candidate_sources(self.explicit.as_deref())
     }
 
-    pub fn install_initial_attempt<D>(
-        &mut self,
-        attempt: ConfigLoadAttempt<T, E>,
-        diff: impl FnOnce(&T, &T) -> D,
-    ) -> ConfigLifecycleEvent<T, D, E> {
-        self.install_attempt(attempt, 1, diff)
-    }
-
-    /// Installs a runtime reload attempt and advances the generation on success.
+    /// Installs a reload attempt and advances the generation on success.
     ///
     /// # Panics
     ///
-    /// Panics if a successful reload would advance a configuration generation
+    /// Panics if a successful install would advance a configuration generation
     /// that has already reached [`u64::MAX`].
-    pub fn install_runtime_attempt<D>(
+    pub fn install_attempt<D>(
         &mut self,
         attempt: ConfigLoadAttempt<T, E>,
-        diff: impl FnOnce(&T, &T) -> D,
-    ) -> ConfigLifecycleEvent<T, D, E> {
-        let generation = if attempt.result.is_ok() {
-            self.snapshot
-                .generation
-                .checked_add(1)
-                .expect("configuration generation overflowed")
-        } else {
-            self.snapshot.generation
-        };
-        self.install_attempt(attempt, generation, diff)
-    }
-
-    fn install_attempt<D>(
-        &mut self,
-        attempt: ConfigLoadAttempt<T, E>,
-        generation: u64,
         diff: impl FnOnce(&T, &T) -> D,
     ) -> ConfigLifecycleEvent<T, D, E> {
         self.latest_selection = attempt.resolved.clone();
         match attempt.result {
             Ok(config) => {
+                let generation = self
+                    .snapshot
+                    .generation
+                    .checked_add(1)
+                    .expect("configuration generation overflowed");
                 let diff = diff(&self.snapshot.config, &config);
                 self.snapshot = ConfigSnapshot {
                     source: selected_path(&attempt.resolved),
@@ -247,7 +227,10 @@ impl FixedWindowDebouncer {
         if change == SourceChange::Ignored {
             return None;
         }
-        let deadline = *self.deadline.get_or_insert(now + self.window);
+        let window = self.window;
+        let deadline = *self
+            .deadline
+            .get_or_insert_with(|| now.checked_add(window).unwrap_or(now));
         Some(deadline)
     }
 
