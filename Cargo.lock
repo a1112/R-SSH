@@ -4829,6 +4829,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rssh-config"
+version = "0.1.0"
+
+[[package]]
 name = "rssh-core"
 version = "0.1.0"
 

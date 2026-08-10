@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/rssh-app",
+    "crates/rssh-config",
     "crates/rssh-core",
     "crates/rssh-terminal",
     "crates/rssh-renderer",
