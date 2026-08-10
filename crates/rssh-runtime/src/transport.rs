@@ -2,21 +2,30 @@ use std::io::{self, Read, Write};
 
 use rssh_core::TerminalSize;
 
-/// Platform-neutral terminal-session completion status.
+/// Signal metadata reported when a terminal session exits.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SessionExit {
-    /// The session exited normally with a process status code.
-    Exited {
-        /// Process exit code reported by the transport.
-        code: i32,
-    },
-    /// The session was terminated by a named signal or remote equivalent.
-    Signaled {
-        /// Transport-provided signal name.
-        signal: String,
-    },
-    /// The transport ended without a more specific status.
-    Unknown,
+pub struct SessionExitSignal {
+    /// Transport-provided signal name.
+    pub name: String,
+    /// Whether the session reported producing a core dump.
+    pub core_dumped: bool,
+    /// Transport-provided diagnostic message, including an empty message.
+    pub error_message: String,
+    /// Language tag associated with the diagnostic message.
+    pub lang_tag: String,
+}
+
+/// Platform-neutral terminal-session completion record.
+///
+/// A transport can report both status and signal metadata. A record with both
+/// fields absent is still a completed session; [`Option::None`] from
+/// [`SessionControl::poll_exit`] alone means the session remains pending.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionExit {
+    /// Full unsigned status reported by a local or remote transport.
+    pub status: Option<u32>,
+    /// Signal metadata reported alongside or instead of a status.
+    pub signal: Option<SessionExitSignal>,
 }
 
 /// Independently owned read, write, and lifecycle halves of a session.

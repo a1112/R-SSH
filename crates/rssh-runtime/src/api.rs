@@ -1,4 +1,9 @@
-use std::{fmt, num::NonZeroU64, sync::Arc, time::Duration};
+use std::{
+    fmt,
+    num::NonZeroU64,
+    sync::{Arc, atomic::AtomicU64, atomic::Ordering},
+    time::Duration,
+};
 
 use rssh_core::{DamageRegion, PaneId};
 
@@ -51,24 +56,28 @@ impl PaneGeneration {
     /// The final generation that can be issued without wrapping.
     pub const MAX: Self = Self(NonZeroU64::MAX);
 
-    /// Wraps an already validated nonzero generation.
-    #[must_use]
-    pub const fn from_non_zero(value: NonZeroU64) -> Self {
-        Self(value)
-    }
-
     /// Returns the primitive generation value.
     #[must_use]
     pub const fn get(self) -> u64 {
         self.0.get()
     }
+}
 
-    fn next(self) -> Option<Self> {
-        self.get()
-            .checked_add(1)
-            .and_then(NonZeroU64::new)
-            .map(Self)
-    }
+static NEXT_PANE_GENERATION: AtomicU64 = AtomicU64::new(PaneGeneration::FIRST.get());
+
+fn issue_pane_generation(counter: &AtomicU64) -> Result<PaneGeneration, SequenceExhausted> {
+    let value = counter
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            if current == 0 {
+                None
+            } else {
+                Some(current.checked_add(1).unwrap_or(0))
+            }
+        })
+        .map_err(|_| SequenceExhausted::new(SequenceKind::PaneGeneration))?;
+    NonZeroU64::new(value)
+        .map(PaneGeneration)
+        .ok_or_else(|| SequenceExhausted::new(SequenceKind::PaneGeneration))
 }
 
 /// A pane identity paired with the generation that owns its events.
@@ -92,31 +101,21 @@ impl PaneToken {
     }
 }
 
-/// Issues generations monotonically across every pane managed by one runtime hub.
+/// Issues process-wide generations monotonically across every allocator handle.
 ///
-/// The allocator is intentionally not cloneable: the runtime hub owns one
-/// authority and uses it for opens and restarts of every pane.
+/// Every handle refers to one private process counter. The allocator is
+/// intentionally not cloneable and exposes no way to seed or rewind it.
 #[derive(Debug)]
 pub struct PaneTokenAllocator {
-    next_generation: Option<PaneGeneration>,
+    counter: &'static AtomicU64,
 }
 
 impl PaneTokenAllocator {
-    /// Creates an allocator whose first token uses generation one.
+    /// Creates a handle to the process-wide pane generation authority.
     #[must_use]
     pub const fn new() -> Self {
-        Self::from_next_generation(PaneGeneration::FIRST)
-    }
-
-    /// Restores an allocator at the next durable generation.
-    ///
-    /// Callers must use the restored allocator as the runtime hub's sole
-    /// generation authority. This constructor also permits deterministic
-    /// exhaustion testing without allowing zero generations.
-    #[must_use]
-    pub const fn from_next_generation(next_generation: PaneGeneration) -> Self {
         Self {
-            next_generation: Some(next_generation),
+            counter: &NEXT_PANE_GENERATION,
         }
     }
 
@@ -127,10 +126,7 @@ impl PaneTokenAllocator {
     /// Returns [`SequenceExhausted`] after generation [`PaneGeneration::MAX`]
     /// has been issued. The allocator never wraps or reuses a generation.
     pub fn issue(&mut self, pane: PaneId) -> Result<PaneToken, SequenceExhausted> {
-        let generation = self
-            .next_generation
-            .ok_or_else(|| SequenceExhausted::new(SequenceKind::PaneGeneration))?;
-        self.next_generation = generation.next();
+        let generation = issue_pane_generation(self.counter)?;
         Ok(PaneToken { pane, generation })
     }
 }
@@ -284,15 +280,17 @@ impl EffectSequenceCursor {
     /// Returns [`EffectSequenceError::Gap`] when an effect is missing,
     /// [`EffectSequenceError::DuplicateOrOutOfOrder`] for an already consumed
     /// position, or [`EffectSequenceError::Exhausted`] for an effect after
-    /// [`EffectSequence::MAX`]. The cursor remains at the first rejected
-    /// position.
+    /// [`EffectSequence::MAX`]. If any effect is rejected, the cursor remains
+    /// exactly as it was before the batch so the corrected whole batch can be
+    /// retried.
     pub fn validate_batch<S>(
         &mut self,
         batch: &RuntimeBatch<S>,
     ) -> Result<(), EffectSequenceError> {
+        let mut candidate = self.expected;
         for effect in &batch.effects {
             let observed = effect.sequence();
-            let Some(expected) = self.expected else {
+            let Some(expected) = candidate else {
                 return Err(EffectSequenceError::Exhausted { observed });
             };
             if observed > expected {
@@ -301,8 +299,9 @@ impl EffectSequenceCursor {
             if observed < expected {
                 return Err(EffectSequenceError::DuplicateOrOutOfOrder { expected, observed });
             }
-            self.expected = expected.next().ok();
+            candidate = expected.next().ok();
         }
+        self.expected = candidate;
         Ok(())
     }
 }
@@ -388,6 +387,8 @@ pub enum RuntimeEffectKind {
     },
     /// Replace the host clipboard contents.
     ClipboardWrite {
+        /// OSC 52 selection token, or `None` for protocols without one.
+        selection: Option<String>,
         /// Text requested by the terminal.
         contents: String,
     },
@@ -458,4 +459,29 @@ pub struct RuntimeBatch<S> {
     pub effects: Vec<RuntimeEffect>,
     /// Timing and volume measurements for this batch.
     pub metrics: RuntimeBatchMetrics,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::{PaneGeneration, SequenceKind, issue_pane_generation};
+
+    #[test]
+    fn private_pane_generation_counter_issues_max_once_then_exhausts() {
+        let counter = AtomicU64::new(u64::MAX);
+
+        assert_eq!(
+            issue_pane_generation(&counter).expect("MAX remains issuable"),
+            PaneGeneration::MAX
+        );
+        assert_eq!(counter.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            issue_pane_generation(&counter)
+                .expect_err("zero sentinel must remain exhausted")
+                .kind(),
+            SequenceKind::PaneGeneration
+        );
+        assert_eq!(counter.load(Ordering::Relaxed), 0);
+    }
 }

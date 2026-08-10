@@ -11,4 +11,6 @@ pub use api::{
     SubmitResult, UserVarDelta,
 };
 pub use metrics::RuntimeBatchMetrics;
-pub use transport::{SessionControl, SessionExit, SessionParts, SessionTransport};
+pub use transport::{
+    SessionControl, SessionExit, SessionExitSignal, SessionParts, SessionTransport,
+};

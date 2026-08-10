@@ -3,7 +3,8 @@ use std::{
     io::{self, Cursor, Read, Write},
     num::NonZeroU64,
     path::Path,
-    sync::Arc,
+    sync::{Arc, Barrier},
+    thread,
     time::Duration,
 };
 
@@ -12,7 +13,8 @@ use rssh_runtime::{
     EffectSequence, EffectSequenceCursor, EffectSequenceError, MetadataChange, PaneGeneration,
     PaneMetadataDelta, PaneToken, PaneTokenAllocator, RuntimeBatch, RuntimeBatchMetrics,
     RuntimeEffect, RuntimeEffectKind, RuntimeProgress, RuntimeRevision, SequenceKind,
-    SessionControl, SessionExit, SessionParts, SessionTransport, SubmitResult, UserVarDelta,
+    SessionControl, SessionExit, SessionExitSignal, SessionParts, SessionTransport, SubmitResult,
+    UserVarDelta,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -48,27 +50,72 @@ fn effect_batch(
 }
 
 #[test]
-fn pane_generations_are_nonzero_global_and_exhaust_explicitly() {
-    let mut allocator = PaneTokenAllocator::new();
-    let first = allocator.issue(PaneId::new(41)).expect("first token");
-    let second = allocator.issue(PaneId::new(7)).expect("second token");
+fn pane_generations_are_process_wide_unique_across_handles_and_threads() {
+    const THREADS: usize = 8;
+    const ISSUES_PER_THREAD: usize = 64;
+
+    let mut first_allocator = PaneTokenAllocator::new();
+    let first = first_allocator.issue(PaneId::new(41)).expect("first token");
+    let mut second_allocator = PaneTokenAllocator::new();
+    let second = second_allocator
+        .issue(PaneId::new(7))
+        .expect("second token");
 
     assert_eq!(first.pane(), PaneId::new(41));
-    assert_eq!(first.generation().get(), 1);
+    assert_ne!(first.generation().get(), 0);
     assert_eq!(second.pane(), PaneId::new(7));
-    assert_eq!(second.generation().get(), 2);
+    assert!(second.generation() > first.generation());
 
-    let mut final_allocator =
-        PaneTokenAllocator::from_next_generation(PaneGeneration::from_non_zero(NonZeroU64::MAX));
-    let final_token = final_allocator
-        .issue(PaneId::new(99))
-        .expect("the maximum generation remains issuable");
-    assert_eq!(final_token.generation(), PaneGeneration::MAX);
+    let start = Arc::new(Barrier::new(THREADS));
+    let workers = (0..THREADS)
+        .map(|thread_index| {
+            let start = Arc::clone(&start);
+            thread::spawn(move || {
+                let mut allocator = PaneTokenAllocator::new();
+                start.wait();
+                (0..ISSUES_PER_THREAD)
+                    .map(|item_index| {
+                        let pane = PaneId::new(
+                            u64::try_from(thread_index * ISSUES_PER_THREAD + item_index)
+                                .expect("pane index fits u64"),
+                        );
+                        allocator
+                            .issue(pane)
+                            .expect("process generation space remains available")
+                            .generation()
+                            .get()
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut concurrent_generations = workers
+        .into_iter()
+        .flat_map(|worker| worker.join().expect("generation worker"))
+        .collect::<Vec<_>>();
+    concurrent_generations.sort_unstable();
 
-    let exhausted = final_allocator
-        .issue(PaneId::new(100))
-        .expect_err("generation must never wrap or be reused");
-    assert_eq!(exhausted.kind(), SequenceKind::PaneGeneration);
+    assert_eq!(concurrent_generations.len(), THREADS * ISSUES_PER_THREAD);
+    assert!(
+        concurrent_generations
+            .iter()
+            .all(|generation| *generation != 0)
+    );
+    assert!(
+        concurrent_generations
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "process-wide generations must never repeat"
+    );
+
+    let mut later_allocator = PaneTokenAllocator::new();
+    let later = later_allocator.issue(PaneId::new(99)).expect("later token");
+    assert!(
+        later.generation().get()
+            > *concurrent_generations
+                .last()
+                .expect("concurrent generations")
+    );
 }
 
 #[test]
@@ -223,6 +270,70 @@ fn effect_sequence_cursor_exhausts_after_accepting_max_without_wrapping() {
 }
 
 #[test]
+fn effect_sequence_cursor_commits_only_complete_valid_batches() {
+    let mut allocator = PaneTokenAllocator::new();
+    let pane = allocator.issue(PaneId::new(9)).expect("pane token");
+    let first = EffectSequence::FIRST;
+    let second = first.next().expect("second sequence");
+    let third = second.next().expect("third sequence");
+
+    let gap_batch = effect_batch(pane, RuntimeRevision::FIRST, &[first, third]);
+    let mut gap_cursor = EffectSequenceCursor::default();
+    assert_eq!(
+        gap_cursor
+            .validate_batch(&gap_batch)
+            .expect_err("a later gap must reject the entire batch"),
+        EffectSequenceError::Gap {
+            expected: second,
+            observed: third,
+        }
+    );
+    assert_eq!(gap_cursor.expected(), Some(first));
+
+    let corrected_batch = effect_batch(pane, RuntimeRevision::FIRST, &[first, second]);
+    gap_cursor
+        .validate_batch(&corrected_batch)
+        .expect("the corrected whole batch remains retryable");
+    assert_eq!(gap_cursor.expected(), Some(third));
+
+    let duplicate_batch = effect_batch(pane, RuntimeRevision::FIRST, &[first, first]);
+    let mut duplicate_cursor = EffectSequenceCursor::default();
+    assert_eq!(
+        duplicate_cursor
+            .validate_batch(&duplicate_batch)
+            .expect_err("a later duplicate must reject the entire batch"),
+        EffectSequenceError::DuplicateOrOutOfOrder {
+            expected: second,
+            observed: first,
+        }
+    );
+    assert_eq!(duplicate_cursor.expected(), Some(first));
+
+    let max_then_extra = effect_batch(
+        pane,
+        RuntimeRevision::FIRST,
+        &[EffectSequence::MAX, EffectSequence::MAX],
+    );
+    let mut max_cursor = EffectSequenceCursor::new(EffectSequence::MAX);
+    assert_eq!(
+        max_cursor
+            .validate_batch(&max_then_extra)
+            .expect_err("an effect after MAX must reject the entire batch"),
+        EffectSequenceError::Exhausted {
+            observed: EffectSequence::MAX,
+        }
+    );
+    assert_eq!(max_cursor.expected(), Some(EffectSequence::MAX));
+
+    let empty_batch = effect_batch(pane, RuntimeRevision::FIRST, &[]);
+    let mut empty_cursor = EffectSequenceCursor::default();
+    empty_cursor
+        .validate_batch(&empty_batch)
+        .expect("an empty batch is atomically valid");
+    assert_eq!(empty_cursor.expected(), Some(first));
+}
+
+#[test]
 fn submit_result_preserves_explicit_retry_hint() {
     let retry_after = Duration::from_millis(17);
     let result = SubmitResult::Backpressured { retry_after };
@@ -254,7 +365,12 @@ fn runtime_progress_preserves_every_neutral_state() {
 #[test]
 fn neutral_effect_and_exit_payloads_are_lossless() {
     let clipboard_write = RuntimeEffectKind::ClipboardWrite {
+        selection: Some("c".to_owned()),
         contents: "copied text".to_owned(),
+    };
+    let selectionless_clipboard_write = RuntimeEffectKind::ClipboardWrite {
+        selection: None,
+        contents: "selectionless text".to_owned(),
     };
     let clipboard_read = RuntimeEffectKind::ClipboardRead {
         selection: "c".to_owned(),
@@ -269,7 +385,13 @@ fn neutral_effect_and_exit_payloads_are_lossless() {
 
     assert!(matches!(
         clipboard_write,
-        RuntimeEffectKind::ClipboardWrite { contents } if contents == "copied text"
+        RuntimeEffectKind::ClipboardWrite { selection, contents }
+            if selection.as_deref() == Some("c") && contents == "copied text"
+    ));
+    assert!(matches!(
+        selectionless_clipboard_write,
+        RuntimeEffectKind::ClipboardWrite { selection: None, contents }
+            if contents == "selectionless text"
     ));
     assert!(matches!(
         clipboard_read,
@@ -283,15 +405,30 @@ fn neutral_effect_and_exit_payloads_are_lossless() {
         untitled_notification,
         RuntimeEffectKind::Notification { title: None, body } if body == "plain body"
     ));
-    assert_eq!(
-        SessionExit::Signaled {
-            signal: "TERM".to_owned()
-        },
-        SessionExit::Signaled {
-            signal: "TERM".to_owned()
-        }
-    );
-    assert_eq!(SessionExit::Unknown, SessionExit::Unknown);
+}
+
+#[test]
+fn session_exit_preserves_status_and_signal_metadata_without_conflating_pending() {
+    let signal = SessionExitSignal {
+        name: "KILL".to_owned(),
+        core_dumped: true,
+        error_message: "remote terminated".to_owned(),
+        lang_tag: "zh-CN".to_owned(),
+    };
+    let completed = SessionExit {
+        status: Some(u32::MAX),
+        signal: Some(signal.clone()),
+    };
+    let unknown_completed = SessionExit {
+        status: None,
+        signal: None,
+    };
+
+    assert_eq!(completed.status, Some(u32::MAX));
+    assert_eq!(completed.signal, Some(signal));
+    assert_eq!(unknown_completed.status, None);
+    assert_eq!(unknown_completed.signal, None);
+    assert_ne!(Some(unknown_completed), None::<SessionExit>);
 }
 
 #[test]
@@ -446,7 +583,10 @@ fn session_transport_uses_only_standard_io_and_neutral_control_values() -> io::R
         reader: Cursor::new(b"terminal output".to_vec()),
         writer: Cursor::new(Vec::new()),
         control: RecordingControl {
-            exit: Some(SessionExit::Exited { code: 23 }),
+            exit: Some(SessionExit {
+                status: Some(23),
+                signal: None,
+            }),
             ..RecordingControl::default()
         },
     };
@@ -460,7 +600,13 @@ fn session_transport_uses_only_standard_io_and_neutral_control_values() -> io::R
     reader.read_to_string(&mut output)?;
     writer.write_all(b"input")?;
     control.resize(TerminalSize::new(120, 40))?;
-    assert_eq!(control.poll_exit()?, Some(SessionExit::Exited { code: 23 }));
+    assert_eq!(
+        control.poll_exit()?,
+        Some(SessionExit {
+            status: Some(23),
+            signal: None,
+        })
+    );
     control.begin_close()?;
 
     assert_eq!(output, "terminal output");
@@ -486,6 +632,7 @@ fn public_runtime_values_are_send_and_sync() {
     assert_send_sync::<RuntimeBatchMetrics>();
     assert_send_sync::<SubmitResult>();
     assert_send_sync::<SessionExit>();
+    assert_send_sync::<SessionExitSignal>();
     assert_send_sync::<SessionParts<Cursor<Vec<u8>>, Cursor<Vec<u8>>, RecordingControl>>();
 }
 
@@ -517,15 +664,22 @@ fn crate_manifest_and_public_source_are_transport_and_platform_neutral() {
             fs::read_to_string(path).expect("read runtime source")
         })
         .collect::<String>();
+    let bounded_mailbox_fixture =
+        fs::read_to_string(root.join("tests/fixtures/bounded_mailbox_api.rs"))
+            .expect("read bounded mailbox API fixture");
+    let source = format!("{source}\n{bounded_mailbox_fixture}");
     for forbidden in [
         "winit::",
         "wgpu::",
         "raw_window_handle",
         "app_shell",
         "std::sync::mpsc",
-        "crossbeam_channel",
-        "Sender<",
-        "Receiver<",
+        "std::sync::{mpsc",
+        "crossbeam_channel::unbounded",
+        "crossbeam::channel::unbounded",
+        "mpsc::unbounded_channel",
+        "UnboundedSender<",
+        "UnboundedReceiver<",
     ] {
         assert!(
             !source.contains(forbidden),
