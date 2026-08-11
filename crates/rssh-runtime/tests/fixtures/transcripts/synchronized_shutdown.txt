@@ -1,0 +1,5 @@
+# EOF/close releases synchronized terminal damage and is idempotent.
+kind terminal
+size 12x3
+feed 1b5b3f323032366868656c6407
+finish

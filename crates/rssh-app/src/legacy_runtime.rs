@@ -1,3 +1,5 @@
+//! Frozen native legacy/V2 host transcript equivalence during runtime cutover.
+
 use super::*;
 use std::{cell::RefCell, rc::Rc};
 

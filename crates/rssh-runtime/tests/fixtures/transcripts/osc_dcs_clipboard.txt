@@ -1,0 +1,4 @@
+# OSC title/clipboard, DECRQSS DCS and a following visible byte.
+kind terminal
+size 20x3
+feed 1b5d323b7469746c65071b5d35323b633b614756736247383d071b5d35323b633b3f071b50247122701b5c58

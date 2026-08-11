@@ -1,0 +1,4 @@
+# Multi-pane ownership, generation restart and stale handle rejection.
+kind contracts
+contract crates/rssh-runtime/tests/pane_worker.rs|worker_is_ready_and_serializes_user_input_terminal_replies_and_resize
+contract crates/rssh-runtime/tests/pane_worker.rs|restart_issues_a_new_generation_rejects_old_handle_and_filters_stale_notices

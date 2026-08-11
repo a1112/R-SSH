@@ -4510,8 +4510,8 @@ fn kitty_modifier(key: KeyEvent) -> Option<u16> {
 }
 
 #[cfg(test)]
-#[path = "local_terminal_delta_tests.rs"]
-mod local_terminal_delta_tests;
+#[path = "legacy_runtime.rs"]
+mod legacy_runtime;
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,6 @@
+# Scrolling and width reflow preserve history rows and sequence numbers.
+kind terminal
+size 8x3
+feed 6f6e650d0a74776f0d0a74687265650d0a666f75720d0a66697665
+resize 5x4
+feed 21
