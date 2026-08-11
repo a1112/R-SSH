@@ -31,6 +31,7 @@ pub enum CommandIntent {
     Copy(String),
     Paste { pane: PaneId, bytes: Vec<u8> },
     SpawnPane,
+    SpawnWindow,
     RestartPane(PaneId),
     SetTitle(String),
     Persist,

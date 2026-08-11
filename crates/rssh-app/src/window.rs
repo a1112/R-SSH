@@ -40814,11 +40814,17 @@ impl NativeWindowManager {
         true
     }
 
-    fn handle_window_focus_changed(
+    fn handle_window_platform_event(
         &mut self,
         window_id: winit::window::WindowId,
-        focused: bool,
+        event: &rssh_native::PlatformEvent,
     ) -> io::Result<()> {
+        let rssh_native::PlatformEvent::Focused(focused) = *event else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "manager platform adapter expected a focus event",
+            ));
+        };
         dispatch_window_focus_changed(&mut self.focus, &mut self.windows, window_id, focused)
     }
 
@@ -50567,13 +50573,16 @@ impl NativeWindowApp {
         let placement = self.frame_content_placement();
         let geometry = self.frame_render_geometry(surface_geometry, placement);
         let snapshot = self.render_snapshot();
+        self.metrics.record_terminal_linkage_snapshot(&snapshot);
+        if self.final_linkage_frame_is_reserved() {
+            return;
+        }
         if self.frame_limit_reached() {
             // A frame limit is an exact presentation contract.  When a probe
             // also asks for PTY linkage, later output may still need to reach
             // the terminal snapshot after the final frame.  Observe that
             // state, but never prepare or present an additional frame while
             // waiting for it.
-            self.metrics.record_terminal_linkage_snapshot(&snapshot);
             if self.frame_limit_probe_ready() {
                 event_loop.exit();
             }
@@ -50597,7 +50606,6 @@ impl NativeWindowApp {
         let graph =
             self.renderer
                 .prepare_gpu_frame(&snapshot, geometry, scrollbar, damage_row_offset);
-        self.metrics.record_terminal_linkage_snapshot(&snapshot);
         let gpu_dpi_scale = self.gpu_dpi_scale();
 
         let outcome = if let (Some(gpu), Some(window)) = (self.gpu.as_mut(), self.window.as_ref()) {
@@ -50808,8 +50816,24 @@ impl NativeWindowApp {
     }
 
     fn frame_limit_redraw_pending(&self) -> bool {
-        self.frame_limit
-            .is_some_and(|limit| self.rendered_frames < limit)
+        self.frame_limit.is_some_and(|limit| {
+            let target = if self.metrics.pty_linkage_enabled
+                && !self.metrics.terminal_linkage_nonce_found
+            {
+                limit.saturating_sub(1)
+            } else {
+                limit
+            };
+            self.rendered_frames < target
+        })
+    }
+
+    fn final_linkage_frame_is_reserved(&self) -> bool {
+        self.metrics.pty_linkage_enabled
+            && !self.metrics.terminal_linkage_nonce_found
+            && self
+                .frame_limit
+                .is_some_and(|limit| self.rendered_frames.saturating_add(1) >= limit)
     }
 
     fn frame_limit_reached(&self) -> bool {
@@ -91858,7 +91882,8 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
         }
 
         if let WindowEvent::Focused(focused) = &event {
-            if let Err(error) = self.handle_window_focus_changed(window_id, *focused) {
+            let event = rssh_native::PlatformEvent::Focused(*focused);
+            if let Err(error) = self.handle_window_platform_event(window_id, &event) {
                 eprintln!("PTY focus error: {error}");
                 event_loop.exit();
             }
@@ -222782,6 +222807,19 @@ act.Confirmation {
 
         assert!(app.frame_limit_probe_ready());
         assert!(!app.frame_limit_probe_pending());
+    }
+
+    #[test]
+    fn window_app_frame_limit_reserves_the_final_frame_for_requested_linkage() {
+        let mut app = NativeWindowApp::new(Some(10));
+        app.metrics.pty_linkage_enabled = true;
+        app.rendered_frames = 9;
+
+        assert!(!app.frame_limit_redraw_pending());
+
+        app.metrics.terminal_linkage_nonce_found = true;
+
+        assert!(app.frame_limit_redraw_pending());
     }
 
     #[test]

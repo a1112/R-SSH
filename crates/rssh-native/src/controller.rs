@@ -64,6 +64,7 @@ fn reduce_command(state: &mut WindowState, intent: CommandIntent, effects: &mut 
             }
         }
         CommandIntent::SpawnPane => effects.push(WindowEffect::Spawn(SpawnEffect::Pane)),
+        CommandIntent::SpawnWindow => effects.push(WindowEffect::Spawn(SpawnEffect::Window)),
         CommandIntent::RestartPane(pane_id) => {
             if let Some(pane) = state.panes.get_mut(&pane_id) {
                 pane.restarting = true;

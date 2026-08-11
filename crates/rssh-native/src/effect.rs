@@ -67,6 +67,7 @@ pub enum RendererEffect {
         context: HostEffectContext,
         count: NonZeroU64,
     },
+    RecoverDevice,
     Present,
 }
 
@@ -110,6 +111,7 @@ pub enum PersistenceEffect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnEffect {
     Pane,
+    Window,
 }
 
 /// Typed output ports produced by [`crate::reduce`].

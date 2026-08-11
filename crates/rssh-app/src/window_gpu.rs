@@ -225,7 +225,11 @@ impl WindowGpu {
         let outcome = recovery.present(
             &frame,
             |borrowed| state.borrow_mut().present_once(borrowed),
-            || state.borrow_mut().rebuild_device_and_layers(),
+            || {
+                state
+                    .borrow_mut()
+                    .execute_host_renderer_effect(&rssh_native::RendererEffect::RecoverDevice)
+            },
             |error| {
                 error
                     .as_ref()
@@ -306,6 +310,16 @@ impl WindowGpu {
         self.retired_renderers.push(lost_renderer);
         self.report = None;
         Ok(())
+    }
+
+    fn execute_host_renderer_effect(
+        &mut self,
+        effect: &rssh_native::RendererEffect,
+    ) -> Result<(), Box<dyn Error>> {
+        match effect {
+            rssh_native::RendererEffect::RecoverDevice => self.rebuild_device_and_layers(),
+            _ => Err(io::Error::other("renderer effect requires the frame adapter").into()),
+        }
     }
 
     /// Applies the narrowly-scoped NVIDIA Vulkan window-close workaround.

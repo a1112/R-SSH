@@ -2,8 +2,11 @@
 
 mod controller;
 mod effect;
+mod host;
 mod intent;
 mod layout;
+pub mod platform;
+mod ports;
 mod presentation;
 mod state;
 
@@ -12,6 +15,7 @@ pub use effect::{
     ClipboardEffect, HostEffectContext, NotificationEffect, PersistenceEffect, RendererEffect,
     RuntimePortEffect, SpawnEffect, UriEffect, WindowEffect, WindowPortEffect,
 };
+pub use host::{HostError, HostTurn, PlatformEvent, RuntimeDrain, TurnBudget, WinitHost};
 pub use intent::{
     CommandIntent, ConfigDiff, PaneLifecycleIntent, PlatformIntent, TimerId, TimerIntent,
     WindowIntent,
@@ -20,6 +24,7 @@ pub use layout::{
     PaneLayout, PaneLayoutPane, PaneLayoutSpec, PanePlacement, PaneRenderRect, PaneSeparator,
     PaneSplitDirection, PaneSplitSpec, build_pane_layout,
 };
+pub use ports::{HostPorts, PortError, PortErrorKind, PortKind};
 pub use presentation::{
     CellMetrics, CursorPresentation, FrameRevision, OverlayPresentation, PaneFrameCandidate,
     PresentationError, PresentationFrame, PresentationInput, PresentedPane, RenderMode,
