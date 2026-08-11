@@ -13,13 +13,24 @@ use rssh_runtime::{
     EffectSequence, EffectSequenceCursor, EffectSequenceError, MetadataChange, PaneGeneration,
     PaneMetadataDelta, PaneToken, PaneTokenAllocator, RuntimeBatch, RuntimeBatchMetrics,
     RuntimeEffect, RuntimeEffectKind, RuntimeProgress, RuntimeRevision, SequenceKind,
-    SessionControl, SessionExit, SessionExitSignal, SessionParts, SessionTransport, SubmitResult,
-    UserVarDelta,
+    SessionControl, SessionExit, SessionExitSignal, SessionInterrupt, SessionParts,
+    SessionTransport, SubmitResult, UserVarDelta,
 };
 
 #[derive(Debug, PartialEq, Eq)]
 struct NeutralSnapshot {
     text: String,
+}
+
+fn append_rust_sources(directory: &Path, source: &mut String) {
+    for entry in fs::read_dir(directory).expect("read runtime source directory") {
+        let path = entry.expect("source entry").path();
+        if path.is_dir() {
+            append_rust_sources(&path, source);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            source.push_str(&fs::read_to_string(path).expect("read runtime source"));
+        }
+    }
 }
 
 fn effect_batch(
@@ -565,15 +576,27 @@ struct MemoryTransport {
     reader: Cursor<Vec<u8>>,
     writer: Cursor<Vec<u8>>,
     control: RecordingControl,
+    interrupt: RecordingInterrupt,
+}
+
+#[derive(Debug, Clone, Default)]
+struct RecordingInterrupt(Arc<std::sync::atomic::AtomicBool>);
+
+impl SessionInterrupt for RecordingInterrupt {
+    fn interrupt(&self) -> io::Result<()> {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
 }
 
 impl SessionTransport for MemoryTransport {
     type Reader = Cursor<Vec<u8>>;
     type Writer = Cursor<Vec<u8>>;
     type Control = RecordingControl;
+    type Interrupt = RecordingInterrupt;
 
-    fn split(self) -> SessionParts<Self::Reader, Self::Writer, Self::Control> {
-        SessionParts::new(self.reader, self.writer, self.control)
+    fn split(self) -> SessionParts<Self::Reader, Self::Writer, Self::Control, Self::Interrupt> {
+        SessionParts::new(self.reader, self.writer, self.control, self.interrupt)
     }
 }
 
@@ -589,11 +612,13 @@ fn session_transport_uses_only_standard_io_and_neutral_control_values() -> io::R
             }),
             ..RecordingControl::default()
         },
+        interrupt: RecordingInterrupt::default(),
     };
     let SessionParts {
         mut reader,
         mut writer,
         mut control,
+        interrupt,
     } = transport.split();
 
     let mut output = String::new();
@@ -608,11 +633,13 @@ fn session_transport_uses_only_standard_io_and_neutral_control_values() -> io::R
         })
     );
     control.begin_close()?;
+    interrupt.interrupt()?;
 
     assert_eq!(output, "terminal output");
     assert_eq!(writer.into_inner(), b"input");
     assert_eq!(control.resized_to, Some(TerminalSize::new(120, 40)));
     assert!(control.close_started);
+    assert!(interrupt.0.load(std::sync::atomic::Ordering::Acquire));
     Ok(())
 }
 
@@ -633,7 +660,9 @@ fn public_runtime_values_are_send_and_sync() {
     assert_send_sync::<SubmitResult>();
     assert_send_sync::<SessionExit>();
     assert_send_sync::<SessionExitSignal>();
-    assert_send_sync::<SessionParts<Cursor<Vec<u8>>, Cursor<Vec<u8>>, RecordingControl>>();
+    assert_send_sync::<
+        SessionParts<Cursor<Vec<u8>>, Cursor<Vec<u8>>, RecordingControl, RecordingInterrupt>,
+    >();
 }
 
 #[test]
@@ -657,13 +686,8 @@ fn crate_manifest_and_public_source_are_transport_and_platform_neutral() {
         );
     }
 
-    let source = fs::read_dir(root.join("src"))
-        .expect("read runtime source directory")
-        .map(|entry| {
-            let path = entry.expect("source entry").path();
-            fs::read_to_string(path).expect("read runtime source")
-        })
-        .collect::<String>();
+    let mut source = String::new();
+    append_rust_sources(&root.join("src"), &mut source);
     let bounded_mailbox_fixture =
         fs::read_to_string(root.join("tests/fixtures/bounded_mailbox_api.rs"))
             .expect("read bounded mailbox API fixture");

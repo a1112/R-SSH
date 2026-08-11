@@ -28,25 +28,44 @@ pub struct SessionExit {
     pub signal: Option<SessionExitSignal>,
 }
 
-/// Independently owned read, write, and lifecycle halves of a session.
+/// A cloneable out-of-band handle that interrupts blocked session I/O.
+///
+/// Implementations must be safe to call concurrently, fast, and idempotent.
+/// After a successful call, blocked reader and writer operations must make
+/// progress toward returning an error or end-of-file without requiring the
+/// session worker to regain control first.
+pub trait SessionInterrupt: Clone + Send + Sync + 'static {
+    /// Interrupts blocked reads and writes for the associated session.
+    ///
+    /// # Errors
+    ///
+    /// Returns a transport-specific I/O error when the interrupt request
+    /// cannot be delivered.
+    fn interrupt(&self) -> io::Result<()>;
+}
+
+/// Independently owned read, write, lifecycle, and interrupt resources.
 #[derive(Debug)]
-pub struct SessionParts<R, W, C> {
+pub struct SessionParts<R, W, C, I> {
     /// Blocking or asynchronous-compatible byte reader.
     pub reader: R,
     /// Ordered byte writer.
     pub writer: W,
     /// Resize, exit, and close control plane.
     pub control: C,
+    /// Out-of-band handle that can release blocked reader and writer calls.
+    pub interrupt: I,
 }
 
-impl<R, W, C> SessionParts<R, W, C> {
+impl<R, W, C, I> SessionParts<R, W, C, I> {
     /// Creates session parts from transport-owned resources.
     #[must_use]
-    pub fn new(reader: R, writer: W, control: C) -> Self {
+    pub fn new(reader: R, writer: W, control: C, interrupt: I) -> Self {
         Self {
             reader,
             writer,
             control,
+            interrupt,
         }
     }
 }
@@ -86,8 +105,10 @@ pub trait SessionTransport: Send + 'static {
     type Writer: Write + Send + 'static;
     /// Lifecycle control retained by the pane worker.
     type Control: SessionControl + Send + 'static;
+    /// Out-of-band interrupt retained by the runtime hub or shutdown path.
+    type Interrupt: SessionInterrupt;
 
     /// Transfers each independent session resource to the runtime.
     #[must_use]
-    fn split(self) -> SessionParts<Self::Reader, Self::Writer, Self::Control>;
+    fn split(self) -> SessionParts<Self::Reader, Self::Writer, Self::Control, Self::Interrupt>;
 }

@@ -6,6 +6,9 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+test-support = []
+
 [dependencies]
 base64 = "0.22"
 rssh-core = { path = "../rssh-core", version = "0.1.0" }
@@ -16,6 +19,11 @@ flate2 = "1"
 proc-macro2 = { version = "1", features = ["span-locations"] }
 sha2 = "0.11"
 syn = { version = "2", features = ["full", "visit"] }
+
+[[test]]
+name = "fake_transport"
+path = "tests/fake_transport.rs"
+required-features = ["test-support"]
 
 [lints]
 workspace = true

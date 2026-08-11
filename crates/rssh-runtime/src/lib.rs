@@ -1,6 +1,7 @@
 //! Transport-neutral terminal runtime contracts.
 
 mod api;
+mod clock;
 pub mod delta;
 mod mailbox;
 mod metrics;
@@ -8,6 +9,9 @@ pub mod modes;
 pub mod queries;
 pub mod query_dcs;
 pub mod terminal;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing;
 
 #[cfg(test)]
 #[path = "fixture_trace.rs"]
@@ -27,6 +31,7 @@ pub use api::{
     RuntimeEffectKind, RuntimeProgress, RuntimeRevision, SequenceExhausted, SequenceKind,
     SubmitResult, UserVarDelta,
 };
+pub use clock::{Clock, SystemClock};
 pub use delta::{
     MetadataChangeRef, RuntimeBufferCapacities, RuntimeBuffers, RuntimeDelta, RuntimeEffectRef,
     RuntimeMetadataDeltaRef, TerminalSnapshotRef,
@@ -39,5 +44,6 @@ pub use metrics::RuntimeBatchMetrics;
 pub use modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalModeChange};
 pub use terminal::TerminalRuntime;
 pub use transport::{
-    SessionControl, SessionExit, SessionExitSignal, SessionParts, SessionTransport,
+    SessionControl, SessionExit, SessionExitSignal, SessionInterrupt, SessionParts,
+    SessionTransport,
 };
