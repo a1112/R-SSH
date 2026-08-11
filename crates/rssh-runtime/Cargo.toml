@@ -7,11 +7,16 @@ rust-version.workspace = true
 version.workspace = true
 
 [features]
+local-transport = ["dep:rssh-pty"]
+ssh-transport = ["dep:rssh-ssh"]
 test-support = []
+transport-adapters = ["local-transport", "ssh-transport"]
 
 [dependencies]
 base64 = "0.22"
 rssh-core = { path = "../rssh-core", version = "0.1.0" }
+rssh-pty = { path = "../rssh-pty", version = "0.1.0", optional = true }
+rssh-ssh = { path = "../rssh-ssh", version = "0.1.0", optional = true }
 rssh-terminal = { path = "../rssh-terminal", version = "0.1.0" }
 
 [dev-dependencies]
@@ -34,6 +39,16 @@ required-features = ["test-support"]
 name = "burst"
 path = "tests/burst.rs"
 required-features = ["test-support"]
+
+[[test]]
+name = "local_transport"
+path = "tests/local_transport.rs"
+required-features = ["local-transport"]
+
+[[test]]
+name = "ssh_transport"
+path = "tests/ssh_transport.rs"
+required-features = ["ssh-transport"]
 
 [lints]
 workspace = true

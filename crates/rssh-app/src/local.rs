@@ -26,11 +26,10 @@ use rssh_core::{
     SessionId, TerminalSize,
     session::{SessionLifecycle, SessionState},
 };
-use rssh_pty::{
-    PtyBackend, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus, PtySession, PtySize,
-};
+use rssh_pty::{PtyBackend, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus, PtySize};
 use rssh_runtime::{
-    RuntimeBuffers, RuntimeDelta, RuntimeEffectRef, TerminalRuntime as SharedTerminalRuntime,
+    LocalPtyControl, LocalPtyTransport, RuntimeBuffers, RuntimeDelta, RuntimeEffectRef,
+    SessionTransport, TerminalRuntime as SharedTerminalRuntime,
 };
 #[cfg(test)]
 use rssh_terminal::{Cell, Color, CursorShape, Terminal, UnderlineStyle, VerticalAlign};
@@ -519,7 +518,7 @@ fn join_local_worker_before_with_reaper(
 
 #[allow(clippy::too_many_arguments)]
 fn shutdown_local_pty(
-    mut session: PtySession,
+    mut session: LocalPtyControl,
     reader_thread: thread::JoinHandle<()>,
     writer_thread: thread::JoinHandle<()>,
     input_thread: Option<thread::JoinHandle<()>>,
@@ -544,9 +543,7 @@ fn shutdown_local_pty(
     if !child_reaped {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if let Err(error) = session.terminate(remaining) {
-            errors.push(io::Error::other(format!(
-                "local PTY child cleanup failed: {error}"
-            )));
+            errors.push(error);
         }
     }
 
@@ -693,11 +690,13 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     let size = resolve_local_size(options.size);
     let mut lifecycle = SessionLifecycle::new(LOCAL_CONSOLE_SESSION_ID);
     lifecycle.start_connecting()?;
-    let mut session = PtySession::spawn(&options.command, size)?;
+    let transport = LocalPtyTransport::spawn(&options.command, terminal_size_from_pty(size))?;
+    let parts = transport.split();
+    let mut session = parts.control;
     trace.event(format_args!("spawned child pid={:?}", session.process_id()));
     lifecycle.mark_connected()?;
-    let mut reader = session.take_reader()?;
-    let mut writer = session.take_writer()?;
+    let mut reader = parts.reader;
+    let mut writer = parts.writer;
     let mut log_file = match &options.log {
         Some(path) => Some(File::create(path)?),
         None => None,
@@ -1521,7 +1520,7 @@ struct LocalInputLoopContext<'a> {
 }
 
 fn run_input_loop(
-    session: &mut PtySession,
+    session: &mut LocalPtyControl,
     reader_done_receiver: &mpsc::Receiver<io::Result<()>>,
     writer_done_receiver: &mpsc::Receiver<io::Result<()>>,
     control_receiver: &mpsc::Receiver<LocalControlEvent>,
@@ -1557,7 +1556,7 @@ fn run_input_loop(
         }
 
         if exited_status.is_none() {
-            match session.try_wait()? {
+            match session.try_wait_pty()? {
                 Some(status) => {
                     trace.event(format_args!("child reaped status={status:?}"));
                     exited_status = Some(status);
@@ -1599,14 +1598,14 @@ fn run_input_loop(
 
 fn apply_local_control_event(
     control_event: LocalControlEvent,
-    session: &mut PtySession,
+    session: &mut LocalPtyControl,
     raw_mode: &mut RawMode,
     runtime_state: &LocalRuntimeState,
     metrics: &LocalMetricsCounters,
 ) -> Result<(), Box<dyn Error>> {
     match control_event {
         LocalControlEvent::Resize(size) => {
-            session.resize(size)?;
+            session.resize_pty(size)?;
             runtime_state.terminal_size.set(size);
             metrics.add_resize_event();
         }

@@ -55,7 +55,11 @@ pub use metrics::RuntimeBatchMetrics;
 pub use modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalModeChange};
 pub use pane::{PaneHandle, PaneNotice, PaneWorkerConfig};
 pub use terminal::TerminalRuntime;
+#[cfg(feature = "local-transport")]
+pub use transport::{LocalPtyControl, LocalPtyInterrupt, LocalPtyTransport};
 pub use transport::{
     SessionControl, SessionExit, SessionExitSignal, SessionInterrupt, SessionParts,
     SessionTransport,
 };
+#[cfg(feature = "ssh-transport")]
+pub use transport::{SshControl, SshInterrupt, SshReader, SshTransport, SshWriter};

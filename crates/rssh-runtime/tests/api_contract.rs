@@ -22,12 +22,15 @@ struct NeutralSnapshot {
     text: String,
 }
 
-fn append_rust_sources(directory: &Path, source: &mut String) {
+fn append_transport_neutral_rust_sources(directory: &Path, source: &mut String) {
     for entry in fs::read_dir(directory).expect("read runtime source directory") {
         let path = entry.expect("source entry").path();
         if path.is_dir() {
-            append_rust_sources(&path, source);
-        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            append_transport_neutral_rust_sources(&path, source);
+        } else if path.extension().is_some_and(|extension| extension == "rs")
+            && !path.ends_with(Path::new("transport/local.rs"))
+            && !path.ends_with(Path::new("transport/ssh.rs"))
+        {
             source.push_str(&fs::read_to_string(path).expect("read runtime source"));
         }
     }
@@ -666,15 +669,13 @@ fn public_runtime_values_are_send_and_sync() {
 }
 
 #[test]
-fn crate_manifest_and_public_source_are_transport_and_platform_neutral() {
+fn core_manifest_and_public_source_stay_neutral_with_feature_gated_adapters() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let manifest = fs::read_to_string(root.join("Cargo.toml")).expect("read runtime manifest");
     for forbidden in [
         "rssh-app",
         "rssh-native",
         "rssh-renderer",
-        "rssh-pty",
-        "rssh-ssh",
         "winit",
         "wgpu",
         "raw-window-handle",
@@ -685,9 +686,23 @@ fn crate_manifest_and_public_source_are_transport_and_platform_neutral() {
             "runtime manifest must not depend on {forbidden}"
         );
     }
+    for optional_adapter in [
+        "rssh-pty = { path = \"../rssh-pty\", version = \"0.1.0\", optional = true }",
+        "rssh-ssh = { path = \"../rssh-ssh\", version = \"0.1.0\", optional = true }",
+    ] {
+        assert!(
+            manifest.contains(optional_adapter),
+            "transport adapter dependency must remain optional: {optional_adapter}"
+        );
+    }
+    assert!(
+        manifest.contains("local-transport = [\"dep:rssh-pty\"]")
+            && manifest.contains("ssh-transport = [\"dep:rssh-ssh\"]"),
+        "concrete transport dependencies must be enabled only by named features"
+    );
 
     let mut source = String::new();
-    append_rust_sources(&root.join("src"), &mut source);
+    append_transport_neutral_rust_sources(&root.join("src"), &mut source);
     let bounded_mailbox_fixture =
         fs::read_to_string(root.join("tests/fixtures/bounded_mailbox_api.rs"))
             .expect("read bounded mailbox API fixture");

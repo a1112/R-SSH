@@ -1876,24 +1876,41 @@ impl RusshChannelReader {
     }
 
     fn read_blocking(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError> {
+        let cancelled = std::sync::atomic::AtomicBool::new(false);
+        self.read_cancellable_blocking(buffer, &cancelled)?
+            .ok_or_else(|| SshSessionError::new("SSH channel read unexpectedly cancelled"))
+    }
+
+    fn read_cancellable_blocking(
+        &mut self,
+        buffer: &mut [u8],
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<Option<usize>, SshSessionError> {
         if buffer.is_empty() {
-            return Ok(0);
+            return Ok(Some(0));
         }
 
         let pending_count = self.fill_from_pending(buffer);
         if pending_count > 0 {
-            return Ok(pending_count);
+            return Ok(Some(pending_count));
         }
         if self.finished {
-            return Ok(0);
+            return Ok(Some(0));
         }
 
         loop {
-            let message = match self.inactivity_timeout {
-                Some(inactivity_timeout) => self
-                    .runtime
+            let runtime = Arc::clone(&self.runtime);
+            let selected = match self.inactivity_timeout {
+                Some(inactivity_timeout) => runtime
                     .block_on(async {
-                        tokio::time::timeout(inactivity_timeout, self.read_half.wait()).await
+                        tokio::time::timeout(
+                            inactivity_timeout,
+                            select_read_or_cancellation(
+                                self.read_half.wait(),
+                                wait_for_write_cancellation(cancelled),
+                            ),
+                        )
+                        .await
                     })
                     .map_err(|_| {
                         SshSessionError::new(format!(
@@ -1901,18 +1918,24 @@ impl RusshChannelReader {
                              {inactivity_timeout:?}"
                         ))
                     })?,
-                None => self.runtime.block_on(self.read_half.wait()),
+                None => runtime.block_on(select_read_or_cancellation(
+                    self.read_half.wait(),
+                    wait_for_write_cancellation(cancelled),
+                )),
+            };
+            let Some(message) = selected else {
+                return Ok(None);
             };
             match message.map_or(RusshReadAction::Finished, |message| {
                 apply_channel_message(&mut self.result, message)
             }) {
                 RusshReadAction::Data(data) => {
                     self.queue_read_bytes(&data);
-                    return Ok(self.fill_from_pending(buffer));
+                    return Ok(Some(self.fill_from_pending(buffer)));
                 }
                 RusshReadAction::Finished => {
                     self.finished = true;
-                    return Ok(0);
+                    return Ok(Some(0));
                 }
                 RusshReadAction::Continue => {}
             }
@@ -1988,6 +2011,14 @@ impl Read for RusshChannelReader {
 impl SshShellReader for RusshChannelReader {
     fn read(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError> {
         self.read_blocking(buffer)
+    }
+
+    fn read_cancellable(
+        &mut self,
+        buffer: &mut [u8],
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<Option<usize>, SshSessionError> {
+        self.read_cancellable_blocking(buffer, cancelled)
     }
 
     fn session_result(&self) -> SshSessionResult {
@@ -2203,6 +2234,20 @@ where
         biased;
         () = &mut cancellation => None,
         result = &mut write => Some(result),
+    }
+}
+
+async fn select_read_or_cancellation<R, C>(read: R, cancellation: C) -> Option<R::Output>
+where
+    R: Future,
+    C: Future<Output = ()>,
+{
+    tokio::pin!(read);
+    tokio::pin!(cancellation);
+    tokio::select! {
+        biased;
+        () = &mut cancellation => None,
+        result = &mut read => Some(result),
     }
 }
 
@@ -2470,6 +2515,19 @@ mod tests {
         ));
 
         assert!(selected.is_none());
+    }
+
+    #[test]
+    fn russh_read_cancellation_wins_when_both_futures_are_ready() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let selected = runtime.block_on(select_read_or_cancellation(
+            std::future::ready(17_u8),
+            std::future::ready(()),
+        ));
+        assert_eq!(selected, None);
     }
 
     #[derive(Default)]

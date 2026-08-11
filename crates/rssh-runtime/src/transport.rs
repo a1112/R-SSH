@@ -2,6 +2,16 @@ use std::io::{self, Read, Write};
 
 use rssh_core::TerminalSize;
 
+#[cfg(feature = "local-transport")]
+mod local;
+#[cfg(feature = "ssh-transport")]
+mod ssh;
+
+#[cfg(feature = "local-transport")]
+pub use local::{LocalPtyControl, LocalPtyInterrupt, LocalPtyTransport};
+#[cfg(feature = "ssh-transport")]
+pub use ssh::{SshControl, SshInterrupt, SshReader, SshTransport, SshWriter};
+
 /// Signal metadata reported when a terminal session exits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionExitSignal {
