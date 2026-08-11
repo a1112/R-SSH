@@ -17,6 +17,7 @@ rpassword = "7"
 rssh-config = { path = "../rssh-config", version = "0.1.0" }
 rssh-core = { path = "../rssh-core", version = "0.1.0" }
 rssh-fonts = { path = "../rssh-fonts", version = "0.1.0" }
+rssh-native = { path = "../rssh-native", version = "0.1.0" }
 rssh-pty = { path = "../rssh-pty", version = "0.1.0" }
 rssh-renderer = { path = "../rssh-renderer", version = "0.1.0" }
 rssh-runtime = { path = "../rssh-runtime", version = "0.1.0", features = ["transport-adapters"] }

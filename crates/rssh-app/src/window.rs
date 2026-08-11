@@ -41992,11 +41992,7 @@ enum PaneInspectionRequestSource {
     CommandPaletteExecute,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FrameRenderMode {
-    Full,
-    Damage,
-}
+type FrameRenderMode = rssh_native::RenderMode;
 
 fn finalize_native_gpu_frame<E>(
     outcome: Result<GpuFrameStatus, E>,
@@ -50612,6 +50608,7 @@ impl NativeWindowApp {
                 &damage,
                 &self.renderer.text_paint_config(),
                 &graph,
+                mode,
                 gpu_dpi_scale,
             )
         } else {
@@ -54926,48 +54923,52 @@ impl NativeWindowApp {
         tab: &rssh_core::app_shell::Tab,
         size: rssh_core::TerminalSize,
     ) -> PaneRenderLayout {
-        let panes = tab.panes();
-        let Some(first_pane) = panes.first() else {
-            return PaneRenderLayout::default();
-        };
-
-        if let Some(zoomed_pane_id) = tab.zoomed_pane_id() {
-            return PaneRenderLayout {
-                panes: vec![self.padded_terminal_render_rect_for_size(zoomed_pane_id, size)],
-                separators: Vec::new(),
-            };
-        }
-
-        let first_rect = self.padded_terminal_render_rect_for_size(first_pane.id(), size);
-        let mut rects = HashMap::from([(first_pane.id(), first_rect)]);
-        let mut separators = Vec::new();
-
-        for pane in panes.iter().skip(1) {
-            let Some(split) = pane.split() else {
-                continue;
-            };
-            let Some(source_rect) = rects.get(&split.source_pane).copied() else {
-                continue;
-            };
-            let Some((next_source, new_rect, separator)) = split_pane_render_rect(
-                source_rect,
-                pane.id(),
-                split.direction,
-                split.source_size_delta,
-            ) else {
-                continue;
-            };
-            rects.insert(split.source_pane, next_source);
-            rects.insert(pane.id(), new_rect);
-            separators.push(separator);
-        }
-
+        let panes = tab
+            .panes()
+            .iter()
+            .map(|pane| match pane.split() {
+                Some(split) => rssh_native::PaneLayoutPane::split(
+                    pane.id(),
+                    rssh_native::PaneSplitSpec::new(
+                        split.source_pane,
+                        native_pane_split_direction(split.direction),
+                        split.source_size_delta,
+                    ),
+                ),
+                None => rssh_native::PaneLayoutPane::root(pane.id()),
+            })
+            .collect();
+        let native = rssh_native::build_pane_layout(&rssh_native::PaneLayoutSpec::new(
+            size,
+            self.terminal_frame_row_offset(),
+            panes,
+            tab.zoomed_pane_id(),
+        ));
         PaneRenderLayout {
-            panes: panes
-                .iter()
-                .filter_map(|pane| rects.get(&pane.id()).copied())
+            panes: native
+                .panes
+                .into_iter()
+                .map(|pane| PaneRenderRect {
+                    pane_id: pane.pane,
+                    row: pane.rect.row,
+                    column: pane.rect.column,
+                    rows: pane.rect.rows,
+                    columns: pane.rect.columns,
+                })
                 .collect(),
-            separators,
+            separators: native
+                .separators
+                .into_iter()
+                .map(|separator| PaneSeparator {
+                    row: separator.rect.row,
+                    column: separator.rect.column,
+                    rows: separator.rect.rows,
+                    columns: separator.rect.columns,
+                    direction: app_pane_split_direction(separator.direction),
+                    source_pane: separator.source_pane,
+                    new_pane: separator.new_pane,
+                })
+                .collect(),
         }
     }
 
@@ -90052,209 +90053,22 @@ fn integrated_title_button_default_tab_bar_label(
     }
 }
 
-fn split_pane_render_rect(
-    source: PaneRenderRect,
-    new_pane_id: rssh_core::PaneId,
-    direction: SplitDirection,
-    source_size_delta: i16,
-) -> Option<(PaneRenderRect, PaneRenderRect, PaneSeparator)> {
+const fn native_pane_split_direction(direction: SplitDirection) -> rssh_native::PaneSplitDirection {
     match direction {
-        SplitDirection::Right => {
-            split_pane_render_rect_right(source, new_pane_id, source_size_delta)
-        }
-        SplitDirection::Left => split_pane_render_rect_left(source, new_pane_id, source_size_delta),
-        SplitDirection::Down => split_pane_render_rect_down(source, new_pane_id, source_size_delta),
-        SplitDirection::Up => split_pane_render_rect_up(source, new_pane_id, source_size_delta),
+        SplitDirection::Left => rssh_native::PaneSplitDirection::Left,
+        SplitDirection::Right => rssh_native::PaneSplitDirection::Right,
+        SplitDirection::Up => rssh_native::PaneSplitDirection::Up,
+        SplitDirection::Down => rssh_native::PaneSplitDirection::Down,
     }
 }
 
-fn split_pane_render_rect_right(
-    source: PaneRenderRect,
-    new_pane_id: rssh_core::PaneId,
-    source_size_delta: i16,
-) -> Option<(PaneRenderRect, PaneRenderRect, PaneSeparator)> {
-    if source.columns < 3 || source.rows == 0 {
-        return None;
+const fn app_pane_split_direction(direction: rssh_native::PaneSplitDirection) -> SplitDirection {
+    match direction {
+        rssh_native::PaneSplitDirection::Left => SplitDirection::Left,
+        rssh_native::PaneSplitDirection::Right => SplitDirection::Right,
+        rssh_native::PaneSplitDirection::Up => SplitDirection::Up,
+        rssh_native::PaneSplitDirection::Down => SplitDirection::Down,
     }
-
-    let source_columns = adjusted_split_source_size(
-        source.columns,
-        source.columns.saturating_sub(1) / 2,
-        source_size_delta,
-    );
-    let new_columns = source
-        .columns
-        .saturating_sub(source_columns)
-        .saturating_sub(1);
-    if source_columns == 0 || new_columns == 0 {
-        return None;
-    }
-
-    let next_source = PaneRenderRect {
-        columns: source_columns,
-        ..source
-    };
-    let new_rect = PaneRenderRect {
-        pane_id: new_pane_id,
-        row: source.row,
-        column: source
-            .column
-            .saturating_add(source_columns)
-            .saturating_add(1),
-        rows: source.rows,
-        columns: new_columns,
-    };
-    let separator = PaneSeparator {
-        row: source.row,
-        column: source.column.saturating_add(source_columns),
-        rows: source.rows,
-        columns: 1,
-        direction: SplitDirection::Right,
-        source_pane: source.pane_id,
-        new_pane: new_pane_id,
-    };
-
-    Some((next_source, new_rect, separator))
-}
-
-fn split_pane_render_rect_left(
-    source: PaneRenderRect,
-    new_pane_id: rssh_core::PaneId,
-    source_size_delta: i16,
-) -> Option<(PaneRenderRect, PaneRenderRect, PaneSeparator)> {
-    if source.columns < 3 || source.rows == 0 {
-        return None;
-    }
-
-    let source_columns = adjusted_split_source_size(
-        source.columns,
-        source.columns.saturating_sub(1) / 2,
-        source_size_delta,
-    );
-    let new_columns = source
-        .columns
-        .saturating_sub(source_columns)
-        .saturating_sub(1);
-    if source_columns == 0 || new_columns == 0 {
-        return None;
-    }
-
-    let next_source = PaneRenderRect {
-        column: source.column.saturating_add(new_columns).saturating_add(1),
-        columns: source_columns,
-        ..source
-    };
-    let new_rect = PaneRenderRect {
-        pane_id: new_pane_id,
-        row: source.row,
-        column: source.column,
-        rows: source.rows,
-        columns: new_columns,
-    };
-    let separator = PaneSeparator {
-        row: source.row,
-        column: source.column.saturating_add(new_columns),
-        rows: source.rows,
-        columns: 1,
-        direction: SplitDirection::Left,
-        source_pane: source.pane_id,
-        new_pane: new_pane_id,
-    };
-
-    Some((next_source, new_rect, separator))
-}
-
-fn split_pane_render_rect_down(
-    source: PaneRenderRect,
-    new_pane_id: rssh_core::PaneId,
-    source_size_delta: i16,
-) -> Option<(PaneRenderRect, PaneRenderRect, PaneSeparator)> {
-    if source.rows < 3 || source.columns == 0 {
-        return None;
-    }
-
-    let source_rows = adjusted_split_source_size(
-        source.rows,
-        source.rows.saturating_sub(1) / 2,
-        source_size_delta,
-    );
-    let new_rows = source.rows.saturating_sub(source_rows).saturating_sub(1);
-    if source_rows == 0 || new_rows == 0 {
-        return None;
-    }
-
-    let next_source = PaneRenderRect {
-        rows: source_rows,
-        ..source
-    };
-    let new_rect = PaneRenderRect {
-        pane_id: new_pane_id,
-        row: source.row.saturating_add(source_rows).saturating_add(1),
-        column: source.column,
-        rows: new_rows,
-        columns: source.columns,
-    };
-    let separator = PaneSeparator {
-        row: source.row.saturating_add(source_rows),
-        column: source.column,
-        rows: 1,
-        columns: source.columns,
-        direction: SplitDirection::Down,
-        source_pane: source.pane_id,
-        new_pane: new_pane_id,
-    };
-
-    Some((next_source, new_rect, separator))
-}
-
-fn split_pane_render_rect_up(
-    source: PaneRenderRect,
-    new_pane_id: rssh_core::PaneId,
-    source_size_delta: i16,
-) -> Option<(PaneRenderRect, PaneRenderRect, PaneSeparator)> {
-    if source.rows < 3 || source.columns == 0 {
-        return None;
-    }
-
-    let source_rows = adjusted_split_source_size(
-        source.rows,
-        source.rows.saturating_sub(1) / 2,
-        source_size_delta,
-    );
-    let new_rows = source.rows.saturating_sub(source_rows).saturating_sub(1);
-    if source_rows == 0 || new_rows == 0 {
-        return None;
-    }
-
-    let next_source = PaneRenderRect {
-        row: source.row.saturating_add(new_rows).saturating_add(1),
-        rows: source_rows,
-        ..source
-    };
-    let new_rect = PaneRenderRect {
-        pane_id: new_pane_id,
-        row: source.row,
-        column: source.column,
-        rows: new_rows,
-        columns: source.columns,
-    };
-    let separator = PaneSeparator {
-        row: source.row.saturating_add(new_rows),
-        column: source.column,
-        rows: 1,
-        columns: source.columns,
-        direction: SplitDirection::Up,
-        source_pane: source.pane_id,
-        new_pane: new_pane_id,
-    };
-
-    Some((next_source, new_rect, separator))
-}
-
-fn adjusted_split_source_size(total_cells: u16, default_source_cells: u16, delta: i16) -> u16 {
-    let max_source_cells = total_cells.saturating_sub(2).max(1);
-    let adjusted = i32::from(default_source_cells) + i32::from(delta);
-    u16::try_from(adjusted.clamp(1, i32::from(max_source_cells))).unwrap_or(max_source_cells)
 }
 
 fn split_pane_source_size_delta(total_cells: u16, size: WindowSplitPaneSize) -> i16 {

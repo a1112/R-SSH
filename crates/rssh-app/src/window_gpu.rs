@@ -35,6 +35,7 @@ struct WindowGpuFrame<'a> {
     damage: &'a [DamageRegion],
     paint: &'a TextPaintConfig,
     graph: &'a RenderGraph,
+    render_mode: rssh_native::RenderMode,
     dpi_scale: f32,
 }
 
@@ -199,6 +200,7 @@ impl WindowGpu {
         damage: &[DamageRegion],
         paint: &TextPaintConfig,
         graph: &RenderGraph,
+        render_mode: rssh_native::RenderMode,
         dpi_scale: f32,
     ) -> Result<GpuFrameStatus, Box<dyn Error>> {
         #[cfg(debug_assertions)]
@@ -215,6 +217,7 @@ impl WindowGpu {
             damage,
             paint,
             graph,
+            render_mode,
             dpi_scale,
         };
         let mut recovery = std::mem::take(&mut self.recovery);
@@ -257,6 +260,7 @@ impl WindowGpu {
         &mut self,
         frame: &WindowGpuFrame<'_>,
     ) -> Result<(GpuFrameStatus, GpuTextPrepareReport), Box<dyn Error>> {
+        let damage = presentation_damage(frame.render_mode, frame.damage);
         let report = self
             .renderer
             .as_mut()
@@ -264,7 +268,7 @@ impl WindowGpu {
             .prepare_text(
                 frame.snapshot,
                 frame.geometry,
-                frame.damage,
+                damage,
                 frame.paint,
                 frame.dpi_scale,
                 1.0,
@@ -408,6 +412,13 @@ impl WindowGpu {
         #[cfg(not(test))]
         let os = std::env::consts::OS;
         should_apply_current_adapter_abandonment_workaround(os, current, true, self.replaced_device)
+    }
+}
+
+fn presentation_damage(mode: rssh_native::RenderMode, damage: &[DamageRegion]) -> &[DamageRegion] {
+    match mode {
+        rssh_native::RenderMode::Full => &[],
+        rssh_native::RenderMode::Damage => damage,
     }
 }
 
@@ -621,6 +632,17 @@ mod tests {
     use rssh_fonts::TerminalShaper;
     use rssh_renderer::terminal_snapshot_content_digest;
     use rssh_terminal::Terminal;
+
+    #[test]
+    fn native_presentation_mode_is_the_only_gpu_damage_selector() {
+        let damage = [DamageRegion::new(1, 2, 3, 4)];
+
+        assert!(presentation_damage(rssh_native::RenderMode::Full, &damage).is_empty());
+        assert_eq!(
+            presentation_damage(rssh_native::RenderMode::Damage, &damage),
+            damage
+        );
+    }
 
     #[cfg(target_os = "windows")]
     #[test]
