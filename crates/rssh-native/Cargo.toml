@@ -1,0 +1,14 @@
+[package]
+name = "rssh-native"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+rssh-core = { path = "../rssh-core", version = "0.1.0" }
+rssh-runtime = { path = "../rssh-runtime", version = "0.1.0" }
+
+[lints]
+workspace = true
