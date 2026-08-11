@@ -30,6 +30,17 @@ unsafe_code = "forbid"
 all = "warn"
 pedantic = "warn"
 
+# Test binaries retain file/line backtraces without embedding full local
+# variable debug records in every monolithic compatibility harness.
+[profile.test]
+debug = 1
+
+# Keep unwind-based PTY/SSH recovery intact while removing release-only symbol
+# tables from the shipped executable.
+[profile.release]
+codegen-units = 1
+strip = "symbols"
+
 [patch.crates-io]
 glyphon = { path = "vendor/glyphon-0.12.0" }
 gpu-allocator = { path = "vendor/gpu-allocator-0.28.0" }

@@ -10,8 +10,8 @@ use std::{
 };
 
 use rssh_runtime::{
-    MailboxItem, MailboxLimits, MailboxLimitsError, RecvError, SendError, TryRecvError,
-    TrySendError, bounded_mailbox,
+    MailboxItem, MailboxLimits, MailboxLimitsError, RecvError, RecvTimeoutError, SendError,
+    TryRecvError, TrySendError, bounded_mailbox,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -242,6 +242,28 @@ fn close_wakes_an_empty_receiver() {
     wait_until(|| tx.metrics().consumer_waiting);
     assert!(tx.close());
     assert_eq!(join_with_watchdog(worker), Err(RecvError::Closed));
+}
+
+#[test]
+fn timed_receive_distinguishes_timeout_delivery_and_close() {
+    let (tx, mut rx) = bounded_mailbox::<Item>(limits(1, 1));
+
+    assert_eq!(
+        rx.recv_timeout(Duration::from_millis(1)),
+        Err(RecvTimeoutError::Timeout)
+    );
+    tx.try_send(Item::new(7, 1)).expect("timed receive item");
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(1))
+            .expect("timed receive delivers")
+            .id,
+        7
+    );
+    assert!(tx.close());
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(1)),
+        Err(RecvTimeoutError::Closed)
+    );
 }
 
 #[test]

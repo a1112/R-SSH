@@ -150,6 +150,15 @@ fn route_runtime_effect(context: HostEffectContext, effect: RuntimeEffectKind) -
         RuntimeEffectKind::TransportWrite(bytes) => {
             WindowEffect::Runtime(RuntimePortEffect::WriteTransport { context, bytes })
         }
+        RuntimeEffectKind::HostStream(bytes) => {
+            WindowEffect::Runtime(RuntimePortEffect::ObserveHostStream { context, bytes })
+        }
+        RuntimeEffectKind::VisibleOutput(bytes) => {
+            WindowEffect::Runtime(RuntimePortEffect::WriteSessionLog { context, bytes })
+        }
+        RuntimeEffectKind::ModeChange(change) => {
+            WindowEffect::Runtime(RuntimePortEffect::ApplyModeChange { context, change })
+        }
         RuntimeEffectKind::Bell { count } => {
             WindowEffect::Renderer(RendererEffect::Bell { context, count })
         }

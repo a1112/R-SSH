@@ -185,6 +185,26 @@ impl fmt::Display for RecvError {
 
 impl std::error::Error for RecvError {}
 
+/// A timed blocking receive failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecvTimeoutError {
+    /// The timeout elapsed while the mailbox remained open and empty.
+    Timeout,
+    /// The mailbox is closed and fully drained.
+    Closed,
+}
+
+impl fmt::Display for RecvTimeoutError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Timeout => formatter.write_str("mailbox receive timed out"),
+            Self::Closed => formatter.write_str("mailbox is closed"),
+        }
+    }
+}
+
+impl std::error::Error for RecvTimeoutError {}
+
 /// A point-in-time mailbox occupancy and cumulative accounting snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MailboxMetrics {
@@ -529,6 +549,49 @@ impl<T> MailboxReceiver<T> {
             Ok(entry.value)
         } else {
             Err(RecvError::Closed)
+        }
+    }
+
+    /// Waits up to `timeout` for the next item, draining queued items after closure.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RecvTimeoutError::Timeout`] if the mailbox stays open and empty,
+    /// or [`RecvTimeoutError::Closed`] once a closed mailbox is fully drained.
+    pub fn recv_timeout(&mut self, timeout: Duration) -> Result<T, RecvTimeoutError> {
+        let Some(deadline) = Instant::now().checked_add(timeout) else {
+            return self
+                .recv()
+                .map_err(|RecvError::Closed| RecvTimeoutError::Closed);
+        };
+        let mut state = self.shared.lock();
+        loop {
+            if let Some(entry) = dequeue(&mut state) {
+                state.consumer_waiting = false;
+                drop(state);
+                self.shared.space_available.notify_all();
+                return Ok(entry.value);
+            }
+            if !state.accepting {
+                state.consumer_waiting = false;
+                return Err(RecvTimeoutError::Closed);
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                state.consumer_waiting = false;
+                return Err(RecvTimeoutError::Timeout);
+            }
+            state.consumer_waiting = true;
+            let (next, wait) = self
+                .shared
+                .not_empty
+                .wait_timeout(state, deadline.saturating_duration_since(now))
+                .unwrap_or_else(PoisonError::into_inner);
+            state = next;
+            if wait.timed_out() && state.queue.is_empty() && state.accepting {
+                state.consumer_waiting = false;
+                return Err(RecvTimeoutError::Timeout);
+            }
         }
     }
 }

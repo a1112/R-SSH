@@ -1,10 +1,16 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use rssh_core::{PaneId, TerminalSize};
 use rssh_runtime::testing::{ExitAction, ReadAction, ScriptedTransport, VirtualClock, WriteAction};
 use rssh_runtime::{
     BatchPolicy, MailboxLimits, PaneNotice, PaneWorkerConfig, RuntimeEffectKind, RuntimeHub,
-    SubmitResult, TryRecvError,
+    SubmitResult, TerminalRuntime, TryRecvError,
 };
 
 fn scripted_session(
@@ -15,6 +21,34 @@ fn scripted_session(
     rssh_runtime::testing::ScriptedSessionDriver,
 ) {
     ScriptedTransport::new(reads, writes, [ExitAction::Pending])
+}
+
+#[test]
+fn pane_notices_invoke_the_host_waker_without_idle_polling() {
+    let wakes = Arc::new(AtomicUsize::new(0));
+    let wake_counter = Arc::clone(&wakes);
+    let clock = VirtualClock::new(Instant::now());
+    let mut hub = RuntimeHub::new_with_notice_waker(
+        clock,
+        Arc::new(move || {
+            wake_counter.fetch_add(1, Ordering::AcqRel);
+        }),
+    );
+    let (transport, driver) = scripted_session(
+        [ReadAction::Block, ReadAction::Block],
+        [WriteAction::accept(usize::MAX)],
+    );
+    let handle = hub
+        .open(PaneId::new(6), transport, PaneWorkerConfig::default())
+        .expect("open pane");
+    let token = handle.token();
+
+    assert_eq!(hub.recv_notice().expect("ready"), PaneNotice::Ready(token));
+    assert_eq!(wakes.load(Ordering::Acquire), 1);
+    driver.push_read(ReadAction::bytes(b"wake"));
+    assert_eq!(hub.recv_notice().expect("output"), PaneNotice::Wake(token));
+    assert_eq!(wakes.load(Ordering::Acquire), 2);
+    hub.shutdown();
 }
 
 #[test]
@@ -68,6 +102,113 @@ fn worker_is_ready_and_serializes_user_input_terminal_replies_and_resize() {
     );
     hub.shutdown();
     assert_eq!(hub.live_thread_count(), 0);
+}
+
+#[test]
+fn worker_starts_from_the_configured_terminal_runtime() {
+    let clock = VirtualClock::new(Instant::now());
+    let mut hub = RuntimeHub::new(clock);
+    let (transport, driver) = scripted_session(
+        [ReadAction::Block, ReadAction::Block],
+        [WriteAction::accept(usize::MAX)],
+    );
+    let config = PaneWorkerConfig::default();
+    let mut runtime = TerminalRuntime::new(config.size);
+    runtime.set_enq_answerback("configured-worker");
+    let handle = hub
+        .open_with_runtime(PaneId::new(8), transport, config, runtime)
+        .expect("open configured pane");
+    let token = handle.token();
+    assert_eq!(hub.recv_notice().expect("ready"), PaneNotice::Ready(token));
+
+    driver.push_read(ReadAction::bytes(b"\x05"));
+    driver.wait_until_accepted_write_len("configured-worker".len());
+    assert_eq!(driver.accepted_writes(), b"configured-worker");
+    hub.shutdown();
+}
+
+#[test]
+fn explicitly_enabled_host_stream_is_published_losslessly_and_in_order() {
+    let clock = VirtualClock::new(Instant::now());
+    let mut hub = RuntimeHub::new(clock);
+    let (transport, driver) = scripted_session(
+        [ReadAction::Block, ReadAction::Block],
+        [WriteAction::accept(usize::MAX)],
+    );
+    let config = PaneWorkerConfig {
+        capture_host_stream: true,
+        ..PaneWorkerConfig::default()
+    };
+    let handle = hub
+        .open(PaneId::new(9), transport, config)
+        .expect("open capture pane");
+    let token = handle.token();
+    assert_eq!(hub.recv_notice().expect("ready"), PaneNotice::Ready(token));
+
+    driver.push_read(ReadAction::bytes(b"\x1b[?1hhost-stream-marker"));
+    assert_eq!(hub.recv_notice().expect("wake"), PaneNotice::Wake(token));
+    let drain = hub.drain_pane(token, usize::MAX).expect("drain");
+    let streams = drain
+        .effects
+        .iter()
+        .filter_map(|effect| match effect.effect.kind() {
+            RuntimeEffectKind::HostStream(bytes) => Some(bytes.as_slice()),
+            _ => None,
+        })
+        .flatten()
+        .copied()
+        .collect::<Vec<_>>();
+    assert!(drain.effects.iter().any(|effect| matches!(
+        effect.effect.kind(),
+        RuntimeEffectKind::ModeChange(rssh_runtime::TerminalModeChange::ApplicationCursorKeys(
+            true
+        ))
+    )));
+
+    assert_eq!(streams, b"\x1b[?1hhost-stream-marker");
+    hub.shutdown();
+}
+
+#[test]
+fn explicitly_enabled_visible_output_is_published_without_terminal_controls() {
+    let clock = VirtualClock::new(Instant::now());
+    let mut hub = RuntimeHub::new(clock);
+    let (transport, driver) = scripted_session(
+        [ReadAction::Block, ReadAction::Block],
+        [WriteAction::accept(usize::MAX)],
+    );
+    let config = PaneWorkerConfig {
+        capture_visible_output: true,
+        ..PaneWorkerConfig::default()
+    };
+    let handle = hub
+        .open(PaneId::new(10), transport, config)
+        .expect("open visible-output pane");
+    let token = handle.token();
+    assert_eq!(hub.recv_notice().expect("ready"), PaneNotice::Ready(token));
+
+    driver.push_read(ReadAction::bytes(b"A\x1b]0;hidden-title\x07B"));
+    assert_eq!(hub.recv_notice().expect("wake"), PaneNotice::Wake(token));
+    let drain = hub.drain_pane(token, usize::MAX).expect("drain");
+    let visible = drain
+        .effects
+        .iter()
+        .filter_map(|effect| match effect.effect.kind() {
+            RuntimeEffectKind::VisibleOutput(bytes) => Some(bytes.as_slice()),
+            _ => None,
+        })
+        .flatten()
+        .copied()
+        .collect::<Vec<_>>();
+
+    assert_eq!(visible, b"AB");
+    assert!(
+        !drain
+            .effects
+            .iter()
+            .any(|effect| matches!(effect.effect.kind(), RuntimeEffectKind::HostStream(_)))
+    );
+    hub.shutdown();
 }
 
 #[test]

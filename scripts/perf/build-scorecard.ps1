@@ -3,6 +3,7 @@ param(
     [string]$Baseline,
     [string]$Candidate = 'current',
     [string]$Output,
+    [string]$TemporaryRoot,
     [switch]$ValidationOnly,
     [switch]$AllowDifferentMachine
 )
@@ -71,7 +72,11 @@ function Get-RsshDirectoryBytes {
     return [long]$measurement.Sum
 }
 
-$temporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+if ([string]::IsNullOrWhiteSpace($TemporaryRoot)) {
+    $TemporaryRoot = [IO.Path]::GetTempPath()
+}
+$temporaryRoot = [IO.Path]::GetFullPath($TemporaryRoot)
+$null = New-Item -ItemType Directory -Path $temporaryRoot -Force
 $targetName = "rssh-build-scorecard-$([Guid]::NewGuid().ToString('N'))"
 $targetDirectory = [IO.Path]::GetFullPath((Join-Path $temporaryRoot $targetName))
 $temporaryPrefix = $temporaryRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
@@ -84,6 +89,8 @@ if ([IO.Path]::GetFileName($targetDirectory) -notlike 'rssh-build-scorecard-*') 
 $null = New-Item -ItemType Directory -Path $targetDirectory
 
 $previousTarget = $env:CARGO_TARGET_DIR
+$previousTemp = $env:TEMP
+$previousTmp = $env:TMP
 try {
     Push-Location $repoRoot
     try {
@@ -91,6 +98,8 @@ try {
         $null = Invoke-RsshMeasuredCommand -Program 'npm' -Arguments @('--prefix', 'web', 'run', 'build')
 
         $env:CARGO_TARGET_DIR = $targetDirectory
+        $env:TEMP = $temporaryRoot
+        $env:TMP = $temporaryRoot
         $cleanCheckMs = Invoke-RsshMeasuredCommand -Program 'cargo' -Arguments @(
             'check', '--locked', '-p', 'rssh-app', '--tests'
         )
@@ -186,6 +195,8 @@ try {
     } else {
         $env:CARGO_TARGET_DIR = $previousTarget
     }
+    $env:TEMP = $previousTemp
+    $env:TMP = $previousTmp
     $resolvedTarget = [IO.Path]::GetFullPath($targetDirectory)
     if (-not $resolvedTarget.StartsWith($temporaryPrefix, [StringComparison]::OrdinalIgnoreCase)) {
         throw "refusing to clean scorecard target outside the temporary directory: $resolvedTarget"

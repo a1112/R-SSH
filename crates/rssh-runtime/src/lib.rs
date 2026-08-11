@@ -49,7 +49,7 @@ pub use hub::{OpenPaneError, RuntimeHub};
 pub use latest::{CoalesceLatest, DrainCompletion, LatestSlot, LatestSlotMetrics, PublishAction};
 pub use mailbox::{
     MailboxItem, MailboxLimits, MailboxLimitsError, MailboxMetrics, MailboxReceiver, MailboxSender,
-    RecvError, SendError, TryRecvError, TrySendError, bounded_mailbox,
+    RecvError, RecvTimeoutError, SendError, TryRecvError, TrySendError, bounded_mailbox,
 };
 pub use metrics::RuntimeBatchMetrics;
 pub use modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalModeChange};

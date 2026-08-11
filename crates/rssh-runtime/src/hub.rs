@@ -13,7 +13,7 @@ use rssh_core::PaneId;
 use crate::{
     Clock, MailboxLimits, MailboxReceiver, MailboxSender, PaneDrain, PaneNotice,
     PanePublicationMetrics, PaneToken, PaneTokenAllocator, PaneWorkerConfig, RecvError,
-    SequenceExhausted, SessionTransport, SystemClock, TryRecvError,
+    SequenceExhausted, SessionTransport, SystemClock, TerminalRuntime, TryRecvError,
     batch::PanePublication,
     bounded_mailbox,
     pane::{ErasedInterrupt, PaneHandle, spawn_pane},
@@ -78,6 +78,7 @@ pub struct RuntimeHub<C = SystemClock> {
     completed_metrics: HashMap<PaneToken, PanePublicationMetrics>,
     pending_closed: HashMap<PaneToken, PaneNotice>,
     live_threads: Arc<AtomicUsize>,
+    notice_waker: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl<C: fmt::Debug> fmt::Debug for RuntimeHub<C> {
@@ -95,6 +96,12 @@ impl<C: Clock> RuntimeHub<C> {
     /// Creates an empty hub with a bounded lossless notice queue.
     #[must_use]
     pub fn new(clock: C) -> Self {
+        Self::new_with_notice_waker(clock, Arc::new(|| {}))
+    }
+
+    /// Creates an empty hub with a host callback invoked for every new notice.
+    #[must_use]
+    pub fn new_with_notice_waker(clock: C, notice_waker: Arc<dyn Fn() + Send + Sync>) -> Self {
         let (notice_sender, notice_receiver) = bounded_mailbox(NOTICE_LIMITS);
         Self {
             clock,
@@ -106,6 +113,7 @@ impl<C: Clock> RuntimeHub<C> {
             completed_metrics: HashMap::new(),
             pending_closed: HashMap::new(),
             live_threads: Arc::new(AtomicUsize::new(0)),
+            notice_waker,
         }
     }
 
@@ -121,6 +129,22 @@ impl<C: Clock> RuntimeHub<C> {
         transport: T,
         config: PaneWorkerConfig,
     ) -> Result<PaneHandle, OpenPaneError> {
+        let runtime = TerminalRuntime::new(config.size);
+        self.open_with_runtime(pane, transport, config, runtime)
+    }
+
+    /// Opens one logical pane with a caller-configured terminal runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::open`].
+    pub fn open_with_runtime<T: SessionTransport>(
+        &mut self,
+        pane: PaneId,
+        transport: T,
+        mut config: PaneWorkerConfig,
+        runtime: TerminalRuntime,
+    ) -> Result<PaneHandle, OpenPaneError> {
         if self.panes.contains_key(&pane) {
             return Err(OpenPaneError::AlreadyOpen(pane));
         }
@@ -128,12 +152,15 @@ impl<C: Clock> RuntimeHub<C> {
             .allocator
             .issue(pane)
             .map_err(OpenPaneError::GenerationExhausted)?;
+        config.size = runtime.terminal().grid().size();
         let spawned = spawn_pane(
             token,
             transport,
             config,
+            runtime,
             self.clock.clone(),
             self.notice_sender.clone(),
+            Arc::clone(&self.notice_waker),
             &self.live_threads,
         )
         .map_err(OpenPaneError::Spawn)?;

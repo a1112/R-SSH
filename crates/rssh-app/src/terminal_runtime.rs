@@ -1,8 +1,10 @@
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rssh_core::TerminalSize;
 use rssh_runtime::RuntimeBuffers;
+use rssh_terminal::Terminal;
 
 pub(crate) use rssh_runtime::terminal::{TerminalNotification, TerminalProgress};
 
@@ -11,6 +13,7 @@ const PROCESS_CWD_PROBE_INTERVAL: Duration = Duration::from_secs(1);
 pub(crate) struct TerminalRuntime {
     pub(crate) inner: rssh_runtime::TerminalRuntime,
     pub(crate) storage: TerminalRuntimeStorage,
+    presentation_snapshot: Option<Arc<Terminal>>,
 }
 
 pub(crate) struct TerminalRuntimeStorage {
@@ -29,6 +32,7 @@ impl TerminalRuntime {
         Self {
             inner: rssh_runtime::TerminalRuntime::new(size),
             storage: TerminalRuntimeStorage::new(),
+            presentation_snapshot: None,
         }
     }
 
@@ -36,7 +40,18 @@ impl TerminalRuntime {
         Self {
             inner: rssh_runtime::TerminalRuntime::new_with_query_scan_work(size),
             storage: TerminalRuntimeStorage::new(),
+            presentation_snapshot: None,
         }
+    }
+
+    pub(crate) fn terminal(&self) -> &Terminal {
+        self.presentation_snapshot
+            .as_deref()
+            .unwrap_or_else(|| self.inner.terminal())
+    }
+
+    pub(crate) fn install_presentation_snapshot(&mut self, terminal: Arc<Terminal>) {
+        self.presentation_snapshot = Some(terminal);
     }
 
     pub(crate) fn should_probe_process_cwd(&mut self, process_id: u32, now: Instant) -> bool {
@@ -99,5 +114,20 @@ mod tests {
 
         runtime.reset_process_cwd_probe();
         assert!(runtime.should_probe_process_cwd(11, now));
+    }
+
+    #[test]
+    fn presentation_snapshot_reuses_the_worker_terminal_arc() {
+        let size = TerminalSize::new(80, 24);
+        let worker = rssh_runtime::TerminalRuntime::new(size);
+        let snapshot = std::sync::Arc::new(worker.terminal().clone());
+        let mut presentation = TerminalRuntime::new(size);
+
+        presentation.install_presentation_snapshot(std::sync::Arc::clone(&snapshot));
+
+        assert!(std::ptr::eq(
+            presentation.terminal(),
+            std::sync::Arc::as_ptr(&snapshot)
+        ));
     }
 }

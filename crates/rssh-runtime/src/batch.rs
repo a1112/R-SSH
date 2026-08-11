@@ -300,8 +300,10 @@ pub struct PublishedEffect {
 impl MailboxItem for PublishedEffect {
     fn retained_bytes(&self) -> usize {
         match self.effect.kind() {
-            RuntimeEffectKind::TransportWrite(bytes) => bytes.capacity(),
-            RuntimeEffectKind::Bell { .. } => 0,
+            RuntimeEffectKind::TransportWrite(bytes)
+            | RuntimeEffectKind::HostStream(bytes)
+            | RuntimeEffectKind::VisibleOutput(bytes) => bytes.capacity(),
+            RuntimeEffectKind::ModeChange(_) | RuntimeEffectKind::Bell { .. } => 0,
             RuntimeEffectKind::ClipboardWrite {
                 selection,
                 contents,

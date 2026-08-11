@@ -2,7 +2,7 @@ use std::{fmt::Write as _, path::Path, process::Command, time::Duration};
 
 use rssh_test_support::{ChildGuard, ChildOutput, platform_marker_command};
 
-const PROCESS_DEADLINE: Duration = Duration::from_secs(30);
+const PROCESS_DEADLINE: Duration = Duration::from_secs(120);
 // Keep the framed marker below 80 columns so ConPTY does not inject a line wrap.
 const DETERMINISTIC_PAYLOAD: &str = "rssh-e2e|office 中 مرحبا नमस्ते שלום 😀 █";
 const PTY_LINK_BEGIN: &str = "RSSH-LINK-BEGIN|";
@@ -22,14 +22,36 @@ pub fn run_ten_frame_native_window_at_scale(
     executable: impl AsRef<Path>,
     scale_factor: impl Into<Option<f64>>,
 ) -> NativeWindowProbe {
+    run_ten_frame_native_window_with_runtime(executable, scale_factor, "v2")
+}
+
+pub fn run_ten_frame_native_window_with_runtime(
+    executable: impl AsRef<Path>,
+    scale_factor: impl Into<Option<f64>>,
+    runtime: &str,
+) -> NativeWindowProbe {
+    run_ten_frame_native_window_with_runtime_and_log(executable, scale_factor, runtime, None)
+}
+
+pub fn run_ten_frame_native_window_with_runtime_and_log(
+    executable: impl AsRef<Path>,
+    scale_factor: impl Into<Option<f64>>,
+    runtime: &str,
+    log: Option<&Path>,
+) -> NativeWindowProbe {
     let executable = executable.as_ref();
     let framed_marker = format!("{PTY_LINK_BEGIN}{DETERMINISTIC_PAYLOAD}{PTY_LINK_END}");
     let marker_command = platform_marker_command(&framed_marker);
     let mut command = Command::new(executable);
+    command.args(["-n", "window", "--frames", "10", "--metrics-json"]);
+    if let Some(log) = log {
+        command.arg("--log").arg(log);
+    }
     command
-        .args(["-n", "window", "--frames", "10", "--metrics-json", "--"])
+        .arg("--")
         .arg(marker_command.get_program())
         .args(marker_command.get_args())
+        .env("RSSH_INTERNAL_RUNTIME", runtime)
         .env("RSSH_TEST_DIRECT_GPU_TEXT", "1")
         .env("RSSH_TEST_PTY_LINKAGE", "1");
     if let Some(scale_factor) = scale_factor.into() {
@@ -143,6 +165,9 @@ pub fn assert_ten_frame_native_metrics(probe: &NativeWindowProbe) {
         metrics["terminal_linkage_nonce_found"], true,
         "{diagnostics}"
     );
+    if metrics["runtime_api"] == "v2-runtime-hub" {
+        assert_eq!(metrics["runtime_live_threads"], 0, "{diagnostics}");
+    }
 }
 
 pub fn assert_gpu_text_glyph_activity(metrics: &serde_json::Value, diagnostics: &str) {

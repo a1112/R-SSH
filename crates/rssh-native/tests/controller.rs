@@ -190,6 +190,34 @@ fn runtime_batch_updates_metadata_snapshot_and_preserves_ordered_host_effects() 
 }
 
 #[test]
+fn visible_output_routes_to_the_session_log_port() {
+    let pane = token(31);
+    let mut state = WindowState::default();
+    apply(
+        &mut state,
+        WindowIntent::PaneLifecycle(PaneLifecycleIntent::Opened(pane)),
+    );
+    let effects = apply(
+        &mut state,
+        WindowIntent::RuntimeBatch(batch(
+            pane,
+            RuntimeRevision::FIRST,
+            PaneMetadataDelta::default(),
+            vec![RuntimeEffect::new(
+                EffectSequence::FIRST,
+                RuntimeEffectKind::VisibleOutput(b"visible".to_vec()),
+            )],
+        )),
+    );
+
+    assert!(matches!(
+        effects.first(),
+        Some(WindowEffect::Runtime(RuntimePortEffect::WriteSessionLog { bytes, .. }))
+            if bytes == b"visible"
+    ));
+}
+
+#[test]
 fn stale_generation_revision_and_effect_gap_are_atomic_noops() {
     let mut state = WindowState::default();
     let current = token(13);
@@ -431,6 +459,15 @@ fn runtime_effect_ports_cover_transport_bell_clipboard_and_diagnostics() {
             .unwrap()
             .next()
             .unwrap(),
+        EffectSequence::FIRST
+            .next()
+            .unwrap()
+            .next()
+            .unwrap()
+            .next()
+            .unwrap()
+            .next()
+            .unwrap(),
     ];
     let effects = vec![
         RuntimeEffect::new(
@@ -439,18 +476,22 @@ fn runtime_effect_ports_cover_transport_bell_clipboard_and_diagnostics() {
         ),
         RuntimeEffect::new(
             sequences[1],
+            RuntimeEffectKind::HostStream(b"display".to_vec()),
+        ),
+        RuntimeEffect::new(
+            sequences[2],
             RuntimeEffectKind::Bell {
                 count: NonZeroU64::new(2).unwrap(),
             },
         ),
         RuntimeEffect::new(
-            sequences[2],
+            sequences[3],
             RuntimeEffectKind::ClipboardRead {
                 selection: "p".to_owned(),
             },
         ),
         RuntimeEffect::new(
-            sequences[3],
+            sequences[4],
             RuntimeEffectKind::Diagnostic {
                 message: "bad sequence".to_owned(),
             },
@@ -473,14 +514,18 @@ fn runtime_effect_ports_cover_transport_bell_clipboard_and_diagnostics() {
     ));
     assert!(matches!(
         &emitted[1],
-        WindowEffect::Renderer(RendererEffect::Bell { count, .. }) if count.get() == 2
+        WindowEffect::Runtime(RuntimePortEffect::ObserveHostStream { bytes, .. }) if bytes == b"display"
     ));
     assert!(matches!(
         &emitted[2],
-        WindowEffect::Clipboard(ClipboardEffect::Read { selection, .. }) if selection == "p"
+        WindowEffect::Renderer(RendererEffect::Bell { count, .. }) if count.get() == 2
     ));
     assert!(matches!(
         &emitted[3],
+        WindowEffect::Clipboard(ClipboardEffect::Read { selection, .. }) if selection == "p"
+    ));
+    assert!(matches!(
+        &emitted[4],
         WindowEffect::Window(WindowPortEffect::RuntimeDiagnostic { message, .. })
             if message == "bad sequence"
     ));

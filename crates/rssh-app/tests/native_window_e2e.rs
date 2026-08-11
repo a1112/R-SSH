@@ -4,15 +4,15 @@ use std::{
     env, fs,
     path::PathBuf,
     sync::{Mutex, MutexGuard},
-};
-
-#[cfg(target_os = "windows")]
-use rssh_test_support::{ChildGuard, windows::wait_for_owned_window_frame};
-#[cfg(target_os = "windows")]
-use std::{
-    process::Command,
+    thread,
     time::{Duration, Instant},
 };
+
+use rssh_test_support::ChildGuard;
+#[cfg(target_os = "windows")]
+use rssh_test_support::windows::wait_for_owned_window_frame;
+use std::process::Command;
+use sysinfo::{Pid, System};
 
 const RSSH_APP_EXECUTABLE: &str = env!("CARGO_BIN_EXE_rssh-app");
 static NATIVE_WINDOW_E2E_LOCK: Mutex<()> = Mutex::new(());
@@ -24,6 +24,299 @@ fn native_window_e2e_presents_ten_frames_from_a_real_pty() {
     let probe = common::run_ten_frame_native_window(&executable);
 
     common::assert_ten_frame_native_metrics(&probe);
+    assert_eq!(probe.metrics["runtime_api"], "v2-runtime-hub");
+}
+
+#[test]
+#[ignore = "release-native-window scorecard probe"]
+fn native_window_release_performance_probe() {
+    let _native_window = native_window_e2e_guard();
+    let executable = packaged_or_cargo_app_executable();
+    let runtime = env::var("RSSH_NATIVE_RELEASE_RUNTIME").unwrap_or_else(|_| "legacy".to_owned());
+    assert!(matches!(runtime.as_str(), "legacy" | "v2"));
+    let started = Instant::now();
+    let probe = common::run_ten_frame_native_window_with_runtime(&executable, None, &runtime);
+    let elapsed = started.elapsed();
+
+    common::assert_ten_frame_native_metrics(&probe);
+    println!(
+        "RSSH_NATIVE_RELEASE_PROBE={}",
+        serde_json::json!({
+            "elapsed_us": elapsed.as_micros(),
+            "requested_runtime": runtime,
+            "metrics": probe.metrics,
+        })
+    );
+}
+
+#[test]
+fn native_window_local_pane_legacy_and_v2_have_the_same_observable_transcript() {
+    let _native_window = native_window_e2e_guard();
+    let executable = packaged_or_cargo_app_executable();
+    let legacy = common::run_ten_frame_native_window_with_runtime(&executable, None, "legacy");
+    let v2 = common::run_ten_frame_native_window_with_runtime(&executable, None, "v2");
+
+    common::assert_ten_frame_native_metrics(&legacy);
+    common::assert_ten_frame_native_metrics(&v2);
+    assert_eq!(legacy.metrics["runtime_api"], "legacy-window-feed");
+    assert_eq!(v2.metrics["runtime_api"], "v2-runtime-hub");
+    assert_eq!(v2.metrics["runtime_live_threads"], 0);
+    assert_eq!(legacy.output.status.code(), v2.output.status.code());
+    assert_eq!(legacy.metrics["runtime_live_threads"], 0);
+    for field in [
+        "pty_linkage_digest",
+        "terminal_snapshot_content_digest",
+        "terminal_linkage_nonce_found",
+        "pty_linkage_found",
+        "gpu_rendered_frames",
+        "gpu_presented_frames",
+        "gpu_text_rendered_frames",
+    ] {
+        assert_eq!(
+            legacy.metrics[field], v2.metrics[field],
+            "legacy/V2 mismatch for {field}"
+        );
+    }
+}
+
+#[test]
+fn native_window_local_pane_legacy_and_v2_write_the_same_visible_session_log() {
+    let _native_window = native_window_e2e_guard();
+    let executable = packaged_or_cargo_app_executable();
+    let unique = format!("{}-{}", std::process::id(), env!("CARGO_PKG_VERSION"));
+    let legacy_path = env::temp_dir().join(format!("rssh-task19-legacy-{unique}.log"));
+    let v2_path = env::temp_dir().join(format!("rssh-task19-v2-{unique}.log"));
+    let _ = fs::remove_file(&legacy_path);
+    let _ = fs::remove_file(&v2_path);
+
+    let legacy = common::run_ten_frame_native_window_with_runtime_and_log(
+        &executable,
+        None,
+        "legacy",
+        Some(&legacy_path),
+    );
+    let v2 = common::run_ten_frame_native_window_with_runtime_and_log(
+        &executable,
+        None,
+        "v2",
+        Some(&v2_path),
+    );
+    common::assert_ten_frame_native_metrics(&legacy);
+    common::assert_ten_frame_native_metrics(&v2);
+
+    let legacy_log = fs::read(&legacy_path).expect("read legacy session log");
+    let v2_log = fs::read(&v2_path).expect("read V2 session log");
+    assert_eq!(legacy_log, v2_log);
+    assert!(
+        String::from_utf8_lossy(&v2_log).contains("rssh-e2e|office 中 مرحبا नमस्ते שלום 😀 █"),
+        "V2 session log omitted the deterministic PTY payload"
+    );
+    let _ = fs::remove_file(legacy_path);
+    let _ = fs::remove_file(v2_path);
+}
+
+#[test]
+fn native_window_legacy_and_v2_reap_a_hold_open_pty_child() {
+    let _native_window = native_window_e2e_guard();
+    let executable = packaged_or_cargo_app_executable();
+    for runtime in ["legacy", "v2"] {
+        let marker = format!("RSSH-TASK19-HOLD-{runtime}-{}", std::process::id());
+        let path = env::temp_dir().join(format!(
+            "rssh-task19-cleanup-{runtime}-{}.log",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&path);
+        let child = hold_open_marker_command(&marker);
+        let mut command = Command::new(&executable);
+        command
+            .args(["-n", "window", "--frames", "60", "--metrics-json", "--log"])
+            .arg(&path)
+            .arg("--")
+            .arg(child.get_program())
+            .args(child.get_args())
+            .env("RSSH_INTERNAL_RUNTIME", runtime)
+            .env("RSSH_TEST_DIRECT_GPU_TEXT", "1");
+        let guard = ChildGuard::spawn(command, Duration::from_secs(30))
+            .expect("spawn frame-limited hold-open window");
+        let app_pid = guard.process_id().expect("app process ID");
+        let startup_deadline = Instant::now() + Duration::from_secs(20);
+        while !fs::read_to_string(&path).is_ok_and(|log| log.contains(&marker)) {
+            assert!(
+                Instant::now() < startup_deadline,
+                "{runtime} PTY child never wrote its startup marker"
+            );
+            thread::sleep(Duration::from_millis(25));
+        }
+        let observe_deadline = Instant::now() + Duration::from_secs(5);
+        let child_pid = loop {
+            if let Some(pid) = marker_process(&marker, app_pid) {
+                break pid;
+            }
+            assert!(
+                Instant::now() < observe_deadline,
+                "{runtime} never spawned the hold-open PTY child"
+            );
+            thread::sleep(Duration::from_millis(10));
+        };
+        let output = guard.wait().expect("frame-limited window exits");
+        assert!(output.status.success(), "{runtime} app failed: {output:?}");
+        let metrics: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("native metrics JSON");
+        assert_eq!(
+            metrics["runtime_api"],
+            if runtime == "legacy" {
+                "legacy-window-feed"
+            } else {
+                "v2-runtime-hub"
+            }
+        );
+        assert_eq!(metrics["runtime_live_threads"], 0);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while process_exists(child_pid) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(25));
+        }
+        assert!(
+            !process_exists(child_pid),
+            "{runtime} left PTY child {child_pid} alive after window cleanup"
+        );
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[test]
+fn native_window_legacy_and_v2_preserve_nonzero_child_exit_status() {
+    let _native_window = native_window_e2e_guard();
+    let executable = packaged_or_cargo_app_executable();
+    let unique = format!("{}-{}", std::process::id(), env!("CARGO_PKG_VERSION"));
+    let marker = format!("RSSH-TASK19-EXIT-{unique}");
+    let child = nonzero_exit_marker_command(&marker);
+    let mut logs = Vec::new();
+    let mut snapshots = Vec::new();
+
+    for runtime in ["legacy", "v2"] {
+        let log_path = env::temp_dir().join(format!("rssh-task19-exit-{runtime}-{unique}.log"));
+        let _ = fs::remove_file(&log_path);
+        let mut command = Command::new(&executable);
+        command
+            .args(["-n", "window", "--metrics-json", "--log"])
+            .arg(&log_path)
+            .arg("--")
+            .arg(child.get_program())
+            .args(child.get_args())
+            .env("RSSH_INTERNAL_RUNTIME", runtime)
+            .env("RSSH_TEST_DIRECT_GPU_TEXT", "1");
+        let output = ChildGuard::spawn(command, Duration::from_secs(30))
+            .expect("spawn nonzero-exit native window")
+            .wait()
+            .expect("nonzero-exit native window closes");
+        assert!(output.status.success(), "{runtime} app failed: {output:?}");
+        let metrics: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("native metrics JSON");
+        assert_eq!(
+            metrics["runtime_api"],
+            if runtime == "legacy" {
+                "legacy-window-feed"
+            } else {
+                "v2-runtime-hub"
+            }
+        );
+        assert_eq!(metrics["runtime_live_threads"], 0);
+        assert_eq!(
+            metrics["last_exit_code"], 7,
+            "{runtime} lost the real child exit status: {output:?}"
+        );
+        snapshots.push(metrics["terminal_snapshot_content_digest"].clone());
+        logs.push(fs::read(&log_path).expect("read nonzero-exit session log"));
+        let _ = fs::remove_file(log_path);
+    }
+
+    assert_eq!(logs[0], logs[1]);
+    let transcript = String::from_utf8_lossy(&logs[1]);
+    assert!(transcript.contains(&marker));
+    assert_eq!(snapshots[0], snapshots[1]);
+}
+
+fn marker_process(marker: &str, excluded_process_id: u32) -> Option<u32> {
+    let mut system = System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    system
+        .processes()
+        .iter()
+        .find_map(|(pid, process)| {
+            let process_id = pid.as_u32();
+            (process_id != excluded_process_id
+                && process
+                    .cmd()
+                    .iter()
+                    .any(|argument| argument.to_string_lossy().contains(marker)))
+            .then_some(process_id)
+        })
+        .or_else(|| {
+            system.processes().iter().find_map(|(pid, process)| {
+                let name = process.name().to_string_lossy();
+                (is_descendant_of(&system, pid.as_u32(), excluded_process_id)
+                    && ["cmd.exe", "sh", "sleep", "ping.exe"]
+                        .iter()
+                        .any(|candidate| name.eq_ignore_ascii_case(candidate)))
+                .then_some(pid.as_u32())
+            })
+        })
+}
+
+fn is_descendant_of(system: &System, process_id: u32, ancestor_id: u32) -> bool {
+    let mut current = Pid::from_u32(process_id);
+    for _ in 0..16 {
+        let Some(parent) = system.process(current).and_then(sysinfo::Process::parent) else {
+            return false;
+        };
+        if parent.as_u32() == ancestor_id {
+            return true;
+        }
+        current = parent;
+    }
+    false
+}
+
+fn process_exists(process_id: u32) -> bool {
+    let mut system = System::new();
+    system.refresh_processes(
+        sysinfo::ProcessesToUpdate::Some(&[Pid::from_u32(process_id)]),
+        true,
+    );
+    system.process(Pid::from_u32(process_id)).is_some()
+}
+
+#[cfg(target_os = "windows")]
+fn hold_open_marker_command(marker: &str) -> Command {
+    let mut command = Command::new("cmd.exe");
+    command.args([
+        "/D",
+        "/Q",
+        "/C",
+        &format!("echo {marker} & ping -n 300 127.0.0.1 >nul"),
+    ]);
+    command
+}
+
+#[cfg(target_os = "windows")]
+fn nonzero_exit_marker_command(marker: &str) -> Command {
+    let mut command = Command::new("cmd.exe");
+    command.args(["/D", "/Q", "/C", &format!("echo {marker} & exit 7")]);
+    command
+}
+
+#[cfg(not(target_os = "windows"))]
+fn hold_open_marker_command(marker: &str) -> Command {
+    let mut command = Command::new("sh");
+    command.args(["-c", &format!("printf '%s\\n' '{marker}'; sleep 300")]);
+    command
+}
+
+#[cfg(not(target_os = "windows"))]
+fn nonzero_exit_marker_command(marker: &str) -> Command {
+    let mut command = Command::new("sh");
+    command.args(["-c", &format!("printf '%s\\n' '{marker}'; exit 7")]);
+    command
 }
 
 #[test]
@@ -33,6 +326,7 @@ fn native_window_e2e_preserves_gpu_text_at_windows_scale_factors() {
     for scale_factor in [1.0, 1.25, 1.5, 2.0] {
         let probe = common::run_ten_frame_native_window_at_scale(&executable, Some(scale_factor));
         common::assert_ten_frame_native_metrics(&probe);
+        assert_eq!(probe.metrics["runtime_api"], "v2-runtime-hub");
     }
 }
 

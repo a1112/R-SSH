@@ -380,6 +380,16 @@ pub struct PaneMetadataDelta {
 pub enum RuntimeEffectKind {
     /// Bytes that must be written back to the session transport.
     TransportWrite(Vec<u8>),
+    /// Ordered terminal display bytes retained only when a host-stream
+    /// diagnostic consumer was explicitly enabled for the pane.
+    HostStream(Vec<u8>),
+    /// Terminal-visible bytes suitable for an explicitly enabled session log.
+    ///
+    /// Unlike [`Self::HostStream`], this payload excludes terminal controls and
+    /// is emitted only when the pane worker's session-log capture is enabled.
+    VisibleOutput(Vec<u8>),
+    /// Input-encoding or host-interaction mode transition.
+    ModeChange(crate::TerminalModeChange),
     /// An audible or visual bell request.
     Bell {
         /// Number of bell occurrences coalesced into this ordered effect.

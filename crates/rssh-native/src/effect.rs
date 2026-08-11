@@ -26,6 +26,18 @@ pub enum RuntimePortEffect {
         context: HostEffectContext,
         bytes: Vec<u8>,
     },
+    ObserveHostStream {
+        context: HostEffectContext,
+        bytes: Vec<u8>,
+    },
+    WriteSessionLog {
+        context: HostEffectContext,
+        bytes: Vec<u8>,
+    },
+    ApplyModeChange {
+        context: HostEffectContext,
+        change: rssh_runtime::TerminalModeChange,
+    },
     Restart {
         pane: PaneToken,
     },

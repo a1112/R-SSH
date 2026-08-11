@@ -456,6 +456,11 @@ impl TerminalRuntime {
         &self.terminal
     }
 
+    /// Applies a worker-owned mode transition to a presentation mirror.
+    pub fn install_presentation_mode_change(&mut self, change: crate::TerminalModeChange) {
+        self.mode_tracker.install_change(change);
+    }
+
     /// Cumulative bytes inspected by the streaming query scanner.
     ///
     /// The counter saturates at `u64::MAX` and is disabled for normal runtimes.

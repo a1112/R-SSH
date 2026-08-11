@@ -233,11 +233,11 @@ fn active_pane_exit_finishes_synchronized_terminal_damage_once() {
     app.handle_pty_output(b"\x1b[?2026habc").unwrap();
     assert!(!snapshot_contains_text(&app.snapshot, "abc"));
 
-    app.finish_pane_runtime_after_exit(pane);
+    app.finish_pane_runtime_after_exit(pane, 0);
 
     assert!(snapshot_contains_text(&app.snapshot, "abc"));
     let cells = app.snapshot.cells().to_vec();
-    app.finish_pane_runtime_after_exit(pane);
+    app.finish_pane_runtime_after_exit(pane, 0);
     assert_eq!(app.snapshot.cells(), cells);
 }
 
@@ -258,7 +258,7 @@ fn inactive_pane_exit_finishes_synchronized_terminal_damage_once() {
         "xyz"
     ));
 
-    app.finish_pane_runtime_after_exit(pane);
+    app.finish_pane_runtime_after_exit(pane, 0);
 
     assert!(snapshot_contains_text(
         &app.pane_runtimes.get(&pane).unwrap().snapshot,
@@ -266,7 +266,7 @@ fn inactive_pane_exit_finishes_synchronized_terminal_damage_once() {
     ));
     assert_eq!(app.pane_has_unseen_output(pane), Some(true));
     let cells = app.pane_runtimes.get(&pane).unwrap().snapshot.cells().to_vec();
-    app.finish_pane_runtime_after_exit(pane);
+    app.finish_pane_runtime_after_exit(pane, 0);
     assert_eq!(app.pane_runtimes.get(&pane).unwrap().snapshot.cells(), cells);
     assert_eq!(app.pane_has_unseen_output(pane), Some(true));
 }

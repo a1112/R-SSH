@@ -186,6 +186,42 @@ impl TerminalModeTracker {
     const C1_SOFT_RESET_PREFIX: &'static [u8] = b"\x9b!p";
     const UTF8_C1_SOFT_RESET_PREFIX: &'static [u8] = b"\xc2\x9b!p";
 
+    /// Applies a mode transition produced by the authoritative worker to a
+    /// presentation-only compatibility mirror.
+    pub fn install_change(&mut self, change: TerminalModeChange) {
+        match change {
+            TerminalModeChange::ApplicationCursorKeys(enabled) => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::APPLICATION_CURSOR_KEYS, enabled);
+            }
+            TerminalModeChange::ApplicationKeypad(enabled) => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::APPLICATION_KEYPAD, enabled);
+            }
+            TerminalModeChange::BracketedPaste(enabled) => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::BRACKETED_PASTE, enabled);
+            }
+            TerminalModeChange::Mouse(mode) => self.mouse_modes.install(mode),
+            TerminalModeChange::Focus(enabled) => {
+                self.tracked_modes.set(TrackedTerminalModes::FOCUS, enabled);
+            }
+            TerminalModeChange::SynchronizedOutput(enabled) => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::SYNCHRONIZED_OUTPUT, enabled);
+            }
+            TerminalModeChange::KittyKeyboardFlags(flags) => {
+                self.kitty_keyboard_modes.flags = flags;
+                self.kitty_keyboard_modes.stack.clear();
+            }
+            TerminalModeChange::ModifyOtherKeys(value) => self.modify_other_keys = value,
+            TerminalModeChange::Win32InputMode(enabled) => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::WIN32_INPUT_MODE, enabled);
+            }
+        }
+    }
+
     #[allow(clippy::too_many_lines)]
     pub fn process(&mut self, bytes: &[u8], mut emit: impl FnMut(TerminalModeChange)) {
         if self.pending.is_empty() && !bytes.iter().copied().any(is_mode_candidate_start) {
@@ -936,6 +972,29 @@ impl MouseModes {
     const SGR_PIXELS_PROTOCOL: u8 = 1 << 6;
     const PROTOCOL_MASK: u8 =
         Self::UTF8_PROTOCOL | Self::SGR_PROTOCOL | Self::URXVT_PROTOCOL | Self::SGR_PIXELS_PROTOCOL;
+
+    fn install(&mut self, mode: MouseInputMode) {
+        *self = Self::default();
+        let reporting = match mode.reporting() {
+            MouseReportingMode::None => None,
+            MouseReportingMode::Normal => Some(1000),
+            MouseReportingMode::ButtonEvent => Some(1002),
+            MouseReportingMode::AnyEvent => Some(1003),
+        };
+        if let Some(reporting) = reporting {
+            self.set(reporting, true);
+        }
+        let protocol = match mode.protocol() {
+            MouseProtocolMode::X10 => None,
+            MouseProtocolMode::Utf8 => Some(1005),
+            MouseProtocolMode::Sgr => Some(1006),
+            MouseProtocolMode::Urxvt => Some(1015),
+            MouseProtocolMode::SgrPixels => Some(1016),
+        };
+        if let Some(protocol) = protocol {
+            self.set(protocol, true);
+        }
+    }
 
     fn set(&mut self, mode: u16, enabled: bool) -> bool {
         let Some(mask) = Self::mask(mode) else {
