@@ -419,13 +419,13 @@ pub struct RuntimeEffect {
 }
 
 impl RuntimeEffect {
-    /// Creates an effect at its assigned global stream position.
+    /// Creates an effect at its assigned position within one [`PaneToken`] stream.
     #[must_use]
     pub const fn new(sequence: EffectSequence, kind: RuntimeEffectKind) -> Self {
         Self { sequence, kind }
     }
 
-    /// Returns the global effect stream position.
+    /// Returns the position within the effect's [`PaneToken`] stream.
     #[must_use]
     pub const fn sequence(&self) -> EffectSequence {
         self.sequence

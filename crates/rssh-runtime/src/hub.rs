@@ -11,9 +11,11 @@ use std::time::{Duration, Instant};
 use rssh_core::PaneId;
 
 use crate::{
-    Clock, MailboxLimits, MailboxReceiver, MailboxSender, PaneNotice, PaneToken,
-    PaneTokenAllocator, PaneWorkerConfig, RecvError, SequenceExhausted, SessionTransport,
-    SystemClock, TryRecvError, bounded_mailbox,
+    Clock, MailboxLimits, MailboxReceiver, MailboxSender, PaneDrain, PaneNotice,
+    PanePublicationMetrics, PaneToken, PaneTokenAllocator, PaneWorkerConfig, RecvError,
+    SequenceExhausted, SessionTransport, SystemClock, TryRecvError,
+    batch::PanePublication,
+    bounded_mailbox,
     pane::{ErasedInterrupt, PaneHandle, spawn_pane},
     shutdown::WorkerReaper,
 };
@@ -60,6 +62,7 @@ struct PaneSlot {
     token: PaneToken,
     handle: PaneHandle,
     interrupt: ErasedInterrupt,
+    publication: Arc<PanePublication>,
     join: Option<JoinHandle<()>>,
     close_deadline: Option<Instant>,
 }
@@ -72,6 +75,8 @@ pub struct RuntimeHub<C = SystemClock> {
     notice_sender: MailboxSender<PaneNotice>,
     notice_receiver: MailboxReceiver<PaneNotice>,
     reaper: WorkerReaper,
+    completed_metrics: HashMap<PaneToken, PanePublicationMetrics>,
+    pending_closed: HashMap<PaneToken, PaneNotice>,
     live_threads: Arc<AtomicUsize>,
 }
 
@@ -98,6 +103,8 @@ impl<C: Clock> RuntimeHub<C> {
             notice_sender,
             notice_receiver,
             reaper: WorkerReaper::default(),
+            completed_metrics: HashMap::new(),
+            pending_closed: HashMap::new(),
             live_threads: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -125,6 +132,7 @@ impl<C: Clock> RuntimeHub<C> {
             token,
             transport,
             config,
+            self.clock.clone(),
             self.notice_sender.clone(),
             &self.live_threads,
         )
@@ -136,6 +144,7 @@ impl<C: Clock> RuntimeHub<C> {
                 token,
                 handle: spawned.handle,
                 interrupt: spawned.interrupt,
+                publication: spawned.publication,
                 join: Some(spawned.join),
                 close_deadline: None,
             },
@@ -193,6 +202,8 @@ impl<C: Clock> RuntimeHub<C> {
             if let Some(mut slot) = self.panes.remove(pane) {
                 slot.handle.stop_accepting();
                 let _ = slot.interrupt.interrupt();
+                self.completed_metrics
+                    .insert(slot.token, slot.publication.metrics());
                 if let Some(join) = slot.join.take() {
                     self.reaper.handoff(join);
                 }
@@ -208,9 +219,17 @@ impl<C: Clock> RuntimeHub<C> {
     ///
     /// Returns [`RecvError::Closed`] after hub shutdown and queue drain.
     pub fn recv_notice(&mut self) -> Result<PaneNotice, RecvError> {
+        if let Some(notice) = self.take_drained_close() {
+            return Ok(notice);
+        }
         loop {
             let notice = self.notice_receiver.recv()?;
             if self.is_current(notice.pane()) {
+                if matches!(notice, PaneNotice::Closed { .. }) && self.notice_has_work(&notice) {
+                    let token = notice.pane();
+                    self.pending_closed.insert(token, notice);
+                    return Ok(PaneNotice::Wake(token));
+                }
                 self.finish_closed_slot(&notice);
                 return Ok(notice);
             }
@@ -223,13 +242,45 @@ impl<C: Clock> RuntimeHub<C> {
     ///
     /// Returns empty or closed status from the bounded notice mailbox.
     pub fn try_recv_notice(&mut self) -> Result<PaneNotice, TryRecvError> {
+        if let Some(notice) = self.take_drained_close() {
+            return Ok(notice);
+        }
         loop {
             let notice = self.notice_receiver.try_recv()?;
             if self.is_current(notice.pane()) {
+                if matches!(notice, PaneNotice::Closed { .. }) && self.notice_has_work(&notice) {
+                    let token = notice.pane();
+                    self.pending_closed.insert(token, notice);
+                    return Ok(PaneNotice::Wake(token));
+                }
                 self.finish_closed_slot(&notice);
                 return Ok(notice);
             }
         }
+    }
+
+    /// Drains the latest frame and up to `max_effects` lossless effects.
+    ///
+    /// When work remains, the returned drain requests exactly one continuation
+    /// turn. The host must schedule that turn without relying on a second queue
+    /// insertion, which keeps continuation delivery independent of queue space.
+    #[must_use]
+    pub fn drain_pane(&self, token: PaneToken, max_effects: usize) -> Option<PaneDrain> {
+        let slot = self.panes.get(&token.pane())?;
+        if slot.token != token {
+            return None;
+        }
+        Some(slot.publication.drain(max_effects))
+    }
+
+    /// Returns publication, replacement, wake, and effect high-water metrics.
+    #[must_use]
+    pub fn publication_metrics(&self, token: PaneToken) -> Option<PanePublicationMetrics> {
+        self.panes
+            .get(&token.pane())
+            .filter(|slot| slot.token == token)
+            .map(|slot| slot.publication.metrics())
+            .or_else(|| self.completed_metrics.get(&token).copied())
     }
 
     /// Returns the number of worker and blocking-reader threads still alive.
@@ -265,11 +316,32 @@ impl<C: Clock> RuntimeHub<C> {
         }
         let pane = notice.pane().pane();
         if let Some(mut slot) = self.panes.remove(&pane) {
+            self.completed_metrics
+                .insert(slot.token, slot.publication.metrics());
             if let Some(join) = slot.join.take() {
                 self.reaper.handoff(join);
             }
             self.reaper.reap_finished();
         }
+    }
+
+    fn notice_has_work(&self, notice: &PaneNotice) -> bool {
+        self.panes
+            .get(&notice.pane().pane())
+            .filter(|slot| slot.token == notice.pane())
+            .is_some_and(|slot| slot.publication.has_work())
+    }
+
+    fn take_drained_close(&mut self) -> Option<PaneNotice> {
+        let token = self.pending_closed.keys().copied().find(|token| {
+            self.panes
+                .get(&token.pane())
+                .filter(|slot| slot.token == *token)
+                .is_none_or(|slot| !slot.publication.has_work())
+        })?;
+        let notice = self.pending_closed.remove(&token)?;
+        self.finish_closed_slot(&notice);
+        Some(notice)
     }
 }
 

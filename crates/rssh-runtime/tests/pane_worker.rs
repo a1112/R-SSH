@@ -2,7 +2,10 @@ use std::time::{Duration, Instant};
 
 use rssh_core::{PaneId, TerminalSize};
 use rssh_runtime::testing::{ExitAction, ReadAction, ScriptedTransport, VirtualClock, WriteAction};
-use rssh_runtime::{PaneNotice, PaneWorkerConfig, RuntimeEffectKind, RuntimeHub, SubmitResult};
+use rssh_runtime::{
+    BatchPolicy, MailboxLimits, PaneNotice, PaneWorkerConfig, RuntimeEffectKind, RuntimeHub,
+    SubmitResult, TryRecvError,
+};
 
 fn scripted_session(
     reads: impl IntoIterator<Item = ReadAction>,
@@ -36,23 +39,23 @@ fn worker_is_ready_and_serializes_user_input_terminal_replies_and_resize() {
     driver.push_read(ReadAction::bytes(b"\x1b[5n"));
     driver.wait_until_accepted_write_len(8);
     assert_eq!(driver.accepted_writes(), b"user\x1b[0n");
-    assert!(matches!(
-        hub.recv_notice().expect("output notice"),
-        PaneNotice::Advanced {
-            pane,
-            snapshot_changed: false,
-            ..
-        } if pane == token
-    ));
+    assert_eq!(
+        hub.recv_notice().expect("output wake"),
+        PaneNotice::Wake(token)
+    );
+    let output = hub.drain_pane(token, usize::MAX).expect("output drain");
+    assert!(!output.frame.expect("output frame").snapshot_changed);
 
     let size = TerminalSize::new(132, 43);
     assert_eq!(handle.resize(size), SubmitResult::Accepted);
     driver.wait_until_control_call_count(1);
     assert_eq!(driver.control_log().resizes, vec![size]);
-    assert!(matches!(
-        hub.recv_notice().expect("resize notice"),
-        PaneNotice::Advanced { pane, .. } if pane == token
-    ));
+    assert_eq!(
+        hub.recv_notice().expect("resize wake"),
+        PaneNotice::Wake(token)
+    );
+    let resize = hub.drain_pane(token, usize::MAX).expect("resize drain");
+    assert!(resize.frame.expect("resize frame").snapshot_changed);
 
     assert!(hub.begin_close(token, Duration::from_secs(1)));
     let closed = hub.recv_notice().expect("closed notice");
@@ -149,30 +152,160 @@ fn close_publishes_synchronized_final_damage_and_effects_before_closed() {
     assert_eq!(hub.recv_notice().expect("ready"), PaneNotice::Ready(token));
 
     driver.push_read(ReadAction::bytes(b"\x1b[?2026hheld\x07"));
-    let held = hub.recv_notice().expect("held output");
+    assert_eq!(
+        hub.recv_notice().expect("held wake"),
+        PaneNotice::Wake(token)
+    );
+    let held = hub.drain_pane(token, usize::MAX).expect("held drain");
+    assert!(!held.frame.expect("held frame").snapshot_changed);
     assert!(matches!(
-        held,
-        PaneNotice::Advanced {
-            snapshot_changed: false,
-            ref effects,
-            ..
-        } if matches!(effects.as_slice(), [RuntimeEffectKind::Bell { .. }])
+        held.effects.as_slice(),
+        [effect] if matches!(effect.effect.kind(), RuntimeEffectKind::Bell { .. })
     ));
 
     assert!(hub.begin_close(token, Duration::from_secs(1)));
-    assert!(matches!(
-        hub.recv_notice().expect("final damage"),
-        PaneNotice::Advanced {
-            pane,
-            snapshot_changed: true,
-            ref damage,
-            ..
-        } if pane == token && !damage.is_empty()
-    ));
+    assert_eq!(
+        hub.recv_notice().expect("final wake"),
+        PaneNotice::Wake(token)
+    );
+    let final_drain = hub.drain_pane(token, usize::MAX).expect("final drain");
+    let final_frame = final_drain.frame.expect("final frame");
+    assert!(final_frame.snapshot_changed);
+    assert!(!final_frame.damage.is_empty());
     assert!(matches!(
         hub.recv_notice().expect("closed"),
         PaneNotice::Closed { pane, .. } if pane == token
     ));
     hub.shutdown();
     assert_eq!(hub.live_thread_count(), 0);
+}
+
+#[test]
+fn queued_output_batches_once_wakes_once_replaces_frames_and_preserves_effects() {
+    let clock = VirtualClock::new(Instant::now());
+    let mut hub = RuntimeHub::new(clock);
+    let mut reads = vec![ReadAction::bytes(b"\x07"); 32];
+    reads.push(ReadAction::Block);
+    let (transport, driver) = scripted_session(
+        [ReadAction::Block],
+        [WriteAction::Block, WriteAction::accept(usize::MAX)],
+    );
+    let config = PaneWorkerConfig {
+        batch_policy: BatchPolicy::try_new(16, 16, Duration::from_millis(3)).expect("batch policy"),
+        effect_limits: MailboxLimits::try_new(64, 4096).expect("effect limits"),
+        ..PaneWorkerConfig::default()
+    };
+    let handle = hub
+        .open(PaneId::new(29), transport, config)
+        .expect("open pane");
+    let token = handle.token();
+    assert_eq!(hub.recv_notice().expect("ready"), PaneNotice::Ready(token));
+
+    assert_eq!(
+        handle.submit_input(b"gate".to_vec()),
+        SubmitResult::Accepted
+    );
+    driver.wait_until_writer_blocked();
+    driver.push_reads(reads);
+    driver.wait_until_reader_blocked();
+    assert_eq!(
+        handle.resize(TerminalSize::new(81, 24)),
+        SubmitResult::Accepted
+    );
+    driver.push_write(WriteAction::accept(usize::MAX));
+    driver.wait_until_control_call_count(1);
+    assert_eq!(
+        handle.submit_input(b"barrier".to_vec()),
+        SubmitResult::Accepted
+    );
+    driver.wait_until_accepted_write_len(11);
+
+    assert_eq!(
+        hub.recv_notice().expect("single wake"),
+        PaneNotice::Wake(token)
+    );
+    assert_eq!(hub.try_recv_notice(), Err(TryRecvError::Empty));
+    let drain = hub.drain_pane(token, usize::MAX).expect("drain");
+    let frame = drain.frame.expect("latest frame");
+    assert_eq!(frame.revision.get(), 3);
+    assert!(frame.full_repaint);
+    assert_eq!(frame.snapshot.grid().size(), TerminalSize::new(81, 24));
+    assert_eq!(
+        rssh_runtime::TerminalStateSummary::capture_terminal(&frame.snapshot),
+        frame.state
+    );
+    assert_eq!(
+        drain
+            .effects
+            .iter()
+            .map(|effect| match effect.effect.kind() {
+                RuntimeEffectKind::Bell { count } => count.get(),
+                other => panic!("unexpected effect {other:?}"),
+            })
+            .sum::<u64>(),
+        32
+    );
+    assert!(
+        drain
+            .effects
+            .windows(2)
+            .all(|pair| pair[0].effect.sequence() < pair[1].effect.sequence())
+    );
+
+    let metrics = hub.publication_metrics(token).expect("metrics");
+    assert_eq!(metrics.batches, 3);
+    assert_eq!(metrics.source_items, 32);
+    assert_eq!(metrics.max_batch_items, 16);
+    assert_eq!(metrics.latest.wakes, 1);
+    assert_eq!(metrics.latest.replaced_frames, 2);
+    hub.shutdown();
+}
+
+#[test]
+fn effect_backpressure_wakes_before_the_worker_waits_for_mailbox_space() {
+    let clock = VirtualClock::new(Instant::now());
+    let mut hub = RuntimeHub::new(clock);
+    let payload =
+        b"\x1b]777;notify;test;one\x07\x1b]777;notify;test;two\x07\x1b]777;notify;test;three\x07";
+    let (transport, _) = scripted_session(
+        [ReadAction::bytes(payload), ReadAction::Block],
+        [WriteAction::accept(usize::MAX)],
+    );
+    let config = PaneWorkerConfig {
+        effect_limits: MailboxLimits::try_new(1, 512).expect("single-effect limit"),
+        ..PaneWorkerConfig::default()
+    };
+    let handle = hub
+        .open(PaneId::new(31), transport, config)
+        .expect("open pane");
+    let token = handle.token();
+    assert_eq!(hub.recv_notice().expect("ready"), PaneNotice::Ready(token));
+
+    let mut bodies = Vec::new();
+    while bodies.len() < 3 {
+        assert_eq!(
+            hub.recv_notice().expect("effect wake"),
+            PaneNotice::Wake(token)
+        );
+        let mut continuation = true;
+        while continuation {
+            let drain = hub.drain_pane(token, 1).expect("single effect drain");
+            for effect in drain.effects {
+                match effect.effect.kind() {
+                    RuntimeEffectKind::Notification { body, .. } => bodies.push(body.clone()),
+                    other => panic!("unexpected effect {other:?}"),
+                }
+            }
+            continuation = drain.continuation;
+        }
+    }
+    assert_eq!(bodies, ["one", "two", "three"]);
+    assert_eq!(
+        hub.publication_metrics(token)
+            .expect("publication metrics")
+            .effects
+            .high_water_items,
+        1
+    );
+    hub.shutdown();
 }

@@ -273,6 +273,36 @@ impl ScriptedSessionDriver {
         self.shared.changed.notify_all();
     }
 
+    /// Supplies an ordered reader script, replacing a front blocking marker.
+    pub fn push_reads(&self, actions: impl IntoIterator<Item = ReadAction>) {
+        let actions = actions
+            .into_iter()
+            .map(PendingReadAction::from)
+            .collect::<Vec<_>>();
+        let mut state = self.shared.lock();
+        if matches!(state.reads.front(), Some(PendingReadAction::Block)) {
+            state.reads.pop_front();
+        }
+        for action in actions.into_iter().rev() {
+            state.reads.push_front(action);
+        }
+        state.reader_blocked = false;
+        drop(state);
+        self.shared.changed.notify_all();
+    }
+
+    /// Supplies a writer action, replacing a blocking marker at the front.
+    pub fn push_write(&self, action: WriteAction) {
+        let mut state = self.shared.lock();
+        if matches!(state.writes.front(), Some(WriteAction::Block)) {
+            state.writes.pop_front();
+        }
+        state.writes.push_front(action);
+        state.writer_blocked = false;
+        drop(state);
+        self.shared.changed.notify_all();
+    }
+
     /// Queues a one-shot resize error.
     pub fn push_resize_error(&self, kind: io::ErrorKind) {
         self.shared.lock().resize_errors.push_back(kind);

@@ -8,13 +8,16 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use rssh_core::{DamageRegion, TerminalSize};
+use rssh_core::TerminalSize;
+use rssh_terminal::Terminal;
 
 use crate::{
-    MailboxItem, MailboxLimits, MailboxReceiver, MailboxSender, MetadataChange, MetadataChangeRef,
-    PaneMetadataDelta, PaneToken, RuntimeBuffers, RuntimeEffectKind, RuntimeRevision, SessionExit,
-    SessionInterrupt, SessionTransport, SubmitResult, TerminalRuntime, TrySendError, UserVarDelta,
-    bounded_mailbox, delta::RuntimeEffectRef,
+    BatchAdmission, BatchPolicy, BatchWindow, Clock, EffectSequence, MailboxItem, MailboxLimits,
+    MailboxReceiver, MailboxSender, MetadataChange, MetadataChangeRef, PaneMetadataDelta,
+    PaneToken, PresentationFrame, PublishedEffect, RuntimeBatchMetrics, RuntimeBuffers,
+    RuntimeEffect, RuntimeEffectKind, RuntimeRevision, SessionExit, SessionInterrupt,
+    SessionTransport, SubmitResult, TerminalRuntime, TerminalStateSummary, TryRecvError,
+    TrySendError, UserVarDelta, batch::PanePublication, bounded_mailbox, delta::RuntimeEffectRef,
 };
 
 const BACKPRESSURE_RETRY: Duration = Duration::from_millis(1);
@@ -27,6 +30,10 @@ pub struct PaneWorkerConfig {
     pub size: TerminalSize,
     /// Shared bounded inbox used by controller commands and reader events.
     pub inbox_limits: MailboxLimits,
+    /// Byte/item budget for ordered host effects awaiting a drain.
+    pub effect_limits: MailboxLimits,
+    /// Byte/item/time coalescing policy for transport output.
+    pub batch_policy: BatchPolicy,
 }
 
 impl Default for PaneWorkerConfig {
@@ -35,6 +42,9 @@ impl Default for PaneWorkerConfig {
             size: TerminalSize::new(80, 24),
             inbox_limits: MailboxLimits::try_new(256, 2 * 1024 * 1024)
                 .expect("default pane mailbox limits are nonzero"),
+            effect_limits: MailboxLimits::try_new(1024, 4 * 1024 * 1024)
+                .expect("default effect mailbox limits are nonzero"),
+            batch_policy: BatchPolicy::default(),
         }
     }
 }
@@ -44,21 +54,8 @@ impl Default for PaneWorkerConfig {
 pub enum PaneNotice {
     /// The worker owns all session resources and accepts commands.
     Ready(PaneToken),
-    /// One terminal event advanced this pane generation.
-    Advanced {
-        /// Pane generation that produced the event.
-        pane: PaneToken,
-        /// Strictly increasing revision within the pane generation.
-        revision: RuntimeRevision,
-        /// Whether a new presentation snapshot is required.
-        snapshot_changed: bool,
-        /// Normalized terminal damage.
-        damage: Vec<DamageRegion>,
-        /// Final-only metadata changes from this event.
-        metadata: PaneMetadataDelta,
-        /// Ordered host effects not already consumed by the transport writer.
-        effects: Vec<RuntimeEffectKind>,
-    },
+    /// The pane transitioned from idle to publication-ready.
+    Wake(PaneToken),
     /// The worker and its blocking reader have stopped.
     Closed {
         /// Pane generation that stopped.
@@ -73,7 +70,7 @@ impl PaneNotice {
     #[must_use]
     pub const fn pane(&self) -> PaneToken {
         match self {
-            Self::Ready(pane) | Self::Advanced { pane, .. } | Self::Closed { pane, .. } => *pane,
+            Self::Ready(pane) | Self::Wake(pane) | Self::Closed { pane, .. } => *pane,
         }
     }
 }
@@ -81,7 +78,7 @@ impl PaneNotice {
 impl MailboxItem for PaneNotice {
     fn retained_bytes(&self) -> usize {
         match self {
-            Self::Ready(_) => 0,
+            Self::Ready(_) | Self::Wake(_) => 0,
             Self::Closed { exit, .. } => exit.as_ref().map_or(0, |exit| {
                 exit.signal.as_ref().map_or(0, |signal| {
                     signal
@@ -91,69 +88,7 @@ impl MailboxItem for PaneNotice {
                         .saturating_add(signal.lang_tag.capacity())
                 })
             }),
-            Self::Advanced {
-                damage,
-                metadata,
-                effects,
-                ..
-            } => damage
-                .capacity()
-                .saturating_mul(std::mem::size_of::<DamageRegion>())
-                .saturating_add(metadata_retained_bytes(metadata))
-                .saturating_add(
-                    effects
-                        .capacity()
-                        .saturating_mul(std::mem::size_of::<RuntimeEffectKind>()),
-                )
-                .saturating_add(effects.iter().map(effect_retained_bytes).sum::<usize>()),
         }
-    }
-}
-
-fn metadata_retained_bytes(metadata: &PaneMetadataDelta) -> usize {
-    change_capacity(metadata.title.as_ref())
-        .saturating_add(change_capacity(metadata.working_directory.as_ref()))
-        .saturating_add(change_capacity(metadata.badge_format.as_ref()))
-        .saturating_add(
-            metadata
-                .user_vars
-                .capacity()
-                .saturating_mul(std::mem::size_of::<UserVarDelta>()),
-        )
-        .saturating_add(metadata.user_vars.iter().fold(0usize, |bytes, change| {
-            bytes
-                .saturating_add(change.name.capacity())
-                .saturating_add(metadata_change_capacity(&change.value))
-        }))
-}
-
-fn change_capacity(change: Option<&MetadataChange<String>>) -> usize {
-    match change {
-        Some(MetadataChange::Set(value)) => value.capacity(),
-        Some(MetadataChange::Clear) | None => 0,
-    }
-}
-
-fn metadata_change_capacity(change: &MetadataChange<String>) -> usize {
-    match change {
-        MetadataChange::Set(value) => value.capacity(),
-        MetadataChange::Clear => 0,
-    }
-}
-
-fn effect_retained_bytes(effect: &RuntimeEffectKind) -> usize {
-    match effect {
-        RuntimeEffectKind::TransportWrite(bytes) => bytes.capacity(),
-        RuntimeEffectKind::Bell { .. } => 0,
-        RuntimeEffectKind::ClipboardWrite {
-            selection,
-            contents,
-        } => selection.as_ref().map_or(0, String::capacity) + contents.capacity(),
-        RuntimeEffectKind::ClipboardRead { selection } => selection.capacity(),
-        RuntimeEffectKind::Notification { title, body } => {
-            title.as_ref().map_or(0, String::capacity) + body.capacity()
-        }
-        RuntimeEffectKind::Diagnostic { message } => message.capacity(),
     }
 }
 
@@ -234,6 +169,12 @@ impl PaneHandle {
         self.submit(PaneMessage::Resize(size))
     }
 
+    /// Returns bounded inbox occupancy and high-water accounting.
+    #[must_use]
+    pub fn inbox_metrics(&self) -> crate::MailboxMetrics {
+        self.sender.metrics()
+    }
+
     fn submit(&self, message: PaneMessage) -> SubmitResult {
         if !self.accepting.load(Ordering::Acquire) {
             return SubmitResult::Closed;
@@ -262,6 +203,7 @@ impl PaneHandle {
 pub(crate) struct SpawnedPane {
     pub handle: PaneHandle,
     pub interrupt: ErasedInterrupt,
+    pub publication: Arc<PanePublication>,
     pub join: JoinHandle<()>,
 }
 
@@ -282,10 +224,11 @@ impl Drop for LiveThreadGuard {
     }
 }
 
-pub(crate) fn spawn_pane<T: SessionTransport>(
+pub(crate) fn spawn_pane<T: SessionTransport, C: Clock>(
     token: PaneToken,
     transport: T,
     config: PaneWorkerConfig,
+    clock: C,
     notices: MailboxSender<PaneNotice>,
     live_threads: &Arc<AtomicUsize>,
 ) -> io::Result<SpawnedPane> {
@@ -293,6 +236,7 @@ pub(crate) fn spawn_pane<T: SessionTransport>(
     let interrupt = ErasedInterrupt::new(parts.interrupt.clone());
     let (sender, receiver) = bounded_mailbox(config.inbox_limits);
     let accepting = Arc::new(AtomicBool::new(true));
+    let publication = Arc::new(PanePublication::new(config.effect_limits));
 
     let reader_sender = sender.clone();
     let reader_interrupt = interrupt.clone();
@@ -307,13 +251,15 @@ pub(crate) fn spawn_pane<T: SessionTransport>(
     let worker_interrupt = interrupt.clone();
     let worker_live_threads = Arc::clone(live_threads);
     let worker_accepting = Arc::clone(&accepting);
+    let worker_publication = Arc::clone(&publication);
     let join = match thread::Builder::new()
         .name(format!("rssh-pane-worker-{}", token.pane().get()))
         .spawn(move || {
             let _guard = LiveThreadGuard::new(worker_live_threads);
             run_worker(
                 token,
-                config.size,
+                config,
+                &clock,
                 receiver,
                 parts.writer,
                 parts.control,
@@ -321,6 +267,7 @@ pub(crate) fn spawn_pane<T: SessionTransport>(
                 &worker_accepting,
                 reader_join,
                 &notices,
+                &worker_publication,
             );
         }) {
         Ok(join) => join,
@@ -337,6 +284,7 @@ pub(crate) fn spawn_pane<T: SessionTransport>(
             accepting,
         },
         interrupt,
+        publication,
         join,
     })
 }
@@ -360,20 +308,25 @@ fn run_reader<R: Read>(mut reader: R, sender: &MailboxSender<PaneMessage>) {
     clippy::too_many_arguments,
     reason = "worker entry receives each uniquely owned session resource exactly once"
 )]
-fn run_worker<W: Write, C: crate::SessionControl>(
+fn run_worker<W: Write, S: crate::SessionControl, C: Clock>(
     token: PaneToken,
-    size: TerminalSize,
+    config: PaneWorkerConfig,
+    clock: &C,
     mut receiver: MailboxReceiver<PaneMessage>,
     mut writer: W,
-    mut control: C,
+    mut control: S,
     interrupt: &ErasedInterrupt,
     accepting: &Arc<AtomicBool>,
     reader_join: JoinHandle<()>,
     notices: &MailboxSender<PaneNotice>,
+    publication: &Arc<PanePublication>,
 ) {
-    let mut runtime = TerminalRuntime::new(size);
+    let mut runtime = TerminalRuntime::new(config.size);
     let mut buffers = RuntimeBuffers::default();
     let mut revision = RuntimeRevision::FIRST;
+    let mut next_effect_sequence = Some(EffectSequence::FIRST);
+    let mut pending_message = None;
+    let mut batch_bytes = Vec::with_capacity(config.batch_policy.max_bytes());
     if notices.send(PaneNotice::Ready(token)).is_err() {
         accepting.store(false, Ordering::Release);
         let _ = interrupt.interrupt();
@@ -381,28 +334,59 @@ fn run_worker<W: Write, C: crate::SessionControl>(
         return;
     }
 
-    while let Ok(message) = receiver.recv() {
+    loop {
+        let message = match pending_message.take() {
+            Some(message) => message,
+            None => match receiver.recv() {
+                Ok(message) => message,
+                Err(_) => break,
+            },
+        };
         let result = match message {
             PaneMessage::Input(bytes) => writer.write_all(&bytes),
             PaneMessage::Resize(new_size) => control.resize(new_size).and_then(|()| {
                 let (_, delta) = runtime.resize_into(new_size, &mut buffers);
-                publish_delta(token, revision, delta, &mut writer, notices, true)?;
+                let (snapshot, state, metrics) =
+                    capture_presentation(&runtime, clock, RuntimeBatchMetrics::default());
+                DeltaPublisher {
+                    token,
+                    writer: &mut writer,
+                    notices,
+                    publication,
+                    next_effect_sequence: &mut next_effect_sequence,
+                }
+                .publish(revision, delta, snapshot, state, metrics, true)?;
                 revision = next_revision(revision)?;
                 Ok(())
             }),
-            PaneMessage::Output(bytes) => advance_terminal(
-                token,
-                revision,
-                &bytes,
-                &mut runtime,
-                &mut buffers,
-                &mut writer,
-                notices,
-            )
-            .and_then(|()| {
-                revision = next_revision(revision)?;
-                Ok(())
-            }),
+            PaneMessage::Output(bytes) => {
+                let batch_metrics = collect_output_batch(
+                    &bytes,
+                    &mut receiver,
+                    &mut pending_message,
+                    &mut batch_bytes,
+                    config.batch_policy,
+                    clock,
+                );
+                let parse_started = clock.now();
+                let delta = runtime.feed_into(&batch_bytes, &mut buffers);
+                let mut batch_metrics = batch_metrics;
+                batch_metrics.parse_duration = clock.now().saturating_duration_since(parse_started);
+                let (snapshot, state, batch_metrics) =
+                    capture_presentation(&runtime, clock, batch_metrics);
+                DeltaPublisher {
+                    token,
+                    writer: &mut writer,
+                    notices,
+                    publication,
+                    next_effect_sequence: &mut next_effect_sequence,
+                }
+                .publish(revision, delta, snapshot, state, batch_metrics, true)
+                .and_then(|()| {
+                    revision = next_revision(revision)?;
+                    Ok(())
+                })
+            }
             PaneMessage::ReaderEof | PaneMessage::ReaderError | PaneMessage::Close => break,
         };
         if result.is_err() {
@@ -415,57 +399,121 @@ fn run_worker<W: Write, C: crate::SessionControl>(
     let _ = interrupt.interrupt();
     let _ = control.begin_close();
     let delta = runtime.finish_into(&mut buffers);
-    let _ = publish_delta(token, revision, delta, &mut writer, notices, false);
+    let (snapshot, state, metrics) =
+        capture_presentation(&runtime, clock, RuntimeBatchMetrics::default());
+    let _ = DeltaPublisher {
+        token,
+        writer: &mut writer,
+        notices,
+        publication,
+        next_effect_sequence: &mut next_effect_sequence,
+    }
+    .publish(revision, delta, snapshot, state, metrics, false);
     let _ = reader_join.join();
     let exit = control.poll_exit().ok().flatten();
     let _ = notices.send(PaneNotice::Closed { pane: token, exit });
 }
 
-fn advance_terminal<W: Write>(
+struct DeltaPublisher<'a, W> {
     token: PaneToken,
-    revision: RuntimeRevision,
-    bytes: &[u8],
-    runtime: &mut TerminalRuntime,
-    buffers: &mut RuntimeBuffers,
-    writer: &mut W,
-    notices: &MailboxSender<PaneNotice>,
-) -> io::Result<()> {
-    let delta = runtime.feed_into(bytes, buffers);
-    publish_delta(token, revision, delta, writer, notices, true)
+    writer: &'a mut W,
+    notices: &'a MailboxSender<PaneNotice>,
+    publication: &'a PanePublication,
+    next_effect_sequence: &'a mut Option<EffectSequence>,
 }
 
-fn publish_delta<W: Write>(
-    token: PaneToken,
-    revision: RuntimeRevision,
-    delta: crate::RuntimeDelta<'_>,
-    writer: &mut W,
-    notices: &MailboxSender<PaneNotice>,
-    always_publish: bool,
-) -> io::Result<()> {
-    let transport_result = write_transport_effects(delta, writer);
-    let damage = delta.damage().to_vec();
-    let metadata = owned_metadata(delta.metadata());
-    let effects = owned_host_effects(delta);
-    let should_publish = always_publish
-        || delta.snapshot_changed()
-        || !damage.is_empty()
-        || metadata != PaneMetadataDelta::default()
-        || !effects.is_empty();
-    if !should_publish {
-        return transport_result;
+impl<W: Write> DeltaPublisher<'_, W> {
+    fn publish(
+        &mut self,
+        revision: RuntimeRevision,
+        delta: crate::RuntimeDelta<'_>,
+        snapshot: Arc<Terminal>,
+        state: TerminalStateSummary,
+        metrics: RuntimeBatchMetrics,
+        always_publish: bool,
+    ) -> io::Result<()> {
+        let transport_result = write_transport_effects(delta, self.writer);
+        let damage = delta.damage().to_vec();
+        let metadata = owned_metadata(delta.metadata());
+        let effects = owned_host_effects(self.token, revision, delta, self.next_effect_sequence)?;
+        let should_publish = always_publish
+            || delta.snapshot_changed()
+            || !damage.is_empty()
+            || metadata != PaneMetadataDelta::default()
+            || !effects.is_empty();
+        if !should_publish {
+            return transport_result;
+        }
+        let frame = PresentationFrame {
+            pane: self.token,
+            revision,
+            snapshot,
+            state,
+            snapshot_changed: delta.snapshot_changed(),
+            full_repaint: false,
+            damage,
+            metadata,
+            metrics,
+        };
+        let publish_result = self
+            .publication
+            .publish(frame, effects, || {
+                self.notices
+                    .send(PaneNotice::Wake(self.token))
+                    .map_err(|_| ())
+            })
+            .map_err(|()| io::Error::from(io::ErrorKind::BrokenPipe));
+        transport_result.and(publish_result)
     }
-    let notice = PaneNotice::Advanced {
-        pane: token,
-        revision,
-        snapshot_changed: delta.snapshot_changed(),
-        damage,
-        metadata,
-        effects,
-    };
-    let notice_result = notices
-        .send(notice)
-        .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe));
-    transport_result.and(notice_result)
+}
+
+fn capture_presentation<C: Clock>(
+    runtime: &TerminalRuntime,
+    clock: &C,
+    mut metrics: RuntimeBatchMetrics,
+) -> (Arc<Terminal>, TerminalStateSummary, RuntimeBatchMetrics) {
+    let started = clock.now();
+    let snapshot = Arc::new(runtime.terminal().clone());
+    let state = TerminalStateSummary::capture_terminal(&snapshot);
+    metrics.snapshot_duration = clock.now().saturating_duration_since(started);
+    (snapshot, state, metrics)
+}
+
+fn collect_output_batch<C: Clock>(
+    first: &[u8],
+    receiver: &mut MailboxReceiver<PaneMessage>,
+    pending_message: &mut Option<PaneMessage>,
+    batch_bytes: &mut Vec<u8>,
+    policy: BatchPolicy,
+    clock: &C,
+) -> RuntimeBatchMetrics {
+    batch_bytes.clear();
+    let mut window = BatchWindow::new(policy);
+    let mut admission = window.try_push(clock.now(), first.len());
+    batch_bytes.extend_from_slice(first);
+    while admission != BatchAdmission::AcceptedAndFull {
+        match receiver.try_recv() {
+            Ok(PaneMessage::Output(bytes)) => {
+                admission = window.try_push(clock.now(), bytes.len());
+                if admission == BatchAdmission::Rejected {
+                    *pending_message = Some(PaneMessage::Output(bytes));
+                    break;
+                }
+                batch_bytes.extend_from_slice(&bytes);
+            }
+            Ok(message) => {
+                *pending_message = Some(message);
+                break;
+            }
+            Err(TryRecvError::Empty | TryRecvError::Closed) => break,
+        }
+    }
+    RuntimeBatchMetrics {
+        transport_bytes: window.bytes(),
+        coalesced_reads: u32::try_from(window.items()).unwrap_or(u32::MAX),
+        parse_duration: Duration::ZERO,
+        snapshot_duration: Duration::ZERO,
+    }
 }
 
 fn next_revision(revision: RuntimeRevision) -> io::Result<RuntimeRevision> {
@@ -486,7 +534,12 @@ fn write_transport_effects<W: Write>(
     Ok(())
 }
 
-fn owned_host_effects(delta: crate::RuntimeDelta<'_>) -> Vec<RuntimeEffectKind> {
+fn owned_host_effects(
+    pane: PaneToken,
+    revision: RuntimeRevision,
+    delta: crate::RuntimeDelta<'_>,
+    next_sequence: &mut Option<EffectSequence>,
+) -> io::Result<Vec<PublishedEffect>> {
     delta
         .effects()
         .filter_map(|effect| match effect {
@@ -517,6 +570,17 @@ fn owned_host_effects(delta: crate::RuntimeDelta<'_>) -> Vec<RuntimeEffectKind> 
             RuntimeEffectRef::Diagnostic { message } => Some(RuntimeEffectKind::Diagnostic {
                 message: message.to_owned(),
             }),
+        })
+        .map(|kind| {
+            let sequence = next_sequence
+                .take()
+                .ok_or_else(|| io::Error::other("pane effect sequence exhausted"))?;
+            *next_sequence = sequence.next().ok();
+            Ok(PublishedEffect {
+                pane,
+                revision,
+                effect: RuntimeEffect::new(sequence, kind),
+            })
         })
         .collect()
 }

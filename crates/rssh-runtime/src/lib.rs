@@ -1,9 +1,11 @@
 //! Transport-neutral terminal runtime contracts.
 
 mod api;
+mod batch;
 mod clock;
 pub mod delta;
 mod hub;
+mod latest;
 mod mailbox;
 mod metrics;
 pub mod modes;
@@ -34,12 +36,17 @@ pub use api::{
     RuntimeEffectKind, RuntimeProgress, RuntimeRevision, SequenceExhausted, SequenceKind,
     SubmitResult, UserVarDelta,
 };
+pub use batch::{
+    BatchAdmission, BatchPolicy, BatchPolicyError, BatchWindow, PaneDrain, PanePublicationMetrics,
+    PresentationFrame, PublishedEffect, TerminalStateSummary,
+};
 pub use clock::{Clock, SystemClock};
 pub use delta::{
     MetadataChangeRef, RuntimeBufferCapacities, RuntimeBuffers, RuntimeDelta, RuntimeEffectRef,
     RuntimeMetadataDeltaRef, TerminalSnapshotRef,
 };
 pub use hub::{OpenPaneError, RuntimeHub};
+pub use latest::{CoalesceLatest, DrainCompletion, LatestSlot, LatestSlotMetrics, PublishAction};
 pub use mailbox::{
     MailboxItem, MailboxLimits, MailboxLimitsError, MailboxMetrics, MailboxReceiver, MailboxSender,
     RecvError, SendError, TryRecvError, TrySendError, bounded_mailbox,
