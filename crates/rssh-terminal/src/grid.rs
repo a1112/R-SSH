@@ -36,6 +36,11 @@ impl GridRow {
         self.last_change_seqno
     }
 
+    #[must_use]
+    pub fn reflow_overflow(&self) -> &[Cell] {
+        &self.reflow_overflow
+    }
+
     pub(crate) fn into_parts(self) -> (Vec<Cell>, Vec<Cell>, bool, SequenceNo) {
         (
             self.cells,
@@ -98,6 +103,12 @@ impl TerminalGrid {
         self.rows
             .get(usize::from(row))
             .and_then(|row| row.cells.get(usize::from(column)))
+    }
+
+    /// Returns a renderer-neutral view of one viewport row and its row metadata.
+    #[must_use]
+    pub fn row(&self, row: u16) -> Option<&GridRow> {
+        self.rows.get(usize::from(row))
     }
 
     pub fn set(&mut self, row: u16, column: u16, cell: Cell) -> bool {
@@ -302,6 +313,18 @@ mod tests {
         )
     }
 
+    #[test]
+    fn public_row_view_exposes_cells_wrap_and_change_identity() {
+        let grid = tagged_grid();
+
+        let row = grid.row(1).expect("second row");
+
+        assert_eq!(row.cells()[0].primary_char(), 'B');
+        assert!(row.is_wrapped());
+        assert_eq!(row.last_change_seqno(), 11);
+        assert!(grid.row(5).is_none());
+    }
+
     fn styled_blank() -> Cell {
         Cell {
             background: Color::Indexed(9),
@@ -315,7 +338,7 @@ mod tests {
         let mut grid = TerminalGrid::new_with_seqno(TerminalSize::new(1, 3), 1);
         let hyperlink = "https://example.test/row-owned-allocation".repeat(4);
         let mut cell = Cell::with_char('x');
-        cell.hyperlink = Some(hyperlink);
+        cell.hyperlink = Some(hyperlink.into());
         assert!(grid.set(0, 0, cell));
         grid.set_row_wrapped(0, true);
         grid.set_reflow_overflow(0, vec![Cell::with_char('界')]);

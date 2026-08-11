@@ -4813,6 +4813,7 @@ dependencies = [
  "rssh-fonts",
  "rssh-pty",
  "rssh-renderer",
+ "rssh-runtime",
  "rssh-ssh",
  "rssh-terminal",
  "rssh-test-support",
@@ -4882,7 +4883,13 @@ dependencies = [
 name = "rssh-runtime"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "flate2",
+ "proc-macro2",
  "rssh-core",
+ "rssh-terminal",
+ "sha2 0.11.0",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -4911,8 +4918,11 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "flate2",
+ "proc-macro2",
  "rssh-core",
+ "sha2 0.11.0",
  "smol_str 0.2.2",
+ "syn 2.0.117",
  "unicode-normalization",
  "unicode-segmentation",
  "unicode-width",

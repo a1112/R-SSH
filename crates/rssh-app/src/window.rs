@@ -102,6 +102,10 @@ const MODERN_CELL_WIDTH: u32 = 10;
 const MODERN_CELL_HEIGHT: u32 = 21;
 const DEFAULT_WINDOW_TITLE: &str = "R-SSH";
 static NEXT_PANE_RUNTIME_TOKEN: AtomicU64 = AtomicU64::new(1);
+#[cfg(test)]
+thread_local! {
+    static PROCESS_CWD_PROBE_COUNT: Cell<u64> = const { Cell::new(0) };
+}
 static PANE_PTY_REAPER_PENDING: AtomicUsize = AtomicUsize::new(0);
 static PANE_PTY_REAPER_THREADS: OnceLock<Mutex<Vec<thread::JoinHandle<()>>>> = OnceLock::new();
 type RetainedPanePtyOwnership = Box<dyn Any + Send>;
@@ -42663,7 +42667,37 @@ fn pane_runtime_current_working_dir(
         .or_else(|| session_process_id.and_then(process_current_working_dir))
 }
 
+/// Reports `Skipped` when the process fallback is throttled, and `Resolved`
+/// when the terminal source or a due process probe produced the authoritative
+/// result (including an authoritative missing value).
+enum PaneRuntimeCwdUpdate {
+    Skipped,
+    Resolved(Option<String>),
+}
+
+fn pane_runtime_current_working_dir_if_due(
+    runtime: &mut TerminalRuntime,
+    session_process_id: Option<u32>,
+    now: Instant,
+) -> PaneRuntimeCwdUpdate {
+    if let Some(cwd) = runtime.terminal().current_working_dir().map(str::to_owned) {
+        runtime.reset_process_cwd_probe();
+        return PaneRuntimeCwdUpdate::Resolved(Some(cwd));
+    }
+
+    let Some(process_id) = session_process_id else {
+        return PaneRuntimeCwdUpdate::Resolved(None);
+    };
+    if !runtime.should_probe_process_cwd(process_id, now) {
+        return PaneRuntimeCwdUpdate::Skipped;
+    }
+
+    PaneRuntimeCwdUpdate::Resolved(process_current_working_dir(process_id))
+}
+
 fn process_current_working_dir(process_id: u32) -> Option<String> {
+    #[cfg(test)]
+    PROCESS_CWD_PROBE_COUNT.with(|count| count.set(count.get().saturating_add(1)));
     let pid = sysinfo::Pid::from_u32(process_id);
     let refreshes = sysinfo::RefreshKind::nothing().with_processes(
         sysinfo::ProcessRefreshKind::nothing()
@@ -42684,6 +42718,16 @@ fn process_current_working_dir(process_id: u32) -> Option<String> {
         .collect::<Vec<_>>();
 
     process_tree_current_working_dir(&candidates, pid).map(process_cwd_to_string)
+}
+
+#[cfg(test)]
+fn reset_process_cwd_probe_count() {
+    PROCESS_CWD_PROBE_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+fn process_cwd_probe_count() -> u64 {
+    PROCESS_CWD_PROBE_COUNT.with(Cell::get)
 }
 
 #[derive(Clone, Copy)]
@@ -43256,6 +43300,9 @@ impl NativeWindowApp {
             }));
     }
 
+}
+
+impl NativeWindowApp {
     #[allow(clippy::too_many_lines)]
     fn new_with_workspace_class_position_and_osc52_policy(
         frame_limit: Option<u64>,
@@ -45435,9 +45482,11 @@ impl NativeWindowApp {
 
             if let Some(runtime) = self.pane_runtimes.remove(&active_pane) {
                 self.install_active_runtime(runtime);
+                self.sync_window_title_from_runtime();
             }
         } else if active_was_replaced {
             self.install_active_runtime(self.new_inactive_pane_runtime());
+            self.sync_window_title_from_runtime();
         }
 
         self.pane_runtimes.retain(|pane_id, runtime| {
@@ -45595,8 +45644,8 @@ impl NativeWindowApp {
         self.runtime
             .set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
         self.runtime.set_unicode_version(self.unicode_version);
-        self.runtime
-            .set_cell_width_overrides(self.terminal_cell_width_overrides());
+        let cell_width_overrides = self.terminal_cell_width_overrides();
+        self.runtime.set_cell_width_overrides(cell_width_overrides);
         self.snapshot = runtime_snapshot;
         self.session = runtime.session.take();
         self.session_process_id = runtime.session_process_id.take();
@@ -50927,51 +50976,89 @@ impl NativeWindowApp {
         self.metrics.record_pty_chunk(bytes);
         self.metrics.record_active_pty_content(bytes);
         let previous_dimensions = self.runtime.terminal().stable_dimensions();
-        let runtime_output = self.runtime.feed_pty_output_with_display(bytes);
+        let mut buffers = std::mem::take(&mut self.runtime.storage.buffers);
+        let delta = self.runtime.inner.feed_into(bytes, &mut buffers);
+        let result = self.apply_active_pane_delta(delta, previous_dimensions, Some(started));
+        self.runtime.storage.buffers = buffers;
+        result
+    }
+
+    fn apply_active_pane_delta(
+        &mut self,
+        delta: rssh_runtime::RuntimeDelta<'_>,
+        previous_dimensions: rssh_terminal::TerminalStableDimensions,
+        started: Option<Instant>,
+    ) -> io::Result<()> {
         let dimensions = self.runtime.terminal().stable_dimensions();
-        if runtime_output.screen_identity_changed
+        if delta.screen_identity_changed()
             || dimensions.domain != previous_dimensions.domain
             || dimensions.viewport_rows != previous_dimensions.viewport_rows
         {
             self.retire_active_terminal_identity_state();
         }
         self.reconcile_active_terminal_mutation();
-        self.write_session_log(&runtime_output.display)?;
-        self.record_unknown_escape_sequence_warnings(
-            self.app_shell.active_pane_id(),
-            &runtime_output.unknown_escape_sequences,
-        );
-        for response in runtime_output.responses {
-            self.write_pty_bytes(&response)?;
+        self.write_session_log(delta.visible_bytes())?;
+        for message in delta.diagnostics() {
+            self.record_unknown_escape_sequence_warning(self.app_shell.active_pane_id(), message);
         }
-        for text in self.runtime.take_clipboard_texts() {
+        for response in delta.responses() {
+            self.write_pty_bytes(response)?;
+        }
+        for (_, contents) in delta.clipboard_writes() {
             if self.osc52_policy.allows_write() {
-                self.write_clipboard_text(&text);
+                self.write_clipboard_text(contents);
             }
         }
-        for selection in self.runtime.take_clipboard_queries() {
+        for selection in delta.clipboard_reads() {
             if self.osc52_policy.allows_query() {
-                self.answer_clipboard_query(&selection)?;
+                self.answer_clipboard_query(selection)?;
             }
         }
-        for notification in self.runtime.take_notifications() {
+        for (title, body) in delta.notifications() {
+            let notification = TerminalNotification {
+                title: title.map(str::to_owned),
+                body: body.to_owned(),
+            };
             self.dispatch_notification(self.app_shell.active_pane_id(), &notification);
         }
-        self.sync_active_pane_current_working_dir_from_runtime();
-        self.sync_active_pane_user_vars_from_runtime();
-        self.sync_active_pane_badge_format_from_runtime();
-        self.sync_active_pane_progress_from_runtime();
-        self.sync_window_title_from_runtime();
-        self.metrics.record_damage(&runtime_output.damage);
-        self.refresh_snapshot_after_terminal_damage(&runtime_output.damage);
-        self.record_pane_bells(self.app_shell.active_pane_id(), runtime_output.bells);
-        self.metrics.record_bells(runtime_output.bells);
-        self.dispatch_bells(self.app_shell.active_pane_id(), runtime_output.bells);
+        let metadata = delta.metadata();
+        if metadata.working_directory().is_some()
+            || (started.is_some() && self.runtime.terminal().current_working_dir().is_none())
+        {
+            self.sync_active_pane_current_working_dir_from_runtime();
+        }
+        if metadata.user_vars().next().is_some() {
+            self.sync_active_pane_user_vars_from_runtime();
+        }
+        if metadata.badge_format().is_some() {
+            self.sync_active_pane_badge_format_from_runtime();
+        }
+        if metadata.progress().is_some() {
+            self.sync_active_pane_progress_from_runtime();
+        }
+        if metadata.title().is_some() {
+            self.sync_window_title_from_runtime();
+        }
+        self.metrics.record_damage(delta.damage());
+        self.refresh_snapshot_after_terminal_damage(delta.damage());
+        self.record_pane_bells(self.app_shell.active_pane_id(), delta.bell_count());
+        self.metrics.record_bells(delta.bell_count());
+        self.dispatch_bells(self.app_shell.active_pane_id(), delta.bell_count());
         self.metrics
             .record_first_rendered_cell(self.snapshot.cells().is_empty());
-        self.metrics.record_pty_chunk_process(started.elapsed());
-
+        if let Some(started) = started {
+            self.metrics.record_pty_chunk_process(started.elapsed());
+        }
         Ok(())
+    }
+
+    fn finish_active_pane_output(&mut self) -> io::Result<()> {
+        let previous_dimensions = self.runtime.terminal().stable_dimensions();
+        let mut buffers = std::mem::take(&mut self.runtime.storage.buffers);
+        let delta = self.runtime.inner.finish_into(&mut buffers);
+        let result = self.apply_active_pane_delta(delta, previous_dimensions, None);
+        self.runtime.storage.buffers = buffers;
+        result
     }
 
     fn retire_active_terminal_identity_state(&mut self) {
@@ -51117,97 +51204,162 @@ impl NativeWindowApp {
         let started = Instant::now();
         self.metrics.record_pty_chunk(bytes);
         let previous_dimensions = runtime.runtime.terminal().stable_dimensions();
-        let runtime_output = runtime.runtime.feed_pty_output_with_display(bytes);
+        let mut buffers = std::mem::take(&mut runtime.runtime.storage.buffers);
+        let delta = runtime.runtime.inner.feed_into(bytes, &mut buffers);
+        let result = self.apply_inactive_pane_delta(
+            pane_id,
+            runtime,
+            delta,
+            previous_dimensions,
+            Some(!bytes.is_empty()),
+            Some(started),
+        );
+        runtime.runtime.storage.buffers = buffers;
+        result
+    }
+
+    fn apply_inactive_pane_delta(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        runtime: &mut PaneRuntime,
+        delta: rssh_runtime::RuntimeDelta<'_>,
+        previous_dimensions: rssh_terminal::TerminalStableDimensions,
+        has_unseen_output: Option<bool>,
+        started: Option<Instant>,
+    ) -> io::Result<()> {
         let dimensions = runtime.runtime.terminal().stable_dimensions();
-        if runtime_output.screen_identity_changed
+        if delta.screen_identity_changed()
             || dimensions.domain != previous_dimensions.domain
             || dimensions.viewport_rows != previous_dimensions.viewport_rows
         {
             runtime.ui.retire_terminal_identity();
         }
-        runtime.reconcile_terminal_mutation();
-        self.record_unknown_escape_sequence_warnings(
-            pane_id,
-            &runtime_output.unknown_escape_sequences,
-        );
-        for response in runtime_output.responses {
+        runtime
+            .ui
+            .reconcile_terminal_mutation(runtime.runtime.terminal());
+        if delta.snapshot_changed() {
+            runtime.snapshot =
+                terminal_runtime_snapshot(&runtime.runtime, runtime.ui.stable_viewport);
+        }
+        for message in delta.diagnostics() {
+            self.record_unknown_escape_sequence_warning(pane_id, message);
+        }
+        for response in delta.responses() {
             if let Some(writer) = runtime.writer.as_mut() {
-                let started = Instant::now();
-                writer.write_all(&response)?;
+                let response_started = Instant::now();
+                writer.write_all(response)?;
                 writer.flush()?;
                 self.metrics
-                    .record_input_write(response.len(), started.elapsed());
+                    .record_input_write(response.len(), response_started.elapsed());
             }
         }
-        for text in runtime.runtime.take_clipboard_texts() {
+        for (_, contents) in delta.clipboard_writes() {
             if self.osc52_policy.allows_write() {
-                self.write_clipboard_text(&text);
+                self.write_clipboard_text(contents);
             }
         }
-        for selection in runtime.runtime.take_clipboard_queries() {
-            if self.osc52_policy.allows_query() {
-                let Some(text) = self.read_clipboard_text() else {
-                    continue;
-                };
-                let response = encode_osc52_clipboard_response(&selection, &text);
+        for selection in delta.clipboard_reads() {
+            if self.osc52_policy.allows_query()
+                && let Some(text) = self.read_clipboard_text()
+            {
+                let response = encode_osc52_clipboard_response(selection, &text);
                 if let Some(writer) = runtime.writer.as_mut() {
-                    let started = Instant::now();
+                    let response_started = Instant::now();
                     writer.write_all(&response)?;
                     writer.flush()?;
                     self.metrics
-                        .record_input_write(response.len(), started.elapsed());
+                        .record_input_write(response.len(), response_started.elapsed());
                 }
             }
         }
-        for notification in runtime.runtime.take_notifications() {
+        for (title, body) in delta.notifications() {
+            let notification = TerminalNotification {
+                title: title.map(str::to_owned),
+                body: body.to_owned(),
+            };
             self.dispatch_notification(pane_id, &notification);
         }
-        self.sync_pane_has_unseen_output_from_value(pane_id, !bytes.is_empty());
-        self.sync_pane_current_working_dir_from_value(
-            pane_id,
-            pane_runtime_current_working_dir(&runtime.runtime, runtime.session_process_id),
-        );
-        self.sync_pane_user_vars_from_pairs(
-            pane_id,
-            runtime
-                .runtime
-                .terminal()
-                .user_vars()
-                .iter()
-                .map(|(name, value)| (name.clone(), value.clone()))
-                .collect(),
-        );
-        self.sync_pane_badge_format_from_value(
-            pane_id,
-            runtime.runtime.terminal().badge_format().map(str::to_owned),
-        );
-        self.sync_pane_progress_from_value(pane_id, runtime.runtime.progress());
-        self.record_pane_bells(pane_id, runtime_output.bells);
-        self.metrics.record_bells(runtime_output.bells);
-        self.dispatch_bells(pane_id, runtime_output.bells);
+        if let Some(has_unseen_output) = has_unseen_output {
+            self.sync_pane_has_unseen_output_from_value(pane_id, has_unseen_output);
+        }
+        let metadata = delta.metadata();
+        if (metadata.working_directory().is_some()
+            || (started.is_some()
+                && runtime.runtime.terminal().current_working_dir().is_none()))
+            && let PaneRuntimeCwdUpdate::Resolved(cwd) = pane_runtime_current_working_dir_if_due(
+                &mut runtime.runtime,
+                runtime.session_process_id,
+                Instant::now(),
+            )
+        {
+            self.sync_pane_current_working_dir_from_value(pane_id, cwd);
+        }
+        if metadata.user_vars().next().is_some() {
+            self.sync_pane_user_vars_from_pairs(
+                pane_id,
+                runtime
+                    .runtime
+                    .terminal()
+                    .user_vars()
+                    .iter()
+                    .map(|(name, value)| (name.clone(), value.clone()))
+                    .collect(),
+            );
+        }
+        if metadata.badge_format().is_some() {
+            self.sync_pane_badge_format_from_value(
+                pane_id,
+                runtime.runtime.terminal().badge_format().map(str::to_owned),
+            );
+        }
+        if metadata.progress().is_some() {
+            self.sync_pane_progress_from_value(pane_id, runtime.runtime.progress());
+        }
+        self.record_pane_bells(pane_id, delta.bell_count());
+        self.metrics.record_bells(delta.bell_count());
+        self.dispatch_bells(pane_id, delta.bell_count());
         self.metrics
             .record_first_rendered_cell(self.snapshot.cells().is_empty());
-        self.metrics.record_pty_chunk_process(started.elapsed());
+        if let Some(started) = started {
+            self.metrics.record_pty_chunk_process(started.elapsed());
+        }
         Ok(())
     }
 
-    fn record_unknown_escape_sequence_warnings(
+    fn finish_inactive_pane_output(
         &mut self,
         pane_id: rssh_core::PaneId,
-        sequences: &[String],
+        runtime: &mut PaneRuntime,
+    ) -> io::Result<()> {
+        let previous_dimensions = runtime.runtime.terminal().stable_dimensions();
+        let mut buffers = std::mem::take(&mut runtime.runtime.storage.buffers);
+        let delta = runtime.runtime.inner.finish_into(&mut buffers);
+        let result = self.apply_inactive_pane_delta(
+            pane_id,
+            runtime,
+            delta,
+            previous_dimensions,
+            None,
+            None,
+        );
+        runtime.runtime.storage.buffers = buffers;
+        result
+    }
+
+    fn record_unknown_escape_sequence_warning(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        sequence: &str,
     ) {
         if !self.log_unknown_escape_sequences {
             return;
         }
-
-        for sequence in sequences {
-            let warning = format!(
-                "WARN unknown escape sequence from pane {}: {sequence}",
-                pane_id.get()
-            );
-            eprintln!("{warning}");
-            self.unknown_escape_sequence_warnings.push(warning);
-        }
+        let warning = format!(
+            "WARN unknown escape sequence from pane {}: {sequence}",
+            pane_id.get()
+        );
+        eprintln!("{warning}");
+        self.unknown_escape_sequence_warnings.push(warning);
     }
 
     #[cfg(test)]
@@ -52806,7 +52958,7 @@ impl NativeWindowApp {
         }
     }
 
-    fn wheel_target_hyperlink(&self, target: WheelTarget) -> Option<String> {
+    fn wheel_target_hyperlink(&self, target: WheelTarget) -> Option<Arc<str>> {
         let snapshot = self.pane_snapshot(target.pane_id)?;
         snapshot
             .cells()
@@ -52830,7 +52982,7 @@ impl NativeWindowApp {
         let event = NativeWindowOpenUri {
             window_id: self.app_window_id,
             pane: target.pane_id,
-            uri: uri.clone(),
+            uri: uri.to_string(),
         };
         if self.dispatch_open_uri_in_context(&event, Some(target)) {
             (self.hyperlink_opener)(&uri);
@@ -59693,7 +59845,7 @@ impl NativeWindowApp {
         true
     }
 
-    fn hyperlink_at_mouse_position(&self) -> Option<String> {
+    fn hyperlink_at_mouse_position(&self) -> Option<Arc<str>> {
         let mouse_cell = self.mouse_cell_for_active_pane()?;
         let snapshot = self.pane_snapshot(mouse_cell.pane_id)?;
         if let Some(hyperlink) = snapshot
@@ -59881,8 +60033,13 @@ impl NativeWindowApp {
 
     fn sync_active_pane_current_working_dir_from_runtime(&mut self) {
         let pane = self.app_shell.active_pane_id();
-        let cwd = pane_runtime_current_working_dir(&self.runtime, self.session_process_id);
-        self.sync_pane_current_working_dir_from_value(pane, cwd);
+        if let PaneRuntimeCwdUpdate::Resolved(cwd) = pane_runtime_current_working_dir_if_due(
+            &mut self.runtime,
+            self.session_process_id,
+            Instant::now(),
+        ) {
+            self.sync_pane_current_working_dir_from_value(pane, cwd);
+        }
     }
 
     fn sync_active_pane_user_vars_from_runtime(&mut self) {
@@ -60400,13 +60557,16 @@ impl NativeWindowApp {
     fn handle_pane_runtime_read_error(&mut self, pane_id: rssh_core::PaneId, error: &str) -> bool {
         let close_window = if pane_id == self.app_shell.active_pane_id() {
             eprintln!("PTY read error: {error}");
+            if let Err(error) = self.finish_active_pane_output() {
+                eprintln!("active pane terminal finish after read error failed: {error}");
+            }
             self.stop_active_runtime();
             true
         } else {
-            if let Some(mut runtime) = self.pane_runtimes.remove(&pane_id) {
-                let cleanup = runtime.close();
-                report_pane_pty_cleanup("inactive pane read-error cleanup", &cleanup);
-            }
+            self.finish_inactive_runtime_after_error(
+                pane_id,
+                "inactive pane read-error cleanup",
+            );
             false
         };
         self.clear_pane_inspection_if_invalid();
@@ -60416,17 +60576,39 @@ impl NativeWindowApp {
     fn handle_pane_runtime_write_error(&mut self, pane_id: rssh_core::PaneId, error: &str) -> bool {
         let close_window = if pane_id == self.app_shell.active_pane_id() {
             eprintln!("PTY write error: {error}");
+            if let Err(error) = self.finish_active_pane_output() {
+                eprintln!("active pane terminal finish after write error failed: {error}");
+            }
             self.stop_active_runtime();
             true
         } else {
-            if let Some(mut runtime) = self.pane_runtimes.remove(&pane_id) {
-                let cleanup = runtime.close();
-                report_pane_pty_cleanup("inactive pane write-error cleanup", &cleanup);
-            }
+            self.finish_inactive_runtime_after_error(
+                pane_id,
+                "inactive pane write-error cleanup",
+            );
             false
         };
         self.clear_pane_inspection_if_invalid();
         close_window
+    }
+
+    fn finish_inactive_runtime_after_error(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        cleanup_context: &str,
+    ) {
+        let Some(mut runtime) = self.pane_runtimes.remove(&pane_id) else {
+            return;
+        };
+        if let Err(error) = self.finish_inactive_pane_output(pane_id, &mut runtime) {
+            eprintln!("inactive pane terminal finish failed: {error}");
+        }
+        let cleanup = runtime.close();
+        report_pane_pty_cleanup(cleanup_context, &cleanup);
+        if let Err(error) = self.dispatch_close_pane_action(pane_id) {
+            eprintln!("inactive pane error close action failed: {error:?}");
+            self.pane_runtimes.insert(pane_id, runtime);
+        }
     }
 
     fn spawn_pane_runtime_for_active_pane(&mut self) -> Result<PaneRuntime, Box<dyn Error>> {
@@ -64318,9 +64500,13 @@ impl NativeWindowApp {
             return self.finish_active_runtime_after_exit();
         }
 
-        let runtime = self.pane_runtimes.get_mut(&pane_id)?;
+        let mut runtime = self.pane_runtimes.remove(&pane_id)?;
+        if let Err(error) = self.finish_inactive_pane_output(pane_id, &mut runtime) {
+            eprintln!("inactive pane terminal finish failed: {error}");
+        }
         let cleanup = runtime.finish_after_exit();
         report_pane_pty_cleanup("inactive pane exit cleanup", &cleanup);
+        self.pane_runtimes.insert(pane_id, runtime);
         cleanup.status
     }
 
@@ -64481,6 +64667,9 @@ impl Drop for NativeWindowApp {
 
 impl NativeWindowApp {
     fn finish_active_runtime_after_exit(&mut self) -> Option<PtyExitStatus> {
+        if let Err(error) = self.finish_active_pane_output() {
+            eprintln!("active pane terminal finish failed: {error}");
+        }
         let cleanup = finish_pty_lifecycle_after_exit(
             &mut self.session,
             &mut self.session_process_id,
@@ -87562,14 +87751,14 @@ fn hyperlink_rule_at_cell(
     row: u16,
     column: u16,
     rules: &[NativeHyperlinkRule],
-) -> Option<String> {
+) -> Option<Arc<str>> {
     hyperlink_rule_cell_links(snapshot.cells(), rules).remove(&(row, column))
 }
 
 fn hyperlink_rule_cell_links(
     cells: &[RenderCell],
     rules: &[NativeHyperlinkRule],
-) -> HashMap<(u16, u16), String> {
+) -> HashMap<(u16, u16), Arc<str>> {
     if cells.is_empty() || rules.is_empty() {
         return HashMap::new();
     }
@@ -87591,7 +87780,7 @@ fn hyperlink_rule_cell_links(
 fn apply_hyperlink_rules_to_row(
     row_cells: &[&RenderCell],
     rules: &[NativeHyperlinkRule],
-    links: &mut HashMap<(u16, u16), String>,
+    links: &mut HashMap<(u16, u16), Arc<str>>,
 ) {
     let Some(row) = row_cells.first().map(|cell| cell.row) else {
         return;
@@ -87642,6 +87831,7 @@ fn apply_hyperlink_rules_to_row(
             if hyperlink.is_empty() || !hyperlink.contains(':') {
                 continue;
             }
+            let hyperlink = Arc::<str>::from(hyperlink);
             for byte_index in highlight.start()..highlight.end() {
                 let Some(Some(position)) = byte_to_cell.get(byte_index).copied() else {
                     continue;
@@ -92462,6 +92652,10 @@ fn hex_value(byte: u8) -> Option<u8> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "window_terminal_delta_tests.rs"]
+mod window_terminal_delta_tests;
 
 #[cfg(test)]
 #[allow(
@@ -135163,72 +135357,6 @@ return config
     }
 
     #[test]
-    fn window_app_records_iterm_user_var_on_active_pane_metadata() {
-        let mut app = NativeWindowApp::new(None);
-
-        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM_PROG=YmFy\x07")
-            .unwrap();
-
-        assert_eq!(
-            app.app_shell
-                .active_pane()
-                .user_vars()
-                .get("WEZTERM_PROG")
-                .map(String::as_str),
-            Some("bar")
-        );
-    }
-
-    #[test]
-    fn window_app_records_iterm_user_var_on_inactive_pane_metadata() {
-        let mut app = NativeWindowApp::new(None);
-        app.dispatch_app_action(AppAction::NewTab { launch: None })
-            .unwrap();
-
-        app.handle_pane_pty_output(
-            rssh_core::PaneId::new(1),
-            b"\x1b]1337;SetUserVar=WEZTERM_PROG=YmFy\x07",
-        )
-        .unwrap();
-
-        assert_eq!(
-            app.app_shell.active_workspace().tabs()[0].panes()[0]
-                .user_vars()
-                .get("WEZTERM_PROG")
-                .map(String::as_str),
-            Some("bar")
-        );
-    }
-
-    #[test]
-    fn window_app_records_iterm_badge_format_on_active_pane_metadata() {
-        let mut app = NativeWindowApp::new(None);
-
-        app.handle_pty_output(b"\x1b]1337;SetBadgeFormat=aGVsbG8=\x07")
-            .unwrap();
-
-        assert_eq!(app.app_shell.active_pane().badge_format(), Some("hello"));
-    }
-
-    #[test]
-    fn window_app_records_iterm_badge_format_on_inactive_pane_metadata() {
-        let mut app = NativeWindowApp::new(None);
-        app.dispatch_app_action(AppAction::NewTab { launch: None })
-            .unwrap();
-
-        app.handle_pane_pty_output(
-            rssh_core::PaneId::new(1),
-            b"\x1b]1337;SetBadgeFormat=aGVsbG8=\x07",
-        )
-        .unwrap();
-
-        assert_eq!(
-            app.app_shell.active_workspace().tabs()[0].panes()[0].badge_format(),
-            Some("hello")
-        );
-    }
-
-    #[test]
     fn window_app_renders_iterm_badge_format_in_active_pane() {
         let mut app = NativeWindowApp::new(None);
 
@@ -174742,160 +174870,6 @@ return config
         );
         assert_eq!(app.selected_text().as_deref(), Some("> cargo test"));
         assert!(app.command_palette.is_none());
-    }
-
-    #[test]
-    fn window_app_ctrl_click_opens_hyperlink_cell() {
-        let opened = Arc::new(Mutex::new(Vec::new()));
-        let recorded = Arc::clone(&opened);
-        let mut app = NativeWindowApp::new(None);
-        app.hyperlink_opener = Box::new(move |url: &str| {
-            recorded.lock().unwrap().push(url.to_owned());
-            true
-        });
-        app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
-        app.handle_pty_output(b"\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\")
-            .unwrap();
-
-        app.modifiers = ModifiersState::CONTROL;
-        app.handle_cursor_moved(PhysicalPosition::new(
-            0.0,
-            f64::from(tab_bar_pixel_height()),
-        ))
-        .unwrap();
-
-        assert!(
-            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
-                .unwrap()
-        );
-        assert_eq!(opened.lock().unwrap().as_slice(), ["https://example.com"]);
-        assert!(app.selection.is_none());
-        assert!(!app.selecting);
-    }
-
-    #[test]
-    fn window_app_ctrl_click_opens_default_hyperlink_rule_url() {
-        let open_uris = Arc::new(Mutex::new(Vec::new()));
-        let recorded_uri = Arc::clone(&open_uris);
-        let opened = Arc::new(Mutex::new(Vec::new()));
-        let recorded_open = Arc::clone(&opened);
-        let mut app = NativeWindowApp::new(None);
-        app.open_uri_handler = Box::new(move |event| {
-            recorded_uri.lock().unwrap().push(event.clone());
-            true
-        });
-        app.hyperlink_opener = Box::new(move |url: &str| {
-            recorded_open.lock().unwrap().push(url.to_owned());
-            true
-        });
-        let active_pane = app.app_shell.active_pane_id();
-        app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
-        app.handle_pty_output(b"visit https://example.com/path")
-            .unwrap();
-
-        app.modifiers = ModifiersState::CONTROL;
-        app.handle_cursor_moved(PhysicalPosition::new(
-            f64::from(CELL_WIDTH * 8),
-            f64::from(tab_bar_pixel_height()),
-        ))
-        .unwrap();
-
-        assert!(
-            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
-                .unwrap()
-        );
-
-        assert_eq!(
-            open_uris.lock().unwrap().as_slice(),
-            [NativeWindowOpenUri {
-                window_id: rssh_core::WindowId::new(1),
-                pane: active_pane,
-                uri: "https://example.com/path".to_owned(),
-            }]
-        );
-        assert_eq!(
-            opened.lock().unwrap().as_slice(),
-            ["https://example.com/path"]
-        );
-        assert!(app.selection.is_none());
-        assert!(!app.selecting);
-    }
-
-    #[test]
-    fn window_app_hyperlink_rules_override_defaults_and_format_captures() {
-        let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
-            hyperlink_rules: Some(vec![NativeHyperlinkRule {
-                regex: r"\bT(\d+)\b".to_owned(),
-                format: "https://tickets.example/$1".to_owned(),
-                highlight: 1,
-            }]),
-            ..NativeConfigOverrides::default()
-        });
-        app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
-        app.handle_pty_output(b"https://example.test T123").unwrap();
-
-        app.modifiers = ModifiersState::CONTROL;
-        app.handle_cursor_moved(PhysicalPosition::new(
-            0.0,
-            f64::from(tab_bar_pixel_height()),
-        ))
-        .unwrap();
-        assert_eq!(app.hyperlink_at_mouse_position(), None);
-
-        app.handle_cursor_moved(PhysicalPosition::new(
-            f64::from(CELL_WIDTH * 22),
-            f64::from(tab_bar_pixel_height()),
-        ))
-        .unwrap();
-        assert_eq!(
-            app.hyperlink_at_mouse_position().as_deref(),
-            Some("https://tickets.example/123")
-        );
-    }
-
-    #[test]
-    fn window_app_open_uri_hook_can_prevent_default_hyperlink_open() {
-        let open_uris = Arc::new(Mutex::new(Vec::new()));
-        let recorded_uri = Arc::clone(&open_uris);
-        let opened = Arc::new(Mutex::new(Vec::new()));
-        let recorded_open = Arc::clone(&opened);
-        let mut app = NativeWindowApp::new(None);
-        app.open_uri_handler = Box::new(move |event| {
-            recorded_uri.lock().unwrap().push(event.clone());
-            false
-        });
-        app.hyperlink_opener = Box::new(move |url: &str| {
-            recorded_open.lock().unwrap().push(url.to_owned());
-            true
-        });
-        let active_pane = app.app_shell.active_pane_id();
-        app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
-        app.handle_pty_output(b"\x1b]8;;mailto:ops@example.com\x1b\\mail\x1b]8;;\x1b\\")
-            .unwrap();
-
-        app.modifiers = ModifiersState::CONTROL;
-        app.handle_cursor_moved(PhysicalPosition::new(
-            0.0,
-            f64::from(tab_bar_pixel_height()),
-        ))
-        .unwrap();
-
-        assert!(
-            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
-                .unwrap()
-        );
-        assert_eq!(
-            open_uris.lock().unwrap().as_slice(),
-            [NativeWindowOpenUri {
-                window_id: rssh_core::WindowId::new(1),
-                pane: active_pane,
-                uri: "mailto:ops@example.com".to_owned(),
-            }]
-        );
-        assert!(opened.lock().unwrap().is_empty());
-        assert!(app.selection.is_none());
-        assert!(!app.selecting);
     }
 
     #[test]

@@ -398,6 +398,17 @@ the batch. Surviving history rows are not relocated, so
 `history_row_relocations` is zero for deque front eviction. The complete prune
 operation is not claimed to be O(1).
 
+## Hyperlink API compatibility
+
+R-SSH 0.1.0 also changes the public `Cell::hyperlink` and
+`RenderCell::hyperlink` fields from `Option<String>` to `Option<Arc<str>>`.
+Terminal cells, renderer snapshots, snapshot clones, and damage updates now
+share one immutable OSC 8 URI instead of allocating one `String` per cell.
+Read-only callers can keep using `.as_deref()` to obtain `Option<&str>` (or the
+`Cell::hyperlink()` accessor). Callers assigning an owned URI should use
+`Some(uri.into())`; callers that specifically require an owned `String` must
+make that boundary allocation explicit with `.as_deref().map(str::to_owned)`.
+
 ## Metrics
 
 The current MVP uses tests and smoke checks as completion gates. Window runs can

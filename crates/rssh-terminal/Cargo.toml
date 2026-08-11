@@ -15,5 +15,10 @@ unicode-normalization = "0.1"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 
+[dev-dependencies]
+proc-macro2 = { version = "1", features = ["span-locations"] }
+sha2 = "0.11"
+syn = { version = "2", features = ["full", "visit"] }
+
 [lints]
 workspace = true

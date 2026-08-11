@@ -611,16 +611,19 @@ impl AppShell {
         let active_workspace = self
             .active_workspace_mut()
             .expect("active workspace must exist");
-        let active_tab_id = active_workspace.active_tab_id();
-        let active_tab = active_workspace.active_tab();
-        if active_tab.pane_position(pane).is_none() {
+        let Some(tab_index) = active_workspace
+            .tabs
+            .iter()
+            .position(|tab| tab.pane_position(pane).is_some())
+        else {
             return Err(AppShellError::InvalidPane(pane));
-        }
-        if active_tab.panes().len() <= 1 {
-            return active_workspace.close_tab(active_tab_id, false);
+        };
+        if active_workspace.tabs[tab_index].panes().len() <= 1 {
+            let tab_id = active_workspace.tabs[tab_index].id();
+            return active_workspace.close_tab(tab_id, false);
         }
 
-        active_workspace.active_tab_mut()?.close_pane(pane)
+        active_workspace.tabs[tab_index].close_pane(pane)
     }
 
     fn apply_activate_pane(&mut self, pane: PaneId) -> Result<(), AppShellError> {
@@ -3253,6 +3256,27 @@ mod tests {
         let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
         shell
             .apply_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        shell
+            .apply_action(AppAction::ClosePane {
+                pane: PaneId::new(2),
+            })
+            .unwrap();
+
+        assert_eq!(shell.active_tab_id(), TabId::new(1));
+        assert_eq!(shell.active_workspace().tabs().len(), 1);
+        assert_eq!(shell.active_pane_id(), PaneId::new(1));
+    }
+
+    #[test]
+    fn action_close_pane_finds_an_inactive_tab_without_switching_tabs() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        shell
+            .apply_action(AppAction::ActivateTab { tab: TabId::new(1) })
             .unwrap();
 
         shell

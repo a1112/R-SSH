@@ -7,7 +7,15 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
+base64 = "0.22"
 rssh-core = { path = "../rssh-core", version = "0.1.0" }
+rssh-terminal = { path = "../rssh-terminal", version = "0.1.0" }
+
+[dev-dependencies]
+flate2 = "1"
+proc-macro2 = { version = "1", features = ["span-locations"] }
+sha2 = "0.11"
+syn = { version = "2", features = ["full", "visit"] }
 
 [lints]
 workspace = true

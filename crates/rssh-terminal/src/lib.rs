@@ -3,12 +3,22 @@ mod grid;
 mod history;
 mod parser;
 
+#[cfg(test)]
+#[path = "fixture_trace.rs"]
+pub(crate) mod fixture_trace;
+#[cfg(test)]
+#[path = "frozen_trace_pack.rs"]
+pub(crate) mod frozen_trace_pack;
+#[cfg(test)]
+#[path = "test_body_digest.rs"]
+pub(crate) mod test_body_digest;
+
 pub use cell::{Cell, CellContent};
 pub use grid::{GridRow, TerminalGrid};
 pub use history::HistoryBuffer;
 pub use parser::{
-    CellWidthOverride, DEFAULT_SCROLLBACK_LIMIT, Terminal, TerminalUnknownEscapeSequence,
-    TerminalWorkCounters,
+    CellWidthOverride, DEFAULT_SCROLLBACK_LIMIT, Terminal, TerminalFeedStorageCounters,
+    TerminalMetadataChanges, TerminalUnknownEscapeSequence, TerminalWorkCounters,
 };
 
 pub type StableRowIndex = isize;
@@ -346,9 +356,13 @@ impl ScrollbackLine {
     }
 
     #[must_use]
-    #[allow(dead_code)] // Consumed by the follow-up stable changed-row implementation.
-    pub(crate) const fn last_change_seqno(&self) -> SequenceNo {
+    pub const fn last_change_seqno(&self) -> SequenceNo {
         self.sequence
+    }
+
+    #[must_use]
+    pub fn reflow_overflow(&self) -> &[Cell] {
+        &self.reflow_overflow
     }
 
     #[allow(dead_code)] // Consumed by the follow-up stable changed-row implementation.
@@ -2505,6 +2519,29 @@ mod tests {
     }
 
     #[test]
+    fn terminal_reuses_decode_scratch_after_split_utf8_and_control_warmup() {
+        let mut terminal = Terminal::new(TerminalSize::new(32, 2));
+        let chunks: &[&[u8]] = &[
+            b"ascii\xe2",
+            b"\x82\xac\x1b[",
+            b"31mred\x1b[0m\r\n",
+            b"invalid\xff\r\n",
+        ];
+        for chunk in chunks {
+            terminal.feed(chunk);
+        }
+        terminal.reset_feed_storage_counters();
+
+        for _ in 0..64 {
+            for chunk in chunks {
+                terminal.feed(chunk);
+            }
+        }
+
+        assert_eq!(terminal.feed_storage_counters().growths(), 0);
+    }
+
+    #[test]
     fn terminal_resize_expands_grid_and_preserves_visible_cells() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
         terminal.feed(b"abcd\r\nef");
@@ -2611,6 +2648,44 @@ mod tests {
         terminal.feed(b"abc");
 
         assert_eq!(terminal.take_damage(), vec![DamageRegion::new(0, 0, 3, 1)]);
+        assert!(terminal.take_damage().is_empty());
+    }
+
+    #[test]
+    fn terminal_counts_cold_damage_growth_and_reuses_warm_storage() {
+        let mut terminal = Terminal::new(TerminalSize::new(10, 1));
+        let mut damage = Vec::new();
+        terminal.reset_feed_storage_counters();
+
+        terminal.feed(b"a");
+        assert!(
+            terminal.feed_storage_counters().damage_growths() > 0,
+            "the first damage allocation must be observable"
+        );
+        terminal.drain_damage_into(&mut damage);
+
+        terminal.reset_feed_storage_counters();
+        terminal.feed(b"b");
+        terminal.drain_damage_into(&mut damage);
+        assert_eq!(terminal.feed_storage_counters().damage_growths(), 0);
+    }
+
+    #[test]
+    fn terminal_drains_damage_without_discarding_its_reusable_storage() {
+        let mut terminal = Terminal::new(TerminalSize::new(10, 1));
+        let mut damage = Vec::new();
+        terminal.feed(b"a");
+        terminal.drain_damage_into(&mut damage);
+        terminal.reset_feed_storage_counters();
+
+        for _ in 0..8 {
+            damage.clear();
+            terminal.feed(b"b");
+            terminal.drain_damage_into(&mut damage);
+            assert_eq!(damage.len(), 1);
+        }
+
+        assert_eq!(terminal.feed_storage_counters().damage_growths(), 0);
         assert!(terminal.take_damage().is_empty());
     }
 
@@ -5054,6 +5129,77 @@ mod tests {
         );
         assert_eq!(terminal.grid().get(0, 0).unwrap().hyperlink, None);
         assert_eq!(terminal.grid().get(0, 3).unwrap().hyperlink, None);
+    }
+
+    #[test]
+    fn terminal_tracks_split_osc8_hyperlink_and_clear_across_feed_calls() {
+        let mut terminal = Terminal::new(TerminalSize::new(12, 1));
+
+        terminal.feed(b"a\x1b]8;;https://exa");
+        terminal.feed(b"mple.com\x1b\\bc\x1b]8;;");
+        terminal.feed(b"\x1b\\d");
+
+        assert_eq!(row_text(&terminal, 0), "abcd        ");
+        assert_eq!(
+            terminal.grid().get(0, 1).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            terminal.grid().get(0, 2).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(terminal.grid().get(0, 0).unwrap().hyperlink, None);
+        assert_eq!(terminal.grid().get(0, 3).unwrap().hyperlink, None);
+    }
+
+    #[test]
+    fn terminal_hyperlink_storage_is_shared_across_cells_and_reflow() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"\x1b]8;;https://example.com\x1b\\abcdef\x1b]8;;\x1b\\");
+
+        let linked_cell_pointers = (0..4)
+            .map(|column| {
+                terminal
+                    .grid()
+                    .get(0, column)
+                    .unwrap()
+                    .hyperlink
+                    .as_ref()
+                    .unwrap()
+                    .as_ptr()
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            linked_cell_pointers
+                .windows(2)
+                .all(|pair| pair[0] == pair[1]),
+            "cells under one OSC 8 link must share immutable URI storage"
+        );
+
+        terminal.resize(TerminalSize::new(2, 2));
+        let mut reflowed_pointers = terminal
+            .scrollback()
+            .iter()
+            .flat_map(super::ScrollbackLine::cells)
+            .filter_map(|cell| cell.hyperlink.as_ref().map(|link| link.as_ptr()))
+            .collect::<Vec<_>>();
+        for row in 0..2 {
+            for column in 0..2 {
+                if let Some(pointer) = terminal
+                    .grid()
+                    .get(row, column)
+                    .and_then(|cell| cell.hyperlink.as_ref())
+                    .map(|link| link.as_ptr())
+                {
+                    reflowed_pointers.push(pointer);
+                }
+            }
+        }
+        assert_eq!(reflowed_pointers.len(), 6);
+        assert!(
+            reflowed_pointers.windows(2).all(|pair| pair[0] == pair[1]),
+            "reflow must clone URI handles instead of URI allocations"
+        );
     }
 
     #[test]

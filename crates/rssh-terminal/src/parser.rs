@@ -447,6 +447,89 @@ pub struct TerminalWorkCounters {
     pub metadata_rebase_batches: u64,
 }
 
+/// Cumulative growth of reusable terminal feed/decode scratch storage.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TerminalFeedStorageCounters {
+    growths: u64,
+    damage_growths: u64,
+}
+
+impl TerminalFeedStorageCounters {
+    #[must_use]
+    pub const fn growths(self) -> u64 {
+        self.growths
+    }
+
+    #[must_use]
+    pub const fn damage_growths(self) -> u64 {
+        self.damage_growths
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct TerminalFeedScratch {
+    input: Vec<u8>,
+    chars: Vec<char>,
+    counters: TerminalFeedStorageCounters,
+}
+
+#[derive(Debug, Clone, Default)]
+struct PendingTerminalMetadataChanges {
+    title: bool,
+    current_working_dir: bool,
+    badge_format: bool,
+    user_vars: Vec<String>,
+}
+
+/// Metadata sources changed since the last runtime observation.
+#[derive(Debug, Clone, Copy)]
+pub struct TerminalMetadataChanges<'a> {
+    title: bool,
+    current_working_dir: bool,
+    badge_format: bool,
+    user_vars: &'a [String],
+}
+
+#[cfg(test)]
+#[derive(Debug, Default)]
+struct FixtureTraceIdentity {
+    id: u64,
+}
+
+#[cfg(test)]
+impl Clone for FixtureTraceIdentity {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl<'a> TerminalMetadataChanges<'a> {
+    #[must_use]
+    pub const fn title(self) -> bool {
+        self.title
+    }
+
+    #[must_use]
+    pub const fn current_working_dir(self) -> bool {
+        self.current_working_dir
+    }
+
+    #[must_use]
+    pub const fn badge_format(self) -> bool {
+        self.badge_format
+    }
+
+    #[must_use]
+    pub const fn user_vars(self) -> &'a [String] {
+        self.user_vars
+    }
+
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        !self.title && !self.current_working_dir && !self.badge_format && self.user_vars.is_empty()
+    }
+}
+
 impl TerminalWorkCounters {
     /// Returns work performed since `earlier`, saturating if snapshots are not
     /// ordered (for example, after replacing an observed terminal).
@@ -485,6 +568,7 @@ pub struct Terminal {
     current_working_dir: Option<String>,
     badge_format: Option<String>,
     user_vars: HashMap<String, String>,
+    pending_metadata_changes: PendingTerminalMetadataChanges,
     inline_images: Vec<ItermInlineImage>,
     inline_image_parent_ids: Vec<u64>,
     inline_image_attachments: Vec<CellAttachment>,
@@ -509,6 +593,7 @@ pub struct Terminal {
     clear_semantic_type_on_movement: bool,
     pending_utf8: Vec<u8>,
     pending_control: Vec<char>,
+    feed_scratch: TerminalFeedScratch,
     last_printable: Option<SmolStr>,
     nfc_last_printable_cell: Option<(u16, u16)>,
     saved_cursor: Option<SavedCursor>,
@@ -531,6 +616,8 @@ pub struct Terminal {
     unicode_version: u32,
     unicode_version_stack: Vec<UnicodeVersionStackEntry>,
     work_counters: TerminalWorkCounters,
+    #[cfg(test)]
+    fixture_trace: FixtureTraceIdentity,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -729,7 +816,7 @@ impl Terminal {
         size: TerminalSize,
         default_cursor_style: CursorStyle,
     ) -> Self {
-        Self {
+        let terminal = Self {
             grid: TerminalGrid::new_with_seqno(size, INITIAL_SEQUENCE_NO),
             scrollback: HistoryBuffer::new(),
             scrollback_limit: DEFAULT_SCROLLBACK_LIMIT,
@@ -743,6 +830,7 @@ impl Terminal {
             current_working_dir: None,
             badge_format: None,
             user_vars: HashMap::new(),
+            pending_metadata_changes: PendingTerminalMetadataChanges::default(),
             inline_images: Vec::new(),
             inline_image_parent_ids: Vec::new(),
             inline_image_attachments: Vec::new(),
@@ -767,6 +855,7 @@ impl Terminal {
             clear_semantic_type_on_movement: false,
             pending_utf8: Vec::new(),
             pending_control: Vec::new(),
+            feed_scratch: TerminalFeedScratch::default(),
             last_printable: None,
             nfc_last_printable_cell: None,
             saved_cursor: None,
@@ -789,7 +878,17 @@ impl Terminal {
             unicode_version: DEFAULT_UNICODE_VERSION,
             unicode_version_stack: Vec::new(),
             work_counters: TerminalWorkCounters::default(),
-        }
+            #[cfg(test)]
+            fixture_trace: FixtureTraceIdentity::default(),
+        };
+        #[cfg(test)]
+        let terminal = {
+            let mut terminal = terminal;
+            terminal.fixture_trace.id =
+                task10_trace::trace_construct(&terminal, size, default_cursor_style, "new");
+            terminal
+        };
+        terminal
     }
 
     #[must_use]
@@ -797,21 +896,75 @@ impl Terminal {
         self.work_counters
     }
 
+    #[must_use]
+    pub const fn feed_storage_counters(&self) -> TerminalFeedStorageCounters {
+        self.feed_scratch.counters
+    }
+
+    pub const fn reset_feed_storage_counters(&mut self) {
+        self.feed_scratch.counters = TerminalFeedStorageCounters {
+            growths: 0,
+            damage_growths: 0,
+        };
+    }
+
     pub fn set_unicode_version(&mut self, version: u32) {
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
         self.unicode_version = version;
         self.unicode_version_stack.clear();
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.set_unicode_version",
+            version.to_string().as_bytes(),
+            b"result=unit",
+        );
     }
 
     pub fn set_normalize_output_to_unicode_nfc(&mut self, enabled: bool) {
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
         self.normalize_output_to_unicode_nfc = enabled;
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.set_normalize_nfc",
+            if enabled { b"1" } else { b"0" },
+            b"result=unit",
+        );
     }
 
     pub fn set_treat_east_asian_ambiguous_width_as_wide(&mut self, enabled: bool) {
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
         self.treat_east_asian_ambiguous_width_as_wide = enabled;
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.set_ambiguous_width",
+            if enabled { b"1" } else { b"0" },
+            b"result=unit",
+        );
     }
 
     pub fn set_cell_width_overrides(&mut self, overrides: Vec<CellWidthOverride>) {
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
+        #[cfg(test)]
+        let arguments = task10_trace::encode_width_overrides(&overrides);
         self.cell_width_overrides = overrides;
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.set_width_overrides",
+            &arguments,
+            b"result=unit",
+        );
     }
 
     #[must_use]
@@ -825,49 +978,94 @@ impl Terminal {
     }
 
     pub fn set_enable_kitty_graphics(&mut self, enabled: bool) {
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
         self.enable_kitty_graphics = enabled;
         if !enabled {
             self.pending_kitty_graphics = None;
         }
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.set_kitty_graphics",
+            if enabled { b"1" } else { b"0" },
+            b"result=unit",
+        );
     }
 
     pub fn feed(&mut self, bytes: &[u8]) {
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
         self.advance_seqno();
         self.feed_at_current_seqno(bytes);
+        #[cfg(test)]
+        task10_trace::trace_action(self, trace, "terminal.feed", bytes, b"result=unit");
     }
 
     pub fn feed_with_all_lines_changed(&mut self, bytes: &[u8]) {
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
         self.advance_seqno();
         self.feed_at_current_seqno(bytes);
         self.mark_all_lines_changed_at_current_seqno();
+        #[cfg(test)]
+        task10_trace::trace_action(self, trace, "terminal.feed_all", bytes, b"result=unit");
     }
 
     fn feed_at_current_seqno(&mut self, bytes: &[u8]) {
-        let mut input = std::mem::take(&mut self.pending_utf8);
-        input.extend_from_slice(bytes);
-        let complete_utf8_len = complete_utf8_prefix_len(&input);
+        let mut scratch = std::mem::take(&mut self.feed_scratch);
+        let input_capacity = scratch.input.capacity();
+        let chars_capacity = scratch.chars.capacity();
+        scratch.input.clear();
+        scratch.input.extend_from_slice(&self.pending_utf8);
+        self.pending_utf8.clear();
+        scratch.input.extend_from_slice(bytes);
+        let complete_utf8_len = complete_utf8_prefix_len(&scratch.input);
         self.pending_utf8
-            .extend_from_slice(&input[complete_utf8_len..]);
+            .extend_from_slice(&scratch.input[complete_utf8_len..]);
 
-        let mut chars = std::mem::take(&mut self.pending_control);
-        chars.extend(decode_terminal_chars(&input[..complete_utf8_len]));
+        scratch.chars.clear();
+        scratch.chars.append(&mut self.pending_control);
+        decode_terminal_chars_into(&scratch.input[..complete_utf8_len], &mut scratch.chars);
         let mut index = 0;
 
-        while index < chars.len() {
-            if let Some(advance) = self.consume_escape_or_c1_sequence(&chars, index) {
+        while index < scratch.chars.len() {
+            if let Some(advance) = self.consume_escape_or_c1_sequence(&scratch.chars, index) {
                 match advance {
                     FeedAdvance::Next(next_index) => index = next_index,
                     FeedAdvance::Pending => break,
                 }
             } else {
-                index = self.consume_text_run_or_ascii_control(&chars, index);
+                index = self.consume_text_run_or_ascii_control(&scratch.chars, index);
             }
         }
+        scratch.input.clear();
+        scratch.chars.clear();
+        if scratch.input.capacity() != input_capacity || scratch.chars.capacity() != chars_capacity
+        {
+            scratch.counters.growths = scratch.counters.growths.saturating_add(1);
+        }
+        scratch.counters.damage_growths = scratch
+            .counters
+            .damage_growths
+            .saturating_add(self.feed_scratch.counters.damage_growths);
+        self.feed_scratch = scratch;
     }
 
     pub fn mark_all_lines_changed(&mut self) {
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
         self.advance_seqno();
         self.mark_all_lines_changed_at_current_seqno();
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.mark_all_lines_changed",
+            b"",
+            b"result=unit",
+        );
     }
 
     fn mark_all_lines_changed_at_current_seqno(&mut self) {
@@ -1230,7 +1428,9 @@ impl Terminal {
             "0" => self.set_icon_and_window_title(content[separator + 1..].iter().collect()),
             "1" => self.set_icon_title(content[separator + 1..].iter().collect()),
             "2" => self.set_window_title(content[separator + 1..].iter().collect()),
-            "7" => self.current_working_dir = Some(content[separator + 1..].iter().collect()),
+            "7" => {
+                self.set_current_working_dir(content[separator + 1..].iter().collect());
+            }
             "8" => self.apply_osc8_hyperlink(&content[separator + 1..]),
             "133" => self.apply_osc133_semantic_prompt(&content[separator + 1..]),
             "1337" => self.apply_osc1337_iterm_metadata(&content[separator + 1..]),
@@ -1239,19 +1439,36 @@ impl Terminal {
     }
 
     fn set_icon_and_window_title(&mut self, title: String) {
+        if self.title.as_ref() != Some(&title) {
+            self.pending_metadata_changes.title = true;
+        }
         self.title = Some(title.clone());
         self.icon_title = Some(title.clone());
         self.window_title = Some(title);
     }
 
     fn set_icon_title(&mut self, title: String) {
+        if self.title.as_ref() != Some(&title) {
+            self.pending_metadata_changes.title = true;
+        }
         self.title = Some(title.clone());
         self.icon_title = Some(title);
     }
 
     fn set_window_title(&mut self, title: String) {
+        if self.title.as_ref() != Some(&title) {
+            self.pending_metadata_changes.title = true;
+        }
         self.title = Some(title.clone());
         self.window_title = Some(title);
+    }
+
+    fn set_current_working_dir(&mut self, current_working_dir: String) {
+        if self.current_working_dir.as_ref() == Some(&current_working_dir) {
+            return;
+        }
+        self.current_working_dir = Some(current_working_dir);
+        self.pending_metadata_changes.current_working_dir = true;
     }
 
     fn apply_apc_content(&mut self, content: &[char]) {
@@ -1272,7 +1489,7 @@ impl Terminal {
     fn apply_osc1337_iterm_metadata(&mut self, content: &[char]) {
         let content = content.iter().collect::<String>();
         if let Some(current_dir) = content.strip_prefix("CurrentDir=") {
-            self.current_working_dir = Some(current_dir.to_owned());
+            self.set_current_working_dir(current_dir.to_owned());
             return;
         }
 
@@ -1347,7 +1564,20 @@ impl Terminal {
             return;
         };
 
+        if self.user_vars.get(name) == Some(&value) {
+            return;
+        }
         self.user_vars.insert(name.to_owned(), value);
+        if !self
+            .pending_metadata_changes
+            .user_vars
+            .iter()
+            .any(|changed| changed == name)
+        {
+            self.pending_metadata_changes
+                .user_vars
+                .push(name.to_owned());
+        }
     }
 
     fn apply_osc1337_set_badge_format(&mut self, encoded_badge_format: &str) {
@@ -1358,7 +1588,11 @@ impl Terminal {
             return;
         };
 
+        if self.badge_format.as_ref() == Some(&value) {
+            return;
+        }
         self.badge_format = Some(value);
+        self.pending_metadata_changes.badge_format = true;
     }
 
     fn apply_osc1337_file(&mut self, file: &str) {
@@ -2756,7 +2990,7 @@ impl Terminal {
         if uri.is_empty() {
             self.style.hyperlink = None;
         } else {
-            self.style.hyperlink = Some(uri);
+            self.style.hyperlink = Some(uri.into());
         }
     }
 
@@ -2954,8 +3188,18 @@ impl Terminal {
     }
 
     pub fn set_scrollback_limit(&mut self, limit: usize) {
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
         self.scrollback_limit = limit;
         self.trim_scrollback_to_limit();
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.set_scrollback_limit",
+            limit.to_string().as_bytes(),
+            b"result=unit",
+        );
     }
 
     #[must_use]
@@ -3270,6 +3514,23 @@ impl Terminal {
     }
 
     #[must_use]
+    pub fn pending_metadata_changes(&self) -> TerminalMetadataChanges<'_> {
+        TerminalMetadataChanges {
+            title: self.pending_metadata_changes.title,
+            current_working_dir: self.pending_metadata_changes.current_working_dir,
+            badge_format: self.pending_metadata_changes.badge_format,
+            user_vars: &self.pending_metadata_changes.user_vars,
+        }
+    }
+
+    pub fn clear_pending_metadata_changes(&mut self) {
+        self.pending_metadata_changes.title = false;
+        self.pending_metadata_changes.current_working_dir = false;
+        self.pending_metadata_changes.badge_format = false;
+        self.pending_metadata_changes.user_vars.clear();
+    }
+
+    #[must_use]
     pub const fn unicode_version(&self) -> u32 {
         self.unicode_version
     }
@@ -3334,7 +3595,18 @@ impl Terminal {
     }
 
     pub fn take_kitty_graphics_responses(&mut self) -> Vec<Vec<u8>> {
-        std::mem::take(&mut self.kitty_graphics_responses)
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
+        let responses = std::mem::take(&mut self.kitty_graphics_responses);
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.take_kitty_responses",
+            b"",
+            task10_trace::encode_byte_vecs(&responses).as_bytes(),
+        );
+        responses
     }
 
     #[must_use]
@@ -3390,8 +3662,18 @@ impl Terminal {
     }
 
     pub fn set_default_cursor_style(&mut self, default_cursor_style: CursorStyle) {
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
         self.default_cursor_style = default_cursor_style;
         self.apply_default_cursor_style();
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.set_default_cursor_style",
+            task10_trace::encode_cursor_style(default_cursor_style).as_bytes(),
+            b"result=unit",
+        );
     }
 
     #[must_use]
@@ -3425,11 +3707,33 @@ impl Terminal {
     }
 
     pub fn take_bell_count(&mut self) -> u64 {
-        std::mem::take(&mut self.bell_count)
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
+        let count = std::mem::take(&mut self.bell_count);
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.take_bells",
+            b"",
+            count.to_string().as_bytes(),
+        );
+        count
     }
 
     pub fn take_unknown_escape_sequences(&mut self) -> Vec<TerminalUnknownEscapeSequence> {
-        std::mem::take(&mut self.unknown_escape_sequences)
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
+        let sequences = std::mem::take(&mut self.unknown_escape_sequences);
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.take_unknown",
+            b"",
+            &task10_trace::encode_unknown(&sequences),
+        );
+        sequences
     }
 
     fn record_unknown_escape_sequence(&mut self, sequence: String) {
@@ -3438,6 +3742,20 @@ impl Terminal {
     }
 
     pub fn erase_scrollback_and_viewport(&mut self) {
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
+        self.erase_scrollback_and_viewport_inner();
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.erase_scrollback_and_viewport",
+            b"",
+            b"result=unit",
+        );
+    }
+
+    fn erase_scrollback_and_viewport_inner(&mut self) {
         self.advance_seqno();
         let size = self.grid.size();
         self.prune_scrollback_rows(self.scrollback.len());
@@ -3493,11 +3811,26 @@ impl Terminal {
         self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
     }
 
+    pub fn resize(&mut self, size: TerminalSize) -> TerminalResizeOutcome {
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
+        let outcome = self.resize_inner(size);
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.resize",
+            &task10_trace::encode_size(size),
+            task10_trace::encode_resize_outcome(outcome).as_bytes(),
+        );
+        outcome
+    }
+
     #[expect(
         clippy::if_not_else,
         reason = "the primary width-changing reflow path remains first ahead of the smaller same-width path"
     )]
-    pub fn resize(&mut self, size: TerminalSize) -> TerminalResizeOutcome {
+    fn resize_inner(&mut self, size: TerminalSize) -> TerminalResizeOutcome {
         let size = TerminalSize::new(size.columns.max(1), size.rows);
         self.advance_seqno();
         let old_size = self.grid.size();
@@ -3616,7 +3949,22 @@ impl Terminal {
     }
 
     pub fn take_damage(&mut self) -> Vec<DamageRegion> {
-        std::mem::take(&mut self.damage)
+        #[cfg(test)]
+        let trace = task10_trace::before_action(self);
+        let damage = std::mem::take(&mut self.damage);
+        #[cfg(test)]
+        task10_trace::trace_action(
+            self,
+            trace,
+            "terminal.take_damage",
+            b"",
+            task10_trace::encode_damage(&damage).as_bytes(),
+        );
+        damage
+    }
+
+    pub fn drain_damage_into(&mut self, target: &mut Vec<DamageRegion>) {
+        target.append(&mut self.damage);
     }
 
     fn reset_terminal(&mut self) {
@@ -4492,6 +4840,9 @@ impl Terminal {
             22 => self.title_stack.push(self.title.clone()),
             23 => {
                 if let Some(title) = self.title_stack.pop() {
+                    if self.title != title {
+                        self.pending_metadata_changes.title = true;
+                    }
                     self.title = title;
                 }
             }
@@ -6407,7 +6758,12 @@ impl Terminal {
             }
         }
 
+        let capacity = self.damage.capacity();
         self.damage.push(region);
+        if self.damage.capacity() != capacity {
+            self.feed_scratch.counters.damage_growths =
+                self.feed_scratch.counters.damage_growths.saturating_add(1);
+        }
     }
 
     fn map_graphic_character(&self, ch: char) -> char {
@@ -8558,8 +8914,7 @@ fn complete_utf8_prefix_len(bytes: &[u8]) -> usize {
     }
 }
 
-fn decode_terminal_chars(bytes: &[u8]) -> Vec<char> {
-    let mut chars = Vec::new();
+fn decode_terminal_chars_into(bytes: &[u8], chars: &mut Vec<char>) {
     let mut index = 0;
 
     while index < bytes.len() {
@@ -8586,8 +8941,6 @@ fn decode_terminal_chars(bytes: &[u8]) -> Vec<char> {
             }
         }
     }
-
-    chars
 }
 
 fn raw_c1_control(byte: u8) -> Option<char> {
@@ -8804,8 +9157,23 @@ fn shift_image_and_placeholder_suffix_metadata(
 }
 
 #[cfg(test)]
+impl Drop for Terminal {
+    fn drop(&mut self) {
+        task10_trace::trace_drop(self);
+    }
+}
+
+#[cfg(test)]
+#[path = "parser_task10_trace.rs"]
+mod task10_trace;
+
+#[cfg(test)]
 mod stable_row_tests {
     use super::*;
+
+    mod task10_registry {
+        include!("parser_task10_registry.rs");
+    }
 
     const HIGH_BYTE_KITTY_IMAGE_ID: u32 = 0x0200_001e;
 
@@ -9354,7 +9722,7 @@ mod stable_row_tests {
         second.background = Color::Indexed(6);
         assert!(terminal.grid.set(1, 1, second));
         let mut overflow = Cell::with_char('界');
-        overflow.hyperlink = Some("overflow".to_owned());
+        overflow.hyperlink = Some("overflow".into());
         terminal.grid.set_reflow_overflow(1, vec![overflow]);
         terminal.grid.set_row_wrapped(1, true);
         assert!(terminal.grid.set_row_last_change_seqno(1, source_seqno));
@@ -9372,7 +9740,7 @@ mod stable_row_tests {
         let mut terminal = Terminal::new(TerminalSize::new(2, 2));
         let hyperlink = "https://example.test/owned-row-allocation".repeat(4);
         let mut cell = Cell::with_char('x');
-        cell.hyperlink = Some(hyperlink);
+        cell.hyperlink = Some(hyperlink.into());
         assert!(terminal.grid.set(0, 0, cell));
         let allocation = terminal
             .grid
@@ -12354,5 +12722,48 @@ mod stable_row_tests {
             terminal.changed_stable_rows_since(terminal.retained_stable_range(), before),
             vec![0, 1, 2]
         );
+    }
+
+    #[test]
+    fn task10_terminal_capture_records_construct_feed_and_final_snapshot() {
+        let row_id = "0000000000000000000000000000000000000000000000000000000000000000";
+        let (execution, trace) = crate::fixture_trace::capture(row_id, "terminal_parser", || {
+            let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+            terminal.feed(b"abc");
+        });
+        assert!(execution.is_ok());
+        let trace = String::from_utf8(trace).expect("terminal fixture trace UTF-8");
+        assert!(trace.contains("action_count=2\n"));
+        assert!(trace.contains("api=terminal.feed"));
+        assert!(trace.contains("final_object=terminal-parser:"));
+    }
+
+    #[test]
+    fn current_terminal_parser_fixtures_match_detached_c69_traces() {
+        let records = crate::frozen_trace_pack::records()
+            .iter()
+            .filter(|record| record.domain == "terminal_parser")
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 139, "terminal parser fixture rows");
+        let source = include_str!("parser.rs");
+        let bodies = crate::test_body_digest::test_body_sha256s(source);
+        for record in records {
+            let current_body = bodies.get(record.current_test_name).unwrap_or_else(|| {
+                panic!("missing terminal parser body: {}", record.current_test_name)
+            });
+            assert_eq!(
+                current_body, record.current_body_sha256,
+                "{} current terminal parser body",
+                record.row_id
+            );
+            let (execution, trace) =
+                crate::fixture_trace::capture(record.row_id, "terminal_parser", || {
+                    assert!(task10_registry::replay(record.current_test_name));
+                });
+            crate::frozen_trace_pack::assert_current_trace(record, &trace);
+            if let Err(payload) = execution {
+                std::panic::resume_unwind(payload);
+            }
+        }
     }
 }
