@@ -3,11 +3,14 @@
 mod api;
 mod clock;
 pub mod delta;
+mod hub;
 mod mailbox;
 mod metrics;
 pub mod modes;
+mod pane;
 pub mod queries;
 pub mod query_dcs;
+mod shutdown;
 pub mod terminal;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -36,12 +39,14 @@ pub use delta::{
     MetadataChangeRef, RuntimeBufferCapacities, RuntimeBuffers, RuntimeDelta, RuntimeEffectRef,
     RuntimeMetadataDeltaRef, TerminalSnapshotRef,
 };
+pub use hub::{OpenPaneError, RuntimeHub};
 pub use mailbox::{
     MailboxItem, MailboxLimits, MailboxLimitsError, MailboxMetrics, MailboxReceiver, MailboxSender,
     RecvError, SendError, TryRecvError, TrySendError, bounded_mailbox,
 };
 pub use metrics::RuntimeBatchMetrics;
 pub use modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalModeChange};
+pub use pane::{PaneHandle, PaneNotice, PaneWorkerConfig};
 pub use terminal::TerminalRuntime;
 pub use transport::{
     SessionControl, SessionExit, SessionExitSignal, SessionInterrupt, SessionParts,

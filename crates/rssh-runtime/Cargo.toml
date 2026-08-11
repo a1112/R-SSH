@@ -25,5 +25,10 @@ name = "fake_transport"
 path = "tests/fake_transport.rs"
 required-features = ["test-support"]
 
+[[test]]
+name = "pane_worker"
+path = "tests/pane_worker.rs"
+required-features = ["test-support"]
+
 [lints]
 workspace = true

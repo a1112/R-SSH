@@ -245,6 +245,22 @@ impl ScriptedSessionDriver {
         }
     }
 
+    /// Waits until successful writes have accepted at least `length` bytes.
+    pub fn wait_until_accepted_write_len(&self, length: usize) {
+        let mut state = self.shared.lock();
+        while state.accepted_writes.len() < length && !state.interrupted {
+            state = self.shared.wait(state);
+        }
+    }
+
+    /// Waits until the control plane has observed at least `count` calls.
+    pub fn wait_until_control_call_count(&self, count: usize) {
+        let mut state = self.shared.lock();
+        while state.control_log.calls.len() < count && !state.interrupted {
+            state = self.shared.wait(state);
+        }
+    }
+
     /// Supplies a reader action, replacing a blocking marker at the front.
     pub fn push_read(&self, action: ReadAction) {
         let mut state = self.shared.lock();
@@ -338,6 +354,8 @@ impl Write for ScriptedWriter {
                     state.writes.pop_front();
                     let count = max_bytes.min(buffer.len());
                     state.accepted_writes.extend_from_slice(&buffer[..count]);
+                    drop(state);
+                    self.shared.changed.notify_all();
                     return Ok(count);
                 }
                 Some(WriteAction::Error(kind)) => {
@@ -364,21 +382,27 @@ impl SessionControl for ScriptedControl {
         let mut state = self.shared.lock();
         state.control_log.calls.push(ControlCall::Resize(size));
         state.control_log.resizes.push(size);
-        match state.resize_errors.pop_front() {
+        let result = match state.resize_errors.pop_front() {
             Some(kind) => Err(io::Error::from(kind)),
             None => Ok(()),
-        }
+        };
+        drop(state);
+        self.shared.changed.notify_all();
+        result
     }
 
     fn poll_exit(&mut self) -> io::Result<Option<SessionExit>> {
         let mut state = self.shared.lock();
         state.control_log.calls.push(ControlCall::PollExit);
         state.control_log.poll_exit_calls = state.control_log.poll_exit_calls.saturating_add(1);
-        match state.exits.pop_front().unwrap_or(ExitAction::Pending) {
+        let result = match state.exits.pop_front().unwrap_or(ExitAction::Pending) {
             ExitAction::Pending => Ok(None),
             ExitAction::Exited(exit) => Ok(Some(exit)),
             ExitAction::Error(kind) => Err(io::Error::from(kind)),
-        }
+        };
+        drop(state);
+        self.shared.changed.notify_all();
+        result
     }
 
     fn begin_close(&mut self) -> io::Result<()> {

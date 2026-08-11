@@ -411,6 +411,24 @@ impl TerminalRuntime {
         outcome
     }
 
+    /// Resizes the terminal and drains its damage into caller-owned storage.
+    pub fn resize_into<'buffers>(
+        &mut self,
+        size: TerminalSize,
+        buffers: &'buffers mut RuntimeBuffers,
+    ) -> (TerminalResizeOutcome, RuntimeDelta<'buffers>) {
+        let capacities = buffers.begin_feed();
+        let outcome = self.terminal.resize(size);
+        self.output_filter.resize(size);
+        self.terminal.drain_damage_into(buffers.damage_mut());
+        let snapshot_changed = buffers.has_damage();
+        buffers.finish_feed(capacities);
+        (
+            outcome,
+            RuntimeDelta::new(buffers, 0, snapshot_changed, false),
+        )
+    }
+
     pub fn set_scrollback_limit(&mut self, limit: usize) {
         self.terminal.set_scrollback_limit(limit);
     }
