@@ -557,16 +557,22 @@ git commit -m "refactor: return reusable terminal runtime deltas"
 - Create: `crates/rssh-runtime/src/clock.rs`
 - Create: `crates/rssh-runtime/src/testing.rs`
 - Create: `crates/rssh-runtime/tests/fake_transport.rs`
+- Modify: `crates/rssh-runtime/src/transport.rs`
 
 **Step 1: Write failing scripted-transport tests**
 
 Script partial reads/writes, read/write errors, delayed EOF, blocked writer,
 resize/control calls, and close. The virtual clock must advance without sleep.
+Retain a cloneable interrupt handle outside the reader, writer, and worker-owned
+control plane; prove that it wakes blocked read and write operations and that
+repeated interrupt/close calls are idempotent.
 
 **Step 2: Implement the narrow test ports**
 
 Keep `testing` behind `cfg(any(test, feature = "test-support"))` and ensure
 production code depends only on `Clock` and `SessionTransport` traits.
+`SessionTransport::split` returns reader, writer, control, and an independently
+owned `SessionInterrupt`; the interrupt path must not wait for the pane worker.
 
 **Step 3: Verify and commit**
 

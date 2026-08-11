@@ -280,6 +280,13 @@ bounded controller commands. A channel implementation with deterministic
 selection and capacity semantics may be introduced after measuring its build
 and runtime cost.
 
+The split transport also yields a cloneable, thread-safe interrupt handle that
+is not owned by the pane worker. Calling it is fast and idempotent and wakes
+blocked reader and writer operations. This lets the hub or deadline path begin
+shutdown even when the pane worker is blocked inside an ordered write; worker-
+owned `SessionControl` remains responsible for resize, exit status, and normal
+close progression after I/O is released.
+
 ### Bounded queues
 
 All production queues have both item and byte budgets. Initial limits are
