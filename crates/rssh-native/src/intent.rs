@@ -1,6 +1,8 @@
 use rssh_core::{PaneId, TerminalSize};
 use rssh_runtime::{PaneToken, RuntimeBatch, TerminalStateSummary};
 
+use crate::layout::PaneSplitDirection;
+
 /// Stable identifier for a controller-owned timer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TimerId(u64);
@@ -29,8 +31,17 @@ pub enum PlatformIntent {
 pub enum CommandIntent {
     OpenUri(String),
     Copy(String),
-    Paste { pane: PaneId, bytes: Vec<u8> },
+    Paste {
+        pane: PaneId,
+        bytes: Vec<u8>,
+    },
     SpawnPane,
+    SplitPane {
+        source: PaneId,
+        direction: PaneSplitDirection,
+    },
+    ActivatePane(PaneId),
+    ClosePane(PaneId),
     SpawnWindow,
     RestartPane(PaneId),
     SetTitle(String),
@@ -56,6 +67,7 @@ pub enum TimerIntent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaneLifecycleIntent {
     Opened(PaneToken),
+    Activated(PaneToken),
     Closed(PaneToken),
 }
 

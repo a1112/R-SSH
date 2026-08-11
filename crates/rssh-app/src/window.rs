@@ -81,7 +81,7 @@ use crate::{
     },
     runtime_composition::{
         ActiveWindowRuntime, PaneCapturePolicy, PaneRuntimeRoute, RuntimeComposition,
-        RuntimeHostEvent, SingleLocalPaneRuntime,
+        RuntimeHostEvent, WindowPaneRuntime,
     },
     runtime_selection::RuntimeSelection,
     terminal_runtime::{TerminalNotification, TerminalProgress, TerminalRuntime},
@@ -40615,6 +40615,16 @@ impl NativeWindowManager {
         })
     }
 
+    fn owned_app_location_for_window(
+        &self,
+        window_id: rssh_core::WindowId,
+    ) -> Option<ManagedWindowAppLocation> {
+        self.all_app_locations().into_iter().find(|location| {
+            self.app_at_location(*location)
+                .is_some_and(|app| app.app_window_id == window_id)
+        })
+    }
+
     fn all_app_locations(&self) -> Vec<ManagedWindowAppLocation> {
         let mut locations = Vec::with_capacity(
             usize::from(self.startup_app.is_some()) + self.windows.len() + self.pending_apps.len(),
@@ -40713,21 +40723,28 @@ impl NativeWindowManager {
     }
 
     fn dispatch_user_event_to_owner(&mut self, event: WindowUserEvent) -> Option<bool> {
-        let location = self.user_event_owner_location(&event)?;
-        let (_, pane_id) = event.pane_identity()?;
-        let runtime_generation = event.runtime_generation()?;
+        let (location, pane_identity) = if let WindowUserEvent::RuntimeWakeWindow { window_id } = &event {
+            (self.owned_app_location_for_window(*window_id)?, None)
+        } else {
+            let location = self.user_event_owner_location(&event)?;
+            let (_, pane_id) = event.pane_identity()?;
+            let runtime_generation = event.runtime_generation()?;
+            (location, Some((pane_id, runtime_generation)))
+        };
         let event_is_exit = matches!(&event, WindowUserEvent::Exited { .. });
         let mut app = self.take_app_at_location(location)?;
-        if !app.pane_runtime_generation_matches(pane_id, runtime_generation) {
-            self.restore_app_at_location(location, app);
-            return Some(false);
+        if let Some((pane_id, runtime_generation)) = pane_identity
+            && !app.pane_runtime_generation_matches(pane_id, runtime_generation)
+        {
+                self.restore_app_at_location(location, app);
+                return Some(false);
         }
         let owner_window_id = app.app_window_id;
         let close_window = match event {
             WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged => {
                 false
             }
-            WindowUserEvent::RuntimeWake { .. } => match app.poll_active_v2_runtime() {
+            WindowUserEvent::RuntimeWakeWindow { .. } => match app.poll_active_v2_runtime() {
                 Ok(Some(close_window)) => close_window,
                 Ok(None) => false,
                 Err(error) => {
@@ -40736,6 +40753,7 @@ impl NativeWindowManager {
                 }
             },
             WindowUserEvent::Output { bytes, .. } => {
+                let (pane_id, _) = pane_identity.expect("pane output carries a pane identity");
                 if let Err(error) = app.handle_pane_pty_output(pane_id, &bytes) {
                     eprintln!("PTY write error: {error}");
                     true
@@ -40749,12 +40767,15 @@ impl NativeWindowManager {
                 }
             }
             WindowUserEvent::Exited { .. } => {
+                let (pane_id, runtime_generation) =
+                    pane_identity.expect("pane exit carries a pane identity");
                 let status =
                     app.finish_pane_runtime_after_exit(pane_id, runtime_generation);
                 let close_window = app.apply_pane_exit_behavior_after_exit(pane_id, status);
                 app.defer_automatic_close_for_frame_limit(close_window)
             }
             WindowUserEvent::ReadError { error, .. } => {
+                let (pane_id, _) = pane_identity.expect("pane error carries a pane identity");
                 app.handle_pane_runtime_read_error(pane_id, &error)
             }
             WindowUserEvent::WriteCompleted {
@@ -40766,6 +40787,7 @@ impl NativeWindowManager {
                 false
             }
             WindowUserEvent::WriteError { error, .. } => {
+                let (pane_id, _) = pane_identity.expect("pane error carries a pane identity");
                 app.handle_pane_runtime_write_error(pane_id, &error)
             }
         };
@@ -40776,9 +40798,11 @@ impl NativeWindowManager {
             self.finalize_app_close_at_location(location)
                 .expect("event owner remains manager-owned until final removal");
         } else {
-            let owner_still_has_pane = Self::app_owns_pane(&app, pane_id);
+            let owner_still_has_pane = pane_identity
+                .is_none_or(|(pane_id, _)| Self::app_owns_pane(&app, pane_id));
             self.restore_app_at_location(location, app);
             if event_is_exit && !owner_still_has_pane {
+                let (pane_id, _) = pane_identity.expect("pane exit carries a pane identity");
                 self.remove_pane_event_routes_for_owner(owner_window_id, pane_id);
             }
         }
@@ -41080,10 +41104,8 @@ impl NativeWindowManager {
 pub(crate) enum WindowUserEvent {
     ReloadConfigurationRequested,
     ConfigFileChanged,
-    RuntimeWake {
+    RuntimeWakeWindow {
         window_id: rssh_core::WindowId,
-        pane_id: rssh_core::PaneId,
-        runtime_generation: u64,
     },
     Output {
         window_id: rssh_core::WindowId,
@@ -41120,11 +41142,10 @@ pub(crate) enum WindowUserEvent {
 impl WindowUserEvent {
     const fn pane_identity(&self) -> Option<(rssh_core::WindowId, rssh_core::PaneId)> {
         match self {
-            Self::ReloadConfigurationRequested | Self::ConfigFileChanged => None,
-            Self::RuntimeWake {
-                window_id, pane_id, ..
-            }
-            | Self::Output {
+            Self::ReloadConfigurationRequested
+            | Self::ConfigFileChanged
+            | Self::RuntimeWakeWindow { .. } => None,
+            Self::Output {
                 window_id, pane_id, ..
             }
             | Self::Exited {
@@ -41144,11 +41165,10 @@ impl WindowUserEvent {
 
     const fn runtime_generation(&self) -> Option<u64> {
         match self {
-            Self::ReloadConfigurationRequested | Self::ConfigFileChanged => None,
-            Self::RuntimeWake {
-                runtime_generation, ..
-            }
-            | Self::Output {
+            Self::ReloadConfigurationRequested
+            | Self::ConfigFileChanged
+            | Self::RuntimeWakeWindow { .. } => None,
+            Self::Output {
                 runtime_generation, ..
             }
             | Self::Exited {
@@ -41308,7 +41328,6 @@ fn start_pane_input_queue(
 
 struct PaneRuntime {
     runtime: TerminalRuntime,
-    v2_runtime: Option<SingleLocalPaneRuntime>,
     session: Option<PtySession>,
     session_process_id: Option<u32>,
     session_tty_name: Option<String>,
@@ -41322,7 +41341,10 @@ struct PaneRuntime {
 
 enum ActiveV2Close {
     Open,
-    Closed(Option<rssh_runtime::SessionExit>),
+    Closed {
+        pane: rssh_runtime::PaneToken,
+        exit: Option<rssh_runtime::SessionExit>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -41448,13 +41470,6 @@ impl PaneRuntime {
     }
 
     fn close(&mut self) -> PanePtyCleanupOutcome {
-        if let Some(mut runtime) = self.v2_runtime.take() {
-            let _ = runtime.begin_close(Duration::ZERO);
-            runtime.shutdown();
-            self.session_process_id = None;
-            self.session_tty_name = None;
-            return PanePtyCleanupOutcome::complete(None);
-        }
         stop_pty_lifecycle(
             &mut self.session,
             &mut self.session_process_id,
@@ -41466,12 +41481,6 @@ impl PaneRuntime {
     }
 
     fn finish_after_exit(&mut self) -> PanePtyCleanupOutcome {
-        if let Some(mut runtime) = self.v2_runtime.take() {
-            runtime.shutdown();
-            self.session_process_id = None;
-            self.session_tty_name = None;
-            return PanePtyCleanupOutcome::complete(None);
-        }
         finish_pty_lifecycle_after_exit(
             &mut self.session,
             &mut self.session_process_id,
@@ -44206,6 +44215,9 @@ impl NativeWindowApp {
     }
 
     fn dispatch_close_pane_action(&mut self, pane: rssh_core::PaneId) -> Result<(), AppShellError> {
+        if let Some(runtime) = self.runtime.worker_mut() {
+            let _ = runtime.begin_close_by_pane(pane, Duration::from_millis(250));
+        }
         match self.dispatch_shell_action(AppAction::ClosePane { pane }) {
             Ok(()) => Ok(()),
             Err(AppShellError::CannotCloseLastPane | AppShellError::CannotCloseLastTab) => {
@@ -45645,7 +45657,6 @@ impl NativeWindowApp {
 
     fn take_active_runtime(&mut self) -> PaneRuntime {
         let size = self.runtime.terminal().grid().size();
-        let v2_runtime = self.runtime.take_worker();
         let session = self.session.take();
         let session_process_id = self.session_process_id.take();
         let session_tty_name = self.session_tty_name.take();
@@ -45679,7 +45690,6 @@ impl NativeWindowApp {
 
         PaneRuntime {
             runtime: old_runtime,
-            v2_runtime,
             session,
             session_process_id,
             session_tty_name,
@@ -45698,7 +45708,6 @@ impl NativeWindowApp {
         let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
         PaneRuntime {
             runtime,
-            v2_runtime: None,
             session: None,
             session_process_id: None,
             session_tty_name: None,
@@ -45740,7 +45749,6 @@ impl NativeWindowApp {
         std::mem::swap(&mut runtime.snapshot, &mut runtime_snapshot);
 
         *self.runtime = runtime_runtime;
-        self.runtime.install_worker(runtime.v2_runtime.take());
         self.runtime.set_terminal_name(self.term.clone());
         self.runtime
             .set_enable_kitty_keyboard(self.enable_kitty_keyboard);
@@ -45763,6 +45771,12 @@ impl NativeWindowApp {
         self.writer_thread = runtime.writer_thread.take();
         self.active_runtime_generation = runtime.runtime_generation;
         self.active_ui = std::mem::take(&mut runtime.ui);
+        if let Some(worker) = self.runtime.worker_mut() {
+            let active = self.app_shell.active_pane_id();
+            if let Err(error) = worker.activate_pane(active) {
+                eprintln!("runtime V2 active-pane routing error: {error}");
+            }
+        }
         self.update_selection_projection();
         self.rebuild_snapshot();
 
@@ -60794,42 +60808,50 @@ impl NativeWindowApp {
         let (pty_size, runtime) = self.prepare_pane_spawn_runtime(pane_id)?;
         self.metrics.start_spawn_timer();
         let mut session = PtySession::spawn(&command, pty_size)?;
-        if self.runtime.selection() == RuntimeSelection::V2
-            && pane_id == self.app_shell.active_pane_id()
-            && self.app_shell.pane_ids().len() == 1
-            && self.active_runtime_generation == 0
-        {
+        if self.runtime.selection() == RuntimeSelection::V2 {
             let size = runtime.terminal().grid().size();
             let worker_runtime = runtime.inner;
             let runtime = self.configured_pane_terminal_runtime(size);
-            let wake_proxy = event_proxy.clone();
-            let window_id = self.app_window_id;
-            let notice_waker: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
-                let _ = wake_proxy.send_event(WindowUserEvent::RuntimeWake {
-                    window_id,
-                    pane_id,
-                    runtime_generation,
-                });
-            });
-            let composition = self.runtime.composition();
-            let (v2_runtime, session_process_id, session_tty_name) = composition.adopt_local_session(
-                PaneRuntimeRoute {
-                    window: self.app_window_id,
-                    pane: pane_id,
-                },
-                    session,
-                    size,
-                    worker_runtime,
-                    PaneCapturePolicy {
-                        host_stream: self.metrics.pty_linkage_enabled,
-                        visible_output: self.session_log.is_some(),
-                    },
-                    notice_waker,
-                )?;
+            let capture = PaneCapturePolicy {
+                host_stream: self.metrics.pty_linkage_enabled,
+                visible_output: self.session_log.is_some(),
+            };
+            let (session_process_id, session_tty_name) =
+                if let Some(v2_runtime) = self.runtime.worker_mut() {
+                    let (token, process_id, tty_name) = v2_runtime.adopt_additional_local_session(
+                        pane_id,
+                        session,
+                        size,
+                        worker_runtime,
+                        capture,
+                    )?;
+                    v2_runtime.activate(token)?;
+                    (process_id, tty_name)
+                } else {
+                    let wake_proxy = event_proxy.clone();
+                    let window_id = self.app_window_id;
+                    let notice_waker: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+                        let _ = wake_proxy
+                            .send_event(WindowUserEvent::RuntimeWakeWindow { window_id });
+                    });
+                    let composition = self.runtime.composition();
+                    let (v2_runtime, process_id, tty_name) = composition.adopt_local_session(
+                        PaneRuntimeRoute {
+                            window: self.app_window_id,
+                            pane: pane_id,
+                        },
+                        session,
+                        size,
+                        worker_runtime,
+                        capture,
+                        notice_waker,
+                    )?;
+                    self.runtime.install_worker(Some(v2_runtime));
+                    (process_id, tty_name)
+                };
             let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
             return Ok(PaneRuntime {
                 runtime,
-                v2_runtime: Some(v2_runtime),
                 session: None,
                 session_process_id,
                 session_tty_name,
@@ -60902,7 +60924,6 @@ impl NativeWindowApp {
 
         Ok(PaneRuntime {
             runtime,
-            v2_runtime: None,
             session: Some(session),
             session_process_id,
             session_tty_name,
@@ -61052,7 +61073,7 @@ impl NativeWindowApp {
                         .is_some_and(|thread| !thread.is_finished()),
                 )
             },
-            SingleLocalPaneRuntime::live_thread_count_for_metrics,
+            WindowPaneRuntime::live_thread_count_for_metrics,
         );
         snapshot
     }
@@ -92076,7 +92097,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
             if app
                 .runtime
                 .worker()
-                .is_some_and(SingleLocalPaneRuntime::needs_poll)
+                .is_some_and(WindowPaneRuntime::needs_poll)
             {
                 let deadline = now + Duration::from_millis(1);
                 next_frame_limit_redraw = Some(
@@ -92132,23 +92153,14 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
             WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged => {
                 self.reload_configuration();
             }
-            WindowUserEvent::RuntimeWake {
-                pane_id,
-                runtime_generation,
-                ..
-            } => {
-                if !self.pane_runtime_generation_matches(pane_id, runtime_generation) {
-                    return;
+            WindowUserEvent::RuntimeWakeWindow { .. } => match self.poll_active_v2_runtime() {
+                Ok(Some(true)) => event_loop.exit(),
+                Ok(Some(false) | None) => {}
+                Err(error) => {
+                    eprintln!("runtime V2 host error: {error}");
+                    event_loop.exit();
                 }
-                match self.poll_active_v2_runtime() {
-                    Ok(Some(true)) => event_loop.exit(),
-                    Ok(Some(false) | None) => {}
-                    Err(error) => {
-                        eprintln!("runtime V2 host error: {error}");
-                        event_loop.exit();
-                    }
-                }
-            }
+            },
             WindowUserEvent::Output {
                 pane_id,
                 runtime_generation,
@@ -158102,45 +158114,6 @@ return config
         assert_eq!(
             manager.startup_app.as_ref().map(|app| app.active_pane_id()),
             Some(rssh_core::PaneId::new(2))
-        );
-    }
-
-    #[test]
-    fn window_manager_declared_owner_wins_over_relocation_route_on_pane_id_collision() {
-        let mut declared = NativeWindowApp::new(None);
-        declared.handle_pty_output(b"declared").unwrap();
-        let mut collision = NativeWindowApp::new(None);
-        collision.app_window_id = rssh_core::WindowId::new(2);
-        collision.handle_pty_output(b"collision").unwrap();
-        let mut manager = NativeWindowManager::new_for_test(declared);
-        manager.pending_apps.push(Box::new(collision));
-        manager.pane_event_routes.insert(
-            (rssh_core::WindowId::new(1), rssh_core::PaneId::new(1)),
-            rssh_core::WindowId::new(2),
-        );
-
-        assert_eq!(
-            manager.dispatch_user_event_to_owner(WindowUserEvent::Output {
-                window_id: rssh_core::WindowId::new(1),
-                pane_id: rssh_core::PaneId::new(1),
-                runtime_generation: 0,
-                bytes: b"-owner".to_vec(),
-            }),
-            Some(false)
-        );
-        assert_eq!(
-            manager
-                .startup_app
-                .as_ref()
-                .map(|app| snapshot_row_text(&app.snapshot, 0, 14)),
-            Some("declared-owner".to_owned())
-        );
-        assert_eq!(
-            manager
-                .pending_apps
-                .first()
-                .map(|app| snapshot_row_text(&app.snapshot, 0, 9)),
-            Some("collision".to_owned())
         );
     }
 
@@ -230354,6 +230327,10 @@ act.Confirmation {
 #[cfg(test)]
 #[path = "window_restart_pane_tests.rs"]
 mod window_restart_pane_tests;
+
+#[cfg(test)]
+#[path = "window_runtime_hub_tests.rs"]
+mod window_runtime_hub_tests;
 
 #[cfg(test)]
 #[path = "window_inspect_pane_tests.rs"]

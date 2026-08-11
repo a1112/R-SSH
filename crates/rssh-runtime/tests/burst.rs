@@ -117,6 +117,7 @@ fn sixty_four_mebibyte_burst_stays_bounded_coalesced_and_lossless() {
                 assert_eq!(pane, token);
                 break;
             }
+            PaneNotice::InputWriteCompleted { .. } | PaneNotice::FirstPtyByte { .. } => {}
         }
     }
 

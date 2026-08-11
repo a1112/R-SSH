@@ -72,6 +72,8 @@ pub struct RuntimeHub<C = SystemClock> {
     clock: C,
     allocator: PaneTokenAllocator,
     panes: HashMap<PaneId, PaneSlot>,
+    pane_order: Vec<PaneId>,
+    fair_drain_cursor: usize,
     notice_sender: MailboxSender<PaneNotice>,
     notice_receiver: MailboxReceiver<PaneNotice>,
     reaper: WorkerReaper,
@@ -107,6 +109,8 @@ impl<C: Clock> RuntimeHub<C> {
             clock,
             allocator: PaneTokenAllocator::new(),
             panes: HashMap::new(),
+            pane_order: Vec::new(),
+            fair_drain_cursor: 0,
             notice_sender,
             notice_receiver,
             reaper: WorkerReaper::default(),
@@ -176,6 +180,9 @@ impl<C: Clock> RuntimeHub<C> {
                 close_deadline: None,
             },
         );
+        if !self.pane_order.contains(&pane) {
+            self.pane_order.push(pane);
+        }
         Ok(handle)
     }
 
@@ -190,11 +197,36 @@ impl<C: Clock> RuntimeHub<C> {
         transport: T,
         config: PaneWorkerConfig,
     ) -> Result<PaneHandle, OpenPaneError> {
+        let runtime = TerminalRuntime::new(config.size);
+        self.restart_with_runtime(pane, transport, config, runtime)
+    }
+
+    /// Replaces a logical pane with a caller-configured runtime and fresh generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::open_with_runtime`] for the replacement
+    /// session.
+    pub fn restart_with_runtime<T: SessionTransport>(
+        &mut self,
+        pane: PaneId,
+        transport: T,
+        config: PaneWorkerConfig,
+        runtime: TerminalRuntime,
+    ) -> Result<PaneHandle, OpenPaneError> {
+        let order_position = self
+            .pane_order
+            .iter()
+            .position(|candidate| *candidate == pane);
         if let Some(token) = self.panes.get(&pane).map(|slot| slot.token) {
             let _ = self.begin_close(token, Duration::ZERO);
             let _ = self.reap_expired();
         }
-        self.open(pane, transport, config)
+        let handle = self.open_with_runtime(pane, transport, config, runtime)?;
+        if let Some(position) = order_position {
+            self.reposition_pane(pane, position);
+        }
+        Ok(handle)
     }
 
     /// Begins orderly close and records the external-interrupt deadline.
@@ -234,6 +266,7 @@ impl<C: Clock> RuntimeHub<C> {
                 if let Some(join) = slot.join.take() {
                     self.reaper.handoff(join);
                 }
+                self.remove_pane_order(*pane);
             }
         }
         self.reaper.reap_finished();
@@ -300,6 +333,41 @@ impl<C: Clock> RuntimeHub<C> {
         Some(slot.publication.drain(max_effects))
     }
 
+    /// Drains ready panes in stable round-robin order.
+    ///
+    /// A pane that continuously republishes cannot jump ahead of already-ready
+    /// work from a later pane in the logical ownership order.
+    #[must_use]
+    pub fn drain_ready_fair(
+        &mut self,
+        max_panes: usize,
+        max_effects_per_pane: usize,
+    ) -> Vec<(PaneToken, PaneDrain)> {
+        if max_panes == 0 || self.pane_order.is_empty() {
+            return Vec::new();
+        }
+        let pane_count = self.pane_order.len();
+        let start = self.fair_drain_cursor % pane_count;
+        let mut drained = Vec::new();
+        for offset in 0..pane_count {
+            if drained.len() == max_panes {
+                break;
+            }
+            let index = (start + offset) % pane_count;
+            let pane = self.pane_order[index];
+            let Some(slot) = self
+                .panes
+                .get(&pane)
+                .filter(|slot| slot.publication.has_work())
+            else {
+                continue;
+            };
+            drained.push((slot.token, slot.publication.drain(max_effects_per_pane)));
+            self.fair_drain_cursor = (index + 1) % pane_count;
+        }
+        drained
+    }
+
     /// Returns publication, replacement, wake, and effect high-water metrics.
     #[must_use]
     pub fn publication_metrics(&self, token: PaneToken) -> Option<PanePublicationMetrics> {
@@ -348,6 +416,7 @@ impl<C: Clock> RuntimeHub<C> {
             if let Some(join) = slot.join.take() {
                 self.reaper.handoff(join);
             }
+            self.remove_pane_order(pane);
             self.reaper.reap_finished();
         }
     }
@@ -369,6 +438,32 @@ impl<C: Clock> RuntimeHub<C> {
         let notice = self.pending_closed.remove(&token)?;
         self.finish_closed_slot(&notice);
         Some(notice)
+    }
+
+    fn remove_pane_order(&mut self, pane: PaneId) {
+        let Some(position) = self
+            .pane_order
+            .iter()
+            .position(|candidate| *candidate == pane)
+        else {
+            return;
+        };
+        self.pane_order.remove(position);
+        if self.pane_order.is_empty() {
+            self.fair_drain_cursor = 0;
+        } else {
+            if position < self.fair_drain_cursor {
+                self.fair_drain_cursor -= 1;
+            }
+            self.fair_drain_cursor %= self.pane_order.len();
+        }
+    }
+
+    fn reposition_pane(&mut self, pane: PaneId, position: usize) {
+        self.remove_pane_order(pane);
+        let position = position.min(self.pane_order.len());
+        self.pane_order.insert(position, pane);
+        self.fair_drain_cursor = self.fair_drain_cursor.min(self.pane_order.len() - 1);
     }
 }
 

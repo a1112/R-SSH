@@ -3,6 +3,8 @@ use std::num::NonZeroU64;
 use rssh_core::{DamageRegion, TerminalSize};
 use rssh_runtime::{EffectSequence, PaneToken, RuntimeRevision, TerminalStateSummary};
 
+use crate::PaneSplitDirection;
+
 /// Ordering identity attached to a lossless host-facing runtime effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostEffectContext {
@@ -123,6 +125,10 @@ pub enum PersistenceEffect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnEffect {
     Pane,
+    SplitPane {
+        source: PaneToken,
+        direction: PaneSplitDirection,
+    },
     Window,
 }
 

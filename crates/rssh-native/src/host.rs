@@ -240,7 +240,9 @@ impl<P: HostPorts, C: Clock> WinitHost<P, C> {
     ) -> Result<HostTurn, HostError> {
         let turn = self.dispatch_intent(WindowIntent::PaneLifecycle(event))?;
         let token = match event {
-            PaneLifecycleIntent::Opened(token) | PaneLifecycleIntent::Closed(token) => token,
+            PaneLifecycleIntent::Opened(token)
+            | PaneLifecycleIntent::Activated(token)
+            | PaneLifecycleIntent::Closed(token) => token,
         };
         let current = self.state.panes.get(&token.pane()).map(|pane| pane.token);
         self.continuation_pending

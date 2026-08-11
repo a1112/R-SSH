@@ -64,6 +64,32 @@ fn reduce_command(state: &mut WindowState, intent: CommandIntent, effects: &mut 
             }
         }
         CommandIntent::SpawnPane => effects.push(WindowEffect::Spawn(SpawnEffect::Pane)),
+        CommandIntent::SplitPane { source, direction } => {
+            if let Some(pane) = state.panes.get(&source).filter(|pane| !pane.closing) {
+                effects.push(WindowEffect::Spawn(SpawnEffect::SplitPane {
+                    source: pane.token,
+                    direction,
+                }));
+            }
+        }
+        CommandIntent::ActivatePane(pane_id) => {
+            let Some(token) = state.panes.get(&pane_id).map(|pane| pane.token) else {
+                return;
+            };
+            reduce_pane_lifecycle(state, PaneLifecycleIntent::Activated(token), effects);
+        }
+        CommandIntent::ClosePane(pane_id) => {
+            let Some(pane) = state.panes.get_mut(&pane_id) else {
+                return;
+            };
+            if pane.closing {
+                return;
+            }
+            pane.closing = true;
+            effects.push(WindowEffect::Runtime(RuntimePortEffect::BeginClose {
+                pane: pane.token,
+            }));
+        }
         CommandIntent::SpawnWindow => effects.push(WindowEffect::Spawn(SpawnEffect::Window)),
         CommandIntent::RestartPane(pane_id) => {
             if let Some(pane) = state.panes.get_mut(&pane_id) {
@@ -261,11 +287,43 @@ fn reduce_pane_lifecycle(
             {
                 return;
             }
+            if !state.pane_order.contains(&token.pane()) {
+                state.pane_order.push(token.pane());
+            }
             state.panes.insert(token.pane(), PaneState::new(token));
+            if state.active_pane.is_none() {
+                state.active_pane = Some(token.pane());
+            }
+        }
+        PaneLifecycleIntent::Activated(token) => {
+            if state.panes.get(&token.pane()).map(|pane| pane.token) != Some(token)
+                || state.active_pane == Some(token.pane())
+            {
+                return;
+            }
+            state.active_pane = Some(token.pane());
+            request_redraw(state, effects);
         }
         PaneLifecycleIntent::Closed(token) => {
             if state.panes.get(&token.pane()).map(|pane| pane.token) == Some(token) {
                 state.panes.remove(&token.pane());
+                let closed_position = state
+                    .pane_order
+                    .iter()
+                    .position(|pane| *pane == token.pane());
+                if let Some(position) = closed_position {
+                    state.pane_order.remove(position);
+                    if state.active_pane == Some(token.pane()) {
+                        state.active_pane = state
+                            .pane_order
+                            .get(position)
+                            .or_else(|| state.pane_order.last())
+                            .copied();
+                        if !state.lifecycle.closing {
+                            request_redraw(state, effects);
+                        }
+                    }
+                }
                 if state.lifecycle.closing && state.panes.is_empty() {
                     effects.push(WindowEffect::Window(WindowPortEffect::CloseNow));
                 }

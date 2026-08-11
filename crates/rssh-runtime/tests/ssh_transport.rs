@@ -6,8 +6,11 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rssh_core::TerminalSize;
-use rssh_runtime::{SessionControl, SessionInterrupt, SessionTransport, SshTransport};
+use rssh_core::{PaneId, TerminalSize};
+use rssh_runtime::{
+    PaneNotice, PaneWorkerConfig, RuntimeEffectKind, RuntimeHub, SessionControl, SessionInterrupt,
+    SessionTransport, SshTransport,
+};
 use rssh_ssh::{
     SshConnectRequest, SshExitSignal, SshSessionConfig, SshSessionError, SshSessionResult,
     SshShellConnector, SshShellReader, SshShellSession, SshShellWriter,
@@ -315,4 +318,78 @@ fn ssh_adapter_reports_clean_disconnect_without_inventing_exit_metadata() {
             signal: None,
         })
     );
+}
+
+#[test]
+fn runtime_hub_reconnects_ssh_with_a_fresh_generation_and_no_stale_output() {
+    let mut hub = RuntimeHub::new(rssh_runtime::SystemClock);
+    let config = PaneWorkerConfig {
+        capture_host_stream: true,
+        ..PaneWorkerConfig::default()
+    };
+    let first = SshTransport::from_session(Box::new(Session {
+        reader: Reader {
+            chunks: VecDeque::from([b"first-ssh-generation".to_vec()]),
+            result: SshSessionResult {
+                exit_status: Some(0),
+                exit_signal: None,
+            },
+        },
+        writer: Writer {
+            state: Arc::new(Mutex::new(State::default())),
+        },
+    }));
+    let first = hub
+        .open(PaneId::new(401), first, config)
+        .expect("open first SSH generation");
+    assert_eq!(
+        drain_host_stream_until_closed(&mut hub, first.token()),
+        b"first-ssh-generation"
+    );
+
+    let second_transport = SshTransport::from_session(Box::new(Session {
+        reader: Reader {
+            chunks: VecDeque::from([b"second-ssh-generation".to_vec()]),
+            result: SshSessionResult {
+                exit_status: Some(7),
+                exit_signal: None,
+            },
+        },
+        writer: Writer {
+            state: Arc::new(Mutex::new(State::default())),
+        },
+    }));
+    let second = hub
+        .restart(PaneId::new(401), second_transport, config)
+        .expect("reconnect SSH generation");
+    assert_ne!(first.token().generation(), second.token().generation());
+    assert_eq!(
+        drain_host_stream_until_closed(&mut hub, second.token()),
+        b"second-ssh-generation"
+    );
+    hub.shutdown();
+    assert_eq!(hub.live_thread_count(), 0);
+}
+
+fn drain_host_stream_until_closed(hub: &mut RuntimeHub, token: rssh_runtime::PaneToken) -> Vec<u8> {
+    let mut output = Vec::new();
+    loop {
+        match hub.recv_notice().expect("SSH generation notice") {
+            PaneNotice::Ready(pane) if pane == token => {}
+            PaneNotice::Wake(pane) if pane == token => {
+                let drain = hub
+                    .drain_pane(token, usize::MAX)
+                    .expect("drain current SSH generation");
+                for published in drain.effects {
+                    if let RuntimeEffectKind::HostStream(bytes) = published.effect.kind() {
+                        output.extend_from_slice(bytes);
+                    }
+                }
+            }
+            PaneNotice::Closed { pane, .. } if pane == token => break,
+            PaneNotice::FirstPtyByte { pane, .. } if pane == token => {}
+            notice => panic!("unexpected SSH generation notice: {notice:?}"),
+        }
+    }
+    output
 }

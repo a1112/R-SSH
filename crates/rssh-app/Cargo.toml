@@ -38,6 +38,7 @@ wezterm-color-types = "=0.3.0"
 winit = "0.30"
 
 [dev-dependencies]
+rssh-runtime = { path = "../rssh-runtime", version = "0.1.0", features = ["test-support", "transport-adapters"] }
 rssh-test-support = { path = "../rssh-test-support", version = "0.1.0" }
 sha2 = "0.11"
 

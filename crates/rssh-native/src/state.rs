@@ -54,6 +54,7 @@ pub struct PaneState {
     pub progress: RuntimeProgress,
     pub user_vars: HashMap<String, String>,
     pub restarting: bool,
+    pub closing: bool,
     pub effect_sequence: EffectSequenceCursor,
 }
 
@@ -70,6 +71,7 @@ impl PaneState {
             progress: RuntimeProgress::None,
             user_vars: HashMap::new(),
             restarting: false,
+            closing: false,
             effect_sequence: EffectSequenceCursor::default(),
         }
     }
@@ -84,4 +86,6 @@ pub struct WindowState {
     pub config: ConfigState,
     pub timers: TimerState,
     pub panes: HashMap<PaneId, PaneState>,
+    pub pane_order: Vec<PaneId>,
+    pub active_pane: Option<PaneId>,
 }

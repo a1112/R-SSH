@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     error::Error,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -78,7 +78,7 @@ impl RuntimeComposition {
         notice_waker: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<SpawnedLocalPane, Box<dyn Error>> {
         debug_assert_eq!(self.selection(), RuntimeSelection::V2);
-        SingleLocalPaneRuntime::adopt_local_session(
+        WindowPaneRuntime::adopt_local_session(
             route,
             session,
             size,
@@ -142,16 +142,17 @@ pub(crate) enum RuntimeHostEvent {
     },
     RequestRedraw,
     Closed {
+        pane: PaneToken,
         exit: Option<SessionExit>,
     },
 }
 
-pub(crate) struct SingleLocalPaneRuntime {
+pub(crate) struct WindowPaneRuntime {
     host: WinitHost<RuntimePorts>,
     token: PaneToken,
-    handle: PaneHandle,
     closed: bool,
-    pending_commands: PendingPaneCommandQueue,
+    pending_commands: HashMap<PaneId, PendingPaneCommandQueue>,
+    closing: HashSet<PaneToken>,
 }
 
 const MAX_PENDING_INPUT_CHUNK_BYTES: usize = 64 * 1024;
@@ -251,12 +252,13 @@ impl PendingPaneCommandQueue {
     }
 }
 
-pub(crate) type SpawnedLocalPane = (SingleLocalPaneRuntime, Option<u32>, Option<String>);
+pub(crate) type SpawnedLocalPane = (WindowPaneRuntime, Option<u32>, Option<String>);
+pub(crate) type AdoptedLocalPane = (PaneToken, Option<u32>, Option<String>);
 
 pub(crate) struct ActiveWindowRuntime {
     composition: RuntimeComposition,
     presentation: TerminalRuntime,
-    worker: Option<SingleLocalPaneRuntime>,
+    worker: Option<WindowPaneRuntime>,
 }
 
 impl ActiveWindowRuntime {
@@ -280,19 +282,19 @@ impl ActiveWindowRuntime {
         self.composition
     }
 
-    pub(crate) const fn worker(&self) -> Option<&SingleLocalPaneRuntime> {
+    pub(crate) const fn worker(&self) -> Option<&WindowPaneRuntime> {
         self.worker.as_ref()
     }
 
-    pub(crate) fn worker_mut(&mut self) -> Option<&mut SingleLocalPaneRuntime> {
+    pub(crate) fn worker_mut(&mut self) -> Option<&mut WindowPaneRuntime> {
         self.worker.as_mut()
     }
 
-    pub(crate) fn install_worker(&mut self, worker: Option<SingleLocalPaneRuntime>) {
+    pub(crate) fn install_worker(&mut self, worker: Option<WindowPaneRuntime>) {
         self.worker = worker;
     }
 
-    pub(crate) fn take_worker(&mut self) -> Option<SingleLocalPaneRuntime> {
+    pub(crate) fn take_worker(&mut self) -> Option<WindowPaneRuntime> {
         self.worker.take()
     }
 }
@@ -311,7 +313,7 @@ impl DerefMut for ActiveWindowRuntime {
     }
 }
 
-impl SingleLocalPaneRuntime {
+impl WindowPaneRuntime {
     fn adopt_local_session(
         route: PaneRuntimeRoute,
         session: PtySession,
@@ -360,9 +362,9 @@ impl SingleLocalPaneRuntime {
         Ok(Self {
             host,
             token,
-            handle,
             closed: false,
-            pending_commands: PendingPaneCommandQueue::new(),
+            pending_commands: HashMap::from([(route.pane, PendingPaneCommandQueue::new())]),
+            closing: HashSet::new(),
         })
     }
 
@@ -370,26 +372,162 @@ impl SingleLocalPaneRuntime {
         self.token
     }
 
-    pub(crate) fn submit_input(&mut self, bytes: &[u8]) -> std::io::Result<()> {
-        let handle = self.handle.clone();
+    fn add_transport<T: SessionTransport>(
+        &mut self,
+        pane: PaneId,
+        transport: T,
+        config: PaneWorkerConfig,
+        runtime: rssh_runtime::TerminalRuntime,
+    ) -> Result<PaneToken, Box<dyn Error>> {
+        let replacing = self.host.state().panes.contains_key(&pane);
+        let handle = if replacing {
+            self.host
+                .ports_mut()
+                .hub
+                .restart_with_runtime(pane, transport, config, runtime)?
+        } else {
+            self.host
+                .ports_mut()
+                .hub
+                .open_with_runtime(pane, transport, config, runtime)?
+        };
+        let token = handle.token();
+        self.host.ports_mut().handles.insert(pane, handle);
         self.pending_commands
+            .insert(pane, PendingPaneCommandQueue::new());
+        self.host
+            .handle(PlatformEvent::PaneLifecycle(PaneLifecycleIntent::Opened(
+                token,
+            )))?;
+        self.closing.retain(|closing| closing.pane() != pane);
+        self.closed = false;
+        Ok(token)
+    }
+
+    pub(crate) fn adopt_additional_local_session(
+        &mut self,
+        pane: PaneId,
+        session: PtySession,
+        size: TerminalSize,
+        terminal: rssh_runtime::TerminalRuntime,
+        capture: PaneCapturePolicy,
+    ) -> Result<AdoptedLocalPane, Box<dyn Error>> {
+        let process_id = session.process_id();
+        let tty_name = session.tty_name();
+        let transport = LocalPtyTransport::from_session(session)?;
+        let config = PaneWorkerConfig {
+            size,
+            capture_host_stream: capture.host_stream,
+            capture_visible_output: capture.visible_output,
+            ..PaneWorkerConfig::default()
+        };
+        let token = self.add_transport(pane, transport, config, terminal)?;
+        Ok((token, process_id, tty_name))
+    }
+
+    pub(crate) fn pane_tokens(&self) -> Vec<PaneToken> {
+        self.host
+            .state()
+            .pane_order
+            .iter()
+            .filter_map(|pane| self.host.state().panes.get(pane).map(|state| state.token))
+            .collect()
+    }
+
+    #[cfg(test)]
+    fn active_token(&self) -> PaneToken {
+        self.token
+    }
+
+    pub(crate) fn activate(&mut self, token: PaneToken) -> Result<(), Box<dyn Error>> {
+        self.host.handle(PlatformEvent::PaneLifecycle(
+            PaneLifecycleIntent::Activated(token),
+        ))?;
+        if self.host.state().active_pane == Some(token.pane()) {
+            self.token = token;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn activate_pane(&mut self, pane: PaneId) -> Result<(), Box<dyn Error>> {
+        let token = self
+            .host
+            .state()
+            .panes
+            .get(&pane)
+            .map(|state| state.token)
+            .ok_or_else(|| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("runtime V2 pane {} is not open", pane.get()),
+                )) as Box<dyn Error>
+            })?;
+        self.activate(token)
+    }
+
+    pub(crate) fn submit_input(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        let handle = self
+            .host
+            .ports()
+            .handles
+            .get(&self.token.pane())
+            .filter(|handle| handle.token() == self.token)
+            .cloned()
+            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::BrokenPipe))?;
+        self.pending_commands
+            .get_mut(&self.token.pane())
+            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::BrokenPipe))?
             .submit_input(bytes, move |command| submit_pane_command(&handle, command))
     }
 
-    pub(crate) fn resize(&mut self, size: TerminalSize) -> std::io::Result<()> {
-        let handle = self.handle.clone();
-        self.pending_commands
-            .submit_resize(size, move |command| submit_pane_command(&handle, command))
+    pub(crate) fn resize_all(&mut self, size: TerminalSize) -> std::io::Result<()> {
+        let panes = self.pane_tokens();
+        for token in panes {
+            let handle = self
+                .host
+                .ports()
+                .handles
+                .get(&token.pane())
+                .filter(|handle| handle.token() == token)
+                .cloned()
+                .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::BrokenPipe))?;
+            self.pending_commands
+                .get_mut(&token.pane())
+                .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::BrokenPipe))?
+                .submit_resize(size, move |command| submit_pane_command(&handle, command))?;
+        }
+        Ok(())
     }
 
     pub(crate) fn begin_close(&mut self, grace: Duration) -> bool {
-        self.host.ports_mut().hub.begin_close(self.token, grace)
+        self.begin_close_pane(self.token, grace)
+    }
+
+    fn begin_close_pane(&mut self, token: PaneToken, grace: Duration) -> bool {
+        if self.closing.contains(&token) || !self.host.ports_mut().hub.begin_close(token, grace) {
+            return false;
+        }
+        self.closing.insert(token);
+        true
+    }
+
+    pub(crate) fn begin_close_by_pane(&mut self, pane: PaneId, grace: Duration) -> bool {
+        let Some(token) = self.host.state().panes.get(&pane).map(|state| state.token) else {
+            return false;
+        };
+        self.begin_close_pane(token, grace)
     }
 
     pub(crate) fn poll(&mut self) -> Result<Vec<RuntimeHostEvent>, Box<dyn Error>> {
-        let handle = self.handle.clone();
-        self.pending_commands
-            .flush(move |command| submit_pane_command(&handle, command))?;
+        let pending_panes = self.pending_commands.keys().copied().collect::<Vec<_>>();
+        for pane in pending_panes {
+            let Some(handle) = self.host.ports().handles.get(&pane).cloned() else {
+                continue;
+            };
+            if let Some(pending) = self.pending_commands.get_mut(&pane) {
+                pending.flush(move |command| submit_pane_command(&handle, command))?;
+            }
+        }
         let continuations = self.host.ports_mut().take_continuations();
         for pane in continuations {
             self.host
@@ -425,11 +563,25 @@ impl SingleLocalPaneRuntime {
                         .handle(PlatformEvent::PaneLifecycle(PaneLifecycleIntent::Closed(
                             pane,
                         )))?;
-                    self.closed = true;
+                    self.host.ports_mut().handles.remove(&pane.pane());
+                    self.pending_commands.remove(&pane.pane());
+                    self.closing.remove(&pane);
+                    if self.token == pane
+                        && let Some(active) = self.host.state().active_pane.and_then(|active| {
+                            self.host
+                                .state()
+                                .panes
+                                .get(&active)
+                                .map(|state| state.token)
+                        })
+                    {
+                        self.token = active;
+                    }
+                    self.closed = self.host.state().panes.is_empty();
                     self.host
                         .ports_mut()
                         .events
-                        .push_back(RuntimeHostEvent::Closed { exit });
+                        .push_back(RuntimeHostEvent::Closed { pane, exit });
                 }
             }
         }
@@ -437,7 +589,10 @@ impl SingleLocalPaneRuntime {
     }
 
     pub(crate) fn needs_poll(&self) -> bool {
-        !self.pending_commands.is_empty() || !self.host.ports().continuations.is_empty()
+        self.pending_commands
+            .values()
+            .any(|pending| !pending.is_empty())
+            || !self.host.ports().continuations.is_empty()
     }
 
     pub(crate) fn live_thread_count_for_metrics(&self) -> usize {
@@ -457,7 +612,7 @@ fn submit_pane_command(handle: &PaneHandle, command: PendingPaneCommand) -> Subm
     }
 }
 
-impl Drop for SingleLocalPaneRuntime {
+impl Drop for WindowPaneRuntime {
     fn drop(&mut self) {
         self.shutdown();
     }
@@ -566,7 +721,7 @@ impl HostPorts for RuntimePorts {
                 Ok(())
             }
             RuntimePortEffect::Restart { .. } => Err(Self::unavailable(
-                "single-pane V2 selector does not own restart",
+                "runtime selector does not own pane restart",
             )),
         }
     }
@@ -682,7 +837,7 @@ impl HostPorts for RuntimePorts {
 
     fn spawn(&mut self, _effect: &SpawnEffect) -> Result<(), PortError> {
         Err(Self::unavailable(
-            "single-pane V2 selector does not own spawning",
+            "runtime selector does not own pane spawning",
         ))
     }
 
@@ -775,11 +930,78 @@ impl HostPorts for RuntimePorts {
 
 #[cfg(test)]
 mod tests {
-    use rssh_runtime::SubmitResult;
+    use std::sync::Arc;
+
+    use rssh_core::{PaneId, WindowId};
+    use rssh_runtime::{
+        PaneWorkerConfig, SubmitResult, TerminalRuntime,
+        testing::{ReadAction, ScriptedTransport, WriteAction},
+    };
 
     use super::{
-        MAX_PENDING_INPUT_CHUNK_BYTES, PendingPaneCommand, PendingPaneCommandQueue, TerminalSize,
+        MAX_PENDING_INPUT_CHUNK_BYTES, PaneCapturePolicy, PaneRuntimeRoute, PendingPaneCommand,
+        PendingPaneCommandQueue, TerminalSize, WindowPaneRuntime,
     };
+
+    #[test]
+    fn window_runtime_owns_multiple_pane_workers_and_active_selection() {
+        let size = TerminalSize::new(80, 24);
+        let (first_transport, first_driver) =
+            ScriptedTransport::new([ReadAction::Block], [WriteAction::accept(usize::MAX)], []);
+        let mut runtime = WindowPaneRuntime::open_transport(
+            PaneRuntimeRoute {
+                window: WindowId::new(1),
+                pane: PaneId::new(201),
+            },
+            first_transport,
+            size,
+            TerminalRuntime::new(size),
+            PaneCapturePolicy {
+                host_stream: false,
+                visible_output: false,
+            },
+            Arc::new(|| {}),
+        )
+        .expect("open first pane");
+        let first = runtime.token();
+        let (second_transport, second_driver) =
+            ScriptedTransport::new([ReadAction::Block], [WriteAction::accept(usize::MAX)], []);
+        let second = runtime
+            .add_transport(
+                PaneId::new(202),
+                second_transport,
+                PaneWorkerConfig::default(),
+                TerminalRuntime::new(size),
+            )
+            .expect("open second pane");
+
+        assert_eq!(runtime.pane_tokens(), vec![first, second]);
+        runtime.activate(second).expect("activate second pane");
+        assert_eq!(runtime.active_token(), second);
+        let resized = TerminalSize::new(120, 40);
+        runtime.resize_all(resized).expect("resize all panes");
+        first_driver.wait_until_control_call_count(1);
+        second_driver.wait_until_control_call_count(1);
+        assert_eq!(first_driver.control_log().resizes, vec![resized]);
+        assert_eq!(second_driver.control_log().resizes, vec![resized]);
+        assert!(runtime.begin_close_pane(first, std::time::Duration::ZERO));
+        assert!(!runtime.begin_close_pane(first, std::time::Duration::ZERO));
+        runtime.shutdown();
+        assert_eq!(runtime.live_thread_count_for_metrics(), 0);
+    }
+
+    #[test]
+    fn v2_worker_ownership_is_window_scoped_instead_of_pane_scoped() {
+        let window_source = include_str!("window.rs");
+        assert!(
+            !window_source.contains("v2_runtime: Option<WindowPaneRuntime>"),
+            "pane-local ownership would create one RuntimeHub per pane"
+        );
+        assert!(
+            !window_source.contains("self.app_shell.pane_ids().len() == 1"),
+            "V2 ownership must not silently fall back after the first pane"
+        );
+    }
 
     #[test]
     fn pending_input_retries_in_order_after_runtime_backpressure() {
