@@ -68,9 +68,9 @@
         "function_lines": 667
       },
       "crates/rssh-app/src/window.rs": {
-        "file_lines": 207024,
+        "file_lines": 206990,
         "struct_fields": 269,
-        "impl_lines": 20741,
+        "impl_lines": 20648,
         "function_lines": 2168,
         "unbounded_channels": 9
       }

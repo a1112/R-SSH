@@ -39777,6 +39777,83 @@ impl NativeWindowStartup {
     }
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "nested options distinguish absent, explicit nil, and concrete values"
+)]
+#[derive(Clone)]
+struct NativeAppliedPaletteConfig {
+    selection_word_boundary: String,
+    term: String,
+    enq_answerback: String,
+    audible_bell: NativeAudibleBell,
+    visual_bell: NativeVisualBell,
+    colors: Option<Box<NativePalette>>,
+    color_scheme: Option<String>,
+    color_scheme_dirs: Vec<String>,
+    color_schemes: HashMap<String, NativeResolvedPalette>,
+    foreground_color: Color,
+    background_color: Color,
+    ansi_palette: Option<[Color; 16]>,
+    indexed_palette: Option<[Option<Color>; 256]>,
+    selection_fg_color: Option<Option<Color>>,
+    selection_bg_color: Option<Color>,
+    cursor_bg_color: Color,
+    cursor_border_color: Option<Color>,
+    cursor_fg_color: Option<Color>,
+    compose_cursor_color: Option<Color>,
+    split_color: Option<Color>,
+    scrollbar_thumb_color: Option<Color>,
+    tab_bar_background_color: Option<Color>,
+    tab_bar_inactive_tab_edge_color: Option<Color>,
+    tab_bar_active_tab_colors: NativeTabBarItemColors,
+    tab_bar_inactive_tab_colors: NativeTabBarItemColors,
+    tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors,
+    tab_bar_new_tab_colors: NativeTabBarItemColors,
+    tab_bar_new_tab_hover_colors: NativeTabBarItemColors,
+    tab_bar_style: NativeTabBarStyle,
+    visual_bell_color: Option<Color>,
+    notification_handling: NativeNotificationHandling,
+}
+
+impl Default for NativeAppliedPaletteConfig {
+    fn default() -> Self {
+        Self {
+            selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
+            term: DEFAULT_TERM.to_owned(),
+            enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
+            audible_bell: DEFAULT_AUDIBLE_BELL,
+            visual_bell: NativeVisualBell::default(),
+            colors: None,
+            color_scheme: None,
+            color_scheme_dirs: Vec::new(),
+            color_schemes: HashMap::new(),
+            foreground_color: DEFAULT_FOREGROUND_COLOR,
+            background_color: DEFAULT_BACKGROUND_COLOR,
+            ansi_palette: None,
+            indexed_palette: None,
+            selection_fg_color: None,
+            selection_bg_color: Some(DEFAULT_SELECTION_BG_COLOR),
+            cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
+            cursor_border_color: None,
+            cursor_fg_color: Some(DEFAULT_CURSOR_FG_COLOR),
+            compose_cursor_color: None,
+            split_color: None,
+            scrollbar_thumb_color: None,
+            tab_bar_background_color: Some(DEFAULT_TAB_BAR_BACKGROUND_COLOR),
+            tab_bar_inactive_tab_edge_color: None,
+            tab_bar_active_tab_colors: DEFAULT_TAB_BAR_ACTIVE_TAB_COLORS,
+            tab_bar_inactive_tab_colors: DEFAULT_TAB_BAR_INACTIVE_TAB_COLORS,
+            tab_bar_inactive_tab_hover_colors: DEFAULT_TAB_BAR_INACTIVE_TAB_HOVER_COLORS,
+            tab_bar_new_tab_colors: DEFAULT_TAB_BAR_NEW_TAB_COLORS,
+            tab_bar_new_tab_hover_colors: DEFAULT_TAB_BAR_NEW_TAB_HOVER_COLORS,
+            tab_bar_style: NativeTabBarStyle::default(),
+            visual_bell_color: None,
+            notification_handling: DEFAULT_NOTIFICATION_HANDLING,
+        }
+    }
+}
+
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone)]
 struct NativeAppliedRenderConfig {
@@ -39835,6 +39912,7 @@ struct NativeAppliedRenderConfig {
     input_selector_label_fg: Option<NativeColorSpec>,
     launcher_label_bg: Option<NativeColorSpec>,
     launcher_label_fg: Option<NativeColorSpec>,
+    palette: NativeAppliedPaletteConfig,
 }
 
 impl Default for NativeAppliedRenderConfig {
@@ -39895,7 +39973,22 @@ impl Default for NativeAppliedRenderConfig {
             input_selector_label_fg: None,
             launcher_label_bg: None,
             launcher_label_fg: None,
+            palette: NativeAppliedPaletteConfig::default(),
         }
+    }
+}
+
+impl Deref for NativeAppliedRenderConfig {
+    type Target = NativeAppliedPaletteConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.palette
+    }
+}
+
+impl DerefMut for NativeAppliedRenderConfig {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.palette
     }
 }
 
@@ -40229,10 +40322,6 @@ impl DerefMut for NativeAppliedConfig {
     }
 }
 
-#[expect(
-    clippy::option_option,
-    reason = "nested options distinguish absent, explicit nil, and concrete values"
-)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeWindowApp {
     app_window_id: rssh_core::WindowId,
@@ -40328,37 +40417,6 @@ struct NativeWindowApp {
     close_confirmation: Option<WindowCloseConfirmation>,
     key_table_stack: Vec<WindowActiveKeyTable>,
     visual_bell_started_at: HashMap<rssh_core::PaneId, Instant>,
-    selection_word_boundary: String,
-    term: String,
-    enq_answerback: String,
-    audible_bell: NativeAudibleBell,
-    visual_bell: NativeVisualBell,
-    colors: Option<Box<NativePalette>>,
-    color_scheme: Option<String>,
-    color_scheme_dirs: Vec<String>,
-    color_schemes: HashMap<String, NativeResolvedPalette>,
-    foreground_color: Color,
-    background_color: Color,
-    ansi_palette: Option<[Color; 16]>,
-    indexed_palette: Option<[Option<Color>; 256]>,
-    selection_fg_color: Option<Option<Color>>,
-    selection_bg_color: Option<Color>,
-    cursor_bg_color: Color,
-    cursor_border_color: Option<Color>,
-    cursor_fg_color: Option<Color>,
-    compose_cursor_color: Option<Color>,
-    split_color: Option<Color>,
-    scrollbar_thumb_color: Option<Color>,
-    tab_bar_background_color: Option<Color>,
-    tab_bar_inactive_tab_edge_color: Option<Color>,
-    tab_bar_active_tab_colors: NativeTabBarItemColors,
-    tab_bar_inactive_tab_colors: NativeTabBarItemColors,
-    tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors,
-    tab_bar_new_tab_colors: NativeTabBarItemColors,
-    tab_bar_new_tab_hover_colors: NativeTabBarItemColors,
-    tab_bar_style: NativeTabBarStyle,
-    visual_bell_color: Option<Color>,
-    notification_handling: NativeNotificationHandling,
     applied_config: Arc<NativeAppliedConfig>,
     ime_preedit: Option<String>,
     last_ime_cursor_area: Cell<Option<(u32, u32, u32, u32)>>,
@@ -43712,37 +43770,6 @@ impl NativeWindowApp {
                 close_confirmation: None,
                 key_table_stack: Vec::new(),
                 visual_bell_started_at: HashMap::new(),
-                selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
-                term: DEFAULT_TERM.to_owned(),
-                enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
-                audible_bell: DEFAULT_AUDIBLE_BELL,
-                visual_bell: NativeVisualBell::default(),
-                colors: None,
-                color_scheme: None,
-                color_scheme_dirs: Vec::new(),
-                color_schemes: HashMap::new(),
-                foreground_color: DEFAULT_FOREGROUND_COLOR,
-                background_color: DEFAULT_BACKGROUND_COLOR,
-                ansi_palette: None,
-                indexed_palette: None,
-                selection_fg_color: None,
-                selection_bg_color: Some(DEFAULT_SELECTION_BG_COLOR),
-                cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
-                cursor_border_color: None,
-                cursor_fg_color: Some(DEFAULT_CURSOR_FG_COLOR),
-                compose_cursor_color: None,
-                split_color: None,
-                scrollbar_thumb_color: None,
-                tab_bar_background_color: Some(DEFAULT_TAB_BAR_BACKGROUND_COLOR),
-                tab_bar_inactive_tab_edge_color: None,
-                tab_bar_active_tab_colors: DEFAULT_TAB_BAR_ACTIVE_TAB_COLORS,
-                tab_bar_inactive_tab_colors: DEFAULT_TAB_BAR_INACTIVE_TAB_COLORS,
-                tab_bar_inactive_tab_hover_colors: DEFAULT_TAB_BAR_INACTIVE_TAB_HOVER_COLORS,
-                tab_bar_new_tab_colors: DEFAULT_TAB_BAR_NEW_TAB_COLORS,
-                tab_bar_new_tab_hover_colors: DEFAULT_TAB_BAR_NEW_TAB_HOVER_COLORS,
-                tab_bar_style: NativeTabBarStyle::default(),
-                visual_bell_color: None,
-                notification_handling: DEFAULT_NOTIFICATION_HANDLING,
                 applied_config: Arc::new(NativeAppliedConfig::default()),
                 ime_preedit: None,
                 last_ime_cursor_area: Cell::new(None),
@@ -44818,26 +44845,12 @@ impl NativeWindowApp {
         detached_app.app_shell = app_shell;
         detached_app.startup_workspace_was_explicit = true;
         detached_app.config_overrides = self.config_overrides.clone();
+        detached_app.applied_config = Arc::clone(&self.applied_config);
         detached_app.dpi_by_screen.clone_from(&self.dpi_by_screen);
-        detached_app
-            .selection_word_boundary
-            .clone_from(&self.selection_word_boundary);
-        detached_app.term.clone_from(&self.term);
-        detached_app.enq_answerback.clone_from(&self.enq_answerback);
-        detached_app.audible_bell = self.audible_bell;
-        detached_app.visual_bell = self.visual_bell;
-        detached_app.colors.clone_from(&self.colors);
-        detached_app.color_scheme.clone_from(&self.color_scheme);
-        detached_app
-            .color_scheme_dirs
-            .clone_from(&self.color_scheme_dirs);
-        detached_app.color_schemes.clone_from(&self.color_schemes);
-        detached_app.foreground_color = self.foreground_color;
         detached_app.renderer.set_default_foreground(color_to_rgba(
             self.foreground_color,
             DEFAULT_RENDER_FOREGROUND_RGBA,
         ));
-        detached_app.background_color = self.background_color;
         detached_app.renderer.set_default_background(color_to_rgba(
             self.background_color,
             DEFAULT_RENDER_BACKGROUND_RGBA,
@@ -44862,46 +44875,26 @@ impl NativeWindowApp {
                 .map(NativeWindowBackgroundVisualLayer::to_render)
                 .collect(),
         );
-        detached_app.ansi_palette = self.ansi_palette;
         detached_app
             .renderer
             .set_ansi_palette(self.ansi_palette.map(native_ansi_palette_to_rgba));
-        detached_app.indexed_palette = self.indexed_palette;
         detached_app
             .renderer
             .set_indexed_palette(self.indexed_palette.map(native_indexed_palette_to_rgba));
-        detached_app.selection_fg_color = self.selection_fg_color;
-        detached_app.selection_bg_color = self.selection_bg_color;
-        detached_app.cursor_bg_color = self.cursor_bg_color;
         detached_app
             .renderer
             .set_default_cursor_color(color_to_rgba(
                 self.cursor_bg_color,
                 DEFAULT_RENDER_FOREGROUND_RGBA,
             ));
-        detached_app.cursor_border_color = self.cursor_border_color;
         detached_app.renderer.set_default_cursor_border(
             self.cursor_border_color
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
-        detached_app.cursor_fg_color = self.cursor_fg_color;
         detached_app.renderer.set_default_cursor_foreground(
             self.cursor_fg_color
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
-        detached_app.compose_cursor_color = self.compose_cursor_color;
-        detached_app.split_color = self.split_color;
-        detached_app.scrollbar_thumb_color = self.scrollbar_thumb_color;
-        detached_app.tab_bar_background_color = self.tab_bar_background_color;
-        detached_app.tab_bar_inactive_tab_edge_color = self.tab_bar_inactive_tab_edge_color;
-        detached_app.tab_bar_active_tab_colors = self.tab_bar_active_tab_colors;
-        detached_app.tab_bar_inactive_tab_colors = self.tab_bar_inactive_tab_colors;
-        detached_app.tab_bar_inactive_tab_hover_colors = self.tab_bar_inactive_tab_hover_colors;
-        detached_app.tab_bar_new_tab_colors = self.tab_bar_new_tab_colors;
-        detached_app.tab_bar_new_tab_hover_colors = self.tab_bar_new_tab_hover_colors;
-        detached_app.tab_bar_style.clone_from(&self.tab_bar_style);
-        detached_app.visual_bell_color = self.visual_bell_color;
-        detached_app.notification_handling = self.notification_handling;
         detached_app.max_fps = self.max_fps;
         detached_app.animation_fps = self.animation_fps;
         detached_app.leader_active_since = None;
@@ -44999,22 +44992,10 @@ impl NativeWindowApp {
         self.line_to_ele_shape_cache_size = source.line_to_ele_shape_cache_size;
         self.glyph_cache_image_cache_size = source.glyph_cache_image_cache_size;
         self.last_status_update_at = None;
-        self.selection_word_boundary
-            .clone_from(&source.selection_word_boundary);
-        self.term.clone_from(&source.term);
-        self.enq_answerback.clone_from(&source.enq_answerback);
-        self.audible_bell = source.audible_bell;
-        self.visual_bell = source.visual_bell;
-        self.colors.clone_from(&source.colors);
-        self.color_scheme.clone_from(&source.color_scheme);
-        self.color_scheme_dirs.clone_from(&source.color_scheme_dirs);
-        self.color_schemes.clone_from(&source.color_schemes);
-        self.foreground_color = source.foreground_color;
         self.renderer.set_default_foreground(color_to_rgba(
             source.foreground_color,
             DEFAULT_RENDER_FOREGROUND_RGBA,
         ));
-        self.background_color = source.background_color;
         self.renderer.set_default_background(color_to_rgba(
             source.background_color,
             DEFAULT_RENDER_BACKGROUND_RGBA,
@@ -45036,44 +45017,24 @@ impl NativeWindowApp {
                 .map(NativeWindowBackgroundVisualLayer::to_render)
                 .collect(),
         );
-        self.ansi_palette = source.ansi_palette;
         self.renderer
             .set_ansi_palette(source.ansi_palette.map(native_ansi_palette_to_rgba));
-        self.indexed_palette = source.indexed_palette;
         self.renderer
             .set_indexed_palette(source.indexed_palette.map(native_indexed_palette_to_rgba));
-        self.selection_fg_color = source.selection_fg_color;
-        self.selection_bg_color = source.selection_bg_color;
-        self.cursor_bg_color = source.cursor_bg_color;
         self.renderer.set_default_cursor_color(color_to_rgba(
             source.cursor_bg_color,
             DEFAULT_RENDER_FOREGROUND_RGBA,
         ));
-        self.cursor_border_color = source.cursor_border_color;
         self.renderer.set_default_cursor_border(
             source
                 .cursor_border_color
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
-        self.cursor_fg_color = source.cursor_fg_color;
         self.renderer.set_default_cursor_foreground(
             source
                 .cursor_fg_color
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
-        self.compose_cursor_color = source.compose_cursor_color;
-        self.split_color = source.split_color;
-        self.scrollbar_thumb_color = source.scrollbar_thumb_color;
-        self.tab_bar_background_color = source.tab_bar_background_color;
-        self.tab_bar_inactive_tab_edge_color = source.tab_bar_inactive_tab_edge_color;
-        self.tab_bar_active_tab_colors = source.tab_bar_active_tab_colors;
-        self.tab_bar_inactive_tab_colors = source.tab_bar_inactive_tab_colors;
-        self.tab_bar_inactive_tab_hover_colors = source.tab_bar_inactive_tab_hover_colors;
-        self.tab_bar_new_tab_colors = source.tab_bar_new_tab_colors;
-        self.tab_bar_new_tab_hover_colors = source.tab_bar_new_tab_hover_colors;
-        self.tab_bar_style.clone_from(&source.tab_bar_style);
-        self.visual_bell_color = source.visual_bell_color;
-        self.notification_handling = source.notification_handling;
         self.ime_preedit.clone_from(&source.ime_preedit);
         self.dead_key_active = false;
         self.dead_key_text = None;
@@ -45351,7 +45312,8 @@ impl NativeWindowApp {
         std::mem::swap(&mut runtime.snapshot, &mut runtime_snapshot);
 
         *self.runtime = runtime_runtime;
-        self.runtime.set_terminal_name(self.term.clone());
+        self.runtime
+            .set_terminal_name(applied_config.term.clone());
         self.runtime
             .set_enable_kitty_keyboard(applied_config.enable_kitty_keyboard);
         self.runtime
@@ -50470,6 +50432,7 @@ impl NativeWindowApp {
         if self.has_visible_split_layout() {
             self.frame_needs_full_repaint = true;
         }
+        let background_color = self.background_color;
         let mode = render_framebuffer_with_state(
             &self.renderer,
             &snapshot,
@@ -50480,7 +50443,7 @@ impl NativeWindowApp {
             geometry,
             damage_row_offset,
             placement,
-            color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
+            color_to_rgba(background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
         );
         self.metrics.record_frame_render_mode(mode);
         mode
@@ -58808,13 +58771,15 @@ impl NativeWindowApp {
     }
 
     fn apply_terminal_identity_config_to_runtimes(&mut self) {
-        self.runtime.set_terminal_name(self.term.clone());
-        self.runtime.set_enq_answerback(self.enq_answerback.clone());
+        let term = self.term.clone();
+        let enq_answerback = self.enq_answerback.clone();
+        self.runtime.set_terminal_name(term.clone());
+        self.runtime.set_enq_answerback(enq_answerback.clone());
         for runtime in self.pane_runtimes.values_mut() {
-            runtime.runtime.set_terminal_name(self.term.clone());
+            runtime.runtime.set_terminal_name(term.clone());
             runtime
                 .runtime
-                .set_enq_answerback(self.enq_answerback.clone());
+                .set_enq_answerback(enq_answerback.clone());
         }
     }
 
@@ -136201,6 +136166,7 @@ return config
     fn window_app_wheel_refreshes_only_target_selection_overlay_and_composite() {
         let mut app = wheel_split_with_inactive_history_for_test();
         let inactive = rssh_core::PaneId::new(1);
+        let selection_word_boundary = app.selection_word_boundary.clone();
         let inactive_runtime = app.pane_runtimes.get_mut(&inactive).unwrap();
         let dimensions = inactive_runtime.runtime.terminal().stable_dimensions();
         inactive_runtime.ui.ordinary_selection = Some(StableOrdinarySelection::new(
@@ -136219,7 +136185,7 @@ return config
         let inactive_projection_before = super::pane_overlay_viewport_selection(
             inactive_runtime.runtime.terminal(),
             &inactive_runtime.ui,
-            &app.selection_word_boundary,
+            &selection_word_boundary,
         );
         assert!(inactive_projection_before.is_some());
         let active_match = pane_overlay_test_match(&app, 0, 0, 1);
