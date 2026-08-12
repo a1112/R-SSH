@@ -39779,6 +39779,128 @@ impl NativeWindowStartup {
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone)]
+struct NativeAppliedRenderConfig {
+    initial_cols: u16,
+    initial_rows: u16,
+    foreground_text_hsb: NativeInactivePaneHsb,
+    bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
+    text_background_opacity: NativeTextBackgroundOpacity,
+    window_background_opacity: NativeTextBackgroundOpacity,
+    background: Vec<NativeWindowBackgroundVisualLayer>,
+    window_background_image: Option<String>,
+    window_background_image_hsb: Option<NativeInactivePaneHsb>,
+    window_background_gradient: Option<NativeWindowBackgroundGradient>,
+    window_background_images: Vec<NativeWindowBackgroundImage>,
+    window_background_layers: Vec<NativeWindowBackgroundVisualLayer>,
+    kde_window_background_blur: bool,
+    macos_window_background_blur: u32,
+    win32_system_backdrop: NativeWin32SystemBackdrop,
+    win32_acrylic_accent_color: Option<Color>,
+    window_decorations: NativeWindowDecorations,
+    window_frame_appearance: NativeWindowFrameAppearance,
+    integrated_title_buttons: Vec<NativeIntegratedTitleButton>,
+    integrated_title_button_alignment: NativeIntegratedTitleButtonAlignment,
+    integrated_title_button_color: NativeIntegratedTitleButtonColor,
+    integrated_title_button_style: NativeIntegratedTitleButtonStyle,
+    inactive_pane_hsb: NativeInactivePaneHsb,
+    tab_max_width: usize,
+    command_palette_rows: Option<usize>,
+    command_palette_font: Option<NativeFontConfig>,
+    command_palette_font_size: NativeFontSize,
+    command_palette_bg_color: Option<Color>,
+    command_palette_fg_color: Option<Color>,
+    char_select_font: Option<NativeFontConfig>,
+    char_select_font_size: NativeFontSize,
+    char_select_bg_color: Option<Color>,
+    char_select_fg_color: Option<Color>,
+    pane_select_font: Option<NativeFontConfig>,
+    pane_select_font_size: NativeFontSize,
+    pane_select_bg_color: Option<Color>,
+    pane_select_fg_color: Option<Color>,
+    launcher_alphabet: String,
+    quick_select_alphabet: String,
+    quick_select_patterns: Vec<String>,
+    disable_default_quick_select_patterns: bool,
+    quick_select_remove_styling: bool,
+    hyperlink_rules: Vec<NativeHyperlinkRule>,
+    copy_mode_active_highlight_bg: Option<NativeColorSpec>,
+    copy_mode_active_highlight_fg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_bg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_fg: Option<NativeColorSpec>,
+    quick_select_label_bg: Option<NativeColorSpec>,
+    quick_select_label_fg: Option<NativeColorSpec>,
+    quick_select_match_bg: Option<NativeColorSpec>,
+    quick_select_match_fg: Option<NativeColorSpec>,
+    input_selector_label_bg: Option<NativeColorSpec>,
+    input_selector_label_fg: Option<NativeColorSpec>,
+    launcher_label_bg: Option<NativeColorSpec>,
+    launcher_label_fg: Option<NativeColorSpec>,
+}
+
+impl Default for NativeAppliedRenderConfig {
+    fn default() -> Self {
+        Self {
+            initial_cols: DEFAULT_INITIAL_COLS,
+            initial_rows: DEFAULT_INITIAL_ROWS,
+            foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
+            bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
+            text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
+            window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+            background: Vec::new(),
+            window_background_image: None,
+            window_background_image_hsb: None,
+            window_background_gradient: None,
+            window_background_images: Vec::new(),
+            window_background_layers: Vec::new(),
+            kde_window_background_blur: DEFAULT_KDE_WINDOW_BACKGROUND_BLUR,
+            macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
+            win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
+            win32_acrylic_accent_color: None,
+            window_decorations: DEFAULT_WINDOW_DECORATIONS,
+            window_frame_appearance: NativeWindowFrameAppearance::default(),
+            integrated_title_buttons: default_integrated_title_buttons(),
+            integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
+            integrated_title_button_color: DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
+            integrated_title_button_style: DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
+            inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
+            tab_max_width: MODERN_DEFAULT_TAB_MAX_WIDTH,
+            command_palette_rows: None,
+            command_palette_font: None,
+            command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
+            command_palette_bg_color: Some(DEFAULT_COMMAND_PALETTE_BG_COLOR),
+            command_palette_fg_color: Some(DEFAULT_COMMAND_PALETTE_FG_COLOR),
+            char_select_font: None,
+            char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
+            char_select_bg_color: Some(DEFAULT_CHAR_SELECT_BG_COLOR),
+            char_select_fg_color: Some(DEFAULT_CHAR_SELECT_FG_COLOR),
+            pane_select_font: None,
+            pane_select_font_size: DEFAULT_PANE_SELECT_FONT_SIZE,
+            pane_select_bg_color: Some(DEFAULT_PANE_SELECT_BG_COLOR),
+            pane_select_fg_color: Some(DEFAULT_PANE_SELECT_FG_COLOR),
+            launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
+            quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
+            quick_select_patterns: Vec::new(),
+            disable_default_quick_select_patterns: false,
+            quick_select_remove_styling: false,
+            hyperlink_rules: default_hyperlink_rules(),
+            copy_mode_active_highlight_bg: None,
+            copy_mode_active_highlight_fg: None,
+            copy_mode_inactive_highlight_bg: None,
+            copy_mode_inactive_highlight_fg: None,
+            quick_select_label_bg: None,
+            quick_select_label_fg: None,
+            quick_select_match_bg: None,
+            quick_select_match_fg: None,
+            input_selector_label_bg: None,
+            input_selector_label_fg: None,
+            launcher_label_bg: None,
+            launcher_label_fg: None,
+        }
+    }
+}
+
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Clone)]
 struct NativeAppliedInputConfig {
     key_map_preference: NativeKeyMapPreference,
     ui_key_cap_rendering: NativeUiKeyCapRendering,
@@ -39843,6 +39965,7 @@ struct NativeAppliedInputConfig {
     show_new_tab_button_in_tab_bar: bool,
     show_tab_index_in_tab_bar: bool,
     show_tabs_in_tab_bar: bool,
+    render: NativeAppliedRenderConfig,
 }
 
 impl Default for NativeAppliedInputConfig {
@@ -39917,7 +40040,22 @@ impl Default for NativeAppliedInputConfig {
             show_new_tab_button_in_tab_bar: DEFAULT_SHOW_NEW_TAB_BUTTON_IN_TAB_BAR,
             show_tab_index_in_tab_bar: DEFAULT_SHOW_TAB_INDEX_IN_TAB_BAR,
             show_tabs_in_tab_bar: DEFAULT_SHOW_TABS_IN_TAB_BAR,
+            render: NativeAppliedRenderConfig::default(),
         }
+    }
+}
+
+impl Deref for NativeAppliedInputConfig {
+    type Target = NativeAppliedRenderConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.render
+    }
+}
+
+impl DerefMut for NativeAppliedInputConfig {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.render
     }
 }
 
@@ -40190,61 +40328,6 @@ struct NativeWindowApp {
     close_confirmation: Option<WindowCloseConfirmation>,
     key_table_stack: Vec<WindowActiveKeyTable>,
     visual_bell_started_at: HashMap<rssh_core::PaneId, Instant>,
-    initial_cols: u16,
-    initial_rows: u16,
-    foreground_text_hsb: NativeInactivePaneHsb,
-    bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
-    text_background_opacity: NativeTextBackgroundOpacity,
-    window_background_opacity: NativeTextBackgroundOpacity,
-    background: Vec<NativeWindowBackgroundVisualLayer>,
-    window_background_image: Option<String>,
-    window_background_image_hsb: Option<NativeInactivePaneHsb>,
-    window_background_gradient: Option<NativeWindowBackgroundGradient>,
-    window_background_images: Vec<NativeWindowBackgroundImage>,
-    window_background_layers: Vec<NativeWindowBackgroundVisualLayer>,
-    kde_window_background_blur: bool,
-    macos_window_background_blur: u32,
-    win32_system_backdrop: NativeWin32SystemBackdrop,
-    win32_acrylic_accent_color: Option<Color>,
-    window_decorations: NativeWindowDecorations,
-    window_frame_appearance: NativeWindowFrameAppearance,
-    integrated_title_buttons: Vec<NativeIntegratedTitleButton>,
-    integrated_title_button_alignment: NativeIntegratedTitleButtonAlignment,
-    integrated_title_button_color: NativeIntegratedTitleButtonColor,
-    integrated_title_button_style: NativeIntegratedTitleButtonStyle,
-    inactive_pane_hsb: NativeInactivePaneHsb,
-    tab_max_width: usize,
-    command_palette_rows: Option<usize>,
-    command_palette_font: Option<NativeFontConfig>,
-    command_palette_font_size: NativeFontSize,
-    command_palette_bg_color: Option<Color>,
-    command_palette_fg_color: Option<Color>,
-    char_select_font: Option<NativeFontConfig>,
-    char_select_font_size: NativeFontSize,
-    char_select_bg_color: Option<Color>,
-    char_select_fg_color: Option<Color>,
-    pane_select_font: Option<NativeFontConfig>,
-    pane_select_font_size: NativeFontSize,
-    pane_select_bg_color: Option<Color>,
-    pane_select_fg_color: Option<Color>,
-    launcher_alphabet: String,
-    quick_select_alphabet: String,
-    quick_select_patterns: Vec<String>,
-    disable_default_quick_select_patterns: bool,
-    quick_select_remove_styling: bool,
-    hyperlink_rules: Vec<NativeHyperlinkRule>,
-    copy_mode_active_highlight_bg: Option<NativeColorSpec>,
-    copy_mode_active_highlight_fg: Option<NativeColorSpec>,
-    copy_mode_inactive_highlight_bg: Option<NativeColorSpec>,
-    copy_mode_inactive_highlight_fg: Option<NativeColorSpec>,
-    quick_select_label_bg: Option<NativeColorSpec>,
-    quick_select_label_fg: Option<NativeColorSpec>,
-    quick_select_match_bg: Option<NativeColorSpec>,
-    quick_select_match_fg: Option<NativeColorSpec>,
-    input_selector_label_bg: Option<NativeColorSpec>,
-    input_selector_label_fg: Option<NativeColorSpec>,
-    launcher_label_bg: Option<NativeColorSpec>,
-    launcher_label_fg: Option<NativeColorSpec>,
     selection_word_boundary: String,
     term: String,
     enq_answerback: String,
@@ -43629,61 +43712,6 @@ impl NativeWindowApp {
                 close_confirmation: None,
                 key_table_stack: Vec::new(),
                 visual_bell_started_at: HashMap::new(),
-                initial_cols: DEFAULT_INITIAL_COLS,
-                initial_rows: DEFAULT_INITIAL_ROWS,
-                foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
-                bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
-                text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
-                window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
-                background: Vec::new(),
-                window_background_image: None,
-                window_background_image_hsb: None,
-                window_background_gradient: None,
-                window_background_images: Vec::new(),
-                window_background_layers: Vec::new(),
-                kde_window_background_blur: DEFAULT_KDE_WINDOW_BACKGROUND_BLUR,
-                macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
-                win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
-                win32_acrylic_accent_color: None,
-                window_decorations: DEFAULT_WINDOW_DECORATIONS,
-                window_frame_appearance: NativeWindowFrameAppearance::default(),
-                integrated_title_buttons: default_integrated_title_buttons(),
-                integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
-                integrated_title_button_color: DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
-                integrated_title_button_style: DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
-                inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
-                tab_max_width: MODERN_DEFAULT_TAB_MAX_WIDTH,
-                command_palette_rows: None,
-                command_palette_font: None,
-                command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
-                command_palette_bg_color: Some(DEFAULT_COMMAND_PALETTE_BG_COLOR),
-                command_palette_fg_color: Some(DEFAULT_COMMAND_PALETTE_FG_COLOR),
-                char_select_font: None,
-                char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
-                char_select_bg_color: Some(DEFAULT_CHAR_SELECT_BG_COLOR),
-                char_select_fg_color: Some(DEFAULT_CHAR_SELECT_FG_COLOR),
-                pane_select_font: None,
-                pane_select_font_size: DEFAULT_PANE_SELECT_FONT_SIZE,
-                pane_select_bg_color: Some(DEFAULT_PANE_SELECT_BG_COLOR),
-                pane_select_fg_color: Some(DEFAULT_PANE_SELECT_FG_COLOR),
-                launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
-                quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
-                quick_select_patterns: Vec::new(),
-                disable_default_quick_select_patterns: false,
-                quick_select_remove_styling: false,
-                hyperlink_rules: default_hyperlink_rules(),
-                copy_mode_active_highlight_bg: None,
-                copy_mode_active_highlight_fg: None,
-                copy_mode_inactive_highlight_bg: None,
-                copy_mode_inactive_highlight_fg: None,
-                quick_select_label_bg: None,
-                quick_select_label_fg: None,
-                quick_select_match_bg: None,
-                quick_select_match_fg: None,
-                input_selector_label_bg: None,
-                input_selector_label_fg: None,
-                launcher_label_bg: None,
-                launcher_label_fg: None,
                 selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
                 term: DEFAULT_TERM.to_owned(),
                 enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
@@ -44791,61 +44819,6 @@ impl NativeWindowApp {
         detached_app.startup_workspace_was_explicit = true;
         detached_app.config_overrides = self.config_overrides.clone();
         detached_app.dpi_by_screen.clone_from(&self.dpi_by_screen);
-        detached_app.initial_cols = self.initial_cols;
-        detached_app.initial_rows = self.initial_rows;
-        detached_app.foreground_text_hsb = self.foreground_text_hsb;
-        detached_app
-            .apply_bold_brightens_ansi_colors_override(Some(self.bold_brightens_ansi_colors));
-        detached_app.text_background_opacity = self.text_background_opacity;
-        detached_app.window_background_opacity = self.window_background_opacity;
-        detached_app.background.clone_from(&self.background);
-        detached_app
-            .window_background_image
-            .clone_from(&self.window_background_image);
-        detached_app.window_background_image_hsb = self.window_background_image_hsb;
-        detached_app
-            .window_background_gradient
-            .clone_from(&self.window_background_gradient);
-        detached_app
-            .window_background_images
-            .clone_from(&self.window_background_images);
-        detached_app
-            .window_background_layers
-            .clone_from(&self.window_background_layers);
-        detached_app.kde_window_background_blur = self.kde_window_background_blur;
-        detached_app.macos_window_background_blur = self.macos_window_background_blur;
-        detached_app.win32_system_backdrop = self.win32_system_backdrop;
-        detached_app.win32_acrylic_accent_color = self.win32_acrylic_accent_color;
-        detached_app.window_decorations = self.window_decorations;
-        detached_app.window_frame_appearance = self.window_frame_appearance.clone();
-        detached_app
-            .integrated_title_buttons
-            .clone_from(&self.integrated_title_buttons);
-        detached_app.integrated_title_button_alignment = self.integrated_title_button_alignment;
-        detached_app.integrated_title_button_color = self.integrated_title_button_color;
-        detached_app.integrated_title_button_style = self.integrated_title_button_style;
-        detached_app.inactive_pane_hsb = self.inactive_pane_hsb;
-        detached_app.command_palette_rows = self.command_palette_rows;
-        detached_app
-            .command_palette_font
-            .clone_from(&self.command_palette_font);
-        detached_app.command_palette_font_size = self.command_palette_font_size;
-        detached_app
-            .char_select_font
-            .clone_from(&self.char_select_font);
-        detached_app.char_select_font_size = self.char_select_font_size;
-        detached_app
-            .pane_select_font
-            .clone_from(&self.pane_select_font);
-        detached_app.pane_select_font_size = self.pane_select_font_size;
-        detached_app.pane_select_bg_color = self.pane_select_bg_color;
-        detached_app.pane_select_fg_color = self.pane_select_fg_color;
-        detached_app
-            .launcher_alphabet
-            .clone_from(&self.launcher_alphabet);
-        detached_app
-            .quick_select_alphabet
-            .clone_from(&self.quick_select_alphabet);
         detached_app
             .selection_word_boundary
             .clone_from(&self.selection_word_boundary);
@@ -44985,37 +44958,8 @@ impl NativeWindowApp {
         self.dpi_by_screen.clone_from(&source.dpi_by_screen);
         self.detected_window_dpi = source.detected_window_dpi;
         self.apply_effective_window_dpi();
-        self.initial_cols = source.initial_cols;
-        self.initial_rows = source.initial_rows;
-        self.foreground_text_hsb = source.foreground_text_hsb;
-        self.bold_brightens_ansi_colors = source.bold_brightens_ansi_colors;
         self.text_min_contrast_ratio = source.text_min_contrast_ratio;
-        self.text_background_opacity = source.text_background_opacity;
-        self.window_background_opacity = source.window_background_opacity;
-        self.background.clone_from(&source.background);
-        self.window_background_image
-            .clone_from(&source.window_background_image);
-        self.window_background_image_hsb = source.window_background_image_hsb;
-        self.window_background_gradient
-            .clone_from(&source.window_background_gradient);
-        self.window_background_images
-            .clone_from(&source.window_background_images);
-        self.window_background_layers
-            .clone_from(&source.window_background_layers);
-        self.kde_window_background_blur = source.kde_window_background_blur;
-        self.macos_window_background_blur = source.macos_window_background_blur;
-        self.win32_system_backdrop = source.win32_system_backdrop;
-        self.win32_acrylic_accent_color = source.win32_acrylic_accent_color;
-        self.window_decorations = source.window_decorations;
-        self.window_frame_appearance = source.window_frame_appearance.clone();
-        self.integrated_title_buttons
-            .clone_from(&source.integrated_title_buttons);
-        self.integrated_title_button_alignment = source.integrated_title_button_alignment;
-        self.integrated_title_button_color = source.integrated_title_button_color;
-        self.integrated_title_button_style = source.integrated_title_button_style;
         self.window_content_alignment = source.window_content_alignment;
-        self.inactive_pane_hsb = source.inactive_pane_hsb;
-        self.tab_max_width = source.tab_max_width;
         self.status_update_interval = source.status_update_interval;
         self.lua_tab_title.clone_from(&source.lua_tab_title);
         self.lua_window_title.clone_from(&source.lua_window_title);
@@ -45055,40 +44999,6 @@ impl NativeWindowApp {
         self.line_to_ele_shape_cache_size = source.line_to_ele_shape_cache_size;
         self.glyph_cache_image_cache_size = source.glyph_cache_image_cache_size;
         self.last_status_update_at = None;
-        self.command_palette_rows = source.command_palette_rows;
-        self.command_palette_font
-            .clone_from(&source.command_palette_font);
-        self.command_palette_font_size = source.command_palette_font_size;
-        self.command_palette_bg_color = source.command_palette_bg_color;
-        self.command_palette_fg_color = source.command_palette_fg_color;
-        self.char_select_font.clone_from(&source.char_select_font);
-        self.char_select_font_size = source.char_select_font_size;
-        self.char_select_bg_color = source.char_select_bg_color;
-        self.char_select_fg_color = source.char_select_fg_color;
-        self.pane_select_font.clone_from(&source.pane_select_font);
-        self.pane_select_font_size = source.pane_select_font_size;
-        self.pane_select_bg_color = source.pane_select_bg_color;
-        self.pane_select_fg_color = source.pane_select_fg_color;
-        self.launcher_alphabet.clone_from(&source.launcher_alphabet);
-        self.quick_select_alphabet
-            .clone_from(&source.quick_select_alphabet);
-        self.quick_select_patterns
-            .clone_from(&source.quick_select_patterns);
-        self.disable_default_quick_select_patterns = source.disable_default_quick_select_patterns;
-        self.quick_select_remove_styling = source.quick_select_remove_styling;
-        self.hyperlink_rules.clone_from(&source.hyperlink_rules);
-        self.copy_mode_active_highlight_bg = source.copy_mode_active_highlight_bg;
-        self.copy_mode_active_highlight_fg = source.copy_mode_active_highlight_fg;
-        self.copy_mode_inactive_highlight_bg = source.copy_mode_inactive_highlight_bg;
-        self.copy_mode_inactive_highlight_fg = source.copy_mode_inactive_highlight_fg;
-        self.quick_select_label_bg = source.quick_select_label_bg;
-        self.quick_select_label_fg = source.quick_select_label_fg;
-        self.quick_select_match_bg = source.quick_select_match_bg;
-        self.quick_select_match_fg = source.quick_select_match_fg;
-        self.input_selector_label_bg = source.input_selector_label_bg;
-        self.input_selector_label_fg = source.input_selector_label_fg;
-        self.launcher_label_bg = source.launcher_label_bg;
-        self.launcher_label_fg = source.launcher_label_fg;
         self.selection_word_boundary
             .clone_from(&source.selection_word_boundary);
         self.term.clone_from(&source.term);

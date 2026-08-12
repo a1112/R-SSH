@@ -3862,6 +3862,7 @@ T23-CONFIG-deee195bf3d2|crates/rssh-app/src/window_config_tests.rs|window_reload
 T23-CONFIG-1a35478a1e4d|crates/rssh-app/src/window_config_tests.rs|domain_and_lifecycle_values_live_in_one_copy_on_write_config_snapshot|1|rssh-app|window_config_tests::tests|config
 T23-CONFIG-3664c9f83b22|crates/rssh-app/src/window_config_tests.rs|input_terminal_and_tab_values_share_the_applied_config_snapshot|1|rssh-app|window_config_tests::tests|config
 T23-CONFIG-6df071e5fcfa|crates/rssh-app/src/window_config_tests.rs|font_values_live_in_the_shared_applied_config_snapshot|1|rssh-app|window_config_tests::tests|config
+T23-CONFIG-1910954fabea|crates/rssh-app/src/window_config_tests.rs|render_and_overlay_values_live_in_the_shared_applied_config_snapshot|1|rssh-app|window_config_tests::tests|config
 T23-OVERLAYS-056fbf29d391|crates/rssh-app/src/window_gpu.rs|native_presentation_mode_is_the_only_gpu_damage_selector|1|rssh-app|window_gpu::tests|overlays
 T23-CONFIG-411cd1006f55|crates/rssh-app/src/window_gpu.rs|emergency_font_catalog_covers_common_cli_ui_scripts|1|rssh-app|window_gpu::tests|config
 T23-CONFIG-f841a5a283e6|crates/rssh-app/src/window_gpu.rs|emergency_font_catalog_covers_mac_cjk_fallback|1|rssh-app|window_gpu::tests|config

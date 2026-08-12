@@ -108,3 +108,23 @@ fn font_values_live_in_the_shared_applied_config_snapshot() {
         .adjust_window_size_when_changing_font_size);
     assert_eq!(app.font_size, font_size);
 }
+
+#[test]
+fn render_and_overlay_values_live_in_the_shared_applied_config_snapshot() {
+    let mut app = NativeWindowApp::new(Some(0));
+    let before = Arc::clone(&app.applied_config);
+
+    app.set_config_overrides(NativeConfigSnapshot {
+        initial_cols: Some(132),
+        tab_max_width: Some(42),
+        launcher_alphabet: Some("abc".to_owned()),
+        ..NativeConfigSnapshot::default()
+    });
+
+    assert!(!Arc::ptr_eq(&before, &app.applied_config));
+    assert_eq!(app.applied_config.initial_cols, 132);
+    assert_eq!(app.applied_config.tab_max_width, 42);
+    assert_eq!(app.applied_config.launcher_alphabet, "abc");
+    assert_eq!(app.initial_cols, 132);
+    assert_eq!(app.tab_max_width, 42);
+}
