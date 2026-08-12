@@ -148,3 +148,25 @@ fn terminal_identity_and_palette_values_share_the_applied_config_snapshot() {
     );
     assert_eq!(app.term, "xterm-rssh-palette");
 }
+
+#[test]
+fn renderer_timing_and_cursor_values_share_the_applied_config_snapshot() {
+    let mut app = NativeWindowApp::new(Some(0));
+    let before = Arc::clone(&app.applied_config);
+
+    app.set_config_overrides(NativeConfigSnapshot {
+        max_fps: Some(144),
+        cursor_blink_rate_ms: Some(321),
+        force_reverse_video_cursor: Some(true),
+        ..NativeConfigSnapshot::default()
+    });
+
+    assert!(!Arc::ptr_eq(&before, &app.applied_config));
+    assert_eq!(app.applied_config.max_fps, 144);
+    assert_eq!(
+        app.applied_config.cursor_blink_rate,
+        std::time::Duration::from_millis(321),
+    );
+    assert!(app.applied_config.force_reverse_video_cursor);
+    assert_eq!(app.max_fps, 144);
+}

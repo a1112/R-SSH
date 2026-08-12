@@ -2065,6 +2065,90 @@ impl NativeCursorStyle {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Clone)]
+struct NativeAppliedBackendConfig {
+    status_update_interval: Duration,
+    max_fps: usize,
+    animation_fps: usize,
+    front_end: NativeRenderFrontEnd,
+    webgpu_power_preference: NativeWebGpuPowerPreference,
+    webgpu_force_fallback_adapter: bool,
+    webgpu_preferred_adapter: Option<NativeWebGpuPreferredAdapter>,
+    prefer_egl: bool,
+    enable_wayland: bool,
+    enable_zwlr_output_manager: bool,
+    use_box_model_render: bool,
+    experimental_pixel_positioning: bool,
+    shape_cache_size: usize,
+    line_state_cache_size: usize,
+    line_quad_cache_size: usize,
+    line_to_ele_shape_cache_size: usize,
+    glyph_cache_image_cache_size: usize,
+    cursor_blink_rate: Duration,
+    cursor_blink_ease_in: NativeEasingFunction,
+    cursor_blink_ease_out: NativeEasingFunction,
+    text_blink_rate: Duration,
+    text_blink_rate_rapid: Duration,
+    text_blink_ease_in: NativeEasingFunction,
+    text_blink_ease_out: NativeEasingFunction,
+    text_blink_rapid_ease_in: NativeEasingFunction,
+    text_blink_rapid_ease_out: NativeEasingFunction,
+    default_cursor_style: NativeCursorStyle,
+    cursor_thickness: Option<NativeCursorThickness>,
+    underline_thickness: Option<NativeUnderlineThickness>,
+    underline_position: Option<NativeUnderlinePosition>,
+    strikethrough_position: Option<NativeStrikethroughPosition>,
+    force_reverse_video_cursor: bool,
+    reverse_video_cursor_min_contrast: NativeContrastRatio,
+    text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
+    window_padding: NativeWindowPadding,
+    window_content_alignment: NativeWindowContentAlignment,
+}
+
+impl Default for NativeAppliedBackendConfig {
+    fn default() -> Self {
+        Self {
+            status_update_interval: DEFAULT_STATUS_UPDATE_INTERVAL,
+            max_fps: DEFAULT_MAX_FPS,
+            animation_fps: DEFAULT_ANIMATION_FPS,
+            front_end: DEFAULT_RENDER_FRONT_END,
+            webgpu_power_preference: DEFAULT_WEBGPU_POWER_PREFERENCE,
+            webgpu_force_fallback_adapter: DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
+            webgpu_preferred_adapter: None,
+            prefer_egl: DEFAULT_PREFER_EGL,
+            enable_wayland: DEFAULT_ENABLE_WAYLAND,
+            enable_zwlr_output_manager: DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER,
+            use_box_model_render: DEFAULT_USE_BOX_MODEL_RENDER,
+            experimental_pixel_positioning: DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING,
+            shape_cache_size: DEFAULT_SHAPE_CACHE_SIZE,
+            line_state_cache_size: DEFAULT_LINE_STATE_CACHE_SIZE,
+            line_quad_cache_size: DEFAULT_LINE_QUAD_CACHE_SIZE,
+            line_to_ele_shape_cache_size: DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE,
+            glyph_cache_image_cache_size: DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE,
+            cursor_blink_rate: DEFAULT_CURSOR_BLINK_RATE,
+            cursor_blink_ease_in: DEFAULT_CURSOR_BLINK_EASE_IN,
+            cursor_blink_ease_out: DEFAULT_CURSOR_BLINK_EASE_OUT,
+            text_blink_rate: DEFAULT_TEXT_BLINK_RATE,
+            text_blink_rate_rapid: DEFAULT_TEXT_BLINK_RATE_RAPID,
+            text_blink_ease_in: DEFAULT_TEXT_BLINK_EASE_IN,
+            text_blink_ease_out: DEFAULT_TEXT_BLINK_EASE_OUT,
+            text_blink_rapid_ease_in: DEFAULT_TEXT_BLINK_RAPID_EASE_IN,
+            text_blink_rapid_ease_out: DEFAULT_TEXT_BLINK_RAPID_EASE_OUT,
+            default_cursor_style: DEFAULT_CURSOR_STYLE,
+            cursor_thickness: DEFAULT_CURSOR_THICKNESS,
+            underline_thickness: DEFAULT_UNDERLINE_THICKNESS,
+            underline_position: DEFAULT_UNDERLINE_POSITION,
+            strikethrough_position: DEFAULT_STRIKETHROUGH_POSITION,
+            force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
+            reverse_video_cursor_min_contrast: DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
+            text_min_contrast_ratio: None,
+            window_padding: MODERN_DEFAULT_WINDOW_PADDING,
+            window_content_alignment: DEFAULT_WINDOW_CONTENT_ALIGNMENT,
+        }
+    }
+}
+
 #[expect(
     clippy::struct_field_names,
     reason = "field names mirror the upstream configuration schema"
@@ -39814,6 +39898,7 @@ struct NativeAppliedPaletteConfig {
     tab_bar_style: NativeTabBarStyle,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
+    backend: NativeAppliedBackendConfig,
 }
 
 impl Default for NativeAppliedPaletteConfig {
@@ -39850,7 +39935,22 @@ impl Default for NativeAppliedPaletteConfig {
             tab_bar_style: NativeTabBarStyle::default(),
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
+            backend: NativeAppliedBackendConfig::default(),
         }
+    }
+}
+
+impl Deref for NativeAppliedPaletteConfig {
+    type Target = NativeAppliedBackendConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.backend
+    }
+}
+
+impl DerefMut for NativeAppliedPaletteConfig {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.backend
     }
 }
 
@@ -40449,47 +40549,11 @@ struct NativeWindowApp {
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
     lua_command_palette_entries: Vec<NativeCommandPaletteEntry>,
     lua_emit_event_handlers: BTreeMap<String, Vec<NativeLuaEmitEventHandler>>,
-    status_update_interval: Duration,
-    max_fps: usize,
-    animation_fps: usize,
     last_redraw_request_at: Option<Instant>,
     last_animation_redraw_request_at: Option<Instant>,
-    front_end: NativeRenderFrontEnd,
-    webgpu_power_preference: NativeWebGpuPowerPreference,
-    webgpu_force_fallback_adapter: bool,
-    webgpu_preferred_adapter: Option<NativeWebGpuPreferredAdapter>,
-    prefer_egl: bool,
-    enable_wayland: bool,
-    enable_zwlr_output_manager: bool,
-    use_box_model_render: bool,
-    experimental_pixel_positioning: bool,
-    shape_cache_size: usize,
-    line_state_cache_size: usize,
-    line_quad_cache_size: usize,
-    line_to_ele_shape_cache_size: usize,
-    glyph_cache_image_cache_size: usize,
     last_status_update_at: Option<Instant>,
-    cursor_blink_rate: Duration,
-    cursor_blink_ease_in: NativeEasingFunction,
-    cursor_blink_ease_out: NativeEasingFunction,
-    text_blink_rate: Duration,
-    text_blink_rate_rapid: Duration,
-    text_blink_ease_in: NativeEasingFunction,
-    text_blink_ease_out: NativeEasingFunction,
-    text_blink_rapid_ease_in: NativeEasingFunction,
-    text_blink_rapid_ease_out: NativeEasingFunction,
-    default_cursor_style: NativeCursorStyle,
-    cursor_thickness: Option<NativeCursorThickness>,
-    underline_thickness: Option<NativeUnderlineThickness>,
-    underline_position: Option<NativeUnderlinePosition>,
-    strikethrough_position: Option<NativeStrikethroughPosition>,
-    force_reverse_video_cursor: bool,
-    reverse_video_cursor_min_contrast: NativeContrastRatio,
-    text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
-    window_padding: NativeWindowPadding,
     #[cfg(test)]
     legacy_test_geometry: bool,
-    window_content_alignment: NativeWindowContentAlignment,
     cursor_blink_visible: bool,
     cursor_blink_opacity_alpha: u8,
     last_cursor_blink_at: Option<Instant>,
@@ -43801,47 +43865,11 @@ impl NativeWindowApp {
                 lua_new_tab_button_click: None,
                 lua_command_palette_entries: Vec::new(),
                 lua_emit_event_handlers: BTreeMap::new(),
-                status_update_interval: DEFAULT_STATUS_UPDATE_INTERVAL,
-                max_fps: DEFAULT_MAX_FPS,
-                animation_fps: DEFAULT_ANIMATION_FPS,
                 last_redraw_request_at: None,
                 last_animation_redraw_request_at: None,
-                front_end: DEFAULT_RENDER_FRONT_END,
-                webgpu_power_preference: DEFAULT_WEBGPU_POWER_PREFERENCE,
-                webgpu_force_fallback_adapter: DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
-                webgpu_preferred_adapter: None,
-                prefer_egl: DEFAULT_PREFER_EGL,
-                enable_wayland: DEFAULT_ENABLE_WAYLAND,
-                enable_zwlr_output_manager: DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER,
-                use_box_model_render: DEFAULT_USE_BOX_MODEL_RENDER,
-                experimental_pixel_positioning: DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING,
-                shape_cache_size: DEFAULT_SHAPE_CACHE_SIZE,
-                line_state_cache_size: DEFAULT_LINE_STATE_CACHE_SIZE,
-                line_quad_cache_size: DEFAULT_LINE_QUAD_CACHE_SIZE,
-                line_to_ele_shape_cache_size: DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE,
-                glyph_cache_image_cache_size: DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE,
                 last_status_update_at: None,
-                cursor_blink_rate: DEFAULT_CURSOR_BLINK_RATE,
-                cursor_blink_ease_in: DEFAULT_CURSOR_BLINK_EASE_IN,
-                cursor_blink_ease_out: DEFAULT_CURSOR_BLINK_EASE_OUT,
-                text_blink_rate: DEFAULT_TEXT_BLINK_RATE,
-                text_blink_rate_rapid: DEFAULT_TEXT_BLINK_RATE_RAPID,
-                text_blink_ease_in: DEFAULT_TEXT_BLINK_EASE_IN,
-                text_blink_ease_out: DEFAULT_TEXT_BLINK_EASE_OUT,
-                text_blink_rapid_ease_in: DEFAULT_TEXT_BLINK_RAPID_EASE_IN,
-                text_blink_rapid_ease_out: DEFAULT_TEXT_BLINK_RAPID_EASE_OUT,
-                default_cursor_style: DEFAULT_CURSOR_STYLE,
-                cursor_thickness: DEFAULT_CURSOR_THICKNESS,
-                underline_thickness: DEFAULT_UNDERLINE_THICKNESS,
-                underline_position: DEFAULT_UNDERLINE_POSITION,
-                strikethrough_position: DEFAULT_STRIKETHROUGH_POSITION,
-                force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
-                reverse_video_cursor_min_contrast: DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-                text_min_contrast_ratio: None,
-                window_padding: MODERN_DEFAULT_WINDOW_PADDING,
                 #[cfg(test)]
                 legacy_test_geometry: false,
-                window_content_alignment: DEFAULT_WINDOW_CONTENT_ALIGNMENT,
                 cursor_blink_visible: true,
                 cursor_blink_opacity_alpha: u8::MAX,
                 last_cursor_blink_at: None,
@@ -44810,10 +44838,6 @@ impl NativeWindowApp {
         requested
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
-    )]
     #[allow(dead_code)]
     fn take_next_pending_window_app(&mut self) -> Option<Box<Self>> {
         let pending_window = self.app_shell.take_next_pending_window()?;
@@ -44895,33 +44919,7 @@ impl NativeWindowApp {
             self.cursor_fg_color
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
-        detached_app.max_fps = self.max_fps;
-        detached_app.animation_fps = self.animation_fps;
         detached_app.leader_active_since = None;
-        detached_app.cursor_blink_ease_in = self.cursor_blink_ease_in;
-        detached_app.cursor_blink_ease_out = self.cursor_blink_ease_out;
-        detached_app.apply_text_blink_overrides(
-            Some(u64::try_from(self.text_blink_rate.as_millis()).unwrap_or(u64::MAX)),
-            Some(u64::try_from(self.text_blink_rate_rapid.as_millis()).unwrap_or(u64::MAX)),
-            Some(self.text_blink_ease_in),
-            Some(self.text_blink_ease_out),
-            Some(self.text_blink_rapid_ease_in),
-            Some(self.text_blink_rapid_ease_out),
-        );
-        detached_app.default_cursor_style = self.default_cursor_style;
-        detached_app.apply_default_cursor_style_to_runtimes();
-        detached_app.apply_cursor_thickness_override(self.cursor_thickness);
-        detached_app.apply_underline_thickness_override(self.underline_thickness);
-        detached_app.apply_underline_position_override(self.underline_position);
-        detached_app.apply_strikethrough_position_override(self.strikethrough_position);
-        detached_app
-            .apply_force_reverse_video_cursor_override(Some(self.force_reverse_video_cursor));
-        detached_app.reverse_video_cursor_min_contrast = self.reverse_video_cursor_min_contrast;
-        detached_app
-            .renderer
-            .set_reverse_video_cursor_min_contrast(Some(
-                self.reverse_video_cursor_min_contrast.as_f64(),
-            ));
         detached_app.inherit_effective_config_from(self);
         detached_app.install_active_runtime(runtime);
         if let Some(bell_count) = bell_count {
@@ -44951,9 +44949,6 @@ impl NativeWindowApp {
         self.dpi_by_screen.clone_from(&source.dpi_by_screen);
         self.detected_window_dpi = source.detected_window_dpi;
         self.apply_effective_window_dpi();
-        self.text_min_contrast_ratio = source.text_min_contrast_ratio;
-        self.window_content_alignment = source.window_content_alignment;
-        self.status_update_interval = source.status_update_interval;
         self.lua_tab_title.clone_from(&source.lua_tab_title);
         self.lua_window_title.clone_from(&source.lua_window_title);
         self.lua_update_status.clone_from(&source.lua_update_status);
@@ -44972,25 +44967,8 @@ impl NativeWindowApp {
             .clone_from(&source.lua_command_palette_entries);
         self.lua_emit_event_handlers
             .clone_from(&source.lua_emit_event_handlers);
-        self.max_fps = source.max_fps;
-        self.animation_fps = source.animation_fps;
         self.last_redraw_request_at = source.last_redraw_request_at;
         self.last_animation_redraw_request_at = source.last_animation_redraw_request_at;
-        self.front_end = source.front_end;
-        self.webgpu_power_preference = source.webgpu_power_preference;
-        self.webgpu_force_fallback_adapter = source.webgpu_force_fallback_adapter;
-        self.webgpu_preferred_adapter
-            .clone_from(&source.webgpu_preferred_adapter);
-        self.prefer_egl = source.prefer_egl;
-        self.enable_wayland = source.enable_wayland;
-        self.enable_zwlr_output_manager = source.enable_zwlr_output_manager;
-        self.use_box_model_render = source.use_box_model_render;
-        self.experimental_pixel_positioning = source.experimental_pixel_positioning;
-        self.shape_cache_size = source.shape_cache_size;
-        self.line_state_cache_size = source.line_state_cache_size;
-        self.line_quad_cache_size = source.line_quad_cache_size;
-        self.line_to_ele_shape_cache_size = source.line_to_ele_shape_cache_size;
-        self.glyph_cache_image_cache_size = source.glyph_cache_image_cache_size;
         self.last_status_update_at = None;
         self.renderer.set_default_foreground(color_to_rgba(
             source.foreground_color,
@@ -45039,23 +45017,6 @@ impl NativeWindowApp {
         self.dead_key_active = false;
         self.dead_key_text = None;
         self.leader_active_since = None;
-        self.cursor_blink_rate = source.cursor_blink_rate;
-        self.cursor_blink_ease_in = source.cursor_blink_ease_in;
-        self.cursor_blink_ease_out = source.cursor_blink_ease_out;
-        self.text_blink_rate = source.text_blink_rate;
-        self.text_blink_rate_rapid = source.text_blink_rate_rapid;
-        self.text_blink_ease_in = source.text_blink_ease_in;
-        self.text_blink_ease_out = source.text_blink_ease_out;
-        self.text_blink_rapid_ease_in = source.text_blink_rapid_ease_in;
-        self.text_blink_rapid_ease_out = source.text_blink_rapid_ease_out;
-        self.default_cursor_style = source.default_cursor_style;
-        self.cursor_thickness = source.cursor_thickness;
-        self.underline_thickness = source.underline_thickness;
-        self.underline_position = source.underline_position;
-        self.strikethrough_position = source.strikethrough_position;
-        self.force_reverse_video_cursor = source.force_reverse_video_cursor;
-        self.reverse_video_cursor_min_contrast = source.reverse_video_cursor_min_contrast;
-        self.window_padding = source.window_padding;
         self.cursor_blink_visible = true;
         self.cursor_blink_opacity_alpha = u8::MAX;
         self.last_cursor_blink_at = None;
@@ -63787,13 +63748,19 @@ impl NativeWindowApp {
     }
 
     fn update_text_blink_phase_if_due(&mut self, now: Instant) -> bool {
+        let text_blink_rate = self.text_blink_rate;
+        let text_blink_ease_in = self.text_blink_ease_in;
+        let text_blink_ease_out = self.text_blink_ease_out;
+        let text_blink_rate_rapid = self.text_blink_rate_rapid;
+        let text_blink_rapid_ease_in = self.text_blink_rapid_ease_in;
+        let text_blink_rapid_ease_out = self.text_blink_rapid_ease_out;
         let mut changed = false;
         if let Some(alpha) = blink_opacity_alpha_if_changed(
             now,
             &mut self.last_text_blink_at,
-            self.text_blink_rate,
-            self.text_blink_ease_in,
-            self.text_blink_ease_out,
+            text_blink_rate,
+            text_blink_ease_in,
+            text_blink_ease_out,
             self.text_blink_opacity_alpha,
         ) {
             self.apply_text_blink_opacity(alpha);
@@ -63802,9 +63769,9 @@ impl NativeWindowApp {
         if let Some(alpha) = blink_opacity_alpha_if_changed(
             now,
             &mut self.last_rapid_text_blink_at,
-            self.text_blink_rate_rapid,
-            self.text_blink_rapid_ease_in,
-            self.text_blink_rapid_ease_out,
+            text_blink_rate_rapid,
+            text_blink_rapid_ease_in,
+            text_blink_rapid_ease_out,
             self.rapid_text_blink_opacity_alpha,
         ) {
             self.apply_rapid_text_blink_opacity(alpha);
