@@ -66,3 +66,23 @@ fn domain_and_lifecycle_values_live_in_one_copy_on_write_config_snapshot() {
     inherited.inherit_effective_config_from(&app);
     assert!(Arc::ptr_eq(&app.applied_config, &inherited.applied_config));
 }
+
+#[test]
+fn input_terminal_and_tab_values_share_the_applied_config_snapshot() {
+    let mut app = NativeWindowApp::new(Some(0));
+    let before = Arc::clone(&app.applied_config);
+
+    app.set_config_overrides(NativeConfigSnapshot {
+        scroll_to_bottom_on_input: Some(false),
+        enable_tab_bar: Some(false),
+        enable_kitty_graphics: Some(false),
+        ..NativeConfigSnapshot::default()
+    });
+
+    assert!(!Arc::ptr_eq(&before, &app.applied_config));
+    assert!(!app.applied_config.scroll_to_bottom_on_input);
+    assert!(!app.applied_config.enable_tab_bar);
+    assert!(!app.applied_config.enable_kitty_graphics);
+    assert!(!app.scroll_to_bottom_on_input);
+    assert!(!app.enable_tab_bar);
+}

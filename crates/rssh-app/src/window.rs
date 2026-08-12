@@ -39779,6 +39779,150 @@ impl NativeWindowStartup {
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone)]
+struct NativeAppliedInputConfig {
+    key_map_preference: NativeKeyMapPreference,
+    ui_key_cap_rendering: NativeUiKeyCapRendering,
+    swap_backspace_and_delete: bool,
+    enable_kitty_graphics: bool,
+    enable_checksum_rectangular_area: bool,
+    enable_title_reporting: bool,
+    enable_csi_u_key_encoding: bool,
+    enable_kitty_keyboard: bool,
+    allow_download_protocols: bool,
+    xcursor_theme: Option<String>,
+    xcursor_size: Option<u32>,
+    palette_max_key_assigments_for_action: usize,
+    allow_win32_input_mode: bool,
+    treat_left_ctrlalt_as_altgr: bool,
+    send_composed_key_when_left_alt_is_pressed: bool,
+    send_composed_key_when_right_alt_is_pressed: bool,
+    treat_east_asian_ambiguous_width_as_wide: bool,
+    normalize_output_to_unicode_nfc: bool,
+    unicode_version: u32,
+    bidi_enabled: bool,
+    bidi_direction: NativeBidiDirection,
+    use_ime: bool,
+    use_dead_keys: bool,
+    ime_preedit_rendering: NativeImePreeditRendering,
+    macos_forward_to_ime_modifier_mask: ModifiersState,
+    xim_im_name: Option<String>,
+    detect_password_input: bool,
+    leader: Option<NativeLeaderKey>,
+    key_assignments: Vec<NativeUserKeyAssignment>,
+    key_tables: BTreeMap<String, Vec<NativeUserKeyAssignment>>,
+    mouse_assignments: Vec<NativeUserMouseAssignment>,
+    scroll_to_bottom_on_input: bool,
+    canonicalize_pasted_newlines: NativeCanonicalizePastedNewlines,
+    quote_dropped_files: NativeQuoteDroppedFiles,
+    disable_default_key_bindings: bool,
+    disable_default_mouse_bindings: bool,
+    hide_mouse_cursor_when_typing: bool,
+    alternate_buffer_wheel_scroll_speed: usize,
+    pane_focus_follows_mouse: bool,
+    swallow_mouse_click_on_pane_focus: bool,
+    swallow_mouse_click_on_window_focus: bool,
+    bypass_mouse_reporting_modifiers: ModifiersState,
+    enable_scroll_bar: bool,
+    scrollback_lines: usize,
+    min_scroll_bar_height: Option<NativeScrollBarHeight>,
+    enable_tab_bar: bool,
+    hide_tab_bar_if_only_one_tab: bool,
+    use_fancy_tab_bar: bool,
+    unzoom_on_switch_pane: bool,
+    tab_bar_at_bottom: bool,
+    tab_and_split_indices_are_zero_based: bool,
+    mouse_wheel_scrolls_tabs: bool,
+    switch_to_last_active_tab_when_closing_tab: bool,
+    quit_when_all_windows_are_closed: bool,
+    window_close_confirmation: NativeWindowCloseConfirmation,
+    exit_behavior: NativeExitBehavior,
+    clean_exit_codes: Vec<u32>,
+    exit_behavior_messaging: NativeExitBehaviorMessaging,
+    skip_close_confirmation_for_processes_named: Vec<String>,
+    show_close_tab_button_in_tabs: bool,
+    show_new_tab_button_in_tab_bar: bool,
+    show_tab_index_in_tab_bar: bool,
+    show_tabs_in_tab_bar: bool,
+}
+
+impl Default for NativeAppliedInputConfig {
+    fn default() -> Self {
+        Self {
+            key_map_preference: NativeKeyMapPreference::Mapped,
+            ui_key_cap_rendering: DEFAULT_UI_KEY_CAP_RENDERING,
+            swap_backspace_and_delete: false,
+            enable_kitty_graphics: DEFAULT_ENABLE_KITTY_GRAPHICS,
+            enable_checksum_rectangular_area: DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA,
+            enable_title_reporting: DEFAULT_ENABLE_TITLE_REPORTING,
+            enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
+            enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
+            allow_download_protocols: DEFAULT_ALLOW_DOWNLOAD_PROTOCOLS,
+            xcursor_theme: None,
+            xcursor_size: None,
+            palette_max_key_assigments_for_action:
+                DEFAULT_PALETTE_MAX_KEY_ASSIGMENTS_FOR_ACTION,
+            allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
+            treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
+            send_composed_key_when_left_alt_is_pressed:
+                DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+            send_composed_key_when_right_alt_is_pressed:
+                DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED,
+            treat_east_asian_ambiguous_width_as_wide:
+                DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
+            normalize_output_to_unicode_nfc: DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
+            unicode_version: DEFAULT_UNICODE_VERSION,
+            bidi_enabled: DEFAULT_BIDI_ENABLED,
+            bidi_direction: DEFAULT_BIDI_DIRECTION,
+            use_ime: DEFAULT_USE_IME,
+            use_dead_keys: DEFAULT_USE_DEAD_KEYS,
+            ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
+            macos_forward_to_ime_modifier_mask: DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
+            xim_im_name: None,
+            detect_password_input: DEFAULT_DETECT_PASSWORD_INPUT,
+            leader: None,
+            key_assignments: Vec::new(),
+            key_tables: BTreeMap::new(),
+            mouse_assignments: Vec::new(),
+            scroll_to_bottom_on_input: DEFAULT_SCROLL_TO_BOTTOM_ON_INPUT,
+            canonicalize_pasted_newlines: DEFAULT_CANONICALIZE_PASTED_NEWLINES,
+            quote_dropped_files: DEFAULT_QUOTE_DROPPED_FILES,
+            disable_default_key_bindings: DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
+            disable_default_mouse_bindings: DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS,
+            hide_mouse_cursor_when_typing: DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING,
+            alternate_buffer_wheel_scroll_speed: DEFAULT_ALTERNATE_BUFFER_WHEEL_SCROLL_SPEED,
+            pane_focus_follows_mouse: DEFAULT_PANE_FOCUS_FOLLOWS_MOUSE,
+            swallow_mouse_click_on_pane_focus: DEFAULT_SWALLOW_MOUSE_CLICK_ON_PANE_FOCUS,
+            swallow_mouse_click_on_window_focus: DEFAULT_SWALLOW_MOUSE_CLICK_ON_WINDOW_FOCUS,
+            bypass_mouse_reporting_modifiers: DEFAULT_BYPASS_MOUSE_REPORTING_MODIFIERS,
+            enable_scroll_bar: DEFAULT_ENABLE_SCROLL_BAR,
+            scrollback_lines: DEFAULT_SCROLLBACK_LIMIT,
+            min_scroll_bar_height: DEFAULT_MIN_SCROLL_BAR_HEIGHT,
+            enable_tab_bar: DEFAULT_ENABLE_TAB_BAR,
+            hide_tab_bar_if_only_one_tab: DEFAULT_HIDE_TAB_BAR_IF_ONLY_ONE_TAB,
+            use_fancy_tab_bar: DEFAULT_USE_FANCY_TAB_BAR,
+            unzoom_on_switch_pane: DEFAULT_UNZOOM_ON_SWITCH_PANE,
+            tab_bar_at_bottom: DEFAULT_TAB_BAR_AT_BOTTOM,
+            tab_and_split_indices_are_zero_based: DEFAULT_TAB_AND_SPLIT_INDICES_ARE_ZERO_BASED,
+            mouse_wheel_scrolls_tabs: DEFAULT_MOUSE_WHEEL_SCROLLS_TABS,
+            switch_to_last_active_tab_when_closing_tab:
+                DEFAULT_SWITCH_TO_LAST_ACTIVE_TAB_WHEN_CLOSING_TAB,
+            quit_when_all_windows_are_closed: DEFAULT_QUIT_WHEN_ALL_WINDOWS_ARE_CLOSED,
+            window_close_confirmation: DEFAULT_WINDOW_CLOSE_CONFIRMATION,
+            exit_behavior: DEFAULT_EXIT_BEHAVIOR,
+            clean_exit_codes: DEFAULT_CLEAN_EXIT_CODES.to_vec(),
+            exit_behavior_messaging: DEFAULT_EXIT_BEHAVIOR_MESSAGING,
+            skip_close_confirmation_for_processes_named:
+                default_skip_close_confirmation_for_processes_named(),
+            show_close_tab_button_in_tabs: DEFAULT_SHOW_CLOSE_TAB_BUTTON_IN_TABS,
+            show_new_tab_button_in_tab_bar: DEFAULT_SHOW_NEW_TAB_BUTTON_IN_TAB_BAR,
+            show_tab_index_in_tab_bar: DEFAULT_SHOW_TAB_INDEX_IN_TAB_BAR,
+            show_tabs_in_tab_bar: DEFAULT_SHOW_TABS_IN_TAB_BAR,
+        }
+    }
+}
+
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Clone)]
 struct NativeAppliedConfig {
     default_prog: Option<Vec<String>>,
     default_gui_startup_args: Vec<String>,
@@ -39819,6 +39963,7 @@ struct NativeAppliedConfig {
     derived_config_environment: BTreeMap<String, String>,
     set_environment_variables: BTreeMap<String, String>,
     launch_menu: Vec<NativeLaunchMenuItem>,
+    input: NativeAppliedInputConfig,
 }
 
 impl Default for NativeAppliedConfig {
@@ -39864,7 +40009,22 @@ impl Default for NativeAppliedConfig {
             derived_config_environment: BTreeMap::new(),
             set_environment_variables: BTreeMap::new(),
             launch_menu: Vec::new(),
+            input: NativeAppliedInputConfig::default(),
         }
+    }
+}
+
+impl Deref for NativeAppliedConfig {
+    type Target = NativeAppliedInputConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.input
+    }
+}
+
+impl DerefMut for NativeAppliedConfig {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.input
     }
 }
 
@@ -40084,74 +40244,11 @@ struct NativeWindowApp {
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     applied_config: Arc<NativeAppliedConfig>,
-    key_map_preference: NativeKeyMapPreference,
-    ui_key_cap_rendering: NativeUiKeyCapRendering,
-    swap_backspace_and_delete: bool,
-    enable_kitty_graphics: bool,
-    enable_checksum_rectangular_area: bool,
-    enable_title_reporting: bool,
-    enable_csi_u_key_encoding: bool,
-    enable_kitty_keyboard: bool,
-    allow_download_protocols: bool,
-    xcursor_theme: Option<String>,
-    xcursor_size: Option<u32>,
-    palette_max_key_assigments_for_action: usize,
-    allow_win32_input_mode: bool,
-    treat_left_ctrlalt_as_altgr: bool,
-    send_composed_key_when_left_alt_is_pressed: bool,
-    send_composed_key_when_right_alt_is_pressed: bool,
-    treat_east_asian_ambiguous_width_as_wide: bool,
-    normalize_output_to_unicode_nfc: bool,
-    unicode_version: u32,
-    bidi_enabled: bool,
-    bidi_direction: NativeBidiDirection,
-    use_ime: bool,
-    use_dead_keys: bool,
-    ime_preedit_rendering: NativeImePreeditRendering,
-    macos_forward_to_ime_modifier_mask: ModifiersState,
     ime_preedit: Option<String>,
     last_ime_cursor_area: Cell<Option<(u32, u32, u32, u32)>>,
     dead_key_active: bool,
     dead_key_text: Option<String>,
-    xim_im_name: Option<String>,
-    detect_password_input: bool,
-    leader: Option<NativeLeaderKey>,
-    key_assignments: Vec<NativeUserKeyAssignment>,
-    key_tables: BTreeMap<String, Vec<NativeUserKeyAssignment>>,
-    mouse_assignments: Vec<NativeUserMouseAssignment>,
     leader_active_since: Option<Instant>,
-    scroll_to_bottom_on_input: bool,
-    canonicalize_pasted_newlines: NativeCanonicalizePastedNewlines,
-    quote_dropped_files: NativeQuoteDroppedFiles,
-    disable_default_key_bindings: bool,
-    disable_default_mouse_bindings: bool,
-    hide_mouse_cursor_when_typing: bool,
-    alternate_buffer_wheel_scroll_speed: usize,
-    pane_focus_follows_mouse: bool,
-    swallow_mouse_click_on_pane_focus: bool,
-    swallow_mouse_click_on_window_focus: bool,
-    bypass_mouse_reporting_modifiers: ModifiersState,
-    enable_scroll_bar: bool,
-    scrollback_lines: usize,
-    min_scroll_bar_height: Option<NativeScrollBarHeight>,
-    enable_tab_bar: bool,
-    hide_tab_bar_if_only_one_tab: bool,
-    use_fancy_tab_bar: bool,
-    unzoom_on_switch_pane: bool,
-    tab_bar_at_bottom: bool,
-    tab_and_split_indices_are_zero_based: bool,
-    mouse_wheel_scrolls_tabs: bool,
-    switch_to_last_active_tab_when_closing_tab: bool,
-    quit_when_all_windows_are_closed: bool,
-    window_close_confirmation: NativeWindowCloseConfirmation,
-    exit_behavior: NativeExitBehavior,
-    clean_exit_codes: Vec<u32>,
-    exit_behavior_messaging: NativeExitBehaviorMessaging,
-    skip_close_confirmation_for_processes_named: Vec<String>,
-    show_close_tab_button_in_tabs: bool,
-    show_new_tab_button_in_tab_bar: bool,
-    show_tab_index_in_tab_bar: bool,
-    show_tabs_in_tab_bar: bool,
     base_config_overrides: Arc<NativeConfigSnapshot>,
     base_config_generation: u64,
     base_config_source: Option<PathBuf>,
@@ -43619,80 +43716,11 @@ impl NativeWindowApp {
                 visual_bell_color: None,
                 notification_handling: DEFAULT_NOTIFICATION_HANDLING,
                 applied_config: Arc::new(NativeAppliedConfig::default()),
-                key_map_preference: NativeKeyMapPreference::Mapped,
-                ui_key_cap_rendering: DEFAULT_UI_KEY_CAP_RENDERING,
-                swap_backspace_and_delete: false,
-                enable_kitty_graphics: DEFAULT_ENABLE_KITTY_GRAPHICS,
-                enable_checksum_rectangular_area: DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA,
-                enable_title_reporting: DEFAULT_ENABLE_TITLE_REPORTING,
-                enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
-                enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
-                allow_download_protocols: DEFAULT_ALLOW_DOWNLOAD_PROTOCOLS,
-                xcursor_theme: None,
-                xcursor_size: None,
-                palette_max_key_assigments_for_action:
-                    DEFAULT_PALETTE_MAX_KEY_ASSIGMENTS_FOR_ACTION,
-                allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
-                treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
-                send_composed_key_when_left_alt_is_pressed:
-                    DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
-                send_composed_key_when_right_alt_is_pressed:
-                    DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED,
-                treat_east_asian_ambiguous_width_as_wide:
-                    DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
-                normalize_output_to_unicode_nfc: DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
-                unicode_version: DEFAULT_UNICODE_VERSION,
-                bidi_enabled: DEFAULT_BIDI_ENABLED,
-                bidi_direction: DEFAULT_BIDI_DIRECTION,
-                use_ime: DEFAULT_USE_IME,
-                use_dead_keys: DEFAULT_USE_DEAD_KEYS,
-                ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
-                macos_forward_to_ime_modifier_mask: DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
                 ime_preedit: None,
                 last_ime_cursor_area: Cell::new(None),
                 dead_key_active: false,
                 dead_key_text: None,
-                xim_im_name: None,
-                detect_password_input: DEFAULT_DETECT_PASSWORD_INPUT,
-                leader: None,
-                key_assignments: Vec::new(),
-                key_tables: BTreeMap::new(),
-                mouse_assignments: Vec::new(),
                 leader_active_since: None,
-                scroll_to_bottom_on_input: DEFAULT_SCROLL_TO_BOTTOM_ON_INPUT,
-                canonicalize_pasted_newlines: DEFAULT_CANONICALIZE_PASTED_NEWLINES,
-                quote_dropped_files: DEFAULT_QUOTE_DROPPED_FILES,
-                disable_default_key_bindings: DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
-                disable_default_mouse_bindings: DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS,
-                hide_mouse_cursor_when_typing: DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING,
-                alternate_buffer_wheel_scroll_speed: DEFAULT_ALTERNATE_BUFFER_WHEEL_SCROLL_SPEED,
-                pane_focus_follows_mouse: DEFAULT_PANE_FOCUS_FOLLOWS_MOUSE,
-                swallow_mouse_click_on_pane_focus: DEFAULT_SWALLOW_MOUSE_CLICK_ON_PANE_FOCUS,
-                swallow_mouse_click_on_window_focus: DEFAULT_SWALLOW_MOUSE_CLICK_ON_WINDOW_FOCUS,
-                bypass_mouse_reporting_modifiers: DEFAULT_BYPASS_MOUSE_REPORTING_MODIFIERS,
-                enable_scroll_bar: DEFAULT_ENABLE_SCROLL_BAR,
-                scrollback_lines: DEFAULT_SCROLLBACK_LIMIT,
-                min_scroll_bar_height: DEFAULT_MIN_SCROLL_BAR_HEIGHT,
-                enable_tab_bar: DEFAULT_ENABLE_TAB_BAR,
-                hide_tab_bar_if_only_one_tab: DEFAULT_HIDE_TAB_BAR_IF_ONLY_ONE_TAB,
-                use_fancy_tab_bar: DEFAULT_USE_FANCY_TAB_BAR,
-                unzoom_on_switch_pane: DEFAULT_UNZOOM_ON_SWITCH_PANE,
-                tab_bar_at_bottom: DEFAULT_TAB_BAR_AT_BOTTOM,
-                tab_and_split_indices_are_zero_based: DEFAULT_TAB_AND_SPLIT_INDICES_ARE_ZERO_BASED,
-                mouse_wheel_scrolls_tabs: DEFAULT_MOUSE_WHEEL_SCROLLS_TABS,
-                switch_to_last_active_tab_when_closing_tab:
-                    DEFAULT_SWITCH_TO_LAST_ACTIVE_TAB_WHEN_CLOSING_TAB,
-                quit_when_all_windows_are_closed: DEFAULT_QUIT_WHEN_ALL_WINDOWS_ARE_CLOSED,
-                window_close_confirmation: DEFAULT_WINDOW_CLOSE_CONFIRMATION,
-                exit_behavior: DEFAULT_EXIT_BEHAVIOR,
-                clean_exit_codes: DEFAULT_CLEAN_EXIT_CODES.to_vec(),
-                exit_behavior_messaging: DEFAULT_EXIT_BEHAVIOR_MESSAGING,
-                skip_close_confirmation_for_processes_named:
-                    default_skip_close_confirmation_for_processes_named(),
-                show_close_tab_button_in_tabs: DEFAULT_SHOW_CLOSE_TAB_BUTTON_IN_TABS,
-                show_new_tab_button_in_tab_bar: DEFAULT_SHOW_NEW_TAB_BUTTON_IN_TAB_BAR,
-                show_tab_index_in_tab_bar: DEFAULT_SHOW_TAB_INDEX_IN_TAB_BAR,
-                show_tabs_in_tab_bar: DEFAULT_SHOW_TABS_IN_TAB_BAR,
                 base_config_overrides: Arc::clone(&default_config),
                 base_config_generation: 0,
                 base_config_source: None,
@@ -44909,55 +44937,10 @@ impl NativeWindowApp {
         detached_app.notification_handling = self.notification_handling;
         detached_app.max_fps = self.max_fps;
         detached_app.animation_fps = self.animation_fps;
-        detached_app.key_map_preference = self.key_map_preference;
-        detached_app.ui_key_cap_rendering = self.ui_key_cap_rendering;
-        detached_app.swap_backspace_and_delete = self.swap_backspace_and_delete;
-        detached_app.enable_kitty_graphics = self.enable_kitty_graphics;
-        detached_app.enable_checksum_rectangular_area = self.enable_checksum_rectangular_area;
-        detached_app.enable_title_reporting = self.enable_title_reporting;
-        detached_app.enable_csi_u_key_encoding = self.enable_csi_u_key_encoding;
-        detached_app.enable_kitty_keyboard = self.enable_kitty_keyboard;
-        detached_app.allow_download_protocols = self.allow_download_protocols;
-        detached_app.xcursor_theme.clone_from(&self.xcursor_theme);
-        detached_app.xcursor_size = self.xcursor_size;
-        detached_app.palette_max_key_assigments_for_action =
-            self.palette_max_key_assigments_for_action;
-        detached_app.allow_win32_input_mode = self.allow_win32_input_mode;
-        detached_app.treat_left_ctrlalt_as_altgr = self.treat_left_ctrlalt_as_altgr;
-        detached_app.send_composed_key_when_left_alt_is_pressed =
-            self.send_composed_key_when_left_alt_is_pressed;
-        detached_app.send_composed_key_when_right_alt_is_pressed =
-            self.send_composed_key_when_right_alt_is_pressed;
-        detached_app.treat_east_asian_ambiguous_width_as_wide =
-            self.treat_east_asian_ambiguous_width_as_wide;
-        detached_app.normalize_output_to_unicode_nfc = self.normalize_output_to_unicode_nfc;
-        detached_app.unicode_version = self.unicode_version;
-        detached_app.bidi_enabled = self.bidi_enabled;
-        detached_app.bidi_direction = self.bidi_direction;
         detached_app.cell_widths.clone_from(&self.cell_widths);
-        detached_app.leader.clone_from(&self.leader);
-        detached_app
-            .key_assignments
-            .clone_from(&self.key_assignments);
-        detached_app.key_tables.clone_from(&self.key_tables);
-        detached_app
-            .mouse_assignments
-            .clone_from(&self.mouse_assignments);
         detached_app.leader_active_since = None;
-        detached_app.scroll_to_bottom_on_input = self.scroll_to_bottom_on_input;
         detached_app.adjust_window_size_when_changing_font_size =
             self.adjust_window_size_when_changing_font_size;
-        detached_app.canonicalize_pasted_newlines = self.canonicalize_pasted_newlines;
-        detached_app.quote_dropped_files = self.quote_dropped_files;
-        detached_app.disable_default_key_bindings = self.disable_default_key_bindings;
-        detached_app.disable_default_mouse_bindings = self.disable_default_mouse_bindings;
-        detached_app.pane_focus_follows_mouse = self.pane_focus_follows_mouse;
-        detached_app.swallow_mouse_click_on_pane_focus = self.swallow_mouse_click_on_pane_focus;
-        detached_app.swallow_mouse_click_on_window_focus = self.swallow_mouse_click_on_window_focus;
-        detached_app.bypass_mouse_reporting_modifiers = self.bypass_mouse_reporting_modifiers;
-        detached_app.enable_scroll_bar = self.enable_scroll_bar;
-        detached_app.scrollback_lines = self.scrollback_lines;
-        detached_app.min_scroll_bar_height = self.min_scroll_bar_height;
         detached_app.cursor_blink_ease_in = self.cursor_blink_ease_in;
         detached_app.cursor_blink_ease_out = self.cursor_blink_ease_out;
         detached_app.apply_text_blink_overrides(
@@ -44982,13 +44965,6 @@ impl NativeWindowApp {
             .set_reverse_video_cursor_min_contrast(Some(
                 self.reverse_video_cursor_min_contrast.as_f64(),
             ));
-        detached_app.unzoom_on_switch_pane = self.unzoom_on_switch_pane;
-        detached_app.quit_when_all_windows_are_closed = self.quit_when_all_windows_are_closed;
-        detached_app.exit_behavior = self.exit_behavior;
-        detached_app
-            .clean_exit_codes
-            .clone_from(&self.clean_exit_codes);
-        detached_app.exit_behavior_messaging = self.exit_behavior_messaging;
         detached_app.inherit_effective_config_from(self);
         detached_app.install_active_runtime(runtime);
         if let Some(bell_count) = bell_count {
@@ -45227,80 +45203,12 @@ impl NativeWindowApp {
         self.tab_bar_style.clone_from(&source.tab_bar_style);
         self.visual_bell_color = source.visual_bell_color;
         self.notification_handling = source.notification_handling;
-        self.key_map_preference = source.key_map_preference;
-        self.ui_key_cap_rendering = source.ui_key_cap_rendering;
-        self.swap_backspace_and_delete = source.swap_backspace_and_delete;
-        self.enable_kitty_graphics = source.enable_kitty_graphics;
-        self.enable_checksum_rectangular_area = source.enable_checksum_rectangular_area;
-        self.enable_title_reporting = source.enable_title_reporting;
-        self.enable_csi_u_key_encoding = source.enable_csi_u_key_encoding;
-        self.enable_kitty_keyboard = source.enable_kitty_keyboard;
-        self.allow_download_protocols = source.allow_download_protocols;
-        self.xcursor_theme.clone_from(&source.xcursor_theme);
-        self.xcursor_size = source.xcursor_size;
-        self.palette_max_key_assigments_for_action = source.palette_max_key_assigments_for_action;
-        self.allow_win32_input_mode = source.allow_win32_input_mode;
-        self.treat_left_ctrlalt_as_altgr = source.treat_left_ctrlalt_as_altgr;
-        self.send_composed_key_when_left_alt_is_pressed =
-            source.send_composed_key_when_left_alt_is_pressed;
-        self.send_composed_key_when_right_alt_is_pressed =
-            source.send_composed_key_when_right_alt_is_pressed;
-        self.treat_east_asian_ambiguous_width_as_wide =
-            source.treat_east_asian_ambiguous_width_as_wide;
-        self.normalize_output_to_unicode_nfc = source.normalize_output_to_unicode_nfc;
-        self.unicode_version = source.unicode_version;
-        self.bidi_enabled = source.bidi_enabled;
-        self.bidi_direction = source.bidi_direction;
-        self.use_ime = source.use_ime;
-        self.use_dead_keys = source.use_dead_keys;
-        self.ime_preedit_rendering = source.ime_preedit_rendering;
-        self.macos_forward_to_ime_modifier_mask = source.macos_forward_to_ime_modifier_mask;
         self.ime_preedit.clone_from(&source.ime_preedit);
         self.dead_key_active = false;
         self.dead_key_text = None;
-        self.xim_im_name.clone_from(&source.xim_im_name);
-        self.detect_password_input = source.detect_password_input;
-        self.leader.clone_from(&source.leader);
-        self.key_assignments.clone_from(&source.key_assignments);
-        self.key_tables.clone_from(&source.key_tables);
-        self.mouse_assignments.clone_from(&source.mouse_assignments);
         self.leader_active_since = None;
-        self.scroll_to_bottom_on_input = source.scroll_to_bottom_on_input;
         self.adjust_window_size_when_changing_font_size =
             source.adjust_window_size_when_changing_font_size;
-        self.canonicalize_pasted_newlines = source.canonicalize_pasted_newlines;
-        self.quote_dropped_files = source.quote_dropped_files;
-        self.disable_default_key_bindings = source.disable_default_key_bindings;
-        self.disable_default_mouse_bindings = source.disable_default_mouse_bindings;
-        self.hide_mouse_cursor_when_typing = source.hide_mouse_cursor_when_typing;
-        self.alternate_buffer_wheel_scroll_speed = source.alternate_buffer_wheel_scroll_speed;
-        self.pane_focus_follows_mouse = source.pane_focus_follows_mouse;
-        self.swallow_mouse_click_on_pane_focus = source.swallow_mouse_click_on_pane_focus;
-        self.swallow_mouse_click_on_window_focus = source.swallow_mouse_click_on_window_focus;
-        self.bypass_mouse_reporting_modifiers = source.bypass_mouse_reporting_modifiers;
-        self.enable_scroll_bar = source.enable_scroll_bar;
-        self.scrollback_lines = source.scrollback_lines;
-        self.min_scroll_bar_height = source.min_scroll_bar_height;
-        self.enable_tab_bar = source.enable_tab_bar;
-        self.hide_tab_bar_if_only_one_tab = source.hide_tab_bar_if_only_one_tab;
-        self.use_fancy_tab_bar = source.use_fancy_tab_bar;
-        self.unzoom_on_switch_pane = source.unzoom_on_switch_pane;
-        self.tab_bar_at_bottom = source.tab_bar_at_bottom;
-        self.tab_and_split_indices_are_zero_based = source.tab_and_split_indices_are_zero_based;
-        self.mouse_wheel_scrolls_tabs = source.mouse_wheel_scrolls_tabs;
-        self.switch_to_last_active_tab_when_closing_tab =
-            source.switch_to_last_active_tab_when_closing_tab;
-        self.quit_when_all_windows_are_closed = source.quit_when_all_windows_are_closed;
-        self.window_close_confirmation = source.window_close_confirmation;
-        self.exit_behavior = source.exit_behavior;
-        self.clean_exit_codes.clone_from(&source.clean_exit_codes);
-        self.exit_behavior_messaging = source.exit_behavior_messaging;
-        self.skip_close_confirmation_for_processes_named
-            .clone_from(&source.skip_close_confirmation_for_processes_named);
-        self.show_close_tab_button_in_tabs = source.show_close_tab_button_in_tabs;
-        self.show_new_tab_button_in_tab_bar = source.show_new_tab_button_in_tab_bar;
-        self.show_tab_index_in_tab_bar = source.show_tab_index_in_tab_bar;
-        self.show_tabs_in_tab_bar = source.show_tabs_in_tab_bar;
         self.cursor_blink_rate = source.cursor_blink_rate;
         self.cursor_blink_ease_in = source.cursor_blink_ease_in;
         self.cursor_blink_ease_out = source.cursor_blink_ease_out;
@@ -45565,6 +45473,7 @@ impl NativeWindowApp {
     }
 
     fn install_active_runtime(&mut self, mut runtime: PaneRuntime) {
+        let applied_config = Arc::clone(&self.applied_config);
         let mut runtime_runtime = TerminalRuntime::new(self.runtime.terminal().grid().size());
         let mut runtime_snapshot =
             terminal_runtime_snapshot(&self.runtime, PaneStableViewport::default());
@@ -45575,15 +45484,16 @@ impl NativeWindowApp {
         *self.runtime = runtime_runtime;
         self.runtime.set_terminal_name(self.term.clone());
         self.runtime
-            .set_enable_kitty_keyboard(self.enable_kitty_keyboard);
+            .set_enable_kitty_keyboard(applied_config.enable_kitty_keyboard);
         self.runtime
-            .set_allow_win32_input_mode(self.allow_win32_input_mode);
+            .set_allow_win32_input_mode(applied_config.allow_win32_input_mode);
         self.runtime.set_treat_east_asian_ambiguous_width_as_wide(
-            self.treat_east_asian_ambiguous_width_as_wide,
+            applied_config.treat_east_asian_ambiguous_width_as_wide,
         );
         self.runtime
-            .set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
-        self.runtime.set_unicode_version(self.unicode_version);
+            .set_normalize_output_to_unicode_nfc(applied_config.normalize_output_to_unicode_nfc);
+        self.runtime
+            .set_unicode_version(applied_config.unicode_version);
         let cell_width_overrides = self.terminal_cell_width_overrides();
         self.runtime.set_cell_width_overrides(cell_width_overrides);
         self.snapshot = runtime_snapshot;
@@ -58951,39 +58861,41 @@ impl NativeWindowApp {
     }
 
     fn apply_keyboard_protocol_config_to_runtimes(&mut self) {
+        let config = Arc::clone(&self.applied_config);
         self.runtime
-            .set_enable_kitty_graphics(self.enable_kitty_graphics);
+            .set_enable_kitty_graphics(config.enable_kitty_graphics);
         self.runtime
-            .set_enable_checksum_rectangular_area(self.enable_checksum_rectangular_area);
+            .set_enable_checksum_rectangular_area(config.enable_checksum_rectangular_area);
         self.runtime
-            .set_enable_title_reporting(self.enable_title_reporting);
+            .set_enable_title_reporting(config.enable_title_reporting);
         self.runtime
-            .set_enable_kitty_keyboard(self.enable_kitty_keyboard);
+            .set_enable_kitty_keyboard(config.enable_kitty_keyboard);
         self.runtime
-            .set_allow_win32_input_mode(self.allow_win32_input_mode);
+            .set_allow_win32_input_mode(config.allow_win32_input_mode);
         for runtime in self.pane_runtimes.values_mut() {
             runtime
                 .runtime
-                .set_enable_kitty_graphics(self.enable_kitty_graphics);
+                .set_enable_kitty_graphics(config.enable_kitty_graphics);
             runtime
                 .runtime
-                .set_enable_checksum_rectangular_area(self.enable_checksum_rectangular_area);
+                .set_enable_checksum_rectangular_area(config.enable_checksum_rectangular_area);
             runtime
                 .runtime
-                .set_enable_title_reporting(self.enable_title_reporting);
+                .set_enable_title_reporting(config.enable_title_reporting);
             runtime
                 .runtime
-                .set_enable_kitty_keyboard(self.enable_kitty_keyboard);
+                .set_enable_kitty_keyboard(config.enable_kitty_keyboard);
             runtime
                 .runtime
-                .set_allow_win32_input_mode(self.allow_win32_input_mode);
+                .set_allow_win32_input_mode(config.allow_win32_input_mode);
         }
     }
 
     fn apply_character_width_config_to_runtimes(&mut self) {
         let cell_width_overrides = self.terminal_cell_width_overrides();
+        let ambiguous_width_is_wide = self.treat_east_asian_ambiguous_width_as_wide;
         self.runtime.set_treat_east_asian_ambiguous_width_as_wide(
-            self.treat_east_asian_ambiguous_width_as_wide,
+            ambiguous_width_is_wide,
         );
         self.runtime
             .set_cell_width_overrides(cell_width_overrides.clone());
@@ -58991,7 +58903,7 @@ impl NativeWindowApp {
             runtime
                 .runtime
                 .set_treat_east_asian_ambiguous_width_as_wide(
-                    self.treat_east_asian_ambiguous_width_as_wide,
+                    ambiguous_width_is_wide,
                 );
             runtime
                 .runtime
@@ -59000,19 +58912,21 @@ impl NativeWindowApp {
     }
 
     fn apply_unicode_normalization_config_to_runtimes(&mut self) {
+        let normalize = self.normalize_output_to_unicode_nfc;
         self.runtime
-            .set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
+            .set_normalize_output_to_unicode_nfc(normalize);
         for runtime in self.pane_runtimes.values_mut() {
             runtime
                 .runtime
-                .set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
+                .set_normalize_output_to_unicode_nfc(normalize);
         }
     }
 
     fn apply_unicode_version_config_to_runtimes(&mut self) {
-        self.runtime.set_unicode_version(self.unicode_version);
+        let unicode_version = self.unicode_version;
+        self.runtime.set_unicode_version(unicode_version);
         for runtime in self.pane_runtimes.values_mut() {
-            runtime.runtime.set_unicode_version(self.unicode_version);
+            runtime.runtime.set_unicode_version(unicode_version);
         }
     }
 
@@ -59268,12 +59182,13 @@ impl NativeWindowApp {
     }
 
     fn apply_scrollback_limit_to_runtimes(&mut self) {
-        self.runtime.set_scrollback_limit(self.scrollback_lines);
+        let scrollback_lines = self.scrollback_lines;
+        self.runtime.set_scrollback_limit(scrollback_lines);
 
         for pane_runtime in self.pane_runtimes.values_mut() {
             pane_runtime
                 .runtime
-                .set_scrollback_limit(self.scrollback_lines);
+                .set_scrollback_limit(scrollback_lines);
             pane_runtime.reconcile_terminal_mutation();
         }
 
@@ -60794,6 +60709,7 @@ impl NativeWindowApp {
             return self.write_pty_bytes(bytes);
         }
 
+        let scroll_to_bottom_on_input = self.scroll_to_bottom_on_input;
         let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) else {
             return Ok(());
         };
@@ -60808,7 +60724,7 @@ impl NativeWindowApp {
             self.metrics
                 .record_input_write(bytes.len(), started.elapsed());
         }
-        if self.scroll_to_bottom_on_input && !bytes.is_empty() {
+        if scroll_to_bottom_on_input && !bytes.is_empty() {
             runtime.ui.stable_viewport.main_top = None;
             runtime
                 .ui
