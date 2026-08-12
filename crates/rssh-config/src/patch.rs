@@ -82,40 +82,45 @@ pub fn resolve_layers<'a>(
 
 impl ConfigPatch {
     fn apply_to(&self, config: &mut EffectiveConfig, defaults: &EffectiveConfig) {
+        let font = Arc::make_mut(&mut config.font);
         self.font
             .family
-            .apply_to(&mut config.font.family, &defaults.font.family);
+            .apply_to(&mut font.family, &defaults.font.family);
         self.font.size_milli_points.apply_to(
-            &mut config.font.size_milli_points,
+            &mut font.size_milli_points,
             &defaults.font.size_milli_points,
         );
+        let terminal = Arc::make_mut(&mut config.terminal);
         self.terminal.scrollback_lines.apply_to(
-            &mut config.terminal.scrollback_lines,
+            &mut terminal.scrollback_lines,
             &defaults.terminal.scrollback_lines,
         );
         self.terminal
             .term
-            .apply_to(&mut config.terminal.term, &defaults.terminal.term);
-        self.input.copy_on_select.apply_to(
-            &mut config.input.copy_on_select,
-            &defaults.input.copy_on_select,
-        );
+            .apply_to(&mut terminal.term, &defaults.terminal.term);
+        let input = Arc::make_mut(&mut config.input);
+        self.input
+            .copy_on_select
+            .apply_to(&mut input.copy_on_select, &defaults.input.copy_on_select);
+        let window = Arc::make_mut(&mut config.window);
         self.window
             .title
-            .apply_to(&mut config.window.title, &defaults.window.title);
+            .apply_to(&mut window.title, &defaults.window.title);
         self.window.integrated_titlebar.apply_to(
-            &mut config.window.integrated_titlebar,
+            &mut window.integrated_titlebar,
             &defaults.window.integrated_titlebar,
         );
+        let render = Arc::make_mut(&mut config.render);
         self.render
             .max_fps
-            .apply_to(&mut config.render.max_fps, &defaults.render.max_fps);
-        self.domain.default_domain.apply_to(
-            &mut config.domain.default_domain,
-            &defaults.domain.default_domain,
-        );
+            .apply_to(&mut render.max_fps, &defaults.render.max_fps);
+        let domain = Arc::make_mut(&mut config.domain);
+        self.domain
+            .default_domain
+            .apply_to(&mut domain.default_domain, &defaults.domain.default_domain);
+        let lifecycle = Arc::make_mut(&mut config.lifecycle);
         self.lifecycle.reload_on_change.apply_to(
-            &mut config.lifecycle.reload_on_change,
+            &mut lifecycle.reload_on_change,
             &defaults.lifecycle.reload_on_change,
         );
     }

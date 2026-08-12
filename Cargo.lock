@@ -4859,6 +4859,7 @@ dependencies = [
 name = "rssh-native"
 version = "0.1.0"
 dependencies = [
+ "rssh-config",
  "rssh-core",
  "rssh-runtime",
 ]

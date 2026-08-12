@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use rssh_config::EffectiveConfig;
 use rssh_core::{PaneId, TerminalSize};
 use rssh_runtime::{
     EffectSequenceCursor, PaneToken, RuntimeProgress, RuntimeRevision, TerminalStateSummary,
@@ -35,6 +37,7 @@ impl Default for PresentationState {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ConfigState {
     pub revision: u64,
+    pub effective: Arc<EffectiveConfig>,
     pub theme: Option<String>,
 }
 

@@ -87,7 +87,15 @@ use crate::{
     terminal_runtime::{TerminalNotification, TerminalProgress, TerminalRuntime},
     window_gpu::WindowGpu,
 };
-bind_native_config_projection!(NativeConfigOverrides, native_config_overrides_from_wezterm_lua_config, automatically_reload_config);
+#[path = "window_config.rs"]
+mod window_config;
+use window_config::{
+    native_resolved_palette_from_overrides, native_resolved_palette_with_overrides,
+};
+#[cfg(test)]
+#[path = "window_config_tests.rs"]
+mod window_config_tests;
+bind_native_config_projection!(NativeConfigSnapshot, native_config_overrides_from_wezterm_lua_config, automatically_reload_config);
 const TERMINAL_COLUMNS: u16 = 80;
 const TERMINAL_ROWS: u16 = 24;
 const DEFAULT_INITIAL_COLS: u16 = TERMINAL_COLUMNS;
@@ -3276,7 +3284,7 @@ struct NativeWindowTitleFormat {
     active_key_table: Option<String>,
     tab_count: usize,
     pane_count: usize,
-    config: NativeEffectiveConfig,
+    config: NativeConfigView,
     active_tab_info: NativeTabInformation,
     active_pane_info: NativePaneInformation,
     tabs: Vec<NativeTabInformation>,
@@ -3295,7 +3303,7 @@ struct NativeTabTitleFormat {
     is_last_active: bool,
     hover: bool,
     max_width: usize,
-    config: NativeEffectiveConfig,
+    config: NativeConfigView,
     window_id: rssh_core::WindowId,
     window_title: String,
     tab_title: Option<String>,
@@ -4027,7 +4035,7 @@ fn native_wezterm_default_colors_palette() -> NativeResolvedPalette {
     }
 }
 
-fn apply_wezterm_default_colors_overrides(overrides: &mut NativeConfigOverrides) -> bool {
+fn apply_wezterm_default_colors_overrides(overrides: &mut NativeConfigSnapshot) -> bool {
     let palette = native_wezterm_default_colors_palette();
     overrides.foreground_color = Some(palette.foreground);
     overrides.background_color = Some(palette.background);
@@ -4070,7 +4078,7 @@ fn native_tab_bar_item_colors_with_overrides(
     }
 }
 
-fn native_palette_from_overrides(overrides: &NativeConfigOverrides) -> NativePalette {
+fn native_palette_from_overrides(overrides: &NativeConfigSnapshot) -> NativePalette {
     let (ansi, brights) = overrides
         .ansi_palette
         .map(native_split_ansi_palette)
@@ -4113,112 +4121,13 @@ fn native_palette_from_overrides(overrides: &NativeConfigOverrides) -> NativePal
     }
 }
 
-fn native_resolved_palette_with_overrides(
-    base: &NativeResolvedPalette,
-    overrides: &NativeConfigOverrides,
-) -> NativeResolvedPalette {
-    let (ansi, brights) = overrides
-        .ansi_palette
-        .map_or((base.ansi, base.brights), |palette| {
-            native_split_ansi_palette(palette)
-        });
-
-    NativeResolvedPalette {
-        foreground: overrides.foreground_color.unwrap_or(base.foreground),
-        background: overrides.background_color.unwrap_or(base.background),
-        cursor_fg: overrides.cursor_fg_color.or(base.cursor_fg),
-        cursor_bg: overrides.cursor_bg_color.unwrap_or(base.cursor_bg),
-        cursor_border: overrides.cursor_border_color.or(base.cursor_border),
-        selection_fg: overrides.selection_fg_color.or(base.selection_fg),
-        selection_bg: overrides.selection_bg_color.or(base.selection_bg),
-        ansi,
-        brights,
-        indexed: overrides.indexed_palette.unwrap_or(base.indexed),
-        tab_bar_background: overrides
-            .tab_bar_background_color
-            .or(base.tab_bar_background),
-        tab_bar_inactive_tab_edge: overrides
-            .tab_bar_inactive_tab_edge_color
-            .or(base.tab_bar_inactive_tab_edge),
-        tab_bar_active_tab: native_tab_bar_item_colors_with_overrides(
-            base.tab_bar_active_tab,
-            overrides.tab_bar_active_tab_colors,
-        ),
-        tab_bar_inactive_tab: native_tab_bar_item_colors_with_overrides(
-            base.tab_bar_inactive_tab,
-            overrides.tab_bar_inactive_tab_colors,
-        ),
-        tab_bar_inactive_tab_hover: native_tab_bar_item_colors_with_overrides(
-            base.tab_bar_inactive_tab_hover,
-            overrides.tab_bar_inactive_tab_hover_colors,
-        ),
-        tab_bar_new_tab: native_tab_bar_item_colors_with_overrides(
-            base.tab_bar_new_tab,
-            overrides.tab_bar_new_tab_colors,
-        ),
-        tab_bar_new_tab_hover: native_tab_bar_item_colors_with_overrides(
-            base.tab_bar_new_tab_hover,
-            overrides.tab_bar_new_tab_hover_colors,
-        ),
-        scrollbar_thumb: overrides.scrollbar_thumb_color.or(base.scrollbar_thumb),
-        split: overrides.split_color.or(base.split),
-        visual_bell: overrides.visual_bell_color.or(base.visual_bell),
-        compose_cursor: overrides.compose_cursor_color.or(base.compose_cursor),
-        copy_mode_active_highlight_fg: overrides
-            .copy_mode_active_highlight_fg
-            .or(base.copy_mode_active_highlight_fg),
-        copy_mode_active_highlight_bg: overrides
-            .copy_mode_active_highlight_bg
-            .or(base.copy_mode_active_highlight_bg),
-        copy_mode_inactive_highlight_fg: overrides
-            .copy_mode_inactive_highlight_fg
-            .or(base.copy_mode_inactive_highlight_fg),
-        copy_mode_inactive_highlight_bg: overrides
-            .copy_mode_inactive_highlight_bg
-            .or(base.copy_mode_inactive_highlight_bg),
-        quick_select_label_fg: overrides
-            .quick_select_label_fg
-            .or(base.quick_select_label_fg),
-        quick_select_label_bg: overrides
-            .quick_select_label_bg
-            .or(base.quick_select_label_bg),
-        quick_select_match_fg: overrides
-            .quick_select_match_fg
-            .or(base.quick_select_match_fg),
-        quick_select_match_bg: overrides
-            .quick_select_match_bg
-            .or(base.quick_select_match_bg),
-        input_selector_label_fg: overrides
-            .input_selector_label_fg
-            .or(base.input_selector_label_fg),
-        input_selector_label_bg: overrides
-            .input_selector_label_bg
-            .or(base.input_selector_label_bg),
-        launcher_label_fg: overrides.launcher_label_fg.or(base.launcher_label_fg),
-        launcher_label_bg: overrides.launcher_label_bg.or(base.launcher_label_bg),
-    }
-}
-
-fn native_resolved_palette_from_overrides(
-    overrides: &NativeConfigOverrides,
-) -> NativeResolvedPalette {
-    // Color schemes historically use the light gray cursor fallback when a
-    // scheme omits `cursor_bg`. Keep that compatibility behavior in the
-    // resolved map as well as in the active window config reducer.
-    let base = NativeResolvedPalette {
-        cursor_bg: LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR,
-        ..NativeResolvedPalette::default()
-    };
-    native_resolved_palette_with_overrides(&base, overrides)
-}
-
 #[expect(
     clippy::option_option,
     reason = "nested options distinguish absent, explicit nil, and concrete values"
 )]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
-struct NativeEffectiveConfig {
+struct NativeConfigView {
     dpi: u32,
     dpi_by_screen: BTreeMap<String, u32>,
     tab_max_width: usize,
@@ -4487,7 +4396,8 @@ struct NativeEffectiveConfig {
     reason = "nested options distinguish absent, explicit nil, and concrete values"
 )]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct NativeConfigOverrides {
+pub(crate) struct NativeConfigSnapshot {
+    effective: Arc<rssh_config::EffectiveConfig>,
     dpi: Option<u32>,
     dpi_by_screen: Option<BTreeMap<String, u32>>,
     tab_max_width: Option<usize>,
@@ -4713,7 +4623,7 @@ pub(crate) struct NativeConfigOverrides {
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeLuaWindowStatusUpdate>,
-    lua_update_status_config_overrides: Option<NativeLuaWindowConfigOverrides>,
+    lua_update_status_config_overrides: Option<NativeWindowConfigPatch>,
     lua_bell: Option<NativeLuaWindowStatusUpdate>,
     lua_focus_changed: Option<NativeLuaWindowStatusUpdate>,
     lua_resized: Option<NativeLuaWindowStatusUpdate>,
@@ -4765,8 +4675,8 @@ pub(crate) struct NativeConfigOverrides {
 #[allow(dead_code)]
 pub(crate) fn native_config_overrides_from_wezterm_lua_config(
     config: &str,
-) -> Option<NativeConfigOverrides> {
-    let mut overrides = NativeConfigOverrides::default();
+) -> Option<NativeConfigSnapshot> {
+    let mut overrides = NativeConfigSnapshot::default();
     let mut parsed = false;
     let config_receiver =
         lua_config_static_return_identifier_from_query(config).unwrap_or("config");
@@ -5325,7 +5235,7 @@ pub(crate) fn native_config_overrides_from_wezterm_lua_config(
         }
     }
     if let Some(colors_source) = lua_config_colors_source_from_query(config)? {
-        let mut colors_overrides = NativeConfigOverrides::default();
+        let mut colors_overrides = NativeConfigSnapshot::default();
         match colors_source {
             NativeConfigColorsLuaSource::Table { colors, variable } => {
                 let static_source = Some(LuaStaticSource {
@@ -6929,7 +6839,7 @@ pub(crate) fn native_config_overrides_from_wezterm_lua_config(
         parsed = true;
     }
 
-    parsed.then_some(overrides)
+    overrides.finish_parsing(parsed)
 }
 
 fn lua_static_wezterm_status_update_event_from_query(
@@ -6973,7 +6883,7 @@ fn lua_static_wezterm_status_update_event_from_statement(
 
 fn lua_static_wezterm_status_update_config_overrides_from_query(
     source: &str,
-) -> Option<NativeLuaWindowConfigOverrides> {
+) -> Option<NativeWindowConfigPatch> {
     let mut selected = None;
     for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
         if let Some(overrides) =
@@ -6988,7 +6898,7 @@ fn lua_static_wezterm_status_update_config_overrides_from_query(
 fn lua_static_wezterm_status_update_config_overrides_from_statement(
     source: &str,
     start: usize,
-) -> Option<NativeLuaWindowConfigOverrides> {
+) -> Option<NativeWindowConfigPatch> {
     let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
     let rest = lua_trim_start_comments(rest)?;
     let (event_name, rest) =
@@ -14173,8 +14083,8 @@ fn lua_static_window_config_overrides_from_function_body(
     body: &str,
     window_name: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
-) -> Option<NativeLuaWindowConfigOverrides> {
-    let mut overrides = NativeLuaWindowConfigOverrides::default();
+) -> Option<NativeWindowConfigPatch> {
+    let mut overrides = NativeWindowConfigPatch::default();
 
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
@@ -14200,7 +14110,7 @@ fn lua_static_window_config_overrides_from_statement(
     static_source: LuaStaticSource<'_>,
     outer_static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
-) -> Option<NativeLuaWindowConfigOverrides> {
+) -> Option<NativeWindowConfigPatch> {
     let rest = statement.strip_prefix(window_name)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
@@ -14237,7 +14147,7 @@ fn lua_static_window_config_overrides_from_query(
     argument: &str,
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
-) -> Option<NativeLuaWindowConfigOverrides> {
+) -> Option<NativeWindowConfigPatch> {
     let argument = lua_trim_start_comments(argument)?;
     if let Some(static_source) = static_source
         && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
@@ -14271,7 +14181,8 @@ fn lua_static_window_config_overrides_from_query(
     }
     let config = format!("return {table}");
     let overrides = native_config_overrides_from_wezterm_lua_config(&config)?;
-    Some(NativeLuaWindowConfigOverrides {
+    Some(NativeWindowConfigPatch::from_values(
+        NativeWindowConfigPatchValues {
         dpi: overrides.dpi,
         dpi_by_screen: overrides.dpi_by_screen,
         font: overrides.font,
@@ -14544,7 +14455,8 @@ fn lua_static_window_config_overrides_from_query(
         show_new_tab_button_in_tab_bar: overrides.show_new_tab_button_in_tab_bar,
         show_tab_index_in_tab_bar: overrides.show_tab_index_in_tab_bar,
         show_tabs_in_tab_bar: overrides.show_tabs_in_tab_bar,
-    })
+        },
+    ))
     .filter(|overrides| !overrides.is_empty())
 }
 
@@ -19077,7 +18989,7 @@ fn apply_lua_color_scheme_source_overrides(
     config: &str,
     color_scheme: &str,
     source: NativeColorSchemeLuaSource<'_>,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     match source {
         NativeColorSchemeLuaSource::Table {
@@ -19183,7 +19095,7 @@ fn native_color_scheme_palette_from_lua_source(
     color_scheme: &str,
     source: NativeColorSchemeLuaSource<'_>,
 ) -> Option<NativeResolvedPalette> {
-    let mut overrides = NativeConfigOverrides::default();
+    let mut overrides = NativeConfigSnapshot::default();
     apply_lua_color_scheme_source_overrides(config, color_scheme, source, &mut overrides)?;
     Some(native_resolved_palette_from_overrides(&overrides))
 }
@@ -19261,7 +19173,7 @@ fn apply_lua_color_scheme_config_mutations_to_map(
     let scheme_names = schemes.keys().cloned().collect::<Vec<_>>();
 
     for name in scheme_names {
-        let mut overrides = NativeConfigOverrides::default();
+        let mut overrides = NativeConfigSnapshot::default();
         if !apply_lua_color_scheme_entry_mutation_overrides(
             config,
             &name,
@@ -19338,7 +19250,7 @@ fn apply_lua_selected_color_scheme_mutation_overrides(
     receiver: &str,
     mutation_start: usize,
     mutation_max_start: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     apply_lua_color_scheme_entry_mutation_overrides(
         source,
@@ -19356,7 +19268,7 @@ fn apply_lua_color_scheme_entry_mutation_overrides(
     target: NativeColorSchemeEntryMutationTarget<'_>,
     mutation_start: usize,
     mutation_max_start: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let mut parsed = false;
     let colors = lua_color_scheme_entry_mutation_table_from_query(
@@ -19462,7 +19374,7 @@ fn apply_lua_color_scheme_entry_indexed_mutation_overrides(
     target: NativeColorSchemeEntryMutationTarget<'_>,
     min_start: usize,
     max_start: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let mut parsed = false;
 
@@ -19531,7 +19443,7 @@ fn apply_lua_color_scheme_entry_palette_slot_mutation_overrides(
     target: NativeColorSchemeEntryMutationTarget<'_>,
     min_start: usize,
     max_start: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let mut parsed = false;
 
@@ -19629,7 +19541,7 @@ fn apply_lua_color_scheme_entry_tab_bar_mutation_overrides(
     target: NativeColorSchemeEntryMutationTarget<'_>,
     min_start: usize,
     max_start: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let mut parsed = false;
 
@@ -19665,7 +19577,7 @@ fn apply_lua_color_scheme_entry_color_spec_mutation_overrides(
     target: NativeColorSchemeEntryMutationTarget<'_>,
     min_start: usize,
     max_start: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let mut parsed = false;
 
@@ -20414,7 +20326,7 @@ fn lua_palette_mutation_event_from_statement(
         return Some(None);
     }
 
-    let mut probe = NativeConfigOverrides::default();
+    let mut probe = NativeConfigSnapshot::default();
     let parsed = apply_lua_color_variable_mutation_statement_overrides(
         source,
         variable,
@@ -20582,7 +20494,7 @@ fn lua_static_table_variable_assignment_table_from_query<'a>(
 fn apply_toml_color_scheme_dirs_overrides(
     color_scheme_dirs: &[String],
     color_scheme: &str,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     for color_scheme_dir in color_scheme_dirs {
         if let Some(parsed) = apply_toml_color_scheme_dir_overrides(
@@ -20599,7 +20511,7 @@ fn apply_toml_color_scheme_dirs_overrides(
 
 fn apply_default_toml_color_scheme_dirs_overrides(
     color_scheme: &str,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     for color_scheme_dir in default_toml_color_scheme_dirs() {
         if let Some(parsed) =
@@ -20614,7 +20526,7 @@ fn apply_default_toml_color_scheme_dirs_overrides(
 
 fn apply_builtin_color_scheme_overrides(
     color_scheme: &str,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let Some(scheme) = builtin_color_scheme_toml(color_scheme) else {
         return Some(false);
@@ -20658,7 +20570,7 @@ fn default_toml_color_scheme_dirs() -> Vec<PathBuf> {
 fn apply_toml_color_scheme_dir_overrides(
     color_scheme_dir: &Path,
     color_scheme: &str,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<Option<bool>> {
     let Ok(entries) = fs::read_dir(color_scheme_dir) else {
         return Some(None);
@@ -20692,7 +20604,7 @@ fn apply_toml_color_scheme_dir_overrides(
 
 fn apply_toml_color_scheme_file_overrides(
     path: &Path,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let contents = fs::read_to_string(path).ok()?;
     let scheme = toml::from_str::<toml::Value>(&contents).ok()?;
@@ -20730,7 +20642,7 @@ fn toml_color_scheme_name_matches(scheme: &toml::Value, path: &Path, color_schem
 )]
 fn apply_toml_colors_table_overrides(
     colors: &toml::Value,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let mut parsed = false;
 
@@ -21120,7 +21032,7 @@ fn toml_color_spec_from_query(value: &toml::Value) -> Option<NativeColorSpec> {
 fn apply_lua_colors_table_overrides(
     static_source: Option<LuaStaticSource<'_>>,
     colors: &str,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let mut parsed = false;
 
@@ -21364,7 +21276,7 @@ fn apply_lua_colors_table_overrides(
 fn apply_lua_color_variable_mutation_overrides(
     source: &str,
     variable: &NativeLoadSchemeVariableReference,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let mut parsed = false;
     let mut unfinished_composites = HashSet::new();
@@ -21445,7 +21357,7 @@ fn apply_lua_color_variable_mutation_statement_overrides(
     variable: &str,
     statement_start: usize,
     statement_end: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let mut parsed = apply_lua_color_variable_empty_table_replacement(
         source,
@@ -21509,7 +21421,7 @@ fn apply_lua_color_variable_empty_table_replacement(
     variable: &str,
     statement_start: usize,
     statement_end: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let statement = source.get(statement_start..statement_end)?;
     let statement = lua_static_load_scheme_path_statement_without_leading_labels(statement)?;
@@ -21587,7 +21499,7 @@ fn apply_lua_color_variable_empty_table_replacement(
 }
 
 fn clear_lua_color_spec_field_override(
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
     field_name: &str,
 ) -> bool {
     match field_name {
@@ -21612,7 +21524,7 @@ fn apply_lua_config_colors_tab_bar_mutation_overrides(
     source: &str,
     receiver: &str,
     max_start: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let mut parsed = false;
 
@@ -21652,7 +21564,7 @@ fn apply_lua_color_variable_color_spec_mutation_overrides(
     variable: &str,
     statement_start: usize,
     statement_end: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let statement = source.get(statement_start..statement_end)?;
     let Some(rest) = statement.strip_prefix(variable) else {
@@ -21699,7 +21611,7 @@ fn apply_lua_config_colors_color_spec_mutation_overrides(
     source: &str,
     receiver: &str,
     max_start: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let mut parsed = false;
 
@@ -21770,7 +21682,7 @@ fn lua_color_spec_field_name(field_name: &str) -> bool {
 }
 
 fn apply_lua_color_spec_field_override(
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
     field_name: &str,
     color: NativeColorSpec,
 ) -> bool {
@@ -28089,7 +28001,7 @@ fn apply_lua_color_variable_indexed_palette_slot_mutation_overrides(
     variable: &str,
     statement_start: usize,
     statement_end: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let statement = source.get(statement_start..statement_end)?;
     let Some(rest) = statement.strip_prefix(variable) else {
@@ -28139,7 +28051,7 @@ fn apply_lua_color_variable_palette_slot_mutation_overrides(
     variable: &str,
     statement_start: usize,
     statement_end: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let statement = source.get(statement_start..statement_end)?;
     let Some(rest) = statement.strip_prefix(variable) else {
@@ -28219,7 +28131,7 @@ fn apply_lua_color_variable_tab_bar_mutation_overrides(
     variable: &str,
     statement_start: usize,
     statement_end: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let statement = source.get(statement_start..statement_end)?;
     let Some(rest) = statement.strip_prefix(variable) else {
@@ -28243,7 +28155,7 @@ fn apply_lua_tab_bar_color_mutation_rest(
     source: &str,
     rest: &str,
     max_start: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let rest = lua_trim_start_comments(rest)?;
     if let Some(value) = rest.strip_prefix('=') {
@@ -28327,7 +28239,7 @@ fn lua_tab_bar_item_color_name(value: &str) -> bool {
 
 fn apply_lua_tab_bar_item_color_mutation(
     static_source: Option<LuaStaticSource<'_>>,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
     item_name: &str,
     field_name: &str,
     value: &str,
@@ -33464,7 +33376,7 @@ fn apply_lua_background_table_overrides(
     source: &str,
     value: &str,
     max_start: usize,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) -> Option<bool> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let layers = native_background_layers_lua_table_from_query(source, table, max_start)?;
@@ -33526,7 +33438,7 @@ fn apply_lua_background_table_overrides(
 
 fn apply_native_background_visual_layers_override(
     layers: Vec<NativeWindowBackgroundVisualLayer>,
-    overrides: &mut NativeConfigOverrides,
+    overrides: &mut NativeConfigSnapshot,
 ) {
     overrides.window_background_gradient = layers.iter().find_map(|layer| match layer {
         NativeWindowBackgroundVisualLayer::Gradient(gradient) => Some(gradient.clone()),
@@ -36962,12 +36874,15 @@ struct NativeLuaWindowStatusUpdate {
     right_status: Option<NativeLuaWindowStatusText>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeWindowConfigPatch(Box<NativeWindowConfigPatchValues>);
+
 #[expect(
     clippy::option_option,
     reason = "nested options distinguish absent, explicit nil, and concrete values"
 )]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct NativeLuaWindowConfigOverrides {
+struct NativeWindowConfigPatchValues {
     dpi: Option<u32>,
     dpi_by_screen: Option<BTreeMap<String, u32>>,
     font: Option<String>,
@@ -37225,7 +37140,7 @@ struct NativeLuaWindowConfigOverrides {
     show_tabs_in_tab_bar: Option<bool>,
 }
 
-impl NativeLuaWindowConfigOverrides {
+impl NativeWindowConfigPatch {
     #[expect(
         clippy::too_many_lines,
         reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
@@ -37493,6 +37408,7 @@ impl NativeLuaWindowConfigOverrides {
         reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
     )]
     fn merge(&mut self, update: Self) {
+        let update = *update.0;
         if update.dpi.is_some() {
             self.dpi = update.dpi;
         }
@@ -38275,815 +38191,816 @@ impl NativeLuaWindowConfigOverrides {
         clippy::too_many_lines,
         reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
     )]
-    fn apply_to_native_config_overrides(self, overrides: &mut NativeConfigOverrides) {
-        if let Some(dpi) = self.dpi {
+    fn apply_to_native_config_overrides(self, overrides: &mut NativeConfigSnapshot) {
+        let values = *self.0;
+        if let Some(dpi) = values.dpi {
             overrides.dpi = Some(dpi);
         }
-        if let Some(dpi_by_screen) = self.dpi_by_screen {
+        if let Some(dpi_by_screen) = values.dpi_by_screen {
             overrides.dpi_by_screen = Some(dpi_by_screen);
         }
-        if let Some(font) = self.font {
+        if let Some(font) = values.font {
             overrides.font = Some(font);
         }
-        if let Some(font_fallbacks) = self.font_fallbacks {
+        if let Some(font_fallbacks) = values.font_fallbacks {
             overrides.font_fallbacks = Some(font_fallbacks);
         }
-        if let Some(font_attributes) = self.font_attributes {
+        if let Some(font_attributes) = values.font_attributes {
             overrides.font_attributes = Some(font_attributes);
         }
-        if let Some(font_rules) = self.font_rules {
+        if let Some(font_rules) = values.font_rules {
             overrides.font_rules = Some(font_rules);
         }
-        if let Some(font_size) = self.font_size {
+        if let Some(font_size) = values.font_size {
             overrides.font_size = Some(font_size);
         }
-        if let Some(cell_width) = self.cell_width {
+        if let Some(cell_width) = values.cell_width {
             overrides.cell_width = Some(cell_width);
         }
-        if let Some(cell_widths) = self.cell_widths {
+        if let Some(cell_widths) = values.cell_widths {
             overrides.cell_widths = Some(cell_widths);
         }
-        if let Some(line_height) = self.line_height {
+        if let Some(line_height) = values.line_height {
             overrides.line_height = Some(line_height);
         }
-        if let Some(font_antialias) = self.font_antialias {
+        if let Some(font_antialias) = values.font_antialias {
             overrides.font_antialias = Some(font_antialias);
         }
-        if let Some(font_hinting) = self.font_hinting {
+        if let Some(font_hinting) = values.font_hinting {
             overrides.font_hinting = Some(font_hinting);
         }
-        if let Some(font_rasterizer) = self.font_rasterizer {
+        if let Some(font_rasterizer) = values.font_rasterizer {
             overrides.font_rasterizer = Some(font_rasterizer);
         }
-        if let Some(font_colr_rasterizer) = self.font_colr_rasterizer {
+        if let Some(font_colr_rasterizer) = values.font_colr_rasterizer {
             overrides.font_colr_rasterizer = Some(font_colr_rasterizer);
         }
-        if let Some(font_shaper) = self.font_shaper {
+        if let Some(font_shaper) = values.font_shaper {
             overrides.font_shaper = Some(font_shaper);
         }
-        if let Some(harfbuzz_features) = self.harfbuzz_features {
+        if let Some(harfbuzz_features) = values.harfbuzz_features {
             overrides.harfbuzz_features = Some(harfbuzz_features);
         }
-        if let Some(font_dirs) = self.font_dirs {
+        if let Some(font_dirs) = values.font_dirs {
             overrides.font_dirs = Some(font_dirs);
         }
-        if let Some(font_locator) = self.font_locator {
+        if let Some(font_locator) = values.font_locator {
             overrides.font_locator = Some(font_locator);
         }
         if let Some(use_cap_height_to_scale_fallback_fonts) =
-            self.use_cap_height_to_scale_fallback_fonts
+            values.use_cap_height_to_scale_fallback_fonts
         {
             overrides.use_cap_height_to_scale_fallback_fonts =
                 Some(use_cap_height_to_scale_fallback_fonts);
         }
-        if let Some(ignore_svg_fonts) = self.ignore_svg_fonts {
+        if let Some(ignore_svg_fonts) = values.ignore_svg_fonts {
             overrides.ignore_svg_fonts = Some(ignore_svg_fonts);
         }
-        if let Some(sort_fallback_fonts_by_coverage) = self.sort_fallback_fonts_by_coverage {
+        if let Some(sort_fallback_fonts_by_coverage) = values.sort_fallback_fonts_by_coverage {
             overrides.sort_fallback_fonts_by_coverage = Some(sort_fallback_fonts_by_coverage);
         }
-        if let Some(search_font_dirs_for_fallback) = self.search_font_dirs_for_fallback {
+        if let Some(search_font_dirs_for_fallback) = values.search_font_dirs_for_fallback {
             overrides.search_font_dirs_for_fallback = Some(search_font_dirs_for_fallback);
         }
-        if let Some(custom_block_glyphs) = self.custom_block_glyphs {
+        if let Some(custom_block_glyphs) = values.custom_block_glyphs {
             overrides.custom_block_glyphs = Some(custom_block_glyphs);
         }
-        if let Some(anti_alias_custom_block_glyphs) = self.anti_alias_custom_block_glyphs {
+        if let Some(anti_alias_custom_block_glyphs) = values.anti_alias_custom_block_glyphs {
             overrides.anti_alias_custom_block_glyphs = Some(anti_alias_custom_block_glyphs);
         }
         if let Some(allow_square_glyphs_to_overflow_width) =
-            self.allow_square_glyphs_to_overflow_width
+            values.allow_square_glyphs_to_overflow_width
         {
             overrides.allow_square_glyphs_to_overflow_width =
                 Some(allow_square_glyphs_to_overflow_width);
         }
-        if let Some(freetype_load_target) = self.freetype_load_target {
+        if let Some(freetype_load_target) = values.freetype_load_target {
             overrides.freetype_load_target = Some(freetype_load_target);
         }
-        if let Some(freetype_render_target) = self.freetype_render_target {
+        if let Some(freetype_render_target) = values.freetype_render_target {
             overrides.freetype_render_target = Some(freetype_render_target);
         }
-        if let Some(freetype_load_flags) = self.freetype_load_flags {
+        if let Some(freetype_load_flags) = values.freetype_load_flags {
             overrides.freetype_load_flags = Some(freetype_load_flags);
         }
-        if let Some(freetype_interpreter_version) = self.freetype_interpreter_version {
+        if let Some(freetype_interpreter_version) = values.freetype_interpreter_version {
             overrides.freetype_interpreter_version = Some(freetype_interpreter_version);
         }
-        if let Some(freetype_pcf_long_family_names) = self.freetype_pcf_long_family_names {
+        if let Some(freetype_pcf_long_family_names) = values.freetype_pcf_long_family_names {
             overrides.freetype_pcf_long_family_names = Some(freetype_pcf_long_family_names);
         }
-        if let Some(display_pixel_geometry) = self.display_pixel_geometry {
+        if let Some(display_pixel_geometry) = values.display_pixel_geometry {
             overrides.display_pixel_geometry = Some(display_pixel_geometry);
         }
-        if let Some(foreground_text_hsb) = self.foreground_text_hsb {
+        if let Some(foreground_text_hsb) = values.foreground_text_hsb {
             overrides.foreground_text_hsb = Some(foreground_text_hsb);
         }
-        if let Some(text_background_opacity) = self.text_background_opacity {
+        if let Some(text_background_opacity) = values.text_background_opacity {
             overrides.text_background_opacity = Some(text_background_opacity);
         }
-        if let Some(window_background_opacity) = self.window_background_opacity {
+        if let Some(window_background_opacity) = values.window_background_opacity {
             overrides.window_background_opacity = Some(window_background_opacity);
         }
-        if let Some(background) = self.background {
+        if let Some(background) = values.background {
             overrides.background = Some(background);
         }
-        if let Some(window_background_image) = self.window_background_image {
+        if let Some(window_background_image) = values.window_background_image {
             overrides.window_background_image = Some(window_background_image);
         }
-        if let Some(window_background_image_hsb) = self.window_background_image_hsb {
+        if let Some(window_background_image_hsb) = values.window_background_image_hsb {
             overrides.window_background_image_hsb = Some(window_background_image_hsb);
         }
-        if let Some(window_background_gradient) = self.window_background_gradient {
+        if let Some(window_background_gradient) = values.window_background_gradient {
             overrides.window_background_gradient = Some(window_background_gradient);
         }
-        if let Some(window_background_images) = self.window_background_images {
+        if let Some(window_background_images) = values.window_background_images {
             overrides.window_background_images = Some(window_background_images);
         }
-        if let Some(window_background_layers) = self.window_background_layers {
+        if let Some(window_background_layers) = values.window_background_layers {
             overrides.window_background_layers = Some(window_background_layers);
         }
-        if let Some(kde_window_background_blur) = self.kde_window_background_blur {
+        if let Some(kde_window_background_blur) = values.kde_window_background_blur {
             overrides.kde_window_background_blur = Some(kde_window_background_blur);
         }
-        if let Some(macos_window_background_blur) = self.macos_window_background_blur {
+        if let Some(macos_window_background_blur) = values.macos_window_background_blur {
             overrides.macos_window_background_blur = Some(macos_window_background_blur);
         }
-        if let Some(win32_system_backdrop) = self.win32_system_backdrop {
+        if let Some(win32_system_backdrop) = values.win32_system_backdrop {
             overrides.win32_system_backdrop = Some(win32_system_backdrop);
         }
-        if let Some(win32_acrylic_accent_color) = self.win32_acrylic_accent_color {
+        if let Some(win32_acrylic_accent_color) = values.win32_acrylic_accent_color {
             overrides.win32_acrylic_accent_color = Some(win32_acrylic_accent_color);
         }
-        if let Some(window_frame_appearance) = self.window_frame_appearance {
+        if let Some(window_frame_appearance) = values.window_frame_appearance {
             overrides.window_frame_appearance = Some(window_frame_appearance);
         }
-        if let Some(inactive_pane_hsb) = self.inactive_pane_hsb {
+        if let Some(inactive_pane_hsb) = values.inactive_pane_hsb {
             overrides.inactive_pane_hsb = Some(inactive_pane_hsb);
         }
-        if let Some(tab_max_width) = self.tab_max_width {
+        if let Some(tab_max_width) = values.tab_max_width {
             overrides.tab_max_width = Some(tab_max_width);
         }
-        if let Some(status_update_interval_ms) = self.status_update_interval_ms {
+        if let Some(status_update_interval_ms) = values.status_update_interval_ms {
             overrides.status_update_interval_ms = Some(status_update_interval_ms);
         }
-        if let Some(max_fps) = self.max_fps {
+        if let Some(max_fps) = values.max_fps {
             overrides.max_fps = Some(max_fps);
         }
-        if let Some(animation_fps) = self.animation_fps {
+        if let Some(animation_fps) = values.animation_fps {
             overrides.animation_fps = Some(animation_fps);
         }
-        if let Some(front_end) = self.front_end {
+        if let Some(front_end) = values.front_end {
             overrides.front_end = Some(front_end);
         }
-        if let Some(webgpu_power_preference) = self.webgpu_power_preference {
+        if let Some(webgpu_power_preference) = values.webgpu_power_preference {
             overrides.webgpu_power_preference = Some(webgpu_power_preference);
         }
-        if let Some(webgpu_force_fallback_adapter) = self.webgpu_force_fallback_adapter {
+        if let Some(webgpu_force_fallback_adapter) = values.webgpu_force_fallback_adapter {
             overrides.webgpu_force_fallback_adapter = Some(webgpu_force_fallback_adapter);
         }
-        if let Some(webgpu_preferred_adapter) = self.webgpu_preferred_adapter {
+        if let Some(webgpu_preferred_adapter) = values.webgpu_preferred_adapter {
             overrides.webgpu_preferred_adapter = Some(webgpu_preferred_adapter);
         }
-        if let Some(prefer_egl) = self.prefer_egl {
+        if let Some(prefer_egl) = values.prefer_egl {
             overrides.prefer_egl = Some(prefer_egl);
         }
-        if let Some(enable_wayland) = self.enable_wayland {
+        if let Some(enable_wayland) = values.enable_wayland {
             overrides.enable_wayland = Some(enable_wayland);
         }
-        if let Some(enable_zwlr_output_manager) = self.enable_zwlr_output_manager {
+        if let Some(enable_zwlr_output_manager) = values.enable_zwlr_output_manager {
             overrides.enable_zwlr_output_manager = Some(enable_zwlr_output_manager);
         }
-        if let Some(use_box_model_render) = self.use_box_model_render {
+        if let Some(use_box_model_render) = values.use_box_model_render {
             overrides.use_box_model_render = Some(use_box_model_render);
         }
-        if let Some(experimental_pixel_positioning) = self.experimental_pixel_positioning {
+        if let Some(experimental_pixel_positioning) = values.experimental_pixel_positioning {
             overrides.experimental_pixel_positioning = Some(experimental_pixel_positioning);
         }
-        if let Some(shape_cache_size) = self.shape_cache_size {
+        if let Some(shape_cache_size) = values.shape_cache_size {
             overrides.shape_cache_size = Some(shape_cache_size);
         }
-        if let Some(line_state_cache_size) = self.line_state_cache_size {
+        if let Some(line_state_cache_size) = values.line_state_cache_size {
             overrides.line_state_cache_size = Some(line_state_cache_size);
         }
-        if let Some(line_quad_cache_size) = self.line_quad_cache_size {
+        if let Some(line_quad_cache_size) = values.line_quad_cache_size {
             overrides.line_quad_cache_size = Some(line_quad_cache_size);
         }
-        if let Some(line_to_ele_shape_cache_size) = self.line_to_ele_shape_cache_size {
+        if let Some(line_to_ele_shape_cache_size) = values.line_to_ele_shape_cache_size {
             overrides.line_to_ele_shape_cache_size = Some(line_to_ele_shape_cache_size);
         }
-        if let Some(glyph_cache_image_cache_size) = self.glyph_cache_image_cache_size {
+        if let Some(glyph_cache_image_cache_size) = values.glyph_cache_image_cache_size {
             overrides.glyph_cache_image_cache_size = Some(glyph_cache_image_cache_size);
         }
-        if let Some(cursor_blink_rate_ms) = self.cursor_blink_rate_ms {
+        if let Some(cursor_blink_rate_ms) = values.cursor_blink_rate_ms {
             overrides.cursor_blink_rate_ms = Some(cursor_blink_rate_ms);
         }
-        if let Some(cursor_blink_ease_in) = self.cursor_blink_ease_in {
+        if let Some(cursor_blink_ease_in) = values.cursor_blink_ease_in {
             overrides.cursor_blink_ease_in = Some(cursor_blink_ease_in);
         }
-        if let Some(cursor_blink_ease_out) = self.cursor_blink_ease_out {
+        if let Some(cursor_blink_ease_out) = values.cursor_blink_ease_out {
             overrides.cursor_blink_ease_out = Some(cursor_blink_ease_out);
         }
-        if let Some(text_blink_rate_ms) = self.text_blink_rate_ms {
+        if let Some(text_blink_rate_ms) = values.text_blink_rate_ms {
             overrides.text_blink_rate_ms = Some(text_blink_rate_ms);
         }
-        if let Some(text_blink_rate_rapid_ms) = self.text_blink_rate_rapid_ms {
+        if let Some(text_blink_rate_rapid_ms) = values.text_blink_rate_rapid_ms {
             overrides.text_blink_rate_rapid_ms = Some(text_blink_rate_rapid_ms);
         }
-        if let Some(text_blink_ease_in) = self.text_blink_ease_in {
+        if let Some(text_blink_ease_in) = values.text_blink_ease_in {
             overrides.text_blink_ease_in = Some(text_blink_ease_in);
         }
-        if let Some(text_blink_ease_out) = self.text_blink_ease_out {
+        if let Some(text_blink_ease_out) = values.text_blink_ease_out {
             overrides.text_blink_ease_out = Some(text_blink_ease_out);
         }
-        if let Some(text_blink_rapid_ease_in) = self.text_blink_rapid_ease_in {
+        if let Some(text_blink_rapid_ease_in) = values.text_blink_rapid_ease_in {
             overrides.text_blink_rapid_ease_in = Some(text_blink_rapid_ease_in);
         }
-        if let Some(text_blink_rapid_ease_out) = self.text_blink_rapid_ease_out {
+        if let Some(text_blink_rapid_ease_out) = values.text_blink_rapid_ease_out {
             overrides.text_blink_rapid_ease_out = Some(text_blink_rapid_ease_out);
         }
-        if let Some(bold_brightens_ansi_colors) = self.bold_brightens_ansi_colors {
+        if let Some(bold_brightens_ansi_colors) = values.bold_brightens_ansi_colors {
             overrides.bold_brightens_ansi_colors = Some(bold_brightens_ansi_colors);
         }
-        if let Some(default_cursor_style) = self.default_cursor_style {
+        if let Some(default_cursor_style) = values.default_cursor_style {
             overrides.default_cursor_style = Some(default_cursor_style);
         }
-        if let Some(cursor_thickness) = self.cursor_thickness {
+        if let Some(cursor_thickness) = values.cursor_thickness {
             overrides.cursor_thickness = Some(cursor_thickness);
         }
-        if let Some(underline_thickness) = self.underline_thickness {
+        if let Some(underline_thickness) = values.underline_thickness {
             overrides.underline_thickness = Some(underline_thickness);
         }
-        if let Some(underline_position) = self.underline_position {
+        if let Some(underline_position) = values.underline_position {
             overrides.underline_position = Some(underline_position);
         }
-        if let Some(strikethrough_position) = self.strikethrough_position {
+        if let Some(strikethrough_position) = values.strikethrough_position {
             overrides.strikethrough_position = Some(strikethrough_position);
         }
-        if let Some(force_reverse_video_cursor) = self.force_reverse_video_cursor {
+        if let Some(force_reverse_video_cursor) = values.force_reverse_video_cursor {
             overrides.force_reverse_video_cursor = Some(force_reverse_video_cursor);
         }
-        if let Some(reverse_video_cursor_min_contrast) = self.reverse_video_cursor_min_contrast {
+        if let Some(reverse_video_cursor_min_contrast) = values.reverse_video_cursor_min_contrast {
             overrides.reverse_video_cursor_min_contrast = Some(reverse_video_cursor_min_contrast);
         }
-        if let Some(text_min_contrast_ratio) = self.text_min_contrast_ratio {
+        if let Some(text_min_contrast_ratio) = values.text_min_contrast_ratio {
             overrides.text_min_contrast_ratio = Some(text_min_contrast_ratio);
         }
-        if let Some(window_decorations) = self.window_decorations {
+        if let Some(window_decorations) = values.window_decorations {
             overrides.window_decorations = Some(window_decorations);
         }
-        if let Some(integrated_title_buttons) = self.integrated_title_buttons {
+        if let Some(integrated_title_buttons) = values.integrated_title_buttons {
             overrides.integrated_title_buttons = Some(integrated_title_buttons);
         }
-        if let Some(integrated_title_button_alignment) = self.integrated_title_button_alignment {
+        if let Some(integrated_title_button_alignment) = values.integrated_title_button_alignment {
             overrides.integrated_title_button_alignment = Some(integrated_title_button_alignment);
         }
-        if let Some(integrated_title_button_color) = self.integrated_title_button_color {
+        if let Some(integrated_title_button_color) = values.integrated_title_button_color {
             overrides.integrated_title_button_color = Some(integrated_title_button_color);
         }
-        if let Some(integrated_title_button_style) = self.integrated_title_button_style {
+        if let Some(integrated_title_button_style) = values.integrated_title_button_style {
             overrides.integrated_title_button_style = Some(integrated_title_button_style);
         }
-        if let Some(window_padding) = self.window_padding {
+        if let Some(window_padding) = values.window_padding {
             overrides.window_padding = Some(window_padding);
         }
-        if let Some(window_content_alignment) = self.window_content_alignment {
+        if let Some(window_content_alignment) = values.window_content_alignment {
             overrides.window_content_alignment = Some(window_content_alignment);
         }
-        if let Some(initial_cols) = self.initial_cols {
+        if let Some(initial_cols) = values.initial_cols {
             overrides.initial_cols = Some(initial_cols);
         }
-        if let Some(initial_rows) = self.initial_rows {
+        if let Some(initial_rows) = values.initial_rows {
             overrides.initial_rows = Some(initial_rows);
         }
         if let Some(adjust_window_size_when_changing_font_size) =
-            self.adjust_window_size_when_changing_font_size
+            values.adjust_window_size_when_changing_font_size
         {
             overrides.adjust_window_size_when_changing_font_size =
                 Some(adjust_window_size_when_changing_font_size);
         }
-        if let Some(command_palette_rows) = self.command_palette_rows {
+        if let Some(command_palette_rows) = values.command_palette_rows {
             overrides.command_palette_rows = Some(command_palette_rows);
         }
-        if let Some(command_palette_font) = self.command_palette_font {
+        if let Some(command_palette_font) = values.command_palette_font {
             overrides.command_palette_font = Some(command_palette_font);
         }
-        if let Some(command_palette_font_size) = self.command_palette_font_size {
+        if let Some(command_palette_font_size) = values.command_palette_font_size {
             overrides.command_palette_font_size = Some(command_palette_font_size);
         }
-        if let Some(command_palette_bg_color) = self.command_palette_bg_color {
+        if let Some(command_palette_bg_color) = values.command_palette_bg_color {
             overrides.command_palette_bg_color = Some(command_palette_bg_color);
         }
-        if let Some(command_palette_fg_color) = self.command_palette_fg_color {
+        if let Some(command_palette_fg_color) = values.command_palette_fg_color {
             overrides.command_palette_fg_color = Some(command_palette_fg_color);
         }
-        if let Some(char_select_font) = self.char_select_font {
+        if let Some(char_select_font) = values.char_select_font {
             overrides.char_select_font = Some(char_select_font);
         }
-        if let Some(char_select_font_size) = self.char_select_font_size {
+        if let Some(char_select_font_size) = values.char_select_font_size {
             overrides.char_select_font_size = Some(char_select_font_size);
         }
-        if let Some(char_select_bg_color) = self.char_select_bg_color {
+        if let Some(char_select_bg_color) = values.char_select_bg_color {
             overrides.char_select_bg_color = Some(char_select_bg_color);
         }
-        if let Some(char_select_fg_color) = self.char_select_fg_color {
+        if let Some(char_select_fg_color) = values.char_select_fg_color {
             overrides.char_select_fg_color = Some(char_select_fg_color);
         }
-        if let Some(pane_select_font) = self.pane_select_font {
+        if let Some(pane_select_font) = values.pane_select_font {
             overrides.pane_select_font = Some(pane_select_font);
         }
-        if let Some(pane_select_font_size) = self.pane_select_font_size {
+        if let Some(pane_select_font_size) = values.pane_select_font_size {
             overrides.pane_select_font_size = Some(pane_select_font_size);
         }
-        if let Some(pane_select_bg_color) = self.pane_select_bg_color {
+        if let Some(pane_select_bg_color) = values.pane_select_bg_color {
             overrides.pane_select_bg_color = Some(pane_select_bg_color);
         }
-        if let Some(pane_select_fg_color) = self.pane_select_fg_color {
+        if let Some(pane_select_fg_color) = values.pane_select_fg_color {
             overrides.pane_select_fg_color = Some(pane_select_fg_color);
         }
-        if let Some(launcher_alphabet) = self.launcher_alphabet {
+        if let Some(launcher_alphabet) = values.launcher_alphabet {
             overrides.launcher_alphabet = Some(launcher_alphabet);
         }
-        if let Some(quick_select_alphabet) = self.quick_select_alphabet {
+        if let Some(quick_select_alphabet) = values.quick_select_alphabet {
             overrides.quick_select_alphabet = Some(quick_select_alphabet);
         }
-        if let Some(quick_select_patterns) = self.quick_select_patterns {
+        if let Some(quick_select_patterns) = values.quick_select_patterns {
             overrides.quick_select_patterns = Some(quick_select_patterns);
         }
         if let Some(disable_default_quick_select_patterns) =
-            self.disable_default_quick_select_patterns
+            values.disable_default_quick_select_patterns
         {
             overrides.disable_default_quick_select_patterns =
                 Some(disable_default_quick_select_patterns);
         }
-        if let Some(quick_select_remove_styling) = self.quick_select_remove_styling {
+        if let Some(quick_select_remove_styling) = values.quick_select_remove_styling {
             overrides.quick_select_remove_styling = Some(quick_select_remove_styling);
         }
-        if let Some(hyperlink_rules) = self.hyperlink_rules {
+        if let Some(hyperlink_rules) = values.hyperlink_rules {
             overrides.hyperlink_rules = Some(hyperlink_rules);
         }
-        if let Some(selection_word_boundary) = self.selection_word_boundary {
+        if let Some(selection_word_boundary) = values.selection_word_boundary {
             overrides.selection_word_boundary = Some(selection_word_boundary);
         }
-        if let Some(default_prog) = self.default_prog {
+        if let Some(default_prog) = values.default_prog {
             overrides.default_prog = Some(default_prog);
         }
-        if let Some(default_domain) = self.default_domain {
+        if let Some(default_domain) = values.default_domain {
             overrides.default_domain = Some(default_domain);
         }
-        if let Some(prefer_to_spawn_tabs) = self.prefer_to_spawn_tabs {
+        if let Some(prefer_to_spawn_tabs) = values.prefer_to_spawn_tabs {
             overrides.prefer_to_spawn_tabs = Some(prefer_to_spawn_tabs);
         }
-        if let Some(set_environment_variables) = self.set_environment_variables {
+        if let Some(set_environment_variables) = values.set_environment_variables {
             overrides.set_environment_variables = Some(set_environment_variables);
         }
-        if let Some(default_gui_startup_args) = self.default_gui_startup_args {
+        if let Some(default_gui_startup_args) = values.default_gui_startup_args {
             overrides.default_gui_startup_args = Some(default_gui_startup_args);
         }
-        if let Some(default_workspace) = self.default_workspace {
+        if let Some(default_workspace) = values.default_workspace {
             overrides.default_workspace = Some(default_workspace);
         }
-        if let Some(native_macos_fullscreen_mode) = self.native_macos_fullscreen_mode {
+        if let Some(native_macos_fullscreen_mode) = values.native_macos_fullscreen_mode {
             overrides.native_macos_fullscreen_mode = Some(native_macos_fullscreen_mode);
         }
         if let Some(macos_fullscreen_extend_behind_notch) =
-            self.macos_fullscreen_extend_behind_notch
+            values.macos_fullscreen_extend_behind_notch
         {
             overrides.macos_fullscreen_extend_behind_notch =
                 Some(macos_fullscreen_extend_behind_notch);
         }
-        if let Some(use_resize_increments) = self.use_resize_increments {
+        if let Some(use_resize_increments) = values.use_resize_increments {
             overrides.use_resize_increments = Some(use_resize_increments);
         }
-        if let Some(default_cwd) = self.default_cwd {
+        if let Some(default_cwd) = values.default_cwd {
             overrides.default_cwd = Some(default_cwd);
         }
-        if let Some(default_ssh_auth_sock) = self.default_ssh_auth_sock {
+        if let Some(default_ssh_auth_sock) = values.default_ssh_auth_sock {
             overrides.default_ssh_auth_sock = Some(default_ssh_auth_sock);
         }
-        if let Some(default_mux_server_domain) = self.default_mux_server_domain {
+        if let Some(default_mux_server_domain) = values.default_mux_server_domain {
             overrides.default_mux_server_domain = Some(default_mux_server_domain);
         }
-        if let Some(daemon_options) = self.daemon_options {
+        if let Some(daemon_options) = values.daemon_options {
             overrides.daemon_options = Some(daemon_options);
         }
-        if let Some(exec_domains) = self.exec_domains {
+        if let Some(exec_domains) = values.exec_domains {
             overrides.exec_domains = Some(exec_domains);
         }
-        if let Some(wsl_domains) = self.wsl_domains {
+        if let Some(wsl_domains) = values.wsl_domains {
             overrides.wsl_domains = Some(wsl_domains);
         }
-        if let Some(unix_domains) = self.unix_domains {
+        if let Some(unix_domains) = values.unix_domains {
             overrides.unix_domains = Some(unix_domains);
         }
-        if let Some(ssh_domains) = self.ssh_domains {
+        if let Some(ssh_domains) = values.ssh_domains {
             overrides.ssh_domains = Some(ssh_domains);
         }
-        if let Some(tls_servers) = self.tls_servers {
+        if let Some(tls_servers) = values.tls_servers {
             overrides.tls_servers = Some(tls_servers);
         }
-        if let Some(tls_clients) = self.tls_clients {
+        if let Some(tls_clients) = values.tls_clients {
             overrides.tls_clients = Some(tls_clients);
         }
-        if let Some(serial_ports) = self.serial_ports {
+        if let Some(serial_ports) = values.serial_ports {
             overrides.serial_ports = Some(serial_ports);
         }
-        if let Some(mux_enable_ssh_agent) = self.mux_enable_ssh_agent {
+        if let Some(mux_enable_ssh_agent) = values.mux_enable_ssh_agent {
             overrides.mux_enable_ssh_agent = Some(mux_enable_ssh_agent);
         }
-        if let Some(ssh_backend) = self.ssh_backend {
+        if let Some(ssh_backend) = values.ssh_backend {
             overrides.ssh_backend = Some(ssh_backend);
         }
         if let Some(ratelimit_mux_line_prefetches_per_second) =
-            self.ratelimit_mux_line_prefetches_per_second
+            values.ratelimit_mux_line_prefetches_per_second
         {
             overrides.ratelimit_mux_line_prefetches_per_second =
                 Some(ratelimit_mux_line_prefetches_per_second);
         }
-        if let Some(mux_output_parser_buffer_size) = self.mux_output_parser_buffer_size {
+        if let Some(mux_output_parser_buffer_size) = values.mux_output_parser_buffer_size {
             overrides.mux_output_parser_buffer_size = Some(mux_output_parser_buffer_size);
         }
-        if let Some(mux_output_parser_coalesce_delay_ms) = self.mux_output_parser_coalesce_delay_ms
+        if let Some(mux_output_parser_coalesce_delay_ms) = values.mux_output_parser_coalesce_delay_ms
         {
             overrides.mux_output_parser_coalesce_delay_ms =
                 Some(mux_output_parser_coalesce_delay_ms);
         }
-        if let Some(mux_env_remove) = self.mux_env_remove {
+        if let Some(mux_env_remove) = values.mux_env_remove {
             overrides.mux_env_remove = Some(mux_env_remove);
         }
-        if let Some(periodic_stat_logging) = self.periodic_stat_logging {
+        if let Some(periodic_stat_logging) = values.periodic_stat_logging {
             overrides.periodic_stat_logging = Some(periodic_stat_logging);
         }
-        if let Some(ulimit_nofile) = self.ulimit_nofile {
+        if let Some(ulimit_nofile) = values.ulimit_nofile {
             overrides.ulimit_nofile = Some(ulimit_nofile);
         }
-        if let Some(ulimit_nproc) = self.ulimit_nproc {
+        if let Some(ulimit_nproc) = values.ulimit_nproc {
             overrides.ulimit_nproc = Some(ulimit_nproc);
         }
-        if let Some(tiling_desktop_environments) = self.tiling_desktop_environments {
+        if let Some(tiling_desktop_environments) = values.tiling_desktop_environments {
             overrides.tiling_desktop_environments = Some(tiling_desktop_environments);
         }
-        if let Some(launch_menu) = self.launch_menu {
+        if let Some(launch_menu) = values.launch_menu {
             overrides.launch_menu = Some(launch_menu);
         }
-        if let Some(term) = self.term {
+        if let Some(term) = values.term {
             overrides.term = Some(term);
         }
-        if let Some(enq_answerback) = self.enq_answerback {
+        if let Some(enq_answerback) = values.enq_answerback {
             overrides.enq_answerback = Some(enq_answerback);
         }
-        if let Some(audible_bell) = self.audible_bell {
+        if let Some(audible_bell) = values.audible_bell {
             overrides.audible_bell = Some(audible_bell);
         }
-        if let Some(visual_bell) = self.visual_bell {
+        if let Some(visual_bell) = values.visual_bell {
             overrides.visual_bell = Some(visual_bell);
         }
-        if let Some(visual_bell_color) = self.visual_bell_color {
+        if let Some(visual_bell_color) = values.visual_bell_color {
             overrides.visual_bell_color = Some(visual_bell_color);
         }
-        if let Some(notification_handling) = self.notification_handling {
+        if let Some(notification_handling) = values.notification_handling {
             overrides.notification_handling = Some(notification_handling);
         }
-        if let Some(colors) = self.colors {
+        if let Some(colors) = values.colors {
             overrides.colors = Some(colors);
         }
-        if let Some(color_scheme) = self.color_scheme {
+        if let Some(color_scheme) = values.color_scheme {
             overrides.color_scheme = Some(color_scheme);
         }
-        if let Some(color_scheme_dirs) = self.color_scheme_dirs {
+        if let Some(color_scheme_dirs) = values.color_scheme_dirs {
             overrides.color_scheme_dirs = Some(color_scheme_dirs);
         }
-        if let Some(color_schemes) = self.color_schemes {
+        if let Some(color_schemes) = values.color_schemes {
             overrides.color_schemes = Some(color_schemes);
         }
-        if let Some(foreground_color) = self.foreground_color {
+        if let Some(foreground_color) = values.foreground_color {
             overrides.foreground_color = Some(foreground_color);
         }
-        if let Some(background_color) = self.background_color {
+        if let Some(background_color) = values.background_color {
             overrides.background_color = Some(background_color);
         }
-        if let Some(ansi_palette) = self.ansi_palette {
+        if let Some(ansi_palette) = values.ansi_palette {
             overrides.ansi_palette = Some(ansi_palette);
         }
-        if let Some(indexed_palette) = self.indexed_palette {
+        if let Some(indexed_palette) = values.indexed_palette {
             overrides.indexed_palette = Some(indexed_palette);
         }
-        if let Some(selection_fg_color) = self.selection_fg_color {
+        if let Some(selection_fg_color) = values.selection_fg_color {
             overrides.selection_fg_color = Some(selection_fg_color);
         }
-        if let Some(selection_bg_color) = self.selection_bg_color {
+        if let Some(selection_bg_color) = values.selection_bg_color {
             overrides.selection_bg_color = Some(selection_bg_color);
         }
-        if let Some(cursor_bg_color) = self.cursor_bg_color {
+        if let Some(cursor_bg_color) = values.cursor_bg_color {
             overrides.cursor_bg_color = Some(cursor_bg_color);
         }
-        if let Some(cursor_border_color) = self.cursor_border_color {
+        if let Some(cursor_border_color) = values.cursor_border_color {
             overrides.cursor_border_color = Some(cursor_border_color);
         }
-        if let Some(cursor_fg_color) = self.cursor_fg_color {
+        if let Some(cursor_fg_color) = values.cursor_fg_color {
             overrides.cursor_fg_color = Some(cursor_fg_color);
         }
-        if let Some(compose_cursor_color) = self.compose_cursor_color {
+        if let Some(compose_cursor_color) = values.compose_cursor_color {
             overrides.compose_cursor_color = Some(compose_cursor_color);
         }
-        if let Some(split_color) = self.split_color {
+        if let Some(split_color) = values.split_color {
             overrides.split_color = Some(split_color);
         }
-        if let Some(scrollbar_thumb_color) = self.scrollbar_thumb_color {
+        if let Some(scrollbar_thumb_color) = values.scrollbar_thumb_color {
             overrides.scrollbar_thumb_color = Some(scrollbar_thumb_color);
         }
-        if let Some(tab_bar_background_color) = self.tab_bar_background_color {
+        if let Some(tab_bar_background_color) = values.tab_bar_background_color {
             overrides.tab_bar_background_color = Some(tab_bar_background_color);
         }
-        if let Some(tab_bar_inactive_tab_edge_color) = self.tab_bar_inactive_tab_edge_color {
+        if let Some(tab_bar_inactive_tab_edge_color) = values.tab_bar_inactive_tab_edge_color {
             overrides.tab_bar_inactive_tab_edge_color = Some(tab_bar_inactive_tab_edge_color);
         }
-        if let Some(tab_bar_active_tab_colors) = self.tab_bar_active_tab_colors {
+        if let Some(tab_bar_active_tab_colors) = values.tab_bar_active_tab_colors {
             overrides.tab_bar_active_tab_colors = tab_bar_active_tab_colors;
         }
-        if let Some(tab_bar_inactive_tab_colors) = self.tab_bar_inactive_tab_colors {
+        if let Some(tab_bar_inactive_tab_colors) = values.tab_bar_inactive_tab_colors {
             overrides.tab_bar_inactive_tab_colors = tab_bar_inactive_tab_colors;
         }
-        if let Some(tab_bar_inactive_tab_hover_colors) = self.tab_bar_inactive_tab_hover_colors {
+        if let Some(tab_bar_inactive_tab_hover_colors) = values.tab_bar_inactive_tab_hover_colors {
             overrides.tab_bar_inactive_tab_hover_colors = tab_bar_inactive_tab_hover_colors;
         }
-        if let Some(tab_bar_new_tab_colors) = self.tab_bar_new_tab_colors {
+        if let Some(tab_bar_new_tab_colors) = values.tab_bar_new_tab_colors {
             overrides.tab_bar_new_tab_colors = tab_bar_new_tab_colors;
         }
-        if let Some(tab_bar_new_tab_hover_colors) = self.tab_bar_new_tab_hover_colors {
+        if let Some(tab_bar_new_tab_hover_colors) = values.tab_bar_new_tab_hover_colors {
             overrides.tab_bar_new_tab_hover_colors = tab_bar_new_tab_hover_colors;
         }
-        if let Some(tab_bar_style) = self.tab_bar_style {
+        if let Some(tab_bar_style) = values.tab_bar_style {
             overrides.tab_bar_style = tab_bar_style;
         }
-        if let Some(copy_mode_active_highlight_fg) = self.copy_mode_active_highlight_fg {
+        if let Some(copy_mode_active_highlight_fg) = values.copy_mode_active_highlight_fg {
             overrides.copy_mode_active_highlight_fg = Some(copy_mode_active_highlight_fg);
         }
-        if let Some(copy_mode_active_highlight_bg) = self.copy_mode_active_highlight_bg {
+        if let Some(copy_mode_active_highlight_bg) = values.copy_mode_active_highlight_bg {
             overrides.copy_mode_active_highlight_bg = Some(copy_mode_active_highlight_bg);
         }
-        if let Some(copy_mode_inactive_highlight_fg) = self.copy_mode_inactive_highlight_fg {
+        if let Some(copy_mode_inactive_highlight_fg) = values.copy_mode_inactive_highlight_fg {
             overrides.copy_mode_inactive_highlight_fg = Some(copy_mode_inactive_highlight_fg);
         }
-        if let Some(copy_mode_inactive_highlight_bg) = self.copy_mode_inactive_highlight_bg {
+        if let Some(copy_mode_inactive_highlight_bg) = values.copy_mode_inactive_highlight_bg {
             overrides.copy_mode_inactive_highlight_bg = Some(copy_mode_inactive_highlight_bg);
         }
-        if let Some(quick_select_label_fg) = self.quick_select_label_fg {
+        if let Some(quick_select_label_fg) = values.quick_select_label_fg {
             overrides.quick_select_label_fg = Some(quick_select_label_fg);
         }
-        if let Some(quick_select_label_bg) = self.quick_select_label_bg {
+        if let Some(quick_select_label_bg) = values.quick_select_label_bg {
             overrides.quick_select_label_bg = Some(quick_select_label_bg);
         }
-        if let Some(quick_select_match_fg) = self.quick_select_match_fg {
+        if let Some(quick_select_match_fg) = values.quick_select_match_fg {
             overrides.quick_select_match_fg = Some(quick_select_match_fg);
         }
-        if let Some(quick_select_match_bg) = self.quick_select_match_bg {
+        if let Some(quick_select_match_bg) = values.quick_select_match_bg {
             overrides.quick_select_match_bg = Some(quick_select_match_bg);
         }
-        if let Some(input_selector_label_fg) = self.input_selector_label_fg {
+        if let Some(input_selector_label_fg) = values.input_selector_label_fg {
             overrides.input_selector_label_fg = Some(input_selector_label_fg);
         }
-        if let Some(input_selector_label_bg) = self.input_selector_label_bg {
+        if let Some(input_selector_label_bg) = values.input_selector_label_bg {
             overrides.input_selector_label_bg = Some(input_selector_label_bg);
         }
-        if let Some(launcher_label_fg) = self.launcher_label_fg {
+        if let Some(launcher_label_fg) = values.launcher_label_fg {
             overrides.launcher_label_fg = Some(launcher_label_fg);
         }
-        if let Some(launcher_label_bg) = self.launcher_label_bg {
+        if let Some(launcher_label_bg) = values.launcher_label_bg {
             overrides.launcher_label_bg = Some(launcher_label_bg);
         }
-        if let Some(automatically_reload_config) = self.automatically_reload_config {
+        if let Some(automatically_reload_config) = values.automatically_reload_config {
             overrides.automatically_reload_config = Some(automatically_reload_config);
         }
-        if let Some(check_for_updates) = self.check_for_updates {
+        if let Some(check_for_updates) = values.check_for_updates {
             overrides.check_for_updates = Some(check_for_updates);
         }
-        if let Some(check_for_updates_interval_seconds) = self.check_for_updates_interval_seconds {
+        if let Some(check_for_updates_interval_seconds) = values.check_for_updates_interval_seconds {
             overrides.check_for_updates_interval_seconds = Some(check_for_updates_interval_seconds);
         }
-        if let Some(show_update_window) = self.show_update_window {
+        if let Some(show_update_window) = values.show_update_window {
             overrides.show_update_window = Some(show_update_window);
         }
-        if let Some(key_map_preference) = self.key_map_preference {
+        if let Some(key_map_preference) = values.key_map_preference {
             overrides.key_map_preference = Some(key_map_preference);
         }
-        if let Some(ui_key_cap_rendering) = self.ui_key_cap_rendering {
+        if let Some(ui_key_cap_rendering) = values.ui_key_cap_rendering {
             overrides.ui_key_cap_rendering = Some(ui_key_cap_rendering);
         }
-        if let Some(swap_backspace_and_delete) = self.swap_backspace_and_delete {
+        if let Some(swap_backspace_and_delete) = values.swap_backspace_and_delete {
             overrides.swap_backspace_and_delete = Some(swap_backspace_and_delete);
         }
-        if let Some(enable_kitty_graphics) = self.enable_kitty_graphics {
+        if let Some(enable_kitty_graphics) = values.enable_kitty_graphics {
             overrides.enable_kitty_graphics = Some(enable_kitty_graphics);
         }
-        if let Some(enable_checksum_rectangular_area) = self.enable_checksum_rectangular_area {
+        if let Some(enable_checksum_rectangular_area) = values.enable_checksum_rectangular_area {
             overrides.enable_checksum_rectangular_area = Some(enable_checksum_rectangular_area);
         }
-        if let Some(enable_title_reporting) = self.enable_title_reporting {
+        if let Some(enable_title_reporting) = values.enable_title_reporting {
             overrides.enable_title_reporting = Some(enable_title_reporting);
         }
-        if let Some(enable_csi_u_key_encoding) = self.enable_csi_u_key_encoding {
+        if let Some(enable_csi_u_key_encoding) = values.enable_csi_u_key_encoding {
             overrides.enable_csi_u_key_encoding = Some(enable_csi_u_key_encoding);
         }
-        if let Some(enable_kitty_keyboard) = self.enable_kitty_keyboard {
+        if let Some(enable_kitty_keyboard) = values.enable_kitty_keyboard {
             overrides.enable_kitty_keyboard = Some(enable_kitty_keyboard);
         }
-        if let Some(allow_download_protocols) = self.allow_download_protocols {
+        if let Some(allow_download_protocols) = values.allow_download_protocols {
             overrides.allow_download_protocols = Some(allow_download_protocols);
         }
-        if let Some(xcursor_theme) = self.xcursor_theme {
+        if let Some(xcursor_theme) = values.xcursor_theme {
             overrides.xcursor_theme = Some(xcursor_theme);
         }
-        if let Some(xcursor_size) = self.xcursor_size {
+        if let Some(xcursor_size) = values.xcursor_size {
             overrides.xcursor_size = Some(xcursor_size);
         }
         if let Some(palette_max_key_assigments_for_action) =
-            self.palette_max_key_assigments_for_action
+            values.palette_max_key_assigments_for_action
         {
             overrides.palette_max_key_assigments_for_action =
                 Some(palette_max_key_assigments_for_action);
         }
-        if let Some(allow_win32_input_mode) = self.allow_win32_input_mode {
+        if let Some(allow_win32_input_mode) = values.allow_win32_input_mode {
             overrides.allow_win32_input_mode = Some(allow_win32_input_mode);
         }
-        if let Some(treat_left_ctrlalt_as_altgr) = self.treat_left_ctrlalt_as_altgr {
+        if let Some(treat_left_ctrlalt_as_altgr) = values.treat_left_ctrlalt_as_altgr {
             overrides.treat_left_ctrlalt_as_altgr = Some(treat_left_ctrlalt_as_altgr);
         }
         if let Some(send_composed_key_when_left_alt_is_pressed) =
-            self.send_composed_key_when_left_alt_is_pressed
+            values.send_composed_key_when_left_alt_is_pressed
         {
             overrides.send_composed_key_when_left_alt_is_pressed =
                 Some(send_composed_key_when_left_alt_is_pressed);
         }
         if let Some(send_composed_key_when_right_alt_is_pressed) =
-            self.send_composed_key_when_right_alt_is_pressed
+            values.send_composed_key_when_right_alt_is_pressed
         {
             overrides.send_composed_key_when_right_alt_is_pressed =
                 Some(send_composed_key_when_right_alt_is_pressed);
         }
         if let Some(treat_east_asian_ambiguous_width_as_wide) =
-            self.treat_east_asian_ambiguous_width_as_wide
+            values.treat_east_asian_ambiguous_width_as_wide
         {
             overrides.treat_east_asian_ambiguous_width_as_wide =
                 Some(treat_east_asian_ambiguous_width_as_wide);
         }
-        if let Some(normalize_output_to_unicode_nfc) = self.normalize_output_to_unicode_nfc {
+        if let Some(normalize_output_to_unicode_nfc) = values.normalize_output_to_unicode_nfc {
             overrides.normalize_output_to_unicode_nfc = Some(normalize_output_to_unicode_nfc);
         }
-        if let Some(unicode_version) = self.unicode_version {
+        if let Some(unicode_version) = values.unicode_version {
             overrides.unicode_version = Some(unicode_version);
         }
-        if let Some(bidi_enabled) = self.bidi_enabled {
+        if let Some(bidi_enabled) = values.bidi_enabled {
             overrides.bidi_enabled = Some(bidi_enabled);
         }
-        if let Some(bidi_direction) = self.bidi_direction {
+        if let Some(bidi_direction) = values.bidi_direction {
             overrides.bidi_direction = Some(bidi_direction);
         }
-        if let Some(use_ime) = self.use_ime {
+        if let Some(use_ime) = values.use_ime {
             overrides.use_ime = Some(use_ime);
         }
-        if let Some(use_dead_keys) = self.use_dead_keys {
+        if let Some(use_dead_keys) = values.use_dead_keys {
             overrides.use_dead_keys = Some(use_dead_keys);
         }
-        if let Some(ime_preedit_rendering) = self.ime_preedit_rendering {
+        if let Some(ime_preedit_rendering) = values.ime_preedit_rendering {
             overrides.ime_preedit_rendering = Some(ime_preedit_rendering);
         }
-        if let Some(macos_forward_to_ime_modifier_mask) = self.macos_forward_to_ime_modifier_mask {
+        if let Some(macos_forward_to_ime_modifier_mask) = values.macos_forward_to_ime_modifier_mask {
             overrides.macos_forward_to_ime_modifier_mask = Some(macos_forward_to_ime_modifier_mask);
         }
-        if let Some(xim_im_name) = self.xim_im_name {
+        if let Some(xim_im_name) = values.xim_im_name {
             overrides.xim_im_name = Some(xim_im_name);
         }
-        if let Some(detect_password_input) = self.detect_password_input {
+        if let Some(detect_password_input) = values.detect_password_input {
             overrides.detect_password_input = Some(detect_password_input);
         }
-        if let Some(canonicalize_pasted_newlines) = self.canonicalize_pasted_newlines {
+        if let Some(canonicalize_pasted_newlines) = values.canonicalize_pasted_newlines {
             overrides.canonicalize_pasted_newlines = Some(canonicalize_pasted_newlines);
         }
-        if let Some(quote_dropped_files) = self.quote_dropped_files {
+        if let Some(quote_dropped_files) = values.quote_dropped_files {
             overrides.quote_dropped_files = Some(quote_dropped_files);
         }
-        if let Some(alternate_buffer_wheel_scroll_speed) = self.alternate_buffer_wheel_scroll_speed
+        if let Some(alternate_buffer_wheel_scroll_speed) = values.alternate_buffer_wheel_scroll_speed
         {
             overrides.alternate_buffer_wheel_scroll_speed =
                 Some(alternate_buffer_wheel_scroll_speed);
         }
-        if let Some(bypass_mouse_reporting_modifiers) = self.bypass_mouse_reporting_modifiers {
+        if let Some(bypass_mouse_reporting_modifiers) = values.bypass_mouse_reporting_modifiers {
             overrides.bypass_mouse_reporting_modifiers = Some(bypass_mouse_reporting_modifiers);
         }
-        if let Some(enable_scroll_bar) = self.enable_scroll_bar {
+        if let Some(enable_scroll_bar) = values.enable_scroll_bar {
             overrides.enable_scroll_bar = Some(enable_scroll_bar);
         }
-        if let Some(scrollback_lines) = self.scrollback_lines {
+        if let Some(scrollback_lines) = values.scrollback_lines {
             overrides.scrollback_lines = Some(scrollback_lines);
         }
-        if let Some(min_scroll_bar_height) = self.min_scroll_bar_height {
+        if let Some(min_scroll_bar_height) = values.min_scroll_bar_height {
             overrides.min_scroll_bar_height = Some(min_scroll_bar_height);
         }
-        if let Some(unzoom_on_switch_pane) = self.unzoom_on_switch_pane {
+        if let Some(unzoom_on_switch_pane) = values.unzoom_on_switch_pane {
             overrides.unzoom_on_switch_pane = Some(unzoom_on_switch_pane);
         }
-        if let Some(scroll_to_bottom_on_input) = self.scroll_to_bottom_on_input {
+        if let Some(scroll_to_bottom_on_input) = values.scroll_to_bottom_on_input {
             overrides.scroll_to_bottom_on_input = Some(scroll_to_bottom_on_input);
         }
-        if let Some(disable_default_key_bindings) = self.disable_default_key_bindings {
+        if let Some(disable_default_key_bindings) = values.disable_default_key_bindings {
             overrides.disable_default_key_bindings = Some(disable_default_key_bindings);
         }
-        if let Some(disable_default_mouse_bindings) = self.disable_default_mouse_bindings {
+        if let Some(disable_default_mouse_bindings) = values.disable_default_mouse_bindings {
             overrides.disable_default_mouse_bindings = Some(disable_default_mouse_bindings);
         }
-        if let Some(hide_mouse_cursor_when_typing) = self.hide_mouse_cursor_when_typing {
+        if let Some(hide_mouse_cursor_when_typing) = values.hide_mouse_cursor_when_typing {
             overrides.hide_mouse_cursor_when_typing = Some(hide_mouse_cursor_when_typing);
         }
-        if let Some(pane_focus_follows_mouse) = self.pane_focus_follows_mouse {
+        if let Some(pane_focus_follows_mouse) = values.pane_focus_follows_mouse {
             overrides.pane_focus_follows_mouse = Some(pane_focus_follows_mouse);
         }
-        if let Some(swallow_mouse_click_on_pane_focus) = self.swallow_mouse_click_on_pane_focus {
+        if let Some(swallow_mouse_click_on_pane_focus) = values.swallow_mouse_click_on_pane_focus {
             overrides.swallow_mouse_click_on_pane_focus = Some(swallow_mouse_click_on_pane_focus);
         }
-        if let Some(swallow_mouse_click_on_window_focus) = self.swallow_mouse_click_on_window_focus
+        if let Some(swallow_mouse_click_on_window_focus) = values.swallow_mouse_click_on_window_focus
         {
             overrides.swallow_mouse_click_on_window_focus =
                 Some(swallow_mouse_click_on_window_focus);
         }
-        if let Some(debug_key_events) = self.debug_key_events {
+        if let Some(debug_key_events) = values.debug_key_events {
             overrides.debug_key_events = Some(debug_key_events);
         }
-        if let Some(log_unknown_escape_sequences) = self.log_unknown_escape_sequences {
+        if let Some(log_unknown_escape_sequences) = values.log_unknown_escape_sequences {
             overrides.log_unknown_escape_sequences = Some(log_unknown_escape_sequences);
         }
-        if let Some(warn_about_missing_glyphs) = self.warn_about_missing_glyphs {
+        if let Some(warn_about_missing_glyphs) = values.warn_about_missing_glyphs {
             overrides.warn_about_missing_glyphs = Some(warn_about_missing_glyphs);
         }
-        if let Some(leader) = self.leader {
+        if let Some(leader) = values.leader {
             overrides.leader = Some(leader);
         }
-        if let Some(key_assignments) = self.key_assignments {
+        if let Some(key_assignments) = values.key_assignments {
             overrides.key_assignments = Some(key_assignments);
         }
-        if let Some(key_tables) = self.key_tables {
+        if let Some(key_tables) = values.key_tables {
             overrides.key_tables = Some(key_tables);
         }
-        if let Some(mouse_assignments) = self.mouse_assignments {
+        if let Some(mouse_assignments) = values.mouse_assignments {
             overrides.mouse_assignments = Some(mouse_assignments);
         }
-        if let Some(enable_tab_bar) = self.enable_tab_bar {
+        if let Some(enable_tab_bar) = values.enable_tab_bar {
             overrides.enable_tab_bar = Some(enable_tab_bar);
         }
-        if let Some(hide_tab_bar_if_only_one_tab) = self.hide_tab_bar_if_only_one_tab {
+        if let Some(hide_tab_bar_if_only_one_tab) = values.hide_tab_bar_if_only_one_tab {
             overrides.hide_tab_bar_if_only_one_tab = Some(hide_tab_bar_if_only_one_tab);
         }
-        if let Some(use_fancy_tab_bar) = self.use_fancy_tab_bar {
+        if let Some(use_fancy_tab_bar) = values.use_fancy_tab_bar {
             overrides.use_fancy_tab_bar = Some(use_fancy_tab_bar);
         }
-        if let Some(tab_bar_at_bottom) = self.tab_bar_at_bottom {
+        if let Some(tab_bar_at_bottom) = values.tab_bar_at_bottom {
             overrides.tab_bar_at_bottom = Some(tab_bar_at_bottom);
         }
         if let Some(tab_and_split_indices_are_zero_based) =
-            self.tab_and_split_indices_are_zero_based
+            values.tab_and_split_indices_are_zero_based
         {
             overrides.tab_and_split_indices_are_zero_based =
                 Some(tab_and_split_indices_are_zero_based);
         }
-        if let Some(mouse_wheel_scrolls_tabs) = self.mouse_wheel_scrolls_tabs {
+        if let Some(mouse_wheel_scrolls_tabs) = values.mouse_wheel_scrolls_tabs {
             overrides.mouse_wheel_scrolls_tabs = Some(mouse_wheel_scrolls_tabs);
         }
         if let Some(switch_to_last_active_tab_when_closing_tab) =
-            self.switch_to_last_active_tab_when_closing_tab
+            values.switch_to_last_active_tab_when_closing_tab
         {
             overrides.switch_to_last_active_tab_when_closing_tab =
                 Some(switch_to_last_active_tab_when_closing_tab);
         }
-        if let Some(quit_when_all_windows_are_closed) = self.quit_when_all_windows_are_closed {
+        if let Some(quit_when_all_windows_are_closed) = values.quit_when_all_windows_are_closed {
             overrides.quit_when_all_windows_are_closed = Some(quit_when_all_windows_are_closed);
         }
-        if let Some(window_close_confirmation) = self.window_close_confirmation {
+        if let Some(window_close_confirmation) = values.window_close_confirmation {
             overrides.window_close_confirmation = Some(window_close_confirmation);
         }
-        if let Some(exit_behavior) = self.exit_behavior {
+        if let Some(exit_behavior) = values.exit_behavior {
             overrides.exit_behavior = Some(exit_behavior);
         }
-        if let Some(clean_exit_codes) = self.clean_exit_codes {
+        if let Some(clean_exit_codes) = values.clean_exit_codes {
             overrides.clean_exit_codes = Some(clean_exit_codes);
         }
-        if let Some(exit_behavior_messaging) = self.exit_behavior_messaging {
+        if let Some(exit_behavior_messaging) = values.exit_behavior_messaging {
             overrides.exit_behavior_messaging = Some(exit_behavior_messaging);
         }
         if let Some(skip_close_confirmation_for_processes_named) =
-            self.skip_close_confirmation_for_processes_named
+            values.skip_close_confirmation_for_processes_named
         {
             overrides.skip_close_confirmation_for_processes_named =
                 Some(skip_close_confirmation_for_processes_named);
         }
-        if let Some(show_close_tab_button_in_tabs) = self.show_close_tab_button_in_tabs {
+        if let Some(show_close_tab_button_in_tabs) = values.show_close_tab_button_in_tabs {
             overrides.show_close_tab_button_in_tabs = Some(show_close_tab_button_in_tabs);
         }
-        if let Some(show_new_tab_button_in_tab_bar) = self.show_new_tab_button_in_tab_bar {
+        if let Some(show_new_tab_button_in_tab_bar) = values.show_new_tab_button_in_tab_bar {
             overrides.show_new_tab_button_in_tab_bar = Some(show_new_tab_button_in_tab_bar);
         }
-        if let Some(show_tab_index_in_tab_bar) = self.show_tab_index_in_tab_bar {
+        if let Some(show_tab_index_in_tab_bar) = values.show_tab_index_in_tab_bar {
             overrides.show_tab_index_in_tab_bar = Some(show_tab_index_in_tab_bar);
         }
-        if let Some(show_tabs_in_tab_bar) = self.show_tabs_in_tab_bar {
+        if let Some(show_tabs_in_tab_bar) = values.show_tabs_in_tab_bar {
             overrides.show_tabs_in_tab_bar = Some(show_tabs_in_tab_bar);
         }
     }
@@ -40207,23 +40124,23 @@ struct NativeWindowApp {
     show_new_tab_button_in_tab_bar: bool,
     show_tab_index_in_tab_bar: bool,
     show_tabs_in_tab_bar: bool,
-    base_config_overrides: Arc<NativeConfigOverrides>,
+    base_config_overrides: Arc<NativeConfigSnapshot>,
     base_config_generation: u64,
     base_config_source: Option<PathBuf>,
-    window_config_overrides: Option<NativeLuaWindowConfigOverrides>,
+    window_config_overrides: Option<NativeWindowConfigPatch>,
     #[cfg(test)]
     base_config_apply_observer: Option<Box<dyn FnMut(u64) + Send>>,
     #[cfg(test)]
     pty_spawn_observer: Option<Arc<std::sync::atomic::AtomicUsize>>,
     #[allow(dead_code)]
-    config_overrides: Arc<NativeConfigOverrides>,
+    config_overrides: Arc<NativeConfigSnapshot>,
     latest_notification: Option<TerminalNotification>,
     left_status: String,
     right_status: String,
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeLuaWindowStatusUpdate>,
-    lua_update_status_config_overrides: Option<NativeLuaWindowConfigOverrides>,
+    lua_update_status_config_overrides: Option<NativeWindowConfigPatch>,
     lua_bell: Option<NativeLuaWindowStatusUpdate>,
     lua_focus_changed: Option<NativeLuaWindowStatusUpdate>,
     lua_resized: Option<NativeLuaWindowStatusUpdate>,
@@ -43430,6 +43347,7 @@ impl NativeWindowApp {
         let startup_uses_default_shell = pty_command_matches_default_shell(&startup_command);
         let startup_workspace_was_explicit = startup_workspace.is_some();
         let app_shell = app_shell_from_pty_command(&startup_command, startup_workspace);
+        let default_config = Arc::new(NativeConfigSnapshot::default());
 
         Box::write(
             Box::new_uninit(),
@@ -43770,7 +43688,7 @@ impl NativeWindowApp {
                 show_new_tab_button_in_tab_bar: DEFAULT_SHOW_NEW_TAB_BUTTON_IN_TAB_BAR,
                 show_tab_index_in_tab_bar: DEFAULT_SHOW_TAB_INDEX_IN_TAB_BAR,
                 show_tabs_in_tab_bar: DEFAULT_SHOW_TABS_IN_TAB_BAR,
-                base_config_overrides: Arc::new(NativeConfigOverrides::default()),
+                base_config_overrides: Arc::clone(&default_config),
                 base_config_generation: 0,
                 base_config_source: None,
                 window_config_overrides: None,
@@ -43778,7 +43696,7 @@ impl NativeWindowApp {
                 base_config_apply_observer: None,
                 #[cfg(test)]
                 pty_spawn_observer: None,
-                config_overrides: Arc::new(NativeConfigOverrides::default()),
+                config_overrides: default_config,
                 latest_notification: None,
                 left_status: String::new(),
                 right_status: String::new(),
@@ -57940,8 +57858,8 @@ impl NativeWindowApp {
         clippy::too_many_lines,
         reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
     )]
-    fn native_effective_config(&self) -> NativeEffectiveConfig {
-        NativeEffectiveConfig {
+    fn native_effective_config(&self) -> NativeConfigView {
+        NativeConfigView {
             dpi: self.window_dpi,
             dpi_by_screen: self.dpi_by_screen.clone(),
             tab_max_width: self.tab_max_width,
@@ -58237,7 +58155,7 @@ impl NativeWindowApp {
     }
 
     #[allow(dead_code)]
-    fn get_config_overrides(&self) -> NativeConfigOverrides {
+    fn get_config_overrides(&self) -> NativeConfigSnapshot {
         self.config_overrides.as_ref().clone()
     }
 
@@ -58247,11 +58165,11 @@ impl NativeWindowApp {
     }
 
     #[allow(dead_code)]
-    fn set_config_overrides(&mut self, overrides: NativeConfigOverrides) {
+    fn set_config_overrides(&mut self, overrides: NativeConfigSnapshot) {
         #[cfg(test)]
         let clear_implicit_integrated_buttons = overrides.integrated_title_buttons.is_none()
-            && overrides != NativeConfigOverrides::default();
-        self.base_config_overrides = Arc::new(overrides);
+            && overrides != NativeConfigSnapshot::default();
+        self.base_config_overrides = Arc::new(overrides.with_refreshed_effective());
         self.apply_effective_config(ReloadDisposition::ReloadAttempt);
         #[cfg(test)]
         if clear_implicit_integrated_buttons {
@@ -58260,8 +58178,8 @@ impl NativeWindowApp {
     }
 
     #[cfg(test)]
-    fn apply_config_overrides_silently(&mut self, overrides: NativeConfigOverrides) {
-        self.base_config_overrides = Arc::new(overrides);
+    fn apply_config_overrides_silently(&mut self, overrides: NativeConfigSnapshot) {
+        self.base_config_overrides = Arc::new(overrides.with_refreshed_effective());
         self.apply_effective_config(ReloadDisposition::SilentStartup);
     }
 
@@ -58279,7 +58197,7 @@ impl NativeWindowApp {
 
     fn set_window_config_overrides(
         &mut self,
-        overrides: Option<NativeLuaWindowConfigOverrides>,
+        overrides: Option<NativeWindowConfigPatch>,
         disposition: ReloadDisposition,
     ) {
         self.window_config_overrides = overrides;
@@ -58287,11 +58205,15 @@ impl NativeWindowApp {
     }
 
     fn apply_effective_config(&mut self, disposition: ReloadDisposition) {
-        let mut overrides = self.base_config_overrides.as_ref().clone();
-        if let Some(window_overrides) = self.window_config_overrides.clone() {
+        let overrides = if let Some(window_overrides) = self.window_config_overrides.clone() {
+            let mut overrides = self.base_config_overrides.as_ref().clone();
             window_overrides.apply_to_native_config_overrides(&mut overrides);
-        }
-        self.apply_config_overrides(overrides, disposition);
+            overrides.refresh_effective_config();
+            Arc::new(overrides)
+        } else {
+            Arc::clone(&self.base_config_overrides)
+        };
+        self.apply_config_overrides(&overrides, disposition);
     }
 
     #[expect(
@@ -58300,12 +58222,16 @@ impl NativeWindowApp {
     )]
     fn apply_config_overrides(
         &mut self,
-        overrides: NativeConfigOverrides,
+        overrides: &Arc<NativeConfigSnapshot>,
         disposition: ReloadDisposition,
     ) {
         let previous_palette = self.native_resolved_palette();
         let previous_terminal_line_palette = previous_palette.terminal_line_palette();
-        self.config_overrides = Arc::new(overrides.clone());
+        let mut installed = overrides.as_ref().clone();
+        let mut effective = Arc::unwrap_or_clone(installed.effective_config());
+        effective.reuse_equal_subtrees_from(&self.config_overrides.effective);
+        installed.effective = Arc::new(effective);
+        self.config_overrides = Arc::new(installed);
         self.configured_dpi = overrides.dpi;
         self.dpi_by_screen = overrides.dpi_by_screen.clone().unwrap_or_default();
         self.apply_effective_window_dpi();
@@ -58315,16 +58241,21 @@ impl NativeWindowApp {
             DEFAULT_TAB_MAX_WIDTH
         });
         self.apply_status_update_interval_override(overrides.status_update_interval_ms);
-        self.lua_tab_title = overrides.lua_tab_title.clone();
-        self.lua_window_title = overrides.lua_window_title.clone();
-        self.lua_update_status = overrides.lua_update_status.clone();
-        self.lua_update_status_config_overrides =
-            overrides.lua_update_status_config_overrides.clone();
-        self.lua_bell = overrides.lua_bell.clone();
-        self.lua_focus_changed = overrides.lua_focus_changed.clone();
-        self.lua_resized = overrides.lua_resized.clone();
-        self.lua_config_reloaded = overrides.lua_config_reloaded.clone();
-        self.lua_user_var_changed = overrides.lua_user_var_changed.clone();
+        self.lua_tab_title.clone_from(&overrides.lua_tab_title);
+        self.lua_window_title
+            .clone_from(&overrides.lua_window_title);
+        self.lua_update_status
+            .clone_from(&overrides.lua_update_status);
+        self.lua_update_status_config_overrides
+            .clone_from(&overrides.lua_update_status_config_overrides);
+        self.lua_bell.clone_from(&overrides.lua_bell);
+        self.lua_focus_changed
+            .clone_from(&overrides.lua_focus_changed);
+        self.lua_resized.clone_from(&overrides.lua_resized);
+        self.lua_config_reloaded
+            .clone_from(&overrides.lua_config_reloaded);
+        self.lua_user_var_changed
+            .clone_from(&overrides.lua_user_var_changed);
         self.lua_open_uri.clone_from(&overrides.lua_open_uri);
         self.lua_new_tab_button_click = overrides.lua_new_tab_button_click;
         self.lua_command_palette_entries = overrides
@@ -58352,7 +58283,8 @@ impl NativeWindowApp {
         self.webgpu_force_fallback_adapter = overrides
             .webgpu_force_fallback_adapter
             .unwrap_or(DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER);
-        self.webgpu_preferred_adapter = overrides.webgpu_preferred_adapter.clone();
+        self.webgpu_preferred_adapter
+            .clone_from(&overrides.webgpu_preferred_adapter);
         self.prefer_egl = overrides.prefer_egl.unwrap_or(DEFAULT_PREFER_EGL);
         self.enable_wayland = overrides.enable_wayland.unwrap_or(DEFAULT_ENABLE_WAYLAND);
         self.enable_zwlr_output_manager = overrides
@@ -58461,9 +58393,11 @@ impl NativeWindowApp {
             .window_background_opacity
             .unwrap_or(DEFAULT_WINDOW_BACKGROUND_OPACITY);
         self.background = overrides.background.clone().unwrap_or_default();
-        self.window_background_image = overrides.window_background_image.clone();
+        self.window_background_image
+            .clone_from(&overrides.window_background_image);
         self.window_background_image_hsb = overrides.window_background_image_hsb;
-        self.window_background_gradient = overrides.window_background_gradient.clone();
+        self.window_background_gradient
+            .clone_from(&overrides.window_background_gradient);
         self.renderer.set_default_background_gradient(
             self.window_background_gradient
                 .as_ref()
@@ -58535,8 +58469,8 @@ impl NativeWindowApp {
         self.window_content_alignment = overrides
             .window_content_alignment
             .unwrap_or(DEFAULT_WINDOW_CONTENT_ALIGNMENT);
-        self.apply_tab_bar_config_overrides(&overrides);
-        self.apply_input_config_overrides(&overrides);
+        self.apply_tab_bar_config_overrides(overrides);
+        self.apply_input_config_overrides(overrides);
         self.initial_cols = overrides
             .initial_cols
             .filter(|columns| *columns > 0)
@@ -58549,7 +58483,8 @@ impl NativeWindowApp {
             .inactive_pane_hsb
             .unwrap_or(DEFAULT_INACTIVE_PANE_HSB);
         self.command_palette_rows = overrides.command_palette_rows.filter(|rows| *rows > 0);
-        self.command_palette_font = overrides.command_palette_font.clone();
+        self.command_palette_font
+            .clone_from(&overrides.command_palette_font);
         self.command_palette_font_size = overrides
             .command_palette_font_size
             .unwrap_or(DEFAULT_COMMAND_PALETTE_FONT_SIZE);
@@ -58563,7 +58498,8 @@ impl NativeWindowApp {
                 .command_palette_fg_color
                 .unwrap_or(DEFAULT_COMMAND_PALETTE_FG_COLOR),
         );
-        self.char_select_font = overrides.char_select_font.clone();
+        self.char_select_font
+            .clone_from(&overrides.char_select_font);
         self.char_select_font_size = overrides
             .char_select_font_size
             .unwrap_or(DEFAULT_CHAR_SELECT_FONT_SIZE);
@@ -58577,7 +58513,8 @@ impl NativeWindowApp {
                 .char_select_fg_color
                 .unwrap_or(DEFAULT_CHAR_SELECT_FG_COLOR),
         );
-        self.pane_select_font = overrides.pane_select_font.clone();
+        self.pane_select_font
+            .clone_from(&overrides.pane_select_font);
         self.pane_select_font_size = overrides
             .pane_select_font_size
             .unwrap_or(DEFAULT_PANE_SELECT_FONT_SIZE);
@@ -58593,14 +58530,17 @@ impl NativeWindowApp {
         );
         self.launcher_alphabet = overrides
             .launcher_alphabet
+            .clone()
             .filter(|alphabet| !alphabet.is_empty())
             .unwrap_or_else(|| DEFAULT_LAUNCHER_ALPHABET.to_owned());
         self.quick_select_alphabet = overrides
             .quick_select_alphabet
+            .clone()
             .filter(|alphabet| !alphabet.is_empty())
             .unwrap_or_else(|| DEFAULT_QUICK_SELECT_ALPHABET.to_owned());
         self.quick_select_patterns = overrides
             .quick_select_patterns
+            .clone()
             .unwrap_or_default()
             .into_iter()
             .filter(|pattern| !pattern.is_empty())
@@ -58627,16 +58567,21 @@ impl NativeWindowApp {
         self.launcher_label_fg = overrides.launcher_label_fg;
         self.selection_word_boundary = overrides
             .selection_word_boundary
+            .clone()
             .unwrap_or_else(|| DEFAULT_SELECTION_WORD_BOUNDARY.to_owned());
-        self.term = overrides.term.unwrap_or_else(|| DEFAULT_TERM.to_owned());
+        self.term = overrides
+            .term
+            .clone()
+            .unwrap_or_else(|| DEFAULT_TERM.to_owned());
         self.enq_answerback = overrides
             .enq_answerback
+            .clone()
             .unwrap_or_else(|| DEFAULT_ENQ_ANSWERBACK.to_owned());
         self.apply_terminal_identity_config_to_runtimes();
         self.audible_bell = overrides.audible_bell.unwrap_or(DEFAULT_AUDIBLE_BELL);
         self.visual_bell = overrides.visual_bell.unwrap_or_default();
-        self.colors = overrides.colors.clone();
-        self.color_scheme = overrides.color_scheme.clone();
+        self.colors.clone_from(&overrides.colors);
+        self.color_scheme.clone_from(&overrides.color_scheme);
         self.color_scheme_dirs = overrides.color_scheme_dirs.clone().unwrap_or_default();
         self.color_schemes = overrides.color_schemes.clone().unwrap_or_default();
         #[cfg(test)]
@@ -58807,14 +58752,19 @@ impl NativeWindowApp {
         self.notification_handling = overrides
             .notification_handling
             .unwrap_or(DEFAULT_NOTIFICATION_HANDLING);
-        self.default_prog = overrides.default_prog.filter(|prog| !prog.is_empty());
+        self.default_prog = overrides
+            .default_prog
+            .clone()
+            .filter(|prog| !prog.is_empty());
         self.default_gui_startup_args = overrides
             .default_gui_startup_args
+            .clone()
             .filter(|args| !args.is_empty())
             .unwrap_or_else(default_gui_startup_args);
-        self.default_domain = default_domain_from_override(overrides.default_domain);
+        self.default_domain = default_domain_from_override(overrides.default_domain.clone());
         self.default_workspace = overrides
             .default_workspace
+            .clone()
             .filter(|workspace| !workspace.is_empty())
             .unwrap_or_else(|| DEFAULT_WORKSPACE_NAME.to_owned());
         self.prefer_to_spawn_tabs = overrides
@@ -58853,12 +58803,14 @@ impl NativeWindowApp {
             .warn_about_missing_glyphs
             .unwrap_or(DEFAULT_WARN_ABOUT_MISSING_GLYPHS);
         let previous_default_ssh_auth_sock = self.default_ssh_auth_sock.clone();
-        self.default_cwd = overrides.default_cwd;
+        self.default_cwd.clone_from(&overrides.default_cwd);
         self.default_ssh_auth_sock = overrides
             .default_ssh_auth_sock
+            .clone()
             .filter(|ssh_auth_sock| !ssh_auth_sock.is_empty());
         self.default_mux_server_domain = overrides
             .default_mux_server_domain
+            .clone()
             .filter(|default_mux_server_domain| !default_mux_server_domain.is_empty());
         self.daemon_options = overrides.daemon_options.clone().unwrap_or_default();
         self.exec_domains = overrides.exec_domains.clone().unwrap_or_default();
@@ -58891,18 +58843,23 @@ impl NativeWindowApp {
         self.ulimit_nproc = overrides.ulimit_nproc.unwrap_or(DEFAULT_ULIMIT_NPROC);
         self.mux_env_remove = overrides
             .mux_env_remove
+            .clone()
             .unwrap_or_else(default_mux_env_remove);
         self.tiling_desktop_environments = overrides
             .tiling_desktop_environments
+            .clone()
             .filter(|environments| !environments.is_empty())
             .unwrap_or_else(default_tiling_desktop_environments);
-        self.set_environment_variables = overrides.set_environment_variables.unwrap_or_default();
+        self.set_environment_variables = overrides
+            .set_environment_variables
+            .clone()
+            .unwrap_or_default();
         self.apply_startup_default_workspace_before_spawn();
         self.apply_startup_default_prog_before_spawn();
         self.apply_startup_default_ssh_auth_sock_before_spawn(
             previous_default_ssh_auth_sock.as_deref(),
         );
-        self.launch_menu = overrides.launch_menu.unwrap_or_default();
+        self.launch_menu = overrides.launch_menu.clone().unwrap_or_default();
         self.key_map_preference = overrides.key_map_preference.unwrap_or_default();
         self.ui_key_cap_rendering = overrides
             .ui_key_cap_rendering
@@ -58928,6 +58885,7 @@ impl NativeWindowApp {
             .unwrap_or(DEFAULT_ALLOW_DOWNLOAD_PROTOCOLS);
         self.xcursor_theme = overrides
             .xcursor_theme
+            .clone()
             .filter(|xcursor_theme| !xcursor_theme.is_empty());
         self.xcursor_size = overrides.xcursor_size;
         self.palette_max_key_assigments_for_action = overrides
@@ -58976,6 +58934,7 @@ impl NativeWindowApp {
         }
         self.xim_im_name = overrides
             .xim_im_name
+            .clone()
             .filter(|xim_im_name| !xim_im_name.is_empty());
         self.detect_password_input = overrides
             .detect_password_input
@@ -58984,18 +58943,23 @@ impl NativeWindowApp {
         self.apply_character_width_config_to_runtimes();
         self.apply_unicode_normalization_config_to_runtimes();
         self.apply_unicode_version_config_to_runtimes();
-        self.leader = overrides.leader.filter(|leader| !leader.keys.is_empty());
+        self.leader = overrides
+            .leader
+            .clone()
+            .filter(|leader| !leader.keys.is_empty());
         self.adjust_window_size_when_changing_font_size = overrides
             .adjust_window_size_when_changing_font_size
             .unwrap_or(DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE);
         self.key_assignments = overrides
             .key_assignments
+            .clone()
             .unwrap_or_default()
             .into_iter()
             .filter(|assignment| !assignment.keys.is_empty())
             .collect();
         self.key_tables = overrides
             .key_tables
+            .clone()
             .unwrap_or_default()
             .into_iter()
             .filter_map(|(name, assignments)| {
@@ -59010,7 +58974,7 @@ impl NativeWindowApp {
                 (!assignments.is_empty()).then(|| (name.to_owned(), assignments))
             })
             .collect();
-        self.mouse_assignments = overrides.mouse_assignments.unwrap_or_default();
+        self.mouse_assignments = overrides.mouse_assignments.clone().unwrap_or_default();
         self.enable_scroll_bar = overrides
             .enable_scroll_bar
             .unwrap_or(DEFAULT_ENABLE_SCROLL_BAR);
@@ -59041,7 +59005,7 @@ impl NativeWindowApp {
         }
     }
 
-    fn apply_input_config_overrides(&mut self, overrides: &NativeConfigOverrides) {
+    fn apply_input_config_overrides(&mut self, overrides: &NativeConfigSnapshot) {
         self.scroll_to_bottom_on_input = overrides
             .scroll_to_bottom_on_input
             .unwrap_or(DEFAULT_SCROLL_TO_BOTTOM_ON_INPUT);
@@ -59165,7 +59129,7 @@ impl NativeWindowApp {
         }
     }
 
-    fn apply_tab_bar_config_overrides(&mut self, overrides: &NativeConfigOverrides) {
+    fn apply_tab_bar_config_overrides(&mut self, overrides: &NativeConfigSnapshot) {
         self.enable_tab_bar = overrides.enable_tab_bar.unwrap_or(DEFAULT_ENABLE_TAB_BAR);
         self.hide_tab_bar_if_only_one_tab = overrides
             .hide_tab_bar_if_only_one_tab
@@ -63095,7 +63059,7 @@ impl NativeWindowApp {
 
     fn apply_lua_window_config_overrides(
         &mut self,
-        config_overrides: NativeLuaWindowConfigOverrides,
+        config_overrides: NativeWindowConfigPatch,
     ) {
         self.set_window_config_overrides(Some(config_overrides), ReloadDisposition::ReloadAttempt);
     }
@@ -88733,7 +88697,7 @@ struct TabBarVisibleLayout {
 // once per layout and clone them into each event instead of recomputing the
 // full effective config and all tab metadata for every tab/two-pass call.
 struct TabBarTitleContext {
-    config: NativeEffectiveConfig,
+    config: NativeConfigView,
     tabs: Vec<NativeTabInformation>,
     active_pane_info: Vec<NativePaneInformation>,
 }
@@ -92816,7 +92780,7 @@ mod tests {
     fn modern_default_overrides_retain_color_and_padding_precedence() {
         let override_ansi = [Color::Rgb(1, 2, 3); 16];
         let mut app = NativeWindowApp::new_with_visual_defaults(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             foreground_color: Some(Color::Rgb(4, 5, 6)),
             background_color: Some(Color::Rgb(7, 8, 9)),
             cursor_bg_color: Some(Color::Rgb(10, 11, 12)),
@@ -92827,7 +92791,7 @@ mod tests {
                 top: NativeWindowPaddingDimension::Pixels(3),
                 bottom: NativeWindowPaddingDimension::Pixels(4),
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let palette = app.native_resolved_palette();
@@ -92850,7 +92814,7 @@ mod tests {
     #[test]
     fn modern_default_cursor_and_selection_survive_empty_overrides() {
         let mut app = NativeWindowApp::new_with_visual_defaults(None);
-        app.set_config_overrides(NativeConfigOverrides::default());
+        app.set_config_overrides(NativeConfigSnapshot::default());
 
         let palette = app.native_resolved_palette();
         assert_eq!(palette.cursor_fg, Some(Color::Rgb(0x0b, 0x12, 0x20)));
@@ -92966,13 +92930,13 @@ mod tests {
         };
 
         let mut app = NativeWindowApp::new_with_visual_defaults(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             tab_bar_background_color: Some(Color::Rgb(25, 26, 27)),
             tab_bar_active_tab_colors: explicit_active,
             tab_bar_inactive_tab_colors: explicit_inactive,
             tab_bar_inactive_tab_hover_colors: explicit_hover,
             tab_bar_new_tab_colors: explicit_new_tab,
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let palette = app.native_resolved_palette();
@@ -93571,15 +93535,15 @@ mod tests {
     #[test]
     fn cursor_fallback_distinguishes_unconfigured_and_color_scheme_defaults() {
         let mut app = NativeWindowApp::new_with_visual_defaults(None);
-        app.set_config_overrides(NativeConfigOverrides::default());
+        app.set_config_overrides(NativeConfigSnapshot::default());
         assert_eq!(
             app.native_effective_config().cursor_bg_color,
             DEFAULT_CURSOR_BG_COLOR
         );
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             color_scheme: Some("Builtin Dark".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         assert_eq!(
             app.native_effective_config().cursor_bg_color,
@@ -93810,9 +93774,9 @@ mod tests {
         LEGACY_COLOR_SCHEME_CURSOR_BG_COLOR, NativeAnsiColor, NativeAudibleBell,
         NativeBidiDirection, NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines,
         NativeCellWidth, NativeCellWidthOverride, NativeColorSpec, NativeCommandPaletteAugment,
-        NativeCommandPaletteEntry, NativeConfigOverrides, NativeConfirmation, NativeContrastRatio,
+        NativeCommandPaletteEntry, NativeConfigSnapshot, NativeConfirmation, NativeContrastRatio,
         NativeCubicBezier, NativeCursorStyle, NativeCursorThickness, NativeDaemonOptions,
-        NativeDisplayPixelGeometry, NativeEasingFunction, NativeEffectiveConfig, NativeExecDomain,
+        NativeDisplayPixelGeometry, NativeEasingFunction, NativeConfigView, NativeExecDomain,
         NativeExecDomainLabel, NativeExitBehavior, NativeExitBehaviorMessaging,
         NativeFontAntialias, NativeFontAttributes, NativeFontHinting, NativeFontLocator,
         NativeFontRasterizer, NativeFontRule, NativeFontRuleBlink, NativeFontShaper,
@@ -94811,10 +94775,10 @@ mod tests {
 
     #[test]
     fn native_config_overrides_stays_within_stack_budget() {
-        let actual = std::mem::size_of::<NativeConfigOverrides>();
+        let actual = std::mem::size_of::<NativeConfigSnapshot>();
         assert!(
             actual <= 16 * 1024,
-            "NativeConfigOverrides is {actual} bytes; config parsing and reload values must stay within the 16 KiB stack budget"
+            "NativeConfigSnapshot is {actual} bytes; config parsing and reload values must stay within the 16 KiB stack budget"
         );
     }
 
@@ -95349,10 +95313,12 @@ mod tests {
         manager
             .primary_app_mut_for_test()
             .set_window_config_overrides(
-                Some(super::NativeLuaWindowConfigOverrides {
+                Some(super::NativeWindowConfigPatch::from_values(
+                    super::NativeWindowConfigPatchValues {
                     term: Some("window-term".to_owned()),
-                    ..super::NativeLuaWindowConfigOverrides::default()
-                }),
+                    ..super::NativeWindowConfigPatchValues::default()
+                    },
+                )),
                 super::ReloadDisposition::SilentStartup,
             );
 
@@ -95463,10 +95429,12 @@ mod tests {
         {
             let app = manager.primary_app_mut_for_test();
             app.set_window_config_overrides(
-                Some(super::NativeLuaWindowConfigOverrides {
+                Some(super::NativeWindowConfigPatch::from_values(
+                    super::NativeWindowConfigPatchValues {
                     term: Some("window".to_owned()),
-                    ..super::NativeLuaWindowConfigOverrides::default()
-                }),
+                    ..super::NativeWindowConfigPatchValues::default()
+                    },
+                )),
                 super::ReloadDisposition::SilentStartup,
             );
         }
@@ -95903,10 +95871,12 @@ mod tests {
         disabled_manager
             .primary_app_mut_for_test()
             .set_window_config_overrides(
-                Some(super::NativeLuaWindowConfigOverrides {
+                Some(super::NativeWindowConfigPatch::from_values(
+                    super::NativeWindowConfigPatchValues {
                     automatically_reload_config: Some(true),
-                    ..super::NativeLuaWindowConfigOverrides::default()
-                }),
+                    ..super::NativeWindowConfigPatchValues::default()
+                    },
+                )),
                 super::ReloadDisposition::SilentStartup,
             );
         assert!(
@@ -95942,10 +95912,12 @@ mod tests {
         enabled_manager
             .primary_app_mut_for_test()
             .set_window_config_overrides(
-                Some(super::NativeLuaWindowConfigOverrides {
+                Some(super::NativeWindowConfigPatch::from_values(
+                    super::NativeWindowConfigPatchValues {
                     automatically_reload_config: Some(false),
-                    ..super::NativeLuaWindowConfigOverrides::default()
-                }),
+                    ..super::NativeWindowConfigPatchValues::default()
+                    },
+                )),
                 super::ReloadDisposition::SilentStartup,
             );
         assert!(
@@ -98098,9 +98070,9 @@ mod tests {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quote_dropped_files: Some(NativeQuoteDroppedFiles::Posix),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_dropped_file_path(std::path::Path::new("hello ($world)"))
@@ -98114,9 +98086,9 @@ mod tests {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             term: Some("wezterm".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"\x1bP+q544e;6e616d65\x1b\\")
@@ -98345,9 +98317,9 @@ mod tests {
     #[test]
     fn window_app_new_tab_uses_default_prog_when_launch_has_no_prog() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.dispatch_app_action(AppAction::NewTab { launch: None })
@@ -98361,9 +98333,9 @@ mod tests {
     #[test]
     fn window_app_new_tab_prefers_explicit_launch_over_default_prog() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.dispatch_app_action(AppAction::NewTab {
@@ -98382,9 +98354,9 @@ mod tests {
             None,
             rssh_pty::PtyCommand::new("pwsh").with_cwd("/tmp/project"),
         );
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_prog: Some(vec!["nu".to_owned(), "--login".to_owned()]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.dispatch_app_action(AppAction::SplitPane {
@@ -129138,7 +129110,7 @@ return config
         }
     }
 
-    fn assert_wezterm_default_colors_config_overrides(overrides: &NativeConfigOverrides) {
+    fn assert_wezterm_default_colors_config_overrides(overrides: &NativeConfigSnapshot) {
         let expected = super::native_wezterm_default_colors_palette();
         let expected_ansi = std::array::from_fn(|index| {
             if index < 8 {
@@ -133722,9 +133694,9 @@ return config
     #[test]
     fn window_app_renders_scrollback_scrollbar_to_framebuffer() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
@@ -133748,9 +133720,9 @@ return config
     #[test]
     fn window_app_renders_active_pane_scrollbar_with_split_layout() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.dispatch_app_action(AppAction::SplitPane {
@@ -133785,9 +133757,9 @@ return config
     #[test]
     fn window_app_split_scrollbar_follows_active_pane_runtime() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"p1a\r\np1b\r\np1c\r\np1d\r\np1e")
@@ -133829,9 +133801,9 @@ return config
     #[test]
     fn window_app_split_scrollbar_input_only_updates_active_pane() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"p1a\r\np1b\r\np1c\r\np1d\r\np1e")
@@ -133932,10 +133904,10 @@ return config
     #[test]
     fn window_app_applies_configured_min_scroll_bar_height_to_scrollbar() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
             min_scroll_bar_height: Some(NativeScrollBarHeight::Pixels(12)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
@@ -133958,9 +133930,9 @@ return config
             Some(NativeScrollBarHeight::CellFractionPerMille(500))
         );
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
@@ -133977,10 +133949,10 @@ return config
     fn window_app_scrollbar_hit_testing_uses_window_dpi_for_point_min_height() {
         let mut app = NativeWindowApp::new(None);
         app.apply_window_scale_factor(1.5);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
             min_scroll_bar_height: Some(NativeScrollBarHeight::Points(72)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         let mut output = String::new();
@@ -134035,9 +134007,9 @@ return config
     #[test]
     fn window_app_clicking_scrollback_scrollbar_jumps_viewport() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
@@ -134063,9 +134035,9 @@ return config
     #[test]
     fn window_app_dragging_scrollback_scrollbar_updates_viewport() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
@@ -134194,9 +134166,9 @@ return config
             recorded_bells.lock().unwrap().push(*bell);
             true
         });
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             audible_bell: Some(NativeAudibleBell::Disabled),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"\x07live").unwrap();
@@ -134252,7 +134224,7 @@ return config
     #[test]
     fn window_app_configured_visual_bell_tints_background_from_foreground() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 150,
@@ -134260,7 +134232,7 @@ return config
                 fade_out_function: NativeEasingFunction::Ease,
                 target: NativeVisualBellTarget::BackgroundColor,
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"\x1b[31mA\x07").unwrap();
@@ -134288,7 +134260,7 @@ return config
     #[test]
     fn window_app_visual_bell_uses_default_text_foreground_for_default_cells() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 150,
@@ -134296,7 +134268,7 @@ return config
                 fade_out_function: NativeEasingFunction::Ease,
                 target: NativeVisualBellTarget::BackgroundColor,
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"A\x07").unwrap();
@@ -134312,7 +134284,7 @@ return config
     #[test]
     fn window_app_visual_bell_uses_default_text_foreground_for_empty_pane() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 150,
@@ -134320,7 +134292,7 @@ return config
                 fade_out_function: NativeEasingFunction::Ease,
                 target: NativeVisualBellTarget::BackgroundColor,
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"\x07").unwrap();
@@ -134333,7 +134305,7 @@ return config
     #[test]
     fn window_app_visual_bell_color_override_tints_background() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 150,
@@ -134342,7 +134314,7 @@ return config
                 target: NativeVisualBellTarget::BackgroundColor,
             }),
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"\x1b[31mA\x07").unwrap();
@@ -134362,7 +134334,7 @@ return config
     #[test]
     fn window_app_visual_bell_linear_fade_out_blends_background_color() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 100_000,
@@ -134371,7 +134343,7 @@ return config
                 target: NativeVisualBellTarget::BackgroundColor,
             }),
             visual_bell_color: Some(Color::Rgb(100, 100, 100)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"A\x07").unwrap();
@@ -134392,7 +134364,7 @@ return config
     #[test]
     fn window_app_visual_bell_cubic_bezier_solves_x_axis_progress() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 100_000,
@@ -134406,7 +134378,7 @@ return config
                 target: NativeVisualBellTarget::BackgroundColor,
             }),
             visual_bell_color: Some(Color::Rgb(100, 100, 100)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"A\x07").unwrap();
@@ -134427,7 +134399,7 @@ return config
     #[test]
     fn window_app_cursor_visual_bell_uses_foreground_without_tinting_background() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 150,
@@ -134435,7 +134407,7 @@ return config
                 fade_out_function: NativeEasingFunction::Ease,
                 target: NativeVisualBellTarget::CursorColor,
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"\x1b[31mA\x07").unwrap();
@@ -134450,7 +134422,7 @@ return config
     #[test]
     fn window_app_cursor_visual_bell_fades_from_force_reverse_cursor_color() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             force_reverse_video_cursor: Some(true),
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
@@ -134460,7 +134432,7 @@ return config
                 target: NativeVisualBellTarget::CursorColor,
             }),
             visual_bell_color: Some(Color::Rgb(100, 100, 100)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"\x1b[31mA\x08\x07").unwrap();
@@ -134654,9 +134626,9 @@ return config
             rssh_pty::PtyCommand::default_shell().with_cwd("/tmp/project"),
         );
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_prog: Some(vec!["nu".to_owned(), "--login".to_owned()]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(app.startup_command().program(), "nu");
@@ -134720,14 +134692,14 @@ return config
         let mut app =
             NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::default_shell());
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
             mux_enable_ssh_agent: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(app.startup_command().env_value("SSH_AUTH_SOCK"), None);
@@ -134850,9 +134822,9 @@ return config
     fn window_app_applies_default_workspace_to_initial_default_workspace_before_spawn() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_workspace: Some("ops".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(app.app_shell.active_workspace().name(), "ops");
@@ -134867,9 +134839,9 @@ return config
             Some("default"),
         );
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_workspace: Some("ops".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(app.app_shell.active_workspace().name(), "default");
@@ -134880,9 +134852,9 @@ return config
     fn window_app_reports_configured_default_domain_in_effective_config() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_domain: Some("ssh-prod".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(app.native_effective_config().default_domain, "ssh-prod");
@@ -134892,9 +134864,9 @@ return config
     fn window_app_reports_configured_automatically_reload_config_in_effective_config() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             automatically_reload_config: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(!app.native_effective_config().automatically_reload_config);
@@ -134904,9 +134876,9 @@ return config
     fn window_app_reports_configured_use_resize_increments_in_effective_config() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             use_resize_increments: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.native_effective_config().use_resize_increments);
@@ -134918,11 +134890,11 @@ return config
 
         assert_eq!(app.window_resize_increments(), None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             use_resize_increments: Some(true),
             cell_width: Some(NativeCellWidth::from_per_mille(1_500)),
             line_height: Some(NativeLineHeight::from_per_mille(1_250)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         let configured_increment_cell_size =
             PhysicalSize::new((CELL_WIDTH * 3).div_ceil(2), (CELL_HEIGHT * 5).div_ceil(4));
@@ -135016,9 +134988,9 @@ return config
     fn window_app_reports_configured_debug_key_events_in_effective_config() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             debug_key_events: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.native_effective_config().debug_key_events);
@@ -135027,9 +134999,9 @@ return config
     #[test]
     fn window_app_logs_key_events_when_debug_key_events_is_enabled() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             debug_key_events: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
 
@@ -135083,9 +135055,9 @@ return config
     fn window_app_reports_configured_log_unknown_escape_sequences_in_effective_config() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             log_unknown_escape_sequences: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.native_effective_config().log_unknown_escape_sequences);
@@ -135102,9 +135074,9 @@ return config
     fn window_app_reports_configured_warn_about_missing_glyphs_in_effective_config() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             warn_about_missing_glyphs: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(!app.native_effective_config().warn_about_missing_glyphs);
@@ -135129,9 +135101,9 @@ return config
     fn window_app_suppresses_missing_glyph_warnings_when_configured() {
         let mut app = NativeWindowApp::new(None);
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             warn_about_missing_glyphs: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output("ok 中".as_bytes()).unwrap();
@@ -137464,9 +137436,9 @@ return config
         app.handle_pty_output(b"live").unwrap();
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             tab_bar_at_bottom: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -137502,9 +137474,9 @@ return config
         app.handle_pty_output(b"live").unwrap();
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_tab_bar: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -137527,9 +137499,9 @@ return config
     fn window_app_can_hide_tab_bar_when_only_one_tab() {
         let mut app = NativeWindowApp::new(None);
         app.handle_pty_output(b"live").unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             hide_tab_bar_if_only_one_tab: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -149685,9 +149657,9 @@ return config
     #[test]
     fn window_app_cursor_blink_rate_zero_keeps_blinking_cursor_visible() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             cursor_blink_rate_ms: Some(0),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[?12h").unwrap();
         assert!(!app.update_cursor_blink_phase_if_due(Instant::now() + Duration::from_secs(10)));
@@ -149709,11 +149681,11 @@ return config
     #[test]
     fn window_app_cursor_blink_rate_toggles_phase_when_due() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             cursor_blink_rate_ms: Some(250),
             cursor_blink_ease_out: Some(NativeEasingFunction::Constant),
             cursor_blink_ease_in: Some(NativeEasingFunction::Constant),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[?12h").unwrap();
         let started = Instant::now();
@@ -149740,11 +149712,11 @@ return config
     #[test]
     fn window_app_cursor_blink_linear_easing_updates_cursor_opacity() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             cursor_blink_rate_ms: Some(500),
             cursor_blink_ease_out: Some(NativeEasingFunction::Linear),
             cursor_blink_ease_in: Some(NativeEasingFunction::Linear),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[?12h").unwrap();
         let started = Instant::now();
@@ -149769,11 +149741,11 @@ return config
     #[test]
     fn window_app_text_blink_linear_easing_updates_text_opacity() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             text_blink_rate_ms: Some(500),
             text_blink_ease_out: Some(NativeEasingFunction::Linear),
             text_blink_ease_in: Some(NativeEasingFunction::Linear),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[5;38;2;255;0;0;48;2;3;4;5mA")
             .unwrap();
@@ -149792,14 +149764,14 @@ return config
     #[test]
     fn window_app_rapid_text_blink_uses_rapid_rate() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             text_blink_rate_ms: Some(1_000),
             text_blink_rate_rapid_ms: Some(250),
             text_blink_ease_out: Some(NativeEasingFunction::Constant),
             text_blink_ease_in: Some(NativeEasingFunction::Constant),
             text_blink_rapid_ease_out: Some(NativeEasingFunction::Constant),
             text_blink_rapid_ease_in: Some(NativeEasingFunction::Constant),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[6;38;2;255;0;0;48;2;3;4;5mA")
             .unwrap();
@@ -149818,9 +149790,9 @@ return config
     fn window_app_default_cursor_style_override_updates_runtime_default() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_cursor_style: Some(NativeCursorStyle::BlinkingBar),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(
@@ -149846,10 +149818,10 @@ return config
     fn window_app_cursor_thickness_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_cursor_style: Some(NativeCursorStyle::SteadyBar),
             cursor_thickness: Some(NativeCursorThickness::Pixels(3)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(
@@ -149875,10 +149847,10 @@ return config
     fn window_app_cursor_thickness_percent_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_cursor_style: Some(NativeCursorStyle::SteadyUnderline),
             cursor_thickness: Some(NativeCursorThickness::Percent(200)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(
@@ -149904,10 +149876,10 @@ return config
     fn window_app_cursor_thickness_points_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_cursor_style: Some(NativeCursorStyle::SteadyBar),
             cursor_thickness: Some(NativeCursorThickness::Points(2)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(
@@ -149934,10 +149906,10 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.apply_window_scale_factor(1.5);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_cursor_style: Some(NativeCursorStyle::SteadyBar),
             cursor_thickness: Some(NativeCursorThickness::Points(2)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
@@ -149958,9 +149930,9 @@ return config
     fn window_app_underline_thickness_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             underline_thickness: Some(NativeUnderlineThickness::Pixels(3)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[4;38;2;255;0;0m ").unwrap();
 
@@ -149982,9 +149954,9 @@ return config
     fn window_app_underline_position_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             underline_position: Some(NativeUnderlinePosition::Pixels(-4)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[4;38;2;255;0;0m ").unwrap();
 
@@ -150006,9 +149978,9 @@ return config
     fn window_app_strikethrough_position_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             strikethrough_position: Some(NativeStrikethroughPosition::CellFractionPerMille(250)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[9;38;2;255;0;0m ").unwrap();
 
@@ -150035,9 +150007,9 @@ return config
     fn window_app_bold_brightens_ansi_colors_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             bold_brightens_ansi_colors: Some(NativeBoldBrightensAnsiColors::No),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[1;31mA").unwrap();
 
@@ -150057,9 +150029,9 @@ return config
     fn window_app_force_reverse_video_cursor_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             force_reverse_video_cursor: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[38;2;255;255;255;48;2;0;0;0mA\x1b[1;1H")
             .unwrap();
@@ -150080,9 +150052,9 @@ return config
     fn window_app_cursor_color_escape_overrides_force_reverse_video_cursor() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             force_reverse_video_cursor: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b]12;#00ff00\x07\x1b[38;2;255;0;0;48;2;0;0;255mA\x1b[1;1H")
             .unwrap();
@@ -150101,9 +150073,9 @@ return config
     fn window_app_cursor_color_reset_restores_force_reverse_video_cursor() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             force_reverse_video_cursor: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(
             b"\x1b]12;#00ff00\x07\x1b]112\x07\x1b[38;2;255;255;255;48;2;0;0;0mA\x1b[1;1H",
@@ -153842,9 +153814,9 @@ return config
         let recorded = Arc::clone(&seen);
         let mut app = NativeWindowApp::new(None);
         let tab_max_width = app.tab_max_width;
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             use_fancy_tab_bar: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
@@ -154534,7 +154506,7 @@ return config
             .unwrap();
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             mouse_assignments: Some(
                 [
                     NativeMouseAssignmentEventKind::Down,
@@ -154555,7 +154527,7 @@ return config
                 })
                 .collect(),
             ),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
         let columns = rendered_tab_body_columns(&mut app);
@@ -154771,7 +154743,7 @@ return config
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             mouse_assignments: Some(vec![NativeUserMouseAssignment {
                 event: NativeMouseAssignmentEvent {
                     kind: NativeMouseAssignmentEventKind::Drag,
@@ -154783,7 +154755,7 @@ return config
                 alt_screen: NativeMouseAssignmentAltScreen::Any,
                 command: WindowCommand::SendString("drag-leaked".to_owned()),
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         let columns = rendered_tab_body_columns(&mut app);
         let source_column = columns
@@ -154984,9 +154956,9 @@ return config
             tab: rssh_core::TabId::new(3),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             switch_to_last_active_tab_when_closing_tab: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let first_tab_width = tab_bar_tab_label(
@@ -155101,9 +155073,9 @@ return config
     #[test]
     fn window_app_can_hide_tab_bar_new_tab_button() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             show_new_tab_button_in_tab_bar: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -155138,9 +155110,9 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             show_tabs_in_tab_bar: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -155184,9 +155156,9 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             show_tab_index_in_tab_bar: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -155201,9 +155173,9 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             tab_and_split_indices_are_zero_based: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -155218,9 +155190,9 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             show_close_tab_button_in_tabs: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -155247,7 +155219,7 @@ return config
     #[test]
     fn window_app_renders_integrated_title_buttons_left_aligned_in_configured_order() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -155263,7 +155235,7 @@ return config
             ]),
             integrated_title_button_alignment: Some(NativeIntegratedTitleButtonAlignment::Left),
             integrated_title_button_style: Some(NativeIntegratedTitleButtonStyle::Windows),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -155278,7 +155250,7 @@ return config
     #[test]
     fn window_app_renders_right_aligned_integrated_title_buttons_after_status() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -155294,7 +155266,7 @@ return config
                 NativeIntegratedTitleButton::Close,
             ]),
             integrated_title_button_style: Some(NativeIntegratedTitleButtonStyle::Windows),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.set_right_status("READY".to_owned());
 
@@ -155312,7 +155284,7 @@ return config
     #[test]
     fn window_app_macos_native_integrated_title_buttons_reserve_top_retro_space() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -155326,7 +155298,7 @@ return config
             integrated_title_button_alignment: Some(NativeIntegratedTitleButtonAlignment::Left),
             use_fancy_tab_bar: Some(false),
             tab_bar_at_bottom: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -155351,7 +155323,7 @@ return config
     #[test]
     fn window_app_macos_native_integrated_title_buttons_skip_top_retro_space_when_fancy() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -155365,7 +155337,7 @@ return config
             integrated_title_button_alignment: Some(NativeIntegratedTitleButtonAlignment::Left),
             use_fancy_tab_bar: Some(true),
             tab_bar_at_bottom: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -155390,7 +155362,7 @@ return config
     fn window_app_macos_native_integrated_title_buttons_defaults_to_fancy_and_skips_top_retro_space()
      {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -155403,7 +155375,7 @@ return config
             integrated_title_button_style: Some(NativeIntegratedTitleButtonStyle::MacOsNative),
             integrated_title_button_alignment: Some(NativeIntegratedTitleButtonAlignment::Left),
             tab_bar_at_bottom: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -155459,7 +155431,7 @@ return config
     #[test]
     fn window_app_applies_window_frame_button_colors_to_integrated_title_buttons() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -155478,7 +155450,7 @@ return config
                 button_hover_bg: Some(Color::Rgb(89, 90, 91)),
                 ..NativeWindowFrameAppearance::default()
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -155512,7 +155484,7 @@ return config
     fn window_app_applies_window_frame_titlebar_and_borders_to_render_snapshot() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(24, 4));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             hide_tab_bar_if_only_one_tab: Some(false),
             show_tabs_in_tab_bar: Some(false),
             window_frame_appearance: Some(NativeWindowFrameAppearance {
@@ -155531,7 +155503,7 @@ return config
                 border_right_color: Some(Color::Rgb(12, 22, 32)),
                 ..NativeWindowFrameAppearance::default()
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.handle_focus_changed(true).unwrap());
@@ -155618,7 +155590,7 @@ return config
     #[test]
     fn window_app_integrated_title_button_clicks_dispatch_window_actions() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -155636,7 +155608,7 @@ return config
             integrated_title_button_alignment: Some(NativeIntegratedTitleButtonAlignment::Left),
             integrated_title_button_style: Some(NativeIntegratedTitleButtonStyle::Windows),
             window_close_confirmation: Some(NativeWindowCloseConfirmation::NeverPrompt),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let snapshot = app.render_snapshot();
@@ -156616,10 +156588,10 @@ return config
     #[test]
     fn window_app_applies_underline_thickness_to_down_split_separator() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             underline_thickness: Some(NativeUnderlineThickness::Pixels(3)),
             split_color: Some(Color::Rgb(1, 2, 3)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"top").unwrap();
         app.dispatch_app_action(AppAction::SplitPane {
@@ -158922,9 +158894,9 @@ return config
     #[test]
     fn window_app_swallow_mouse_click_on_pane_focus_only_focuses_inactive_pane() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             swallow_mouse_click_on_pane_focus: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -158983,9 +158955,9 @@ return config
         let shift_written = Arc::new(Mutex::new(Vec::new()));
         let mut shift_app = NativeWindowApp::new(None);
         shift_app.writer = Some(Box::new(SharedWriter(Arc::clone(&shift_written))));
-        shift_app.set_config_overrides(NativeConfigOverrides {
+        shift_app.set_config_overrides(NativeConfigSnapshot {
             bypass_mouse_reporting_modifiers: Some(ModifiersState::ALT),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         shift_app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
         shift_app.modifiers = ModifiersState::SHIFT;
@@ -159008,9 +158980,9 @@ return config
         let alt_written = Arc::new(Mutex::new(Vec::new()));
         let mut alt_app = NativeWindowApp::new(None);
         alt_app.writer = Some(Box::new(SharedWriter(Arc::clone(&alt_written))));
-        alt_app.set_config_overrides(NativeConfigOverrides {
+        alt_app.set_config_overrides(NativeConfigSnapshot {
             bypass_mouse_reporting_modifiers: Some(ModifiersState::ALT),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         alt_app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
         alt_app.modifiers = ModifiersState::ALT;
@@ -159048,9 +159020,9 @@ return config
             recorded.lock().unwrap().push(*change);
             true
         });
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             swallow_mouse_click_on_window_focus: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
         app.handle_cursor_moved(PhysicalPosition::new(
@@ -159096,9 +159068,9 @@ return config
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             swallow_mouse_click_on_window_focus: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
         assert!(!app.handle_focus_changed(false).unwrap());
@@ -159124,9 +159096,9 @@ return config
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             swallow_mouse_click_on_window_focus: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
         assert!(!app.handle_focus_changed(false).unwrap());
@@ -159165,9 +159137,9 @@ return config
         .unwrap();
         assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             pane_focus_follows_mouse: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(CELL_WIDTH * 2),
@@ -159298,14 +159270,14 @@ return config
         ));
         assert_eq!(app.wheel_hit_target_at_mouse_position(), None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             window_padding: Some(NativeWindowPadding {
                 left: NativeWindowPaddingDimension::Pixels(CELL_WIDTH),
                 right: NativeWindowPaddingDimension::Pixels(0),
                 top: NativeWindowPaddingDimension::Pixels(CELL_HEIGHT),
                 bottom: NativeWindowPaddingDimension::Pixels(0),
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.mouse_pixel_position = Some(PhysicalPosition::new(
             f64::from(app.frame_content_pixel_left().saturating_sub(1)),
@@ -159377,9 +159349,9 @@ return config
             pane: rssh_core::PaneId::new(1),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"00\r\n01\r\n02\r\n03\r\n04\r\n05")
             .unwrap();
@@ -159421,9 +159393,9 @@ return config
             launch: None,
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"00\r\n01\r\n02\r\n03\r\n04\r\n05")
             .unwrap();
@@ -159614,9 +159586,9 @@ return config
             alt_screen: NativeMouseAssignmentAltScreen::Any,
             command: WindowCommand::SendString("bound".to_owned()),
         }];
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         let inactive_before = app
             .pane_snapshot(rssh_core::PaneId::new(2))
@@ -159648,9 +159620,9 @@ return config
         app.handle_pty_output(b"right-0\r\nright-1\r\nright-2\r\nright-live")
             .unwrap();
         app.handle_pty_output(b"\x1b[?1049h").unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.mouse_pixel_position = Some(PhysicalPosition::new(
             f64::from(FRAME_WIDTH - 1),
@@ -159712,14 +159684,14 @@ return config
         let cell_width = app.cell_width();
         let cell_height = app.cell_height();
         let unpadded_rect = app.pane_render_rect(inactive).unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             window_padding: Some(NativeWindowPadding {
                 left: NativeWindowPaddingDimension::Pixels(cell_width.saturating_add(3)),
                 right: NativeWindowPaddingDimension::Pixels(5),
                 top: NativeWindowPaddingDimension::Pixels(cell_height.saturating_add(2)),
                 bottom: NativeWindowPaddingDimension::Pixels(7),
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
         app.handle_pane_pty_output(inactive, b"\x1b[?1000;1016h")
@@ -159896,9 +159868,9 @@ return config
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
         let inactive = rssh_core::PaneId::new(1);
         let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_kitty_keyboard: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[?1h\x1b[=0u").unwrap();
         app.handle_pane_pty_output(inactive, b"\x1b[?1049h\x1b[?1l\x1b[=1u")
@@ -160126,9 +160098,9 @@ return config
         let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
         app.handle_pane_pty_output(inactive, b"\x1b[?1000;1016h")
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             font_size: Some(NativeFontSize::from_millipoints(120_000_000)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         assert!(
             app.cell_width() > u32::from(u16::MAX),
@@ -160494,9 +160466,9 @@ return config
                 launch: None,
             })
             .unwrap();
-        move_app.set_config_overrides(NativeConfigOverrides {
+        move_app.set_config_overrides(NativeConfigSnapshot {
             pane_focus_follows_mouse: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         move_wheel_to_pane_cell_for_test(&mut move_app, rssh_core::PaneId::new(1), 0, 0, 1.0, 1.0);
         move_app
@@ -160525,9 +160497,9 @@ return config
         assert!(click_app.selection.is_some());
 
         let mut swallow_app = NativeWindowApp::new(None);
-        swallow_app.set_config_overrides(NativeConfigOverrides {
+        swallow_app.set_config_overrides(NativeConfigSnapshot {
             swallow_mouse_click_on_pane_focus: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         swallow_app
             .dispatch_app_action(AppAction::SplitPane {
@@ -160752,9 +160724,9 @@ return config
     #[test]
     fn window_app_wheel_binding_multiple_recursively_retains_target() {
         let mut app = wheel_split_with_inactive_history_for_test();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             scroll_to_bottom_on_input: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         let inactive = rssh_core::PaneId::new(1);
         let written = install_inactive_wheel_writer_for_test(&mut app, inactive);
@@ -162679,12 +162651,12 @@ return config
             cwd: Some("C:/hovered-default-cwd".to_owned()),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_prog: Some(vec![
                 "wheel-default-shell".to_owned(),
                 "--wheel-login".to_owned(),
             ]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
     }
 
@@ -163019,9 +162991,9 @@ return config
         );
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             mouse_wheel_scrolls_tabs: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         assert!(
             !app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
@@ -163324,14 +163296,14 @@ return config
     #[test]
     fn window_app_preserves_split_ratio_with_percentage_padding() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             window_padding: Some(NativeWindowPadding {
                 left: NativeWindowPaddingDimension::Percent(10),
                 right: NativeWindowPaddingDimension::Pixels(CELL_WIDTH),
                 top: NativeWindowPaddingDimension::Percent(10),
                 bottom: NativeWindowPaddingDimension::Pixels(CELL_HEIGHT),
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -165367,7 +165339,7 @@ return config
         let events = seen.lock().unwrap();
         assert_eq!(
             events.as_slice(),
-            [NativeEffectiveConfig {
+            [NativeConfigView {
                 dpi: super::DEFAULT_WINDOW_DPI,
                 dpi_by_screen: BTreeMap::new(),
                 tab_max_width: 28,
@@ -165761,9 +165733,9 @@ return config
     #[test]
     fn window_app_logs_unknown_escape_sequences_when_configured() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             log_unknown_escape_sequences: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"before\x1bzafter").unwrap();
@@ -165779,9 +165751,9 @@ return config
         let logged = Arc::new(Mutex::new(Vec::new()));
         let mut app =
             NativeWindowApp::new_with_session_log(None, SharedWriter(Arc::clone(&logged)));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             log_unknown_escape_sequences: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"before\x1b[?999zafter").unwrap();
@@ -165843,9 +165815,9 @@ return config
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             scroll_to_bottom_on_input: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
@@ -165923,9 +165895,9 @@ return config
     #[test]
     fn window_app_scrollbar_drag_updates_stable_viewport_top() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
@@ -166650,9 +166622,9 @@ return config
         let inactive_before = inactive.runtime.terminal().current_seqno();
         let inactive_rows = inactive.runtime.terminal().retained_stable_range();
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             foreground_color: Some(Color::Rgb(1, 2, 3)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(
@@ -166689,11 +166661,11 @@ return config
         let before = app.runtime.terminal().current_seqno();
         let selection_background = Color::Rgb(1, 2, 3);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             selection_bg_color: Some(selection_background),
             tab_bar_background_color: Some(Color::Rgb(4, 5, 6)),
             scrollbar_thumb_color: Some(Color::Rgb(7, 8, 9)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(app.runtime.terminal().current_seqno(), before);
@@ -167143,9 +167115,9 @@ return config
     #[test]
     fn window_app_scrollbar_drag_keeps_ordinary_selection_while_viewport_moves() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_scroll_bar: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
@@ -168341,9 +168313,9 @@ return config
     fn window_app_search_mode_drives_active_and_inactive_viewports_before_copy_resumes() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"copy-row\r\nmid-1\r\nmid-2\r\nmid-3\r\nneedle-row\r\nlive")
             .unwrap();
@@ -169229,9 +169201,9 @@ return config
             "needle-old          "
         );
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             scrollback_lines: Some(1),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(!matched.is_retained(app.runtime.terminal()));
@@ -169257,9 +169229,9 @@ return config
             "copy-old            "
         );
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             scrollback_lines: Some(1),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(
@@ -169294,9 +169266,9 @@ return config
             "https://old.test                "
         );
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             scrollback_lines: Some(1),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(!matched.is_retained(app.runtime.terminal()));
@@ -169328,9 +169300,9 @@ return config
         app.scroll_viewport_lines(1);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 16), "right-old       ");
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             scrollback_lines: Some(1),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let inactive = app.pane_runtimes.get(&left_pane).expect("left runtime");
@@ -169378,9 +169350,9 @@ return config
             .current_match()
             .expect("active Quick match");
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             scrollback_lines: Some(1),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(!active_match.is_retained(app.runtime.terminal()));
@@ -169407,9 +169379,9 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             disable_default_mouse_bindings: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         let active = app.active_pane_id();
         move_wheel_to_pane_cell_for_test(&mut app, active, 0, 0, 1.0, 1.0);
@@ -169494,9 +169466,9 @@ return config
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             alternate_buffer_wheel_scroll_speed: Some(1),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"\x1b[?1049h").unwrap();
@@ -169651,9 +169623,9 @@ return config
     #[test]
     fn window_app_can_disable_hide_mouse_cursor_when_typing() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             hide_mouse_cursor_when_typing: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_cursor_moved(PhysicalPosition::new(8.0, 8.0))
             .unwrap();
@@ -169768,9 +169740,9 @@ return config
     fn window_command_palette_rows_limits_visible_overlay_entries() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(48, 8));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             command_palette_rows: Some(2),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.enter_command_palette_mode();
@@ -169869,10 +169841,10 @@ return config
     fn window_quick_select_uses_configured_match_colors() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_match_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
             quick_select_match_fg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"https://example.com").unwrap();
 
@@ -169890,10 +169862,10 @@ return config
     fn window_quick_select_renders_configured_label_colors() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_label_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
             quick_select_label_fg: Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6))),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"https://example.com").unwrap();
 
@@ -169937,9 +169909,9 @@ return config
     fn window_quick_select_hides_non_matching_labels_while_typing() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(40, 3));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("ab".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"https://one.test\r\nhttps://two.test\r\nhttps://three.test")
             .unwrap();
@@ -169990,10 +169962,10 @@ return config
     fn window_input_selector_renders_configured_label_colors() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(40, 3));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             input_selector_label_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
             input_selector_label_fg: Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6))),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.enter_input_selector_mode(WindowInputSelectorOptions {
@@ -170022,10 +169994,10 @@ return config
     fn window_launcher_renders_configured_label_colors() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(40, 3));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             launcher_label_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
             launcher_label_fg: Some(NativeColorSpec::Color(Color::Rgb(7, 8, 9))),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
@@ -170050,13 +170022,13 @@ return config
     fn window_quick_select_remove_styling_strips_pane_styles_before_highlighting() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_remove_styling: Some(true),
             quick_select_match_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
             quick_select_match_fg: Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6))),
             quick_select_label_bg: Some(NativeColorSpec::Color(Color::Rgb(7, 8, 9))),
             quick_select_label_fg: Some(NativeColorSpec::Color(Color::Rgb(10, 11, 12))),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[31;1;4mhttps://example.com tail\x1b[0m")
             .unwrap();
@@ -170187,9 +170159,9 @@ return config
         app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
         app.handle_pty_output(b"https://one.test https://two.test")
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.enter_quick_select_mode();
@@ -170218,9 +170190,9 @@ return config
         app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
         app.handle_pty_output(b"ticket-1234 https://example.test")
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.enter_quick_select_mode();
@@ -170238,10 +170210,10 @@ return config
         app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
         app.handle_pty_output(b"ticket-1234 https://example.test")
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
             disable_default_quick_select_patterns: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.enter_quick_select_mode();
@@ -170470,9 +170442,9 @@ return config
     #[test]
     fn window_pane_select_uses_configured_quick_select_alphabet_for_labels() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -170521,10 +170493,10 @@ return config
     #[test]
     fn window_pane_select_renders_configured_overlay_colors() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             pane_select_bg_color: Some(Color::Rgb(11, 22, 33)),
             pane_select_fg_color: Some(Color::Rgb(44, 55, 66)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(20, 4));
         app.refresh_snapshot();
@@ -171056,9 +171028,9 @@ return config
     #[test]
     fn window_manager_can_keep_running_after_last_window_closes() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quit_when_all_windows_are_closed: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         let mut manager = NativeWindowManager::new_for_test(app);
         manager.discard_startup_app_for_test();
@@ -171386,10 +171358,10 @@ return config
     fn window_copy_mode_uses_configured_active_highlight_colors() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
             copy_mode_active_highlight_fg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"abcd").unwrap();
 
@@ -171406,14 +171378,14 @@ return config
     fn window_copy_mode_search_uses_configured_inactive_highlight_colors() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(8, 3));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
             copy_mode_active_highlight_fg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
             copy_mode_inactive_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6))),
             copy_mode_inactive_highlight_fg: Some(NativeColorSpec::AnsiColor(
                 NativeAnsiColor::White,
             )),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"foo one\r\nmiddle\r\nfoo two")
             .unwrap();
@@ -173693,9 +173665,9 @@ return config
     fn window_app_copy_search_accept_pattern_keeps_current_projection() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"foo one\r\nfoo two").unwrap();
         app.enter_copy_mode();
@@ -174302,9 +174274,9 @@ return config
     fn window_app_double_click_honors_selection_word_boundary_override() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             selection_word_boundary: Some(" :".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"foo:bar-baz").unwrap();
 
@@ -176034,9 +176006,9 @@ return config
     #[test]
     fn window_app_default_key_assignments_honor_physical_key_map_preference() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_map_preference: Some(NativeKeyMapPreference::Physical),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
 
@@ -176066,12 +176038,12 @@ return config
     #[test]
     fn window_app_disable_default_assignment_suppresses_app_shell_shortcut() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL+SHIFT+T".to_owned(),
                 command: WindowCommand::DisableDefaultAssignment,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(
@@ -176086,9 +176058,9 @@ return config
     #[test]
     fn window_app_disable_default_key_bindings_suppresses_app_shell_shortcuts() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             disable_default_key_bindings: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(
@@ -176106,12 +176078,12 @@ return config
             NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("python.exe"));
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL+SHIFT+W".to_owned(),
                 command: WindowCommand::DisableDefaultAssignment,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
 
@@ -176132,9 +176104,9 @@ return config
             NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("python.exe"));
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             disable_default_key_bindings: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.modifiers = ModifiersState::SUPER;
 
@@ -176183,9 +176155,9 @@ return config
     #[test]
     fn close_tab_shortcuts_honor_last_active_tab_config() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             switch_to_last_active_tab_when_closing_tab: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         for modifiers in [
@@ -176214,9 +176186,9 @@ return config
 
         assert!(matches!(action, Some(AppAction::NewTab { launch: None })));
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_domain: Some("ssh-prod".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(
@@ -177911,14 +177883,14 @@ return config
     #[test]
     fn window_app_rejects_default_domain_attach_domain_when_default_is_non_local() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_domain: Some("remote-default".to_owned()),
             exec_domains: Some(vec![NativeExecDomain {
                 name: "remote-default".to_owned(),
                 fixup_command: "wezterm cli spawn".to_owned(),
                 label: None,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.enter_command_palette_mode();
@@ -178034,14 +178006,14 @@ return config
     #[test]
     fn window_app_rejects_default_domain_detach_domain_when_default_is_non_local() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_domain: Some("remote-default".to_owned()),
             exec_domains: Some(vec![NativeExecDomain {
                 name: "remote-default".to_owned(),
                 fixup_command: "wezterm cli spawn".to_owned(),
                 label: None,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.enter_command_palette_mode();
@@ -178145,9 +178117,9 @@ return config
             None,
             rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
         );
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_domain: Some("ssh-prod".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.enter_command_palette_mode();
@@ -179243,9 +179215,9 @@ return config
             None,
             rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
         );
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             prefer_to_spawn_tabs: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.enter_command_palette_mode();
@@ -179262,9 +179234,9 @@ return config
             None,
             rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
         );
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             prefer_to_spawn_tabs: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.enter_command_palette_mode();
@@ -181813,9 +181785,9 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.primary_selection_reader = Box::new(|| Some("primary".to_owned()));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             disable_default_mouse_bindings: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.modifiers = ModifiersState::SUPER;
@@ -181932,9 +181904,9 @@ return config
     #[test]
     fn window_app_font_size_change_can_keep_window_size_and_adjust_terminal_size() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             adjust_window_size_when_changing_font_size: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.enter_command_palette_mode();
@@ -181957,9 +181929,9 @@ return config
     fn window_app_font_size_override_scales_base_cell_geometry() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             font_size: Some(NativeFontSize::from_millipoints(24_000)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(
@@ -181982,9 +181954,9 @@ return config
     fn window_app_line_height_override_scales_vertical_cell_geometry() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             line_height: Some(NativeLineHeight::from_per_mille(1_500)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(
@@ -182014,9 +181986,9 @@ return config
     fn window_app_cell_width_override_scales_horizontal_cell_geometry() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             cell_width: Some(NativeCellWidth::from_per_mille(1_500)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert_eq!(
@@ -182060,10 +182032,10 @@ return config
     #[test]
     fn window_app_reset_font_and_window_size_uses_configured_initial_size() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             initial_cols: Some(100),
             initial_rows: Some(30),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_window_resize(PhysicalSize::new(96, 80)).unwrap();
         app.enter_command_palette_mode();
@@ -182128,9 +182100,9 @@ return config
     #[test]
     fn window_app_debug_overlay_renders_recent_logs() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             debug_key_events: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
 
@@ -183614,12 +183586,12 @@ return config
     #[test]
     fn window_app_dispatches_user_key_assignment_before_default_shortcuts() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL+ALT+D".to_owned(),
                 command: WindowCommand::ShowDebugOverlay,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.modifiers = ModifiersState::CONTROL | ModifiersState::ALT;
 
@@ -183642,14 +183614,14 @@ return config
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             treat_left_ctrlalt_as_altgr: Some(true),
             key_map_preference: Some(NativeKeyMapPreference::Physical),
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL+ALT+D".to_owned(),
                 command: WindowCommand::ShowDebugOverlay,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.modifiers = ModifiersState::CONTROL | ModifiersState::ALT;
 
@@ -183699,9 +183671,9 @@ return config
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_kitty_keyboard: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[=2u").unwrap();
 
@@ -183732,13 +183704,13 @@ return config
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_map_preference: Some(NativeKeyMapPreference::Physical),
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "ALT+D".to_owned(),
                 command: WindowCommand::ShowDebugOverlay,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_keyboard_input_event(
@@ -183767,7 +183739,7 @@ return config
     #[test]
     fn window_app_key_assignments_accept_wezterm_pipe_modifier_separator() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             leader: Some(NativeLeaderKey {
                 keys: "CTRL+A".to_owned(),
                 timeout_milliseconds: Some(1_000),
@@ -183782,7 +183754,7 @@ return config
                     command: WindowCommand::ShowDebugOverlay,
                 },
             ]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.modifiers = ModifiersState::CONTROL | ModifiersState::ALT;
@@ -183822,7 +183794,7 @@ return config
     #[test]
     fn window_app_key_assignments_accept_wezterm_modifier_aliases() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_assignments: Some(vec![
                 NativeUserKeyAssignment {
                     keys: "WIN+D".to_owned(),
@@ -183833,7 +183805,7 @@ return config
                     command: WindowCommand::ShowDebugOverlay,
                 },
             ]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.modifiers = ModifiersState::SUPER;
@@ -183860,12 +183832,12 @@ return config
         assert!(app.debug_overlay_active_for_test());
 
         let mut meta_app = NativeWindowApp::new(None);
-        meta_app.set_config_overrides(NativeConfigOverrides {
+        meta_app.set_config_overrides(NativeConfigSnapshot {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "META+D".to_owned(),
                 command: WindowCommand::ShowDebugOverlay,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         meta_app.modifiers = ModifiersState::ALT;
         meta_app
@@ -183883,7 +183855,7 @@ return config
     #[test]
     fn window_app_key_assignments_accept_wezterm_function_key_identifiers() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_assignments: Some(vec![
                 NativeUserKeyAssignment {
                     keys: "F1".to_owned(),
@@ -183894,7 +183866,7 @@ return config
                     command: WindowCommand::ShowDebugOverlay,
                 },
             ]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.modifiers = ModifiersState::empty();
@@ -183924,7 +183896,7 @@ return config
     #[test]
     fn window_app_key_assignments_accept_wezterm_named_key_identifiers() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_assignments: Some(vec![
                 NativeUserKeyAssignment {
                     keys: "CAPSLOCK".to_owned(),
@@ -183935,7 +183907,7 @@ return config
                     command: WindowCommand::ShowDebugOverlay,
                 },
             ]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.modifiers = ModifiersState::empty();
@@ -183965,7 +183937,7 @@ return config
     #[test]
     fn window_app_key_assignments_accept_wezterm_numpad_and_browser_key_identifiers() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_assignments: Some(vec![
                 NativeUserKeyAssignment {
                     keys: "NUMPAD0".to_owned(),
@@ -183976,7 +183948,7 @@ return config
                     command: WindowCommand::ShowDebugOverlay,
                 },
             ]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.modifiers = ModifiersState::empty();
@@ -184015,7 +183987,7 @@ return config
     #[test]
     fn window_app_key_assignments_accept_wezterm_phys_and_mapped_prefixes() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_assignments: Some(vec![
                 NativeUserKeyAssignment {
                     keys: "CTRL+phys:D".to_owned(),
@@ -184026,7 +183998,7 @@ return config
                     command: WindowCommand::ShowDebugOverlay,
                 },
             ]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.modifiers = ModifiersState::CONTROL;
@@ -184057,12 +184029,12 @@ return config
     #[test]
     fn window_app_key_assignments_accept_wezterm_raw_key_prefix() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL+raw:123".to_owned(),
                 command: WindowCommand::CharSelect,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.modifiers = ModifiersState::CONTROL;
@@ -184090,13 +184062,13 @@ return config
     #[test]
     fn window_app_key_assignments_honor_wezterm_physical_key_map_preference() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_map_preference: Some(NativeKeyMapPreference::Physical),
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL+D".to_owned(),
                 command: WindowCommand::CharSelect,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.modifiers = ModifiersState::CONTROL;
@@ -184124,7 +184096,7 @@ return config
     #[test]
     fn window_app_leader_key_dispatches_leader_assignments() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             leader: Some(NativeLeaderKey {
                 keys: "CTRL+A".to_owned(),
                 timeout_milliseconds: Some(1_000),
@@ -184133,7 +184105,7 @@ return config
                 keys: "LEADER+SHIFT+|".to_owned(),
                 command: WindowCommand::ShowDebugOverlay,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.modifiers = ModifiersState::CONTROL;
@@ -184165,7 +184137,7 @@ return config
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             leader: Some(NativeLeaderKey {
                 keys: "CTRL+A".to_owned(),
                 timeout_milliseconds: Some(1_000),
@@ -184174,7 +184146,7 @@ return config
                 keys: "LEADER+SHIFT+|".to_owned(),
                 command: WindowCommand::ShowDebugOverlay,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.modifiers = ModifiersState::CONTROL;
@@ -185006,7 +184978,7 @@ return config
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_tables: Some(BTreeMap::from([(
                 "resize_pane".to_owned(),
                 vec![NativeUserKeyAssignment {
@@ -185017,7 +184989,7 @@ return config
                     },
                 }],
             )])),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.command_palette_execute(WindowCommand::SplitRight);
         let split_delta_before = app
@@ -185071,7 +185043,7 @@ return config
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_tables: Some(BTreeMap::from([(
                 "base".to_owned(),
                 vec![NativeUserKeyAssignment {
@@ -185079,7 +185051,7 @@ return config
                     command: WindowCommand::SendString("matched-base".to_owned()),
                 }],
             )])),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         for name in ["base", "overlay"] {
@@ -185112,7 +185084,7 @@ return config
     #[test]
     fn window_app_matching_key_table_assignment_resets_activation_timeout() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_tables: Some(BTreeMap::from([(
                 "repeatable".to_owned(),
                 vec![NativeUserKeyAssignment {
@@ -185120,7 +185092,7 @@ return config
                     command: WindowCommand::Nop,
                 }],
             )])),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         assert!(app.command_palette_execute(WindowCommand::ActivateKeyTable(
             WindowActivateKeyTable {
@@ -196538,9 +196510,9 @@ return config
     fn window_app_renders_key_assignments_with_configured_ui_key_caps() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(48, 8));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             ui_key_cap_rendering: Some(NativeUiKeyCapRendering::Emacs),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
@@ -196576,9 +196548,9 @@ return config
     fn window_app_ignores_ime_commit_text_when_ime_is_disabled() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             use_ime: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
 
@@ -196658,9 +196630,9 @@ return config
         let mut app = NativeWindowApp::new(None);
         app.runtime.feed_pty_output(b"ab");
         app.snapshot = TerminalRenderSnapshot::from_terminal(app.runtime.terminal());
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             ime_preedit_rendering: Some(NativeImePreeditRendering::System),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_ime_preedit("kan");
@@ -197124,9 +197096,9 @@ return config
         assert!(!app.should_request_redraw_at(start + Duration::from_millis(15)));
         assert!(app.should_request_redraw_at(start + Duration::from_millis(17)));
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             max_fps: Some(144),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         let next = start + Duration::from_millis(20);
 
@@ -197151,9 +197123,9 @@ return config
     #[test]
     fn window_app_limits_animation_redraw_requests_to_configured_animation_fps() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             max_fps: Some(240),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         let start = Instant::now();
         app.visual_bell = NativeVisualBell {
@@ -197167,10 +197139,10 @@ return config
         assert!(!app.should_request_animation_redraw_at(start + Duration::from_millis(99)));
         assert!(app.should_request_animation_redraw_at(start + Duration::from_millis(100)));
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             animation_fps: Some(24),
             max_fps: Some(240),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         let next = start + Duration::from_millis(150);
         app.visual_bell = NativeVisualBell {
@@ -197188,10 +197160,10 @@ return config
     #[test]
     fn window_app_caps_animation_redraw_requests_by_max_fps() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             animation_fps: Some(240),
             max_fps: Some(60),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         let start = Instant::now();
         app.visual_bell = NativeVisualBell {
@@ -200325,16 +200297,16 @@ return config
         app.apply_window_scale_factor(2.0);
         assert_eq!(app.window_dpi, 192);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             dpi: Some(144),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         assert_eq!(app.window_dpi, 144);
 
         app.apply_window_scale_factor(1.0);
         assert_eq!(app.window_dpi, 144);
 
-        app.set_config_overrides(NativeConfigOverrides::default());
+        app.set_config_overrides(NativeConfigSnapshot::default());
         assert_eq!(app.window_dpi, 96);
     }
 
@@ -207061,12 +207033,12 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "SHIFT+PAGEUP".to_owned(),
                 command: WindowCommand::DisableDefaultAssignment,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(
@@ -207080,9 +207052,9 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             disable_default_key_bindings: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(
@@ -207094,12 +207066,12 @@ act.Confirmation {
     #[test]
     fn window_app_disable_default_assignment_suppresses_window_shortcut() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "ALT+ENTER".to_owned(),
                 command: WindowCommand::DisableDefaultAssignment,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(
@@ -207114,9 +207086,9 @@ act.Confirmation {
     #[test]
     fn window_app_disable_default_key_bindings_suppresses_window_shortcuts() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             disable_default_key_bindings: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(
@@ -207214,9 +207186,9 @@ act.Confirmation {
     #[test]
     fn window_app_default_window_shortcuts_honor_physical_key_map_preference() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_map_preference: Some(NativeKeyMapPreference::Physical),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
 
@@ -207262,9 +207234,9 @@ act.Confirmation {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             swap_backspace_and_delete: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_keyboard_input_event(
@@ -207313,9 +207285,9 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_csi_u_key_encoding: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_keyboard_input_event(
@@ -207374,9 +207346,9 @@ act.Confirmation {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             enable_kitty_keyboard: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[=1u").unwrap();
         app.modifiers = ModifiersState::CONTROL;
@@ -207539,9 +207511,9 @@ act.Confirmation {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             allow_win32_input_mode: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"\x1b[?9001h").unwrap();
@@ -208797,9 +208769,9 @@ act.Confirmation {
             }]
         );
 
-        app.set_config_overrides(NativeConfigOverrides::default());
+        app.set_config_overrides(NativeConfigSnapshot::default());
 
-        assert_eq!(app.get_config_overrides(), NativeConfigOverrides::default());
+        assert_eq!(app.get_config_overrides(), NativeConfigSnapshot::default());
         assert_eq!(app.native_effective_config(), default_effective_config());
         assert_eq!(events.lock().unwrap().len(), 2);
     }
@@ -208808,9 +208780,9 @@ act.Confirmation {
     fn window_app_applies_configured_scrollback_lines_to_runtime() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             scrollback_lines: Some(1),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
@@ -208823,13 +208795,13 @@ act.Confirmation {
     #[test]
     fn window_app_applies_foreground_text_hsb_to_render_snapshot() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             foreground_text_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(1.0),
                 brightness: NativeHsbMultiplier::from_f32(0.5),
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[38;2;100;150;200;48;2;20;40;60mA\x1b[0m")
             .unwrap();
@@ -208931,12 +208903,12 @@ act.Confirmation {
     #[test]
     fn window_app_maps_mouse_through_wezterm_window_content_alignment_gap() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             window_content_alignment: Some(NativeWindowContentAlignment {
                 horizontal: NativeHorizontalContentAlignment::Center,
                 vertical: NativeVerticalContentAlignment::Bottom,
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_window_resize(PhysicalSize::new(FRAME_WIDTH + 5, FRAME_HEIGHT + 7))
             .unwrap();
@@ -208955,9 +208927,9 @@ act.Confirmation {
     #[test]
     fn window_app_applies_text_background_opacity_to_non_default_backgrounds() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             text_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.5)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[48;2;20;40;60mA\x1b[0mB")
             .unwrap();
@@ -208982,14 +208954,14 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(20, 6));
         app.refresh_snapshot();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             window_padding: Some(NativeWindowPadding {
                 left: NativeWindowPaddingDimension::Pixels(8),
                 right: NativeWindowPaddingDimension::Pixels(16),
                 top: NativeWindowPaddingDimension::Pixels(16),
                 bottom: NativeWindowPaddingDimension::Pixels(32),
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let layout = app.pane_render_layout();
@@ -209028,7 +209000,7 @@ act.Confirmation {
         app: &mut NativeWindowApp,
         inactive_pane_hsb: NativeInactivePaneHsb,
     ) {
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             inactive_pane_hsb: Some(inactive_pane_hsb),
             quick_select_remove_styling: Some(true),
             selection_bg_color: Some(PANE_OVERLAY_SEARCH_BG),
@@ -209040,7 +209012,7 @@ act.Confirmation {
             )),
             quick_select_match_bg: Some(NativeColorSpec::Color(PANE_OVERLAY_QUICK_MATCH_BG)),
             quick_select_label_bg: Some(NativeColorSpec::Color(PANE_OVERLAY_QUICK_LABEL_BG)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
     }
 
@@ -209969,13 +209941,13 @@ act.Confirmation {
     #[test]
     fn window_app_applies_inactive_pane_hsb_to_split_render_snapshot() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             inactive_pane_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(1.0),
                 brightness: NativeHsbMultiplier::from_f32(0.5),
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(20, 4));
         app.refresh_snapshot();
@@ -210027,14 +209999,14 @@ act.Confirmation {
     #[test]
     fn window_app_renders_active_and_inactive_pane_selections_together() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             selection_bg_color: Some(Color::Rgb(100, 120, 140)),
             inactive_pane_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(1.0),
                 brightness: NativeHsbMultiplier::from_f32(0.5),
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(20, 4));
         app.handle_pty_output(b"A").unwrap();
@@ -210089,14 +210061,14 @@ act.Confirmation {
     #[test]
     fn window_app_keeps_inactive_selection_after_unselected_inactive_pty_output() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             selection_bg_color: Some(Color::Rgb(90, 110, 130)),
             inactive_pane_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(1.0),
                 brightness: NativeHsbMultiplier::from_f32(1.0),
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(20, 4));
         app.handle_pty_output(b"A").unwrap();
@@ -210135,9 +210107,9 @@ act.Confirmation {
     #[test]
     fn window_app_single_pane_applies_translucent_selection_once() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             selection_bg_color: Some(Color::Rgba(100, 120, 140, 128)),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[48;2;20;40;60mA").unwrap();
         set_ordinary_viewport_range_for_test(
@@ -210160,13 +210132,13 @@ act.Confirmation {
     #[test]
     fn window_app_applies_inactive_pane_hsb_to_indexed_and_default_colors() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             inactive_pane_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(1.0),
                 brightness: NativeHsbMultiplier::from_f32(0.5),
             }),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(20, 4));
         app.refresh_snapshot();
@@ -210372,8 +210344,9 @@ act.Confirmation {
         }
     }
 
-    fn sample_native_config_overrides() -> NativeConfigOverrides {
-        NativeConfigOverrides {
+    fn sample_native_config_overrides() -> NativeConfigSnapshot {
+        let mut snapshot = NativeConfigSnapshot {
+            effective: Arc::new(rssh_config::EffectiveConfig::default()),
             dpi: Some(144),
             dpi_by_screen: Some(BTreeMap::from([
                 ("Built-in Retina Display".to_owned(), 144),
@@ -210869,11 +210842,13 @@ act.Confirmation {
             show_new_tab_button_in_tab_bar: Some(false),
             show_tab_index_in_tab_bar: Some(false),
             show_tabs_in_tab_bar: Some(false),
-        }
+        };
+        snapshot.refresh_effective_config();
+        snapshot
     }
 
-    fn sample_effective_config() -> NativeEffectiveConfig {
-        NativeEffectiveConfig {
+    fn sample_effective_config() -> NativeConfigView {
+        NativeConfigView {
             dpi: 144,
             dpi_by_screen: BTreeMap::from([
                 ("Built-in Retina Display".to_owned(), 144),
@@ -211354,7 +211329,7 @@ act.Confirmation {
         }
     }
 
-    fn default_effective_config() -> NativeEffectiveConfig {
+    fn default_effective_config() -> NativeConfigView {
         let resolved_palette = NativeResolvedPalette {
             foreground: super::LEGACY_TEST_FOREGROUND_COLOR,
             background: super::LEGACY_TEST_BACKGROUND_COLOR,
@@ -211363,7 +211338,7 @@ act.Confirmation {
             ..NativeResolvedPalette::default()
         };
 
-        NativeEffectiveConfig {
+        NativeConfigView {
             dpi: super::DEFAULT_WINDOW_DPI,
             dpi_by_screen: BTreeMap::new(),
             tab_max_width: 16,
@@ -212387,9 +212362,9 @@ act.Confirmation {
     #[test]
     fn window_app_multiple_nested_pane_select_alphabet_query_applies_explicit_alphabet() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -212419,9 +212394,9 @@ act.Confirmation {
     #[test]
     fn window_app_multiple_nested_pane_select_mode_show_ids_query_applies_explicit_options() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -217711,9 +217686,9 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_palette_quick_select_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
         app.handle_pty_output(b"https://one.test https://two.test")
@@ -217739,9 +217714,9 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_palette_quick_select_quoted_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.runtime.resize(rssh_core::TerminalSize::new(32, 1));
         app.handle_pty_output(b"https://one.test https://two.test")
@@ -220119,9 +220094,9 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_palette_pane_select_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -220160,9 +220135,9 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_palette_pane_select_action_name_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -220194,9 +220169,9 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_palette_pane_select_action_name_alphabet_equals_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -220228,9 +220203,9 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_palette_pane_select_quoted_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -220396,9 +220371,9 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_palette_pane_select_show_ids_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -220432,9 +220407,9 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_palette_pane_select_hyphenated_show_ids_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -220468,9 +220443,9 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_palette_pane_select_explicit_activate_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -220503,9 +220478,9 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_palette_pane_select_explicit_activate_show_ids_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -220567,9 +220542,9 @@ act.Confirmation {
 
         for (query, expected_command, expected_mode) in cases {
             let mut app = NativeWindowApp::new(None);
-            app.set_config_overrides(NativeConfigOverrides {
+            app.set_config_overrides(NativeConfigSnapshot {
                 quick_select_alphabet: Some("xy".to_owned()),
-                ..NativeConfigOverrides::default()
+                ..NativeConfigSnapshot::default()
             });
             app.dispatch_app_action(AppAction::SplitPane {
                 pane: rssh_core::PaneId::new(1),
@@ -220605,9 +220580,9 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_palette_pane_select_mode_show_ids_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             quick_select_alphabet: Some("xy".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -220681,9 +220656,9 @@ act.Confirmation {
 
         for (query, expected_command, expected_mode) in cases {
             let mut app = NativeWindowApp::new(None);
-            app.set_config_overrides(NativeConfigOverrides {
+            app.set_config_overrides(NativeConfigSnapshot {
                 quick_select_alphabet: Some("xy".to_owned()),
-                ..NativeConfigOverrides::default()
+                ..NativeConfigSnapshot::default()
             });
             app.dispatch_app_action(AppAction::SplitPane {
                 pane: rssh_core::PaneId::new(1),
@@ -221302,7 +221277,7 @@ act.Confirmation {
             launch: None,
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             mouse_assignments: Some(vec![NativeUserMouseAssignment {
                 event: NativeMouseAssignmentEvent {
                     kind: NativeMouseAssignmentEventKind::Up,
@@ -221317,7 +221292,7 @@ act.Confirmation {
             skip_close_confirmation_for_processes_named: Some(vec![
                 "pane-close-test-process".to_owned(),
             ]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
         let active_pane = app.active_pane_id();
@@ -221393,7 +221368,7 @@ act.Confirmation {
             launch: None,
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             mouse_assignments: Some(vec![NativeUserMouseAssignment {
                 event: NativeMouseAssignmentEvent {
                     kind: NativeMouseAssignmentEventKind::Up,
@@ -221405,7 +221380,7 @@ act.Confirmation {
                 alt_screen: NativeMouseAssignmentAltScreen::Any,
                 command: WindowCommand::StartWindowDrag,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
         let active_pane = app.active_pane_id();
@@ -221449,7 +221424,7 @@ act.Confirmation {
             launch: None,
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             mouse_assignments: Some(vec![NativeUserMouseAssignment {
                 event: NativeMouseAssignmentEvent {
                     kind: NativeMouseAssignmentEventKind::Up,
@@ -221461,7 +221436,7 @@ act.Confirmation {
                 alt_screen: NativeMouseAssignmentAltScreen::Any,
                 command: WindowCommand::StartWindowDrag,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
         app.mouse_position = Some((0, 0));
@@ -221542,7 +221517,7 @@ act.Confirmation {
             launch: None,
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             mouse_assignments: Some(vec![NativeUserMouseAssignment {
                 event: NativeMouseAssignmentEvent {
                     kind: NativeMouseAssignmentEventKind::Up,
@@ -221554,7 +221529,7 @@ act.Confirmation {
                 alt_screen: NativeMouseAssignmentAltScreen::Any,
                 command: WindowCommand::StartWindowDrag,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
         assert!(app.handle_focus_changed(true).unwrap());
@@ -222079,9 +222054,9 @@ act.Confirmation {
             tab: rssh_core::TabId::new(3),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             switch_to_last_active_tab_when_closing_tab: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.command_palette_execute(WindowCommand::CloseCurrentTab { confirm: false }));
@@ -222107,9 +222082,9 @@ act.Confirmation {
             tab: rssh_core::TabId::new(3),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             switch_to_last_active_tab_when_closing_tab: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
 
@@ -222553,9 +222528,9 @@ act.Confirmation {
             tab: rssh_core::TabId::new(3),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             switch_to_last_active_tab_when_closing_tab: Some(true),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.command_palette_execute(WindowCommand::CloseCurrentTab { confirm: true }));
@@ -222628,9 +222603,9 @@ act.Confirmation {
             launch: Some(PaneLaunch::local("top")),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             skip_close_confirmation_for_processes_named: Some(vec!["top".to_owned()]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.command_palette_execute(WindowCommand::CloseCurrentTab { confirm: true }));
@@ -222644,9 +222619,9 @@ act.Confirmation {
     #[test]
     fn window_app_window_close_confirmation_never_prompt_requests_close_immediately() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             window_close_confirmation: Some(NativeWindowCloseConfirmation::NeverPrompt),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_window_close_requested();
@@ -222677,9 +222652,9 @@ act.Confirmation {
     #[test]
     fn window_app_exit_behavior_hold_keeps_exited_pane() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::Hold),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let close_window = app
@@ -222694,9 +222669,9 @@ act.Confirmation {
     fn window_app_exit_behavior_messaging_verbose_reports_held_exit_status() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("false"));
         app.handle_pty_output(b"ready\r\n").unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::Hold),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let close_window = app
@@ -222715,9 +222690,9 @@ act.Confirmation {
     #[test]
     fn window_app_exit_behavior_messaging_verbose_uses_wezterm_failed_message_prefix() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("false"));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::Hold),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let message = app
@@ -222734,9 +222709,9 @@ act.Confirmation {
     #[test]
     fn window_app_exit_behavior_messaging_verbose_uses_wezterm_success_message_prefix() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("true"));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::Hold),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let message = app
@@ -222751,9 +222726,9 @@ act.Confirmation {
     fn window_app_exit_behavior_messaging_verbose_reports_actual_hold_reason() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("false"));
         app.handle_pty_output(b"ready\r\n").unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::CloseOnCleanExit),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let close_window = app
@@ -222770,10 +222745,10 @@ act.Confirmation {
     fn window_app_exit_behavior_messaging_terse_reports_failed_status() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("false"));
         app.handle_pty_output(b"ready\r\n").unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::Hold),
             exit_behavior_messaging: Some(NativeExitBehaviorMessaging::Terse),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let close_window = app
@@ -222789,10 +222764,10 @@ act.Confirmation {
     fn window_app_exit_behavior_messaging_terse_reports_clean_status() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("true"));
         app.handle_pty_output(b"ready\r\n").unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::Hold),
             exit_behavior_messaging: Some(NativeExitBehaviorMessaging::Terse),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let close_window = app
@@ -222806,10 +222781,10 @@ act.Confirmation {
     fn window_app_exit_behavior_messaging_brief_reports_clean_process() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("true"));
         app.handle_pty_output(b"ready\r\n").unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::Hold),
             exit_behavior_messaging: Some(NativeExitBehaviorMessaging::Brief),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let close_window = app
@@ -222826,10 +222801,10 @@ act.Confirmation {
     fn window_app_exit_behavior_messaging_none_suppresses_held_exit_status() {
         let mut app = NativeWindowApp::new(None);
         app.handle_pty_output(b"ready\r\n").unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::Hold),
             exit_behavior_messaging: Some(NativeExitBehaviorMessaging::None),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let close_window = app
@@ -222845,9 +222820,9 @@ act.Confirmation {
     #[test]
     fn window_app_exit_behavior_close_on_clean_exit_holds_failed_exit() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::CloseOnCleanExit),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let close_window = app
@@ -222861,9 +222836,9 @@ act.Confirmation {
     #[test]
     fn window_app_clean_exit_codes_default_does_not_treat_130_as_clean() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::CloseOnCleanExit),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let close_window = app.apply_pane_exit_behavior(
@@ -222879,10 +222854,10 @@ act.Confirmation {
     #[test]
     fn window_app_clean_exit_codes_close_custom_clean_exit() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::CloseOnCleanExit),
             clean_exit_codes: Some(vec![130]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let close_window = app.apply_pane_exit_behavior(
@@ -222897,9 +222872,9 @@ act.Confirmation {
     #[test]
     fn window_app_exit_behavior_close_on_clean_exit_holds_unknown_exit() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::CloseOnCleanExit),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let close_window = app.apply_pane_exit_behavior_after_exit(rssh_core::PaneId::new(1), None);
@@ -222912,9 +222887,9 @@ act.Confirmation {
     #[test]
     fn window_app_exit_behavior_close_on_clean_exit_closes_clean_exit() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             exit_behavior: Some(NativeExitBehavior::CloseOnCleanExit),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         let close_window = app
@@ -225070,9 +225045,9 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.clipboard_reader = Box::new(|| Some("paste\ntext".to_owned()));
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             canonicalize_pasted_newlines: Some(NativeCanonicalizePastedNewlines::None),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.command_palette_execute(WindowCommand::PasteFrom(WindowPasteSource::Clipboard));
@@ -226970,9 +226945,9 @@ act.Confirmation {
     #[test]
     fn window_app_unzoom_on_switch_pane_false_blocks_directional_switch_when_zoomed() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             unzoom_on_switch_pane: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -227003,9 +226978,9 @@ act.Confirmation {
     #[test]
     fn window_app_unzoom_on_switch_pane_false_blocks_next_previous_pane_when_zoomed() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             unzoom_on_switch_pane: Some(false),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -227727,9 +227702,9 @@ act.Confirmation {
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(
@@ -227911,12 +227886,12 @@ act.Confirmation {
     #[test]
     fn window_app_show_launcher_args_key_assignments_include_user_overrides() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL+ALT+D".to_owned(),
                 command: WindowCommand::ShowDebugOverlay,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
@@ -228007,14 +227982,14 @@ act.Confirmation {
     fn window_app_dispatches_native_show_launcher_args_domains_payload_marks_local_entry_supported()
     {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_domain: Some("remote-default".to_owned()),
             exec_domains: Some(vec![NativeExecDomain {
                 name: "remote-default".to_owned(),
                 fixup_command: "wezterm cli spawn".to_owned(),
                 label: None,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
@@ -228056,7 +228031,7 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_native_show_launcher_args_domains_payload_with_custom_domains() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_domain: Some("remote-default".to_owned()),
             exec_domains: Some(vec![NativeExecDomain {
                 name: "ops".to_owned(),
@@ -228125,7 +228100,7 @@ act.Confirmation {
                 port: Some("/dev/ttyUSB0".to_owned()),
                 baud: Some(115_200),
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
@@ -228169,7 +228144,7 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_native_show_launcher_args_domains_payload_deduplicates_domain_names() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_domain: Some("Remote-Default".to_owned()),
             exec_domains: Some(vec![NativeExecDomain {
                 name: "remote-default".to_owned(),
@@ -228235,7 +228210,7 @@ act.Confirmation {
                 port: Some("/dev/ttyUSB0".to_owned()),
                 baud: Some(115_200),
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
@@ -228267,7 +228242,7 @@ act.Confirmation {
     fn window_app_dispatches_native_show_launcher_args_domains_payload_with_local_default_domain_case_deduplicates()
      {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_domain: Some("LOCAL".to_owned()),
             exec_domains: Some(vec![NativeExecDomain {
                 name: "LoCaL".to_owned(),
@@ -228287,7 +228262,7 @@ act.Confirmation {
                 local_echo_threshold_ms: Some(12),
                 overlay_lag_indicator: true,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
@@ -228327,7 +228302,7 @@ act.Confirmation {
     fn window_app_dispatches_native_show_launcher_args_domains_payload_with_explicit_local_domain_deduplicated()
      {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             default_domain: Some("remote-default".to_owned()),
             exec_domains: Some(vec![
                 NativeExecDomain {
@@ -228354,7 +228329,7 @@ act.Confirmation {
                 local_echo_threshold_ms: Some(12),
                 overlay_lag_indicator: true,
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
@@ -228394,7 +228369,7 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_native_show_launcher_args_launch_menu_items_payload() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             launch_menu: Some(vec![NativeLaunchMenuItem {
                 label: Some("System Monitor".to_owned()),
                 command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
@@ -228407,7 +228382,7 @@ act.Confirmation {
                     window_position: None,
                 }),
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
@@ -228449,7 +228424,7 @@ act.Confirmation {
     #[test]
     fn window_app_dispatches_native_show_launcher_default_payload() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             launch_menu: Some(vec![NativeLaunchMenuItem {
                 label: Some("System Monitor".to_owned()),
                 command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
@@ -228462,7 +228437,7 @@ act.Confirmation {
                     window_position: None,
                 }),
             }]),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.command_palette_execute(WindowCommand::ShowLauncher));
@@ -228940,9 +228915,9 @@ act.Confirmation {
     #[test]
     fn window_app_show_launcher_args_uses_configured_launcher_alphabet_by_default() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             launcher_alphabet: Some("ab".to_owned()),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         app.handle_pty_output(b"\x1b]2;Shell\x07").unwrap();
         app.dispatch_app_action(AppAction::NewTab { launch: None })
@@ -229344,9 +229319,9 @@ act.Confirmation {
             recorded.lock().unwrap().push(notification.clone());
             true
         });
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             notification_handling: Some(NativeNotificationHandling::NeverShow),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         app.handle_pty_output(b"\x1b]9;hidden\x07").unwrap();
@@ -229369,9 +229344,9 @@ act.Confirmation {
             recorded.lock().unwrap().push(notification.clone());
             true
         });
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedPane),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         assert!(app.handle_focus_changed(true).unwrap());
         app.dispatch_app_action(AppAction::NewTab { launch: None })
@@ -229399,9 +229374,9 @@ act.Confirmation {
             recorded.lock().unwrap().push(notification.clone());
             true
         });
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedTab),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
         assert!(app.handle_focus_changed(true).unwrap());
         app.dispatch_app_action(AppAction::SplitPane {
@@ -229439,9 +229414,9 @@ act.Confirmation {
             recorded.lock().unwrap().push(notification.clone());
             true
         });
-        app.set_config_overrides(NativeConfigOverrides {
+        app.set_config_overrides(NativeConfigSnapshot {
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedWindow),
-            ..NativeConfigOverrides::default()
+            ..NativeConfigSnapshot::default()
         });
 
         assert!(app.handle_focus_changed(true).unwrap());

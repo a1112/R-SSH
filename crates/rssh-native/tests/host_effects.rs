@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use rssh_config::EffectiveConfig;
 use rssh_core::{DamageRegion, PaneId, TerminalSize, WindowId};
 use rssh_native::{
     ClipboardEffect, CommandIntent, ConfigDiff, HostEffectContext, HostError, HostPorts,
@@ -273,22 +274,25 @@ fn runtime_wake_obeys_turn_budget_and_schedules_only_one_continuation() {
     let mut ports = FakePorts::default();
     ports.drains.push_back(RuntimeDrain {
         intents: vec![
-            WindowIntent::Config(ConfigDiff {
-                revision: 1,
-                theme: Some("one".to_owned()),
-            }),
-            WindowIntent::Config(ConfigDiff {
-                revision: 2,
-                theme: Some("two".to_owned()),
-            }),
+            WindowIntent::Config(ConfigDiff::new(
+                1,
+                Arc::new(EffectiveConfig::default()),
+                Some("one".to_owned()),
+            )),
+            WindowIntent::Config(ConfigDiff::new(
+                2,
+                Arc::new(EffectiveConfig::default()),
+                Some("two".to_owned()),
+            )),
         ],
         continuation: true,
     });
     ports.drains.push_back(RuntimeDrain {
-        intents: vec![WindowIntent::Config(ConfigDiff {
-            revision: 3,
-            theme: Some("three".to_owned()),
-        })],
+        intents: vec![WindowIntent::Config(ConfigDiff::new(
+            3,
+            Arc::new(EffectiveConfig::default()),
+            Some("three".to_owned()),
+        ))],
         continuation: false,
     });
     let mut state = WindowState::default();
@@ -380,14 +384,16 @@ fn elapsed_turn_budget_retains_unprocessed_intents_for_one_continuation() {
     };
     ports.drains.push_back(RuntimeDrain {
         intents: vec![
-            WindowIntent::Config(ConfigDiff {
-                revision: 1,
-                theme: Some("first".to_owned()),
-            }),
-            WindowIntent::Config(ConfigDiff {
-                revision: 2,
-                theme: Some("second".to_owned()),
-            }),
+            WindowIntent::Config(ConfigDiff::new(
+                1,
+                Arc::new(EffectiveConfig::default()),
+                Some("first".to_owned()),
+            )),
+            WindowIntent::Config(ConfigDiff::new(
+                2,
+                Arc::new(EffectiveConfig::default()),
+                Some("second".to_owned()),
+            )),
         ],
         continuation: false,
     });
@@ -424,10 +430,11 @@ fn stale_generation_wake_never_reaches_the_runtime_drain_port() {
     let current = token(37);
     let mut ports = FakePorts::default();
     ports.drains.push_back(RuntimeDrain {
-        intents: vec![WindowIntent::Config(ConfigDiff {
-            revision: 99,
-            theme: Some("stale".to_owned()),
-        })],
+        intents: vec![WindowIntent::Config(ConfigDiff::new(
+            99,
+            Arc::new(EffectiveConfig::default()),
+            Some("stale".to_owned()),
+        ))],
         continuation: false,
     });
     let mut window_state = WindowState::default();

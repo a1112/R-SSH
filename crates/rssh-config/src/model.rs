@@ -1,12 +1,34 @@
+use std::sync::Arc;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EffectiveConfig {
-    pub font: FontConfig,
-    pub terminal: TerminalConfig,
-    pub input: InputConfig,
-    pub window: WindowConfig,
-    pub render: RenderConfig,
-    pub domain: DomainConfig,
-    pub lifecycle: LifecycleConfig,
+    pub font: Arc<FontConfig>,
+    pub terminal: Arc<TerminalConfig>,
+    pub input: Arc<InputConfig>,
+    pub window: Arc<WindowConfig>,
+    pub render: Arc<RenderConfig>,
+    pub domain: Arc<DomainConfig>,
+    pub lifecycle: Arc<LifecycleConfig>,
+}
+
+impl EffectiveConfig {
+    /// Reuses immutable domain subtrees that are equal to the previous
+    /// snapshot, preserving allocation identity across reloads.
+    pub fn reuse_equal_subtrees_from(&mut self, previous: &Self) {
+        reuse_if_equal(&mut self.font, &previous.font);
+        reuse_if_equal(&mut self.terminal, &previous.terminal);
+        reuse_if_equal(&mut self.input, &previous.input);
+        reuse_if_equal(&mut self.window, &previous.window);
+        reuse_if_equal(&mut self.render, &previous.render);
+        reuse_if_equal(&mut self.domain, &previous.domain);
+        reuse_if_equal(&mut self.lifecycle, &previous.lifecycle);
+    }
+}
+
+fn reuse_if_equal<T: PartialEq>(candidate: &mut Arc<T>, previous: &Arc<T>) {
+    if candidate == previous {
+        candidate.clone_from(previous);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

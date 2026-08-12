@@ -54,7 +54,9 @@ impl ValidatedConfigStore {
                 diff,
             });
         }
-        self.current = candidate;
+        let mut candidate = Arc::unwrap_or_clone(candidate);
+        candidate.reuse_equal_subtrees_from(&self.current);
+        self.current = Arc::new(candidate);
         Ok(ConfigUpdate {
             snapshot: Arc::clone(&self.current),
             diff,

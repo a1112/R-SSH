@@ -1864,7 +1864,7 @@ fn is_lua_reserved_keyword(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::window::NativeConfigOverrides;
+    use crate::window::NativeConfigSnapshot;
     use rssh_config::{
         ConfigEnvironmentSnapshot, ConfigSourceErrorKind as NativeConfigSourceErrorKind,
     };
@@ -1880,14 +1880,14 @@ mod tests {
         time::Duration,
     };
 
-    type TestNativeConfigLifecycle = super::NativeConfigLifecycle<NativeConfigOverrides>;
+    type TestNativeConfigLifecycle = super::NativeConfigLifecycle<NativeConfigSnapshot>;
     type TestValidatedNativeConfigAssignments =
-        super::ValidatedNativeConfigAssignments<NativeConfigOverrides>;
+        super::ValidatedNativeConfigAssignments<NativeConfigSnapshot>;
 
     fn parse_test_native_config_document(
         source: &str,
         cli: &[StaticNativeConfigAssignment],
-    ) -> Result<NativeConfigOverrides, NativeConfigLoadError> {
+    ) -> Result<NativeConfigSnapshot, NativeConfigLoadError> {
         super::parse_native_config_document(source, cli)
     }
 
@@ -2104,7 +2104,7 @@ mod tests {
             TestValidatedNativeConfigAssignments::default(),
         );
         lifecycle.set_watch_current_dir_for_test(root.0.clone());
-        let mut config = NativeConfigOverrides::default();
+        let mut config = NativeConfigSnapshot::default();
         config.automatically_reload_config = Some(true);
         lifecycle.install_source_for_test(
             ConfigSource {
@@ -2151,7 +2151,7 @@ mod tests {
             TestValidatedNativeConfigAssignments::default(),
         );
         lifecycle.set_watch_current_dir_for_test(root.0.clone());
-        let mut config = NativeConfigOverrides::default();
+        let mut config = NativeConfigSnapshot::default();
         config.automatically_reload_config = Some(true);
         lifecycle.install_source_for_test(
             ConfigSource {
@@ -2402,7 +2402,7 @@ mod tests {
             parse_test_native_config_document("return {} -- before separator\n ; -- eof", &[])
                 .unwrap();
 
-        assert_eq!(overrides, crate::window::NativeConfigOverrides::default());
+        assert_eq!(overrides, crate::window::NativeConfigSnapshot::default());
     }
 
     #[test]

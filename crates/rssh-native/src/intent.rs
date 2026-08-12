@@ -1,5 +1,7 @@
+use rssh_config::EffectiveConfig;
 use rssh_core::{PaneId, TerminalSize};
 use rssh_runtime::{PaneToken, RuntimeBatch, TerminalStateSummary};
+use std::sync::Arc;
 
 use crate::layout::PaneSplitDirection;
 
@@ -52,7 +54,19 @@ pub enum CommandIntent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigDiff {
     pub revision: u64,
+    pub effective: Arc<EffectiveConfig>,
     pub theme: Option<String>,
+}
+
+impl ConfigDiff {
+    #[must_use]
+    pub fn new(revision: u64, effective: Arc<EffectiveConfig>, theme: Option<String>) -> Self {
+        Self {
+            revision,
+            effective,
+            theme,
+        }
+    }
 }
 
 /// Timer lifecycle with an epoch that rejects stale callbacks.

@@ -8,8 +8,8 @@ fn invalid_candidate_preserves_last_known_good_and_reports_field_paths() {
         .expect("schema defaults must be valid");
     let previous = store.current();
     let mut invalid = EffectiveConfig::default();
-    invalid.font.family.clear();
-    invalid.render.max_fps = 0;
+    Arc::make_mut(&mut invalid.font).family.clear();
+    Arc::make_mut(&mut invalid.render).max_fps = 0;
 
     let diagnostics = store
         .replace(Arc::new(invalid))
@@ -34,8 +34,9 @@ fn invalid_candidate_preserves_last_known_good_and_reports_field_paths() {
 fn font_only_candidate_emits_only_a_typed_font_diff() {
     let mut store = ValidatedConfigStore::new(EffectiveConfig::default()).unwrap();
     let mut candidate = EffectiveConfig::default();
-    candidate.font.family = "Iosevka".to_owned();
-    candidate.font.size_milli_points = 14_500;
+    let font = Arc::make_mut(&mut candidate.font);
+    font.family = "Iosevka".to_owned();
+    font.size_milli_points = 14_500;
 
     let update = store
         .replace(Arc::new(candidate))
@@ -58,12 +59,15 @@ fn font_only_candidate_emits_only_a_typed_font_diff() {
 fn config_diff_marks_each_changed_domain_without_copying_unchanged_domains() {
     let before = EffectiveConfig::default();
     let mut after = before.clone();
-    after.terminal.scrollback_lines += 1;
-    after.input.copy_on_select = !after.input.copy_on_select;
-    after.window.integrated_titlebar = !after.window.integrated_titlebar;
-    after.render.max_fps += 1;
-    after.domain.default_domain = Some("local:test".to_owned());
-    after.lifecycle.reload_on_change = !after.lifecycle.reload_on_change;
+    Arc::make_mut(&mut after.terminal).scrollback_lines += 1;
+    let input = Arc::make_mut(&mut after.input);
+    input.copy_on_select = !input.copy_on_select;
+    let window = Arc::make_mut(&mut after.window);
+    window.integrated_titlebar = !window.integrated_titlebar;
+    Arc::make_mut(&mut after.render).max_fps += 1;
+    Arc::make_mut(&mut after.domain).default_domain = Some("local:test".to_owned());
+    let lifecycle = Arc::make_mut(&mut after.lifecycle);
+    lifecycle.reload_on_change = !lifecycle.reload_on_change;
 
     let diff = ConfigDiff::between(&before, &after);
 

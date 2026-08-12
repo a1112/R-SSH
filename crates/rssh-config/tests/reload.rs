@@ -59,14 +59,14 @@ fn parse_config(source: &str) -> Result<EffectiveConfig, String> {
     if let Some(font) = document.get("font").and_then(toml::Value::as_table)
         && let Some(family) = font.get("family").and_then(toml::Value::as_str)
     {
-        family.clone_into(&mut config.font.family);
+        family.clone_into(&mut Arc::make_mut(&mut config.font).family);
     }
     if let Some(lifecycle) = document.get("lifecycle").and_then(toml::Value::as_table)
         && let Some(reload) = lifecycle
             .get("reload_on_change")
             .and_then(toml::Value::as_bool)
     {
-        config.lifecycle.reload_on_change = reload;
+        Arc::make_mut(&mut config.lifecycle).reload_on_change = reload;
     }
     Ok(config)
 }
@@ -383,7 +383,7 @@ fn skip_uses_cli_resolved_defaults_without_reading_any_source() {
     let path = root.join("config.toml");
     fs::write(&path, "[font]\nfamily = 'file'\n").unwrap();
     let mut cli_resolved = EffectiveConfig::default();
-    cli_resolved.font.family = "cli".to_owned();
+    Arc::make_mut(&mut cli_resolved.font).family = "cli".to_owned();
     let lifecycle = ConfigLifecycle::<EffectiveConfig, String>::new(
         ConfigDiscoveryInputs {
             environment_config_file: Some(path),

@@ -247,8 +247,17 @@ fn reduce_config(state: &mut WindowState, diff: ConfigDiff, effects: &mut Vec<Wi
     if diff.revision <= state.config.revision {
         return;
     }
+    let changes = rssh_config::ConfigDiff::between(&state.config.effective, &diff.effective);
+    let presentation_changed = changes.font.is_some()
+        || changes.window.is_some()
+        || changes.render.is_some()
+        || state.config.theme != diff.theme;
     state.config.revision = diff.revision;
+    state.config.effective = diff.effective;
     state.config.theme.clone_from(&diff.theme);
+    if !presentation_changed {
+        return;
+    }
     effects.push(WindowEffect::Renderer(RendererEffect::ApplyConfig {
         revision: diff.revision,
         theme: diff.theme,

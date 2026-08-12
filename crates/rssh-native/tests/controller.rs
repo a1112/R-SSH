@@ -1,6 +1,7 @@
 use std::num::NonZeroU64;
 use std::sync::Arc;
 
+use rssh_config::EffectiveConfig;
 use rssh_core::{DamageRegion, PaneId, TerminalSize};
 use rssh_native::{
     ClipboardEffect, CommandIntent, ConfigDiff, HostEffectContext, NotificationEffect,
@@ -28,6 +29,45 @@ fn summary(sequence: u64) -> TerminalStateSummary {
         sequence,
         visible_digest: 0x1234,
     }
+}
+
+#[test]
+fn native_window_owns_the_exact_shared_effective_config_snapshot() {
+    let mut state = WindowState::default();
+    let snapshot = Arc::new(EffectiveConfig::default());
+
+    let effects = apply(
+        &mut state,
+        WindowIntent::Config(ConfigDiff::new(
+            1,
+            Arc::clone(&snapshot),
+            Some("dark".to_owned()),
+        )),
+    );
+
+    assert!(Arc::ptr_eq(&state.config.effective, &snapshot));
+    assert!(matches!(
+        effects.as_slice(),
+        [
+            WindowEffect::Renderer(RendererEffect::ApplyConfig { revision: 1, .. }),
+            WindowEffect::Window(WindowPortEffect::RequestRedraw)
+        ]
+    ));
+}
+
+#[test]
+fn terminal_only_config_reload_does_not_notify_renderer_or_window() {
+    let mut state = WindowState::default();
+    let mut candidate = EffectiveConfig::default();
+    Arc::make_mut(&mut candidate.terminal).term = "xterm-rssh".to_owned();
+
+    let effects = apply(
+        &mut state,
+        WindowIntent::Config(ConfigDiff::new(1, Arc::new(candidate), None)),
+    );
+
+    assert!(effects.is_empty());
+    assert_eq!(state.config.effective.terminal.term, "xterm-rssh");
 }
 
 fn batch(
@@ -412,10 +452,11 @@ fn config_timer_redraw_restart_and_close_transitions_are_deterministic() {
 
     let config_effects = apply(
         &mut state,
-        WindowIntent::Config(ConfigDiff {
-            revision: 2,
-            theme: Some("dark".to_owned()),
-        }),
+        WindowIntent::Config(ConfigDiff::new(
+            2,
+            Arc::new(EffectiveConfig::default()),
+            Some("dark".to_owned()),
+        )),
     );
     assert_eq!(
         config_effects,
@@ -430,10 +471,11 @@ fn config_timer_redraw_restart_and_close_transitions_are_deterministic() {
     assert!(
         apply(
             &mut state,
-            WindowIntent::Config(ConfigDiff {
-                revision: 1,
-                theme: Some("stale".to_owned()),
-            })
+            WindowIntent::Config(ConfigDiff::new(
+                1,
+                Arc::new(EffectiveConfig::default()),
+                Some("stale".to_owned()),
+            ))
         )
         .is_empty()
     );
