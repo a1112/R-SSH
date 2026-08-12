@@ -3,7 +3,7 @@ use std::{collections::HashMap, num::NonZeroU64, sync::Arc};
 use rssh_core::{DamageRegion, PaneId};
 use rssh_runtime::{PaneToken, RuntimeRevision};
 
-use crate::{PaneLayout, PaneRenderRect, PaneSeparator, TabPresentation};
+use crate::{OverlayPresentation, PaneLayout, PaneRenderRect, PaneSeparator, TabPresentation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FrameRevision(NonZeroU64);
@@ -101,18 +101,6 @@ impl SurfacePresentation {
     pub const fn reserved_top_rows(self) -> u16 {
         self.titlebar_rows.saturating_add(self.tab_bar_rows)
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OverlayPresentation {
-    Search {
-        query: String,
-        matches: usize,
-    },
-    CommandPalette {
-        query: String,
-        selected: Option<usize>,
-    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
