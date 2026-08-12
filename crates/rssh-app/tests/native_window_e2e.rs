@@ -58,6 +58,7 @@ fn native_window_local_pane_v2_has_the_expected_observable_transcript() {
 }
 
 #[test]
+#[ignore = "dedicated native-window runner scenario"]
 fn native_window_local_pane_v2_writes_visible_session_log() {
     let _native_window = native_window_e2e_guard();
     let executable = packaged_or_cargo_app_executable();
@@ -251,6 +252,7 @@ fn nonzero_exit_marker_command(marker: &str) -> Command {
 }
 
 #[test]
+#[ignore = "dedicated native-window runner scenario"]
 fn native_window_e2e_preserves_gpu_text_at_windows_scale_factors() {
     let _native_window = native_window_e2e_guard();
     let executable = packaged_or_cargo_app_executable();
@@ -315,6 +317,28 @@ fn workflow_contract_has_exact_pr_and_supplemental_runner_sets() {
         assert!(workflow.contains("target"));
         assert!(workflow.contains("run-native-window.ps1"));
         assert!(workflow.contains("run-native-window.sh"));
+    }
+}
+
+#[test]
+fn dedicated_native_runners_own_heavy_window_scenarios() {
+    let windows = read_repo_file("scripts/ci/run-native-window.ps1");
+    let unix = read_repo_file("scripts/ci/run-native-window.sh");
+
+    for (runner, contents) in [("Windows", windows), ("Unix", unix)] {
+        for scenario in [
+            "native_window_e2e_preserves_gpu_text_at_windows_scale_factors",
+            "native_window_local_pane_v2_writes_visible_session_log",
+        ] {
+            assert!(
+                contents.contains(scenario),
+                "{runner} native runner omitted heavy scenario {scenario}"
+            );
+        }
+        assert!(
+            contents.contains("--ignored"),
+            "{runner} native runner must opt in to heavy ignored scenarios"
+        );
     }
 }
 

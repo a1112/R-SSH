@@ -69,6 +69,19 @@ try {
     "--", "--exact", "--nocapture"
   )
   $null = Invoke-BoundedProcess -Phase "native ten-frame E2E ($Profile)" -FilePath "cargo" -ArgumentList $testArguments -TimeoutSeconds 180
+
+  foreach ($scenario in @(
+    "native_window_e2e_preserves_gpu_text_at_windows_scale_factors",
+    "native_window_local_pane_v2_writes_visible_session_log"
+  )) {
+    $scenarioArguments = @(
+      "test", "--locked", "-p", "rssh-app", "--test", "native_window_e2e"
+    ) + $profileArguments + @(
+      $scenario,
+      "--", "--exact", "--ignored", "--nocapture"
+    )
+    $null = Invoke-BoundedProcess -Phase "native E2E scenario $scenario ($Profile)" -FilePath "cargo" -ArgumentList $scenarioArguments -TimeoutSeconds 300
+  }
 } finally {
   Pop-Location
 }

@@ -93,3 +93,12 @@ run_bounded "system OpenSSH interoperability ($profile)" 300 \
 run_bounded "native ten-frame E2E ($profile)" 180 \
   cargo test --locked -p rssh-app --all-targets "${profile_arguments[@]}" \
   native_window_e2e_presents_ten_frames_from_a_real_pty -- --exact --nocapture
+
+for scenario in \
+  native_window_e2e_preserves_gpu_text_at_windows_scale_factors \
+  native_window_local_pane_v2_writes_visible_session_log
+do
+  run_bounded "native E2E scenario $scenario ($profile)" 300 \
+    cargo test --locked -p rssh-app --test native_window_e2e "${profile_arguments[@]}" \
+    "$scenario" -- --exact --ignored --nocapture
+done

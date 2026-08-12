@@ -1,6 +1,8 @@
 use std::{fmt::Write as _, path::Path, process::Command, time::Duration};
 
-use rssh_test_support::{ChildGuard, ChildOutput, platform_marker_command_for_window_frames};
+use rssh_test_support::{
+    ChildGuard, ChildOutput, platform_marker_command, platform_marker_command_for_window_frames,
+};
 
 const PROCESS_DEADLINE: Duration = Duration::from_secs(120);
 // Keep the framed marker below 80 columns so ConPTY does not inject a line wrap.
@@ -44,7 +46,7 @@ pub fn run_ten_frame_native_window_with_log(
         executable,
         scale_factor.into(),
         log,
-        platform_marker_command_for_window_frames,
+        platform_marker_command,
     )
 }
 
