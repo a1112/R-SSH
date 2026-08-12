@@ -32,6 +32,9 @@ function Get-Domain([string]$Name) {
 
 function Get-TargetModule([string]$Source) {
     $stem = [IO.Path]::GetFileNameWithoutExtension($Source)
+    if ($Source -like 'crates/rssh-app/src/window_compat_tests/*') {
+        return 'window::tests'
+    }
     switch ($Source) {
         'crates/rssh-app/src/window_inspect_pane_tests.rs' { return 'window::window_inspect_pane_tests' }
         'crates/rssh-app/src/window_restart_pane_tests.rs' { return 'window::window_restart_pane_tests' }
