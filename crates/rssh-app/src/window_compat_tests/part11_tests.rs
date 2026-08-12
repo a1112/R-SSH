@@ -356,7 +356,7 @@
     #[test]
     fn window_app_default_key_assignments_honor_physical_key_map_preference() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_map_preference: Some(NativeKeyMapPreference::Physical),
             ..NativeConfigSnapshot::default()
         });
@@ -388,7 +388,7 @@
     #[test]
     fn window_app_disable_default_assignment_suppresses_app_shell_shortcut() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL+SHIFT+T".to_owned(),
                 command: WindowCommand::DisableDefaultAssignment,
@@ -408,7 +408,7 @@
     #[test]
     fn window_app_disable_default_key_bindings_suppresses_app_shell_shortcuts() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             disable_default_key_bindings: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -428,7 +428,7 @@
             NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("python.exe"));
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL+SHIFT+W".to_owned(),
                 command: WindowCommand::DisableDefaultAssignment,
@@ -454,7 +454,7 @@
             NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("python.exe"));
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             disable_default_key_bindings: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -505,7 +505,7 @@
     #[test]
     fn close_tab_shortcuts_honor_last_active_tab_config() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             switch_to_last_active_tab_when_closing_tab: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -536,7 +536,7 @@
 
         assert!(matches!(action, Some(AppAction::NewTab { launch: None })));
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_domain: Some("ssh-prod".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -2233,7 +2233,7 @@
     #[test]
     fn window_app_rejects_default_domain_attach_domain_when_default_is_non_local() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_domain: Some("remote-default".to_owned()),
             exec_domains: Some(vec![NativeExecDomain {
                 name: "remote-default".to_owned(),
@@ -2356,7 +2356,7 @@
     #[test]
     fn window_app_rejects_default_domain_detach_domain_when_default_is_non_local() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_domain: Some("remote-default".to_owned()),
             exec_domains: Some(vec![NativeExecDomain {
                 name: "remote-default".to_owned(),
@@ -2467,7 +2467,7 @@
             None,
             rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
         );
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_domain: Some("ssh-prod".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -3565,7 +3565,7 @@
             None,
             rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
         );
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             prefer_to_spawn_tabs: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -3584,7 +3584,7 @@
             None,
             rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
         );
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             prefer_to_spawn_tabs: Some(true),
             ..NativeConfigSnapshot::default()
         });

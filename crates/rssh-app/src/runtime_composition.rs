@@ -868,7 +868,12 @@ mod tests {
 
     #[test]
     fn v2_worker_ownership_is_window_scoped_instead_of_pane_scoped() {
-        let window_source = include_str!("window.rs");
+        let window_source = [
+            include_str!("window.rs"),
+            include_str!("window_parts/part10.rs"),
+            include_str!("window_parts/part15.rs"),
+        ]
+        .join("\n");
         assert!(
             !window_source.contains("v2_runtime: Option<WindowPaneRuntime>"),
             "pane-local ownership would create one RuntimeHub per pane"

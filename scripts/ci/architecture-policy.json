@@ -40,13 +40,6 @@
       },
       "crates/rssh-app/src/terminal_queries.rs": {
         "function_lines": 667
-      },
-      "crates/rssh-app/src/window.rs": {
-        "file_lines": 272115,
-        "struct_fields": 417,
-        "impl_lines": 21385,
-        "function_lines": 2168,
-        "unbounded_channels": 9
       }
     },
     "budgets": {
@@ -66,13 +59,6 @@
       },
       "crates/rssh-app/src/terminal_queries.rs": {
         "function_lines": 667
-      },
-      "crates/rssh-app/src/window.rs": {
-        "file_lines": 92137,
-        "struct_fields": 269,
-        "impl_lines": 20551,
-        "function_lines": 2168,
-        "unbounded_channels": 1
       }
     }
   },

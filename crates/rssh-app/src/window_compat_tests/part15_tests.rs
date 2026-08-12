@@ -541,7 +541,7 @@
         app.apply_window_scale_factor(2.0);
         assert_eq!(app.window_dpi, 192);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             dpi: Some(144),
             ..NativeConfigSnapshot::default()
         });
@@ -1856,7 +1856,7 @@
 
         let effective = app.native_effective_config();
         assert_eq!(&effective.window_frame, &effective.window_frame_appearance);
-        let effective = effective.window_frame_appearance;
+        let effective = effective.window_frame_appearance.clone();
         assert_eq!(effective.inactive_titlebar_bg, Some(Color::Rgb(1, 2, 3)));
         assert_eq!(effective.active_titlebar_bg, Some(Color::Rgb(4, 5, 6)));
         assert_eq!(effective.inactive_titlebar_fg, Some(Color::Rgb(7, 8, 9)));
@@ -1926,7 +1926,7 @@
         .expect("expected WezTerm window_frame static field-name config");
         app.set_config_overrides(overrides);
 
-        let effective = app.native_effective_config().window_frame_appearance;
+        let effective = app.native_effective_config().window_frame_appearance.clone();
         assert_eq!(effective.inactive_titlebar_bg, Some(Color::Rgb(1, 2, 3)));
         assert_eq!(
             effective.border_left_width,
@@ -1959,7 +1959,7 @@
         .expect("expected WezTerm color.parse window_frame color config");
         app.set_config_overrides(overrides);
 
-        let effective = app.native_effective_config().window_frame_appearance;
+        let effective = app.native_effective_config().window_frame_appearance.clone();
         assert_eq!(effective.inactive_titlebar_bg, Some(Color::Rgb(1, 2, 3)));
         assert_eq!(effective.border_left_color, Some(Color::Rgb(4, 5, 6)));
     }
@@ -2073,7 +2073,7 @@
     fn window_app_reports_default_wezterm_window_frame_font() {
         let effective = NativeWindowApp::new(None)
             .native_effective_config()
-            .window_frame_appearance;
+            .window_frame_appearance.clone();
         let expected_font_size = if cfg!(target_os = "windows") {
             NativeFontSize::from_millipoints(10_000)
         } else {
@@ -3315,7 +3315,7 @@
         .expect("expected WezTerm launch_menu config");
         app.set_config_overrides(overrides);
 
-        let effective_launch_menu = app.native_effective_config().launch_menu;
+        let effective_launch_menu = app.native_effective_config().launch_menu.clone();
         assert_eq!(effective_launch_menu.len(), 1);
         assert_eq!(
             effective_launch_menu[0].label.as_deref(),
@@ -3477,8 +3477,7 @@
         .expect("expected WezTerm launch_menu field-built item variable config");
 
         let launch_menu = overrides
-            .launch_menu
-            .expect("expected launch_menu overrides");
+            .launch_menu.clone().expect("expected launch_menu overrides");
         assert_eq!(launch_menu.len(), 1);
         assert_eq!(
             launch_menu[0].label.as_deref(),
@@ -3551,8 +3550,7 @@
         .expect("expected WezTerm launch_menu table.insert variable config");
 
         let launch_menu = overrides
-            .launch_menu
-            .expect("expected launch_menu overrides");
+            .launch_menu.clone().expect("expected launch_menu overrides");
         assert_eq!(launch_menu.len(), 1);
         assert_eq!(launch_menu[0].label.as_deref(), Some("Variable Monitor"));
     }
@@ -3577,8 +3575,7 @@
         .expect("expected WezTerm launch_menu post-assignment table.insert config");
 
         let launch_menu = overrides
-            .launch_menu
-            .expect("expected launch_menu overrides");
+            .launch_menu.clone().expect("expected launch_menu overrides");
         assert_eq!(launch_menu.len(), 1);
         assert_eq!(
             launch_menu[0].label.as_deref(),
@@ -3605,8 +3602,7 @@
         .expect("expected WezTerm launch_menu bracket-key table.insert config");
 
         let launch_menu = overrides
-            .launch_menu
-            .expect("expected launch_menu overrides");
+            .launch_menu.clone().expect("expected launch_menu overrides");
         assert_eq!(launch_menu.len(), 1);
         assert_eq!(launch_menu[0].label.as_deref(), Some("Bracket Insert"));
     }
@@ -3635,8 +3631,7 @@
         .expect("expected WezTerm positioned launch_menu table.insert config");
 
         let launch_menu = overrides
-            .launch_menu
-            .expect("expected launch_menu overrides");
+            .launch_menu.clone().expect("expected launch_menu overrides");
         assert_eq!(launch_menu.len(), 2);
         assert_eq!(launch_menu[0].label.as_deref(), Some("Inserted Monitor"));
         assert_eq!(launch_menu[1].label.as_deref(), Some("Existing Shell"));
@@ -3668,8 +3663,7 @@
         .expect("expected WezTerm positioned launch_menu table.insert variable config");
 
         let launch_menu = overrides
-            .launch_menu
-            .expect("expected launch_menu overrides");
+            .launch_menu.clone().expect("expected launch_menu overrides");
         assert_eq!(launch_menu.len(), 2);
         assert_eq!(launch_menu[0].label.as_deref(), Some("Variable Monitor"));
         assert_eq!(launch_menu[1].label.as_deref(), Some("Existing Shell"));

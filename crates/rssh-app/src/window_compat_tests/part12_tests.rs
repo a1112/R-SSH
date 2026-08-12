@@ -103,7 +103,7 @@
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.primary_selection_reader = Box::new(|| Some("primary".to_owned()));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             disable_default_mouse_bindings: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -222,7 +222,7 @@
     #[test]
     fn window_app_font_size_change_can_keep_window_size_and_adjust_terminal_size() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             adjust_window_size_when_changing_font_size: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -247,7 +247,7 @@
     fn window_app_font_size_override_scales_base_cell_geometry() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             font_size: Some(NativeFontSize::from_millipoints(24_000)),
             ..NativeConfigSnapshot::default()
         });
@@ -272,7 +272,7 @@
     fn window_app_line_height_override_scales_vertical_cell_geometry() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             line_height: Some(NativeLineHeight::from_per_mille(1_500)),
             ..NativeConfigSnapshot::default()
         });
@@ -304,7 +304,7 @@
     fn window_app_cell_width_override_scales_horizontal_cell_geometry() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             cell_width: Some(NativeCellWidth::from_per_mille(1_500)),
             ..NativeConfigSnapshot::default()
         });
@@ -350,7 +350,7 @@
     #[test]
     fn window_app_reset_font_and_window_size_uses_configured_initial_size() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             initial_cols: Some(100),
             initial_rows: Some(30),
             ..NativeConfigSnapshot::default()
@@ -418,7 +418,7 @@
     #[test]
     fn window_app_debug_overlay_renders_recent_logs() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             debug_key_events: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1904,7 +1904,7 @@
     #[test]
     fn window_app_dispatches_user_key_assignment_before_default_shortcuts() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL+ALT+D".to_owned(),
                 command: WindowCommand::ShowDebugOverlay,
@@ -1932,7 +1932,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             treat_left_ctrlalt_as_altgr: Some(true),
             key_map_preference: Some(NativeKeyMapPreference::Physical),
             key_assignments: Some(vec![NativeUserKeyAssignment {
@@ -1989,7 +1989,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_kitty_keyboard: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -2022,7 +2022,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_map_preference: Some(NativeKeyMapPreference::Physical),
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "ALT+D".to_owned(),
@@ -2057,7 +2057,7 @@
     #[test]
     fn window_app_key_assignments_accept_wezterm_pipe_modifier_separator() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             leader: Some(NativeLeaderKey {
                 keys: "CTRL+A".to_owned(),
                 timeout_milliseconds: Some(1_000),
@@ -2112,7 +2112,7 @@
     #[test]
     fn window_app_key_assignments_accept_wezterm_modifier_aliases() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_assignments: Some(vec![
                 NativeUserKeyAssignment {
                     keys: "WIN+D".to_owned(),
@@ -2150,7 +2150,7 @@
         assert!(app.debug_overlay_active_for_test());
 
         let mut meta_app = NativeWindowApp::new(None);
-        meta_app.set_config_overrides(NativeConfigSnapshot {
+        meta_app.set_config_overrides(native_config_snapshot! {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "META+D".to_owned(),
                 command: WindowCommand::ShowDebugOverlay,
@@ -2173,7 +2173,7 @@
     #[test]
     fn window_app_key_assignments_accept_wezterm_function_key_identifiers() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_assignments: Some(vec![
                 NativeUserKeyAssignment {
                     keys: "F1".to_owned(),
@@ -2214,7 +2214,7 @@
     #[test]
     fn window_app_key_assignments_accept_wezterm_named_key_identifiers() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_assignments: Some(vec![
                 NativeUserKeyAssignment {
                     keys: "CAPSLOCK".to_owned(),
@@ -2255,7 +2255,7 @@
     #[test]
     fn window_app_key_assignments_accept_wezterm_numpad_and_browser_key_identifiers() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_assignments: Some(vec![
                 NativeUserKeyAssignment {
                     keys: "NUMPAD0".to_owned(),
@@ -2305,7 +2305,7 @@
     #[test]
     fn window_app_key_assignments_accept_wezterm_phys_and_mapped_prefixes() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_assignments: Some(vec![
                 NativeUserKeyAssignment {
                     keys: "CTRL+phys:D".to_owned(),
@@ -2347,7 +2347,7 @@
     #[test]
     fn window_app_key_assignments_accept_wezterm_raw_key_prefix() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL+raw:123".to_owned(),
                 command: WindowCommand::CharSelect,
@@ -2380,7 +2380,7 @@
     #[test]
     fn window_app_key_assignments_honor_wezterm_physical_key_map_preference() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_map_preference: Some(NativeKeyMapPreference::Physical),
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL+D".to_owned(),
@@ -2414,7 +2414,7 @@
     #[test]
     fn window_app_leader_key_dispatches_leader_assignments() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             leader: Some(NativeLeaderKey {
                 keys: "CTRL+A".to_owned(),
                 timeout_milliseconds: Some(1_000),
@@ -2455,7 +2455,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             leader: Some(NativeLeaderKey {
                 keys: "CTRL+A".to_owned(),
                 timeout_milliseconds: Some(1_000),
@@ -3296,7 +3296,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_tables: Some(BTreeMap::from([(
                 "resize_pane".to_owned(),
                 vec![NativeUserKeyAssignment {
@@ -3361,7 +3361,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_tables: Some(BTreeMap::from([(
                 "base".to_owned(),
                 vec![NativeUserKeyAssignment {
@@ -3402,7 +3402,7 @@
     #[test]
     fn window_app_matching_key_table_assignment_resets_activation_timeout() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_tables: Some(BTreeMap::from([(
                 "repeatable".to_owned(),
                 vec![NativeUserKeyAssignment {

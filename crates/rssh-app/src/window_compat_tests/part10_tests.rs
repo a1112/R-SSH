@@ -1,7 +1,7 @@
     #[test]
     fn window_app_can_disable_hide_mouse_cursor_when_typing() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             hide_mouse_cursor_when_typing: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -118,7 +118,7 @@
     fn window_command_palette_rows_limits_visible_overlay_entries() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(48, 8));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             command_palette_rows: Some(2),
             ..NativeConfigSnapshot::default()
         });
@@ -219,7 +219,7 @@
     fn window_quick_select_uses_configured_match_colors() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_match_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
             quick_select_match_fg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
             ..NativeConfigSnapshot::default()
@@ -240,7 +240,7 @@
     fn window_quick_select_renders_configured_label_colors() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_label_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
             quick_select_label_fg: Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6))),
             ..NativeConfigSnapshot::default()
@@ -287,7 +287,7 @@
     fn window_quick_select_hides_non_matching_labels_while_typing() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(40, 3));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("ab".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -340,7 +340,7 @@
     fn window_input_selector_renders_configured_label_colors() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(40, 3));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             input_selector_label_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
             input_selector_label_fg: Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6))),
             ..NativeConfigSnapshot::default()
@@ -372,7 +372,7 @@
     fn window_launcher_renders_configured_label_colors() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(40, 3));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             launcher_label_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
             launcher_label_fg: Some(NativeColorSpec::Color(Color::Rgb(7, 8, 9))),
             ..NativeConfigSnapshot::default()
@@ -400,7 +400,7 @@
     fn window_quick_select_remove_styling_strips_pane_styles_before_highlighting() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_remove_styling: Some(true),
             quick_select_match_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
             quick_select_match_fg: Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6))),
@@ -537,7 +537,7 @@
         app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
         app.handle_pty_output(b"https://one.test https://two.test")
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -568,7 +568,7 @@
         app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
         app.handle_pty_output(b"ticket-1234 https://example.test")
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
             ..NativeConfigSnapshot::default()
         });
@@ -588,7 +588,7 @@
         app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
         app.handle_pty_output(b"ticket-1234 https://example.test")
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
             disable_default_quick_select_patterns: Some(true),
             ..NativeConfigSnapshot::default()
@@ -820,7 +820,7 @@
     #[test]
     fn window_pane_select_uses_configured_quick_select_alphabet_for_labels() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -871,7 +871,7 @@
     #[test]
     fn window_pane_select_renders_configured_overlay_colors() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             pane_select_bg_color: Some(Color::Rgb(11, 22, 33)),
             pane_select_fg_color: Some(Color::Rgb(44, 55, 66)),
             ..NativeConfigSnapshot::default()
@@ -1406,7 +1406,7 @@
     #[test]
     fn window_manager_can_keep_running_after_last_window_closes() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quit_when_all_windows_are_closed: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -1736,7 +1736,7 @@
     fn window_copy_mode_uses_configured_active_highlight_colors() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
             copy_mode_active_highlight_fg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
             ..NativeConfigSnapshot::default()
@@ -1756,7 +1756,7 @@
     fn window_copy_mode_search_uses_configured_inactive_highlight_colors() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(8, 3));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
             copy_mode_active_highlight_fg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
             copy_mode_inactive_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6))),
@@ -4043,7 +4043,7 @@
     fn window_app_copy_search_accept_pattern_keeps_current_projection() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
             ..NativeConfigSnapshot::default()
         });
@@ -4652,7 +4652,7 @@
     fn window_app_double_click_honors_selection_word_boundary_override() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             selection_word_boundary: Some(" :".to_owned()),
             ..NativeConfigSnapshot::default()
         });

@@ -2269,7 +2269,7 @@
         let recorded = Arc::clone(&seen);
         let mut app = NativeWindowApp::new(None);
         let tab_max_width = app.tab_max_width;
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             use_fancy_tab_bar: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -2961,7 +2961,7 @@
             .unwrap();
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             mouse_assignments: Some(
                 [
                     NativeMouseAssignmentEventKind::Down,
@@ -3198,7 +3198,7 @@
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             mouse_assignments: Some(vec![NativeUserMouseAssignment {
                 event: NativeMouseAssignmentEvent {
                     kind: NativeMouseAssignmentEventKind::Drag,
@@ -3411,7 +3411,7 @@
             tab: rssh_core::TabId::new(3),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             switch_to_last_active_tab_when_closing_tab: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -3528,7 +3528,7 @@
     #[test]
     fn window_app_can_hide_tab_bar_new_tab_button() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             show_new_tab_button_in_tab_bar: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -3565,7 +3565,7 @@
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             show_tabs_in_tab_bar: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -3611,7 +3611,7 @@
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             show_tab_index_in_tab_bar: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -3628,7 +3628,7 @@
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             tab_and_split_indices_are_zero_based: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -3645,7 +3645,7 @@
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             show_close_tab_button_in_tabs: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -3674,7 +3674,7 @@
     #[test]
     fn window_app_renders_integrated_title_buttons_left_aligned_in_configured_order() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -3705,7 +3705,7 @@
     #[test]
     fn window_app_renders_right_aligned_integrated_title_buttons_after_status() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -3739,7 +3739,7 @@
     #[test]
     fn window_app_macos_native_integrated_title_buttons_reserve_top_retro_space() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -3778,7 +3778,7 @@
     #[test]
     fn window_app_macos_native_integrated_title_buttons_skip_top_retro_space_when_fancy() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -3817,7 +3817,7 @@
     fn window_app_macos_native_integrated_title_buttons_defaults_to_fancy_and_skips_top_retro_space()
      {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -3886,7 +3886,7 @@
     #[test]
     fn window_app_applies_window_frame_button_colors_to_integrated_title_buttons() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -3939,7 +3939,7 @@
     fn window_app_applies_window_frame_titlebar_and_borders_to_render_snapshot() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(24, 4));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             hide_tab_bar_if_only_one_tab: Some(false),
             show_tabs_in_tab_bar: Some(false),
             window_frame_appearance: Some(NativeWindowFrameAppearance {
@@ -4045,7 +4045,7 @@
     #[test]
     fn window_app_integrated_title_button_clicks_dispatch_window_actions() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -5043,7 +5043,7 @@
     #[test]
     fn window_app_applies_underline_thickness_to_down_split_separator() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             underline_thickness: Some(NativeUnderlineThickness::Pixels(3)),
             split_color: Some(Color::Rgb(1, 2, 3)),
             ..NativeConfigSnapshot::default()
@@ -5427,7 +5427,8 @@
                     ),
                 );
                 assert!(app.active_ui.set_search_current(Some(search_match)));
-                app.active_ui.enter_copy_mode(app.initial_copy_mode());
+                let initial_copy_mode = app.initial_copy_mode();
+                app.active_ui.enter_copy_mode(initial_copy_mode);
             }
             PaneOverlayLifecycleClass::Quick => {
                 let mut first_match = pane_overlay_match(column);
@@ -6067,4 +6068,3 @@
         );
         assert!(app.frame_needs_full_repaint);
     }
-

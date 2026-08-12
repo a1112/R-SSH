@@ -2,7 +2,7 @@
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::io::{self, Write};
     use std::path::{Path, PathBuf};
-    use std::process::{Child, Command};
+    use std::process::{Child, Command, Stdio};
     use std::sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -132,7 +132,7 @@
     fn modern_default_overrides_retain_color_and_padding_precedence() {
         let override_ansi = [Color::Rgb(1, 2, 3); 16];
         let mut app = NativeWindowApp::new_with_visual_defaults(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             foreground_color: Some(Color::Rgb(4, 5, 6)),
             background_color: Some(Color::Rgb(7, 8, 9)),
             cursor_bg_color: Some(Color::Rgb(10, 11, 12)),
@@ -282,7 +282,7 @@
         };
 
         let mut app = NativeWindowApp::new_with_visual_defaults(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             tab_bar_background_color: Some(Color::Rgb(25, 26, 27)),
             tab_bar_active_tab_colors: explicit_active,
             tab_bar_inactive_tab_colors: explicit_inactive,
@@ -893,7 +893,7 @@
             DEFAULT_CURSOR_BG_COLOR
         );
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             color_scheme: Some("Builtin Dark".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -2665,7 +2665,7 @@
             .primary_app_mut_for_test()
             .set_window_config_overrides(
                 Some(super::NativeWindowConfigPatch::from_values(
-                    super::NativeWindowConfigPatchValues {
+                    native_window_config_patch_values! {
                     term: Some("window-term".to_owned()),
                     ..super::NativeWindowConfigPatchValues::default()
                     },
@@ -2781,7 +2781,7 @@
             let app = manager.primary_app_mut_for_test();
             app.set_window_config_overrides(
                 Some(super::NativeWindowConfigPatch::from_values(
-                    super::NativeWindowConfigPatchValues {
+                    native_window_config_patch_values! {
                     term: Some("window".to_owned()),
                     ..super::NativeWindowConfigPatchValues::default()
                     },
@@ -3223,7 +3223,7 @@
             .primary_app_mut_for_test()
             .set_window_config_overrides(
                 Some(super::NativeWindowConfigPatch::from_values(
-                    super::NativeWindowConfigPatchValues {
+                    native_window_config_patch_values! {
                     automatically_reload_config: Some(true),
                     ..super::NativeWindowConfigPatchValues::default()
                     },
@@ -3264,7 +3264,7 @@
             .primary_app_mut_for_test()
             .set_window_config_overrides(
                 Some(super::NativeWindowConfigPatch::from_values(
-                    super::NativeWindowConfigPatchValues {
+                    native_window_config_patch_values! {
                     automatically_reload_config: Some(false),
                     ..super::NativeWindowConfigPatchValues::default()
                     },
@@ -4229,14 +4229,14 @@
 
     #[cfg(target_os = "windows")]
     fn spawn_sleeping_child(cwd: &Path) -> io::Result<ChildProcessGuard> {
-        Command::new("powershell.exe")
-            .args([
-                "-NoLogo",
-                "-NoProfile",
-                "-Command",
-                "Start-Sleep -Seconds 30",
-            ])
+        // Use a leaf process: PowerShell can create helper descendants whose
+        // working directory is unrelated to the requested one, while the
+        // production resolver deliberately prefers the deepest descendant.
+        Command::new("ping.exe")
+            .args(["-n", "31", "127.0.0.1"])
             .current_dir(cwd)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
             .map(ChildProcessGuard)
     }
@@ -5385,7 +5385,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quote_dropped_files: Some(NativeQuoteDroppedFiles::Posix),
             ..NativeConfigSnapshot::default()
         });
@@ -5401,7 +5401,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             term: Some("wezterm".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -5632,7 +5632,7 @@
     #[test]
     fn window_app_new_tab_uses_default_prog_when_launch_has_no_prog() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
             ..NativeConfigSnapshot::default()
         });
@@ -5648,7 +5648,7 @@
     #[test]
     fn window_app_new_tab_prefers_explicit_launch_over_default_prog() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
             ..NativeConfigSnapshot::default()
         });
@@ -5669,7 +5669,7 @@
             None,
             rssh_pty::PtyCommand::new("pwsh").with_cwd("/tmp/project"),
         );
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_prog: Some(vec!["nu".to_owned(), "--login".to_owned()]),
             ..NativeConfigSnapshot::default()
         });

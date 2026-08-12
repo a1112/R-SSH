@@ -1241,7 +1241,7 @@
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.clipboard_reader = Box::new(|| Some("paste\ntext".to_owned()));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             canonicalize_pasted_newlines: Some(NativeCanonicalizePastedNewlines::None),
             ..NativeConfigSnapshot::default()
         });
@@ -3141,7 +3141,7 @@
     #[test]
     fn window_app_unzoom_on_switch_pane_false_blocks_directional_switch_when_zoomed() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             unzoom_on_switch_pane: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -3174,7 +3174,7 @@
     #[test]
     fn window_app_unzoom_on_switch_pane_false_blocks_next_previous_pane_when_zoomed() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             unzoom_on_switch_pane: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -3898,7 +3898,7 @@
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
             ..NativeConfigSnapshot::default()
         });
@@ -4082,7 +4082,7 @@
     #[test]
     fn window_app_show_launcher_args_key_assignments_include_user_overrides() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL+ALT+D".to_owned(),
                 command: WindowCommand::ShowDebugOverlay,
@@ -4178,7 +4178,7 @@
     fn window_app_dispatches_native_show_launcher_args_domains_payload_marks_local_entry_supported()
     {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_domain: Some("remote-default".to_owned()),
             exec_domains: Some(vec![NativeExecDomain {
                 name: "remote-default".to_owned(),
@@ -4227,7 +4227,7 @@
     #[test]
     fn window_app_dispatches_native_show_launcher_args_domains_payload_with_custom_domains() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_domain: Some("remote-default".to_owned()),
             exec_domains: Some(vec![NativeExecDomain {
                 name: "ops".to_owned(),
@@ -4340,7 +4340,7 @@
     #[test]
     fn window_app_dispatches_native_show_launcher_args_domains_payload_deduplicates_domain_names() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_domain: Some("Remote-Default".to_owned()),
             exec_domains: Some(vec![NativeExecDomain {
                 name: "remote-default".to_owned(),
@@ -4438,7 +4438,7 @@
     fn window_app_dispatches_native_show_launcher_args_domains_payload_with_local_default_domain_case_deduplicates()
      {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_domain: Some("LOCAL".to_owned()),
             exec_domains: Some(vec![NativeExecDomain {
                 name: "LoCaL".to_owned(),
@@ -4498,7 +4498,7 @@
     fn window_app_dispatches_native_show_launcher_args_domains_payload_with_explicit_local_domain_deduplicated()
      {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_domain: Some("remote-default".to_owned()),
             exec_domains: Some(vec![
                 NativeExecDomain {
@@ -4565,7 +4565,7 @@
     #[test]
     fn window_app_dispatches_native_show_launcher_args_launch_menu_items_payload() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             launch_menu: Some(vec![NativeLaunchMenuItem {
                 label: Some("System Monitor".to_owned()),
                 command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
@@ -4620,7 +4620,7 @@
     #[test]
     fn window_app_dispatches_native_show_launcher_default_payload() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             launch_menu: Some(vec![NativeLaunchMenuItem {
                 label: Some("System Monitor".to_owned()),
                 command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
@@ -5111,7 +5111,7 @@
     #[test]
     fn window_app_show_launcher_args_uses_configured_launcher_alphabet_by_default() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             launcher_alphabet: Some("ab".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -5515,7 +5515,7 @@
             recorded.lock().unwrap().push(notification.clone());
             true
         });
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             notification_handling: Some(NativeNotificationHandling::NeverShow),
             ..NativeConfigSnapshot::default()
         });
@@ -5540,7 +5540,7 @@
             recorded.lock().unwrap().push(notification.clone());
             true
         });
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedPane),
             ..NativeConfigSnapshot::default()
         });
@@ -5570,7 +5570,7 @@
             recorded.lock().unwrap().push(notification.clone());
             true
         });
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedTab),
             ..NativeConfigSnapshot::default()
         });
@@ -5610,7 +5610,7 @@
             recorded.lock().unwrap().push(notification.clone());
             true
         });
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedWindow),
             ..NativeConfigSnapshot::default()
         });

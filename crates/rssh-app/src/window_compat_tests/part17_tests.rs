@@ -577,7 +577,7 @@
     #[test]
     fn window_app_multiple_nested_pane_select_alphabet_query_applies_explicit_alphabet() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -609,7 +609,7 @@
     #[test]
     fn window_app_multiple_nested_pane_select_mode_show_ids_query_applies_explicit_options() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -5901,7 +5901,7 @@
     #[test]
     fn window_app_dispatches_palette_quick_select_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -5929,7 +5929,7 @@
     #[test]
     fn window_app_dispatches_palette_quick_select_quoted_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });

@@ -167,7 +167,7 @@
     #[test]
     fn window_app_renders_scrollback_scrollbar_to_framebuffer() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -193,7 +193,7 @@
     #[test]
     fn window_app_renders_active_pane_scrollbar_with_split_layout() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -230,7 +230,7 @@
     #[test]
     fn window_app_split_scrollbar_follows_active_pane_runtime() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -274,7 +274,7 @@
     #[test]
     fn window_app_split_scrollbar_input_only_updates_active_pane() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -377,7 +377,7 @@
     #[test]
     fn window_app_applies_configured_min_scroll_bar_height_to_scrollbar() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             min_scroll_bar_height: Some(NativeScrollBarHeight::Pixels(12)),
             ..NativeConfigSnapshot::default()
@@ -403,7 +403,7 @@
             Some(NativeScrollBarHeight::CellFractionPerMille(500))
         );
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -422,7 +422,7 @@
     fn window_app_scrollbar_hit_testing_uses_window_dpi_for_point_min_height() {
         let mut app = NativeWindowApp::new(None);
         app.apply_window_scale_factor(1.5);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             min_scroll_bar_height: Some(NativeScrollBarHeight::Points(72)),
             ..NativeConfigSnapshot::default()
@@ -480,7 +480,7 @@
     #[test]
     fn window_app_clicking_scrollback_scrollbar_jumps_viewport() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -508,7 +508,7 @@
     #[test]
     fn window_app_dragging_scrollback_scrollbar_updates_viewport() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -639,7 +639,7 @@
             recorded_bells.lock().unwrap().push(*bell);
             true
         });
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             audible_bell: Some(NativeAudibleBell::Disabled),
             ..NativeConfigSnapshot::default()
         });
@@ -697,7 +697,7 @@
     #[test]
     fn window_app_configured_visual_bell_tints_background_from_foreground() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 150,
@@ -733,7 +733,7 @@
     #[test]
     fn window_app_visual_bell_uses_default_text_foreground_for_default_cells() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 150,
@@ -757,7 +757,7 @@
     #[test]
     fn window_app_visual_bell_uses_default_text_foreground_for_empty_pane() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 150,
@@ -778,7 +778,7 @@
     #[test]
     fn window_app_visual_bell_color_override_tints_background() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 150,
@@ -807,7 +807,7 @@
     #[test]
     fn window_app_visual_bell_linear_fade_out_blends_background_color() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 100_000,
@@ -820,8 +820,9 @@
         });
 
         app.handle_pty_output(b"A\x07").unwrap();
+        let active_pane_id = app.active_pane_id();
         app.visual_bell_started_at.insert(
-            app.active_pane_id(),
+            active_pane_id,
             Instant::now()
                 .checked_sub(Duration::from_millis(50_000))
                 .unwrap(),
@@ -837,7 +838,7 @@
     #[test]
     fn window_app_visual_bell_cubic_bezier_solves_x_axis_progress() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 100_000,
@@ -855,8 +856,9 @@
         });
 
         app.handle_pty_output(b"A\x07").unwrap();
+        let active_pane_id = app.active_pane_id();
         app.visual_bell_started_at.insert(
-            app.active_pane_id(),
+            active_pane_id,
             Instant::now()
                 .checked_sub(Duration::from_millis(12_500))
                 .unwrap(),
@@ -872,7 +874,7 @@
     #[test]
     fn window_app_cursor_visual_bell_uses_foreground_without_tinting_background() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
                 fade_out_duration_ms: 150,
@@ -895,7 +897,7 @@
     #[test]
     fn window_app_cursor_visual_bell_fades_from_force_reverse_cursor_color() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             force_reverse_video_cursor: Some(true),
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 0,
@@ -909,8 +911,9 @@
         });
 
         app.handle_pty_output(b"\x1b[31mA\x08\x07").unwrap();
+        let active_pane_id = app.active_pane_id();
         app.visual_bell_started_at.insert(
-            app.active_pane_id(),
+            active_pane_id,
             Instant::now()
                 .checked_sub(Duration::from_millis(50_000))
                 .unwrap(),
@@ -1099,7 +1102,7 @@
             rssh_pty::PtyCommand::default_shell().with_cwd("/tmp/project"),
         );
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_prog: Some(vec!["nu".to_owned(), "--login".to_owned()]),
             ..NativeConfigSnapshot::default()
         });
@@ -1165,11 +1168,11 @@
         let mut app =
             NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::default_shell());
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
             ..NativeConfigSnapshot::default()
         });
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
             mux_enable_ssh_agent: Some(false),
             ..NativeConfigSnapshot::default()
@@ -1295,7 +1298,7 @@
     fn window_app_applies_default_workspace_to_initial_default_workspace_before_spawn() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_workspace: Some("ops".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -1312,7 +1315,7 @@
             Some("default"),
         );
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_workspace: Some("ops".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -1325,7 +1328,7 @@
     fn window_app_reports_configured_default_domain_in_effective_config() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_domain: Some("ssh-prod".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -1337,7 +1340,7 @@
     fn window_app_reports_configured_automatically_reload_config_in_effective_config() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             automatically_reload_config: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -1349,7 +1352,7 @@
     fn window_app_reports_configured_use_resize_increments_in_effective_config() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             use_resize_increments: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1363,7 +1366,7 @@
 
         assert_eq!(app.window_resize_increments(), None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             use_resize_increments: Some(true),
             cell_width: Some(NativeCellWidth::from_per_mille(1_500)),
             line_height: Some(NativeLineHeight::from_per_mille(1_250)),
@@ -1461,7 +1464,7 @@
     fn window_app_reports_configured_debug_key_events_in_effective_config() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             debug_key_events: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1472,7 +1475,7 @@
     #[test]
     fn window_app_logs_key_events_when_debug_key_events_is_enabled() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             debug_key_events: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1528,7 +1531,7 @@
     fn window_app_reports_configured_log_unknown_escape_sequences_in_effective_config() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             log_unknown_escape_sequences: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1547,7 +1550,7 @@
     fn window_app_reports_configured_warn_about_missing_glyphs_in_effective_config() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             warn_about_missing_glyphs: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -1574,7 +1577,7 @@
     fn window_app_suppresses_missing_glyph_warnings_when_configured() {
         let mut app = NativeWindowApp::new(None);
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             warn_about_missing_glyphs: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -3909,7 +3912,7 @@
         app.handle_pty_output(b"live").unwrap();
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             tab_bar_at_bottom: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -3947,7 +3950,7 @@
         app.handle_pty_output(b"live").unwrap();
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_tab_bar: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -3972,7 +3975,7 @@
     fn window_app_can_hide_tab_bar_when_only_one_tab() {
         let mut app = NativeWindowApp::new(None);
         app.handle_pty_output(b"live").unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             hide_tab_bar_if_only_one_tab: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -6009,4 +6012,3 @@
             ]
         );
     }
-

@@ -173,8 +173,8 @@ impl NativeWindowApp {
         self.metrics.record_pty_chunk_process(
             metrics.parse_duration.saturating_add(metrics.snapshot_duration),
         );
-        self.metrics
-            .record_first_rendered_cell(self.snapshot.cells().is_empty());
+        let snapshot_is_empty = self.snapshot.cells().is_empty();
+        self.metrics.record_first_rendered_cell(snapshot_is_empty);
     }
 
     fn apply_inactive_v2_frame(

@@ -4116,7 +4116,7 @@
     #[test]
     fn window_app_cursor_blink_rate_zero_keeps_blinking_cursor_visible() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             cursor_blink_rate_ms: Some(0),
             ..NativeConfigSnapshot::default()
         });
@@ -4140,7 +4140,7 @@
     #[test]
     fn window_app_cursor_blink_rate_toggles_phase_when_due() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             cursor_blink_rate_ms: Some(250),
             cursor_blink_ease_out: Some(NativeEasingFunction::Constant),
             cursor_blink_ease_in: Some(NativeEasingFunction::Constant),
@@ -4171,7 +4171,7 @@
     #[test]
     fn window_app_cursor_blink_linear_easing_updates_cursor_opacity() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             cursor_blink_rate_ms: Some(500),
             cursor_blink_ease_out: Some(NativeEasingFunction::Linear),
             cursor_blink_ease_in: Some(NativeEasingFunction::Linear),
@@ -4200,7 +4200,7 @@
     #[test]
     fn window_app_text_blink_linear_easing_updates_text_opacity() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             text_blink_rate_ms: Some(500),
             text_blink_ease_out: Some(NativeEasingFunction::Linear),
             text_blink_ease_in: Some(NativeEasingFunction::Linear),
@@ -4223,7 +4223,7 @@
     #[test]
     fn window_app_rapid_text_blink_uses_rapid_rate() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             text_blink_rate_ms: Some(1_000),
             text_blink_rate_rapid_ms: Some(250),
             text_blink_ease_out: Some(NativeEasingFunction::Constant),
@@ -4249,7 +4249,7 @@
     fn window_app_default_cursor_style_override_updates_runtime_default() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_cursor_style: Some(NativeCursorStyle::BlinkingBar),
             ..NativeConfigSnapshot::default()
         });
@@ -4277,7 +4277,7 @@
     fn window_app_cursor_thickness_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_cursor_style: Some(NativeCursorStyle::SteadyBar),
             cursor_thickness: Some(NativeCursorThickness::Pixels(3)),
             ..NativeConfigSnapshot::default()
@@ -4306,7 +4306,7 @@
     fn window_app_cursor_thickness_percent_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_cursor_style: Some(NativeCursorStyle::SteadyUnderline),
             cursor_thickness: Some(NativeCursorThickness::Percent(200)),
             ..NativeConfigSnapshot::default()
@@ -4335,7 +4335,7 @@
     fn window_app_cursor_thickness_points_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_cursor_style: Some(NativeCursorStyle::SteadyBar),
             cursor_thickness: Some(NativeCursorThickness::Points(2)),
             ..NativeConfigSnapshot::default()
@@ -4365,7 +4365,7 @@
         let mut app = NativeWindowApp::new(None);
         app.apply_window_scale_factor(1.5);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_cursor_style: Some(NativeCursorStyle::SteadyBar),
             cursor_thickness: Some(NativeCursorThickness::Points(2)),
             ..NativeConfigSnapshot::default()
@@ -4389,7 +4389,7 @@
     fn window_app_underline_thickness_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             underline_thickness: Some(NativeUnderlineThickness::Pixels(3)),
             ..NativeConfigSnapshot::default()
         });
@@ -4413,7 +4413,7 @@
     fn window_app_underline_position_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             underline_position: Some(NativeUnderlinePosition::Pixels(-4)),
             ..NativeConfigSnapshot::default()
         });
@@ -4437,7 +4437,7 @@
     fn window_app_strikethrough_position_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             strikethrough_position: Some(NativeStrikethroughPosition::CellFractionPerMille(250)),
             ..NativeConfigSnapshot::default()
         });
@@ -4466,7 +4466,7 @@
     fn window_app_bold_brightens_ansi_colors_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             bold_brightens_ansi_colors: Some(NativeBoldBrightensAnsiColors::No),
             ..NativeConfigSnapshot::default()
         });
@@ -4488,7 +4488,7 @@
     fn window_app_force_reverse_video_cursor_override_updates_renderer() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             force_reverse_video_cursor: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -4511,7 +4511,7 @@
     fn window_app_cursor_color_escape_overrides_force_reverse_video_cursor() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             force_reverse_video_cursor: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -4532,7 +4532,7 @@
     fn window_app_cursor_color_reset_restores_force_reverse_video_cursor() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             force_reverse_video_cursor: Some(true),
             ..NativeConfigSnapshot::default()
         });

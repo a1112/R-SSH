@@ -2949,7 +2949,10 @@ mod tests {
 
         let overrides = parse_test_native_config_document(source, &[]).unwrap();
 
-        let environment = overrides.set_environment_variables.unwrap();
+        let environment = overrides
+            .set_environment_variables
+            .as_ref()
+            .expect("expected parsed environment overrides");
         assert_eq!(
             environment.get("return").map(String::as_str),
             Some("reserved-return")

@@ -1279,7 +1279,7 @@
     #[test]
     fn window_app_swallow_mouse_click_on_pane_focus_only_focuses_inactive_pane() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             swallow_mouse_click_on_pane_focus: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1340,7 +1340,7 @@
         let shift_written = Arc::new(Mutex::new(Vec::new()));
         let mut shift_app = NativeWindowApp::new(None);
         shift_app.writer = Some(Box::new(SharedWriter(Arc::clone(&shift_written))));
-        shift_app.set_config_overrides(NativeConfigSnapshot {
+        shift_app.set_config_overrides(native_config_snapshot! {
             bypass_mouse_reporting_modifiers: Some(ModifiersState::ALT),
             ..NativeConfigSnapshot::default()
         });
@@ -1365,7 +1365,7 @@
         let alt_written = Arc::new(Mutex::new(Vec::new()));
         let mut alt_app = NativeWindowApp::new(None);
         alt_app.writer = Some(Box::new(SharedWriter(Arc::clone(&alt_written))));
-        alt_app.set_config_overrides(NativeConfigSnapshot {
+        alt_app.set_config_overrides(native_config_snapshot! {
             bypass_mouse_reporting_modifiers: Some(ModifiersState::ALT),
             ..NativeConfigSnapshot::default()
         });
@@ -1405,7 +1405,7 @@
             recorded.lock().unwrap().push(*change);
             true
         });
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             swallow_mouse_click_on_window_focus: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1453,7 +1453,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             swallow_mouse_click_on_window_focus: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1481,7 +1481,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             swallow_mouse_click_on_window_focus: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -1522,7 +1522,7 @@
         .unwrap();
         assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             pane_focus_follows_mouse: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1655,7 +1655,7 @@
         ));
         assert_eq!(app.wheel_hit_target_at_mouse_position(), None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             window_padding: Some(NativeWindowPadding {
                 left: NativeWindowPaddingDimension::Pixels(CELL_WIDTH),
                 right: NativeWindowPaddingDimension::Pixels(0),
@@ -1734,7 +1734,7 @@
             pane: rssh_core::PaneId::new(1),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1778,7 +1778,7 @@
             launch: None,
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1972,7 +1972,7 @@
             alt_screen: NativeMouseAssignmentAltScreen::Any,
             command: WindowCommand::SendString("bound".to_owned()),
         }];
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -2006,7 +2006,7 @@
         app.handle_pty_output(b"right-0\r\nright-1\r\nright-2\r\nright-live")
             .unwrap();
         app.handle_pty_output(b"\x1b[?1049h").unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -2070,7 +2070,7 @@
         let cell_width = app.cell_width();
         let cell_height = app.cell_height();
         let unpadded_rect = app.pane_render_rect(inactive).unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             window_padding: Some(NativeWindowPadding {
                 left: NativeWindowPaddingDimension::Pixels(cell_width.saturating_add(3)),
                 right: NativeWindowPaddingDimension::Pixels(5),
@@ -2254,7 +2254,7 @@
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&active_written))));
         let inactive = rssh_core::PaneId::new(1);
         let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_kitty_keyboard: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -2484,7 +2484,7 @@
         let inactive_written = install_inactive_wheel_writer_for_test(&mut app, inactive);
         app.handle_pane_pty_output(inactive, b"\x1b[?1000;1016h")
             .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             font_size: Some(NativeFontSize::from_millipoints(120_000_000)),
             ..NativeConfigSnapshot::default()
         });
@@ -2852,7 +2852,7 @@
                 launch: None,
             })
             .unwrap();
-        move_app.set_config_overrides(NativeConfigSnapshot {
+        move_app.set_config_overrides(native_config_snapshot! {
             pane_focus_follows_mouse: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -2883,7 +2883,7 @@
         assert!(click_app.selection.is_some());
 
         let mut swallow_app = NativeWindowApp::new(None);
-        swallow_app.set_config_overrides(NativeConfigSnapshot {
+        swallow_app.set_config_overrides(native_config_snapshot! {
             swallow_mouse_click_on_pane_focus: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -3110,7 +3110,7 @@
     #[test]
     fn window_app_wheel_binding_multiple_recursively_retains_target() {
         let mut app = wheel_split_with_inactive_history_for_test();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             scroll_to_bottom_on_input: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -5037,7 +5037,7 @@
             cwd: Some("C:/hovered-default-cwd".to_owned()),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             default_prog: Some(vec![
                 "wheel-default-shell".to_owned(),
                 "--wheel-login".to_owned(),
@@ -5377,7 +5377,7 @@
         );
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             mouse_wheel_scrolls_tabs: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -5682,7 +5682,7 @@
     #[test]
     fn window_app_preserves_split_ratio_with_percentage_padding() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             window_padding: Some(NativeWindowPadding {
                 left: NativeWindowPaddingDimension::Percent(10),
                 right: NativeWindowPaddingDimension::Pixels(CELL_WIDTH),

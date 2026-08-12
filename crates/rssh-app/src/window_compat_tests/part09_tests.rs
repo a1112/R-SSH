@@ -1826,7 +1826,7 @@
     #[test]
     fn window_app_logs_unknown_escape_sequences_when_configured() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             log_unknown_escape_sequences: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1844,7 +1844,7 @@
         let logged = Arc::new(Mutex::new(Vec::new()));
         let mut app =
             NativeWindowApp::new_with_session_log(None, SharedWriter(Arc::clone(&logged)));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             log_unknown_escape_sequences: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1908,7 +1908,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             scroll_to_bottom_on_input: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -1988,7 +1988,7 @@
     #[test]
     fn window_app_scrollbar_drag_updates_stable_viewport_top() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -2715,7 +2715,7 @@
         let inactive_before = inactive.runtime.terminal().current_seqno();
         let inactive_rows = inactive.runtime.terminal().retained_stable_range();
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             foreground_color: Some(Color::Rgb(1, 2, 3)),
             ..NativeConfigSnapshot::default()
         });
@@ -2754,7 +2754,7 @@
         let before = app.runtime.terminal().current_seqno();
         let selection_background = Color::Rgb(1, 2, 3);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             selection_bg_color: Some(selection_background),
             tab_bar_background_color: Some(Color::Rgb(4, 5, 6)),
             scrollbar_thumb_color: Some(Color::Rgb(7, 8, 9)),
@@ -3208,7 +3208,7 @@
     #[test]
     fn window_app_scrollbar_drag_keeps_ordinary_selection_while_viewport_moves() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_scroll_bar: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -4406,7 +4406,7 @@
     fn window_app_search_mode_drives_active_and_inactive_viewports_before_copy_resumes() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(12, 2));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
             ..NativeConfigSnapshot::default()
         });
@@ -5294,7 +5294,7 @@
             "needle-old          "
         );
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             scrollback_lines: Some(1),
             ..NativeConfigSnapshot::default()
         });
@@ -5322,7 +5322,7 @@
             "copy-old            "
         );
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             scrollback_lines: Some(1),
             ..NativeConfigSnapshot::default()
         });
@@ -5359,7 +5359,7 @@
             "https://old.test                "
         );
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             scrollback_lines: Some(1),
             ..NativeConfigSnapshot::default()
         });
@@ -5393,7 +5393,7 @@
         app.scroll_viewport_lines(1);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 16), "right-old       ");
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             scrollback_lines: Some(1),
             ..NativeConfigSnapshot::default()
         });
@@ -5443,7 +5443,7 @@
             .current_match()
             .expect("active Quick match");
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             scrollback_lines: Some(1),
             ..NativeConfigSnapshot::default()
         });
@@ -5472,7 +5472,7 @@
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             disable_default_mouse_bindings: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -5559,7 +5559,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             alternate_buffer_wheel_scroll_speed: Some(1),
             ..NativeConfigSnapshot::default()
         });

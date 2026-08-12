@@ -1985,7 +1985,7 @@
     #[test]
     fn window_app_dispatches_palette_pane_select_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -2026,7 +2026,7 @@
     #[test]
     fn window_app_dispatches_palette_pane_select_action_name_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -2060,7 +2060,7 @@
     #[test]
     fn window_app_dispatches_palette_pane_select_action_name_alphabet_equals_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -2094,7 +2094,7 @@
     #[test]
     fn window_app_dispatches_palette_pane_select_quoted_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -2262,7 +2262,7 @@
     #[test]
     fn window_app_dispatches_palette_pane_select_show_ids_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -2298,7 +2298,7 @@
     #[test]
     fn window_app_dispatches_palette_pane_select_hyphenated_show_ids_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -2334,7 +2334,7 @@
     #[test]
     fn window_app_dispatches_palette_pane_select_explicit_activate_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -2369,7 +2369,7 @@
     #[test]
     fn window_app_dispatches_palette_pane_select_explicit_activate_show_ids_alphabet_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -2433,7 +2433,7 @@
 
         for (query, expected_command, expected_mode) in cases {
             let mut app = NativeWindowApp::new(None);
-            app.set_config_overrides(NativeConfigSnapshot {
+            app.set_config_overrides(native_config_snapshot! {
                 quick_select_alphabet: Some("xy".to_owned()),
                 ..NativeConfigSnapshot::default()
             });
@@ -2471,7 +2471,7 @@
     #[test]
     fn window_app_dispatches_palette_pane_select_mode_show_ids_query() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             quick_select_alphabet: Some("xy".to_owned()),
             ..NativeConfigSnapshot::default()
         });
@@ -2547,7 +2547,7 @@
 
         for (query, expected_command, expected_mode) in cases {
             let mut app = NativeWindowApp::new(None);
-            app.set_config_overrides(NativeConfigSnapshot {
+            app.set_config_overrides(native_config_snapshot! {
                 quick_select_alphabet: Some("xy".to_owned()),
                 ..NativeConfigSnapshot::default()
             });
@@ -3168,7 +3168,7 @@
             launch: None,
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             mouse_assignments: Some(vec![NativeUserMouseAssignment {
                 event: NativeMouseAssignmentEvent {
                     kind: NativeMouseAssignmentEventKind::Up,
@@ -3259,7 +3259,7 @@
             launch: None,
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             mouse_assignments: Some(vec![NativeUserMouseAssignment {
                 event: NativeMouseAssignmentEvent {
                     kind: NativeMouseAssignmentEventKind::Up,
@@ -3315,7 +3315,7 @@
             launch: None,
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             mouse_assignments: Some(vec![NativeUserMouseAssignment {
                 event: NativeMouseAssignmentEvent {
                     kind: NativeMouseAssignmentEventKind::Up,
@@ -3408,7 +3408,7 @@
             launch: None,
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             mouse_assignments: Some(vec![NativeUserMouseAssignment {
                 event: NativeMouseAssignmentEvent {
                     kind: NativeMouseAssignmentEventKind::Up,
@@ -3945,7 +3945,7 @@
             tab: rssh_core::TabId::new(3),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             switch_to_last_active_tab_when_closing_tab: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -3973,7 +3973,7 @@
             tab: rssh_core::TabId::new(3),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             switch_to_last_active_tab_when_closing_tab: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -4419,7 +4419,7 @@
             tab: rssh_core::TabId::new(3),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             switch_to_last_active_tab_when_closing_tab: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -4494,7 +4494,7 @@
             launch: Some(PaneLaunch::local("top")),
         })
         .unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             skip_close_confirmation_for_processes_named: Some(vec!["top".to_owned()]),
             ..NativeConfigSnapshot::default()
         });
@@ -4510,7 +4510,7 @@
     #[test]
     fn window_app_window_close_confirmation_never_prompt_requests_close_immediately() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             window_close_confirmation: Some(NativeWindowCloseConfirmation::NeverPrompt),
             ..NativeConfigSnapshot::default()
         });
@@ -4543,7 +4543,7 @@
     #[test]
     fn window_app_exit_behavior_hold_keeps_exited_pane() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::Hold),
             ..NativeConfigSnapshot::default()
         });
@@ -4560,7 +4560,7 @@
     fn window_app_exit_behavior_messaging_verbose_reports_held_exit_status() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("false"));
         app.handle_pty_output(b"ready\r\n").unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::Hold),
             ..NativeConfigSnapshot::default()
         });
@@ -4581,7 +4581,7 @@
     #[test]
     fn window_app_exit_behavior_messaging_verbose_uses_wezterm_failed_message_prefix() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("false"));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::Hold),
             ..NativeConfigSnapshot::default()
         });
@@ -4600,7 +4600,7 @@
     #[test]
     fn window_app_exit_behavior_messaging_verbose_uses_wezterm_success_message_prefix() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("true"));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::Hold),
             ..NativeConfigSnapshot::default()
         });
@@ -4617,7 +4617,7 @@
     fn window_app_exit_behavior_messaging_verbose_reports_actual_hold_reason() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("false"));
         app.handle_pty_output(b"ready\r\n").unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::CloseOnCleanExit),
             ..NativeConfigSnapshot::default()
         });
@@ -4636,7 +4636,7 @@
     fn window_app_exit_behavior_messaging_terse_reports_failed_status() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("false"));
         app.handle_pty_output(b"ready\r\n").unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::Hold),
             exit_behavior_messaging: Some(NativeExitBehaviorMessaging::Terse),
             ..NativeConfigSnapshot::default()
@@ -4655,7 +4655,7 @@
     fn window_app_exit_behavior_messaging_terse_reports_clean_status() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("true"));
         app.handle_pty_output(b"ready\r\n").unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::Hold),
             exit_behavior_messaging: Some(NativeExitBehaviorMessaging::Terse),
             ..NativeConfigSnapshot::default()
@@ -4672,7 +4672,7 @@
     fn window_app_exit_behavior_messaging_brief_reports_clean_process() {
         let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("true"));
         app.handle_pty_output(b"ready\r\n").unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::Hold),
             exit_behavior_messaging: Some(NativeExitBehaviorMessaging::Brief),
             ..NativeConfigSnapshot::default()
@@ -4692,7 +4692,7 @@
     fn window_app_exit_behavior_messaging_none_suppresses_held_exit_status() {
         let mut app = NativeWindowApp::new(None);
         app.handle_pty_output(b"ready\r\n").unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::Hold),
             exit_behavior_messaging: Some(NativeExitBehaviorMessaging::None),
             ..NativeConfigSnapshot::default()
@@ -4711,7 +4711,7 @@
     #[test]
     fn window_app_exit_behavior_close_on_clean_exit_holds_failed_exit() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::CloseOnCleanExit),
             ..NativeConfigSnapshot::default()
         });
@@ -4727,7 +4727,7 @@
     #[test]
     fn window_app_clean_exit_codes_default_does_not_treat_130_as_clean() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::CloseOnCleanExit),
             ..NativeConfigSnapshot::default()
         });
@@ -4745,7 +4745,7 @@
     #[test]
     fn window_app_clean_exit_codes_close_custom_clean_exit() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::CloseOnCleanExit),
             clean_exit_codes: Some(vec![130]),
             ..NativeConfigSnapshot::default()
@@ -4763,7 +4763,7 @@
     #[test]
     fn window_app_exit_behavior_close_on_clean_exit_holds_unknown_exit() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::CloseOnCleanExit),
             ..NativeConfigSnapshot::default()
         });
@@ -4778,7 +4778,7 @@
     #[test]
     fn window_app_exit_behavior_close_on_clean_exit_closes_clean_exit() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             exit_behavior: Some(NativeExitBehavior::CloseOnCleanExit),
             ..NativeConfigSnapshot::default()
         });

@@ -21,7 +21,7 @@ fn window_reload_reuses_unchanged_effective_config_subtrees() {
     let mut app = NativeWindowApp::new(Some(0));
     let before = Arc::clone(&app.config_overrides.effective);
 
-    app.set_config_overrides(NativeConfigSnapshot {
+    app.set_config_overrides(native_config_snapshot! {
         term: Some("xterm-rssh".to_owned()),
         ..NativeConfigSnapshot::default()
     });
@@ -47,7 +47,7 @@ fn domain_and_lifecycle_values_live_in_one_copy_on_write_config_snapshot() {
     let mut app = NativeWindowApp::new(Some(0));
     let before = Arc::clone(&app.applied_config);
 
-    app.set_config_overrides(NativeConfigSnapshot {
+    app.set_config_overrides(native_config_snapshot! {
         default_domain: Some("local".to_owned()),
         default_workspace: Some("shared-config".to_owned()),
         ..NativeConfigSnapshot::default()
@@ -72,7 +72,7 @@ fn input_terminal_and_tab_values_share_the_applied_config_snapshot() {
     let mut app = NativeWindowApp::new(Some(0));
     let before = Arc::clone(&app.applied_config);
 
-    app.set_config_overrides(NativeConfigSnapshot {
+    app.set_config_overrides(native_config_snapshot! {
         scroll_to_bottom_on_input: Some(false),
         enable_tab_bar: Some(false),
         enable_kitty_graphics: Some(false),
@@ -93,7 +93,7 @@ fn font_values_live_in_the_shared_applied_config_snapshot() {
     let before = Arc::clone(&app.applied_config);
     let font_size = super::NativeFontSize::from_millipoints(24_000);
 
-    app.set_config_overrides(NativeConfigSnapshot {
+    app.set_config_overrides(native_config_snapshot! {
         font: Some("Cascadia Mono".to_owned()),
         font_size: Some(font_size),
         adjust_window_size_when_changing_font_size: Some(false),
@@ -114,7 +114,7 @@ fn render_and_overlay_values_live_in_the_shared_applied_config_snapshot() {
     let mut app = NativeWindowApp::new(Some(0));
     let before = Arc::clone(&app.applied_config);
 
-    app.set_config_overrides(NativeConfigSnapshot {
+    app.set_config_overrides(native_config_snapshot! {
         initial_cols: Some(132),
         tab_max_width: Some(42),
         launcher_alphabet: Some("abc".to_owned()),
@@ -134,7 +134,7 @@ fn terminal_identity_and_palette_values_share_the_applied_config_snapshot() {
     let mut app = NativeWindowApp::new(Some(0));
     let before = Arc::clone(&app.applied_config);
 
-    app.set_config_overrides(NativeConfigSnapshot {
+    app.set_config_overrides(native_config_snapshot! {
         term: Some("xterm-rssh-palette".to_owned()),
         foreground_color: Some(super::Color::Rgb(12, 34, 56)),
         ..NativeConfigSnapshot::default()
@@ -154,7 +154,7 @@ fn renderer_timing_and_cursor_values_share_the_applied_config_snapshot() {
     let mut app = NativeWindowApp::new(Some(0));
     let before = Arc::clone(&app.applied_config);
 
-    app.set_config_overrides(NativeConfigSnapshot {
+    app.set_config_overrides(native_config_snapshot! {
         max_fps: Some(144),
         cursor_blink_rate_ms: Some(321),
         force_reverse_video_cursor: Some(true),

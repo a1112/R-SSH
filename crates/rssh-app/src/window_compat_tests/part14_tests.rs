@@ -2769,7 +2769,7 @@
     fn window_app_renders_key_assignments_with_configured_ui_key_caps() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(48, 8));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             ui_key_cap_rendering: Some(NativeUiKeyCapRendering::Emacs),
             ..NativeConfigSnapshot::default()
         });
@@ -2807,7 +2807,7 @@
     fn window_app_ignores_ime_commit_text_when_ime_is_disabled() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             use_ime: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -2889,7 +2889,7 @@
         let mut app = NativeWindowApp::new(None);
         app.runtime.feed_pty_output(b"ab");
         app.snapshot = TerminalRenderSnapshot::from_terminal(app.runtime.terminal());
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             ime_preedit_rendering: Some(NativeImePreeditRendering::System),
             ..NativeConfigSnapshot::default()
         });
@@ -3355,7 +3355,7 @@
         assert!(!app.should_request_redraw_at(start + Duration::from_millis(15)));
         assert!(app.should_request_redraw_at(start + Duration::from_millis(17)));
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             max_fps: Some(144),
             ..NativeConfigSnapshot::default()
         });
@@ -3382,7 +3382,7 @@
     #[test]
     fn window_app_limits_animation_redraw_requests_to_configured_animation_fps() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             max_fps: Some(240),
             ..NativeConfigSnapshot::default()
         });
@@ -3391,14 +3391,15 @@
             fade_out_duration_ms: 1_000,
             ..NativeVisualBell::default()
         };
+        let active_pane_id = app.app_shell.active_pane_id();
         app.visual_bell_started_at
-            .insert(app.app_shell.active_pane_id(), start);
+            .insert(active_pane_id, start);
 
         assert!(app.should_request_animation_redraw_at(start));
         assert!(!app.should_request_animation_redraw_at(start + Duration::from_millis(99)));
         assert!(app.should_request_animation_redraw_at(start + Duration::from_millis(100)));
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             animation_fps: Some(24),
             max_fps: Some(240),
             ..NativeConfigSnapshot::default()
@@ -3408,8 +3409,9 @@
             fade_out_duration_ms: 1_000,
             ..NativeVisualBell::default()
         };
+        let active_pane_id = app.app_shell.active_pane_id();
         app.visual_bell_started_at
-            .insert(app.app_shell.active_pane_id(), next);
+            .insert(active_pane_id, next);
 
         assert!(app.should_request_animation_redraw_at(next));
         assert!(!app.should_request_animation_redraw_at(next + Duration::from_millis(41)));
@@ -3419,7 +3421,7 @@
     #[test]
     fn window_app_caps_animation_redraw_requests_by_max_fps() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             animation_fps: Some(240),
             max_fps: Some(60),
             ..NativeConfigSnapshot::default()
@@ -3429,8 +3431,9 @@
             fade_out_duration_ms: 1_000,
             ..NativeVisualBell::default()
         };
+        let active_pane_id = app.app_shell.active_pane_id();
         app.visual_bell_started_at
-            .insert(app.app_shell.active_pane_id(), start);
+            .insert(active_pane_id, start);
 
         assert!(app.should_request_animation_redraw_at(start));
         assert!(!app.should_request_animation_redraw_at(start + Duration::from_millis(5)));
@@ -6012,4 +6015,3 @@
             NativeFreetypeLoadFlags::NO_HINTING
         );
     }
-

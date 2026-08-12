@@ -322,7 +322,7 @@ macro_rules! quick_select_action_cases {
 
 macro_rules! sample_native_config_overrides {
     () => {{
-        let mut snapshot = NativeConfigSnapshot {
+        let mut snapshot = native_config_snapshot! {
             effective: Arc::new(rssh_config::EffectiveConfig::default()),
             dpi: Some(144),
             dpi_by_screen: Some(BTreeMap::from([
@@ -819,6 +819,7 @@ macro_rules! sample_native_config_overrides {
             show_new_tab_button_in_tab_bar: Some(false),
             show_tab_index_in_tab_bar: Some(false),
             show_tabs_in_tab_bar: Some(false),
+            ..NativeConfigSnapshot::default()
         };
         snapshot.refresh_effective_config();
         snapshot
@@ -828,7 +829,7 @@ macro_rules! sample_native_config_overrides {
 
 macro_rules! sample_effective_config {
     () => {{
-        NativeConfigView {
+        native_config_view! {
             dpi: 144,
             dpi_by_screen: BTreeMap::from([
                 ("Built-in Retina Display".to_owned(), 144),

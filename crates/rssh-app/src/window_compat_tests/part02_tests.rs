@@ -2581,7 +2581,7 @@
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
-        let colors = effective.colors.expect("expected retained colors palette");
+        let colors = effective.colors.clone().expect("expected retained colors palette");
         assert_eq!(colors.foreground, Some(Color::Rgb(1, 2, 3)));
         assert_eq!(colors.background, Some(Color::Rgb(4, 5, 6)));
         assert_eq!(colors.cursor_bg, Some(Color::Rgb(7, 8, 9)));
@@ -2612,7 +2612,7 @@
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
-        let colors = effective.colors.expect("expected retained colors palette");
+        let colors = effective.colors.clone().expect("expected retained colors palette");
         assert_eq!(colors.foreground, Some(Color::Rgb(1, 2, 3)));
         assert_eq!(colors.background, Some(Color::Rgb(4, 5, 6)));
         assert_eq!(colors.cursor_bg, Some(Color::Rgb(7, 8, 9)));
@@ -2934,7 +2934,7 @@ return config
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
-        let colors = effective.colors.expect("expected colors");
+        let colors = effective.colors.clone().expect("expected colors");
         assert_eq!(colors.foreground, Some(terminal(base)));
         assert_eq!(colors.background, Some(terminal(accent)));
         assert_eq!(colors.cursor_bg, Some(terminal(triad_a)));
@@ -3110,7 +3110,7 @@ return config
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
-        let colors = effective.colors.expect("expected retained colors palette");
+        let colors = effective.colors.clone().expect("expected retained colors palette");
         assert_eq!(colors.foreground, Some(Color::Rgb(10, 11, 12)));
         assert_eq!(colors.background, Some(Color::Rgb(13, 14, 15)));
         assert_eq!(colors.cursor_bg, Some(Color::Rgb(16, 17, 18)));
@@ -3141,7 +3141,7 @@ return config
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
-        let colors = effective.colors.expect("expected retained colors palette");
+        let colors = effective.colors.clone().expect("expected retained colors palette");
         assert_eq!(colors.foreground, Some(Color::Rgb(16, 17, 18)));
         assert_eq!(colors.background, Some(Color::Rgb(19, 20, 21)));
         assert_eq!(colors.cursor_bg, Some(Color::Rgb(22, 23, 24)));
@@ -3174,7 +3174,7 @@ return config
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
-        let colors = effective.colors.expect("expected retained colors palette");
+        let colors = effective.colors.clone().expect("expected retained colors palette");
         assert_eq!(colors.foreground, Some(Color::Rgb(37, 38, 39)));
         assert_eq!(colors.background, Some(Color::Rgb(40, 41, 42)));
         assert_eq!(colors.cursor_bg, Some(Color::Rgb(43, 44, 45)));
@@ -3206,7 +3206,7 @@ return config
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
-        let colors = effective.colors.expect("expected retained colors palette");
+        let colors = effective.colors.clone().expect("expected retained colors palette");
         assert_eq!(colors.foreground, Some(Color::Rgb(17, 18, 19)));
         assert_eq!(colors.background, Some(Color::Rgb(20, 21, 22)));
         assert_eq!(colors.cursor_bg, Some(Color::Rgb(23, 24, 25)));
@@ -3240,7 +3240,7 @@ return config
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
-        let colors = effective.colors.expect("expected retained colors palette");
+        let colors = effective.colors.clone().expect("expected retained colors palette");
         assert_eq!(colors.foreground, Some(Color::Rgb(32, 33, 34)));
         assert_eq!(colors.background, Some(Color::Rgb(35, 36, 37)));
         assert_eq!(colors.cursor_bg, Some(Color::Rgb(38, 39, 40)));

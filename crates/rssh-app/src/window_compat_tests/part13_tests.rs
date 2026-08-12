@@ -1013,8 +1013,7 @@
         .expect("expected WezTerm SpawnTab DomainId static field variable config");
 
         let keys = overrides
-            .key_assignments
-            .expect("expected parsed key assignments");
+            .key_assignments.clone().expect("expected parsed key assignments");
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0].keys, "CTRL|ALT+D");
         assert_eq!(format!("{:?}", keys[0].command), "SpawnTab(DomainId(7))");
@@ -1444,8 +1443,7 @@
         .expect("expected WezTerm DetachDomain DomainId static field variable config");
 
         let keys = overrides
-            .key_assignments
-            .expect("expected parsed key assignments");
+            .key_assignments.clone().expect("expected parsed key assignments");
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0].keys, "CTRL|ALT+D");
         assert_eq!(

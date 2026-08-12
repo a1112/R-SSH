@@ -14,7 +14,7 @@ fn app_consumers_use_borrowed_feed_contract() {
     let bench = include_str!("bench.rs");
     let local = include_str!("local.rs");
     let local_runtime_source = include_str!("local_terminal_runtime.rs");
-    let window = include_str!("window.rs");
+    let window = include_str!("window_parts/part09.rs");
     let shim = include_str!("terminal_runtime.rs");
 
     assert!(shim.contains("RuntimeBuffers"));
@@ -483,7 +483,7 @@ fn window_app_ctrl_click_opens_default_hyperlink_rule_url() {
 #[test]
 fn window_app_hyperlink_rules_override_defaults_and_format_captures() {
     let mut app = NativeWindowApp::new(None);
-    app.set_config_overrides(NativeConfigSnapshot {
+    app.set_config_overrides(native_config_snapshot! {
         hyperlink_rules: Some(vec![NativeHyperlinkRule {
             regex: r"\bT(\d+)\b".to_owned(),
             format: "https://tickets.example/$1".to_owned(),

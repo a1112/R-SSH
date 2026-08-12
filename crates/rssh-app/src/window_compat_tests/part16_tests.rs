@@ -1265,7 +1265,7 @@
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "SHIFT+PAGEUP".to_owned(),
                 command: WindowCommand::DisableDefaultAssignment,
@@ -1284,7 +1284,7 @@
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"aa\r\nbb\r\ncc").unwrap();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             disable_default_key_bindings: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1298,7 +1298,7 @@
     #[test]
     fn window_app_disable_default_assignment_suppresses_window_shortcut() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_assignments: Some(vec![NativeUserKeyAssignment {
                 keys: "ALT+ENTER".to_owned(),
                 command: WindowCommand::DisableDefaultAssignment,
@@ -1318,7 +1318,7 @@
     #[test]
     fn window_app_disable_default_key_bindings_suppresses_window_shortcuts() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             disable_default_key_bindings: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1418,7 +1418,7 @@
     #[test]
     fn window_app_default_window_shortcuts_honor_physical_key_map_preference() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             key_map_preference: Some(NativeKeyMapPreference::Physical),
             ..NativeConfigSnapshot::default()
         });
@@ -1466,7 +1466,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             swap_backspace_and_delete: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1517,7 +1517,7 @@
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_csi_u_key_encoding: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1578,7 +1578,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             enable_kitty_keyboard: Some(true),
             ..NativeConfigSnapshot::default()
         });
@@ -1743,7 +1743,7 @@
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             allow_win32_input_mode: Some(false),
             ..NativeConfigSnapshot::default()
         });
@@ -3012,7 +3012,7 @@
     fn window_app_applies_configured_scrollback_lines_to_runtime() {
         let mut app = NativeWindowApp::new(None);
 
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             scrollback_lines: Some(1),
             ..NativeConfigSnapshot::default()
         });
@@ -3027,7 +3027,7 @@
     #[test]
     fn window_app_applies_foreground_text_hsb_to_render_snapshot() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             foreground_text_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(1.0),
@@ -3135,7 +3135,7 @@
     #[test]
     fn window_app_maps_mouse_through_wezterm_window_content_alignment_gap() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             window_content_alignment: Some(NativeWindowContentAlignment {
                 horizontal: NativeHorizontalContentAlignment::Center,
                 vertical: NativeVerticalContentAlignment::Bottom,
@@ -3159,7 +3159,7 @@
     #[test]
     fn window_app_applies_text_background_opacity_to_non_default_backgrounds() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             text_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.5)),
             ..NativeConfigSnapshot::default()
         });
@@ -3186,7 +3186,7 @@
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(20, 6));
         app.refresh_snapshot();
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             window_padding: Some(NativeWindowPadding {
                 left: NativeWindowPaddingDimension::Pixels(8),
                 right: NativeWindowPaddingDimension::Pixels(16),
@@ -3232,7 +3232,7 @@
         app: &mut NativeWindowApp,
         inactive_pane_hsb: NativeInactivePaneHsb,
     ) {
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             inactive_pane_hsb: Some(inactive_pane_hsb),
             quick_select_remove_styling: Some(true),
             selection_bg_color: Some(PANE_OVERLAY_SEARCH_BG),
@@ -4173,7 +4173,7 @@
     #[test]
     fn window_app_applies_inactive_pane_hsb_to_split_render_snapshot() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             inactive_pane_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(1.0),
@@ -4231,7 +4231,7 @@
     #[test]
     fn window_app_renders_active_and_inactive_pane_selections_together() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             selection_bg_color: Some(Color::Rgb(100, 120, 140)),
             inactive_pane_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
@@ -4293,7 +4293,7 @@
     #[test]
     fn window_app_keeps_inactive_selection_after_unselected_inactive_pty_output() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             selection_bg_color: Some(Color::Rgb(90, 110, 130)),
             inactive_pane_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
@@ -4339,7 +4339,7 @@
     #[test]
     fn window_app_single_pane_applies_translucent_selection_once() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             selection_bg_color: Some(Color::Rgba(100, 120, 140, 128)),
             ..NativeConfigSnapshot::default()
         });
@@ -4364,7 +4364,7 @@
     #[test]
     fn window_app_applies_inactive_pane_hsb_to_indexed_and_default_colors() {
         let mut app = NativeWindowApp::new(None);
-        app.set_config_overrides(NativeConfigSnapshot {
+        app.set_config_overrides(native_config_snapshot! {
             inactive_pane_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(1.0),
@@ -4585,7 +4585,7 @@
             ..NativeResolvedPalette::default()
         };
 
-        NativeConfigView {
+        native_config_view! {
             dpi: super::DEFAULT_WINDOW_DPI,
             dpi_by_screen: BTreeMap::new(),
             tab_max_width: 16,
@@ -4722,7 +4722,7 @@
             color_scheme: None,
             color_scheme_dirs: Vec::new(),
             color_schemes: HashMap::new(),
-            resolved_palette,
+            resolved_palette: resolved_palette,
             foreground_color: super::LEGACY_TEST_FOREGROUND_COLOR,
             background_color: super::LEGACY_TEST_BACKGROUND_COLOR,
             ansi_palette: None,
@@ -5029,4 +5029,3 @@
             "first command palette row was {first_row:?}"
         );
     }
-
