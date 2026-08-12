@@ -1,3 +1,5 @@
+* text=auto eol=lf
+
 tests/fixtures/fonts/*.ttf binary
 tests/fixtures/fonts/*.md text eol=lf
 tests/fixtures/fonts/*.tsv text eol=lf
