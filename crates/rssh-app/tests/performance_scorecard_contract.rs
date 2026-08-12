@@ -79,6 +79,7 @@ fn checked_in_baseline_contains_the_approved_measurements_and_gates() {
 }
 
 #[test]
+#[cfg(target_os = "windows")]
 fn scorecard_runners_validate_the_checked_in_contract_without_running_benchmarks() {
     for script in [
         "scripts/perf/runtime-scorecard.ps1",
