@@ -115,12 +115,6 @@ pub enum NotificationEffect {
     },
 }
 
-/// Commands sent to persistence ownership.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PersistenceEffect {
-    Save,
-}
-
 /// Commands sent to process/session spawning ownership.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnEffect {
@@ -141,6 +135,6 @@ pub enum WindowEffect {
     Clipboard(ClipboardEffect),
     Uri(UriEffect),
     Notification(NotificationEffect),
-    Persistence(PersistenceEffect),
+    Persistence(crate::PersistenceEffect),
     Spawn(SpawnEffect),
 }

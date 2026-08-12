@@ -1,8 +1,8 @@
 use rssh_core::PaneId;
 
 use crate::{
-    ClipboardEffect, PaneCommand, PersistenceEffect, RuntimePortEffect, SpawnEffect, UriEffect,
-    WindowEffect, WindowPortEffect, WindowState, panes,
+    ClipboardEffect, PaneCommand, PersistenceCommand, RuntimePortEffect, SpawnEffect, UriEffect,
+    WindowEffect, WindowPortEffect, WindowState, panes, persistence,
 };
 
 /// Parsed user or automation commands accepted by the native controller.
@@ -14,7 +14,7 @@ pub enum CommandIntent {
     Pane(PaneCommand),
     SpawnWindow,
     SetTitle(String),
-    Persist,
+    Persistence(PersistenceCommand),
 }
 
 pub(crate) fn reduce(
@@ -44,8 +44,6 @@ pub(crate) fn reduce(
         CommandIntent::SetTitle(title) => {
             effects.push(WindowEffect::Window(WindowPortEffect::SetTitle(title)));
         }
-        CommandIntent::Persist => {
-            effects.push(WindowEffect::Persistence(PersistenceEffect::Save));
-        }
+        CommandIntent::Persistence(command) => persistence::reduce(state, command, effects),
     }
 }

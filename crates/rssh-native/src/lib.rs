@@ -8,6 +8,7 @@ pub mod input;
 mod intent;
 mod layout;
 pub mod panes;
+pub mod persistence;
 pub mod platform;
 mod ports;
 mod presentation;
@@ -16,8 +17,8 @@ mod state;
 pub use commands::CommandIntent;
 pub use controller::reduce;
 pub use effect::{
-    ClipboardEffect, HostEffectContext, NotificationEffect, PersistenceEffect, RendererEffect,
-    RuntimePortEffect, SpawnEffect, UriEffect, WindowEffect, WindowPortEffect,
+    ClipboardEffect, HostEffectContext, NotificationEffect, RendererEffect, RuntimePortEffect,
+    SpawnEffect, UriEffect, WindowEffect, WindowPortEffect,
 };
 pub use host::{HostError, HostTurn, PlatformEvent, RuntimeDrain, TurnBudget, WinitHost};
 pub use intent::{ConfigDiff, PlatformIntent, TimerId, TimerIntent, WindowIntent};
@@ -26,6 +27,7 @@ pub use layout::{
     PaneSplitDirection, PaneSplitSpec, build_pane_layout,
 };
 pub use panes::{PaneCommand, PaneLifecycleIntent, PaneState};
+pub use persistence::{PersistenceCommand, PersistenceEffect};
 pub use ports::{HostPorts, PortError, PortErrorKind, PortKind};
 pub use presentation::{
     CellMetrics, CursorPresentation, FrameRevision, OverlayPresentation, PaneFrameCandidate,

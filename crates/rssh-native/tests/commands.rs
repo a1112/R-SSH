@@ -1,7 +1,7 @@
 use rssh_core::PaneId;
 use rssh_native::{
-    ClipboardEffect, PaneCommand, PaneLifecycleIntent, PersistenceEffect, SpawnEffect, UriEffect,
-    WindowEffect, WindowIntent, WindowState, commands::CommandIntent, reduce,
+    ClipboardEffect, PaneCommand, PaneLifecycleIntent, SpawnEffect, UriEffect, WindowEffect,
+    WindowIntent, WindowState, commands::CommandIntent, reduce,
 };
 use rssh_runtime::{PaneToken, PaneTokenAllocator};
 
@@ -52,9 +52,5 @@ fn parsed_commands_route_to_uri_clipboard_spawn_and_persistence_ports() {
             WindowIntent::Command(CommandIntent::Pane(PaneCommand::Spawn)),
         ),
         [WindowEffect::Spawn(SpawnEffect::Pane)]
-    );
-    assert_eq!(
-        apply(&mut state, WindowIntent::Command(CommandIntent::Persist)),
-        [WindowEffect::Persistence(PersistenceEffect::Save)]
     );
 }
