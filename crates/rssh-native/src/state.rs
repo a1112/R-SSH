@@ -1,13 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::{PaneState, TimerId};
 use rssh_config::EffectiveConfig;
 use rssh_core::{PaneId, TerminalSize};
-use rssh_runtime::{
-    EffectSequenceCursor, PaneToken, RuntimeProgress, RuntimeRevision, TerminalStateSummary,
-};
-
-use crate::TimerId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LifecycleState {
@@ -44,40 +40,6 @@ pub struct ConfigState {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TimerState {
     pub epochs: HashMap<TimerId, u64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PaneState {
-    pub token: PaneToken,
-    pub revision: Option<RuntimeRevision>,
-    pub snapshot: Option<TerminalStateSummary>,
-    pub title: Option<String>,
-    pub working_directory: Option<String>,
-    pub badge_format: Option<String>,
-    pub progress: RuntimeProgress,
-    pub user_vars: HashMap<String, String>,
-    pub restarting: bool,
-    pub closing: bool,
-    pub effect_sequence: EffectSequenceCursor,
-}
-
-impl PaneState {
-    #[must_use]
-    pub fn new(token: PaneToken) -> Self {
-        Self {
-            token,
-            revision: None,
-            snapshot: None,
-            title: None,
-            working_directory: None,
-            badge_format: None,
-            progress: RuntimeProgress::None,
-            user_vars: HashMap::new(),
-            restarting: false,
-            closing: false,
-            effect_sequence: EffectSequenceCursor::default(),
-        }
-    }
 }
 
 /// Pure native state grouped by ownership domain.

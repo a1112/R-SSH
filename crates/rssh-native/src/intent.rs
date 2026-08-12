@@ -1,9 +1,9 @@
 use rssh_config::EffectiveConfig;
 use rssh_core::{PaneId, TerminalSize};
-use rssh_runtime::{PaneToken, RuntimeBatch, TerminalStateSummary};
+use rssh_runtime::{RuntimeBatch, TerminalStateSummary};
 use std::sync::Arc;
 
-use crate::layout::PaneSplitDirection;
+use crate::panes::{PaneCommand, PaneLifecycleIntent};
 
 /// Stable identifier for a controller-owned timer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -33,19 +33,9 @@ pub enum PlatformIntent {
 pub enum CommandIntent {
     OpenUri(String),
     Copy(String),
-    Paste {
-        pane: PaneId,
-        bytes: Vec<u8>,
-    },
-    SpawnPane,
-    SplitPane {
-        source: PaneId,
-        direction: PaneSplitDirection,
-    },
-    ActivatePane(PaneId),
-    ClosePane(PaneId),
+    Paste { pane: PaneId, bytes: Vec<u8> },
+    Pane(PaneCommand),
     SpawnWindow,
-    RestartPane(PaneId),
     SetTitle(String),
     Persist,
 }
@@ -75,14 +65,6 @@ pub enum TimerIntent {
     Arm { timer: TimerId, epoch: u64 },
     Fired { timer: TimerId, epoch: u64 },
     Cancel { timer: TimerId },
-}
-
-/// Pane ownership changes emitted by the runtime composition root.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PaneLifecycleIntent {
-    Opened(PaneToken),
-    Activated(PaneToken),
-    Closed(PaneToken),
 }
 
 /// Every input accepted by the deterministic native reducer.

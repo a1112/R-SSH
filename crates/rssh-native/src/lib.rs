@@ -6,6 +6,7 @@ mod host;
 pub mod input;
 mod intent;
 mod layout;
+pub mod panes;
 pub mod platform;
 mod ports;
 mod presentation;
@@ -17,14 +18,12 @@ pub use effect::{
     RuntimePortEffect, SpawnEffect, UriEffect, WindowEffect, WindowPortEffect,
 };
 pub use host::{HostError, HostTurn, PlatformEvent, RuntimeDrain, TurnBudget, WinitHost};
-pub use intent::{
-    CommandIntent, ConfigDiff, PaneLifecycleIntent, PlatformIntent, TimerId, TimerIntent,
-    WindowIntent,
-};
+pub use intent::{CommandIntent, ConfigDiff, PlatformIntent, TimerId, TimerIntent, WindowIntent};
 pub use layout::{
     PaneLayout, PaneLayoutPane, PaneLayoutSpec, PanePlacement, PaneRenderRect, PaneSeparator,
     PaneSplitDirection, PaneSplitSpec, build_pane_layout,
 };
+pub use panes::{PaneCommand, PaneLifecycleIntent, PaneState};
 pub use ports::{HostPorts, PortError, PortErrorKind, PortKind};
 pub use presentation::{
     CellMetrics, CursorPresentation, FrameRevision, OverlayPresentation, PaneFrameCandidate,
@@ -33,6 +32,5 @@ pub use presentation::{
     TabPresentation, build_presentation,
 };
 pub use state::{
-    ConfigState, LifecycleState, PaneState, PlatformState, PresentationState, TimerState,
-    WindowState,
+    ConfigState, LifecycleState, PlatformState, PresentationState, TimerState, WindowState,
 };

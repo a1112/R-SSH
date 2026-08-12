@@ -4,10 +4,9 @@ use std::sync::Arc;
 use rssh_config::EffectiveConfig;
 use rssh_core::{DamageRegion, PaneId, TerminalSize};
 use rssh_native::{
-    ClipboardEffect, CommandIntent, ConfigDiff, HostEffectContext, NotificationEffect,
-    PaneLifecycleIntent, PaneSplitDirection, PlatformIntent, RendererEffect, RuntimePortEffect,
-    SpawnEffect, TimerId, TimerIntent, UriEffect, WindowEffect, WindowIntent, WindowPortEffect,
-    WindowState, reduce,
+    ClipboardEffect, CommandIntent, ConfigDiff, HostEffectContext, NotificationEffect, PaneCommand,
+    PaneLifecycleIntent, PlatformIntent, RendererEffect, RuntimePortEffect, SpawnEffect, TimerId,
+    TimerIntent, UriEffect, WindowEffect, WindowIntent, WindowPortEffect, WindowState, reduce,
 };
 use rssh_runtime::{
     EffectSequence, MetadataChange, PaneMetadataDelta, PaneToken, PaneTokenAllocator, RuntimeBatch,
@@ -94,122 +93,6 @@ fn apply(state: &mut WindowState, intent: WindowIntent) -> Vec<WindowEffect> {
 }
 
 #[test]
-fn controller_owns_generation_safe_pane_activation_and_close_fallback() {
-    let mut state = WindowState::default();
-    let first = token(41);
-    let second = token(42);
-    let stale_second = token(42);
-
-    assert!(
-        apply(
-            &mut state,
-            WindowIntent::PaneLifecycle(PaneLifecycleIntent::Opened(first))
-        )
-        .is_empty()
-    );
-    apply(
-        &mut state,
-        WindowIntent::PaneLifecycle(PaneLifecycleIntent::Opened(second)),
-    );
-    assert_eq!(state.pane_order, [first.pane(), second.pane()]);
-    assert_eq!(state.active_pane, Some(first.pane()));
-
-    assert_eq!(
-        apply(
-            &mut state,
-            WindowIntent::PaneLifecycle(PaneLifecycleIntent::Activated(second))
-        ),
-        [WindowEffect::Window(WindowPortEffect::RequestRedraw)]
-    );
-    assert_eq!(state.active_pane, Some(second.pane()));
-    apply(&mut state, WindowIntent::RedrawRequested);
-
-    assert!(
-        apply(
-            &mut state,
-            WindowIntent::PaneLifecycle(PaneLifecycleIntent::Closed(stale_second))
-        )
-        .is_empty()
-    );
-    assert_eq!(state.active_pane, Some(second.pane()));
-    assert_eq!(state.pane_order, [first.pane(), second.pane()]);
-
-    assert_eq!(
-        apply(
-            &mut state,
-            WindowIntent::PaneLifecycle(PaneLifecycleIntent::Closed(second))
-        ),
-        [WindowEffect::Window(WindowPortEffect::RequestRedraw)]
-    );
-    assert_eq!(state.active_pane, Some(first.pane()));
-    assert_eq!(state.pane_order, [first.pane()]);
-}
-
-#[test]
-fn pane_commands_route_split_activation_and_idempotent_close_by_current_generation() {
-    let mut state = WindowState::default();
-    let first = token(51);
-    let second = token(52);
-    apply(
-        &mut state,
-        WindowIntent::PaneLifecycle(PaneLifecycleIntent::Opened(first)),
-    );
-    apply(
-        &mut state,
-        WindowIntent::PaneLifecycle(PaneLifecycleIntent::Opened(second)),
-    );
-
-    assert_eq!(
-        apply(
-            &mut state,
-            WindowIntent::Command(CommandIntent::SplitPane {
-                source: first.pane(),
-                direction: PaneSplitDirection::Right,
-            })
-        ),
-        [WindowEffect::Spawn(SpawnEffect::SplitPane {
-            source: first,
-            direction: PaneSplitDirection::Right,
-        })]
-    );
-    assert_eq!(
-        apply(
-            &mut state,
-            WindowIntent::Command(CommandIntent::ActivatePane(second.pane()))
-        ),
-        [WindowEffect::Window(WindowPortEffect::RequestRedraw)]
-    );
-    assert_eq!(state.active_pane, Some(second.pane()));
-    apply(&mut state, WindowIntent::RedrawRequested);
-
-    assert_eq!(
-        apply(
-            &mut state,
-            WindowIntent::Command(CommandIntent::ClosePane(second.pane()))
-        ),
-        [WindowEffect::Runtime(RuntimePortEffect::BeginClose {
-            pane: second,
-        })]
-    );
-    assert!(state.panes[&second.pane()].closing);
-    assert!(
-        apply(
-            &mut state,
-            WindowIntent::Command(CommandIntent::ClosePane(second.pane()))
-        )
-        .is_empty(),
-        "a pending close must not be submitted twice"
-    );
-    assert!(
-        apply(
-            &mut state,
-            WindowIntent::Command(CommandIntent::ActivatePane(PaneId::new(999)))
-        )
-        .is_empty()
-    );
-}
-
-#[test]
 fn platform_intents_update_state_and_emit_only_typed_window_renderer_effects() {
     let mut state = WindowState::default();
 
@@ -267,7 +150,10 @@ fn parsed_commands_route_to_uri_clipboard_spawn_and_persistence_ports() {
         })]
     );
     assert_eq!(
-        apply(&mut state, WindowIntent::Command(CommandIntent::SpawnPane)),
+        apply(
+            &mut state,
+            WindowIntent::Command(CommandIntent::Pane(PaneCommand::Spawn)),
+        ),
         [WindowEffect::Spawn(SpawnEffect::Pane)]
     );
     assert_eq!(
@@ -512,7 +398,7 @@ fn config_timer_redraw_restart_and_close_transitions_are_deterministic() {
     assert_eq!(
         apply(
             &mut state,
-            WindowIntent::Command(CommandIntent::RestartPane(PaneId::new(17)))
+            WindowIntent::Command(CommandIntent::Pane(PaneCommand::Restart(PaneId::new(17))))
         ),
         [WindowEffect::Runtime(RuntimePortEffect::Restart { pane })]
     );
