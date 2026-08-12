@@ -1868,6 +1868,8 @@ mod tests {
     use rssh_config::{
         ConfigEnvironmentSnapshot, ConfigSourceErrorKind as NativeConfigSourceErrorKind,
     };
+    #[cfg(unix)]
+    use std::ffi::OsString;
     use std::{
         fs,
         ops::Deref,
