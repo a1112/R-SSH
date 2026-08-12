@@ -6,7 +6,7 @@ mod temp_home;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
-pub use marker::platform_marker_command;
+pub use marker::{platform_marker_command, platform_marker_command_hold_open};
 pub use openssh::{OpenSshClientTool, OpenSshProbePolicy, probe_openssh_tools_from_environment};
 pub use process::{ChildGuard, ChildGuardError, ChildOutput};
 pub use temp_home::TempHome;

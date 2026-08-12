@@ -1,6 +1,6 @@
 use std::{fmt::Write as _, path::Path, process::Command, time::Duration};
 
-use rssh_test_support::{ChildGuard, ChildOutput, platform_marker_command};
+use rssh_test_support::{ChildGuard, ChildOutput, platform_marker_command_hold_open};
 
 const PROCESS_DEADLINE: Duration = Duration::from_secs(120);
 // Keep the framed marker below 80 columns so ConPTY does not inject a line wrap.
@@ -33,7 +33,7 @@ pub fn run_ten_frame_native_window_with_log(
     let executable = executable.as_ref();
     let scale_factor = scale_factor.into();
     let framed_marker = format!("{PTY_LINK_BEGIN}{DETERMINISTIC_PAYLOAD}{PTY_LINK_END}");
-    let marker_command = platform_marker_command(&framed_marker);
+    let marker_command = platform_marker_command_hold_open(&framed_marker);
     let mut command = Command::new(executable);
     command.args(["-n", "window", "--frames", "10", "--metrics-json"]);
     if let Some(log) = log {
