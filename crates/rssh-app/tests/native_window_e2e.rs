@@ -70,11 +70,57 @@ fn native_window_local_pane_v2_writes_visible_session_log() {
     common::assert_ten_frame_native_metrics(&v2);
 
     let v2_log = fs::read(&v2_path).expect("read V2 session log");
-    assert!(
-        String::from_utf8_lossy(&v2_log).contains("rssh-e2e|office 中 مرحبا नमस्ते שלום 😀 █"),
-        "V2 session log omitted the deterministic PTY payload"
-    );
+    assert_session_log_matches_pty_linkage(&v2.metrics, &v2_log);
     let _ = fs::remove_file(v2_path);
+}
+
+#[test]
+fn session_log_contract_compares_the_observed_pty_payload() {
+    let observed = b"rssh-e2e|office ?????????";
+    let metrics = serde_json::json!({
+        "pty_linkage_digest": digest_bytes(observed),
+    });
+    let log = [b"RSSH-LINK-BEGIN|".as_slice(), observed, b"|RSSH-LINK-END"].concat();
+
+    assert_session_log_matches_pty_linkage(&metrics, &log);
+}
+
+fn assert_session_log_matches_pty_linkage(metrics: &serde_json::Value, log: &[u8]) {
+    const BEGIN: &[u8] = b"RSSH-LINK-BEGIN|";
+    const END: &[u8] = b"|RSSH-LINK-END";
+
+    let begin = log
+        .windows(BEGIN.len())
+        .position(|window| window == BEGIN)
+        .unwrap_or_else(|| panic!("session log omitted PTY linkage start: {log:?}"));
+    let payload_start = begin + BEGIN.len();
+    let end = log[payload_start..]
+        .windows(END.len())
+        .position(|window| window == END)
+        .map_or_else(
+            || panic!("session log omitted PTY linkage end: {log:?}"),
+            |offset| payload_start + offset,
+        );
+    let observed = &log[payload_start..end];
+    let expected = metrics["pty_linkage_digest"]
+        .as_str()
+        .expect("native metrics include the observed PTY linkage digest");
+
+    assert_eq!(
+        digest_bytes(observed),
+        expected,
+        "session log did not preserve the PTY bytes delivered by the platform: {log:?}"
+    );
+}
+
+fn digest_bytes(bytes: &[u8]) -> String {
+    rssh_renderer::terminal_bytes_content_digest(bytes)
+        .into_iter()
+        .fold(String::new(), |mut encoded, byte| {
+            use std::fmt::Write as _;
+            write!(encoded, "{byte:02x}").expect("writing to String cannot fail");
+            encoded
+        })
 }
 
 #[test]

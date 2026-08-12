@@ -1,8 +1,5 @@
 use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, Condvar, Mutex},
     time::{Duration, Instant},
 };
 
@@ -55,15 +52,30 @@ fn recv_wake(hub: &mut RuntimeHub<VirtualClock>, token: rssh_runtime::PaneToken)
     );
 }
 
+fn wait_for_wakes(wakes: &(Mutex<usize>, Condvar), expected: usize) {
+    let (count, changed) = wakes;
+    let observed = count.lock().expect("wake count lock");
+    let (observed, timeout) = changed
+        .wait_timeout_while(observed, Duration::from_secs(1), |count| *count < expected)
+        .expect("wake count wait");
+    assert!(
+        !timeout.timed_out(),
+        "observed {observed} of {expected} wakes"
+    );
+    assert_eq!(*observed, expected);
+}
+
 #[test]
 fn pane_notices_invoke_the_host_waker_without_idle_polling() {
-    let wakes = Arc::new(AtomicUsize::new(0));
+    let wakes = Arc::new((Mutex::new(0_usize), Condvar::new()));
     let wake_counter = Arc::clone(&wakes);
     let clock = VirtualClock::new(Instant::now());
     let mut hub = RuntimeHub::new_with_notice_waker(
         clock,
         Arc::new(move || {
-            wake_counter.fetch_add(1, Ordering::AcqRel);
+            let (count, changed) = &*wake_counter;
+            *count.lock().expect("wake count lock") += 1;
+            changed.notify_all();
         }),
     );
     let (transport, driver) = scripted_session(
@@ -76,10 +88,10 @@ fn pane_notices_invoke_the_host_waker_without_idle_polling() {
     let token = handle.token();
 
     recv_ready(&mut hub, token);
-    assert_eq!(wakes.load(Ordering::Acquire), 1);
+    wait_for_wakes(&wakes, 1);
     driver.push_read(ReadAction::bytes(b"wake"));
     recv_wake(&mut hub, token);
-    assert_eq!(wakes.load(Ordering::Acquire), 3);
+    wait_for_wakes(&wakes, 3);
     hub.shutdown();
 }
 
