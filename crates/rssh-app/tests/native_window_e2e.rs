@@ -412,6 +412,25 @@ fn dedicated_native_runners_own_heavy_window_scenarios() {
 }
 
 #[test]
+fn windows_native_runner_retries_each_heavy_scenario_once_after_bounded_cleanup() {
+    let windows = read_repo_file("scripts/ci/run-native-window.ps1");
+
+    for contract in [
+        "$nativeScenarioAttempts = 2",
+        "$attempt -le $nativeScenarioAttempts",
+        "catch",
+        "$attempt -ge $nativeScenarioAttempts",
+        "throw",
+        "retrying after bounded cleanup",
+    ] {
+        assert!(
+            windows.contains(contract),
+            "Windows native runner is missing bounded retry contract {contract}"
+        );
+    }
+}
+
+#[test]
 fn linux_display_and_strict_script_contracts_are_explicit() {
     let ci = read_repo_file(".github/workflows/ci.yml");
     let nightly = read_repo_file(".github/workflows/nightly.yml");
