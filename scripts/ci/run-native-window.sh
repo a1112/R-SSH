@@ -95,7 +95,10 @@ run_bounded "native ten-frame E2E ($profile)" 180 \
   native_window_e2e_presents_ten_frames_from_a_real_pty -- --exact --nocapture
 
 for scenario in \
-  native_window_e2e_preserves_gpu_text_at_windows_scale_factors \
+  native_window_e2e_preserves_gpu_text_at_scale_100 \
+  native_window_e2e_preserves_gpu_text_at_scale_125 \
+  native_window_e2e_preserves_gpu_text_at_scale_150 \
+  native_window_e2e_preserves_gpu_text_at_scale_200 \
   native_window_local_pane_v2_writes_visible_session_log
 do
   run_bounded "native E2E scenario $scenario ($profile)" 300 \

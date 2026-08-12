@@ -71,7 +71,10 @@ try {
   $null = Invoke-BoundedProcess -Phase "native ten-frame E2E ($Profile)" -FilePath "cargo" -ArgumentList $testArguments -TimeoutSeconds 180
 
   foreach ($scenario in @(
-    "native_window_e2e_preserves_gpu_text_at_windows_scale_factors",
+    "native_window_e2e_preserves_gpu_text_at_scale_100",
+    "native_window_e2e_preserves_gpu_text_at_scale_125",
+    "native_window_e2e_preserves_gpu_text_at_scale_150",
+    "native_window_e2e_preserves_gpu_text_at_scale_200",
     "native_window_local_pane_v2_writes_visible_session_log"
   )) {
     $scenarioArguments = @(

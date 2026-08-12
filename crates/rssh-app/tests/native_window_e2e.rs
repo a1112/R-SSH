@@ -253,14 +253,34 @@ fn nonzero_exit_marker_command(marker: &str) -> Command {
 
 #[test]
 #[ignore = "dedicated native-window runner scenario"]
-fn native_window_e2e_preserves_gpu_text_at_windows_scale_factors() {
+fn native_window_e2e_preserves_gpu_text_at_scale_100() {
+    assert_native_window_scale(1.0);
+}
+
+#[test]
+#[ignore = "dedicated native-window runner scenario"]
+fn native_window_e2e_preserves_gpu_text_at_scale_125() {
+    assert_native_window_scale(1.25);
+}
+
+#[test]
+#[ignore = "dedicated native-window runner scenario"]
+fn native_window_e2e_preserves_gpu_text_at_scale_150() {
+    assert_native_window_scale(1.5);
+}
+
+#[test]
+#[ignore = "dedicated native-window runner scenario"]
+fn native_window_e2e_preserves_gpu_text_at_scale_200() {
+    assert_native_window_scale(2.0);
+}
+
+fn assert_native_window_scale(scale_factor: f64) {
     let _native_window = native_window_e2e_guard();
     let executable = packaged_or_cargo_app_executable();
-    for scale_factor in [1.0, 1.25, 1.5, 2.0] {
-        let probe = common::run_ten_frame_native_window_at_scale(&executable, Some(scale_factor));
-        common::assert_ten_frame_native_metrics(&probe);
-        assert_eq!(probe.metrics["runtime_api"], "v2-runtime-hub");
-    }
+    let probe = common::run_ten_frame_native_window_at_scale(&executable, Some(scale_factor));
+    common::assert_ten_frame_native_metrics(&probe);
+    assert_eq!(probe.metrics["runtime_api"], "v2-runtime-hub");
 }
 
 #[cfg(target_os = "windows")]
@@ -327,7 +347,10 @@ fn dedicated_native_runners_own_heavy_window_scenarios() {
 
     for (runner, contents) in [("Windows", windows), ("Unix", unix)] {
         for scenario in [
-            "native_window_e2e_preserves_gpu_text_at_windows_scale_factors",
+            "native_window_e2e_preserves_gpu_text_at_scale_100",
+            "native_window_e2e_preserves_gpu_text_at_scale_125",
+            "native_window_e2e_preserves_gpu_text_at_scale_150",
+            "native_window_e2e_preserves_gpu_text_at_scale_200",
             "native_window_local_pane_v2_writes_visible_session_log",
         ] {
             assert!(
