@@ -1,5 +1,6 @@
 //! Deterministic native-window state and effect contracts.
 
+pub mod accessibility;
 pub mod commands;
 mod controller;
 mod effect;
