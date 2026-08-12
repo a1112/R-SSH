@@ -21,14 +21,20 @@ use rssh_runtime::{
 };
 use rssh_terminal::Terminal;
 
-use crate::{runtime_selection::RuntimeSelection, terminal_runtime::TerminalRuntime};
+use crate::terminal_runtime::TerminalRuntime;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+type AdoptLocalSession = fn(
+    PaneRuntimeRoute,
+    PtySession,
+    TerminalSize,
+    rssh_runtime::TerminalRuntime,
+    PaneCapturePolicy,
+    Arc<dyn Fn() + Send + Sync>,
+) -> Result<SpawnedLocalPane, Box<dyn Error>>;
+
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct RuntimeComposition {
-    #[cfg(any(debug_assertions, feature = "runtime-v2-evaluation"))]
-    selection: RuntimeSelection,
-    #[cfg(all(not(debug_assertions), not(feature = "runtime-v2-evaluation")))]
-    legacy: (),
+    adopt_local_session: AdoptLocalSession,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -44,28 +50,9 @@ pub(crate) struct PaneRuntimeRoute {
 }
 
 impl RuntimeComposition {
-    pub(crate) const fn new(selection: RuntimeSelection) -> Self {
-        #[cfg(any(debug_assertions, feature = "runtime-v2-evaluation"))]
-        {
-            Self { selection }
-        }
-        #[cfg(all(not(debug_assertions), not(feature = "runtime-v2-evaluation")))]
-        {
-            let _ = selection;
-            Self { legacy: () }
-        }
-    }
-
-    #[inline]
-    pub(crate) const fn selection(self) -> RuntimeSelection {
-        #[cfg(any(debug_assertions, feature = "runtime-v2-evaluation"))]
-        {
-            self.selection
-        }
-        #[cfg(all(not(debug_assertions), not(feature = "runtime-v2-evaluation")))]
-        {
-            let () = self.legacy;
-            RuntimeSelection::Legacy
+    pub(crate) const fn new() -> Self {
+        Self {
+            adopt_local_session: WindowPaneRuntime::adopt_local_session,
         }
     }
 
@@ -78,15 +65,7 @@ impl RuntimeComposition {
         capture: PaneCapturePolicy,
         notice_waker: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<SpawnedLocalPane, Box<dyn Error>> {
-        debug_assert_eq!(self.selection(), RuntimeSelection::V2);
-        WindowPaneRuntime::adopt_local_session(
-            route,
-            session,
-            size,
-            terminal,
-            capture,
-            notice_waker,
-        )
+        (self.adopt_local_session)(route, session, size, terminal, capture, notice_waker)
     }
 }
 
@@ -166,16 +145,12 @@ pub(crate) struct ActiveWindowRuntime {
 }
 
 impl ActiveWindowRuntime {
-    pub(crate) const fn legacy(presentation: TerminalRuntime) -> Self {
+    pub(crate) const fn new(presentation: TerminalRuntime) -> Self {
         Self {
-            composition: RuntimeComposition::new(RuntimeSelection::Legacy),
+            composition: RuntimeComposition::new(),
             presentation,
             worker: None,
         }
-    }
-
-    pub(crate) const fn selection(&self) -> RuntimeSelection {
-        self.composition.selection()
     }
 
     pub(crate) const fn set_composition(&mut self, composition: RuntimeComposition) {

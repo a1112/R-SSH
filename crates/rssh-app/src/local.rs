@@ -1986,10 +1986,6 @@ mod legacy_terminal_output {
             Ok(())
         }
 
-        pub(super) fn take_mode_changes(&mut self) -> Vec<TerminalModeChange> {
-            std::mem::take(&mut self.mode_changes)
-        }
-
         fn flush_synchronized_output_buffer(&mut self, output: &mut dyn Write) -> io::Result<()> {
             if self.synchronized_output_buffer.is_empty() {
                 return Ok(());
@@ -4508,10 +4504,6 @@ fn kitty_modifier(key: KeyEvent) -> Option<u16> {
             + u16::from(num_lock) * 128,
     )
 }
-
-#[cfg(test)]
-#[path = "legacy_runtime.rs"]
-mod legacy_runtime;
 
 #[cfg(test)]
 mod tests {

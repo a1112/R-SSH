@@ -1,4 +1,4 @@
-use super::{Error, NativeWindowApp, PtyExitStatus, PtySession, report_pane_pty_cleanup};
+use super::{NativeWindowApp, PtyExitStatus, report_pane_pty_cleanup};
 
 impl NativeWindowApp {
     pub(super) fn finish_pane_runtime_after_exit(
@@ -24,49 +24,5 @@ impl NativeWindowApp {
         report_pane_pty_cleanup("inactive pane exit cleanup", &cleanup);
         self.pane_runtimes.insert(pane_id, runtime);
         cleanup.status.or(observed_status)
-    }
-
-    pub(super) fn poll_active_legacy_runtime_exit(
-        &mut self,
-    ) -> Result<Option<bool>, Box<dyn Error>> {
-        if self.runtime.worker().is_some() || self.frame_limit.is_some() {
-            return Ok(None);
-        }
-        let now = std::time::Instant::now();
-        if self
-            .metrics
-            .next_legacy_exit_poll
-            .is_some_and(|deadline| now < deadline)
-        {
-            return Ok(None);
-        }
-        self.metrics.next_legacy_exit_poll = Some(now + super::LEGACY_EXIT_POLL_INTERVAL);
-        let exit_key = (
-            self.app_shell.active_pane_id(),
-            self.active_runtime_generation,
-        );
-        if self
-            .metrics
-            .observed_pane_exit_statuses
-            .contains_key(&exit_key)
-        {
-            return Ok(None);
-        }
-        let Some(observed_status) = self
-            .session
-            .as_mut()
-            .map(PtySession::try_wait)
-            .transpose()?
-            .flatten()
-        else {
-            return Ok(None);
-        };
-        self.metrics
-            .observed_pane_exit_statuses
-            .insert(exit_key, observed_status);
-        if let Some(session) = self.session.as_mut() {
-            session.close_master();
-        }
-        Ok(None)
     }
 }

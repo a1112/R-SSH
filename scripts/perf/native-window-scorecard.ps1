@@ -10,11 +10,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Invoke-NativeWindowProbe([string]$Executable, [string]$Runtime) {
+function Invoke-NativeWindowProbe([string]$Executable) {
     $previous = $env:RSSH_TEST_APP_EXECUTABLE
-    $previousRuntime = $env:RSSH_NATIVE_RELEASE_RUNTIME
     $env:RSSH_TEST_APP_EXECUTABLE = $Executable
-    $env:RSSH_NATIVE_RELEASE_RUNTIME = $Runtime
     try {
         $previousErrorPreference = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
@@ -34,7 +32,6 @@ function Invoke-NativeWindowProbe([string]$Executable, [string]$Runtime) {
     finally {
         $ErrorActionPreference = "Stop"
         $env:RSSH_TEST_APP_EXECUTABLE = $previous
-        $env:RSSH_NATIVE_RELEASE_RUNTIME = $previousRuntime
     }
 }
 
@@ -72,20 +69,20 @@ foreach ($executable in @($BaselineExecutable, $CandidateExecutable)) {
 }
 
 for ($index = 0; $index -lt $Warmups; $index++) {
-    $null = Invoke-NativeWindowProbe $BaselineExecutable "legacy"
-    $null = Invoke-NativeWindowProbe $CandidateExecutable "v2"
+    $null = Invoke-NativeWindowProbe $BaselineExecutable
+    $null = Invoke-NativeWindowProbe $CandidateExecutable
 }
 
 $baseline = [Collections.Generic.List[object]]::new()
 $candidate = [Collections.Generic.List[object]]::new()
 for ($index = 0; $index -lt $Samples; $index++) {
     if (($index % 2) -eq 0) {
-        $baseline.Add((Invoke-NativeWindowProbe $BaselineExecutable "legacy"))
-        $candidate.Add((Invoke-NativeWindowProbe $CandidateExecutable "v2"))
+        $baseline.Add((Invoke-NativeWindowProbe $BaselineExecutable))
+        $candidate.Add((Invoke-NativeWindowProbe $CandidateExecutable))
     }
     else {
-        $candidate.Add((Invoke-NativeWindowProbe $CandidateExecutable "v2"))
-        $baseline.Add((Invoke-NativeWindowProbe $BaselineExecutable "legacy"))
+        $candidate.Add((Invoke-NativeWindowProbe $CandidateExecutable))
+        $baseline.Add((Invoke-NativeWindowProbe $BaselineExecutable))
     }
 }
 
@@ -124,13 +121,12 @@ foreach ($record in @($baseline.ToArray()) + @($candidate.ToArray())) {
 }
 foreach ($record in $baseline) {
     $reportedRuntime = $record.metrics.runtime_api
-    if ($record.requested_runtime -ne "legacy" -or `
-        ($null -ne $reportedRuntime -and $reportedRuntime -ne "legacy-window-feed")) {
+    if ($null -ne $reportedRuntime -and $reportedRuntime -ne "legacy-window-feed") {
         $violations.Add("baseline did not execute the legacy runtime")
     }
 }
 foreach ($record in $candidate) {
-    if ($record.requested_runtime -ne "v2" -or $record.metrics.runtime_api -ne "v2-runtime-hub") {
+    if ($record.metrics.runtime_api -ne "v2-runtime-hub") {
         $violations.Add("candidate did not execute runtime V2")
     }
 }

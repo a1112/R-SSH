@@ -6,17 +6,20 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     error::Error,
     fs::{self, File},
-    io::{self, Read, Write},
+    io::{self, Write},
     path::{Path, PathBuf},
     process::Command,
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicU64, AtomicUsize, Ordering},
-        mpsc,
     },
     thread,
     time::{Duration, Instant},
 };
+#[cfg(test)]
+use std::io::Read;
+#[cfg(test)]
+use std::sync::mpsc;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rssh_core::{
@@ -87,7 +90,6 @@ use crate::{
         ActiveWindowRuntime, PaneCapturePolicy, PaneRuntimeRoute, RuntimeComposition,
         RuntimeHostEvent, WindowPaneRuntime,
     },
-    runtime_selection::RuntimeSelection,
     terminal_runtime::{TerminalNotification, TerminalProgress, TerminalRuntime},
     window_gpu::WindowGpu,
 };
@@ -385,7 +387,6 @@ const DEFAULT_EXIT_BEHAVIOR: NativeExitBehavior = NativeExitBehavior::Close;
 const DEFAULT_CLEAN_EXIT_CODES: &[u32] = &[];
 const DEFAULT_EXIT_BEHAVIOR_MESSAGING: NativeExitBehaviorMessaging =
     NativeExitBehaviorMessaging::Verbose;
-const LEGACY_EXIT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const DEFAULT_SKIP_CLOSE_CONFIRMATION_FOR_PROCESSES_NAMED: &[&str] = &[
     "bash",
     "sh",
@@ -40991,6 +40992,7 @@ impl NativeWindowManager {
 }
 
 #[derive(Debug)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) enum WindowUserEvent {
     ReloadConfigurationRequested,
     ConfigFileChanged,
@@ -41136,10 +41138,12 @@ fn native_macos_window_chrome_policy(
     native_macos_window_chrome_policy_for_platform(std::env::consts::OS, decorations)
 }
 
+#[cfg(test)]
 struct QueuedPaneWriter {
     sender: mpsc::Sender<Vec<u8>>,
 }
 
+#[cfg(test)]
 struct PaneInputWorkerContext {
     event_proxy: EventLoopProxy<WindowUserEvent>,
     window_id: rssh_core::WindowId,
@@ -41147,6 +41151,7 @@ struct PaneInputWorkerContext {
     runtime_generation: u64,
 }
 
+#[cfg(test)]
 impl Write for QueuedPaneWriter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.sender
@@ -41160,6 +41165,7 @@ impl Write for QueuedPaneWriter {
     }
 }
 
+#[cfg(test)]
 fn start_pane_input_queue(
     writer: &mut Option<Box<dyn Write + Send>>,
     writer_thread: &mut Option<thread::JoinHandle<()>>,
@@ -42193,7 +42199,6 @@ struct WindowMetrics {
     bells: u64,
     last_exit_code: Option<u32>,
     observed_pane_exit_statuses: HashMap<(rssh_core::PaneId, u64), PtyExitStatus>,
-    next_legacy_exit_poll: Option<Instant>,
 }
 
 impl WindowMetrics {
@@ -42225,7 +42230,6 @@ impl WindowMetrics {
             bells: 0,
             last_exit_code: None,
             observed_pane_exit_statuses: HashMap::new(),
-            next_legacy_exit_poll: None,
         }
     }
 
@@ -42233,7 +42237,6 @@ impl WindowMetrics {
         self.spawn_started_at = Instant::now();
         self.first_pty_byte = None;
         self.first_rendered_cell = None;
-        self.next_legacy_exit_poll = None;
     }
 
     fn record_pty_chunk(&mut self, bytes: &[u8]) {
@@ -42393,7 +42396,7 @@ impl WindowMetrics {
         let (direct_report, direct_rendered_frames) =
             direct_text.map_or((None, 0), |(report, frames)| (Some(report), frames));
         WindowMetricsSnapshot {
-            runtime_api: "legacy-window-feed".to_owned(),
+            runtime_api: "v2-runtime-hub".to_owned(),
             runtime_live_threads: 0,
             last_exit_code: self.last_exit_code,
             first_pty_byte_ms: self.first_pty_byte.map(|duration| duration.as_millis()),
@@ -43393,7 +43396,7 @@ impl NativeWindowApp {
                 dpi_by_screen: BTreeMap::new(),
                 detected_window_dpi: DEFAULT_WINDOW_DPI,
                 window_dpi: DEFAULT_WINDOW_DPI,
-                runtime: ActiveWindowRuntime::legacy(runtime),
+                runtime: ActiveWindowRuntime::new(runtime),
                 snapshot,
                 window_title: DEFAULT_WINDOW_TITLE.to_owned(),
                 modern_tab_bar_brand: true,
@@ -60744,129 +60747,56 @@ impl NativeWindowApp {
 
         let (pty_size, runtime) = self.prepare_pane_spawn_runtime(pane_id)?;
         self.metrics.start_spawn_timer();
-        let mut session = PtySession::spawn(&command, pty_size)?;
-        if self.runtime.selection() == RuntimeSelection::V2 {
-            let size = runtime.terminal().grid().size();
-            let worker_runtime = runtime.inner;
-            let runtime = self.configured_pane_terminal_runtime(size);
-            let capture = PaneCapturePolicy {
-                host_stream: self.metrics.pty_linkage_enabled,
-                visible_output: self.session_log.is_some(),
+        let session = PtySession::spawn(&command, pty_size)?;
+        let size = runtime.terminal().grid().size();
+        let worker_runtime = runtime.inner;
+        let runtime = self.configured_pane_terminal_runtime(size);
+        let capture = PaneCapturePolicy {
+            host_stream: self.metrics.pty_linkage_enabled,
+            visible_output: self.session_log.is_some(),
+        };
+        let (session_process_id, session_tty_name) =
+            if let Some(v2_runtime) = self.runtime.worker_mut() {
+                let (token, process_id, tty_name) = v2_runtime.adopt_additional_local_session(
+                    pane_id,
+                    session,
+                    size,
+                    worker_runtime,
+                    capture,
+                )?;
+                v2_runtime.activate(token)?;
+                (process_id, tty_name)
+            } else {
+                let wake_proxy = event_proxy.clone();
+                let window_id = self.app_window_id;
+                let notice_waker: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+                    let _ = wake_proxy
+                        .send_event(WindowUserEvent::RuntimeWakeWindow { window_id });
+                });
+                let composition = self.runtime.composition();
+                let (v2_runtime, process_id, tty_name) = composition.adopt_local_session(
+                    PaneRuntimeRoute {
+                        window: self.app_window_id,
+                        pane: pane_id,
+                    },
+                    session,
+                    size,
+                    worker_runtime,
+                    capture,
+                    notice_waker,
+                )?;
+                self.runtime.install_worker(Some(v2_runtime));
+                (process_id, tty_name)
             };
-            let (session_process_id, session_tty_name) =
-                if let Some(v2_runtime) = self.runtime.worker_mut() {
-                    let (token, process_id, tty_name) = v2_runtime.adopt_additional_local_session(
-                        pane_id,
-                        session,
-                        size,
-                        worker_runtime,
-                        capture,
-                    )?;
-                    v2_runtime.activate(token)?;
-                    (process_id, tty_name)
-                } else {
-                    let wake_proxy = event_proxy.clone();
-                    let window_id = self.app_window_id;
-                    let notice_waker: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
-                        let _ = wake_proxy
-                            .send_event(WindowUserEvent::RuntimeWakeWindow { window_id });
-                    });
-                    let composition = self.runtime.composition();
-                    let (v2_runtime, process_id, tty_name) = composition.adopt_local_session(
-                        PaneRuntimeRoute {
-                            window: self.app_window_id,
-                            pane: pane_id,
-                        },
-                        session,
-                        size,
-                        worker_runtime,
-                        capture,
-                        notice_waker,
-                    )?;
-                    self.runtime.install_worker(Some(v2_runtime));
-                    (process_id, tty_name)
-                };
-            let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
-            return Ok(PaneRuntime {
-                runtime,
-                session: None,
-                session_process_id,
-                session_tty_name,
-                writer: None,
-                reader_thread: None,
-                writer_thread: None,
-                runtime_generation,
-                snapshot,
-                ui: PaneUiState::default(),
-            });
-        }
-        let session_process_id = session.process_id();
-        let session_tty_name = session.tty_name();
-        let mut reader = session.take_reader()?;
-        let writer = session.take_writer()?;
-        let mut queued_writer: Option<Box<dyn Write + Send>> = Some(Box::new(writer));
-        let mut writer_thread = None;
-        start_pane_input_queue(
-            &mut queued_writer,
-            &mut writer_thread,
-            Some(PaneInputWorkerContext {
-                event_proxy: event_proxy.clone(),
-                window_id: self.app_window_id,
-                pane_id,
-                runtime_generation,
-            }),
-        )?;
-        let app_window_id = self.app_window_id;
         let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
-
-        let reader_thread = thread::spawn(move || {
-            let mut buffer = [0; 8192];
-
-            loop {
-                match reader.read(&mut buffer) {
-                    Ok(0) => {
-                        let _ = event_proxy.send_event(WindowUserEvent::Exited {
-                            window_id: app_window_id,
-                            pane_id,
-                            runtime_generation,
-                        });
-                        break;
-                    }
-                    Ok(count) => {
-                        if event_proxy
-                            .send_event(WindowUserEvent::Output {
-                                window_id: app_window_id,
-                                pane_id,
-                                runtime_generation,
-                                bytes: buffer[..count].to_vec(),
-                            })
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                    Err(error) => {
-                        let _ = event_proxy.send_event(WindowUserEvent::ReadError {
-                            window_id: app_window_id,
-                            pane_id,
-                            runtime_generation,
-                            error: error.to_string(),
-                        });
-                        break;
-                    }
-                }
-            }
-        });
-
         Ok(PaneRuntime {
             runtime,
-            session: Some(session),
+            session: None,
             session_process_id,
             session_tty_name,
-            writer: queued_writer,
-            reader_thread: Some(reader_thread),
-            writer_thread,
+            writer: None,
+            reader_thread: None,
+            writer_thread: None,
             runtime_generation,
             snapshot,
             ui: PaneUiState::default(),
@@ -60993,11 +60923,7 @@ impl NativeWindowApp {
         let mut snapshot = self
             .metrics
             .snapshot_with_gpu(&gpu, text_backend, direct_text);
-        match self.runtime.selection() {
-            RuntimeSelection::Legacy => "legacy-window-feed",
-            RuntimeSelection::V2 => "v2-runtime-hub",
-        }
-        .clone_into(&mut snapshot.runtime_api);
+        "v2-runtime-hub".clone_into(&mut snapshot.runtime_api);
         snapshot.runtime_live_threads = self.runtime.worker().map_or_else(
             || {
                 usize::from(
@@ -91931,18 +91857,6 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
 
         let mut closed_windows = Vec::new();
         for (window_id, app) in &mut self.windows {
-            match app.poll_active_legacy_runtime_exit() {
-                Ok(Some(true)) => {
-                    closed_windows.push(*window_id);
-                    continue;
-                }
-                Ok(Some(false) | None) => {}
-                Err(error) => {
-                    eprintln!("legacy PTY exit poll failed: {error}");
-                    event_loop.exit();
-                    return;
-                }
-            }
             match app.poll_active_v2_runtime() {
                 Ok(Some(true)) => closed_windows.push(*window_id),
                 Ok(Some(false) | None) => {}
@@ -91994,13 +91908,6 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
                 .is_some_and(WindowPaneRuntime::needs_poll)
             {
                 let deadline = now + Duration::from_millis(1);
-                next_frame_limit_redraw = Some(
-                    next_frame_limit_redraw
-                        .map_or(deadline, |earliest: Instant| earliest.min(deadline)),
-                );
-            }
-            if app.session.is_some() {
-                let deadline = now + LEGACY_EXIT_POLL_INTERVAL;
                 next_frame_limit_redraw = Some(
                     next_frame_limit_redraw
                         .map_or(deadline, |earliest: Instant| earliest.min(deadline)),
@@ -92255,18 +92162,6 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        match self.poll_active_legacy_runtime_exit() {
-            Ok(Some(true)) => {
-                event_loop.exit();
-                return;
-            }
-            Ok(Some(false) | None) => {}
-            Err(error) => {
-                eprintln!("legacy PTY exit poll failed: {error}");
-                event_loop.exit();
-                return;
-            }
-        }
         let now = Instant::now();
         let mut regular_redraw_needed =
             self.frame_needs_full_repaint || !self.pending_frame_damage.is_empty();
@@ -92288,10 +92183,6 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
         }
         if let Some(deadline) = self.frame_limit_redraw_deadline(now) {
             event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
-        } else if self.session.is_some() {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(
-                now + LEGACY_EXIT_POLL_INTERVAL,
-            ));
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
         }
@@ -111580,7 +111471,7 @@ return config
         let json = app.metrics_json_report().unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(value["runtime_api"], "legacy-window-feed");
+        assert_eq!(value["runtime_api"], "v2-runtime-hub");
         assert_eq!(value["runtime_live_threads"], 0);
         assert_eq!(value["pty_chunks"], 1);
         assert_eq!(value["pty_bytes"], 4);

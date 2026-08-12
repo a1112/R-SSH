@@ -22,24 +22,16 @@ pub fn run_ten_frame_native_window_at_scale(
     executable: impl AsRef<Path>,
     scale_factor: impl Into<Option<f64>>,
 ) -> NativeWindowProbe {
-    run_ten_frame_native_window_with_runtime(executable, scale_factor, "v2")
+    run_ten_frame_native_window_with_log(executable, scale_factor, None)
 }
 
-pub fn run_ten_frame_native_window_with_runtime(
+pub fn run_ten_frame_native_window_with_log(
     executable: impl AsRef<Path>,
     scale_factor: impl Into<Option<f64>>,
-    runtime: &str,
-) -> NativeWindowProbe {
-    run_ten_frame_native_window_with_runtime_and_log(executable, scale_factor, runtime, None)
-}
-
-pub fn run_ten_frame_native_window_with_runtime_and_log(
-    executable: impl AsRef<Path>,
-    scale_factor: impl Into<Option<f64>>,
-    runtime: &str,
     log: Option<&Path>,
 ) -> NativeWindowProbe {
     let executable = executable.as_ref();
+    let scale_factor = scale_factor.into();
     let framed_marker = format!("{PTY_LINK_BEGIN}{DETERMINISTIC_PAYLOAD}{PTY_LINK_END}");
     let marker_command = platform_marker_command(&framed_marker);
     let mut command = Command::new(executable);
@@ -51,10 +43,9 @@ pub fn run_ten_frame_native_window_with_runtime_and_log(
         .arg("--")
         .arg(marker_command.get_program())
         .args(marker_command.get_args())
-        .env("RSSH_INTERNAL_RUNTIME", runtime)
         .env("RSSH_TEST_DIRECT_GPU_TEXT", "1")
         .env("RSSH_TEST_PTY_LINKAGE", "1");
-    if let Some(scale_factor) = scale_factor.into() {
+    if let Some(scale_factor) = scale_factor {
         command.env(
             "RSSH_TEST_WINDOW_SCALE_FACTOR",
             format!("{scale_factor:.2}"),
@@ -66,10 +57,14 @@ pub fn run_ten_frame_native_window_with_runtime_and_log(
         }
     }
 
-    let output = ChildGuard::spawn(command, PROCESS_DEADLINE)
-        .expect("launch deadline-bounded ten-frame native window")
-        .wait()
-        .expect("ten-frame native window exits within its deadline");
+    let child = ChildGuard::spawn(command, PROCESS_DEADLINE)
+        .expect("launch deadline-bounded ten-frame native window");
+    let process_id = child.process_id();
+    let output = child.wait().unwrap_or_else(|error| {
+        panic!(
+            "ten-frame native window exits within its deadline (scale_factor={scale_factor:?}, process_id={process_id:?}): {error:?}"
+        )
+    });
     let diagnostics = diagnostics(executable, &output);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(

@@ -14,7 +14,6 @@ mod local;
 mod platform;
 mod profiles;
 mod runtime_composition;
-mod runtime_selection;
 mod scp;
 mod self_test;
 mod sftp;
@@ -92,8 +91,7 @@ fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Erro
             Ok(ExitCode::SUCCESS)
         }
         AppCommand::Window(options) => {
-            let selection = runtime_selection::RuntimeSelection::from_process()?;
-            let composition = runtime_composition::RuntimeComposition::new(selection);
+            let composition = runtime_composition::RuntimeComposition::new();
             window::run(&options, composition)?;
             Ok(ExitCode::SUCCESS)
         }

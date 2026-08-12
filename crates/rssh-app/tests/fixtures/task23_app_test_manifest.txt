@@ -214,15 +214,6 @@ T23-OVERLAYS-43e29631baf0|crates/rssh-app/src/diagnostics.rs|diagnoses_required_
 T23-COMPATIBILITY-23207da1c2e4|crates/rssh-app/src/diagnostics.rs|reports_missing_console_tools_as_json|1|rssh-app|diagnostics::tests|compatibility
 T23-COMPATIBILITY-fb800d6f6b12|crates/rssh-app/src/diagnostics.rs|ensure_console_dependencies_rejects_missing_checks|1|rssh-app|diagnostics::tests|compatibility
 T23-COMPATIBILITY-e5dff5e6de3a|crates/rssh-app/src/diagnostics.rs|formats_doctor_text_checks_with_detail_or_path|1|rssh-app|diagnostics::tests|compatibility
-T23-INPUT-be21dc6208c1|crates/rssh-app/src/legacy_runtime.rs|local_runtime_matches_legacy_host_transcript_across_chunks|1|rssh-app|legacy_runtime::tests|input
-T23-INPUT-ca25c99401a1|crates/rssh-app/src/legacy_runtime.rs|local_runtime_finish_matches_legacy_sync_release_and_incomplete_discard|1|rssh-app|legacy_runtime::tests|input
-T23-INPUT-d89e9bed62d7|crates/rssh-app/src/legacy_runtime.rs|local_runtime_matches_legacy_effect_prefix_when_console_write_fails|1|rssh-app|legacy_runtime::tests|input
-T23-INPUT-dd6fbcc08f3a|crates/rssh-app/src/legacy_runtime.rs|local_runtime_matches_legacy_effect_prefix_for_each_response_failure|1|rssh-app|legacy_runtime::tests|input
-T23-INPUT-c07f2c1f413f|crates/rssh-app/src/legacy_runtime.rs|local_runtime_matches_legacy_when_clipboard_or_mode_sink_rejects_work|1|rssh-app|legacy_runtime::tests|input
-T23-INPUT-b25ca6ec9680|crates/rssh-app/src/legacy_runtime.rs|local_runtime_rejects_feed_and_finish_after_a_host_io_error|1|rssh-app|legacy_runtime::tests|input
-T23-INPUT-6a4e96e10490|crates/rssh-app/src/legacy_runtime.rs|local_runtime_matches_legacy_cross_effect_order_and_outer_flush|1|rssh-app|legacy_runtime::tests|input
-T23-INPUT-8906d6697597|crates/rssh-app/src/legacy_runtime.rs|local_runtime_keeps_console_controls_but_logs_only_visible_text|1|rssh-app|legacy_runtime::tests|input
-T23-COMPATIBILITY-f6821df13322|crates/rssh-app/src/legacy_runtime.rs|terminal_output_filter_passes_plain_output|1|rssh-app|legacy_runtime::tests|compatibility
 T23-RUNTIME-147b32058769|crates/rssh-app/src/local.rs|console_metrics_report_includes_command_timing_and_exit_status|1|rssh-app|local::tests|runtime
 T23-COMPATIBILITY-84abe7d3b0ec|crates/rssh-app/src/local.rs|console_metrics_json_report_is_machine_readable|1|rssh-app|local::tests|compatibility
 T23-INPUT-765782c46118|crates/rssh-app/src/local.rs|local_worker_timeout_transfers_to_observable_reaper|1|rssh-app|local::tests|input
@@ -488,8 +479,6 @@ T23-COMMANDS-133f6399c766|crates/rssh-app/src/profiles.rs|shows_profile_as_resol
 T23-COMMANDS-4c0e879670bc|crates/rssh-app/src/profiles.rs|shows_profile_as_json_with_resolved_command|1|rssh-app|profiles::tests|commands
 T23-PANES-c7067c8297a0|crates/rssh-app/src/runtime_composition.rs|window_runtime_owns_multiple_pane_workers_and_active_selection|1|rssh-app|runtime_composition::tests|panes
 T23-PANES-a6c01e35b3b6|crates/rssh-app/src/runtime_composition.rs|v2_worker_ownership_is_window_scoped_instead_of_pane_scoped|1|rssh-app|runtime_composition::tests|panes
-T23-INPUT-d33c8938e5ee|crates/rssh-app/src/runtime_selection.rs|selection_policy_covers_every_release_input|1|rssh-app|runtime_selection::tests|input
-T23-CONFIG-fd810afa1afc|crates/rssh-app/src/runtime_selection.rs|compiled_configuration_selects_the_expected_policy|1|rssh-app|runtime_selection::tests|config
 T23-COMMANDS-a599969262cb|crates/rssh-app/src/scp.rs|scp_command_uploads_to_direct_target_with_port|1|rssh-app|scp::tests|commands
 T23-CONFIG-7a805dd044de|crates/rssh-app/src/scp.rs|scp_command_downloads_from_config_target_with_key_and_recursive_flag|1|rssh-app|scp::tests|config
 T23-COMMANDS-4f1c347cc700|crates/rssh-app/src/scp.rs|scp_command_preserves_passthrough_options_before_transfer_operands|1|rssh-app|scp::tests|commands
