@@ -1,9 +1,9 @@
 use rssh_config::EffectiveConfig;
-use rssh_core::{PaneId, TerminalSize};
+use rssh_core::TerminalSize;
 use rssh_runtime::{RuntimeBatch, TerminalStateSummary};
 use std::sync::Arc;
 
-use crate::panes::{PaneCommand, PaneLifecycleIntent};
+use crate::{CommandIntent, panes::PaneLifecycleIntent};
 
 /// Stable identifier for a controller-owned timer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -26,18 +26,6 @@ impl TimerId {
 pub enum PlatformIntent {
     Focused(bool),
     Resized(TerminalSize),
-}
-
-/// Parsed user or automation commands accepted by the native controller.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CommandIntent {
-    OpenUri(String),
-    Copy(String),
-    Paste { pane: PaneId, bytes: Vec<u8> },
-    Pane(PaneCommand),
-    SpawnWindow,
-    SetTitle(String),
-    Persist,
 }
 
 /// Pure configuration changes relevant to the native presentation layer.

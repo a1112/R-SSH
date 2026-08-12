@@ -1,5 +1,6 @@
 //! Deterministic native-window state and effect contracts.
 
+pub mod commands;
 mod controller;
 mod effect;
 mod host;
@@ -12,13 +13,14 @@ mod ports;
 mod presentation;
 mod state;
 
+pub use commands::CommandIntent;
 pub use controller::reduce;
 pub use effect::{
     ClipboardEffect, HostEffectContext, NotificationEffect, PersistenceEffect, RendererEffect,
     RuntimePortEffect, SpawnEffect, UriEffect, WindowEffect, WindowPortEffect,
 };
 pub use host::{HostError, HostTurn, PlatformEvent, RuntimeDrain, TurnBudget, WinitHost};
-pub use intent::{CommandIntent, ConfigDiff, PlatformIntent, TimerId, TimerIntent, WindowIntent};
+pub use intent::{ConfigDiff, PlatformIntent, TimerId, TimerIntent, WindowIntent};
 pub use layout::{
     PaneLayout, PaneLayoutPane, PaneLayoutSpec, PanePlacement, PaneRenderRect, PaneSeparator,
     PaneSplitDirection, PaneSplitSpec, build_pane_layout,

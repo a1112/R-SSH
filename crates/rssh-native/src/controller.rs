@@ -3,16 +3,16 @@ use std::sync::Arc;
 use rssh_runtime::{MetadataChange, RuntimeBatch, RuntimeEffectKind, TerminalStateSummary};
 
 use crate::{
-    ClipboardEffect, CommandIntent, ConfigDiff, HostEffectContext, NotificationEffect, PaneState,
-    PlatformIntent, RendererEffect, RuntimePortEffect, SpawnEffect, TimerIntent, UriEffect,
-    WindowEffect, WindowIntent, WindowPortEffect, WindowState, panes,
+    ClipboardEffect, ConfigDiff, HostEffectContext, NotificationEffect, PaneState, PlatformIntent,
+    RendererEffect, RuntimePortEffect, TimerIntent, WindowEffect, WindowIntent, WindowPortEffect,
+    WindowState, commands, panes,
 };
 
 /// Applies one intent atomically and appends typed commands for external owners.
 pub fn reduce(state: &mut WindowState, intent: WindowIntent, effects: &mut Vec<WindowEffect>) {
     match intent {
         WindowIntent::Platform(intent) => reduce_platform(state, intent, effects),
-        WindowIntent::Command(intent) => reduce_command(state, intent, effects),
+        WindowIntent::Command(intent) => commands::reduce(state, intent, effects),
         WindowIntent::RuntimeBatch(batch) => reduce_runtime_batch(state, batch, effects),
         WindowIntent::Config(diff) => reduce_config(state, diff, effects),
         WindowIntent::Timer(intent) => reduce_timer(state, intent, effects),
@@ -41,35 +41,6 @@ fn reduce_platform(
             state.presentation.size = size;
             effects.push(WindowEffect::Renderer(RendererEffect::ResizeSurface(size)));
             request_redraw(state, effects);
-        }
-    }
-}
-
-fn reduce_command(state: &mut WindowState, intent: CommandIntent, effects: &mut Vec<WindowEffect>) {
-    match intent {
-        CommandIntent::OpenUri(uri) => effects.push(WindowEffect::Uri(UriEffect::Open(uri))),
-        CommandIntent::Copy(contents) => {
-            effects.push(WindowEffect::Clipboard(ClipboardEffect::Write {
-                context: None,
-                selection: None,
-                contents,
-            }));
-        }
-        CommandIntent::Paste { pane, bytes } => {
-            if let Some(pane) = state.panes.get(&pane) {
-                effects.push(WindowEffect::Runtime(RuntimePortEffect::SubmitInput {
-                    pane: pane.token,
-                    bytes,
-                }));
-            }
-        }
-        CommandIntent::Pane(command) => panes::reduce_command(state, command, effects),
-        CommandIntent::SpawnWindow => effects.push(WindowEffect::Spawn(SpawnEffect::Window)),
-        CommandIntent::SetTitle(title) => {
-            effects.push(WindowEffect::Window(WindowPortEffect::SetTitle(title)));
-        }
-        CommandIntent::Persist => {
-            effects.push(WindowEffect::Persistence(crate::PersistenceEffect::Save));
         }
     }
 }

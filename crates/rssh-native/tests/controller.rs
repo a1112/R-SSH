@@ -5,8 +5,8 @@ use rssh_config::EffectiveConfig;
 use rssh_core::{DamageRegion, PaneId, TerminalSize};
 use rssh_native::{
     ClipboardEffect, CommandIntent, ConfigDiff, HostEffectContext, NotificationEffect, PaneCommand,
-    PaneLifecycleIntent, PlatformIntent, RendererEffect, RuntimePortEffect, SpawnEffect, TimerId,
-    TimerIntent, UriEffect, WindowEffect, WindowIntent, WindowPortEffect, WindowState, reduce,
+    PaneLifecycleIntent, PlatformIntent, RendererEffect, RuntimePortEffect, TimerId, TimerIntent,
+    WindowEffect, WindowIntent, WindowPortEffect, WindowState, reduce,
 };
 use rssh_runtime::{
     EffectSequence, MetadataChange, PaneMetadataDelta, PaneToken, PaneTokenAllocator, RuntimeBatch,
@@ -118,50 +118,6 @@ fn platform_intents_update_state_and_emit_only_typed_window_renderer_effects() {
     );
     assert_eq!(state.presentation.size, size);
     assert!(state.presentation.redraw_pending);
-}
-
-#[test]
-fn parsed_commands_route_to_uri_clipboard_spawn_and_persistence_ports() {
-    let mut state = WindowState::default();
-    let pane = token(7);
-    apply(
-        &mut state,
-        WindowIntent::PaneLifecycle(PaneLifecycleIntent::Opened(pane)),
-    );
-
-    assert_eq!(
-        apply(
-            &mut state,
-            WindowIntent::Command(CommandIntent::OpenUri("https://example.test".to_owned()))
-        ),
-        [WindowEffect::Uri(UriEffect::Open(
-            "https://example.test".to_owned()
-        ))]
-    );
-    assert_eq!(
-        apply(
-            &mut state,
-            WindowIntent::Command(CommandIntent::Copy("copy".to_owned()))
-        ),
-        [WindowEffect::Clipboard(ClipboardEffect::Write {
-            context: None,
-            selection: None,
-            contents: "copy".to_owned(),
-        })]
-    );
-    assert_eq!(
-        apply(
-            &mut state,
-            WindowIntent::Command(CommandIntent::Pane(PaneCommand::Spawn)),
-        ),
-        [WindowEffect::Spawn(SpawnEffect::Pane)]
-    );
-    assert_eq!(
-        apply(&mut state, WindowIntent::Command(CommandIntent::Persist)),
-        [WindowEffect::Persistence(
-            rssh_native::PersistenceEffect::Save
-        )]
-    );
 }
 
 #[test]
