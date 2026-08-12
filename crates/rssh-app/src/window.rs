@@ -39924,6 +39924,36 @@ impl Default for NativeAppliedInputConfig {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone)]
 struct NativeAppliedConfig {
+    font: Option<String>,
+    font_fallbacks: Vec<String>,
+    font_attributes: NativeFontAttributes,
+    font_rules: Vec<NativeFontRule>,
+    font_size: NativeFontSize,
+    cell_width: NativeCellWidth,
+    cell_widths: Vec<NativeCellWidthOverride>,
+    line_height: NativeLineHeight,
+    font_antialias: NativeFontAntialias,
+    font_hinting: NativeFontHinting,
+    font_rasterizer: NativeFontRasterizer,
+    font_colr_rasterizer: NativeFontRasterizer,
+    font_shaper: NativeFontShaper,
+    harfbuzz_features: Vec<String>,
+    font_dirs: Vec<String>,
+    font_locator: Option<NativeFontLocator>,
+    use_cap_height_to_scale_fallback_fonts: bool,
+    ignore_svg_fonts: bool,
+    sort_fallback_fonts_by_coverage: bool,
+    search_font_dirs_for_fallback: bool,
+    custom_block_glyphs: bool,
+    anti_alias_custom_block_glyphs: bool,
+    allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow,
+    freetype_load_target: NativeFreetypeTarget,
+    freetype_render_target: NativeFreetypeTarget,
+    freetype_load_flags: Option<NativeFreetypeLoadFlags>,
+    freetype_interpreter_version: Option<u32>,
+    freetype_pcf_long_family_names: bool,
+    display_pixel_geometry: NativeDisplayPixelGeometry,
+    adjust_window_size_when_changing_font_size: bool,
     default_prog: Option<Vec<String>>,
     default_gui_startup_args: Vec<String>,
     default_domain: String,
@@ -39969,6 +39999,39 @@ struct NativeAppliedConfig {
 impl Default for NativeAppliedConfig {
     fn default() -> Self {
         Self {
+            font: None,
+            font_fallbacks: Vec::new(),
+            font_attributes: NativeFontAttributes::default(),
+            font_rules: Vec::new(),
+            font_size: MODERN_DEFAULT_FONT_SIZE,
+            cell_width: DEFAULT_CELL_WIDTH,
+            cell_widths: Vec::new(),
+            line_height: DEFAULT_LINE_HEIGHT,
+            font_antialias: DEFAULT_FONT_ANTIALIAS,
+            font_hinting: DEFAULT_FONT_HINTING,
+            font_rasterizer: DEFAULT_FONT_RASTERIZER,
+            font_colr_rasterizer: DEFAULT_FONT_COLR_RASTERIZER,
+            font_shaper: DEFAULT_FONT_SHAPER,
+            harfbuzz_features: Vec::new(),
+            font_dirs: Vec::new(),
+            font_locator: DEFAULT_FONT_LOCATOR,
+            use_cap_height_to_scale_fallback_fonts:
+                DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
+            ignore_svg_fonts: DEFAULT_IGNORE_SVG_FONTS,
+            sort_fallback_fonts_by_coverage: DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE,
+            search_font_dirs_for_fallback: DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK,
+            custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
+            anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
+            allow_square_glyphs_to_overflow_width:
+                DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH,
+            freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
+            freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
+            freetype_load_flags: None,
+            freetype_interpreter_version: None,
+            freetype_pcf_long_family_names: DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
+            display_pixel_geometry: DEFAULT_DISPLAY_PIXEL_GEOMETRY,
+            adjust_window_size_when_changing_font_size:
+                DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
             default_prog: None,
             default_gui_startup_args: default_gui_startup_args(),
             default_domain: DEFAULT_DOMAIN_NAME.to_owned(),
@@ -40044,37 +40107,7 @@ struct NativeWindowApp {
     window_level: NativeWindowLevel,
     full_screen: bool,
     window_maximized: bool,
-    font: Option<String>,
-    font_fallbacks: Vec<String>,
-    font_attributes: NativeFontAttributes,
-    font_rules: Vec<NativeFontRule>,
-    font_size: NativeFontSize,
-    cell_width: NativeCellWidth,
-    cell_widths: Vec<NativeCellWidthOverride>,
-    line_height: NativeLineHeight,
-    font_antialias: NativeFontAntialias,
-    font_hinting: NativeFontHinting,
-    font_rasterizer: NativeFontRasterizer,
-    font_colr_rasterizer: NativeFontRasterizer,
-    font_shaper: NativeFontShaper,
-    harfbuzz_features: Vec<String>,
-    font_dirs: Vec<String>,
-    font_locator: Option<NativeFontLocator>,
-    use_cap_height_to_scale_fallback_fonts: bool,
-    ignore_svg_fonts: bool,
-    sort_fallback_fonts_by_coverage: bool,
-    search_font_dirs_for_fallback: bool,
-    custom_block_glyphs: bool,
-    anti_alias_custom_block_glyphs: bool,
-    allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow,
-    freetype_load_target: NativeFreetypeTarget,
-    freetype_render_target: NativeFreetypeTarget,
-    freetype_load_flags: Option<NativeFreetypeLoadFlags>,
-    freetype_interpreter_version: Option<u32>,
-    freetype_pcf_long_family_names: bool,
-    display_pixel_geometry: NativeDisplayPixelGeometry,
     font_size_scale: f64,
-    adjust_window_size_when_changing_font_size: bool,
     debug_overlay_active: bool,
     debug_key_event_logs: Vec<String>,
     unknown_escape_sequence_warnings: Vec<String>,
@@ -43503,40 +43536,7 @@ impl NativeWindowApp {
                 window_level: NativeWindowLevel::Normal,
                 full_screen: false,
                 window_maximized: false,
-                font: None,
-                font_fallbacks: Vec::new(),
-                font_attributes: NativeFontAttributes::default(),
-                font_rules: Vec::new(),
-                font_size: MODERN_DEFAULT_FONT_SIZE,
-                cell_width: DEFAULT_CELL_WIDTH,
-                cell_widths: Vec::new(),
-                line_height: DEFAULT_LINE_HEIGHT,
-                font_antialias: DEFAULT_FONT_ANTIALIAS,
-                font_hinting: DEFAULT_FONT_HINTING,
-                font_rasterizer: DEFAULT_FONT_RASTERIZER,
-                font_colr_rasterizer: DEFAULT_FONT_COLR_RASTERIZER,
-                font_shaper: DEFAULT_FONT_SHAPER,
-                harfbuzz_features: Vec::new(),
-                font_dirs: Vec::new(),
-                font_locator: DEFAULT_FONT_LOCATOR,
-                use_cap_height_to_scale_fallback_fonts:
-                    DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
-                ignore_svg_fonts: DEFAULT_IGNORE_SVG_FONTS,
-                sort_fallback_fonts_by_coverage: DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE,
-                search_font_dirs_for_fallback: DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK,
-                custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
-                anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
-                allow_square_glyphs_to_overflow_width:
-                    DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH,
-                freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
-                freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
-                freetype_load_flags: None,
-                freetype_interpreter_version: None,
-                freetype_pcf_long_family_names: DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
-                display_pixel_geometry: DEFAULT_DISPLAY_PIXEL_GEOMETRY,
                 font_size_scale: DEFAULT_FONT_SIZE_SCALE,
-                adjust_window_size_when_changing_font_size:
-                    DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
                 debug_overlay_active: false,
                 debug_key_event_logs: Vec::new(),
                 unknown_escape_sequence_warnings: Vec::new(),
@@ -44825,12 +44825,6 @@ impl NativeWindowApp {
         detached_app.integrated_title_button_color = self.integrated_title_button_color;
         detached_app.integrated_title_button_style = self.integrated_title_button_style;
         detached_app.inactive_pane_hsb = self.inactive_pane_hsb;
-        detached_app.use_cap_height_to_scale_fallback_fonts =
-            self.use_cap_height_to_scale_fallback_fonts;
-        detached_app.font_colr_rasterizer = self.font_colr_rasterizer;
-        detached_app.ignore_svg_fonts = self.ignore_svg_fonts;
-        detached_app.sort_fallback_fonts_by_coverage = self.sort_fallback_fonts_by_coverage;
-        detached_app.search_font_dirs_for_fallback = self.search_font_dirs_for_fallback;
         detached_app.command_palette_rows = self.command_palette_rows;
         detached_app
             .command_palette_font
@@ -44937,10 +44931,7 @@ impl NativeWindowApp {
         detached_app.notification_handling = self.notification_handling;
         detached_app.max_fps = self.max_fps;
         detached_app.animation_fps = self.animation_fps;
-        detached_app.cell_widths.clone_from(&self.cell_widths);
         detached_app.leader_active_since = None;
-        detached_app.adjust_window_size_when_changing_font_size =
-            self.adjust_window_size_when_changing_font_size;
         detached_app.cursor_blink_ease_in = self.cursor_blink_ease_in;
         detached_app.cursor_blink_ease_out = self.cursor_blink_ease_out;
         detached_app.apply_text_blink_overrides(
@@ -44994,35 +44985,6 @@ impl NativeWindowApp {
         self.dpi_by_screen.clone_from(&source.dpi_by_screen);
         self.detected_window_dpi = source.detected_window_dpi;
         self.apply_effective_window_dpi();
-        self.font.clone_from(&source.font);
-        self.font_fallbacks.clone_from(&source.font_fallbacks);
-        self.font_attributes.clone_from(&source.font_attributes);
-        self.font_rules.clone_from(&source.font_rules);
-        self.font_size = source.font_size;
-        self.cell_width = source.cell_width;
-        self.cell_widths.clone_from(&source.cell_widths);
-        self.line_height = source.line_height;
-        self.font_antialias = source.font_antialias;
-        self.font_hinting = source.font_hinting;
-        self.font_rasterizer = source.font_rasterizer;
-        self.font_colr_rasterizer = source.font_colr_rasterizer;
-        self.font_shaper = source.font_shaper;
-        self.harfbuzz_features.clone_from(&source.harfbuzz_features);
-        self.font_dirs.clone_from(&source.font_dirs);
-        self.font_locator = source.font_locator;
-        self.use_cap_height_to_scale_fallback_fonts = source.use_cap_height_to_scale_fallback_fonts;
-        self.ignore_svg_fonts = source.ignore_svg_fonts;
-        self.sort_fallback_fonts_by_coverage = source.sort_fallback_fonts_by_coverage;
-        self.search_font_dirs_for_fallback = source.search_font_dirs_for_fallback;
-        self.custom_block_glyphs = source.custom_block_glyphs;
-        self.anti_alias_custom_block_glyphs = source.anti_alias_custom_block_glyphs;
-        self.allow_square_glyphs_to_overflow_width = source.allow_square_glyphs_to_overflow_width;
-        self.freetype_load_target = source.freetype_load_target;
-        self.freetype_render_target = source.freetype_render_target;
-        self.freetype_load_flags = source.freetype_load_flags;
-        self.freetype_interpreter_version = source.freetype_interpreter_version;
-        self.freetype_pcf_long_family_names = source.freetype_pcf_long_family_names;
-        self.display_pixel_geometry = source.display_pixel_geometry;
         self.initial_cols = source.initial_cols;
         self.initial_rows = source.initial_rows;
         self.foreground_text_hsb = source.foreground_text_hsb;
@@ -45093,7 +45055,6 @@ impl NativeWindowApp {
         self.line_to_ele_shape_cache_size = source.line_to_ele_shape_cache_size;
         self.glyph_cache_image_cache_size = source.glyph_cache_image_cache_size;
         self.last_status_update_at = None;
-        self.use_cap_height_to_scale_fallback_fonts = source.use_cap_height_to_scale_fallback_fonts;
         self.command_palette_rows = source.command_palette_rows;
         self.command_palette_font
             .clone_from(&source.command_palette_font);
@@ -45207,8 +45168,6 @@ impl NativeWindowApp {
         self.dead_key_active = false;
         self.dead_key_text = None;
         self.leader_active_since = None;
-        self.adjust_window_size_when_changing_font_size =
-            source.adjust_window_size_when_changing_font_size;
         self.cursor_blink_rate = source.cursor_blink_rate;
         self.cursor_blink_ease_in = source.cursor_blink_ease_in;
         self.cursor_blink_ease_out = source.cursor_blink_ease_out;

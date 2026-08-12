@@ -86,3 +86,25 @@ fn input_terminal_and_tab_values_share_the_applied_config_snapshot() {
     assert!(!app.scroll_to_bottom_on_input);
     assert!(!app.enable_tab_bar);
 }
+
+#[test]
+fn font_values_live_in_the_shared_applied_config_snapshot() {
+    let mut app = NativeWindowApp::new(Some(0));
+    let before = Arc::clone(&app.applied_config);
+    let font_size = super::NativeFontSize::from_millipoints(24_000);
+
+    app.set_config_overrides(NativeConfigSnapshot {
+        font: Some("Cascadia Mono".to_owned()),
+        font_size: Some(font_size),
+        adjust_window_size_when_changing_font_size: Some(false),
+        ..NativeConfigSnapshot::default()
+    });
+
+    assert!(!Arc::ptr_eq(&before, &app.applied_config));
+    assert_eq!(app.applied_config.font.as_deref(), Some("Cascadia Mono"));
+    assert_eq!(app.applied_config.font_size, font_size);
+    assert!(!app
+        .applied_config
+        .adjust_window_size_when_changing_font_size);
+    assert_eq!(app.font_size, font_size);
+}
