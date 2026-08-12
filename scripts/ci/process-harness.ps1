@@ -654,7 +654,11 @@ function Assert-BoundedProcessHarness {
       Phase = "quoted argv round-trip"
       FilePath = "powershell.exe"
       ArgumentList = @("-NoProfile", "-NonInteractive", "-File", $echoScriptPath) + $roundTripArguments
-      TimeoutSeconds = 10
+      # Fresh hosted Windows images can delay the first PowerShell child while
+      # Defender and the profile cache initialize. This remains a bounded
+      # startup self-test; it only avoids treating that cold-start jitter as a
+      # command-line quoting failure.
+      TimeoutSeconds = 30
     }
     $roundTrip = Invoke-BoundedProcess @roundTripParameters
   } finally {

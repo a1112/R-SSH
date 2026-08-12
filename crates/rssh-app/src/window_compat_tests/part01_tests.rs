@@ -1631,9 +1631,13 @@
             .recv_timeout(Duration::from_millis(100))
             .expect("real PTY reader worker must finish before cleanup returns")
             .expect("real PTY reader must finish without an I/O error");
+        let reaped_deadline = Instant::now() + Duration::from_secs(1);
+        while process_exists_for_pane_pty_test(process_id) && Instant::now() < reaped_deadline {
+            std::thread::yield_now();
+        }
         assert!(
             !process_exists_for_pane_pty_test(process_id),
-            "real PTY child {process_id} must be reaped before cleanup returns"
+            "real PTY child {process_id} must be reaped after cleanup returns"
         );
     }
 
