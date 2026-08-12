@@ -19,6 +19,40 @@ const QUICK_EXIT_CLEANUP_BUDGET: Duration = Duration::from_secs(2);
 const QUICK_EXIT_P99_BUDGET: Duration = Duration::from_secs(5);
 
 #[test]
+fn retired_runtime_selector_is_ignored_and_does_not_change_public_cli() {
+    let output = Command::new(env!("CARGO_BIN_EXE_rssh-app"))
+        .arg("help")
+        .output()
+        .expect("run help");
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stdout).expect("help is UTF-8");
+    assert!(!help.contains("RSSH_INTERNAL_RUNTIME"));
+    assert!(!help.contains("--runtime"));
+
+    for runtime in [
+        None,
+        Some("legacy"),
+        Some("v2"),
+        Some("auto"),
+        Some("unknown"),
+    ] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_rssh-app"));
+        command
+            .args(["-n", "window", "--state-json"])
+            .env_remove("RSSH_INTERNAL_RUNTIME");
+        if let Some(runtime) = runtime {
+            command.env("RSSH_INTERNAL_RUNTIME", runtime);
+        }
+        let output = command.output().expect("run selector state report");
+        assert!(
+            output.status.success(),
+            "retired selector value {runtime:?} still affected startup: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
 fn local_pty_output_feeds_terminal_grid() {
     let marker = "rssh-terminal-grid-smoke";
     let output = PtySession::capture_output(

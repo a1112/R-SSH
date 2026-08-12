@@ -26,9 +26,12 @@ use rssh_core::{
     SessionId, TerminalSize,
     session::{SessionLifecycle, SessionState},
 };
-use rssh_pty::{
-    PtyBackend, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus, PtySession, PtySize,
+use rssh_pty::{PtyBackend, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus, PtySize};
+use rssh_runtime::{
+    LocalPtyControl, LocalPtyTransport, RuntimeBuffers, RuntimeDelta, RuntimeEffectRef,
+    SessionTransport, TerminalRuntime as SharedTerminalRuntime,
 };
+#[cfg(test)]
 use rssh_terminal::{Cell, Color, CursorShape, Terminal, UnderlineStyle, VerticalAlign};
 use serde::Serialize;
 
@@ -39,11 +42,16 @@ use crate::{
     terminal_modes::{
         KITTY_KEYBOARD_ALTERNATE_KEYS, KITTY_KEYBOARD_ASSOCIATED_TEXT, KITTY_KEYBOARD_DISAMBIGUATE,
         KITTY_KEYBOARD_REPORT_ALL, KITTY_KEYBOARD_REPORT_EVENTS, MouseInputMode, MouseProtocolMode,
-        MouseReportingMode, TerminalModeChange, TerminalModeTracker,
+        MouseReportingMode, TerminalModeChange, mouse_input_mode_allows,
     },
+    visible_output::TerminalVisibleOutputFilter,
+};
+#[cfg(test)]
+use crate::{
+    terminal_modes::TerminalModeTracker,
     terminal_queries::{
         ClipboardCommand, FixedQuery, OscColorKind as SharedOscColorKind,
-        OscColorRequest as SharedOscColorRequest, ScannedSegment, SemanticControl,
+        OscColorRequest as SharedOscColorRequest, ScannedSegmentRef, SemanticControl,
         StringTerminator, TerminalQueryScanner, WindowReportRequest,
         XtSmGraphicsRequest as SharedXtSmGraphicsRequest,
     },
@@ -51,7 +59,12 @@ use crate::{
         DcsTerminator, DecrqssKind as SharedDecrqssKind, DecrqssRequest as SharedDecrqssRequest,
         MAX_XTGETTCAP_RESPONSE_BYTES, XtGetTcapRequest as SharedXtGetTcapRequest,
     },
-    visible_output::TerminalVisibleOutputFilter,
+};
+
+#[path = "local_terminal_runtime.rs"]
+mod local_terminal_runtime;
+use local_terminal_runtime::{
+    LocalTerminalRuntime, SessionLogWriter, local_control_event_from_mode_change,
 };
 
 const LOCAL_CONSOLE_SESSION_ID: SessionId = SessionId::new(1);
@@ -505,7 +518,7 @@ fn join_local_worker_before_with_reaper(
 
 #[allow(clippy::too_many_arguments)]
 fn shutdown_local_pty(
-    mut session: PtySession,
+    mut session: LocalPtyControl,
     reader_thread: thread::JoinHandle<()>,
     writer_thread: thread::JoinHandle<()>,
     input_thread: Option<thread::JoinHandle<()>>,
@@ -530,9 +543,7 @@ fn shutdown_local_pty(
     if !child_reaped {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if let Err(error) = session.terminate(remaining) {
-            errors.push(io::Error::other(format!(
-                "local PTY child cleanup failed: {error}"
-            )));
+            errors.push(error);
         }
     }
 
@@ -679,11 +690,13 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     let size = resolve_local_size(options.size);
     let mut lifecycle = SessionLifecycle::new(LOCAL_CONSOLE_SESSION_ID);
     lifecycle.start_connecting()?;
-    let mut session = PtySession::spawn(&options.command, size)?;
+    let transport = LocalPtyTransport::spawn(&options.command, terminal_size_from_pty(size))?;
+    let parts = transport.split();
+    let mut session = parts.control;
     trace.event(format_args!("spawned child pid={:?}", session.process_id()));
     lifecycle.mark_connected()?;
-    let mut reader = session.take_reader()?;
-    let mut writer = session.take_writer()?;
+    let mut reader = parts.reader;
+    let mut writer = parts.writer;
     let mut log_file = match &options.log {
         Some(path) => Some(File::create(path)?),
         None => None,
@@ -1411,14 +1424,32 @@ fn copy_pty_output(
     let mut stdout = io::stdout().lock();
     let mut output = SessionLogWriter::new(&mut stdout, log, metrics.clone());
     let mut buffer = [0; 8192];
-    let mut output_filter = TerminalOutputFilter::with_shared_size(output_state.terminal_size);
+    let mut terminal_runtime = LocalTerminalRuntime::new(
+        output_state.terminal_size,
+        output_state.terminal_name,
+        osc52_policy,
+    );
     let mut first_output_seen = false;
     let mut trace_marker = LocalTraceMarker::from_environment();
-    output_filter.set_terminal_name(output_state.terminal_name);
     loop {
         match reader.read(&mut buffer) {
             Ok(0) => {
-                output_filter.flush(&mut output)?;
+                terminal_runtime.finish(
+                    &mut output,
+                    |response| {
+                        trace.event(format_args!("queued terminal response {response:?}"));
+                        pty_input_sender.send(response.to_vec()).map_err(|_| {
+                            io::Error::new(io::ErrorKind::BrokenPipe, "PTY input closed")
+                        })
+                    },
+                    write_local_clipboard_text,
+                    read_local_clipboard_text,
+                    |change| {
+                        if let Some(event) = local_control_event_from_mode_change(change) {
+                            let _ = control_sender.send(event);
+                        }
+                    },
+                )?;
                 output.flush()?;
                 return Ok(());
             }
@@ -1434,7 +1465,7 @@ fn copy_pty_output(
                     trace.event(format_args!("trace marker observed"));
                 }
                 metrics.add_pty_output(count as u64);
-                output_filter.write_with_clipboard(
+                terminal_runtime.write_with_clipboard(
                     &buffer[..count],
                     &mut output,
                     |response| {
@@ -1445,88 +1476,17 @@ fn copy_pty_output(
                     },
                     write_local_clipboard_text,
                     read_local_clipboard_text,
-                    osc52_policy,
+                    |change| {
+                        if let Some(event) = local_control_event_from_mode_change(change) {
+                            let _ = control_sender.send(event);
+                        }
+                    },
                 )?;
-                for change in output_filter.take_mode_changes() {
-                    let Some(event) = (match change {
-                        TerminalModeChange::ApplicationCursorKeys(enabled) => {
-                            Some(LocalControlEvent::SetApplicationCursorKeys(enabled))
-                        }
-                        TerminalModeChange::ApplicationKeypad(enabled) => {
-                            Some(LocalControlEvent::SetApplicationKeypad(enabled))
-                        }
-                        TerminalModeChange::BracketedPaste(enabled) => {
-                            Some(LocalControlEvent::SetBracketedPaste(enabled))
-                        }
-                        TerminalModeChange::Mouse(mode) => {
-                            Some(LocalControlEvent::SetMouseReporting(mode))
-                        }
-                        TerminalModeChange::Focus(enabled) => {
-                            Some(LocalControlEvent::SetFocusReporting(enabled))
-                        }
-                        TerminalModeChange::KittyKeyboardFlags(flags) => {
-                            Some(LocalControlEvent::SetKittyKeyboardFlags(flags))
-                        }
-                        TerminalModeChange::ModifyOtherKeys(mode) => {
-                            Some(LocalControlEvent::SetModifyOtherKeys(mode))
-                        }
-                        TerminalModeChange::Win32InputMode(enabled) => {
-                            Some(LocalControlEvent::SetWin32InputMode(enabled))
-                        }
-                        TerminalModeChange::SynchronizedOutput(_) => None,
-                    }) else {
-                        continue;
-                    };
-                    let _ = control_sender.send(event);
-                }
                 output.flush()?;
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(error),
         }
-    }
-}
-
-struct SessionLogWriter<'screen, 'log> {
-    screen: &'screen mut dyn Write,
-    log: Option<&'log mut dyn Write>,
-    log_filter: TerminalVisibleOutputFilter,
-    metrics: LocalMetricsCounters,
-}
-
-impl<'screen, 'log> SessionLogWriter<'screen, 'log> {
-    fn new(
-        screen: &'screen mut dyn Write,
-        log: Option<&'log mut dyn Write>,
-        metrics: LocalMetricsCounters,
-    ) -> Self {
-        Self {
-            screen,
-            log,
-            log_filter: TerminalVisibleOutputFilter::default(),
-            metrics,
-        }
-    }
-}
-
-impl Write for SessionLogWriter<'_, '_> {
-    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        let count = self.screen.write(buffer)?;
-        if count > 0 {
-            self.metrics.add_terminal_output(count as u64);
-            if let Some(log) = self.log.as_mut() {
-                log.write_all(&self.log_filter.process(&buffer[..count]))?;
-            }
-        }
-        Ok(count)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.screen.flush()?;
-        if let Some(log) = self.log.as_mut() {
-            log.flush()?;
-        }
-        Ok(())
     }
 }
 
@@ -1560,7 +1520,7 @@ struct LocalInputLoopContext<'a> {
 }
 
 fn run_input_loop(
-    session: &mut PtySession,
+    session: &mut LocalPtyControl,
     reader_done_receiver: &mpsc::Receiver<io::Result<()>>,
     writer_done_receiver: &mpsc::Receiver<io::Result<()>>,
     control_receiver: &mpsc::Receiver<LocalControlEvent>,
@@ -1596,7 +1556,7 @@ fn run_input_loop(
         }
 
         if exited_status.is_none() {
-            match session.try_wait()? {
+            match session.try_wait_pty()? {
                 Some(status) => {
                     trace.event(format_args!("child reaped status={status:?}"));
                     exited_status = Some(status);
@@ -1638,14 +1598,14 @@ fn run_input_loop(
 
 fn apply_local_control_event(
     control_event: LocalControlEvent,
-    session: &mut PtySession,
+    session: &mut LocalPtyControl,
     raw_mode: &mut RawMode,
     runtime_state: &LocalRuntimeState,
     metrics: &LocalMetricsCounters,
 ) -> Result<(), Box<dyn Error>> {
     match control_event {
         LocalControlEvent::Resize(size) => {
-            session.resize(size)?;
+            session.resize_pty(size)?;
             runtime_state.terminal_size.set(size);
             metrics.add_resize_event();
         }
@@ -1689,455 +1649,6 @@ fn apply_local_control_event(
     Ok(())
 }
 
-struct TerminalOutputFilter {
-    query_scanner: TerminalQueryScanner,
-    synchronized_output_buffer: Vec<u8>,
-    size: SharedTerminalSize,
-    mirror: Terminal,
-    mirror_size: PtySize,
-    mode_tracker: TerminalModeTracker,
-    mode_changes: Vec<TerminalModeChange>,
-    color_state: TerminalColorState,
-    terminal_name: String,
-}
-
-impl TerminalOutputFilter {
-    const CELL_HEIGHT_PIXELS: u16 = 16;
-    const CELL_WIDTH_PIXELS: u16 = 8;
-    const PRIMARY_DEVICE_ATTRIBUTES: &'static [u8] = b"\x1b[?65;4;6;18;22;52c";
-    const SECONDARY_DEVICE_ATTRIBUTES: &'static [u8] = b"\x1b[>1;277;0c";
-    const TERTIARY_DEVICE_ATTRIBUTES: &'static [u8] = b"\x1bP!|00000000\x1b\\";
-    const TERMINAL_PARAMETERS_0: &'static [u8] = b"\x1b[2;1;1;128;128;1;0x";
-    const TERMINAL_PARAMETERS_1: &'static [u8] = b"\x1b[3;1;1;128;128;1;0x";
-
-    #[cfg(test)]
-    fn new(size: PtySize) -> Self {
-        Self::with_shared_size(SharedTerminalSize::new(size))
-    }
-
-    fn with_shared_size(size: SharedTerminalSize) -> Self {
-        let mirror_size = size.snapshot();
-        Self {
-            query_scanner: TerminalQueryScanner::new(),
-            synchronized_output_buffer: Vec::new(),
-            size,
-            mirror: Terminal::new(terminal_size_from_pty(mirror_size)),
-            mirror_size,
-            mode_tracker: TerminalModeTracker::default(),
-            mode_changes: Vec::new(),
-            color_state: TerminalColorState::default(),
-            terminal_name: DEFAULT_TERMINAL_NAME.to_owned(),
-        }
-    }
-
-    fn set_terminal_name(&mut self, terminal_name: impl Into<String>) {
-        self.terminal_name = terminal_name.into();
-    }
-
-    #[cfg(test)]
-    fn write(
-        &mut self,
-        bytes: &[u8],
-        output: &mut dyn Write,
-        respond: impl FnMut(&[u8]) -> io::Result<()>,
-    ) -> io::Result<()> {
-        self.write_with_clipboard(bytes, output, respond, |_| false, || None, Osc52Policy::Off)
-    }
-
-    fn write_with_clipboard(
-        &mut self,
-        bytes: &[u8],
-        output: &mut dyn Write,
-        mut respond: impl FnMut(&[u8]) -> io::Result<()>,
-        mut write_clipboard: impl FnMut(&str) -> bool,
-        mut read_clipboard: impl FnMut() -> Option<String>,
-        osc52_policy: Osc52Policy,
-    ) -> io::Result<()> {
-        for segment in self.query_scanner.process(bytes) {
-            match segment {
-                ScannedSegment::Bytes(visible) => {
-                    self.write_visible_bytes_and_update_state(&visible, output)?;
-                }
-                ScannedSegment::Control {
-                    bytes: sequence,
-                    semantic,
-                    ..
-                } => {
-                    let response = match &semantic {
-                        SemanticControl::Fixed(query) => Some(Self::fixed_response(*query)),
-                        SemanticControl::WindowReport(query) => Self::window_response(*query),
-                        SemanticControl::PrivateModeStatus(mode) => {
-                            Some(TerminalResponse::PrivateModeStatus(*mode))
-                        }
-                        SemanticControl::AnsiModeStatus(mode) => {
-                            Some(TerminalResponse::AnsiModeStatus(*mode))
-                        }
-                        SemanticControl::OscColor(query) => Some(TerminalResponse::OscColor(
-                            Self::osc_color_response(query.clone()),
-                        )),
-                        SemanticControl::ItermReportCellSize => {
-                            Some(TerminalResponse::ItermReportCellSize)
-                        }
-                        SemanticControl::Decrqss(request) => {
-                            Some(TerminalResponse::Decrqss(Self::decrqss_response(*request)))
-                        }
-                        SemanticControl::XtGetTcap(request) => Some(TerminalResponse::XtGetTcap(
-                            self.xtgettcap_response(request),
-                        )),
-                        SemanticControl::XtSmGraphics(request) => Some(
-                            TerminalResponse::XtSmGraphics(Self::xtsmgraphics_request(*request)),
-                        ),
-                        SemanticControl::KittyKeyboardFlags => {
-                            Some(TerminalResponse::KittyKeyboardFlags)
-                        }
-                        SemanticControl::KeyModifierOptionsQuery(resource) => {
-                            Some(TerminalResponse::KeyModifierOptions(*resource))
-                        }
-                        SemanticControl::Osc52(ClipboardCommand::Write(text)) => {
-                            Some(TerminalResponse::Osc52Write(text.clone()))
-                        }
-                        SemanticControl::Osc52(ClipboardCommand::Query(selection)) => {
-                            Some(TerminalResponse::Osc52Query(selection.clone()))
-                        }
-                        SemanticControl::Osc8Hyperlink => Some(TerminalResponse::Osc8Hyperlink),
-                        _ => None,
-                    };
-                    if let Some(response) = response {
-                        match response {
-                            TerminalResponse::Osc8Hyperlink => {
-                                self.feed_mirror_bytes(&sequence);
-                            }
-                            TerminalResponse::Osc52Write(text) => {
-                                if osc52_policy.allows_write() {
-                                    let _ = write_clipboard(&text);
-                                }
-                            }
-                            TerminalResponse::Osc52Query(selection) => {
-                                if osc52_policy.allows_query()
-                                    && let Some(text) = read_clipboard()
-                                {
-                                    let response_bytes =
-                                        encode_osc52_clipboard_response(&selection, &text);
-                                    respond(&response_bytes)?;
-                                }
-                            }
-                            response => respond(&self.response_bytes(response))?,
-                        }
-                    } else {
-                        self.write_unanswered_control(semantic, &sequence, output)?;
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn write_unanswered_control(
-        &mut self,
-        semantic: SemanticControl,
-        sequence: &[u8],
-        output: &mut dyn Write,
-    ) -> io::Result<()> {
-        match semantic {
-            SemanticControl::SynchronizedOutputMode(mode_sequence) => {
-                let enabled = mode_sequence.enabled;
-                self.mode_tracker
-                    .apply_private_mode_sequence(&mode_sequence, |change| {
-                        self.mode_changes.push(change);
-                    });
-                self.feed_mirror_bytes(sequence);
-                if !enabled {
-                    self.flush_synchronized_output_buffer(output)?;
-                }
-            }
-            SemanticControl::KittyKeyboardMode(mode_sequence) => {
-                self.mode_tracker
-                    .apply_kitty_keyboard_sequence(mode_sequence, |change| {
-                        self.mode_changes.push(change);
-                    });
-            }
-            SemanticControl::KeyModifierOptionsSequence(mode_sequence) => {
-                self.mode_tracker
-                    .apply_key_modifier_options_sequence(mode_sequence, |change| {
-                        self.mode_changes.push(change);
-                    });
-            }
-            SemanticControl::Decrqcra(_)
-            | SemanticControl::WindowReport(_)
-            | SemanticControl::Notification(_)
-            | SemanticControl::DeviceAttributesResponse
-            | SemanticControl::StandaloneSt
-            | SemanticControl::Cancelled
-            | SemanticControl::Ignored => {}
-            _ => self.write_visible_bytes_and_update_state(sequence, output)?,
-        }
-        Ok(())
-    }
-
-    fn fixed_response(query: FixedQuery) -> TerminalResponse {
-        match query {
-            FixedQuery::CursorPosition => TerminalResponse::CursorPosition { private: false },
-            FixedQuery::PrimaryDeviceAttributes => {
-                TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES)
-            }
-            FixedQuery::SecondaryDeviceAttributes => {
-                TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES)
-            }
-            FixedQuery::TertiaryDeviceAttributes => {
-                TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES)
-            }
-            FixedQuery::TerminalParameters0 => {
-                TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0)
-            }
-            FixedQuery::TerminalParameters1 => {
-                TerminalResponse::Static(Self::TERMINAL_PARAMETERS_1)
-            }
-            FixedQuery::XtVersion => TerminalResponse::XtVersion,
-            FixedQuery::OperatingStatus => TerminalResponse::Static(b"\x1b[0n"),
-            FixedQuery::WindowPixelSize => TerminalResponse::WindowPixelSize,
-            FixedQuery::CharacterCellSize => TerminalResponse::CharacterCellSize,
-            FixedQuery::TextAreaSize => TerminalResponse::TextAreaSize,
-        }
-    }
-
-    fn window_response(query: WindowReportRequest) -> Option<TerminalResponse> {
-        match query {
-            WindowReportRequest::WindowPixelSize => Some(TerminalResponse::WindowPixelSize),
-            WindowReportRequest::CharacterCellSize => Some(TerminalResponse::CharacterCellSize),
-            WindowReportRequest::TextAreaSize => Some(TerminalResponse::TextAreaSize),
-            WindowReportRequest::WindowTitle | WindowReportRequest::Ignored => None,
-        }
-    }
-
-    fn osc_color_response(query: SharedOscColorRequest) -> OscColorResponse {
-        OscColorResponse {
-            kinds: query
-                .kinds
-                .into_iter()
-                .map(|kind| match kind {
-                    SharedOscColorKind::DefaultForeground => OscColorKind::DefaultForeground,
-                    SharedOscColorKind::DefaultBackground => OscColorKind::DefaultBackground,
-                    SharedOscColorKind::Cursor => OscColorKind::Cursor,
-                    SharedOscColorKind::Palette(index) => OscColorKind::Palette(index),
-                })
-                .collect(),
-            terminator: match query.terminator {
-                StringTerminator::Bel => OscResponseTerminator::Bel,
-                StringTerminator::St => OscResponseTerminator::St,
-                StringTerminator::C1St => OscResponseTerminator::C1St,
-            },
-        }
-    }
-
-    fn xtsmgraphics_request(request: SharedXtSmGraphicsRequest) -> XtSmGraphicsRequest {
-        XtSmGraphicsRequest {
-            item: request.item,
-            action: request.action,
-        }
-    }
-
-    fn decrqss_response(request: SharedDecrqssRequest) -> DecrqssResponse {
-        DecrqssResponse {
-            kind: match request.kind {
-                SharedDecrqssKind::Sgr => Some(DecrqssKind::Sgr),
-                SharedDecrqssKind::CursorShape => Some(DecrqssKind::CursorShape),
-                SharedDecrqssKind::ScrollRegion => Some(DecrqssKind::ScrollRegion),
-                SharedDecrqssKind::ConformanceLevel => Some(DecrqssKind::ConformanceLevel),
-                SharedDecrqssKind::LeftRightMargins => Some(DecrqssKind::LeftRightMargins),
-                SharedDecrqssKind::Unknown => None,
-            },
-            terminator: match request.terminator {
-                DcsTerminator::SevenBit => OscResponseTerminator::St,
-                DcsTerminator::EightBit => OscResponseTerminator::C1St,
-            },
-        }
-    }
-
-    fn xtgettcap_response(&self, request: &SharedXtGetTcapRequest) -> XtGetTcapResponse {
-        let size = self.size.snapshot();
-        let entries = request
-            .names
-            .iter()
-            .map(|requested| {
-                let name = requested.decoded.as_deref().unwrap_or(&requested.encoded);
-                let name = String::from_utf8_lossy(name).into_owned().into_bytes();
-                XtGetTcapEntry {
-                    name_hex: encode_ascii_hex(&name),
-                    value_hex: xtgettcap_value_hex(&name, size, &self.terminal_name),
-                }
-            })
-            .collect();
-        XtGetTcapResponse { entries }
-    }
-
-    fn write_visible_bytes(&mut self, bytes: &[u8], output: &mut dyn Write) -> io::Result<()> {
-        if self.mode_tracker.synchronized_output() {
-            self.synchronized_output_buffer.extend_from_slice(bytes);
-        } else {
-            output.write_all(bytes)?;
-        }
-        Ok(())
-    }
-
-    fn take_mode_changes(&mut self) -> Vec<TerminalModeChange> {
-        std::mem::take(&mut self.mode_changes)
-    }
-
-    fn flush_synchronized_output_buffer(&mut self, output: &mut dyn Write) -> io::Result<()> {
-        if self.synchronized_output_buffer.is_empty() {
-            return Ok(());
-        }
-
-        output.write_all(&self.synchronized_output_buffer)?;
-        self.synchronized_output_buffer.clear();
-        Ok(())
-    }
-
-    fn write_visible_bytes_and_update_state(
-        &mut self,
-        bytes: &[u8],
-        output: &mut dyn Write,
-    ) -> io::Result<()> {
-        let was_synchronized = self.mode_tracker.synchronized_output();
-        self.write_visible_bytes(bytes, output)?;
-        self.color_state.process(bytes);
-        self.mode_tracker
-            .process(bytes, |change| self.mode_changes.push(change));
-        if was_synchronized && !self.mode_tracker.synchronized_output() {
-            self.flush_synchronized_output_buffer(output)?;
-        }
-        self.feed_mirror_bytes(bytes);
-        Ok(())
-    }
-
-    fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
-        self.query_scanner.discard_incomplete();
-        self.flush_synchronized_output_buffer(output)?;
-        Ok(())
-    }
-
-    fn feed_mirror_bytes(&mut self, bytes: &[u8]) {
-        self.sync_mirror_size();
-        self.mirror.feed(bytes);
-    }
-
-    fn response_bytes(&mut self, response: TerminalResponse) -> Vec<u8> {
-        match response {
-            TerminalResponse::Static(bytes) => bytes.to_vec(),
-            TerminalResponse::CursorPosition { private } => {
-                self.sync_mirror_size();
-                let (row, column) = self.mirror.cursor();
-                if private {
-                    format!(
-                        "\x1b[?{};{}R",
-                        row.saturating_add(1),
-                        column.saturating_add(1)
-                    )
-                    .into_bytes()
-                } else {
-                    format!(
-                        "\x1b[{};{}R",
-                        row.saturating_add(1),
-                        column.saturating_add(1)
-                    )
-                    .into_bytes()
-                }
-            }
-            TerminalResponse::WindowPixelSize => {
-                let size = self.size.snapshot();
-                format!(
-                    "\x1b[4;{};{}t",
-                    u32::from(size.rows()) * u32::from(Self::CELL_HEIGHT_PIXELS),
-                    u32::from(size.columns()) * u32::from(Self::CELL_WIDTH_PIXELS)
-                )
-                .into_bytes()
-            }
-            TerminalResponse::CharacterCellSize => format!(
-                "\x1b[6;{};{}t",
-                Self::CELL_HEIGHT_PIXELS,
-                Self::CELL_WIDTH_PIXELS
-            )
-            .into_bytes(),
-            TerminalResponse::TextAreaSize => {
-                let size = self.size.snapshot();
-                format!("\x1b[8;{};{}t", size.rows(), size.columns()).into_bytes()
-            }
-            TerminalResponse::PrivateModeStatus(mode) => format!(
-                "\x1b[?{};{}$y",
-                mode,
-                self.mode_tracker.private_mode_report_value(mode)
-            )
-            .into_bytes(),
-            TerminalResponse::AnsiModeStatus(mode) => format!(
-                "\x1b[{};{}$y",
-                mode,
-                self.mode_tracker.ansi_mode_report_value(mode)
-            )
-            .into_bytes(),
-            TerminalResponse::OscColor(query) => self.color_state.response(query),
-            TerminalResponse::ItermReportCellSize => format!(
-                "\x1b]1337;ReportCellSize={:.1};{:.1}\x1b\\",
-                f32::from(Self::CELL_HEIGHT_PIXELS),
-                f32::from(Self::CELL_WIDTH_PIXELS)
-            )
-            .into_bytes(),
-            TerminalResponse::Decrqss(query) => query.response(&self.mirror),
-            TerminalResponse::XtGetTcap(query) => query.response(),
-            TerminalResponse::XtSmGraphics(request) => request.response(self.size.snapshot()),
-            TerminalResponse::XtVersion => xtversion_response(),
-            TerminalResponse::KittyKeyboardFlags => {
-                format!("\x1b[?{}u", self.mode_tracker.kitty_keyboard_flags()).into_bytes()
-            }
-            TerminalResponse::KeyModifierOptions(resource) => {
-                let value = if resource == 4 {
-                    self.mode_tracker.modify_other_keys()
-                } else {
-                    0
-                };
-                format!("\x1b[>{resource};{value}m").into_bytes()
-            }
-            TerminalResponse::Osc8Hyperlink
-            | TerminalResponse::Osc52Write(_)
-            | TerminalResponse::Osc52Query(_) => Vec::new(),
-        }
-    }
-
-    fn sync_mirror_size(&mut self) {
-        let size = self.size.snapshot();
-        if size != self.mirror_size {
-            self.mirror.resize(terminal_size_from_pty(size));
-            self.mirror_size = size;
-        }
-    }
-}
-
-#[derive(Clone)]
-enum TerminalResponse {
-    Static(&'static [u8]),
-    CursorPosition { private: bool },
-    WindowPixelSize,
-    CharacterCellSize,
-    TextAreaSize,
-    PrivateModeStatus(u16),
-    AnsiModeStatus(u16),
-    OscColor(OscColorResponse),
-    ItermReportCellSize,
-    Decrqss(DecrqssResponse),
-    XtGetTcap(XtGetTcapResponse),
-    XtSmGraphics(XtSmGraphicsRequest),
-    XtVersion,
-    KittyKeyboardFlags,
-    KeyModifierOptions(u16),
-    Osc8Hyperlink,
-    Osc52Write(String),
-    Osc52Query(String),
-}
-
-fn xtversion_response() -> Vec<u8> {
-    format!("\x1bP>|R-SSH {}\x1b\\", env!("CARGO_PKG_VERSION")).into_bytes()
-}
-
 fn encode_osc52_clipboard_response(selection: &str, text: &str) -> Vec<u8> {
     format!(
         "\x1b]52;{};{}\x07",
@@ -2157,421 +1668,903 @@ fn write_local_clipboard_text(text: &str) -> bool {
         .is_ok()
 }
 
-impl Default for TerminalOutputFilter {
-    fn default() -> Self {
-        Self::with_shared_size(SharedTerminalSize::default())
-    }
-}
-
 fn terminal_size_from_pty(size: PtySize) -> TerminalSize {
     TerminalSize::new(size.columns(), size.rows())
 }
 
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() {
-        return Some(0);
+#[cfg(test)]
+mod legacy_terminal_output {
+    use super::*;
+
+    pub(super) struct LegacyTerminalOutputFilter {
+        query_scanner: TerminalQueryScanner,
+        synchronized_output_buffer: Vec<u8>,
+        size: SharedTerminalSize,
+        pub(super) mirror: Terminal,
+        mirror_size: PtySize,
+        pub(super) mode_tracker: TerminalModeTracker,
+        mode_changes: Vec<TerminalModeChange>,
+        color_state: TerminalColorState,
+        terminal_name: String,
     }
 
-    haystack
-        .windows(needle.len())
-        .enumerate()
-        .find_map(|(index, window)| {
-            (window == needle && !raw_c1_prefix_is_utf8_continuation(haystack, index, needle))
-                .then_some(index)
-        })
-}
+    impl LegacyTerminalOutputFilter {
+        const CELL_HEIGHT_PIXELS: u16 = 16;
+        const CELL_WIDTH_PIXELS: u16 = 8;
+        const PRIMARY_DEVICE_ATTRIBUTES: &'static [u8] = b"\x1b[?65;4;6;18;22;52c";
+        const SECONDARY_DEVICE_ATTRIBUTES: &'static [u8] = b"\x1b[>1;277;0c";
+        const TERTIARY_DEVICE_ATTRIBUTES: &'static [u8] = b"\x1bP!|00000000\x1b\\";
+        const TERMINAL_PARAMETERS_0: &'static [u8] = b"\x1b[2;1;1;128;128;1;0x";
+        const TERMINAL_PARAMETERS_1: &'static [u8] = b"\x1b[3;1;1;128;128;1;0x";
 
-fn raw_c1_prefix_is_utf8_continuation(bytes: &[u8], index: usize, prefix: &[u8]) -> bool {
-    prefix
-        .first()
-        .is_some_and(|byte| is_raw_c1_control_byte(*byte))
-        && is_utf8_continuation_in_potential_sequence(bytes, index)
-}
-
-fn is_raw_c1_control_byte(byte: u8) -> bool {
-    (0x80..=0x9f).contains(&byte)
-}
-
-fn is_utf8_continuation_in_potential_sequence(bytes: &[u8], index: usize) -> bool {
-    if index == 0
-        || bytes
-            .get(index)
-            .is_none_or(|byte| !is_utf8_continuation(*byte))
-    {
-        return false;
-    }
-
-    let mut start = index;
-    while start > 0 && is_utf8_continuation(bytes[start]) {
-        start -= 1;
-    }
-    if start == index {
-        return false;
-    }
-
-    let Some(expected_len) = utf8_sequence_len(bytes[start]) else {
-        return false;
-    };
-
-    index < start + expected_len
-        && bytes[start + 1..=index]
-            .iter()
-            .all(|byte| is_utf8_continuation(*byte))
-}
-
-fn utf8_sequence_len(byte: u8) -> Option<usize> {
-    match byte {
-        0x00..=0x7f => Some(1),
-        0xc2..=0xdf => Some(2),
-        0xe0..=0xef => Some(3),
-        0xf0..=0xf4 => Some(4),
-        _ => None,
-    }
-}
-
-fn is_utf8_continuation(byte: u8) -> bool {
-    byte & 0b1100_0000 == 0b1000_0000
-}
-
-const UTF8_C1_OSC: &[u8] = b"\xc2\x9d";
-const UTF8_C1_DCS: &[u8] = b"\xc2\x90";
-const UTF8_C1_ST: &[u8] = b"\xc2\x9c";
-const OSC_START_PREFIXES: &[(&[u8], usize)] = &[
-    (b"\x1b]".as_slice(), 2),
-    (b"\x9d".as_slice(), 1),
-    (UTF8_C1_OSC, UTF8_C1_OSC.len()),
-];
-
-fn is_inside_osc_or_st_control_string(bytes: &[u8], index: usize) -> bool {
-    is_inside_control_string(bytes, index, find_next_osc_start, find_osc_terminator)
-        || is_inside_control_string(
-            bytes,
-            index,
-            find_next_st_control_string_start,
-            find_dcs_terminator,
-        )
-}
-
-fn is_inside_control_string(
-    bytes: &[u8],
-    index: usize,
-    mut find_next_start: impl FnMut(&[u8]) -> Option<(usize, usize)>,
-    mut find_terminator: impl FnMut(&[u8]) -> Option<OscColorTerminator>,
-) -> bool {
-    let mut offset = 0;
-    while offset < bytes.len() {
-        let Some((relative_start, prefix_len)) = find_next_start(&bytes[offset..]) else {
-            return false;
-        };
-        let start = offset + relative_start;
-        if start >= index {
-            return false;
+        #[cfg(test)]
+        pub(super) fn new(size: PtySize) -> Self {
+            Self::with_shared_size(SharedTerminalSize::new(size))
         }
 
-        let content_start = start + prefix_len;
-        let Some(terminator) = find_terminator(&bytes[content_start..]) else {
-            return true;
-        };
-        let end = content_start + terminator.index + terminator.length;
-        if index < end {
-            return true;
-        }
-        offset = end;
-    }
-
-    false
-}
-
-fn incomplete_osc_control_sequence_suffix_len(bytes: &[u8]) -> usize {
-    find_incomplete_osc_control_sequence_start(bytes)
-        .map_or(0, |start| bytes.len() - start)
-        .max(suffix_len_matching_prefix(bytes, b"\x1b]"))
-        .max(suffix_len_matching_prefix(bytes, UTF8_C1_OSC))
-}
-
-fn find_incomplete_osc_control_sequence_start(bytes: &[u8]) -> Option<usize> {
-    let mut offset = 0;
-    while offset < bytes.len() {
-        let Some((relative_index, prefix_len)) = find_next_osc_start(&bytes[offset..]) else {
-            break;
-        };
-        let index = offset + relative_index;
-        let content_start = index + prefix_len;
-        let Some(terminator) = find_osc_terminator(&bytes[content_start..]) else {
-            return Some(index);
-        };
-        offset = content_start + terminator.index + terminator.length;
-    }
-
-    None
-}
-
-fn incomplete_st_control_sequence_suffix_len(bytes: &[u8]) -> usize {
-    find_incomplete_st_control_sequence_start(bytes)
-        .map_or(0, |start| bytes.len() - start)
-        .max(
-            [
-                b"\x1bP".as_slice(),
-                b"\x1bX".as_slice(),
-                b"\x1b^".as_slice(),
-                b"\x1b_".as_slice(),
-            ]
-            .into_iter()
-            .map(|prefix| suffix_len_matching_prefix(bytes, prefix))
-            .max()
-            .unwrap_or(0),
-        )
-}
-
-fn find_incomplete_st_control_sequence_start(bytes: &[u8]) -> Option<usize> {
-    let mut offset = 0;
-    while offset < bytes.len() {
-        let Some((relative_index, prefix_len)) =
-            find_next_st_control_string_start(&bytes[offset..])
-        else {
-            break;
-        };
-        let index = offset + relative_index;
-        let content_start = index + prefix_len;
-        let Some(terminator) = find_dcs_terminator(&bytes[content_start..]) else {
-            return Some(index);
-        };
-        offset = content_start + terminator.index + terminator.length;
-    }
-
-    None
-}
-
-fn find_next_st_control_string_start(bytes: &[u8]) -> Option<(usize, usize)> {
-    [
-        (b"\x1bP".as_slice(), 2),
-        (b"\x1bX".as_slice(), 2),
-        (b"\x1b^".as_slice(), 2),
-        (b"\x1b_".as_slice(), 2),
-        (UTF8_C1_DCS, UTF8_C1_DCS.len()),
-        (b"\x90".as_slice(), 1),
-        (b"\x98".as_slice(), 1),
-        (b"\x9e".as_slice(), 1),
-        (b"\x9f".as_slice(), 1),
-    ]
-    .into_iter()
-    .filter_map(|(prefix, prefix_len)| {
-        find_subslice(bytes, prefix).map(|index| (index, prefix_len))
-    })
-    .min_by_key(|(index, _)| *index)
-}
-
-#[derive(Clone)]
-struct DecrqssResponse {
-    kind: Option<DecrqssKind>,
-    terminator: OscResponseTerminator,
-}
-
-#[derive(Clone, Copy)]
-enum DecrqssKind {
-    Sgr,
-    CursorShape,
-    ScrollRegion,
-    ConformanceLevel,
-    LeftRightMargins,
-}
-
-impl DecrqssResponse {
-    fn response(&self, terminal: &Terminal) -> Vec<u8> {
-        let mut response = if let Some(kind) = self.kind {
-            let mut bytes = b"\x1bP1$r".to_vec();
-            match kind {
-                DecrqssKind::Sgr => append_sgr_state(terminal.active_style(), &mut bytes),
-                DecrqssKind::CursorShape => {
-                    append_cursor_shape_state(terminal.cursor_shape(), &mut bytes);
-                }
-                DecrqssKind::ScrollRegion => {
-                    append_scroll_region_state(terminal.scroll_region(), &mut bytes);
-                }
-                DecrqssKind::ConformanceLevel => bytes.extend_from_slice(b"61;1\"p"),
-                DecrqssKind::LeftRightMargins => {
-                    append_left_right_margin_state(terminal.left_right_margins(), &mut bytes);
-                }
+        fn with_shared_size(size: SharedTerminalSize) -> Self {
+            let mirror_size = size.snapshot();
+            Self {
+                query_scanner: TerminalQueryScanner::new(),
+                synchronized_output_buffer: Vec::new(),
+                size,
+                mirror: Terminal::new(terminal_size_from_pty(mirror_size)),
+                mirror_size,
+                mode_tracker: TerminalModeTracker::default(),
+                mode_changes: Vec::new(),
+                color_state: TerminalColorState::default(),
+                terminal_name: DEFAULT_TERMINAL_NAME.to_owned(),
             }
-            bytes
-        } else {
-            b"\x1bP0$r".to_vec()
-        };
-        response.extend_from_slice(self.terminator.bytes());
-        response
-    }
-}
-
-fn append_sgr_state(style: &Cell, bytes: &mut Vec<u8>) {
-    let mut params = Vec::new();
-    if style.bold {
-        params.push("1".to_owned());
-    }
-    if style.faint {
-        params.push("2".to_owned());
-    }
-    if style.italic {
-        params.push("3".to_owned());
-    }
-    append_underline_style_sgr(style, &mut params);
-    if style.blink {
-        params.push("5".to_owned());
-    }
-    if style.inverse {
-        params.push("7".to_owned());
-    }
-    if style.conceal {
-        params.push("8".to_owned());
-    }
-    if style.strikethrough {
-        params.push("9".to_owned());
-    }
-    if style.double_underline {
-        params.push("21".to_owned());
-    }
-    if style.overline {
-        params.push("53".to_owned());
-    }
-    match style.vertical_align {
-        VerticalAlign::Baseline => {}
-        VerticalAlign::Superscript => params.push("73".to_owned()),
-        VerticalAlign::Subscript => params.push("74".to_owned()),
-    }
-    append_color_sgr(58, style.underline_color, &mut params);
-    append_color_sgr(38, style.foreground, &mut params);
-    append_color_sgr(48, style.background, &mut params);
-
-    if params.is_empty() {
-        bytes.push(b'0');
-    } else {
-        bytes.extend_from_slice(params.join(";").as_bytes());
-    }
-    bytes.push(b'm');
-}
-
-fn append_underline_style_sgr(style: &Cell, params: &mut Vec<String>) {
-    match style.underline_style {
-        UnderlineStyle::None if style.double_underline => params.push("21".to_owned()),
-        UnderlineStyle::None if style.underline => params.push("4".to_owned()),
-        UnderlineStyle::None => {}
-        UnderlineStyle::Single => params.push("4".to_owned()),
-        UnderlineStyle::Double => params.push("21".to_owned()),
-        UnderlineStyle::Curly => params.push("4:3".to_owned()),
-        UnderlineStyle::Dotted => params.push("4:4".to_owned()),
-        UnderlineStyle::Dashed => params.push("4:5".to_owned()),
-    }
-}
-
-fn append_color_sgr(prefix: u8, color: Color, params: &mut Vec<String>) {
-    match color {
-        Color::Default => {}
-        Color::Indexed(index) => {
-            params.push(prefix.to_string());
-            params.push("5".to_owned());
-            params.push(index.to_string());
-        }
-        Color::Rgb(red, green, blue) => {
-            params.push(prefix.to_string());
-            params.push("2".to_owned());
-            params.push(red.to_string());
-            params.push(green.to_string());
-            params.push(blue.to_string());
-        }
-        Color::Rgba(red, green, blue, alpha) => {
-            params.push(prefix.to_string());
-            params.push("6".to_owned());
-            params.push(red.to_string());
-            params.push(green.to_string());
-            params.push(blue.to_string());
-            params.push(alpha.to_string());
-        }
-    }
-}
-
-fn append_cursor_shape_state(shape: CursorShape, bytes: &mut Vec<u8>) {
-    let value = match shape {
-        CursorShape::Block => 2,
-        CursorShape::Underline => 3,
-        CursorShape::Bar => 5,
-    };
-    bytes.extend_from_slice(value.to_string().as_bytes());
-    bytes.extend_from_slice(b" q");
-}
-
-fn append_scroll_region_state((top, bottom): (u16, u16), bytes: &mut Vec<u8>) {
-    bytes.extend_from_slice(top.saturating_add(1).to_string().as_bytes());
-    bytes.push(b';');
-    bytes.extend_from_slice(bottom.saturating_add(1).to_string().as_bytes());
-    bytes.push(b'r');
-}
-
-fn append_left_right_margin_state((left, right): (u16, u16), bytes: &mut Vec<u8>) {
-    bytes.extend_from_slice(left.saturating_add(1).to_string().as_bytes());
-    bytes.push(b';');
-    bytes.extend_from_slice(right.saturating_add(1).to_string().as_bytes());
-    bytes.push(b's');
-}
-
-#[derive(Clone)]
-struct XtGetTcapResponse {
-    entries: Vec<XtGetTcapEntry>,
-}
-
-#[derive(Clone)]
-struct XtGetTcapEntry {
-    name_hex: Vec<u8>,
-    value_hex: Option<Vec<u8>>,
-}
-
-impl XtGetTcapResponse {
-    fn response(&self) -> Vec<u8> {
-        let mut response = Vec::new();
-        if self.entries.is_empty() {
-            response.extend_from_slice(b"\x1bP0+r\x1b\\");
-            return response;
         }
 
-        for entry in &self.entries {
-            let entry_start = response.len();
-            if let Some(value_hex) = &entry.value_hex {
-                response.extend_from_slice(b"\x1bP1+r");
-                extend_ascii_hex_uppercase(&mut response, &entry.name_hex);
-                response.push(b'=');
-                extend_ascii_hex_uppercase(&mut response, value_hex);
+        pub(super) fn set_terminal_name(&mut self, terminal_name: impl Into<String>) {
+            self.terminal_name = terminal_name.into();
+        }
+
+        #[cfg(test)]
+        pub(super) fn write(
+            &mut self,
+            bytes: &[u8],
+            output: &mut dyn Write,
+            respond: impl FnMut(&[u8]) -> io::Result<()>,
+        ) -> io::Result<()> {
+            self.write_with_clipboard(bytes, output, respond, |_| false, || None, Osc52Policy::Off)
+        }
+
+        pub(super) fn write_with_clipboard(
+            &mut self,
+            bytes: &[u8],
+            output: &mut dyn Write,
+            mut respond: impl FnMut(&[u8]) -> io::Result<()>,
+            mut write_clipboard: impl FnMut(&str) -> bool,
+            mut read_clipboard: impl FnMut() -> Option<String>,
+            osc52_policy: Osc52Policy,
+        ) -> io::Result<()> {
+            let mut scanner = std::mem::take(&mut self.query_scanner);
+            let mut result = Ok(());
+            scanner.for_each_segment(bytes, |segment| {
+                if result.is_err() {
+                    return;
+                }
+                result = (|| -> io::Result<()> {
+                    match segment {
+                        ScannedSegmentRef::Bytes(visible) => {
+                            self.write_visible_bytes_and_update_state(visible, output)?;
+                        }
+                        ScannedSegmentRef::Control {
+                            bytes: sequence,
+                            semantic,
+                            ..
+                        } => {
+                            let response = match &semantic {
+                                SemanticControl::Fixed(query) => Some(Self::fixed_response(*query)),
+                                SemanticControl::WindowReport(query) => {
+                                    Self::window_response(*query)
+                                }
+                                SemanticControl::PrivateModeStatus(mode) => {
+                                    Some(TerminalResponse::PrivateModeStatus(*mode))
+                                }
+                                SemanticControl::AnsiModeStatus(mode) => {
+                                    Some(TerminalResponse::AnsiModeStatus(*mode))
+                                }
+                                SemanticControl::OscColor(query) => {
+                                    Some(TerminalResponse::OscColor(Self::osc_color_response(
+                                        query.clone(),
+                                    )))
+                                }
+                                SemanticControl::ItermReportCellSize => {
+                                    Some(TerminalResponse::ItermReportCellSize)
+                                }
+                                SemanticControl::Decrqss(request) => Some(
+                                    TerminalResponse::Decrqss(Self::decrqss_response(*request)),
+                                ),
+                                SemanticControl::XtGetTcap(request) => Some(
+                                    TerminalResponse::XtGetTcap(self.xtgettcap_response(request)),
+                                ),
+                                SemanticControl::XtSmGraphics(request) => {
+                                    Some(TerminalResponse::XtSmGraphics(
+                                        Self::xtsmgraphics_request(*request),
+                                    ))
+                                }
+                                SemanticControl::KittyKeyboardFlags => {
+                                    Some(TerminalResponse::KittyKeyboardFlags)
+                                }
+                                SemanticControl::KeyModifierOptionsQuery(resource) => {
+                                    Some(TerminalResponse::KeyModifierOptions(*resource))
+                                }
+                                SemanticControl::Osc52(ClipboardCommand::Write {
+                                    contents,
+                                    ..
+                                }) => Some(TerminalResponse::Osc52Write(contents.clone())),
+                                SemanticControl::Osc52(ClipboardCommand::Query(selection)) => {
+                                    Some(TerminalResponse::Osc52Query(selection.clone()))
+                                }
+                                SemanticControl::Osc8Hyperlink => {
+                                    Some(TerminalResponse::Osc8Hyperlink)
+                                }
+                                _ => None,
+                            };
+                            if let Some(response) = response {
+                                match response {
+                                    TerminalResponse::Osc8Hyperlink => {
+                                        self.feed_mirror_bytes(sequence);
+                                    }
+                                    TerminalResponse::Osc52Write(text) => {
+                                        if osc52_policy.allows_write() {
+                                            let _ = write_clipboard(&text);
+                                        }
+                                    }
+                                    TerminalResponse::Osc52Query(selection) => {
+                                        if osc52_policy.allows_query()
+                                            && let Some(text) = read_clipboard()
+                                        {
+                                            let response_bytes =
+                                                encode_osc52_clipboard_response(&selection, &text);
+                                            respond(&response_bytes)?;
+                                        }
+                                    }
+                                    response => respond(&self.response_bytes(response))?,
+                                }
+                            } else {
+                                self.write_unanswered_control(semantic, sequence, output)?;
+                            }
+                        }
+                    }
+                    Ok(())
+                })();
+            });
+            self.query_scanner = scanner;
+            result
+        }
+
+        fn write_unanswered_control(
+            &mut self,
+            semantic: SemanticControl,
+            sequence: &[u8],
+            output: &mut dyn Write,
+        ) -> io::Result<()> {
+            match semantic {
+                SemanticControl::SynchronizedOutputMode(mode_sequence) => {
+                    let enabled = mode_sequence.enabled;
+                    self.mode_tracker
+                        .apply_private_mode_sequence(&mode_sequence, |change| {
+                            self.mode_changes.push(change);
+                        });
+                    self.feed_mirror_bytes(sequence);
+                    if !enabled {
+                        self.flush_synchronized_output_buffer(output)?;
+                    }
+                }
+                SemanticControl::KittyKeyboardMode(mode_sequence) => {
+                    self.mode_tracker
+                        .apply_kitty_keyboard_sequence(mode_sequence, |change| {
+                            self.mode_changes.push(change);
+                        });
+                }
+                SemanticControl::KeyModifierOptionsSequence(mode_sequence) => {
+                    self.mode_tracker.apply_key_modifier_options_sequence(
+                        mode_sequence,
+                        |change| {
+                            self.mode_changes.push(change);
+                        },
+                    );
+                }
+                SemanticControl::Decrqcra(_)
+                | SemanticControl::WindowReport(_)
+                | SemanticControl::Notification(_)
+                | SemanticControl::DeviceAttributesResponse
+                | SemanticControl::StandaloneSt
+                | SemanticControl::Cancelled
+                | SemanticControl::Ignored => {}
+                _ => self.write_visible_bytes_and_update_state(sequence, output)?,
+            }
+            Ok(())
+        }
+
+        fn fixed_response(query: FixedQuery) -> TerminalResponse {
+            match query {
+                FixedQuery::CursorPosition => TerminalResponse::CursorPosition { private: false },
+                FixedQuery::PrimaryDeviceAttributes => {
+                    TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES)
+                }
+                FixedQuery::SecondaryDeviceAttributes => {
+                    TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES)
+                }
+                FixedQuery::TertiaryDeviceAttributes => {
+                    TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES)
+                }
+                FixedQuery::TerminalParameters0 => {
+                    TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0)
+                }
+                FixedQuery::TerminalParameters1 => {
+                    TerminalResponse::Static(Self::TERMINAL_PARAMETERS_1)
+                }
+                FixedQuery::XtVersion => TerminalResponse::XtVersion,
+                FixedQuery::OperatingStatus => TerminalResponse::Static(b"\x1b[0n"),
+                FixedQuery::WindowPixelSize => TerminalResponse::WindowPixelSize,
+                FixedQuery::CharacterCellSize => TerminalResponse::CharacterCellSize,
+                FixedQuery::TextAreaSize => TerminalResponse::TextAreaSize,
+            }
+        }
+
+        fn window_response(query: WindowReportRequest) -> Option<TerminalResponse> {
+            match query {
+                WindowReportRequest::WindowPixelSize => Some(TerminalResponse::WindowPixelSize),
+                WindowReportRequest::CharacterCellSize => Some(TerminalResponse::CharacterCellSize),
+                WindowReportRequest::TextAreaSize => Some(TerminalResponse::TextAreaSize),
+                WindowReportRequest::WindowTitle | WindowReportRequest::Ignored => None,
+            }
+        }
+
+        fn osc_color_response(query: SharedOscColorRequest) -> OscColorResponse {
+            OscColorResponse {
+                kinds: query
+                    .kinds
+                    .into_iter()
+                    .map(|kind| match kind {
+                        SharedOscColorKind::DefaultForeground => OscColorKind::DefaultForeground,
+                        SharedOscColorKind::DefaultBackground => OscColorKind::DefaultBackground,
+                        SharedOscColorKind::Cursor => OscColorKind::Cursor,
+                        SharedOscColorKind::Palette(index) => OscColorKind::Palette(index),
+                    })
+                    .collect(),
+                terminator: match query.terminator {
+                    StringTerminator::Bel => OscResponseTerminator::Bel,
+                    StringTerminator::St => OscResponseTerminator::St,
+                    StringTerminator::C1St => OscResponseTerminator::C1St,
+                },
+            }
+        }
+
+        fn xtsmgraphics_request(request: SharedXtSmGraphicsRequest) -> XtSmGraphicsRequest {
+            XtSmGraphicsRequest {
+                item: request.item,
+                action: request.action,
+            }
+        }
+
+        fn decrqss_response(request: SharedDecrqssRequest) -> DecrqssResponse {
+            DecrqssResponse {
+                kind: match request.kind {
+                    SharedDecrqssKind::Sgr => Some(DecrqssKind::Sgr),
+                    SharedDecrqssKind::CursorShape => Some(DecrqssKind::CursorShape),
+                    SharedDecrqssKind::ScrollRegion => Some(DecrqssKind::ScrollRegion),
+                    SharedDecrqssKind::ConformanceLevel => Some(DecrqssKind::ConformanceLevel),
+                    SharedDecrqssKind::LeftRightMargins => Some(DecrqssKind::LeftRightMargins),
+                    SharedDecrqssKind::Unknown => None,
+                },
+                terminator: match request.terminator {
+                    DcsTerminator::SevenBit => OscResponseTerminator::St,
+                    DcsTerminator::EightBit => OscResponseTerminator::C1St,
+                },
+            }
+        }
+
+        fn xtgettcap_response(&self, request: &SharedXtGetTcapRequest) -> XtGetTcapResponse {
+            let size = self.size.snapshot();
+            let entries = request
+                .names
+                .iter()
+                .map(|requested| {
+                    let name = requested.decoded.as_deref().unwrap_or(&requested.encoded);
+                    let name = String::from_utf8_lossy(name).into_owned().into_bytes();
+                    XtGetTcapEntry {
+                        name_hex: encode_ascii_hex(&name),
+                        value_hex: xtgettcap_value_hex(&name, size, &self.terminal_name),
+                    }
+                })
+                .collect();
+            XtGetTcapResponse { entries }
+        }
+
+        fn write_visible_bytes(&mut self, bytes: &[u8], output: &mut dyn Write) -> io::Result<()> {
+            if self.mode_tracker.synchronized_output() {
+                self.synchronized_output_buffer.extend_from_slice(bytes);
             } else {
-                response.extend_from_slice(b"\x1bP0+r");
-                extend_ascii_hex_uppercase(&mut response, &entry.name_hex);
+                output.write_all(bytes)?;
             }
-            response.extend_from_slice(b"\x1b\\");
-            if response.len() > MAX_XTGETTCAP_RESPONSE_BYTES {
-                response.truncate(entry_start);
-                break;
+            Ok(())
+        }
+
+        fn flush_synchronized_output_buffer(&mut self, output: &mut dyn Write) -> io::Result<()> {
+            if self.synchronized_output_buffer.is_empty() {
+                return Ok(());
+            }
+
+            output.write_all(&self.synchronized_output_buffer)?;
+            self.synchronized_output_buffer.clear();
+            Ok(())
+        }
+
+        fn write_visible_bytes_and_update_state(
+            &mut self,
+            bytes: &[u8],
+            output: &mut dyn Write,
+        ) -> io::Result<()> {
+            let was_synchronized = self.mode_tracker.synchronized_output();
+            self.write_visible_bytes(bytes, output)?;
+            self.color_state.process(bytes);
+            self.mode_tracker
+                .process(bytes, |change| self.mode_changes.push(change));
+            if was_synchronized && !self.mode_tracker.synchronized_output() {
+                self.flush_synchronized_output_buffer(output)?;
+            }
+            self.feed_mirror_bytes(bytes);
+            Ok(())
+        }
+
+        pub(super) fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
+            self.query_scanner.discard_incomplete();
+            self.flush_synchronized_output_buffer(output)?;
+            Ok(())
+        }
+
+        fn feed_mirror_bytes(&mut self, bytes: &[u8]) {
+            self.sync_mirror_size();
+            self.mirror.feed(bytes);
+        }
+
+        fn response_bytes(&mut self, response: TerminalResponse) -> Vec<u8> {
+            match response {
+                TerminalResponse::Static(bytes) => bytes.to_vec(),
+                TerminalResponse::CursorPosition { private } => {
+                    self.sync_mirror_size();
+                    let (row, column) = self.mirror.cursor();
+                    if private {
+                        format!(
+                            "\x1b[?{};{}R",
+                            row.saturating_add(1),
+                            column.saturating_add(1)
+                        )
+                        .into_bytes()
+                    } else {
+                        format!(
+                            "\x1b[{};{}R",
+                            row.saturating_add(1),
+                            column.saturating_add(1)
+                        )
+                        .into_bytes()
+                    }
+                }
+                TerminalResponse::WindowPixelSize => {
+                    let size = self.size.snapshot();
+                    format!(
+                        "\x1b[4;{};{}t",
+                        u32::from(size.rows()) * u32::from(Self::CELL_HEIGHT_PIXELS),
+                        u32::from(size.columns()) * u32::from(Self::CELL_WIDTH_PIXELS)
+                    )
+                    .into_bytes()
+                }
+                TerminalResponse::CharacterCellSize => format!(
+                    "\x1b[6;{};{}t",
+                    Self::CELL_HEIGHT_PIXELS,
+                    Self::CELL_WIDTH_PIXELS
+                )
+                .into_bytes(),
+                TerminalResponse::TextAreaSize => {
+                    let size = self.size.snapshot();
+                    format!("\x1b[8;{};{}t", size.rows(), size.columns()).into_bytes()
+                }
+                TerminalResponse::PrivateModeStatus(mode) => format!(
+                    "\x1b[?{};{}$y",
+                    mode,
+                    self.mode_tracker.private_mode_report_value(mode)
+                )
+                .into_bytes(),
+                TerminalResponse::AnsiModeStatus(mode) => format!(
+                    "\x1b[{};{}$y",
+                    mode,
+                    self.mode_tracker.ansi_mode_report_value(mode)
+                )
+                .into_bytes(),
+                TerminalResponse::OscColor(query) => self.color_state.response(query),
+                TerminalResponse::ItermReportCellSize => format!(
+                    "\x1b]1337;ReportCellSize={:.1};{:.1}\x1b\\",
+                    f32::from(Self::CELL_HEIGHT_PIXELS),
+                    f32::from(Self::CELL_WIDTH_PIXELS)
+                )
+                .into_bytes(),
+                TerminalResponse::Decrqss(query) => query.response(&self.mirror),
+                TerminalResponse::XtGetTcap(query) => query.response(),
+                TerminalResponse::XtSmGraphics(request) => request.response(self.size.snapshot()),
+                TerminalResponse::XtVersion => xtversion_response(),
+                TerminalResponse::KittyKeyboardFlags => {
+                    format!("\x1b[?{}u", self.mode_tracker.kitty_keyboard_flags()).into_bytes()
+                }
+                TerminalResponse::KeyModifierOptions(resource) => {
+                    let value = if resource == 4 {
+                        self.mode_tracker.modify_other_keys()
+                    } else {
+                        0
+                    };
+                    format!("\x1b[>{resource};{value}m").into_bytes()
+                }
+                TerminalResponse::Osc8Hyperlink
+                | TerminalResponse::Osc52Write(_)
+                | TerminalResponse::Osc52Query(_) => Vec::new(),
             }
         }
-        response
+
+        fn sync_mirror_size(&mut self) {
+            let size = self.size.snapshot();
+            if size != self.mirror_size {
+                self.mirror.resize(terminal_size_from_pty(size));
+                self.mirror_size = size;
+            }
+        }
     }
-}
 
-fn find_dcs_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
-    let st = find_subslice(bytes, b"\x1b\\").map(|index| OscColorTerminator { index, length: 2 });
-    let c1_st = bytes
-        .iter()
-        .position(|byte| *byte == 0x9c)
-        .map(|index| OscColorTerminator { index, length: 1 });
-    let utf8_c1_st = find_subslice(bytes, UTF8_C1_ST).map(|index| OscColorTerminator {
-        index,
-        length: UTF8_C1_ST.len(),
-    });
+    #[derive(Clone)]
+    enum TerminalResponse {
+        Static(&'static [u8]),
+        CursorPosition { private: bool },
+        WindowPixelSize,
+        CharacterCellSize,
+        TextAreaSize,
+        PrivateModeStatus(u16),
+        AnsiModeStatus(u16),
+        OscColor(OscColorResponse),
+        ItermReportCellSize,
+        Decrqss(DecrqssResponse),
+        XtGetTcap(XtGetTcapResponse),
+        XtSmGraphics(XtSmGraphicsRequest),
+        XtVersion,
+        KittyKeyboardFlags,
+        KeyModifierOptions(u16),
+        Osc8Hyperlink,
+        Osc52Write(String),
+        Osc52Query(String),
+    }
 
-    [st, c1_st, utf8_c1_st]
+    fn xtversion_response() -> Vec<u8> {
+        format!("\x1bP>|R-SSH {}\x1b\\", env!("CARGO_PKG_VERSION")).into_bytes()
+    }
+
+    fn encode_osc52_clipboard_response(selection: &str, text: &str) -> Vec<u8> {
+        format!(
+            "\x1b]52;{};{}\x07",
+            selection,
+            STANDARD.encode(text.as_bytes())
+        )
+        .into_bytes()
+    }
+
+    impl Default for LegacyTerminalOutputFilter {
+        fn default() -> Self {
+            Self::with_shared_size(SharedTerminalSize::default())
+        }
+    }
+
+    fn terminal_size_from_pty(size: PtySize) -> TerminalSize {
+        TerminalSize::new(size.columns(), size.rows())
+    }
+
+    fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        if needle.is_empty() {
+            return Some(0);
+        }
+
+        haystack
+            .windows(needle.len())
+            .enumerate()
+            .find_map(|(index, window)| {
+                (window == needle && !raw_c1_prefix_is_utf8_continuation(haystack, index, needle))
+                    .then_some(index)
+            })
+    }
+
+    fn raw_c1_prefix_is_utf8_continuation(bytes: &[u8], index: usize, prefix: &[u8]) -> bool {
+        prefix
+            .first()
+            .is_some_and(|byte| is_raw_c1_control_byte(*byte))
+            && is_utf8_continuation_in_potential_sequence(bytes, index)
+    }
+
+    fn is_raw_c1_control_byte(byte: u8) -> bool {
+        (0x80..=0x9f).contains(&byte)
+    }
+
+    fn is_utf8_continuation_in_potential_sequence(bytes: &[u8], index: usize) -> bool {
+        if index == 0
+            || bytes
+                .get(index)
+                .is_none_or(|byte| !is_utf8_continuation(*byte))
+        {
+            return false;
+        }
+
+        let mut start = index;
+        while start > 0 && is_utf8_continuation(bytes[start]) {
+            start -= 1;
+        }
+        if start == index {
+            return false;
+        }
+
+        let Some(expected_len) = utf8_sequence_len(bytes[start]) else {
+            return false;
+        };
+
+        index < start + expected_len
+            && bytes[start + 1..=index]
+                .iter()
+                .all(|byte| is_utf8_continuation(*byte))
+    }
+
+    fn utf8_sequence_len(byte: u8) -> Option<usize> {
+        match byte {
+            0x00..=0x7f => Some(1),
+            0xc2..=0xdf => Some(2),
+            0xe0..=0xef => Some(3),
+            0xf0..=0xf4 => Some(4),
+            _ => None,
+        }
+    }
+
+    fn is_utf8_continuation(byte: u8) -> bool {
+        byte & 0b1100_0000 == 0b1000_0000
+    }
+
+    const UTF8_C1_OSC: &[u8] = b"\xc2\x9d";
+    const UTF8_C1_DCS: &[u8] = b"\xc2\x90";
+    const UTF8_C1_ST: &[u8] = b"\xc2\x9c";
+    const OSC_START_PREFIXES: &[(&[u8], usize)] = &[
+        (b"\x1b]".as_slice(), 2),
+        (b"\x9d".as_slice(), 1),
+        (UTF8_C1_OSC, UTF8_C1_OSC.len()),
+    ];
+
+    fn is_inside_osc_or_st_control_string(bytes: &[u8], index: usize) -> bool {
+        is_inside_control_string(bytes, index, find_next_osc_start, find_osc_terminator)
+            || is_inside_control_string(
+                bytes,
+                index,
+                find_next_st_control_string_start,
+                find_dcs_terminator,
+            )
+    }
+
+    fn is_inside_control_string(
+        bytes: &[u8],
+        index: usize,
+        mut find_next_start: impl FnMut(&[u8]) -> Option<(usize, usize)>,
+        mut find_terminator: impl FnMut(&[u8]) -> Option<OscColorTerminator>,
+    ) -> bool {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let Some((relative_start, prefix_len)) = find_next_start(&bytes[offset..]) else {
+                return false;
+            };
+            let start = offset + relative_start;
+            if start >= index {
+                return false;
+            }
+
+            let content_start = start + prefix_len;
+            let Some(terminator) = find_terminator(&bytes[content_start..]) else {
+                return true;
+            };
+            let end = content_start + terminator.index + terminator.length;
+            if index < end {
+                return true;
+            }
+            offset = end;
+        }
+
+        false
+    }
+
+    fn incomplete_osc_control_sequence_suffix_len(bytes: &[u8]) -> usize {
+        find_incomplete_osc_control_sequence_start(bytes)
+            .map_or(0, |start| bytes.len() - start)
+            .max(suffix_len_matching_prefix(bytes, b"\x1b]"))
+            .max(suffix_len_matching_prefix(bytes, UTF8_C1_OSC))
+    }
+
+    fn find_incomplete_osc_control_sequence_start(bytes: &[u8]) -> Option<usize> {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let Some((relative_index, prefix_len)) = find_next_osc_start(&bytes[offset..]) else {
+                break;
+            };
+            let index = offset + relative_index;
+            let content_start = index + prefix_len;
+            let Some(terminator) = find_osc_terminator(&bytes[content_start..]) else {
+                return Some(index);
+            };
+            offset = content_start + terminator.index + terminator.length;
+        }
+
+        None
+    }
+
+    fn incomplete_st_control_sequence_suffix_len(bytes: &[u8]) -> usize {
+        find_incomplete_st_control_sequence_start(bytes)
+            .map_or(0, |start| bytes.len() - start)
+            .max(
+                [
+                    b"\x1bP".as_slice(),
+                    b"\x1bX".as_slice(),
+                    b"\x1b^".as_slice(),
+                    b"\x1b_".as_slice(),
+                ]
+                .into_iter()
+                .map(|prefix| suffix_len_matching_prefix(bytes, prefix))
+                .max()
+                .unwrap_or(0),
+            )
+    }
+
+    fn find_incomplete_st_control_sequence_start(bytes: &[u8]) -> Option<usize> {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let Some((relative_index, prefix_len)) =
+                find_next_st_control_string_start(&bytes[offset..])
+            else {
+                break;
+            };
+            let index = offset + relative_index;
+            let content_start = index + prefix_len;
+            let Some(terminator) = find_dcs_terminator(&bytes[content_start..]) else {
+                return Some(index);
+            };
+            offset = content_start + terminator.index + terminator.length;
+        }
+
+        None
+    }
+
+    fn find_next_st_control_string_start(bytes: &[u8]) -> Option<(usize, usize)> {
+        [
+            (b"\x1bP".as_slice(), 2),
+            (b"\x1bX".as_slice(), 2),
+            (b"\x1b^".as_slice(), 2),
+            (b"\x1b_".as_slice(), 2),
+            (UTF8_C1_DCS, UTF8_C1_DCS.len()),
+            (b"\x90".as_slice(), 1),
+            (b"\x98".as_slice(), 1),
+            (b"\x9e".as_slice(), 1),
+            (b"\x9f".as_slice(), 1),
+        ]
         .into_iter()
-        .flatten()
-        .min_by_key(|terminator| terminator.index)
-}
+        .filter_map(|(prefix, prefix_len)| {
+            find_subslice(bytes, prefix).map(|index| (index, prefix_len))
+        })
+        .min_by_key(|(index, _)| *index)
+    }
 
-#[allow(clippy::too_many_lines)]
-fn xtgettcap_value_hex(name: &[u8], size: PtySize, terminal_name: &str) -> Option<Vec<u8>> {
-    match name {
+    #[derive(Clone)]
+    struct DecrqssResponse {
+        kind: Option<DecrqssKind>,
+        terminator: OscResponseTerminator,
+    }
+
+    #[derive(Clone, Copy)]
+    enum DecrqssKind {
+        Sgr,
+        CursorShape,
+        ScrollRegion,
+        ConformanceLevel,
+        LeftRightMargins,
+    }
+
+    impl DecrqssResponse {
+        fn response(&self, terminal: &Terminal) -> Vec<u8> {
+            let mut response = if let Some(kind) = self.kind {
+                let mut bytes = b"\x1bP1$r".to_vec();
+                match kind {
+                    DecrqssKind::Sgr => append_sgr_state(terminal.active_style(), &mut bytes),
+                    DecrqssKind::CursorShape => {
+                        append_cursor_shape_state(terminal.cursor_shape(), &mut bytes);
+                    }
+                    DecrqssKind::ScrollRegion => {
+                        append_scroll_region_state(terminal.scroll_region(), &mut bytes);
+                    }
+                    DecrqssKind::ConformanceLevel => bytes.extend_from_slice(b"61;1\"p"),
+                    DecrqssKind::LeftRightMargins => {
+                        append_left_right_margin_state(terminal.left_right_margins(), &mut bytes);
+                    }
+                }
+                bytes
+            } else {
+                b"\x1bP0$r".to_vec()
+            };
+            response.extend_from_slice(self.terminator.bytes());
+            response
+        }
+    }
+
+    fn append_sgr_state(style: &Cell, bytes: &mut Vec<u8>) {
+        let mut params = Vec::new();
+        if style.bold {
+            params.push("1".to_owned());
+        }
+        if style.faint {
+            params.push("2".to_owned());
+        }
+        if style.italic {
+            params.push("3".to_owned());
+        }
+        append_underline_style_sgr(style, &mut params);
+        if style.blink {
+            params.push("5".to_owned());
+        }
+        if style.inverse {
+            params.push("7".to_owned());
+        }
+        if style.conceal {
+            params.push("8".to_owned());
+        }
+        if style.strikethrough {
+            params.push("9".to_owned());
+        }
+        if style.double_underline {
+            params.push("21".to_owned());
+        }
+        if style.overline {
+            params.push("53".to_owned());
+        }
+        match style.vertical_align {
+            VerticalAlign::Baseline => {}
+            VerticalAlign::Superscript => params.push("73".to_owned()),
+            VerticalAlign::Subscript => params.push("74".to_owned()),
+        }
+        append_color_sgr(58, style.underline_color, &mut params);
+        append_color_sgr(38, style.foreground, &mut params);
+        append_color_sgr(48, style.background, &mut params);
+
+        if params.is_empty() {
+            bytes.push(b'0');
+        } else {
+            bytes.extend_from_slice(params.join(";").as_bytes());
+        }
+        bytes.push(b'm');
+    }
+
+    fn append_underline_style_sgr(style: &Cell, params: &mut Vec<String>) {
+        match style.underline_style {
+            UnderlineStyle::None if style.double_underline => params.push("21".to_owned()),
+            UnderlineStyle::None if style.underline => params.push("4".to_owned()),
+            UnderlineStyle::None => {}
+            UnderlineStyle::Single => params.push("4".to_owned()),
+            UnderlineStyle::Double => params.push("21".to_owned()),
+            UnderlineStyle::Curly => params.push("4:3".to_owned()),
+            UnderlineStyle::Dotted => params.push("4:4".to_owned()),
+            UnderlineStyle::Dashed => params.push("4:5".to_owned()),
+        }
+    }
+
+    fn append_color_sgr(prefix: u8, color: Color, params: &mut Vec<String>) {
+        match color {
+            Color::Default => {}
+            Color::Indexed(index) => {
+                params.push(prefix.to_string());
+                params.push("5".to_owned());
+                params.push(index.to_string());
+            }
+            Color::Rgb(red, green, blue) => {
+                params.push(prefix.to_string());
+                params.push("2".to_owned());
+                params.push(red.to_string());
+                params.push(green.to_string());
+                params.push(blue.to_string());
+            }
+            Color::Rgba(red, green, blue, alpha) => {
+                params.push(prefix.to_string());
+                params.push("6".to_owned());
+                params.push(red.to_string());
+                params.push(green.to_string());
+                params.push(blue.to_string());
+                params.push(alpha.to_string());
+            }
+        }
+    }
+
+    fn append_cursor_shape_state(shape: CursorShape, bytes: &mut Vec<u8>) {
+        let value = match shape {
+            CursorShape::Block => 2,
+            CursorShape::Underline => 3,
+            CursorShape::Bar => 5,
+        };
+        bytes.extend_from_slice(value.to_string().as_bytes());
+        bytes.extend_from_slice(b" q");
+    }
+
+    fn append_scroll_region_state((top, bottom): (u16, u16), bytes: &mut Vec<u8>) {
+        bytes.extend_from_slice(top.saturating_add(1).to_string().as_bytes());
+        bytes.push(b';');
+        bytes.extend_from_slice(bottom.saturating_add(1).to_string().as_bytes());
+        bytes.push(b'r');
+    }
+
+    fn append_left_right_margin_state((left, right): (u16, u16), bytes: &mut Vec<u8>) {
+        bytes.extend_from_slice(left.saturating_add(1).to_string().as_bytes());
+        bytes.push(b';');
+        bytes.extend_from_slice(right.saturating_add(1).to_string().as_bytes());
+        bytes.push(b's');
+    }
+
+    #[derive(Clone)]
+    struct XtGetTcapResponse {
+        entries: Vec<XtGetTcapEntry>,
+    }
+
+    #[derive(Clone)]
+    struct XtGetTcapEntry {
+        name_hex: Vec<u8>,
+        value_hex: Option<Vec<u8>>,
+    }
+
+    impl XtGetTcapResponse {
+        fn response(&self) -> Vec<u8> {
+            let mut response = Vec::new();
+            if self.entries.is_empty() {
+                response.extend_from_slice(b"\x1bP0+r\x1b\\");
+                return response;
+            }
+
+            for entry in &self.entries {
+                let entry_start = response.len();
+                if let Some(value_hex) = &entry.value_hex {
+                    response.extend_from_slice(b"\x1bP1+r");
+                    extend_ascii_hex_uppercase(&mut response, &entry.name_hex);
+                    response.push(b'=');
+                    extend_ascii_hex_uppercase(&mut response, value_hex);
+                } else {
+                    response.extend_from_slice(b"\x1bP0+r");
+                    extend_ascii_hex_uppercase(&mut response, &entry.name_hex);
+                }
+                response.extend_from_slice(b"\x1b\\");
+                if response.len() > MAX_XTGETTCAP_RESPONSE_BYTES {
+                    response.truncate(entry_start);
+                    break;
+                }
+            }
+            response
+        }
+    }
+
+    fn find_dcs_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
+        let st =
+            find_subslice(bytes, b"\x1b\\").map(|index| OscColorTerminator { index, length: 2 });
+        let c1_st = bytes
+            .iter()
+            .position(|byte| *byte == 0x9c)
+            .map(|index| OscColorTerminator { index, length: 1 });
+        let utf8_c1_st = find_subslice(bytes, UTF8_C1_ST).map(|index| OscColorTerminator {
+            index,
+            length: UTF8_C1_ST.len(),
+        });
+
+        [st, c1_st, utf8_c1_st]
+            .into_iter()
+            .flatten()
+            .min_by_key(|terminator| terminator.index)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn xtgettcap_value_hex(name: &[u8], size: PtySize, terminal_name: &str) -> Option<Vec<u8>> {
+        match name {
         b"Co" | b"colors" => Some(b"323536".to_vec()),
         b"TN" | b"name" => Some(encode_ascii_hex(terminal_name.as_bytes())),
         b"RGB" => Some(b"382f382f38".to_vec()),
@@ -2737,653 +2730,667 @@ fn xtgettcap_value_hex(name: &[u8], size: PtySize, terminal_name: &str) -> Optio
         b"pairs" => Some(decimal_value_hex(0x7fff)),
         _ => None,
     }
-}
-
-fn xtgettcap_modified_function_key_hex(name: &[u8]) -> Option<Vec<u8>> {
-    let number = parse_ascii_decimal_u8(name.strip_prefix(b"kf")?)?;
-    let (function_key, modifier) = match number {
-        13..=24 => (number - 12, 2),
-        25..=36 => (number - 24, 5),
-        37..=48 => (number - 36, 6),
-        49..=60 => (number - 48, 3),
-        61..=63 => (number - 60, 4),
-        _ => return None,
-    };
-
-    let sequence = match function_key {
-        1 => format!("\x1b[1;{modifier}P"),
-        2 => format!("\x1b[1;{modifier}Q"),
-        3 => format!("\x1b[1;{modifier}R"),
-        4 => format!("\x1b[1;{modifier}S"),
-        5 => format!("\x1b[15;{modifier}~"),
-        6 => format!("\x1b[17;{modifier}~"),
-        7 => format!("\x1b[18;{modifier}~"),
-        8 => format!("\x1b[19;{modifier}~"),
-        9 => format!("\x1b[20;{modifier}~"),
-        10 => format!("\x1b[21;{modifier}~"),
-        11 => format!("\x1b[23;{modifier}~"),
-        12 => format!("\x1b[24;{modifier}~"),
-        _ => return None,
-    };
-
-    Some(encode_ascii_hex(sequence.as_bytes()))
-}
-
-fn parse_ascii_decimal_u8(bytes: &[u8]) -> Option<u8> {
-    if bytes.is_empty() {
-        return None;
     }
 
-    let mut value = 0u8;
-    for &byte in bytes {
-        if !byte.is_ascii_digit() {
+    fn xtgettcap_modified_function_key_hex(name: &[u8]) -> Option<Vec<u8>> {
+        let number = parse_ascii_decimal_u8(name.strip_prefix(b"kf")?)?;
+        let (function_key, modifier) = match number {
+            13..=24 => (number - 12, 2),
+            25..=36 => (number - 24, 5),
+            37..=48 => (number - 36, 6),
+            49..=60 => (number - 48, 3),
+            61..=63 => (number - 60, 4),
+            _ => return None,
+        };
+
+        let sequence = match function_key {
+            1 => format!("\x1b[1;{modifier}P"),
+            2 => format!("\x1b[1;{modifier}Q"),
+            3 => format!("\x1b[1;{modifier}R"),
+            4 => format!("\x1b[1;{modifier}S"),
+            5 => format!("\x1b[15;{modifier}~"),
+            6 => format!("\x1b[17;{modifier}~"),
+            7 => format!("\x1b[18;{modifier}~"),
+            8 => format!("\x1b[19;{modifier}~"),
+            9 => format!("\x1b[20;{modifier}~"),
+            10 => format!("\x1b[21;{modifier}~"),
+            11 => format!("\x1b[23;{modifier}~"),
+            12 => format!("\x1b[24;{modifier}~"),
+            _ => return None,
+        };
+
+        Some(encode_ascii_hex(sequence.as_bytes()))
+    }
+
+    fn parse_ascii_decimal_u8(bytes: &[u8]) -> Option<u8> {
+        if bytes.is_empty() {
             return None;
         }
-        value = value.checked_mul(10)?.checked_add(byte - b'0')?;
-    }
-    Some(value)
-}
 
-fn decimal_value_hex(value: u16) -> Vec<u8> {
-    encode_ascii_hex(value.to_string().as_bytes())
-}
-
-fn encode_ascii_hex(bytes: &[u8]) -> Vec<u8> {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = Vec::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        encoded.push(HEX[usize::from(byte >> 4)]);
-        encoded.push(HEX[usize::from(byte & 0x0f)]);
-    }
-    encoded
-}
-
-fn extend_ascii_hex_uppercase(output: &mut Vec<u8>, hex: &[u8]) {
-    output.extend(hex.iter().map(u8::to_ascii_uppercase));
-}
-
-#[derive(Clone, Copy)]
-struct XtSmGraphicsRequest {
-    item: u64,
-    action: u64,
-}
-
-impl XtSmGraphicsRequest {
-    const ACTION_READ_ATTRIBUTE: u64 = 1;
-    const ACTION_RESET_TO_DEFAULT: u64 = 2;
-    const ACTION_READ_MAXIMUM_ALLOWED_VALUE: u64 = 4;
-    const ITEM_NUMBER_OF_COLOR_REGISTERS: u64 = 1;
-    const ITEM_SIXEL_GRAPHICS_GEOMETRY: u64 = 2;
-    const ITEM_REGIS_GRAPHICS_GEOMETRY: u64 = 3;
-    const STATUS_SUCCESS: u64 = 0;
-    const STATUS_INVALID_ITEM: u64 = 1;
-    const STATUS_INVALID_ACTION: u64 = 2;
-
-    fn response(self, size: PtySize) -> Vec<u8> {
-        let (status, values) = self.status_and_values(size);
-        let mut response = format!("\x1b[?{};{}", self.item, status);
-        for value in values {
-            response.push(';');
-            response.push_str(&value.to_string());
-        }
-        response.push('S');
-        response.into_bytes()
-    }
-
-    fn status_and_values(self, size: PtySize) -> (u64, Vec<u32>) {
-        if !matches!(
-            self.item,
-            Self::ITEM_NUMBER_OF_COLOR_REGISTERS
-                | Self::ITEM_SIXEL_GRAPHICS_GEOMETRY
-                | Self::ITEM_REGIS_GRAPHICS_GEOMETRY
-        ) {
-            return (Self::STATUS_INVALID_ITEM, Vec::new());
-        }
-
-        match self.action {
-            Self::ACTION_READ_ATTRIBUTE | Self::ACTION_READ_MAXIMUM_ALLOWED_VALUE => {
-                (Self::STATUS_SUCCESS, self.values(size))
+        let mut value = 0u8;
+        for &byte in bytes {
+            if !byte.is_ascii_digit() {
+                return None;
             }
-            Self::ACTION_RESET_TO_DEFAULT => (Self::STATUS_SUCCESS, Vec::new()),
-            _ => (Self::STATUS_INVALID_ACTION, Vec::new()),
+            value = value.checked_mul(10)?.checked_add(byte - b'0')?;
+        }
+        Some(value)
+    }
+
+    fn decimal_value_hex(value: u16) -> Vec<u8> {
+        encode_ascii_hex(value.to_string().as_bytes())
+    }
+
+    pub(super) fn encode_ascii_hex(bytes: &[u8]) -> Vec<u8> {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut encoded = Vec::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            encoded.push(HEX[usize::from(byte >> 4)]);
+            encoded.push(HEX[usize::from(byte & 0x0f)]);
+        }
+        encoded
+    }
+
+    fn extend_ascii_hex_uppercase(output: &mut Vec<u8>, hex: &[u8]) {
+        output.extend(hex.iter().map(u8::to_ascii_uppercase));
+    }
+
+    #[derive(Clone, Copy)]
+    struct XtSmGraphicsRequest {
+        item: u64,
+        action: u64,
+    }
+
+    impl XtSmGraphicsRequest {
+        const ACTION_READ_ATTRIBUTE: u64 = 1;
+        const ACTION_RESET_TO_DEFAULT: u64 = 2;
+        const ACTION_READ_MAXIMUM_ALLOWED_VALUE: u64 = 4;
+        const ITEM_NUMBER_OF_COLOR_REGISTERS: u64 = 1;
+        const ITEM_SIXEL_GRAPHICS_GEOMETRY: u64 = 2;
+        const ITEM_REGIS_GRAPHICS_GEOMETRY: u64 = 3;
+        const STATUS_SUCCESS: u64 = 0;
+        const STATUS_INVALID_ITEM: u64 = 1;
+        const STATUS_INVALID_ACTION: u64 = 2;
+
+        fn response(self, size: PtySize) -> Vec<u8> {
+            let (status, values) = self.status_and_values(size);
+            let mut response = format!("\x1b[?{};{}", self.item, status);
+            for value in values {
+                response.push(';');
+                response.push_str(&value.to_string());
+            }
+            response.push('S');
+            response.into_bytes()
+        }
+
+        fn status_and_values(self, size: PtySize) -> (u64, Vec<u32>) {
+            if !matches!(
+                self.item,
+                Self::ITEM_NUMBER_OF_COLOR_REGISTERS
+                    | Self::ITEM_SIXEL_GRAPHICS_GEOMETRY
+                    | Self::ITEM_REGIS_GRAPHICS_GEOMETRY
+            ) {
+                return (Self::STATUS_INVALID_ITEM, Vec::new());
+            }
+
+            match self.action {
+                Self::ACTION_READ_ATTRIBUTE | Self::ACTION_READ_MAXIMUM_ALLOWED_VALUE => {
+                    (Self::STATUS_SUCCESS, self.values(size))
+                }
+                Self::ACTION_RESET_TO_DEFAULT => (Self::STATUS_SUCCESS, Vec::new()),
+                _ => (Self::STATUS_INVALID_ACTION, Vec::new()),
+            }
+        }
+
+        fn values(self, size: PtySize) -> Vec<u32> {
+            match self.item {
+                Self::ITEM_NUMBER_OF_COLOR_REGISTERS => vec![65_536],
+                Self::ITEM_SIXEL_GRAPHICS_GEOMETRY | Self::ITEM_REGIS_GRAPHICS_GEOMETRY => vec![
+                    u32::from(size.columns())
+                        * u32::from(LegacyTerminalOutputFilter::CELL_WIDTH_PIXELS),
+                    u32::from(size.rows())
+                        * u32::from(LegacyTerminalOutputFilter::CELL_HEIGHT_PIXELS),
+                ],
+                _ => Vec::new(),
+            }
         }
     }
 
-    fn values(self, size: PtySize) -> Vec<u32> {
-        match self.item {
-            Self::ITEM_NUMBER_OF_COLOR_REGISTERS => vec![65_536],
-            Self::ITEM_SIXEL_GRAPHICS_GEOMETRY | Self::ITEM_REGIS_GRAPHICS_GEOMETRY => vec![
-                u32::from(size.columns()) * u32::from(TerminalOutputFilter::CELL_WIDTH_PIXELS),
-                u32::from(size.rows()) * u32::from(TerminalOutputFilter::CELL_HEIGHT_PIXELS),
-            ],
-            _ => Vec::new(),
+    #[derive(Clone)]
+    struct OscColorResponse {
+        kinds: Vec<OscColorKind>,
+        terminator: OscResponseTerminator,
+    }
+
+    #[derive(Clone, Copy)]
+    enum OscColorKind {
+        DefaultForeground,
+        DefaultBackground,
+        Cursor,
+        Palette(u8),
+    }
+
+    #[derive(Clone, Copy)]
+    enum OscResponseTerminator {
+        Bel,
+        St,
+        C1St,
+    }
+
+    struct OscColorTerminator {
+        index: usize,
+        length: usize,
+    }
+
+    fn find_osc_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
+        let bel = bytes
+            .iter()
+            .position(|byte| *byte == b'\x07')
+            .map(|index| OscColorTerminator { index, length: 1 });
+        let st =
+            find_subslice(bytes, b"\x1b\\").map(|index| OscColorTerminator { index, length: 2 });
+        let c1_st = bytes
+            .iter()
+            .position(|byte| *byte == 0x9c)
+            .map(|index| OscColorTerminator { index, length: 1 });
+        let utf8_c1_st = find_subslice(bytes, UTF8_C1_ST).map(|index| OscColorTerminator {
+            index,
+            length: UTF8_C1_ST.len(),
+        });
+
+        [bel, st, c1_st, utf8_c1_st]
+            .into_iter()
+            .flatten()
+            .min_by_key(|terminator| terminator.index)
+    }
+
+    struct TerminalColorState {
+        foreground: DynamicColor,
+        background: DynamicColor,
+        cursor: DynamicColor,
+        palette_overrides: Vec<(u8, [u8; 3])>,
+        pending: Vec<u8>,
+    }
+
+    impl Default for TerminalColorState {
+        fn default() -> Self {
+            Self {
+                foreground: DynamicColor::rgb8(DEFAULT_FOREGROUND),
+                background: DynamicColor::rgb8(DEFAULT_BACKGROUND),
+                cursor: DynamicColor::rgb8(DEFAULT_CURSOR),
+                palette_overrides: Vec::new(),
+                pending: Vec::new(),
+            }
         }
     }
-}
 
-#[derive(Clone)]
-struct OscColorResponse {
-    kinds: Vec<OscColorKind>,
-    terminator: OscResponseTerminator,
-}
+    impl TerminalColorState {
+        const MAX_PENDING: usize = 1024 * 1024;
 
-#[derive(Clone, Copy)]
-enum OscColorKind {
-    DefaultForeground,
-    DefaultBackground,
-    Cursor,
-    Palette(u8),
-}
-
-#[derive(Clone, Copy)]
-enum OscResponseTerminator {
-    Bel,
-    St,
-    C1St,
-}
-
-struct OscColorTerminator {
-    index: usize,
-    length: usize,
-}
-
-fn find_osc_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
-    let bel = bytes
-        .iter()
-        .position(|byte| *byte == b'\x07')
-        .map(|index| OscColorTerminator { index, length: 1 });
-    let st = find_subslice(bytes, b"\x1b\\").map(|index| OscColorTerminator { index, length: 2 });
-    let c1_st = bytes
-        .iter()
-        .position(|byte| *byte == 0x9c)
-        .map(|index| OscColorTerminator { index, length: 1 });
-    let utf8_c1_st = find_subslice(bytes, UTF8_C1_ST).map(|index| OscColorTerminator {
-        index,
-        length: UTF8_C1_ST.len(),
-    });
-
-    [bel, st, c1_st, utf8_c1_st]
-        .into_iter()
-        .flatten()
-        .min_by_key(|terminator| terminator.index)
-}
-
-struct TerminalColorState {
-    foreground: DynamicColor,
-    background: DynamicColor,
-    cursor: DynamicColor,
-    palette_overrides: Vec<(u8, [u8; 3])>,
-    pending: Vec<u8>,
-}
-
-impl Default for TerminalColorState {
-    fn default() -> Self {
-        Self {
-            foreground: DynamicColor::rgb8(DEFAULT_FOREGROUND),
-            background: DynamicColor::rgb8(DEFAULT_BACKGROUND),
-            cursor: DynamicColor::rgb8(DEFAULT_CURSOR),
-            palette_overrides: Vec::new(),
-            pending: Vec::new(),
-        }
-    }
-}
-
-impl TerminalColorState {
-    const MAX_PENDING: usize = 1024 * 1024;
-
-    fn process(&mut self, bytes: &[u8]) {
-        self.pending.extend_from_slice(bytes);
-        if self.pending.len() > Self::MAX_PENDING {
-            self.pending.clear();
-            return;
-        }
-
-        loop {
-            let Some((index, prefix_len)) = find_next_osc_start(&self.pending) else {
-                self.retain_possible_prefix();
+        fn process(&mut self, bytes: &[u8]) {
+            self.pending.extend_from_slice(bytes);
+            if self.pending.len() > Self::MAX_PENDING {
+                self.pending.clear();
                 return;
-            };
-            if is_inside_osc_or_st_control_string(&self.pending, index) {
-                self.pending.drain(..index.saturating_add(1));
-                continue;
-            }
-            if index > 0 {
-                self.pending.drain(..index);
             }
 
-            let content_start = prefix_len;
-            let Some(terminator) = find_osc_terminator(&self.pending[content_start..]) else {
-                return;
-            };
-            let content_end = content_start + terminator.index;
-            if let Some(change) = parse_osc_color_change(&self.pending[content_start..content_end])
-            {
-                self.apply(change);
+            loop {
+                let Some((index, prefix_len)) = find_next_osc_start(&self.pending) else {
+                    self.retain_possible_prefix();
+                    return;
+                };
+                if is_inside_osc_or_st_control_string(&self.pending, index) {
+                    self.pending.drain(..index.saturating_add(1));
+                    continue;
+                }
+                if index > 0 {
+                    self.pending.drain(..index);
+                }
+
+                let content_start = prefix_len;
+                let Some(terminator) = find_osc_terminator(&self.pending[content_start..]) else {
+                    return;
+                };
+                let content_end = content_start + terminator.index;
+                if let Some(change) =
+                    parse_osc_color_change(&self.pending[content_start..content_end])
+                {
+                    self.apply(change);
+                }
+                self.pending.drain(..content_end + terminator.length);
             }
-            self.pending.drain(..content_end + terminator.length);
         }
-    }
 
-    fn response(&self, query: OscColorResponse) -> Vec<u8> {
-        let mut response = Vec::new();
-        for kind in query.kinds {
-            let mut item = match kind {
-                OscColorKind::DefaultForeground => {
-                    format!("\x1b]10;{}", color_response(self.foreground)).into_bytes()
-                }
-                OscColorKind::DefaultBackground => {
-                    format!("\x1b]11;{}", color_response(self.background)).into_bytes()
-                }
-                OscColorKind::Cursor => {
-                    format!("\x1b]12;{}", color_response(self.cursor)).into_bytes()
-                }
-                OscColorKind::Palette(index) => format!(
-                    "\x1b]4;{};{}",
-                    index,
-                    palette_color_response(self.palette_color(index))
-                )
-                .into_bytes(),
-            };
-            item.extend_from_slice(query.terminator.bytes());
-            response.extend(item);
+        fn response(&self, query: OscColorResponse) -> Vec<u8> {
+            let mut response = Vec::new();
+            for kind in query.kinds {
+                let mut item = match kind {
+                    OscColorKind::DefaultForeground => {
+                        format!("\x1b]10;{}", color_response(self.foreground)).into_bytes()
+                    }
+                    OscColorKind::DefaultBackground => {
+                        format!("\x1b]11;{}", color_response(self.background)).into_bytes()
+                    }
+                    OscColorKind::Cursor => {
+                        format!("\x1b]12;{}", color_response(self.cursor)).into_bytes()
+                    }
+                    OscColorKind::Palette(index) => format!(
+                        "\x1b]4;{};{}",
+                        index,
+                        palette_color_response(self.palette_color(index))
+                    )
+                    .into_bytes(),
+                };
+                item.extend_from_slice(query.terminator.bytes());
+                response.extend(item);
+            }
+            response
         }
-        response
-    }
 
-    fn apply(&mut self, change: OscColorChange) {
-        match change {
-            OscColorChange::DefaultForeground(color) => self.foreground = color,
-            OscColorChange::DefaultBackground(color) => self.background = color,
-            OscColorChange::Cursor(color) => self.cursor = color,
-            OscColorChange::ResetDefaultForeground => {
-                self.foreground = DynamicColor::rgb8(DEFAULT_FOREGROUND);
-            }
-            OscColorChange::ResetDefaultBackground => {
-                self.background = DynamicColor::rgb8(DEFAULT_BACKGROUND);
-            }
-            OscColorChange::ResetCursor => self.cursor = DynamicColor::rgb8(DEFAULT_CURSOR),
-            OscColorChange::ResetPalette(indices) => self
-                .palette_overrides
-                .retain(|(palette_index, _)| !indices.contains(palette_index)),
-            OscColorChange::ResetPaletteAll => self.palette_overrides.clear(),
-            OscColorChange::Palette(changes) => {
-                for (index, color) in changes {
-                    if let Some((_, existing)) = self
-                        .palette_overrides
-                        .iter_mut()
-                        .find(|(palette_index, _)| *palette_index == index)
-                    {
-                        *existing = color;
-                    } else {
-                        self.palette_overrides.push((index, color));
+        fn apply(&mut self, change: OscColorChange) {
+            match change {
+                OscColorChange::DefaultForeground(color) => self.foreground = color,
+                OscColorChange::DefaultBackground(color) => self.background = color,
+                OscColorChange::Cursor(color) => self.cursor = color,
+                OscColorChange::ResetDefaultForeground => {
+                    self.foreground = DynamicColor::rgb8(DEFAULT_FOREGROUND);
+                }
+                OscColorChange::ResetDefaultBackground => {
+                    self.background = DynamicColor::rgb8(DEFAULT_BACKGROUND);
+                }
+                OscColorChange::ResetCursor => self.cursor = DynamicColor::rgb8(DEFAULT_CURSOR),
+                OscColorChange::ResetPalette(indices) => self
+                    .palette_overrides
+                    .retain(|(palette_index, _)| !indices.contains(palette_index)),
+                OscColorChange::ResetPaletteAll => self.palette_overrides.clear(),
+                OscColorChange::Palette(changes) => {
+                    for (index, color) in changes {
+                        if let Some((_, existing)) = self
+                            .palette_overrides
+                            .iter_mut()
+                            .find(|(palette_index, _)| *palette_index == index)
+                        {
+                            *existing = color;
+                        } else {
+                            self.palette_overrides.push((index, color));
+                        }
                     }
                 }
             }
         }
-    }
 
-    fn palette_color(&self, index: u8) -> [u8; 3] {
-        self.palette_overrides
-            .iter()
-            .find_map(|(palette_index, color)| (*palette_index == index).then_some(*color))
-            .unwrap_or_else(|| indexed_color(index))
-    }
+        fn palette_color(&self, index: u8) -> [u8; 3] {
+            self.palette_overrides
+                .iter()
+                .find_map(|(palette_index, color)| (*palette_index == index).then_some(*color))
+                .unwrap_or_else(|| indexed_color(index))
+        }
 
-    fn retain_possible_prefix(&mut self) {
-        let retained = OSC_START_PREFIXES
-            .iter()
-            .map(|(prefix, _)| suffix_len_matching_prefix(&self.pending, prefix))
-            .max()
-            .unwrap_or(0);
-        let retained = retained
-            .max(incomplete_osc_control_sequence_suffix_len(&self.pending))
-            .max(incomplete_st_control_sequence_suffix_len(&self.pending));
-        let writable = self.pending.len().saturating_sub(retained);
-        if writable > 0 {
-            self.pending.drain(..writable);
+        fn retain_possible_prefix(&mut self) {
+            let retained = OSC_START_PREFIXES
+                .iter()
+                .map(|(prefix, _)| suffix_len_matching_prefix(&self.pending, prefix))
+                .max()
+                .unwrap_or(0);
+            let retained = retained
+                .max(incomplete_osc_control_sequence_suffix_len(&self.pending))
+                .max(incomplete_st_control_sequence_suffix_len(&self.pending));
+            let writable = self.pending.len().saturating_sub(retained);
+            if writable > 0 {
+                self.pending.drain(..writable);
+            }
         }
     }
-}
 
-#[derive(Clone)]
-enum OscColorChange {
-    DefaultForeground(DynamicColor),
-    DefaultBackground(DynamicColor),
-    Cursor(DynamicColor),
-    ResetDefaultForeground,
-    ResetDefaultBackground,
-    ResetCursor,
-    ResetPalette(Vec<u8>),
-    ResetPaletteAll,
-    Palette(Vec<(u8, [u8; 3])>),
-}
+    #[derive(Clone)]
+    enum OscColorChange {
+        DefaultForeground(DynamicColor),
+        DefaultBackground(DynamicColor),
+        Cursor(DynamicColor),
+        ResetDefaultForeground,
+        ResetDefaultBackground,
+        ResetCursor,
+        ResetPalette(Vec<u8>),
+        ResetPaletteAll,
+        Palette(Vec<(u8, [u8; 3])>),
+    }
 
-fn find_next_osc_start(bytes: &[u8]) -> Option<(usize, usize)> {
-    OSC_START_PREFIXES
-        .iter()
-        .filter_map(|(prefix, prefix_len)| {
-            find_subslice(bytes, prefix).map(|index| (index, *prefix_len))
+    fn find_next_osc_start(bytes: &[u8]) -> Option<(usize, usize)> {
+        OSC_START_PREFIXES
+            .iter()
+            .filter_map(|(prefix, prefix_len)| {
+                find_subslice(bytes, prefix).map(|index| (index, *prefix_len))
+            })
+            .min_by_key(|(index, _)| *index)
+    }
+
+    fn parse_osc_color_change(content: &[u8]) -> Option<OscColorChange> {
+        if let Some(color) = content.strip_prefix(b"10;").and_then(parse_color_spec) {
+            return Some(OscColorChange::DefaultForeground(color));
+        }
+        if let Some(color) = content.strip_prefix(b"11;").and_then(parse_color_spec) {
+            return Some(OscColorChange::DefaultBackground(color));
+        }
+        if let Some(color) = content.strip_prefix(b"12;").and_then(parse_color_spec) {
+            return Some(OscColorChange::Cursor(color));
+        }
+        if matches!(content, b"110" | b"110;") {
+            return Some(OscColorChange::ResetDefaultForeground);
+        }
+        if matches!(content, b"111" | b"111;") {
+            return Some(OscColorChange::ResetDefaultBackground);
+        }
+        if matches!(content, b"112" | b"112;") {
+            return Some(OscColorChange::ResetCursor);
+        }
+        if let Some(change) = parse_palette_reset_change(content) {
+            return Some(change);
+        }
+        parse_palette_color_change(content)
+    }
+
+    fn parse_palette_reset_change(content: &[u8]) -> Option<OscColorChange> {
+        if matches!(content, b"104" | b"104;") {
+            return Some(OscColorChange::ResetPaletteAll);
+        }
+        let rest = content.strip_prefix(b"104;")?;
+        let mut indices = Vec::new();
+        for index in rest.split(|byte| *byte == b';') {
+            indices.push(parse_u8_decimal(index)?);
+        }
+        (!indices.is_empty()).then_some(OscColorChange::ResetPalette(indices))
+    }
+
+    fn parse_palette_color_change(content: &[u8]) -> Option<OscColorChange> {
+        let rest = content.strip_prefix(b"4;")?;
+        let mut changes = Vec::new();
+        let mut parts = rest.split(|byte| *byte == b';');
+
+        while let Some(index) = parts.next() {
+            let color = parts.next()?;
+            changes.push((parse_u8_decimal(index)?, parse_color_spec(color)?.to_rgb8()));
+        }
+
+        (!changes.is_empty()).then_some(OscColorChange::Palette(changes))
+    }
+
+    fn parse_u8_decimal(bytes: &[u8]) -> Option<u8> {
+        if bytes.is_empty() {
+            return None;
+        }
+        bytes.iter().try_fold(0_u8, |value, byte| {
+            let digit = byte.checked_sub(b'0')?;
+            (digit <= 9)
+                .then_some(value)?
+                .checked_mul(10)?
+                .checked_add(digit)
         })
-        .min_by_key(|(index, _)| *index)
-}
-
-fn parse_osc_color_change(content: &[u8]) -> Option<OscColorChange> {
-    if let Some(color) = content.strip_prefix(b"10;").and_then(parse_color_spec) {
-        return Some(OscColorChange::DefaultForeground(color));
-    }
-    if let Some(color) = content.strip_prefix(b"11;").and_then(parse_color_spec) {
-        return Some(OscColorChange::DefaultBackground(color));
-    }
-    if let Some(color) = content.strip_prefix(b"12;").and_then(parse_color_spec) {
-        return Some(OscColorChange::Cursor(color));
-    }
-    if matches!(content, b"110" | b"110;") {
-        return Some(OscColorChange::ResetDefaultForeground);
-    }
-    if matches!(content, b"111" | b"111;") {
-        return Some(OscColorChange::ResetDefaultBackground);
-    }
-    if matches!(content, b"112" | b"112;") {
-        return Some(OscColorChange::ResetCursor);
-    }
-    if let Some(change) = parse_palette_reset_change(content) {
-        return Some(change);
-    }
-    parse_palette_color_change(content)
-}
-
-fn parse_palette_reset_change(content: &[u8]) -> Option<OscColorChange> {
-    if matches!(content, b"104" | b"104;") {
-        return Some(OscColorChange::ResetPaletteAll);
-    }
-    let rest = content.strip_prefix(b"104;")?;
-    let mut indices = Vec::new();
-    for index in rest.split(|byte| *byte == b';') {
-        indices.push(parse_u8_decimal(index)?);
-    }
-    (!indices.is_empty()).then_some(OscColorChange::ResetPalette(indices))
-}
-
-fn parse_palette_color_change(content: &[u8]) -> Option<OscColorChange> {
-    let rest = content.strip_prefix(b"4;")?;
-    let mut changes = Vec::new();
-    let mut parts = rest.split(|byte| *byte == b';');
-
-    while let Some(index) = parts.next() {
-        let color = parts.next()?;
-        changes.push((parse_u8_decimal(index)?, parse_color_spec(color)?.to_rgb8()));
     }
 
-    (!changes.is_empty()).then_some(OscColorChange::Palette(changes))
-}
-
-fn parse_u8_decimal(bytes: &[u8]) -> Option<u8> {
-    if bytes.is_empty() {
-        return None;
-    }
-    bytes.iter().try_fold(0_u8, |value, byte| {
-        let digit = byte.checked_sub(b'0')?;
-        (digit <= 9)
-            .then_some(value)?
-            .checked_mul(10)?
-            .checked_add(digit)
-    })
-}
-
-fn parse_color_spec(value: &[u8]) -> Option<DynamicColor> {
-    if let Some(hex) = value.strip_prefix(b"#") {
-        return parse_hex_color_spec(hex);
-    }
-    if let Some(rest) = value.strip_prefix(b"rgba:") {
-        return parse_slash_rgba_color_spec(rest);
-    }
-    if value.starts_with(b"rgba(") {
-        return parse_function_rgba_color_spec(value);
-    }
-
-    let rest = value.strip_prefix(b"rgb:")?;
-    let mut components = rest.split(|byte| *byte == b'/');
-    let red = parse_rgb_component(components.next()?)?;
-    let green = parse_rgb_component(components.next()?)?;
-    let blue = parse_rgb_component(components.next()?)?;
-    components
-        .next()
-        .is_none()
-        .then_some(DynamicColor::rgb(red, green, blue))
-}
-
-fn parse_hex_color_spec(hex: &[u8]) -> Option<DynamicColor> {
-    match hex.len() {
-        3 => Some(DynamicColor::rgb8([
-            parse_hex_digit(hex[0])? * 17,
-            parse_hex_digit(hex[1])? * 17,
-            parse_hex_digit(hex[2])? * 17,
-        ])),
-        6 => Some(DynamicColor::rgb8([
-            parse_hex_byte(&hex[0..2])?,
-            parse_hex_byte(&hex[2..4])?,
-            parse_hex_byte(&hex[4..6])?,
-        ])),
-        _ => None,
-    }
-}
-
-fn parse_slash_rgba_color_spec(value: &[u8]) -> Option<DynamicColor> {
-    let mut components = value.split(|byte| *byte == b'/');
-    let red = parse_hex_component16(components.next()?)?;
-    let green = parse_hex_component16(components.next()?)?;
-    let blue = parse_hex_component16(components.next()?)?;
-    let alpha = parse_hex_component16(components.next()?)?;
-    components
-        .next()
-        .is_none()
-        .then_some(DynamicColor::rgba(red, green, blue, alpha))
-}
-
-fn parse_function_rgba_color_spec(value: &[u8]) -> Option<DynamicColor> {
-    let inner = value.strip_prefix(b"rgba(")?.strip_suffix(b")")?;
-    let mut components = inner.split(|byte| *byte == b',');
-    let red = parse_u8_decimal(components.next()?.trim_ascii())?;
-    let green = parse_u8_decimal(components.next()?.trim_ascii())?;
-    let blue = parse_u8_decimal(components.next()?.trim_ascii())?;
-    let alpha = parse_alpha_float_component(components.next()?.trim_ascii())?;
-    components
-        .next()
-        .is_none()
-        .then_some(DynamicColor::rgba8(red, green, blue, alpha))
-}
-
-fn parse_rgb_component(component: &[u8]) -> Option<u16> {
-    match component.len() {
-        1 => parse_hex_digit(component[0]).map(|value| u16::from(value) * 0x1111),
-        2 => parse_hex_byte(component).map(DynamicColor::expand_byte),
-        3 | 4 => parse_hex_component16(component),
-        _ => None,
-    }
-}
-
-fn parse_hex_component16(component: &[u8]) -> Option<u16> {
-    match component.len() {
-        1 => parse_hex_digit(component[0]).map(|value| u16::from(value) * 0x1111),
-        2 => parse_hex_byte(component).map(DynamicColor::expand_byte),
-        3 => Some(
-            parse_hex_digit(component[0]).map(u16::from)? * 0x1000
-                + parse_hex_digit(component[1]).map(u16::from)? * 0x100
-                + parse_hex_digit(component[2]).map(u16::from)? * 0x10,
-        ),
-        4 => Some(
-            parse_hex_digit(component[0]).map(u16::from)? * 0x1000
-                + parse_hex_digit(component[1]).map(u16::from)? * 0x100
-                + parse_hex_digit(component[2]).map(u16::from)? * 0x10
-                + parse_hex_digit(component[3]).map(u16::from)?,
-        ),
-        _ => None,
-    }
-}
-
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn parse_alpha_float_component(component: &[u8]) -> Option<u16> {
-    let text = std::str::from_utf8(component).ok()?;
-    let value = text.parse::<f32>().ok()?;
-    if !(0.0..=1.0).contains(&value) {
-        return None;
-    }
-    Some((value * f32::from(u16::MAX)).round() as u16)
-}
-
-fn parse_hex_byte(bytes: &[u8]) -> Option<u8> {
-    Some(parse_hex_digit(bytes[0])? * 16 + parse_hex_digit(bytes[1])?)
-}
-
-fn parse_hex_digit(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
-}
-
-impl OscResponseTerminator {
-    const fn bytes(self) -> &'static [u8] {
-        match self {
-            Self::Bel => b"\x07",
-            Self::St => b"\x1b\\",
-            Self::C1St => b"\x9c",
+    fn parse_color_spec(value: &[u8]) -> Option<DynamicColor> {
+        if let Some(hex) = value.strip_prefix(b"#") {
+            return parse_hex_color_spec(hex);
         }
-    }
-}
+        if let Some(rest) = value.strip_prefix(b"rgba:") {
+            return parse_slash_rgba_color_spec(rest);
+        }
+        if value.starts_with(b"rgba(") {
+            return parse_function_rgba_color_spec(value);
+        }
 
-const DEFAULT_FOREGROUND: [u8; 3] = [229, 229, 229];
-const DEFAULT_BACKGROUND: [u8; 3] = [12, 12, 12];
-const DEFAULT_CURSOR: [u8; 3] = DEFAULT_FOREGROUND;
-
-#[derive(Clone, Copy)]
-struct DynamicColor {
-    red: u16,
-    green: u16,
-    blue: u16,
-    alpha: Option<u16>,
-}
-
-impl DynamicColor {
-    const fn rgb8(color: [u8; 3]) -> Self {
-        Self::rgb(
-            color[0] as u16 * 0x101,
-            color[1] as u16 * 0x101,
-            color[2] as u16 * 0x101,
-        )
+        let rest = value.strip_prefix(b"rgb:")?;
+        let mut components = rest.split(|byte| *byte == b'/');
+        let red = parse_rgb_component(components.next()?)?;
+        let green = parse_rgb_component(components.next()?)?;
+        let blue = parse_rgb_component(components.next()?)?;
+        components
+            .next()
+            .is_none()
+            .then_some(DynamicColor::rgb(red, green, blue))
     }
 
-    const fn rgb(red: u16, green: u16, blue: u16) -> Self {
-        Self {
-            red,
-            green,
-            blue,
-            alpha: None,
+    fn parse_hex_color_spec(hex: &[u8]) -> Option<DynamicColor> {
+        match hex.len() {
+            3 => Some(DynamicColor::rgb8([
+                parse_hex_digit(hex[0])? * 17,
+                parse_hex_digit(hex[1])? * 17,
+                parse_hex_digit(hex[2])? * 17,
+            ])),
+            6 => Some(DynamicColor::rgb8([
+                parse_hex_byte(&hex[0..2])?,
+                parse_hex_byte(&hex[2..4])?,
+                parse_hex_byte(&hex[4..6])?,
+            ])),
+            _ => None,
         }
     }
 
-    const fn rgba(red: u16, green: u16, blue: u16, alpha: u16) -> Self {
-        Self {
-            red,
-            green,
-            blue,
-            alpha: Some(alpha),
+    fn parse_slash_rgba_color_spec(value: &[u8]) -> Option<DynamicColor> {
+        let mut components = value.split(|byte| *byte == b'/');
+        let red = parse_hex_component16(components.next()?)?;
+        let green = parse_hex_component16(components.next()?)?;
+        let blue = parse_hex_component16(components.next()?)?;
+        let alpha = parse_hex_component16(components.next()?)?;
+        components
+            .next()
+            .is_none()
+            .then_some(DynamicColor::rgba(red, green, blue, alpha))
+    }
+
+    fn parse_function_rgba_color_spec(value: &[u8]) -> Option<DynamicColor> {
+        let inner = value.strip_prefix(b"rgba(")?.strip_suffix(b")")?;
+        let mut components = inner.split(|byte| *byte == b',');
+        let red = parse_u8_decimal(components.next()?.trim_ascii())?;
+        let green = parse_u8_decimal(components.next()?.trim_ascii())?;
+        let blue = parse_u8_decimal(components.next()?.trim_ascii())?;
+        let alpha = parse_alpha_float_component(components.next()?.trim_ascii())?;
+        components
+            .next()
+            .is_none()
+            .then_some(DynamicColor::rgba8(red, green, blue, alpha))
+    }
+
+    fn parse_rgb_component(component: &[u8]) -> Option<u16> {
+        match component.len() {
+            1 => parse_hex_digit(component[0]).map(|value| u16::from(value) * 0x1111),
+            2 => parse_hex_byte(component).map(DynamicColor::expand_byte),
+            3 | 4 => parse_hex_component16(component),
+            _ => None,
         }
     }
 
-    const fn rgba8(red: u8, green: u8, blue: u8, alpha: u16) -> Self {
-        Self::rgba(
-            Self::expand_byte(red),
-            Self::expand_byte(green),
-            Self::expand_byte(blue),
-            alpha,
-        )
+    fn parse_hex_component16(component: &[u8]) -> Option<u16> {
+        match component.len() {
+            1 => parse_hex_digit(component[0]).map(|value| u16::from(value) * 0x1111),
+            2 => parse_hex_byte(component).map(DynamicColor::expand_byte),
+            3 => Some(
+                parse_hex_digit(component[0]).map(u16::from)? * 0x1000
+                    + parse_hex_digit(component[1]).map(u16::from)? * 0x100
+                    + parse_hex_digit(component[2]).map(u16::from)? * 0x10,
+            ),
+            4 => Some(
+                parse_hex_digit(component[0]).map(u16::from)? * 0x1000
+                    + parse_hex_digit(component[1]).map(u16::from)? * 0x100
+                    + parse_hex_digit(component[2]).map(u16::from)? * 0x10
+                    + parse_hex_digit(component[3]).map(u16::from)?,
+            ),
+            _ => None,
+        }
     }
 
-    const fn expand_byte(value: u8) -> u16 {
-        value as u16 * 0x101
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn parse_alpha_float_component(component: &[u8]) -> Option<u16> {
+        let text = std::str::from_utf8(component).ok()?;
+        let value = text.parse::<f32>().ok()?;
+        if !(0.0..=1.0).contains(&value) {
+            return None;
+        }
+        Some((value * f32::from(u16::MAX)).round() as u16)
     }
 
-    const fn to_rgb8(self) -> [u8; 3] {
-        [
-            (self.red >> 8) as u8,
-            (self.green >> 8) as u8,
-            (self.blue >> 8) as u8,
-        ]
-    }
-}
-
-fn color_response(color: DynamicColor) -> String {
-    match color.alpha {
-        Some(alpha) => format!(
-            "rgba:{:04x}/{:04x}/{:04x}/{:04x}",
-            color.red, color.green, color.blue, alpha
-        ),
-        None => format!(
-            "rgb:{:04x}/{:04x}/{:04x}",
-            color.red, color.green, color.blue
-        ),
-    }
-}
-
-fn palette_color_response(color: [u8; 3]) -> String {
-    color_response(DynamicColor::rgb8(color))
-}
-
-fn indexed_color(index: u8) -> [u8; 3] {
-    const ANSI: [[u8; 3]; 16] = [
-        [0, 0, 0],
-        [205, 49, 49],
-        [13, 188, 121],
-        [229, 229, 16],
-        [36, 114, 200],
-        [188, 63, 188],
-        [17, 168, 205],
-        [229, 229, 229],
-        [102, 102, 102],
-        [241, 76, 76],
-        [35, 209, 139],
-        [245, 245, 67],
-        [59, 142, 234],
-        [214, 112, 214],
-        [41, 184, 219],
-        [255, 255, 255],
-    ];
-
-    if let Some(color) = ANSI.get(usize::from(index)) {
-        return *color;
+    fn parse_hex_byte(bytes: &[u8]) -> Option<u8> {
+        Some(parse_hex_digit(bytes[0])? * 16 + parse_hex_digit(bytes[1])?)
     }
 
-    if (16..=231).contains(&index) {
-        let cube_index = index - 16;
-        return [
-            xterm_color_cube_intensity(cube_index / 36),
-            xterm_color_cube_intensity((cube_index / 6) % 6),
-            xterm_color_cube_intensity(cube_index % 6),
+    fn parse_hex_digit(byte: u8) -> Option<u8> {
+        match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            b'A'..=b'F' => Some(byte - b'A' + 10),
+            _ => None,
+        }
+    }
+
+    impl OscResponseTerminator {
+        const fn bytes(self) -> &'static [u8] {
+            match self {
+                Self::Bel => b"\x07",
+                Self::St => b"\x1b\\",
+                Self::C1St => b"\x9c",
+            }
+        }
+    }
+
+    const DEFAULT_FOREGROUND: [u8; 3] = [229, 229, 229];
+    const DEFAULT_BACKGROUND: [u8; 3] = [12, 12, 12];
+    const DEFAULT_CURSOR: [u8; 3] = DEFAULT_FOREGROUND;
+
+    #[derive(Clone, Copy)]
+    struct DynamicColor {
+        red: u16,
+        green: u16,
+        blue: u16,
+        alpha: Option<u16>,
+    }
+
+    impl DynamicColor {
+        const fn rgb8(color: [u8; 3]) -> Self {
+            Self::rgb(
+                color[0] as u16 * 0x101,
+                color[1] as u16 * 0x101,
+                color[2] as u16 * 0x101,
+            )
+        }
+
+        const fn rgb(red: u16, green: u16, blue: u16) -> Self {
+            Self {
+                red,
+                green,
+                blue,
+                alpha: None,
+            }
+        }
+
+        const fn rgba(red: u16, green: u16, blue: u16, alpha: u16) -> Self {
+            Self {
+                red,
+                green,
+                blue,
+                alpha: Some(alpha),
+            }
+        }
+
+        const fn rgba8(red: u8, green: u8, blue: u8, alpha: u16) -> Self {
+            Self::rgba(
+                Self::expand_byte(red),
+                Self::expand_byte(green),
+                Self::expand_byte(blue),
+                alpha,
+            )
+        }
+
+        const fn expand_byte(value: u8) -> u16 {
+            value as u16 * 0x101
+        }
+
+        const fn to_rgb8(self) -> [u8; 3] {
+            [
+                (self.red >> 8) as u8,
+                (self.green >> 8) as u8,
+                (self.blue >> 8) as u8,
+            ]
+        }
+    }
+
+    fn color_response(color: DynamicColor) -> String {
+        match color.alpha {
+            Some(alpha) => format!(
+                "rgba:{:04x}/{:04x}/{:04x}/{:04x}",
+                color.red, color.green, color.blue, alpha
+            ),
+            None => format!(
+                "rgb:{:04x}/{:04x}/{:04x}",
+                color.red, color.green, color.blue
+            ),
+        }
+    }
+
+    fn palette_color_response(color: [u8; 3]) -> String {
+        color_response(DynamicColor::rgb8(color))
+    }
+
+    fn indexed_color(index: u8) -> [u8; 3] {
+        const ANSI: [[u8; 3]; 16] = [
+            [0, 0, 0],
+            [205, 49, 49],
+            [13, 188, 121],
+            [229, 229, 16],
+            [36, 114, 200],
+            [188, 63, 188],
+            [17, 168, 205],
+            [229, 229, 229],
+            [102, 102, 102],
+            [241, 76, 76],
+            [35, 209, 139],
+            [245, 245, 67],
+            [59, 142, 234],
+            [214, 112, 214],
+            [41, 184, 219],
+            [255, 255, 255],
         ];
+
+        if let Some(color) = ANSI.get(usize::from(index)) {
+            return *color;
+        }
+
+        if (16..=231).contains(&index) {
+            let cube_index = index - 16;
+            return [
+                xterm_color_cube_intensity(cube_index / 36),
+                xterm_color_cube_intensity((cube_index / 6) % 6),
+                xterm_color_cube_intensity(cube_index % 6),
+            ];
+        }
+
+        let level = 8 + (index - 232) * 10;
+        [level, level, level]
     }
 
-    let level = 8 + (index - 232) * 10;
-    [level, level, level]
+    const fn xterm_color_cube_intensity(value: u8) -> u8 {
+        if value == 0 { 0 } else { 55 + value * 40 }
+    }
+
+    fn suffix_len_matching_prefix(haystack: &[u8], needle: &[u8]) -> usize {
+        let max = haystack.len().min(needle.len().saturating_sub(1));
+        (1..=max)
+            .rev()
+            .find(|&length| {
+                let suffix_start = haystack.len() - length;
+                haystack[suffix_start..] == needle[..length]
+                    && !raw_c1_prefix_is_utf8_continuation(
+                        haystack,
+                        suffix_start,
+                        &needle[..length],
+                    )
+            })
+            .unwrap_or(0)
+    }
 }
 
-const fn xterm_color_cube_intensity(value: u8) -> u8 {
-    if value == 0 { 0 } else { 55 + value * 40 }
-}
-
-fn suffix_len_matching_prefix(haystack: &[u8], needle: &[u8]) -> usize {
-    let max = haystack.len().min(needle.len().saturating_sub(1));
-    (1..=max)
-        .rev()
-        .find(|&length| {
-            let suffix_start = haystack.len() - length;
-            haystack[suffix_start..] == needle[..length]
-                && !raw_c1_prefix_is_utf8_continuation(haystack, suffix_start, &needle[..length])
-        })
-        .unwrap_or(0)
-}
+#[cfg(test)]
+use legacy_terminal_output::{
+    LegacyTerminalOutputFilter as TerminalOutputFilter, encode_ascii_hex,
+};
 
 #[derive(Clone, Copy, Default)]
 struct InputModes {
@@ -3517,7 +3524,7 @@ fn encode_bracketed_paste(text: &str) -> Vec<u8> {
 }
 
 fn encode_mouse_event(event: MouseEvent, mode: MouseInputMode) -> Option<Vec<u8>> {
-    if !mode.allows(event.kind) {
+    if !mouse_input_mode_allows(mode, event.kind) {
         return None;
     }
 
@@ -6737,24 +6744,6 @@ mod tests {
 
         assert_eq!(resolved.columns(), 101);
         assert_eq!(resolved.rows(), 31);
-    }
-
-    #[test]
-    fn terminal_output_filter_passes_plain_output() {
-        let mut filter = TerminalOutputFilter::default();
-        let mut output = Vec::new();
-        let mut responses = Vec::new();
-
-        filter
-            .write(b"hello", &mut output, |response| {
-                responses.extend_from_slice(response);
-                Ok(())
-            })
-            .unwrap();
-        filter.flush(&mut output).unwrap();
-
-        assert_eq!(output, b"hello");
-        assert!(responses.is_empty());
     }
 
     #[test]

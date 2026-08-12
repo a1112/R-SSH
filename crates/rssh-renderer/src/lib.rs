@@ -50,7 +50,7 @@ pub struct RenderCell {
     pub overline: bool,
     pub vertical_align: VerticalAlign,
     pub inverse: bool,
-    pub hyperlink: Option<String>,
+    pub hyperlink: Option<Arc<str>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3039,9 +3039,9 @@ impl Surface<'_> {
         let pixel_count =
             usize::try_from(u64::from(self.width).saturating_mul(u64::from(self.height)))
                 .unwrap_or(usize::MAX);
-        for pixel in self.target.chunks_exact_mut(4).take(pixel_count) {
-            pixel.copy_from_slice(&color);
-        }
+        let (pixels, _) = self.target.as_chunks_mut::<4>();
+        let fill_len = pixel_count.min(pixels.len());
+        pixels[..fill_len].fill(color);
     }
 
     fn fill_rect(&mut self, rect: Rect, color: [u8; 4]) {
@@ -3049,11 +3049,10 @@ impl Surface<'_> {
         let max_x = rect.x.saturating_add(rect.width).min(self.width);
 
         for row in rect.y..max_y {
-            for column in rect.x..max_x {
-                let index = ((row * self.width + column) * 4) as usize;
-                if let Some(pixel) = self.target.get_mut(index..index + 4) {
-                    pixel.copy_from_slice(&color);
-                }
+            if let Some(range) = self.clipped_row_byte_range(row, rect.x, max_x) {
+                let (pixels, remainder) = self.target[range].as_chunks_mut::<4>();
+                debug_assert!(remainder.is_empty());
+                pixels.fill(color);
             }
         }
     }
@@ -3073,9 +3072,10 @@ impl Surface<'_> {
         let inverse_alpha = u16::from(u8::MAX).saturating_sub(alpha);
 
         for row in rect.y..max_y {
-            for column in rect.x..max_x {
-                let index = ((row * self.width + column) * 4) as usize;
-                if let Some(pixel) = self.target.get_mut(index..index + 4) {
+            if let Some(range) = self.clipped_row_byte_range(row, rect.x, max_x) {
+                let (pixels, remainder) = self.target[range].as_chunks_mut::<4>();
+                debug_assert!(remainder.is_empty());
+                for pixel in pixels {
                     pixel[0] = blend_channel(color[0], pixel[0], alpha, inverse_alpha);
                     pixel[1] = blend_channel(color[1], pixel[1], alpha, inverse_alpha);
                     pixel[2] = blend_channel(color[2], pixel[2], alpha, inverse_alpha);
@@ -3083,6 +3083,80 @@ impl Surface<'_> {
                 }
             }
         }
+    }
+
+    fn clipped_row_byte_range(
+        &self,
+        row: u32,
+        start_x: u32,
+        end_x: u32,
+    ) -> Option<std::ops::Range<usize>> {
+        if row >= self.height || start_x >= end_x || start_x >= self.width {
+            return None;
+        }
+        let end_x = end_x.min(self.width);
+        let row_start = u64::from(row).saturating_mul(u64::from(self.width));
+        let start = row_start
+            .saturating_add(u64::from(start_x))
+            .saturating_mul(4);
+        let end = row_start.saturating_add(u64::from(end_x)).saturating_mul(4);
+        let start = usize::try_from(start).ok()?;
+        let complete_target_len = self.target.len() - self.target.len() % 4;
+        if start >= complete_target_len {
+            return None;
+        }
+        let end = usize::try_from(end)
+            .unwrap_or(usize::MAX)
+            .min(complete_target_len);
+        (start < end).then_some(start..end)
+    }
+
+    fn try_fill_basic_glyph_8x16(
+        &mut self,
+        glyph: [u8; 8],
+        origin_x: u32,
+        origin_y: u32,
+        color: [u8; 4],
+    ) -> bool {
+        if origin_x
+            .checked_add(8)
+            .is_none_or(|right| right > self.width)
+            || origin_y
+                .checked_add(16)
+                .is_none_or(|bottom| bottom > self.height)
+        {
+            return false;
+        }
+        let required_len = u64::from(self.width)
+            .checked_mul(u64::from(self.height))
+            .and_then(|pixels| pixels.checked_mul(4))
+            .and_then(|bytes| usize::try_from(bytes).ok());
+        if required_len.is_none_or(|required_len| self.target.len() < required_len) {
+            return false;
+        }
+
+        for (glyph_y, row_bits) in glyph.iter().copied().enumerate() {
+            if row_bits == 0 {
+                continue;
+            }
+            let glyph_y = u32::try_from(glyph_y).unwrap_or(0);
+            let draw_y = origin_y + glyph_y * 2;
+            for row in draw_y..draw_y + 2 {
+                let row_start = usize::try_from(
+                    (u64::from(row) * u64::from(self.width) + u64::from(origin_x)) * 4,
+                )
+                .expect("the complete framebuffer length was validated above");
+                let (pixels, remainder) =
+                    self.target[row_start..row_start + 8 * 4].as_chunks_mut::<4>();
+                debug_assert!(remainder.is_empty());
+                for (glyph_x, pixel) in pixels.iter_mut().enumerate() {
+                    if row_bits & (1 << glyph_x) != 0 {
+                        *pixel = color;
+                    }
+                }
+            }
+        }
+        true
     }
 
     fn stroke_rect(&mut self, rect: Rect, color: [u8; 4], alpha: u8) {
@@ -4769,55 +4843,22 @@ fn render_cell_foreground(
         return;
     };
 
-    let scale_x = cell_width.max(8) / 8;
-    let scale_y = cell_height.max(8) / 8;
-
-    for (glyph_y, row_bits) in glyph.iter().enumerate() {
-        let row_offset = italic_row_offset(glyph_y, scale_x, cell.italic);
-        for glyph_x in 0..8 {
-            if row_bits & (1 << glyph_x) == 0 {
-                continue;
-            }
-
-            let draw_x = origin_x + glyph_x * scale_x + row_offset;
-            let Some(draw_y) = vertical_aligned_y(
-                origin_y,
-                cell_height,
-                u32::try_from(glyph_y).unwrap_or(0) * scale_y,
-                cell.vertical_align,
-            ) else {
-                continue;
-            };
-            let Some(width) = clipped_cell_width(draw_x, origin_x, cell_width, scale_x) else {
-                continue;
-            };
-            surface.fill_rect_alpha(
-                Rect {
-                    x: draw_x,
-                    y: draw_y,
-                    width,
-                    height: scale_y,
-                },
-                foreground,
-                foreground_alpha,
-            );
-            let bold_x = draw_x.saturating_add(scale_x);
-            if cell_draws_bold(cell, bold_brightens_ansi_colors)
-                && bold_x < origin_x.saturating_add(cell_width)
-            {
-                surface.fill_rect_alpha(
-                    Rect {
-                        x: bold_x,
-                        y: draw_y,
-                        width: scale_x,
-                        height: scale_y,
-                    },
-                    foreground,
-                    foreground_alpha,
-                );
-            }
-        }
-    }
+    let draws_bold = cell_draws_bold(cell, bold_brightens_ansi_colors);
+    render_basic_glyph(
+        surface,
+        BasicGlyphRender {
+            glyph,
+            origin_x,
+            origin_y,
+            cell_width,
+            cell_height,
+            foreground,
+            foreground_alpha,
+            italic: cell.italic,
+            draws_bold,
+            vertical_align: cell.vertical_align,
+        },
+    );
 
     render_text_decorations(
         surface,
@@ -4841,6 +4882,160 @@ fn render_cell_foreground(
         strikethrough_position,
         window_dpi,
     );
+}
+
+#[derive(Clone, Copy)]
+struct BasicGlyphRender {
+    glyph: [u8; 8],
+    origin_x: u32,
+    origin_y: u32,
+    cell_width: u32,
+    cell_height: u32,
+    foreground: [u8; 4],
+    foreground_alpha: u8,
+    italic: bool,
+    draws_bold: bool,
+    vertical_align: VerticalAlign,
+}
+
+fn render_basic_glyph(surface: &mut Surface<'_>, render: BasicGlyphRender) {
+    let BasicGlyphRender {
+        glyph,
+        origin_x,
+        origin_y,
+        cell_width,
+        cell_height,
+        foreground,
+        foreground_alpha,
+        italic,
+        draws_bold,
+        vertical_align,
+    } = render;
+    let scale_x = cell_width.max(8) / 8;
+    let scale_y = cell_height.max(8) / 8;
+    let rendered_fast = foreground_alpha == u8::MAX
+        && cell_width == 8
+        && cell_height == 16
+        && !italic
+        && !draws_bold
+        && vertical_align == VerticalAlign::Baseline
+        && surface.try_fill_basic_glyph_8x16(glyph, origin_x, origin_y, foreground);
+    if rendered_fast {
+        return;
+    }
+
+    for (glyph_y, row_bits) in glyph.iter().enumerate() {
+        if *row_bits == 0 {
+            continue;
+        }
+        let row_offset = italic_row_offset(glyph_y, scale_x, italic);
+        let Some(draw_y) = vertical_aligned_y(
+            origin_y,
+            cell_height,
+            u32::try_from(glyph_y).unwrap_or(0) * scale_y,
+            vertical_align,
+        ) else {
+            continue;
+        };
+        if foreground_alpha == u8::MAX {
+            for_each_opaque_glyph_row_run(
+                *row_bits,
+                origin_x,
+                cell_width,
+                scale_x,
+                row_offset,
+                draws_bold,
+                |draw_x, width| {
+                    surface.fill_rect(
+                        Rect {
+                            x: draw_x,
+                            y: draw_y,
+                            width,
+                            height: scale_y,
+                        },
+                        foreground,
+                    );
+                },
+            );
+            continue;
+        }
+        render_translucent_glyph_row(
+            surface,
+            TranslucentGlyphRow {
+                row_bits: *row_bits,
+                origin_x,
+                draw_y,
+                cell_width,
+                scale_x,
+                scale_y,
+                row_offset,
+                foreground,
+                foreground_alpha,
+                draws_bold,
+            },
+        );
+    }
+}
+
+#[derive(Clone, Copy)]
+struct TranslucentGlyphRow {
+    row_bits: u8,
+    origin_x: u32,
+    draw_y: u32,
+    cell_width: u32,
+    scale_x: u32,
+    scale_y: u32,
+    row_offset: u32,
+    foreground: [u8; 4],
+    foreground_alpha: u8,
+    draws_bold: bool,
+}
+
+fn render_translucent_glyph_row(surface: &mut Surface<'_>, row: TranslucentGlyphRow) {
+    let TranslucentGlyphRow {
+        row_bits,
+        origin_x,
+        draw_y,
+        cell_width,
+        scale_x,
+        scale_y,
+        row_offset,
+        foreground,
+        foreground_alpha,
+        draws_bold,
+    } = row;
+    for glyph_x in 0..8 {
+        if row_bits & (1 << glyph_x) == 0 {
+            continue;
+        }
+        let draw_x = origin_x + glyph_x * scale_x + row_offset;
+        let Some(width) = clipped_cell_width(draw_x, origin_x, cell_width, scale_x) else {
+            continue;
+        };
+        surface.fill_rect_alpha(
+            Rect {
+                x: draw_x,
+                y: draw_y,
+                width,
+                height: scale_y,
+            },
+            foreground,
+            foreground_alpha,
+        );
+        let bold_x = draw_x.saturating_add(scale_x);
+        if draws_bold && bold_x < origin_x.saturating_add(cell_width) {
+            surface.fill_rect_alpha(
+                Rect {
+                    x: bold_x,
+                    y: draw_y,
+                    width: scale_x,
+                    height: scale_y,
+                },
+                foreground,
+                foreground_alpha,
+            );
+        }
+    }
 }
 
 fn text_foreground_alpha(
@@ -4957,6 +5152,74 @@ fn clipped_cell_width(draw_x: u32, origin_x: u32, cell_width: u32, width: u32) -
         None
     } else {
         Some(width.min(cell_right - draw_x))
+    }
+}
+
+fn for_each_opaque_glyph_row_run(
+    row_bits: u8,
+    origin_x: u32,
+    cell_width: u32,
+    scale_x: u32,
+    row_offset: u32,
+    bold: bool,
+    mut callback: impl FnMut(u32, u32),
+) {
+    if !bold {
+        let mut coverage = u16::from(row_bits);
+        while coverage != 0 {
+            let run_start = coverage.trailing_zeros();
+            let run_len = (coverage >> run_start).trailing_ones();
+            let run_mask =
+                u16::try_from(((1_u32 << run_len) - 1).checked_shl(run_start).unwrap_or(0))
+                    .unwrap_or(u16::MAX);
+            coverage &= !run_mask;
+            let draw_x = origin_x
+                .saturating_add(run_start.saturating_mul(scale_x))
+                .saturating_add(row_offset);
+            let run_width = run_len.saturating_mul(scale_x);
+            if let Some(width) = clipped_cell_width(draw_x, origin_x, cell_width, run_width) {
+                callback(draw_x, width);
+            }
+        }
+        return;
+    }
+
+    let mut run = None::<(u32, u32)>;
+    {
+        let mut include_interval = |start: u32, width: u32| {
+            if width == 0 {
+                return;
+            }
+            let end = start.saturating_add(width);
+            match run {
+                Some((run_start, run_end)) if start <= run_end => {
+                    run = Some((run_start, run_end.max(end)));
+                }
+                Some((run_start, run_end)) => {
+                    callback(run_start, run_end.saturating_sub(run_start));
+                    run = Some((start, end));
+                }
+                None => run = Some((start, end)),
+            }
+        };
+        for glyph_x in 0_u32..8 {
+            if row_bits & (1 << glyph_x) == 0 {
+                continue;
+            }
+            let draw_x = origin_x
+                .saturating_add(glyph_x.saturating_mul(scale_x))
+                .saturating_add(row_offset);
+            if let Some(width) = clipped_cell_width(draw_x, origin_x, cell_width, scale_x) {
+                include_interval(draw_x, width);
+            }
+            let bold_x = draw_x.saturating_add(scale_x);
+            if bold && bold_x < origin_x.saturating_add(cell_width) {
+                include_interval(bold_x, scale_x);
+            }
+        }
+    }
+    if let Some((run_start, run_end)) = run {
+        callback(run_start, run_end.saturating_sub(run_start));
     }
 }
 
@@ -6690,6 +6953,7 @@ mod tests {
         },
     };
 
+    use font8x8::UnicodeFonts as _;
     use rssh_core::TerminalSize;
     use rssh_terminal::{
         Cell, Color, CursorShape, InlineImageFormat, Terminal, TerminalGrid, UnderlineStyle,
@@ -6697,15 +6961,16 @@ mod tests {
     };
 
     use super::{
-        DamageRegion, DecodedImage, ImageDrawPlan, ImageTiePolicy, PixelRenderer, Rect,
-        RenderBackgroundGradientHsb, RenderBackgroundImage, RenderBackgroundImageAttachment,
+        BASIC_FONTS, DamageRegion, DecodedImage, ImageDrawPlan, ImageTiePolicy, PixelRenderer,
+        Rect, RenderBackgroundGradientHsb, RenderBackgroundImage, RenderBackgroundImageAttachment,
         RenderBackgroundImageDimension, RenderBackgroundImageHorizontalAlign,
         RenderBackgroundImageLength, RenderBackgroundImageRepeat,
         RenderBackgroundImageVerticalAlign, RenderBoldBrightensAnsiColors, RenderCell,
         RenderGeometry, RenderInlineImage, RenderInlineImageFragment, SCROLLBAR_THUMB_COLOR,
-        SCROLLBAR_TRACK_COLOR, ScrollbackScrollbar, TerminalRenderSnapshot,
+        SCROLLBAR_TRACK_COLOR, ScrollbackScrollbar, Surface, TerminalRenderSnapshot,
         background_image_axis_coordinate, background_image_layout, build_image_draw_plan,
-        compare_image_draw_plans, for_each_image_draw_span, render_inline_images_from_terminal,
+        compare_image_draw_plans, for_each_image_draw_span, for_each_opaque_glyph_row_run,
+        render_inline_images_from_terminal,
     };
 
     fn ordering_plan(
@@ -6738,6 +7003,351 @@ mod tests {
             fragment_index: stable_order,
             tie_policy,
             stable_order,
+        }
+    }
+
+    fn legacy_surface_fill(target: &mut [u8], width: u32, height: u32, color: [u8; 4]) {
+        let pixel_count = usize::try_from(u64::from(width).saturating_mul(u64::from(height)))
+            .unwrap_or(usize::MAX);
+        for pixel in target.chunks_exact_mut(4).take(pixel_count) {
+            pixel.copy_from_slice(&color);
+        }
+    }
+
+    fn legacy_surface_fill_rect(
+        target: &mut [u8],
+        surface_size: (u32, u32),
+        rect: Rect,
+        color: [u8; 4],
+        alpha: Option<u8>,
+    ) {
+        if matches!(alpha, Some(0)) {
+            return;
+        }
+        let (width, height) = surface_size;
+        let max_y = rect.y.saturating_add(rect.height).min(height);
+        let max_x = rect.x.saturating_add(rect.width).min(width);
+        let alpha = alpha.map(u16::from);
+        let inverse_alpha = alpha.map(|value| u16::from(u8::MAX).saturating_sub(value));
+        for row in rect.y..max_y {
+            for column in rect.x..max_x {
+                let index =
+                    usize::try_from((u64::from(row) * u64::from(width) + u64::from(column)) * 4)
+                        .unwrap_or(usize::MAX);
+                if let Some(pixel) = target.get_mut(index..index.saturating_add(4)) {
+                    if let (Some(alpha), Some(inverse_alpha)) = (alpha, inverse_alpha)
+                        && alpha != u16::from(u8::MAX)
+                    {
+                        pixel[0] = super::blend_channel(color[0], pixel[0], alpha, inverse_alpha);
+                        pixel[1] = super::blend_channel(color[1], pixel[1], alpha, inverse_alpha);
+                        pixel[2] = super::blend_channel(color[2], pixel[2], alpha, inverse_alpha);
+                        pixel[3] = u8::MAX;
+                    } else {
+                        pixel.copy_from_slice(&color);
+                    }
+                }
+            }
+        }
+    }
+
+    fn legacy_basic_glyph_8x16(
+        surface: &mut Surface<'_>,
+        glyph: [u8; 8],
+        origin_x: u32,
+        origin_y: u32,
+        color: [u8; 4],
+    ) {
+        for (glyph_y, row_bits) in glyph.iter().enumerate() {
+            for glyph_x in 0..8 {
+                if row_bits & (1 << glyph_x) == 0 {
+                    continue;
+                }
+                surface.fill_rect(
+                    Rect {
+                        x: origin_x + glyph_x,
+                        y: origin_y + u32::try_from(glyph_y).unwrap() * 2,
+                        width: 1,
+                        height: 2,
+                    },
+                    color,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn surface_fill_matches_complete_pixel_reference_for_short_targets() {
+        let color = [17, 33, 65, 129];
+        for target_len in [0, 1, 3, 4, 5, 15, 16, 17, 47, 48, 49, 64] {
+            let initial = (0..target_len)
+                .map(|index| u8::try_from(index % 251).unwrap())
+                .collect::<Vec<_>>();
+            let mut expected = initial.clone();
+            legacy_surface_fill(&mut expected, 4, 3, color);
+            let mut actual = initial;
+
+            Surface {
+                target: &mut actual,
+                width: 4,
+                height: 3,
+            }
+            .fill(color);
+
+            assert_eq!(actual, expected, "target_len={target_len}");
+        }
+    }
+
+    #[test]
+    fn surface_rect_fills_match_clipped_reference_for_every_alpha_edge() {
+        let color = [231, 117, 9, 77];
+        let rects = [
+            Rect {
+                x: 0,
+                y: 0,
+                width: 4,
+                height: 3,
+            },
+            Rect {
+                x: 1,
+                y: 1,
+                width: u32::MAX,
+                height: u32::MAX,
+            },
+            Rect {
+                x: 4,
+                y: 0,
+                width: 1,
+                height: 3,
+            },
+            Rect {
+                x: 0,
+                y: 3,
+                width: 4,
+                height: 1,
+            },
+            Rect {
+                x: u32::MAX,
+                y: u32::MAX,
+                width: u32::MAX,
+                height: u32::MAX,
+            },
+            Rect {
+                x: 1,
+                y: 1,
+                width: 0,
+                height: 2,
+            },
+            Rect {
+                x: 1,
+                y: 1,
+                width: 2,
+                height: 0,
+            },
+        ];
+        for target_len in [0, 1, 3, 4, 17, 31, 47, 48, 53] {
+            for rect in rects {
+                for alpha in [0, 1, 128, u8::MAX] {
+                    let initial = (0..target_len)
+                        .map(|index| u8::try_from((index * 17 + 3) % 251).unwrap())
+                        .collect::<Vec<_>>();
+                    let mut expected = initial.clone();
+                    legacy_surface_fill_rect(&mut expected, (4, 3), rect, color, Some(alpha));
+                    let mut actual = initial;
+
+                    Surface {
+                        target: &mut actual,
+                        width: 4,
+                        height: 3,
+                    }
+                    .fill_rect_alpha(rect, color, alpha);
+
+                    assert_eq!(
+                        actual, expected,
+                        "target_len={target_len} rect=({}, {}, {}, {}) alpha={alpha}",
+                        rect.x, rect.y, rect.width, rect.height
+                    );
+                }
+
+                let initial = (0..target_len)
+                    .map(|index| u8::try_from((index * 17 + 3) % 251).unwrap())
+                    .collect::<Vec<_>>();
+                let mut expected = initial.clone();
+                legacy_surface_fill_rect(&mut expected, (4, 3), rect, color, None);
+                let mut actual = initial;
+                Surface {
+                    target: &mut actual,
+                    width: 4,
+                    height: 3,
+                }
+                .fill_rect(rect, color);
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn surface_exposes_one_complete_rgba_span_per_clipped_row() {
+        let mut target = vec![0; 31];
+        let surface = Surface {
+            target: &mut target,
+            width: 4,
+            height: 3,
+        };
+
+        assert_eq!(surface.clipped_row_byte_range(0, 1, 4), Some(4..16));
+        assert_eq!(surface.clipped_row_byte_range(1, 1, 4), Some(20..28));
+        assert_eq!(surface.clipped_row_byte_range(2, 1, 4), None);
+        assert_eq!(surface.clipped_row_byte_range(3, 0, 4), None);
+        assert_eq!(surface.clipped_row_byte_range(0, 4, 4), None);
+    }
+
+    #[test]
+    fn opaque_glyph_runs_match_every_legacy_row_mask_and_reduce_rect_calls() {
+        let color = [231, 117, 9, u8::MAX];
+        for row_bits in 0..=u8::MAX {
+            for bold in [false, true] {
+                for cell_width in [8, 10, 16] {
+                    let scale_x = cell_width.max(8) / 8;
+                    for row_offset in [0, 1, 2] {
+                        let mut expected = vec![0; 20 * 2 * 4];
+                        let mut expected_surface = Surface {
+                            target: &mut expected,
+                            width: 20,
+                            height: 2,
+                        };
+                        for glyph_x in 0..8 {
+                            if row_bits & (1 << glyph_x) == 0 {
+                                continue;
+                            }
+                            let draw_x = glyph_x * scale_x + row_offset;
+                            if let Some(width) =
+                                super::clipped_cell_width(draw_x, 0, cell_width, scale_x)
+                            {
+                                expected_surface.fill_rect(
+                                    Rect {
+                                        x: draw_x,
+                                        y: 0,
+                                        width,
+                                        height: 2,
+                                    },
+                                    color,
+                                );
+                            }
+                            let bold_x = draw_x.saturating_add(scale_x);
+                            if bold && bold_x < cell_width {
+                                expected_surface.fill_rect(
+                                    Rect {
+                                        x: bold_x,
+                                        y: 0,
+                                        width: scale_x,
+                                        height: 2,
+                                    },
+                                    color,
+                                );
+                            }
+                        }
+
+                        let mut actual = vec![0; 20 * 2 * 4];
+                        let mut actual_surface = Surface {
+                            target: &mut actual,
+                            width: 20,
+                            height: 2,
+                        };
+                        for_each_opaque_glyph_row_run(
+                            row_bits,
+                            0,
+                            cell_width,
+                            scale_x,
+                            row_offset,
+                            bold,
+                            |x, width| {
+                                actual_surface.fill_rect(
+                                    Rect {
+                                        x,
+                                        y: 0,
+                                        width,
+                                        height: 2,
+                                    },
+                                    color,
+                                );
+                            },
+                        );
+
+                        assert_eq!(
+                            actual, expected,
+                            "bits={row_bits:08b} bold={bold} width={cell_width} offset={row_offset}"
+                        );
+                    }
+                }
+            }
+        }
+
+        let mut calls = 0;
+        for_each_opaque_glyph_row_run(u8::MAX, 0, 8, 1, 0, true, |_, _| calls += 1);
+        assert_eq!(calls, 1, "one dense glyph row should be one opaque fill");
+    }
+
+    #[test]
+    fn basic_opaque_glyph_fast_path_matches_generic_pixels_and_rejects_partial_targets() {
+        let color = [231, 117, 9, u8::MAX];
+        let mut glyphs = (0..=u8::MAX).map(|mask| [mask; 8]).collect::<Vec<_>>();
+        glyphs.extend(
+            (0_u32..=127)
+                .filter_map(char::from_u32)
+                .filter_map(|ch| BASIC_FONTS.get(ch)),
+        );
+
+        for glyph in &glyphs {
+            for (width, height, origin_x, origin_y) in
+                [(24, 20, 3, 2), (16, 16, 8, 0), (8, 16, 0, 0)]
+            {
+                let mut expected = vec![0; width * height * 4];
+                legacy_basic_glyph_8x16(
+                    &mut Surface {
+                        target: &mut expected,
+                        width: u32::try_from(width).unwrap(),
+                        height: u32::try_from(height).unwrap(),
+                    },
+                    *glyph,
+                    u32::try_from(origin_x).unwrap(),
+                    u32::try_from(origin_y).unwrap(),
+                    color,
+                );
+                let mut actual = vec![0; width * height * 4];
+                let rendered = Surface {
+                    target: &mut actual,
+                    width: u32::try_from(width).unwrap(),
+                    height: u32::try_from(height).unwrap(),
+                }
+                .try_fill_basic_glyph_8x16(
+                    *glyph,
+                    u32::try_from(origin_x).unwrap(),
+                    u32::try_from(origin_y).unwrap(),
+                    color,
+                );
+                assert!(rendered);
+                assert_eq!(
+                    actual, expected,
+                    "glyph={glyph:?} origin=({origin_x},{origin_y})"
+                );
+            }
+        }
+
+        for (target_len, origin_x, origin_y) in [
+            (8 * 16 * 4 - 1, 0, 0),
+            (8 * 16 * 4, 1, 0),
+            (8 * 16 * 4, 0, 1),
+        ] {
+            let mut target = vec![17; target_len];
+            let before = target.clone();
+            let rendered = Surface {
+                target: &mut target,
+                width: 8,
+                height: 16,
+            }
+            .try_fill_basic_glyph_8x16([u8::MAX; 8], origin_x, origin_y, color);
+            assert!(!rendered);
+            assert_eq!(target, before);
         }
     }
 
@@ -7307,6 +7917,15 @@ mod tests {
         terminal.feed(b"\x1b]8;;https://example.com\x1b\\ab\x1b]8;;\x1b\\");
 
         let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let grid_snapshot = TerminalRenderSnapshot::from_grid(terminal.grid());
+        let cloned_snapshot = snapshot.clone();
+        let source = terminal
+            .grid()
+            .get(0, 0)
+            .unwrap()
+            .hyperlink
+            .as_ref()
+            .unwrap();
 
         assert_eq!(
             snapshot.cells()[0].hyperlink.as_deref(),
@@ -7316,6 +7935,39 @@ mod tests {
             snapshot.cells()[1].hyperlink.as_deref(),
             Some("https://example.com")
         );
+        for rendered in [&snapshot, &grid_snapshot, &cloned_snapshot] {
+            assert!(rendered.cells().iter().all(|cell| {
+                cell.hyperlink
+                    .as_ref()
+                    .is_some_and(|hyperlink| hyperlink.as_ptr() == source.as_ptr())
+            }));
+        }
+    }
+
+    #[test]
+    fn render_snapshot_damage_keeps_terminal_hyperlink_storage_shared() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        terminal.feed(b"\x1b]8;;https://example.com/long/path\x1b\\abcd");
+        terminal.take_damage();
+        let mut snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        terminal.feed(b"\rZ");
+        let damage = terminal.take_damage();
+        snapshot.update_from_terminal_damage(&terminal, &damage);
+
+        let source = terminal
+            .grid()
+            .get(0, 0)
+            .unwrap()
+            .hyperlink
+            .as_ref()
+            .unwrap();
+        assert_eq!(snapshot.cells().len(), 4);
+        assert!(snapshot.cells().iter().all(|cell| {
+            cell.hyperlink
+                .as_ref()
+                .is_some_and(|hyperlink| hyperlink.as_ptr() == source.as_ptr())
+        }));
     }
 
     #[test]

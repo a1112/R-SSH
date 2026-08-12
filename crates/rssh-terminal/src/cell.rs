@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use smol_str::SmolStr;
 
 use crate::{Color, SemanticType, UnderlineStyle, VerticalAlign};
@@ -30,7 +32,7 @@ pub struct Cell {
     pub vertical_align: VerticalAlign,
     pub inverse: bool,
     pub protected: bool,
-    pub hyperlink: Option<String>,
+    pub hyperlink: Option<Arc<str>>,
     pub semantic_type: SemanticType,
 }
 
@@ -82,6 +84,12 @@ impl Cell {
         matches!(self.content, CellContent::Blank)
     }
 
+    /// Returns the OSC 8 hyperlink without exposing its shared storage model.
+    #[must_use]
+    pub fn hyperlink(&self) -> Option<&str> {
+        self.hyperlink.as_deref()
+    }
+
     pub(crate) fn set_blank(&mut self) {
         self.content = CellContent::Blank;
     }
@@ -122,5 +130,21 @@ impl Default for Cell {
             hyperlink: None,
             semantic_type: SemanticType::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cell;
+
+    #[test]
+    fn cell_layout_keeps_optional_metadata_out_of_the_hot_88_byte_class() {
+        assert_eq!(std::mem::size_of::<Option<String>>(), 24);
+        assert_eq!(std::mem::size_of::<Option<std::sync::Arc<str>>>(), 16);
+        assert!(
+            std::mem::size_of::<Cell>() <= 80,
+            "Cell is {} bytes",
+            std::mem::size_of::<Cell>()
+        );
     }
 }

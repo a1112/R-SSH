@@ -217,6 +217,68 @@ fn rssh_app_system_openssh_entrypoint_runs_a_real_loopback_exec() {
 }
 
 #[test]
+fn rssh_app_native_ssh_disconnects_and_reconnects_with_closed_lifecycle() {
+    if !openssh_available() {
+        return;
+    }
+    let server = HermeticSshServer::builder()
+        .command(
+            "'rssh-test-marker' 'native-reconnect-first'",
+            CommandResponse::status(b"native-reconnect-first", b"", 0),
+        )
+        .command(
+            "'rssh-test-marker' 'native-reconnect-second'",
+            CommandResponse::status(b"native-reconnect-second", b"", 0),
+        )
+        .start(DEADLINE)
+        .expect("start SSH reconnect fixture");
+    prepare_identity_for_openssh(&server);
+
+    for marker in ["native-reconnect-first", "native-reconnect-second"] {
+        let mut command = Command::new(packaged_or_cargo_app_executable());
+        server.temp_home().apply_to(&mut command);
+        command
+            .env_remove("SSH_AUTH_SOCK")
+            .env_remove("SSH_ASKPASS")
+            .env_remove("SSH_ASKPASS_REQUIRE")
+            .env_remove("DISPLAY")
+            .args([
+                "ssh",
+                "--native",
+                "--accept-unknown-host-key",
+                "--metrics-json",
+                "-p",
+                &server.address().port().to_string(),
+                "-i",
+                server
+                    .agent()
+                    .identity_path()
+                    .to_str()
+                    .expect("UTF-8 identity path"),
+                "fixture-user@127.0.0.1",
+                "rssh-test-marker",
+                marker,
+            ]);
+        let output = run(command);
+        assert!(
+            output.status.success(),
+            "native reconnect {marker} failed with {:?}; stdout={}; stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains(marker), "missing {marker}: {stdout}");
+        assert!(
+            stdout.contains(r#""session_state":"closed""#),
+            "native reconnect did not close its lifecycle: {stdout}"
+        );
+    }
+
+    server.stop(DEADLINE).expect("stop SSH reconnect fixture");
+}
+
+#[test]
 fn rssh_app_required_matrix_enforces_auth_host_key_and_nonzero_remote_status() {
     if !openssh_available() {
         return;

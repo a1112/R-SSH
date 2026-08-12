@@ -13,11 +13,12 @@ use rssh_core::{
     session::{SessionLifecycle, SessionState},
 };
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySize};
+use rssh_runtime::SshTransport;
 use rssh_ssh::{
     RusshChannelOpener, RusshDirectTcpIpOpenPlan, RusshForwardCancellation, RusshForwardDeadlines,
     RusshHostKeyPolicy, RusshPrivateKeyAuth, RusshRemoteTcpIpForwardPlan, SshAuthMethod,
     SshChannelConnector, SshConnectRequest, SshInputEvent, SshInputEventReceiver, SshSessionConfig,
-    SshSessionStartup, SshShellConnector, SshShellSession, ssh_input_event_channel,
+    SshSessionStartup, SshShellConnector, ssh_input_event_channel,
 };
 use serde::Serialize;
 
@@ -1444,9 +1445,10 @@ fn run_native_with_connector_forward_starter_resolver_secret_prompts_and_io(
     }
 
     let shell_result = (|| -> Result<_, Box<dyn Error>> {
-        let session = connect_native_session(connector, request.clone(), &mut lifecycle)?;
+        let transport = connect_native_transport(connector, request.clone(), &mut lifecycle)?;
         let input = input.acquire_after_connect()?;
-        let outcome = rssh_ssh::run_connected_shell_with_events(session, input, output)?;
+        let (reader, writer) = transport.into_shell_halves();
+        let outcome = rssh_ssh::run_split_shell_with_events(reader, writer, input, output)?;
         let io_counters = NativeSshIoCounters {
             ssh_input_bytes: outcome.input_bytes,
             ssh_output_bytes: outcome.output_bytes,
@@ -1503,14 +1505,14 @@ fn finish_native_ssh_success(
     Ok(status)
 }
 
-fn connect_native_session(
+fn connect_native_transport(
     connector: &mut dyn SshShellConnector,
     request: SshConnectRequest,
     lifecycle: &mut SessionLifecycle,
-) -> Result<Box<dyn SshShellSession>, Box<dyn Error>> {
-    let session = connector.connect(request)?;
+) -> Result<SshTransport, Box<dyn Error>> {
+    let transport = SshTransport::connect(connector, request)?;
     lifecycle.mark_connected()?;
-    Ok(session)
+    Ok(transport)
 }
 
 fn pty_status_for_ssh_result(result: &rssh_ssh::SshSessionResult) -> PtyExitStatus {
@@ -2281,7 +2283,7 @@ mod tests {
         lifecycle.start_connecting().unwrap();
 
         let session =
-            super::connect_native_session(&mut connector, request, &mut lifecycle).unwrap();
+            super::connect_native_transport(&mut connector, request, &mut lifecycle).unwrap();
 
         assert_eq!(lifecycle.state(), SessionState::Connected);
         drop(session);

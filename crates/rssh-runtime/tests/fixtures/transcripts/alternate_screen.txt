@@ -1,0 +1,5 @@
+# Alternate-screen entry/exit must preserve the main screen and row identities.
+kind terminal
+size 10x3
+feed 6d61696e
+feed 1b5b3f3130343968616c741b5b3f313034396c

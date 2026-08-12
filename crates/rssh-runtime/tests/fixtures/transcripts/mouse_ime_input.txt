@@ -1,0 +1,5 @@
+# Input byte compatibility stays in the native adapter until Task 16.
+kind contracts
+contract crates/rssh-app/src/local.rs|encodes_mouse_events_as_sgr_sequences_when_enabled
+contract crates/rssh-app/src/local.rs|encodes_paste_event_as_bracketed_paste_when_enabled
+contract crates/rssh-app/src/window_compat_tests/part14_tests.rs|window_app_writes_ime_commit_text_when_ime_is_enabled

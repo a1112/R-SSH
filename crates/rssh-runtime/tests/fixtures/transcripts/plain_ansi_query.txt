@@ -1,0 +1,4 @@
+# Plain text, SGR, DSR and bell in one ordered parser feed.
+kind terminal
+size 12x4
+feed 48656c6c6f201b5b33316d7265641b5b306d1b5b366e07

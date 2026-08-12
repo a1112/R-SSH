@@ -1,0 +1,4 @@
+# EOF releases synchronized damage before the terminal close notice.
+kind contracts
+contract crates/rssh-runtime/tests/pane_worker.rs|close_publishes_synchronized_final_damage_and_effects_before_closed
+contract crates/rssh-runtime/tests/local_transport.rs|local_adapter_spawns_reads_resizes_and_preserves_exit_status

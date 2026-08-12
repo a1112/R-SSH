@@ -14,8 +14,8 @@ use std::{
 };
 
 use portable_pty::{
-    CommandBuilder, ExitStatus as PortableExitStatus, MasterPty, PtySize as PortablePtySize,
-    native_pty_system,
+    ChildKiller, CommandBuilder, ExitStatus as PortableExitStatus, MasterPty,
+    PtySize as PortablePtySize, native_pty_system,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,11 +49,12 @@ mod tests {
     };
 
     use super::{
-        CaptureProgress, CaptureReapJob, CaptureThreadJoin, CursorPositionQueryScanner,
-        DefaultShellPlatform, FORCE_PROCESS_DEFER, FORCE_SESSION_DROP_DEFER, PtyBackend,
-        PtyCloseIo, PtyCommand, PtyError, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus,
-        PtyReaderProxy, PtySession, PtySize, PtyWriterProxy, STREAM_ACQUISITION_FAULT,
-        capture_cleanup_panic_count, capture_reaper_deferred_count, capture_reaper_error_count,
+        CaptureProgress, CaptureReapJob, CaptureThreadJoin, ChildKiller,
+        CursorPositionQueryScanner, DefaultShellPlatform, FORCE_PROCESS_DEFER,
+        FORCE_SESSION_DROP_DEFER, PtyBackend, PtyCloseIo, PtyCommand, PtyError, PtyExitStatus,
+        PtyMasterClose, PtyMasterCloseStatus, PtyReaderProxy, PtySession, PtySessionInterrupt,
+        PtySize, PtyWriterProxy, STREAM_ACQUISITION_FAULT, capture_cleanup_panic_count,
+        capture_reaper_deferred_count, capture_reaper_error_count,
         capture_reaper_last_process_ownership, capture_reaper_retained_count,
         default_shell_program_from, defer_capture_job, join_capture_thread_before,
         observe_reaped_master_close, pending_capture_cleanup_count, pending_master_close_count,
@@ -80,6 +81,48 @@ mod tests {
 
     struct InterruptedThenCursor {
         interrupted: bool,
+    }
+
+    #[derive(Debug, Clone)]
+    struct FailOnceKiller {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ChildKiller for FailOnceKiller {
+        fn kill(&mut self) -> std::io::Result<()> {
+            if self.calls.fetch_add(1, Ordering::AcqRel) == 0 {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "injected first kill failure",
+                ))
+            } else {
+                Ok(())
+            }
+        }
+
+        fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+            Box::new(self.clone())
+        }
+    }
+
+    #[test]
+    fn failed_interrupt_can_be_retried_without_repeating_a_successful_kill() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let close_io = PtyCloseIo::new(Box::new(std::io::sink()));
+        let interrupt = PtySessionInterrupt::new(
+            Box::new(FailOnceKiller {
+                calls: Arc::clone(&calls),
+            }),
+            close_io,
+        );
+
+        let first = interrupt.interrupt().expect_err("first kill must fail");
+        assert_eq!(first.kind(), std::io::ErrorKind::PermissionDenied);
+        interrupt.interrupt().expect("retry kill");
+        interrupt
+            .interrupt()
+            .expect("successful kill is idempotent");
+        assert_eq!(calls.load(Ordering::Acquire), 2);
     }
 
     impl Read for InterruptedThenCursor {
@@ -2409,6 +2452,71 @@ pub struct PtySession {
     reader: Option<Box<dyn Read + Send>>,
     writer: Option<Box<dyn Write + Send>>,
     close_io: Arc<PtyCloseIo>,
+    interrupt: PtySessionInterrupt,
+}
+
+/// Cloneable out-of-band termination handle for a live PTY child.
+#[derive(Clone)]
+pub struct PtySessionInterrupt {
+    state: Arc<PtySessionInterruptState>,
+}
+
+struct PtySessionInterruptState {
+    requested: AtomicBool,
+    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    close_io: Arc<PtyCloseIo>,
+}
+
+impl fmt::Debug for PtySessionInterrupt {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PtySessionInterrupt")
+            .field("requested", &self.state.requested.load(Ordering::Acquire))
+            .finish_non_exhaustive()
+    }
+}
+
+impl PtySessionInterrupt {
+    fn new(killer: Box<dyn ChildKiller + Send + Sync>, close_io: Arc<PtyCloseIo>) -> Self {
+        Self {
+            state: Arc::new(PtySessionInterruptState {
+                requested: AtomicBool::new(false),
+                killer: Mutex::new(killer),
+                close_io,
+            }),
+        }
+    }
+
+    /// Requests child termination and makes later writer calls fail closed.
+    ///
+    /// Repeated calls are idempotent.
+    ///
+    /// # Errors
+    ///
+    /// Returns the platform process error from the first termination request.
+    pub fn interrupt(&self) -> io::Result<()> {
+        self.state.close_io.closing.store(true, Ordering::Release);
+        if self.state.requested.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let mut killer = self
+            .state
+            .killer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.state.requested.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let result = match killer.kill() {
+            #[cfg(windows)]
+            Err(error) if error.raw_os_error() == Some(6) => Ok(()),
+            result => result,
+        };
+        if result.is_ok() {
+            self.state.requested.store(true, Ordering::Release);
+        }
+        result
+    }
 }
 
 struct PtyCloseIo {
@@ -3360,6 +3468,13 @@ impl PtySession {
                 return Err(error);
             }
         };
+        let Some(child) = owned.child.as_ref() else {
+            settle_failed_stream_acquisition(owned);
+            return Err(PtyError::Backend(
+                "spawned PTY child was lost before stream acquisition".to_owned(),
+            ));
+        };
+        let killer = child.clone_killer();
         let (reader, writer) = match take_acquired_streams(&mut owned) {
             Ok(streams) => streams,
             Err(error) => {
@@ -3368,6 +3483,7 @@ impl PtySession {
             }
         };
         let close_io = PtyCloseIo::new(writer);
+        let interrupt = PtySessionInterrupt::new(killer, Arc::clone(&close_io));
         let reader: Box<dyn Read + Send> = Box::new(PtyReaderProxy {
             reader,
             close_io: Arc::clone(&close_io),
@@ -3383,6 +3499,7 @@ impl PtySession {
             reader: Some(reader),
             writer: Some(writer),
             close_io,
+            interrupt,
         })
     }
 
@@ -3519,6 +3636,12 @@ impl PtySession {
     /// Returns [`PtyError::StreamTaken`] when the writer was already moved out.
     pub fn take_writer(&mut self) -> Result<Box<dyn Write + Send>, PtyError> {
         self.writer.take().ok_or(PtyError::StreamTaken("writer"))
+    }
+
+    /// Returns a cloneable handle that terminates the child out of band.
+    #[must_use]
+    pub fn interrupt_handle(&self) -> PtySessionInterrupt {
+        self.interrupt.clone()
     }
 
     /// Begin closing every PTY master-side stream owned by this session.

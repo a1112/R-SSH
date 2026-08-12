@@ -707,7 +707,10 @@ fn real_pty_close_lifecycle_finishes_within_timeout() {
     );
 }
 
-fn assert_restart_applies_title_after_target_projection_reset(restart_inactive: bool) {
+fn assert_restart_applies_title_after_target_projection_reset(
+    case_name: &str,
+    restart_inactive: bool,
+) {
     let mut app = NativeWindowApp::new(None);
     app.dispatch_app_action(AppAction::SplitPane {
         pane: app.active_pane_id(),
@@ -764,25 +767,28 @@ fn assert_restart_applies_title_after_target_projection_reset(restart_inactive: 
 
     assert_eq!(
         formatter_observations.lock().unwrap().last().copied(),
-        Some(true)
+        Some(true),
+        "restart case {case_name} observed stale formatter state"
     );
     assert_eq!(
         app.applied_window_titles_for_test()
             .last()
             .map(String::as_str),
-        Some("clean")
+        Some("clean"),
+        "restart case {case_name} applied the wrong title"
     );
-    assert_eq!(app.pane_badge_format(target), None);
+    assert_eq!(
+        app.pane_badge_format(target),
+        None,
+        "restart case {case_name} retained a stale badge"
+    );
 }
 
 #[test]
-fn active_restart_applies_title_after_target_projection_reset() {
-    assert_restart_applies_title_after_target_projection_reset(false);
-}
-
-#[test]
-fn inactive_restart_applies_title_after_target_projection_reset() {
-    assert_restart_applies_title_after_target_projection_reset(true);
+fn restart_applies_title_after_target_projection_reset() {
+    for (case_name, restart_inactive) in [("active", false), ("inactive", true)] {
+        assert_restart_applies_title_after_target_projection_reset(case_name, restart_inactive);
+    }
 }
 
 #[test]

@@ -1,0 +1,4 @@
+# name	bracketed	canonicalization	input_hex	expected_hex
+plain-preserved	false	none	706c61696e0a74657874	706c61696e0a74657874
+bracketed-preserves-newline	true	cr	706c61696e0a74657874	1b5b3230307e706c61696e0a746578741b5b3230317e
+mixed-newlines-to-crlf	false	crlf	6f6e650d0a74776f0a74687265650d666f7572	6f6e650d0a74776f0d0a74687265650d0a666f7572

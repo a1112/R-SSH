@@ -1,0 +1,234 @@
+{
+  "schema": "rssh.task10.trace-provenance/v1",
+  "baseline": {
+    "commit": "c69d52537cd893e615fded6ed46c2e59f1d2024e",
+    "tree": "b48d2f395327824cd55cde478b4f0c3eb498678e"
+  },
+  "sources": [
+    {
+      "path": "crates/rssh-terminal/src/parser.rs",
+      "blob": "4d524b92c93ad6f61a7fb828a0a3cced499ffb45",
+      "test_count": 139,
+      "role": "fixture-source"
+    },
+    {
+      "path": "crates/rssh-app/src/terminal_runtime.rs",
+      "blob": "68b255e1a8c6427e4fe2dbebe2a37c0a171d9a72",
+      "test_count": 179,
+      "role": "fixture-source"
+    },
+    {
+      "path": "crates/rssh-app/src/terminal_queries.rs",
+      "blob": "91ff5524a7acf2ce59c674926dc22600c61a4547",
+      "test_count": 29,
+      "role": "fixture-source"
+    },
+    {
+      "path": "crates/rssh-app/src/terminal_query_dcs.rs",
+      "blob": "019161c7a655aaf27c64b3896942cb3731ebbc05",
+      "test_count": 9,
+      "role": "fixture-source"
+    },
+    {
+      "path": "crates/rssh-app/src/visible_output.rs",
+      "blob": "6c87bb850156f33963016d0d518b62256e612351",
+      "test_count": 0,
+      "role": "semantic-evidence"
+    },
+    {
+      "path": "crates/rssh-terminal/src/cell.rs",
+      "blob": "5b983f5e732ba6da4e124357cfb4447663c2b7c8",
+      "test_count": 0,
+      "role": "semantic-evidence"
+    },
+    {
+      "path": "crates/rssh-terminal/src/grid.rs",
+      "blob": "29c3242c866ccee2fcd83688a0fdccf7877a4652",
+      "test_count": 0,
+      "role": "semantic-evidence"
+    },
+    {
+      "path": "crates/rssh-terminal/src/lib.rs",
+      "blob": "5c18a3c20ff3c5ab29109818f2bdca357bb341bd",
+      "test_count": 0,
+      "role": "semantic-evidence"
+    },
+    {
+      "path": "Cargo.toml",
+      "blob": "8c5c33569159d14673c5898a3b88e77fab9936bc",
+      "test_count": 0,
+      "role": "build-evidence"
+    }
+  ],
+  "evidence_paths": [
+    "crates/rssh-app/src/visible_output.rs",
+    "crates/rssh-terminal/src/parser.rs",
+    "crates/rssh-terminal/src/cell.rs",
+    "crates/rssh-terminal/src/grid.rs",
+    "crates/rssh-terminal/src/lib.rs",
+    "Cargo.toml"
+  ],
+  "body_codec": {
+    "id": "rust-itemfn-block-lf/v1",
+    "normalization": "replace CRLF with LF; SHA-256 inclusive ItemFn block span"
+  },
+  "artifacts": {
+    "manifest": {
+      "path": "crates/rssh-runtime/tests/fixtures/task10_legacy_test_manifest.txt",
+      "length": 43522,
+      "sha256": "cd245067b755aed6ec00c31e53cd9e622c004e2c8855e7a3b552312746cf94ae",
+      "row_count": 356
+    },
+    "records": {
+      "path": "crates/rssh-runtime/tests/fixtures/task10_legacy_fixture_records.txt",
+      "length": 218442,
+      "sha256": "aac3c4f053da9fe4ceb40b263655bfae7da4e5e0043890d3b7abae7d628455a2",
+      "row_count": 356
+    },
+    "pack": {
+      "path": "tests/fixtures/task10_legacy_trace_pack.gz",
+      "entry_count": 356,
+      "entry_order": "row_id-bytewise-ascending",
+      "magic": "rssh.task10.trace-pack/v1\\n",
+      "gzip": {
+        "length": 949468,
+        "sha256": "d717ebfe675c181e967edcf00b53790bf771e310be0d29eed0cd1216a05f23b2",
+        "header_hex": "1f8b08000000000002ff",
+        "mtime": 0,
+        "xfl": 2,
+        "os": 255,
+        "compressor": "flate2-1.1.9/miniz_oxide-0.8.9",
+        "compression": "best"
+      },
+      "raw": {
+        "length": 26053343,
+        "sha256": "0a171d6524e6fda679fa3a57693449a542c698fae1a268a87ee85668cf9007f2"
+      }
+    }
+  },
+  "codecs": [
+    {
+      "path": "scripts/ci/task10_rust_test_body.py",
+      "length": 6500,
+      "sha256": "d5798f5eaa51dd83d8b2a0b822199ec6c09dad6e1c0284dbe23eb6e2bbfbacd4",
+      "role": "baseline-body-codec"
+    },
+    {
+      "path": "tests/task10_fixture_trace_support.rs",
+      "length": 13539,
+      "sha256": "f613b1790a4119bf0fed7fa160c3907b70a20a9e1a0dce6eeb777eaecac64a44",
+      "role": "canonical-trace-schema-and-encoder"
+    },
+    {
+      "path": "tests/task10_runtime_trace_codec.rs",
+      "length": 23689,
+      "sha256": "f1460313a4723c4eeada1d3692aad37c6142c7f212d01fdf24b673e9aaa186ed",
+      "role": "runtime-state-codec"
+    },
+    {
+      "path": "tests/task10_terminal_trace_codec.rs",
+      "length": 14463,
+      "sha256": "c0b824a55f077898528c5a2f86fbcb995434efc45d44094483b7a06dafc7d4fd",
+      "role": "terminal-state-codec"
+    }
+  ],
+  "package_test_support": [
+    {
+      "path": "crates/rssh-runtime/src/fixture_trace.rs",
+      "length": 13539,
+      "sha256": "f613b1790a4119bf0fed7fa160c3907b70a20a9e1a0dce6eeb777eaecac64a44",
+      "role": "runtime-package-trace-encoder"
+    },
+    {
+      "path": "crates/rssh-runtime/src/task10_runtime_trace_codec.rs",
+      "length": 23689,
+      "sha256": "f1460313a4723c4eeada1d3692aad37c6142c7f212d01fdf24b673e9aaa186ed",
+      "role": "runtime-package-state-codec"
+    },
+    {
+      "path": "crates/rssh-runtime/src/frozen_trace_pack.rs",
+      "length": 30363,
+      "sha256": "9caa02238d044951e15336fd903476db91d0d6a0086d73e830676b4107deb793",
+      "role": "runtime-package-read-only-verifier"
+    },
+    {
+      "path": "crates/rssh-runtime/src/test_body_digest.rs",
+      "length": 2200,
+      "sha256": "e2d58f0ca46b00573c2f0b5e3b274dcf16f9012b7e30131f6fdcb0def67994e8",
+      "role": "runtime-package-current-body-codec"
+    },
+    {
+      "path": "crates/rssh-runtime/tests/fixtures/task10_legacy_trace_pack.gz",
+      "length": 949468,
+      "sha256": "d717ebfe675c181e967edcf00b53790bf771e310be0d29eed0cd1216a05f23b2",
+      "role": "runtime-package-frozen-pack"
+    },
+    {
+      "path": "crates/rssh-terminal/src/fixture_trace.rs",
+      "length": 13539,
+      "sha256": "f613b1790a4119bf0fed7fa160c3907b70a20a9e1a0dce6eeb777eaecac64a44",
+      "role": "terminal-package-trace-encoder"
+    },
+    {
+      "path": "crates/rssh-terminal/src/task10_terminal_trace_codec.rs",
+      "length": 14463,
+      "sha256": "c0b824a55f077898528c5a2f86fbcb995434efc45d44094483b7a06dafc7d4fd",
+      "role": "terminal-package-state-codec"
+    },
+    {
+      "path": "crates/rssh-terminal/src/frozen_trace_pack.rs",
+      "length": 30363,
+      "sha256": "9caa02238d044951e15336fd903476db91d0d6a0086d73e830676b4107deb793",
+      "role": "terminal-package-read-only-verifier"
+    },
+    {
+      "path": "crates/rssh-terminal/src/test_body_digest.rs",
+      "length": 2200,
+      "sha256": "e2d58f0ca46b00573c2f0b5e3b274dcf16f9012b7e30131f6fdcb0def67994e8",
+      "role": "terminal-package-current-body-codec"
+    },
+    {
+      "path": "crates/rssh-terminal/tests/fixtures/task10_legacy_fixture_records.txt",
+      "length": 218442,
+      "sha256": "aac3c4f053da9fe4ceb40b263655bfae7da4e5e0043890d3b7abae7d628455a2",
+      "role": "terminal-package-frozen-records"
+    },
+    {
+      "path": "crates/rssh-terminal/tests/fixtures/task10_legacy_trace_pack.gz",
+      "length": 949468,
+      "sha256": "d717ebfe675c181e967edcf00b53790bf771e310be0d29eed0cd1216a05f23b2",
+      "role": "terminal-package-frozen-pack"
+    }
+  ],
+  "recorder": {
+    "schema": "rssh.task10.detached-recorder-attestation/v1",
+    "mode": "detached-c69-worktree-cfg-test-observer",
+    "baseline_commit": "c69d52537cd893e615fded6ed46c2e59f1d2024e",
+    "baseline_tree": "b48d2f395327824cd55cde478b4f0c3eb498678e",
+    "body_codec": "rust-itemfn-block-lf/v1",
+    "codec_manifest_sha256": "aebd92b587494a5f3dcd459abc9ee30b2d317a30efc7ea1c5956f93a58db876c",
+    "toolchain": "rustc 1.89.0 (29483883e 2025-08-04)",
+    "baseline_cargo_lock_blob": "184f59be151a64214658639ca1ef54c95248e315",
+    "commands": [
+      "git worktree add --detach <temp> c69d52537cd893e615fded6ed46c2e59f1d2024e",
+      "cargo test --locked -p rssh-app task10_record_all_legacy_runtime_fixtures -- --nocapture",
+      "cargo test --locked -p rssh-app task10_record_all_legacy_query_fixtures -- --nocapture",
+      "cargo test --locked -p rssh-app task10_record_all_legacy_dcs_fixtures -- --nocapture",
+      "cargo test --locked -p rssh-terminal task10_record_all_legacy_parser_fixtures -- --nocapture",
+      "cargo run --locked --manifest-path .task10-recorder/Cargo.toml --bin pack"
+    ],
+    "pack_algorithm": "sort row_id; v1 header; exact canonical bytes; gzip best with mtime=0",
+    "reproducibility": {
+      "independent_runs": 2,
+      "byte_identical": true,
+      "first_gzip_sha256": "d717ebfe675c181e967edcf00b53790bf771e310be0d29eed0cd1216a05f23b2",
+      "second_gzip_sha256": "d717ebfe675c181e967edcf00b53790bf771e310be0d29eed0cd1216a05f23b2",
+      "gzip_mtime": 0
+    },
+    "output": {
+      "entries": 356,
+      "raw_sha256": "0a171d6524e6fda679fa3a57693449a542c698fae1a268a87ee85668cf9007f2",
+      "gzip_sha256": "d717ebfe675c181e967edcf00b53790bf771e310be0d29eed0cd1216a05f23b2"
+    }
+  }
+}

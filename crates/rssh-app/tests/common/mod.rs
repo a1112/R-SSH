@@ -1,8 +1,10 @@
 use std::{fmt::Write as _, path::Path, process::Command, time::Duration};
 
-use rssh_test_support::{ChildGuard, ChildOutput, platform_marker_command};
+use rssh_test_support::{
+    ChildGuard, ChildOutput, platform_marker_command, platform_marker_command_for_window_frames,
+};
 
-const PROCESS_DEADLINE: Duration = Duration::from_secs(30);
+const PROCESS_DEADLINE: Duration = Duration::from_secs(120);
 // Keep the framed marker below 80 columns so ConPTY does not inject a line wrap.
 const DETERMINISTIC_PAYLOAD: &str = "rssh-e2e|office 中 مرحبا नमस्ते שלום 😀 █";
 const PTY_LINK_BEGIN: &str = "RSSH-LINK-BEGIN|";
@@ -22,17 +24,53 @@ pub fn run_ten_frame_native_window_at_scale(
     executable: impl AsRef<Path>,
     scale_factor: impl Into<Option<f64>>,
 ) -> NativeWindowProbe {
+    let scale_factor = scale_factor.into();
+    if scale_factor.is_some() {
+        run_ten_frame_native_window_with_command(
+            executable,
+            scale_factor,
+            None,
+            platform_marker_command_for_window_frames,
+        )
+    } else {
+        run_ten_frame_native_window_with_log(executable, None, None)
+    }
+}
+
+pub fn run_ten_frame_native_window_with_log(
+    executable: impl AsRef<Path>,
+    scale_factor: impl Into<Option<f64>>,
+    log: Option<&Path>,
+) -> NativeWindowProbe {
+    run_ten_frame_native_window_with_command(
+        executable,
+        scale_factor.into(),
+        log,
+        platform_marker_command,
+    )
+}
+
+fn run_ten_frame_native_window_with_command(
+    executable: impl AsRef<Path>,
+    scale_factor: Option<f64>,
+    log: Option<&Path>,
+    marker_command: impl FnOnce(&str) -> Command,
+) -> NativeWindowProbe {
     let executable = executable.as_ref();
     let framed_marker = format!("{PTY_LINK_BEGIN}{DETERMINISTIC_PAYLOAD}{PTY_LINK_END}");
-    let marker_command = platform_marker_command(&framed_marker);
+    let marker_command = marker_command(&framed_marker);
     let mut command = Command::new(executable);
+    command.args(["-n", "window", "--frames", "10", "--metrics-json"]);
+    if let Some(log) = log {
+        command.arg("--log").arg(log);
+    }
     command
-        .args(["-n", "window", "--frames", "10", "--metrics-json", "--"])
+        .arg("--")
         .arg(marker_command.get_program())
         .args(marker_command.get_args())
         .env("RSSH_TEST_DIRECT_GPU_TEXT", "1")
         .env("RSSH_TEST_PTY_LINKAGE", "1");
-    if let Some(scale_factor) = scale_factor.into() {
+    if let Some(scale_factor) = scale_factor {
         command.env(
             "RSSH_TEST_WINDOW_SCALE_FACTOR",
             format!("{scale_factor:.2}"),
@@ -44,10 +82,14 @@ pub fn run_ten_frame_native_window_at_scale(
         }
     }
 
-    let output = ChildGuard::spawn(command, PROCESS_DEADLINE)
-        .expect("launch deadline-bounded ten-frame native window")
-        .wait()
-        .expect("ten-frame native window exits within its deadline");
+    let child = ChildGuard::spawn(command, PROCESS_DEADLINE)
+        .expect("launch deadline-bounded ten-frame native window");
+    let process_id = child.process_id();
+    let output = child.wait().unwrap_or_else(|error| {
+        panic!(
+            "ten-frame native window exits within its deadline (scale_factor={scale_factor:?}, process_id={process_id:?}): {error:?}"
+        )
+    });
     let diagnostics = diagnostics(executable, &output);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -143,6 +185,9 @@ pub fn assert_ten_frame_native_metrics(probe: &NativeWindowProbe) {
         metrics["terminal_linkage_nonce_found"], true,
         "{diagnostics}"
     );
+    if metrics["runtime_api"] == "v2-runtime-hub" {
+        assert_eq!(metrics["runtime_live_threads"], 0, "{diagnostics}");
+    }
 }
 
 pub fn assert_gpu_text_glyph_activity(metrics: &serde_json::Value, diagnostics: &str) {

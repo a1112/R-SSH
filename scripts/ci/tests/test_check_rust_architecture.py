@@ -1,0 +1,245 @@
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+CHECKER = REPOSITORY_ROOT / "scripts" / "ci" / "check-rust-architecture.py"
+
+
+class RustArchitectureCheckerTests(unittest.TestCase):
+    def test_quality_workflow_runs_the_checked_in_architecture_policy(self):
+        workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "python scripts/ci/check-rust-architecture.py --policy scripts/ci/architecture-policy.json",
+            workflow,
+        )
+
+    def test_checked_in_policy_accepts_the_current_migration_budget(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(CHECKER),
+                "--root",
+                str(REPOSITORY_ROOT),
+                "--policy",
+                str(REPOSITORY_ROOT / "scripts" / "ci" / "architecture-policy.json"),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(parse_report(result)["ok"])
+
+    def test_reports_exact_structural_items_and_limits(self):
+        source = """\
+pub struct OversizedState {
+    first: u8,
+    second: u8,
+}
+
+impl OversizedState {
+    pub fn oversized(&self) {
+        let first = 1;
+        let second = 2;
+    }
+}
+"""
+        result = run_checker(
+            {"src/oversized.rs": source},
+            policy(limits={
+                "file_lines": 8,
+                "struct_fields": 1,
+                "impl_lines": 5,
+                "function_lines": 3,
+                "rustfmt_skip": 0,
+                "unbounded_channels": 0,
+                "forbidden_dependencies": 0,
+            }),
+        )
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        report = parse_report(result)
+        violations = {entry["rule"]: entry for entry in report["violations"]}
+        self.assertEqual(violations["file_lines"]["file"], "src/oversized.rs")
+        self.assertEqual(violations["file_lines"]["observed"], 11)
+        self.assertEqual(violations["file_lines"]["limit"], 8)
+        self.assertEqual(violations["struct_fields"]["item"], "OversizedState")
+        self.assertEqual(violations["struct_fields"]["observed"], 2)
+        self.assertEqual(violations["impl_lines"]["item"], "impl OversizedState")
+        self.assertEqual(violations["function_lines"]["item"], "oversized")
+
+    def test_masks_comments_strings_raw_strings_and_character_literals(self):
+        source = r'''// std::sync::mpsc::channel::<u8>(); and unmatched {
+const NORMAL: &str = "crossbeam_channel::unbounded() }";
+const RAW: &str = r###"tokio::sync::mpsc::unbounded_channel(); {"###;
+const BYTE_RAW: &[u8] = br#"mpsc::channel()"#;
+
+pub fn tiny() {
+    let brace = '{';
+    /* nested { /* mpsc::channel() */ } */
+}
+'''
+        result = run_checker({"src/masked.rs": source}, policy())
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(parse_report(result)["ok"])
+
+    def test_reports_rustfmt_skip_unbounded_channel_and_forbidden_dependency(self):
+        files = {
+            "src/app.rs": """\
+#[rustfmt::skip]
+fn spawn() {
+    let (_tx, _rx) = std::sync::mpsc::channel::<Vec<u8>>();
+}
+""",
+            "src/config_lifecycle.rs": "use crate::window::NativeConfigOverrides;\n",
+        }
+        configured = policy()
+        configured["forbidden_dependencies"] = [
+            {"scope": "src/config_lifecycle.rs", "patterns": ["crate::window"]}
+        ]
+
+        result = run_checker(files, configured)
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        rules = {entry["rule"] for entry in parse_report(result)["violations"]}
+        self.assertEqual(
+            rules,
+            {"rustfmt_skip", "unbounded_channels", "forbidden_dependencies"},
+        )
+
+    def test_production_channel_rule_ignores_cfg_test_modules_and_test_only_files(self):
+        files = {
+            "src/module.rs": """\
+pub fn production() {}
+
+#[cfg(test)]
+mod tests {
+    fn helper() {
+        let (_tx, _rx) = std::sync::mpsc::channel::<u8>();
+    }
+}
+""",
+            "src/module_tests.rs": """\
+fn helper() {
+    let (_tx, _rx) = crossbeam_channel::unbounded::<u8>();
+}
+""",
+        }
+        configured = policy()
+        configured["production_excluded_globs"] = ["src/*_tests.rs"]
+
+        result = run_checker(files, configured)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_generated_globs_skip_structural_checks(self):
+        generated = "\n".join(["pub const VALUE: usize = 1;"] * 50)
+        configured = policy(limits={
+            "file_lines": 5,
+            "struct_fields": 1,
+            "impl_lines": 5,
+            "function_lines": 3,
+            "rustfmt_skip": 0,
+            "unbounded_channels": 0,
+            "forbidden_dependencies": 0,
+        })
+        configured["generated_globs"] = ["src/generated/**"]
+
+        result = run_checker({"src/generated/table.rs": generated}, configured)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_migration_budget_accepts_current_value_but_cannot_exceed_ceiling(self):
+        source = "\n".join(["pub const VALUE: usize = 1;"] * 12)
+        configured = policy(limits={
+            "file_lines": 8,
+            "struct_fields": 1,
+            "impl_lines": 5,
+            "function_lines": 3,
+            "rustfmt_skip": 0,
+            "unbounded_channels": 0,
+            "forbidden_dependencies": 0,
+        })
+        configured["migration"] = {
+            "initial_ceilings": {"src/legacy.rs": {"file_lines": 12}},
+            "budgets": {"src/legacy.rs": {"file_lines": 12}},
+        }
+
+        accepted = run_checker({"src/legacy.rs": source}, configured)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+        configured["migration"]["budgets"]["src/legacy.rs"]["file_lines"] = 13
+        rejected = run_checker({"src/legacy.rs": source}, configured)
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        violation = parse_report(rejected)["violations"][0]
+        self.assertEqual(violation["rule"], "policy_budget")
+        self.assertEqual(violation["observed"], 13)
+        self.assertEqual(violation["limit"], 12)
+
+
+def policy(limits=None):
+    return {
+        "version": 1,
+        "roots": ["src"],
+        "generated_globs": [],
+        "limits": limits or {
+            "file_lines": 8000,
+            "struct_fields": 64,
+            "impl_lines": 2000,
+            "function_lines": 300,
+            "rustfmt_skip": 0,
+            "unbounded_channels": 0,
+            "forbidden_dependencies": 0,
+        },
+        "migration": {"initial_ceilings": {}, "budgets": {}},
+        "forbidden_dependencies": [],
+    }
+
+
+def run_checker(files, configured_policy):
+    with tempfile.TemporaryDirectory(prefix="rssh-architecture-test-") as temporary:
+        root = Path(temporary)
+        for relative, contents in files.items():
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(contents, encoding="utf-8")
+        policy_path = root / "policy.json"
+        policy_path.write_text(json.dumps(configured_policy), encoding="utf-8")
+        return subprocess.run(
+            [
+                sys.executable,
+                str(CHECKER),
+                "--root",
+                str(root),
+                "--policy",
+                str(policy_path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+
+def parse_report(result):
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise AssertionError(
+            f"checker did not emit JSON: stdout={result.stdout!r} stderr={result.stderr!r}"
+        ) from error
+
+
+if __name__ == "__main__":
+    unittest.main()

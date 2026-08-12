@@ -13,6 +13,7 @@ mod diagnostics;
 mod local;
 mod platform;
 mod profiles;
+mod runtime_composition;
 mod scp;
 mod self_test;
 mod sftp;
@@ -90,7 +91,8 @@ fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Erro
             Ok(ExitCode::SUCCESS)
         }
         AppCommand::Window(options) => {
-            window::run(&options)?;
+            let composition = runtime_composition::RuntimeComposition::new();
+            window::run(&options, composition)?;
             Ok(ExitCode::SUCCESS)
         }
         AppCommand::Help => {

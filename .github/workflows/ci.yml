@@ -18,6 +18,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Verify Task 10 c69 fixture provenance
+        run: python scripts/ci/check-task10-provenance.py
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
         with:
           components: clippy, rustfmt
@@ -33,6 +36,8 @@ jobs:
           npm --prefix web test
           npm --prefix web run build
       - run: cargo fmt --all -- --check
+      - name: Enforce shrinking Rust architecture budgets
+        run: python scripts/ci/check-rust-architecture.py --policy scripts/ci/architecture-policy.json
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Run focused Web PTY tests
         run: cargo test --locked -p rssh-web --lib

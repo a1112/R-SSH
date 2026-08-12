@@ -4808,10 +4808,13 @@ dependencies = [
  "pollster",
  "regex",
  "rpassword",
+ "rssh-config",
  "rssh-core",
  "rssh-fonts",
+ "rssh-native",
  "rssh-pty",
  "rssh-renderer",
+ "rssh-runtime",
  "rssh-ssh",
  "rssh-terminal",
  "rssh-test-support",
@@ -4829,6 +4832,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rssh-config"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sha2 0.11.0",
+ "toml 0.8.2",
+]
+
+[[package]]
 name = "rssh-core"
 version = "0.1.0"
 
@@ -4841,6 +4853,15 @@ dependencies = [
  "ttf-parser",
  "unicode-segmentation",
  "unicode-width",
+]
+
+[[package]]
+name = "rssh-native"
+version = "0.1.0"
+dependencies = [
+ "rssh-config",
+ "rssh-core",
+ "rssh-runtime",
 ]
 
 [[package]]
@@ -4869,6 +4890,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rssh-runtime"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "flate2",
+ "proc-macro2",
+ "rssh-core",
+ "rssh-pty",
+ "rssh-ssh",
+ "rssh-terminal",
+ "sha2 0.11.0",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "rssh-ssh"
 version = "0.1.0"
 dependencies = [
@@ -4894,8 +4930,11 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "flate2",
+ "proc-macro2",
  "rssh-core",
+ "sha2 0.11.0",
  "smol_str 0.2.2",
+ "syn 2.0.117",
  "unicode-normalization",
  "unicode-segmentation",
  "unicode-width",
@@ -4905,6 +4944,7 @@ dependencies = [
 name = "rssh-test-support"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "futures",
  "junction",
  "rand 0.10.1",

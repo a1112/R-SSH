@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "9e99ba755fbdbd8896d849bc8934e187ab9062b5",
+  "recorded_at": "2026-08-09",
+  "machine": {
+    "os": "windows",
+    "os_caption": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+    "os_version": "10.0.26300",
+    "os_build": "26300",
+    "arch": "x86_64",
+    "cpu": "Intel(R) Core(TM) i5-14600KF",
+    "power_profile": "High performance (8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c)",
+    "rustc": "1.89.0",
+    "cargo": "1.89.0",
+    "toolchain_host": "x86_64-pc-windows-msvc"
+  },
+  "protocol": {
+    "warmups": 2,
+    "samples": 7,
+    "bytes": 1048576,
+    "chunk_size": 8192,
+    "render_frames": 30,
+    "idle_ms": 1000,
+    "sample_order": "alternate workload order by sample index",
+    "same_machine_required": true
+  },
+  "runtime": {
+    "workloads": {
+      "ansi-scroll-query": {
+        "baseline": {
+          "throughput_bytes_per_sec": 4444069,
+          "chunk_p95_us": 2321,
+          "render_frame_p95_us": 328,
+          "process_memory_bytes": 52297728,
+          "process_virtual_memory_bytes": 44986368,
+          "elapsed_ms": 235,
+          "inspected_query_bytes": 1499241,
+          "scrolled_survivor_cell_clones": 0,
+          "history_row_relocations": 0,
+          "metadata_rebase_batches": 6605
+        },
+        "gates": {
+          "throughput_bytes_per_sec_min": 4888476,
+          "chunk_p95_us_max": 2088,
+          "render_frame_p95_us_max": 311,
+          "process_memory_bytes_max": 49682841,
+          "scrolled_survivor_cell_clones_max": 0,
+          "history_row_relocations_max": 0,
+          "inspected_query_bytes_max": 4194304
+        }
+      },
+      "plain-scroll": {
+        "baseline": {
+          "throughput_bytes_per_sec": 3806866,
+          "chunk_p95_us": 2562,
+          "render_frame_p95_us": 373,
+          "process_memory_bytes": 52027392,
+          "process_virtual_memory_bytes": 45322240,
+          "elapsed_ms": 275,
+          "inspected_query_bytes": 0,
+          "scrolled_survivor_cell_clones": 0,
+          "history_row_relocations": 0,
+          "metadata_rebase_batches": 14243
+        },
+        "gates": {
+          "throughput_bytes_per_sec_min": 5242880,
+          "chunk_p95_us_max": 2305,
+          "render_frame_p95_us_max": 354,
+          "process_memory_bytes_max": 49426022,
+          "scrolled_survivor_cell_clones_max": 0,
+          "history_row_relocations_max": 0,
+          "inspected_query_bytes_max": 4194304
+        }
+      },
+      "ansi-scroll": {
+        "baseline": {
+          "throughput_bytes_per_sec": 3518809,
+          "chunk_p95_us": 3016,
+          "render_frame_p95_us": 430,
+          "process_memory_bytes": 52203520,
+          "process_virtual_memory_bytes": 45039616,
+          "elapsed_ms": 297,
+          "inspected_query_bytes": 1256222,
+          "scrolled_survivor_cell_clones": 0,
+          "history_row_relocations": 0,
+          "metadata_rebase_batches": 10724
+        },
+        "gates": {
+          "throughput_bytes_per_sec_min": 3870690,
+          "chunk_p95_us_max": 2714,
+          "render_frame_p95_us_max": 408,
+          "process_memory_bytes_max": 49593344,
+          "scrolled_survivor_cell_clones_max": 0,
+          "history_row_relocations_max": 0,
+          "inspected_query_bytes_max": 4194304
+        }
+      }
+    }
+  },
+  "build": {
+    "baseline": {
+      "clean_check_ms": 51692,
+      "warm_check_ms": 776,
+      "package_rebuild_ms": 18101,
+      "test_no_run_ms": 94736,
+      "target_bytes": 7252825489,
+      "largest_harness_bytes": 74248192,
+      "unit_execution_ms": 18737,
+      "release_executable_bytes": 28459520,
+      "unit_tests_listed": 4258,
+      "unit_tests_passed": 4256,
+      "unit_tests_ignored": 2
+    },
+    "gates": {
+      "clean_check_ms_max": 41400,
+      "package_rebuild_ms_max": 12700,
+      "test_no_run_ms_max": 66300,
+      "target_bytes_max": 5439619116,
+      "largest_harness_bytes_max": 55700000,
+      "unit_execution_ms_max": 15000,
+      "release_executable_bytes_max": 25620000
+    }
+  },
+  "commands": {
+    "runtime": "cargo run --locked --release -p rssh-app -- bench --json --workload {workload} --bytes 1048576 --chunk-size 8192 --render-frames 30 --idle-ms 1000",
+    "clean_check": "cargo check --locked -p rssh-app --tests",
+    "warm_check": "cargo check --locked -p rssh-app --tests",
+    "package_rebuild": "cargo clean -p rssh-app && cargo check --locked -p rssh-app --tests",
+    "test_no_run": "cargo test --locked --no-run -p rssh-app",
+    "unit_execution": "cargo test --locked -p rssh-app --bin rssh-app",
+    "release": "cargo build --locked --release -p rssh-app"
+  }
+}

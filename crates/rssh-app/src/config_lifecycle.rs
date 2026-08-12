@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
-    ffi::OsString,
+    collections::BTreeSet,
     fmt, fs,
     path::PathBuf,
     sync::{Arc, Mutex, mpsc},
@@ -11,8 +10,40 @@ use std::{
 };
 
 use notify::{Event, EventKind, RecommendedWatcher, Watcher};
+use rssh_config::{
+    ConfigLifecycle as ConfigLifecycleCore, ConfigLifecycleEvent, ConfigLoadAttempt,
+    ConfigSnapshot, FixedWindowDebouncer, SourceChange,
+};
 
-use crate::window::NativeConfigOverrides;
+pub(crate) use rssh_config::{
+    ConfigDiscoveryInputs, ConfigSource, ConfigSourceError as NativeConfigSourceError,
+    ResolvedConfigSource,
+};
+
+pub(crate) trait NativeConfigProjection: Clone + Default {
+    fn project_canonical_config(source: &str) -> Option<Self>;
+
+    fn automatically_reload_config(&self) -> Option<bool>;
+}
+
+macro_rules! bind_native_config_projection {
+    ($payload:ty, $project:path, $reload:ident) => {
+        type EffectiveNativeConfig = rssh_config::ConfigSnapshot<$payload>;
+        type NativeConfigLifecycle = $crate::config_lifecycle::NativeConfigLifecycle<$payload>;
+
+        impl $crate::config_lifecycle::NativeConfigProjection for $payload {
+            fn project_canonical_config(source: &str) -> Option<Self> {
+                $project(source)
+            }
+
+            fn automatically_reload_config(&self) -> Option<bool> {
+                self.$reload
+            }
+        }
+    };
+}
+
+pub(crate) use bind_native_config_projection;
 
 const CONFIG_WATCH_DEBOUNCE: Duration = Duration::from_millis(200);
 
@@ -158,14 +189,10 @@ fn run_config_watcher_worker(
     event_sink: ConfigFileChangedSink,
     diagnostics: &Mutex<Vec<NativeConfigWatchDiagnostic>>,
 ) {
+    let mut debouncer = FixedWindowDebouncer::new(debounce);
     'worker: while let Ok(message) = receiver.recv() {
-        let relevant = match message {
-            NativeConfigWatcherMessage::Notify(Ok(event)) => {
-                matches!(
-                    event.kind,
-                    EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-                )
-            }
+        let change = match message {
+            NativeConfigWatcherMessage::Notify(Ok(event)) => source_change_from_notify(&event),
             NativeConfigWatcherMessage::Notify(Err(error)) => {
                 diagnostics
                     .lock()
@@ -174,25 +201,31 @@ fn run_config_watcher_worker(
                         path: error.paths.first().cloned(),
                         detail: error.to_string(),
                     });
-                false
+                SourceChange::Ignored
             }
             NativeConfigWatcherMessage::Stop(stopped) => {
                 let _ = stopped.send(());
                 break;
             }
         };
-        if !relevant {
+        if debouncer.observe(change, Instant::now()).is_none() {
             continue;
         }
 
-        let deadline = Instant::now() + debounce;
         let mut stop = None;
         loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
+            let Some(remaining) = debouncer
+                .remaining(Instant::now())
+                .filter(|remaining| !remaining.is_zero())
+            else {
+                break;
+            };
             match receiver.recv_timeout(remaining) {
                 // Once a relevant event opens the fixed debounce window, coalesce every
                 // subsequent successful notification in that burst.
-                Ok(NativeConfigWatcherMessage::Notify(Ok(_))) => {}
+                Ok(NativeConfigWatcherMessage::Notify(Ok(event))) => {
+                    let _ = debouncer.observe(source_change_from_notify(&event), Instant::now());
+                }
                 Ok(NativeConfigWatcherMessage::Notify(Err(error))) => {
                     diagnostics
                         .lock()
@@ -214,164 +247,54 @@ fn run_config_watcher_worker(
             let _ = stopped.send(());
             break;
         }
-        let _ = event_sink();
+        if debouncer.take_ready(Instant::now()) {
+            let _ = event_sink();
+        }
     }
     drop(receiver);
     drop(event_sink);
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ConfigDiscoveryInputs {
-    pub(crate) is_windows: bool,
-    pub(crate) is_unix: bool,
-    pub(crate) current_exe: Option<PathBuf>,
-    pub(crate) home_dir: Option<PathBuf>,
-    pub(crate) xdg_config_home: Option<PathBuf>,
-    pub(crate) xdg_config_dirs: Vec<PathBuf>,
-    pub(crate) environment_config_file: Option<PathBuf>,
-}
+pub(crate) type NativeConfigLoadAttempt<T> = ConfigLoadAttempt<T, NativeConfigLoadError>;
+pub(crate) type EffectiveNativeConfig<T> = ConfigSnapshot<T>;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct ConfigEnvironmentSnapshot {
-    home: Option<OsString>,
-    user_profile: Option<OsString>,
-    home_drive: Option<OsString>,
-    home_path: Option<OsString>,
-    xdg_config_home: Option<OsString>,
-    xdg_config_dirs: Option<OsString>,
-    wezterm_config_file: Option<OsString>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ConfigSource {
-    pub(crate) path: PathBuf,
-    pub(crate) required: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ResolvedConfigSource {
-    Disabled,
-    Defaults,
-    File(ConfigSource),
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum NativeConfigSourceErrorKind {
-    Io(std::io::ErrorKind),
-    InvalidUtf8,
-    NonUnicodePath,
-    Strict(NativeConfigLoadError),
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct NativeConfigSourceError {
-    pub(crate) path: PathBuf,
-    pub(crate) kind: NativeConfigSourceErrorKind,
-    pub(crate) detail: String,
-}
-
-impl fmt::Display for NativeConfigSourceError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}: ", self.path.display())?;
-        match &self.kind {
-            NativeConfigSourceErrorKind::Io(kind) => {
-                let kind = match kind {
-                    std::io::ErrorKind::NotFound => "not found".to_owned(),
-                    kind => kind.to_string(),
-                };
-                write!(formatter, "I/O error: {kind}: {}", self.detail)
-            }
-            NativeConfigSourceErrorKind::InvalidUtf8 => formatter.write_str("invalid UTF-8"),
-            NativeConfigSourceErrorKind::NonUnicodePath => {
-                formatter.write_str("config source path cannot be published losslessly")
-            }
-            NativeConfigSourceErrorKind::Strict(error) => error.fmt(formatter),
-        }
-    }
-}
-
-impl std::error::Error for NativeConfigSourceError {}
-
-#[derive(Debug, Clone)]
-pub(crate) struct NativeConfigLoadAttempt {
-    pub(crate) preferred: Option<PathBuf>,
-    pub(crate) resolved: ResolvedConfigSource,
-    pub(crate) result: Result<NativeConfigOverrides, NativeConfigSourceError>,
-    pub(crate) publication: DerivedConfigEnvironment,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct DerivedConfigEnvironment {
-    variables: BTreeMap<String, String>,
-}
-
-impl DerivedConfigEnvironment {
-    pub(crate) fn variables(&self) -> &BTreeMap<String, String> {
-        &self.variables
-    }
-
-    fn for_file(path: &std::path::Path) -> Result<Self, NativeConfigSourceError> {
-        fn non_unicode_path(path: &std::path::Path) -> NativeConfigSourceError {
-            NativeConfigSourceError {
-                path: path.to_path_buf(),
-                kind: NativeConfigSourceErrorKind::NonUnicodePath,
-                detail: "config source path is not valid Unicode".to_owned(),
-            }
-        }
-
-        let file = path.to_str().ok_or_else(|| non_unicode_path(path))?;
-        let mut variables = BTreeMap::new();
-        variables.insert("WEZTERM_CONFIG_FILE".to_owned(), file.to_owned());
-        if let Some(parent) = path.parent() {
-            let parent = parent.to_str().ok_or_else(|| non_unicode_path(path))?;
-            variables.insert("WEZTERM_CONFIG_DIR".to_owned(), parent.to_owned());
-        }
-        Ok(Self { variables })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct EffectiveNativeConfig {
-    pub(crate) source: Option<PathBuf>,
-    pub(crate) overrides: Arc<NativeConfigOverrides>,
-    pub(crate) generation: u64,
-    pub(crate) publication: DerivedConfigEnvironment,
-}
-
-pub(crate) struct NativeConfigLifecycle {
-    inputs: ConfigDiscoveryInputs,
-    skip: bool,
-    explicit: Option<PathBuf>,
-    cli: ValidatedNativeConfigAssignments,
-    effective: EffectiveNativeConfig,
-    latest_diagnostic: Option<NativeConfigSourceError>,
-    latest_selection: ResolvedConfigSource,
+pub(crate) struct NativeConfigLifecycle<T: NativeConfigProjection> {
+    core: ConfigLifecycleCore<T, NativeConfigLoadError>,
+    cli: ValidatedNativeConfigAssignments<T>,
     watcher: Option<NativeConfigWatcher>,
     watcher_options: Option<NativeConfigWatcherOptions>,
     watcher_initialization_diagnostic: Option<NativeConfigWatchDiagnostic>,
     watch_current_dir: PathBuf,
 }
 
-impl NativeConfigLifecycle {
+fn source_change_from_notify(event: &Event) -> SourceChange {
+    if matches!(
+        event.kind,
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+    ) {
+        SourceChange::Changed
+    } else {
+        SourceChange::Ignored
+    }
+}
+
+impl<T: NativeConfigProjection> NativeConfigLifecycle<T> {
     pub(crate) fn new(
         inputs: ConfigDiscoveryInputs,
         skip: bool,
         explicit: Option<PathBuf>,
-        cli: ValidatedNativeConfigAssignments,
+        cli: ValidatedNativeConfigAssignments<T>,
     ) -> Self {
+        let defaults = cli.default_overrides().clone();
         Self {
-            inputs,
-            skip,
-            explicit,
+            core: ConfigLifecycleCore::new_with_initial(
+                inputs,
+                skip,
+                explicit,
+                T::default(),
+                defaults,
+            ),
             cli,
-            effective: EffectiveNativeConfig {
-                source: None,
-                overrides: Arc::new(NativeConfigOverrides::default()),
-                generation: 0,
-                publication: DerivedConfigEnvironment::default(),
-            },
-            latest_diagnostic: None,
-            latest_selection: ResolvedConfigSource::Defaults,
             watcher: None,
             watcher_options: None,
             watcher_initialization_diagnostic: None,
@@ -379,118 +302,38 @@ impl NativeConfigLifecycle {
         }
     }
 
-    pub(crate) fn attempt_reload(&self) -> NativeConfigLoadAttempt {
-        if self.skip {
-            return NativeConfigLoadAttempt {
-                preferred: None,
-                resolved: ResolvedConfigSource::Disabled,
-                result: Ok(self.cli.default_overrides().clone()),
-                publication: DerivedConfigEnvironment::default(),
-            };
-        }
-
-        for source in self.candidate_sources() {
-            let path = source.path.clone();
-            let result = load_native_config_file(&path, &self.cli);
-            if !source.required
-                && matches!(
-                    result,
-                    Err(NativeConfigSourceError {
-                        kind: NativeConfigSourceErrorKind::Io(std::io::ErrorKind::NotFound),
-                        ..
-                    })
-                )
-            {
-                continue;
-            }
-            let (result, publication) = match result {
-                Ok(overrides) => match DerivedConfigEnvironment::for_file(&path) {
-                    Ok(publication) => (Ok(overrides), publication),
-                    Err(error) => (Err(error), DerivedConfigEnvironment::default()),
-                },
-                Err(error) => (Err(error), DerivedConfigEnvironment::default()),
-            };
-            return NativeConfigLoadAttempt {
-                preferred: Some(path.clone()),
-                resolved: ResolvedConfigSource::File(source),
-                result,
-                publication,
-            };
-        }
-
-        NativeConfigLoadAttempt {
-            preferred: None,
-            resolved: ResolvedConfigSource::Defaults,
-            result: Ok(self.cli.default_overrides().clone()),
-            publication: DerivedConfigEnvironment::default(),
-        }
+    pub(crate) fn attempt_reload(&self) -> NativeConfigLoadAttempt<T> {
+        self.core
+            .attempt_reload(|source| parse_loaded_native_config_document(source, &self.cli))
     }
 
     pub(crate) fn validated_cli(&self) -> &[StaticNativeConfigAssignment] {
         self.cli.as_slice()
     }
 
-    pub(crate) fn effective(&self) -> &EffectiveNativeConfig {
-        &self.effective
+    pub(crate) fn effective(&self) -> &EffectiveNativeConfig<T> {
+        self.core.snapshot_ref()
     }
 
-    pub(crate) fn latest_diagnostic(&self) -> Option<&NativeConfigSourceError> {
-        self.latest_diagnostic.as_ref()
+    pub(crate) fn latest_diagnostic(
+        &self,
+    ) -> Option<&NativeConfigSourceError<NativeConfigLoadError>> {
+        self.core.latest_diagnostic()
     }
 
     pub(crate) fn latest_selection(&self) -> &ResolvedConfigSource {
-        &self.latest_selection
+        self.core.latest_selection()
     }
 
-    pub(crate) fn install_initial_attempt(&mut self, attempt: NativeConfigLoadAttempt) {
-        self.latest_selection = attempt.resolved.clone();
-        match attempt.result {
-            Ok(overrides) => {
-                self.effective = EffectiveNativeConfig {
-                    source: match &attempt.resolved {
-                        ResolvedConfigSource::File(source) => Some(source.path.clone()),
-                        ResolvedConfigSource::Disabled | ResolvedConfigSource::Defaults => None,
-                    },
-                    overrides: Arc::new(overrides),
-                    generation: 1,
-                    publication: attempt.publication,
-                };
-                self.latest_diagnostic = None;
-            }
-            Err(error) => {
-                self.latest_diagnostic = Some(error);
-            }
-        }
+    pub(crate) fn install_initial_attempt(&mut self, attempt: NativeConfigLoadAttempt<T>) {
+        let _ = self.core.install_attempt(attempt, |_, _| ());
         self.refresh_watched_paths();
     }
 
-    pub(crate) fn install_runtime_attempt(&mut self, attempt: NativeConfigLoadAttempt) -> bool {
-        self.latest_selection = attempt.resolved.clone();
-        let succeeded = match attempt.result {
-            Ok(overrides) => {
-                self.effective = EffectiveNativeConfig {
-                    source: match &attempt.resolved {
-                        ResolvedConfigSource::File(source) => Some(source.path.clone()),
-                        ResolvedConfigSource::Disabled | ResolvedConfigSource::Defaults => None,
-                    },
-                    overrides: Arc::new(overrides),
-                    generation: self
-                        .effective
-                        .generation
-                        .checked_add(1)
-                        .expect("configuration generation overflowed"),
-                    publication: attempt.publication,
-                };
-                self.latest_diagnostic = None;
-                true
-            }
-            Err(error) => {
-                self.latest_diagnostic = Some(error);
-                false
-            }
-        };
+    pub(crate) fn install_runtime_attempt(&mut self, attempt: NativeConfigLoadAttempt<T>) -> bool {
+        let event = self.core.install_attempt(attempt, |_, _| ());
         self.refresh_watched_paths();
-        succeeded
+        matches!(event, ConfigLifecycleEvent::Applied { .. })
     }
 
     pub(crate) fn install_watcher_sink(
@@ -542,26 +385,26 @@ impl NativeConfigLifecycle {
     }
 
     fn refresh_watched_paths(&mut self) {
-        let enabled = if self.effective.generation == 0 {
+        let enabled = if self.effective().generation == 0 {
             self.cli
                 .default_overrides()
-                .automatically_reload_config
+                .automatically_reload_config()
                 .unwrap_or(true)
         } else {
-            self.effective
-                .overrides
-                .automatically_reload_config
+            self.effective()
+                .config
+                .automatically_reload_config()
                 .unwrap_or(true)
         };
         if !enabled {
             return;
         }
-        let ResolvedConfigSource::File(source) = &self.latest_selection else {
+        let ResolvedConfigSource::File(source) = self.latest_selection() else {
             return;
         };
         let path = watcher_registration_path(&source.path, &self.watch_current_dir);
         let parent = path.parent().map(std::path::Path::to_path_buf);
-        let home = self.inputs.home_dir.clone();
+        let home = self.core.inputs().home_dir.clone();
         if self.watcher.is_none() {
             let Some(options) = self.watcher_options.as_ref() else {
                 return;
@@ -640,77 +483,24 @@ impl NativeConfigLifecycle {
         self.watch_current_dir = current_dir;
     }
 
-    fn candidate_sources(&self) -> Vec<ConfigSource> {
-        let mut candidates = Vec::new();
-        if let Some(path) = &self.explicit {
-            candidates.push(ConfigSource {
-                path: path.clone(),
-                required: true,
-            });
-            return candidates;
-        }
-        if let Some(path) = &self.inputs.environment_config_file {
-            candidates.push(ConfigSource {
-                path: path.clone(),
-                required: true,
-            });
-            return candidates;
-        }
-        if self.inputs.is_windows
-            && let Some(path) = self
-                .inputs
-                .current_exe
-                .as_deref()
-                .and_then(std::path::Path::parent)
-                .map(|parent| parent.join("wezterm.lua"))
-        {
-            candidates.push(ConfigSource {
-                path,
-                required: false,
-            });
-        }
-        if let Some(path) = self
-            .inputs
-            .home_dir
-            .as_ref()
-            .map(|home| home.join(".wezterm.lua"))
-        {
-            candidates.push(ConfigSource {
-                path,
-                required: false,
-            });
-        }
-        if let Some(path) = self
-            .inputs
-            .xdg_config_home
-            .as_ref()
-            .map(|dir| dir.join("wezterm").join("wezterm.lua"))
-        {
-            candidates.push(ConfigSource {
-                path,
-                required: false,
-            });
-        }
-        if self.inputs.xdg_config_home.is_none()
-            && let Some(path) = self
-                .inputs
-                .home_dir
-                .as_ref()
-                .map(|home| home.join(".config").join("wezterm").join("wezterm.lua"))
-        {
-            candidates.push(ConfigSource {
-                path,
-                required: false,
-            });
-        }
-        if self.inputs.is_unix {
-            candidates.extend(self.inputs.xdg_config_dirs.iter().map(|dir| ConfigSource {
-                path: dir.join("wezterm").join("wezterm.lua"),
-                required: false,
-            }));
-        }
+    #[cfg(test)]
+    pub(crate) fn install_source_for_test(&mut self, source: ConfigSource, config: T) {
+        let attempt = NativeConfigLoadAttempt {
+            preferred: Some(source.path.clone()),
+            resolved: ResolvedConfigSource::File(source),
+            result: Ok(config),
+            publication: rssh_config::DerivedConfigEnvironment::default(),
+        };
+        self.install_initial_attempt(attempt);
+    }
 
-        candidates
+    fn candidate_sources(&self) -> Vec<ConfigSource> {
+        self.core.candidate_sources()
+    }
+
+    #[cfg(test)]
+    fn inputs(&self) -> &ConfigDiscoveryInputs {
+        self.core.inputs()
     }
 }
 
@@ -727,98 +517,6 @@ fn watcher_registration_path(path: &std::path::Path, current_dir: &std::path::Pa
     } else {
         current_dir.join(path)
     }
-}
-
-impl ConfigDiscoveryInputs {
-    pub(crate) fn capture_current_process() -> Self {
-        Self::from_environment_snapshot(
-            cfg!(windows),
-            cfg!(unix),
-            std::env::current_exe().ok(),
-            ConfigEnvironmentSnapshot {
-                home: std::env::var_os("HOME"),
-                user_profile: std::env::var_os("USERPROFILE"),
-                home_drive: std::env::var_os("HOMEDRIVE"),
-                home_path: std::env::var_os("HOMEPATH"),
-                xdg_config_home: std::env::var_os("XDG_CONFIG_HOME"),
-                xdg_config_dirs: std::env::var_os("XDG_CONFIG_DIRS"),
-                wezterm_config_file: std::env::var_os("WEZTERM_CONFIG_FILE"),
-            },
-        )
-    }
-
-    fn from_environment_snapshot(
-        is_windows: bool,
-        is_unix: bool,
-        current_exe: Option<PathBuf>,
-        environment: ConfigEnvironmentSnapshot,
-    ) -> Self {
-        fn non_empty_path(value: Option<OsString>) -> Option<PathBuf> {
-            value.filter(|value| !value.is_empty()).map(PathBuf::from)
-        }
-
-        let home_dir = if is_windows {
-            non_empty_path(environment.user_profile)
-                .or_else(|| {
-                    let drive = environment.home_drive.filter(|value| !value.is_empty())?;
-                    let path = environment.home_path.filter(|value| !value.is_empty())?;
-                    let mut home = drive;
-                    home.push(path);
-                    Some(PathBuf::from(home))
-                })
-                .or_else(|| non_empty_path(environment.home))
-        } else {
-            non_empty_path(environment.home)
-        };
-        let xdg_config_dirs = environment
-            .xdg_config_dirs
-            .map(|value| std::env::split_paths(&value).collect())
-            .unwrap_or_default();
-        Self {
-            is_windows,
-            is_unix,
-            current_exe,
-            home_dir,
-            xdg_config_home: environment.xdg_config_home.map(PathBuf::from),
-            xdg_config_dirs,
-            environment_config_file: environment.wezterm_config_file.map(PathBuf::from),
-        }
-    }
-}
-
-fn load_native_config_file(
-    path: &std::path::Path,
-    cli: &[StaticNativeConfigAssignment],
-) -> Result<NativeConfigOverrides, NativeConfigSourceError> {
-    let bytes = fs::read(path).map_err(|error| NativeConfigSourceError {
-        path: path.to_path_buf(),
-        kind: NativeConfigSourceErrorKind::Io(error.kind()),
-        detail: error.to_string(),
-    })?;
-    let source = std::str::from_utf8(&bytes).map_err(|_| NativeConfigSourceError {
-        path: path.to_path_buf(),
-        kind: NativeConfigSourceErrorKind::InvalidUtf8,
-        detail: "input is not valid UTF-8".to_owned(),
-    })?;
-    let source = source.strip_prefix('\u{feff}').unwrap_or(source);
-    if source.starts_with('\u{feff}') {
-        return Err(NativeConfigSourceError {
-            path: path.to_path_buf(),
-            kind: NativeConfigSourceErrorKind::Strict(NativeConfigLoadError::InvalidSyntax {
-                location: SourceLocation { line: 1, column: 1 },
-                message: "unexpected second UTF-8 BOM".to_owned(),
-            }),
-            detail: "unexpected second UTF-8 BOM".to_owned(),
-        });
-    }
-    parse_native_config_document(source, cli).map_err(|error| {
-        let detail = error.to_string();
-        NativeConfigSourceError {
-            path: path.to_path_buf(),
-            kind: NativeConfigSourceErrorKind::Strict(error),
-            detail,
-        }
-    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -853,12 +551,12 @@ pub(crate) struct StaticNativeConfigAssignment {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub(crate) struct ValidatedNativeConfigAssignments {
+pub(crate) struct ValidatedNativeConfigAssignments<T> {
     assignments: Vec<StaticNativeConfigAssignment>,
-    default_overrides: NativeConfigOverrides,
+    default_overrides: T,
 }
 
-impl std::ops::Deref for ValidatedNativeConfigAssignments {
+impl<T> std::ops::Deref for ValidatedNativeConfigAssignments<T> {
     type Target = [StaticNativeConfigAssignment];
 
     fn deref(&self) -> &Self::Target {
@@ -866,12 +564,12 @@ impl std::ops::Deref for ValidatedNativeConfigAssignments {
     }
 }
 
-impl ValidatedNativeConfigAssignments {
+impl<T> ValidatedNativeConfigAssignments<T> {
     pub(crate) fn as_slice(&self) -> &[StaticNativeConfigAssignment] {
         &self.assignments
     }
 
-    pub(crate) fn default_overrides(&self) -> &NativeConfigOverrides {
+    pub(crate) fn default_overrides(&self) -> &T {
         &self.default_overrides
     }
 }
@@ -941,9 +639,9 @@ impl fmt::Display for NativeConfigLoadError {
 
 impl std::error::Error for NativeConfigLoadError {}
 
-pub(crate) fn validate_cli_config_overrides(
+pub(crate) fn validate_cli_config_overrides<T: NativeConfigProjection>(
     items: &[(String, String)],
-) -> Result<ValidatedNativeConfigAssignments, NativeConfigLoadError> {
+) -> Result<ValidatedNativeConfigAssignments<T>, NativeConfigLoadError> {
     let mut assignments = Vec::with_capacity(items.len());
     for (field, source) in items {
         let mut parser = Parser::new(source);
@@ -973,26 +671,39 @@ pub(crate) fn validate_cli_config_overrides(
     })
 }
 
-pub(crate) fn parse_native_config_document(
+pub(crate) fn parse_native_config_document<T: NativeConfigProjection>(
     source: &str,
     cli: &[StaticNativeConfigAssignment],
-) -> Result<NativeConfigOverrides, NativeConfigLoadError> {
+) -> Result<T, NativeConfigLoadError> {
     let mut assignments = Parser::new(source).parse_document()?;
     assignments.extend_from_slice(cli);
     if assignments.is_empty() {
-        return Ok(NativeConfigOverrides::default());
+        return Ok(T::default());
     }
 
     for assignment in &assignments {
         validate_assignment(assignment)?;
     }
     let canonical = canonical_document(&assignments);
-    crate::window::native_config_overrides_from_wezterm_lua_config(&canonical).ok_or_else(|| {
+    T::project_canonical_config(&canonical).ok_or_else(|| {
         NativeConfigLoadError::InternalValidation {
             location: SourceLocation { line: 1, column: 1 },
             message: "legacy extractor rejected strictly validated config".to_owned(),
         }
     })
+}
+
+fn parse_loaded_native_config_document<T: NativeConfigProjection>(
+    source: &str,
+    cli: &[StaticNativeConfigAssignment],
+) -> Result<T, NativeConfigLoadError> {
+    if source.starts_with('\u{feff}') {
+        return Err(NativeConfigLoadError::InvalidSyntax {
+            location: SourceLocation { line: 1, column: 1 },
+            message: "unexpected second UTF-8 BOM".to_owned(),
+        });
+    }
+    parse_native_config_document(source, cli)
 }
 
 fn validate_assignment(
@@ -2153,6 +1864,12 @@ fn is_lua_reserved_keyword(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::window::NativeConfigSnapshot;
+    use rssh_config::{
+        ConfigEnvironmentSnapshot, ConfigSourceErrorKind as NativeConfigSourceErrorKind,
+    };
+    #[cfg(unix)]
+    use std::ffi::OsString;
     use std::{
         fs,
         ops::Deref,
@@ -2164,6 +1881,23 @@ mod tests {
         },
         time::Duration,
     };
+
+    type TestNativeConfigLifecycle = super::NativeConfigLifecycle<NativeConfigSnapshot>;
+    type TestValidatedNativeConfigAssignments =
+        super::ValidatedNativeConfigAssignments<NativeConfigSnapshot>;
+
+    fn parse_test_native_config_document(
+        source: &str,
+        cli: &[StaticNativeConfigAssignment],
+    ) -> Result<NativeConfigSnapshot, NativeConfigLoadError> {
+        super::parse_native_config_document(source, cli)
+    }
+
+    fn validate_test_cli_config_overrides(
+        items: &[(String, String)],
+    ) -> Result<TestValidatedNativeConfigAssignments, NativeConfigLoadError> {
+        super::validate_cli_config_overrides(items)
+    }
 
     struct TestDir(PathBuf);
 
@@ -2218,6 +1952,34 @@ mod tests {
     }
 
     #[test]
+    fn watcher_ready_deadline_is_not_starved_by_queued_notifications() {
+        let (message_sender, message_receiver) = mpsc::channel();
+        for _ in 0..2 {
+            message_sender
+                .send(NativeConfigWatcherMessage::Notify(Ok(Event::new(
+                    EventKind::Modify(notify::event::ModifyKind::Any),
+                ))))
+                .unwrap();
+        }
+        drop(message_sender);
+
+        let (event_sender, event_receiver) = mpsc::channel();
+        let diagnostics = Mutex::new(Vec::new());
+        run_config_watcher_worker(
+            message_receiver,
+            Duration::ZERO,
+            Arc::new(move || event_sender.send(()).is_ok()),
+            &diagnostics,
+        );
+
+        assert_eq!(
+            event_receiver.try_iter().count(),
+            2,
+            "a ready fixed-window deadline must fire before later queued notifications"
+        );
+    }
+
+    #[test]
     fn watcher_accepts_create_modify_remove_and_ignores_other_kinds() {
         use notify::event::{AccessKind, CreateKind, ModifyKind, RemoveKind, RenameMode};
 
@@ -2260,7 +2022,7 @@ mod tests {
         fs::create_dir_all(&config_dir).unwrap();
         let path = config_dir.join("wezterm.lua");
         fs::write(&path, "return dynamic_config").unwrap();
-        let mut lifecycle = NativeConfigLifecycle::new(
+        let mut lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: false,
@@ -2272,7 +2034,7 @@ mod tests {
             },
             false,
             Some(path.clone()),
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
         lifecycle.install_initial_attempt(attempt);
@@ -2294,7 +2056,7 @@ mod tests {
         fs::create_dir_all(&home).unwrap();
         let path = home.join(".wezterm.lua");
         fs::write(&path, "return { automatically_reload_config = true }").unwrap();
-        let mut lifecycle = NativeConfigLifecycle::new(
+        let mut lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: false,
@@ -2306,7 +2068,7 @@ mod tests {
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
         lifecycle.install_initial_attempt(attempt);
@@ -2329,7 +2091,7 @@ mod tests {
         let relative = PathBuf::from("wezterm.lua");
         let absolute = root.join(&relative);
         fs::write(&absolute, "return {}").unwrap();
-        let mut lifecycle = NativeConfigLifecycle::new(
+        let mut lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: false,
@@ -2341,16 +2103,18 @@ mod tests {
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         lifecycle.set_watch_current_dir_for_test(root.0.clone());
-        lifecycle.latest_selection = ResolvedConfigSource::File(ConfigSource {
-            path: relative.clone(),
-            required: true,
-        });
-        lifecycle.effective.source = Some(relative.clone());
-        lifecycle.effective.generation = 1;
-        Arc::make_mut(&mut lifecycle.effective.overrides).automatically_reload_config = Some(true);
+        let mut config = NativeConfigSnapshot::default();
+        config.automatically_reload_config = Some(true);
+        lifecycle.install_source_for_test(
+            ConfigSource {
+                path: relative.clone(),
+                required: true,
+            },
+            config,
+        );
 
         lifecycle
             .install_watcher_sink_for_test(Duration::from_millis(1), Arc::new(|| true), None)
@@ -2374,7 +2138,7 @@ mod tests {
         let replacement = root.join("wezterm.lua.replacement");
         fs::write(&absolute, "return { term = 'before' }").unwrap();
         fs::write(&replacement, "return { term = 'after' }").unwrap();
-        let mut lifecycle = NativeConfigLifecycle::new(
+        let mut lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: false,
@@ -2386,15 +2150,18 @@ mod tests {
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         lifecycle.set_watch_current_dir_for_test(root.0.clone());
-        lifecycle.latest_selection = ResolvedConfigSource::File(ConfigSource {
-            path: relative,
-            required: true,
-        });
-        lifecycle.effective.generation = 1;
-        Arc::make_mut(&mut lifecycle.effective.overrides).automatically_reload_config = Some(true);
+        let mut config = NativeConfigSnapshot::default();
+        config.automatically_reload_config = Some(true);
+        lifecycle.install_source_for_test(
+            ConfigSource {
+                path: relative,
+                required: true,
+            },
+            config,
+        );
         let (event_sender, event_receiver) = mpsc::channel();
         lifecycle
             .install_watcher_sink_for_test(
@@ -2414,7 +2181,7 @@ mod tests {
 
     #[test]
     fn watcher_is_created_lazily_only_for_enabled_attempted_source() {
-        let mut lifecycle = NativeConfigLifecycle::new(
+        let mut lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: false,
@@ -2426,7 +2193,7 @@ mod tests {
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
         lifecycle.install_initial_attempt(attempt);
@@ -2444,12 +2211,15 @@ mod tests {
         let path = root.join("wezterm.lua");
         fs::write(&path, "return dynamic_config").unwrap();
         let lifecycle_with_cli = |enabled: bool| {
-            let cli = validate_cli_config_overrides(&[(
-                "automatically_reload_config".to_owned(),
-                enabled.to_string(),
-            )])
+            let cli = validate_test_cli_config_overrides(&[
+                (
+                    "automatically_reload_config".to_owned(),
+                    enabled.to_string(),
+                ),
+                ("term".to_owned(), "'cli-must-not-be-lkg'".to_owned()),
+            ])
             .unwrap();
-            let mut lifecycle = NativeConfigLifecycle::new(
+            let mut lifecycle = TestNativeConfigLifecycle::new(
                 ConfigDiscoveryInputs {
                     is_windows: false,
                     is_unix: false,
@@ -2466,6 +2236,12 @@ mod tests {
             let attempt = lifecycle.attempt_reload();
             lifecycle.install_initial_attempt(attempt);
             assert_eq!(lifecycle.effective().generation, 0);
+            assert_eq!(lifecycle.effective().config.term, None);
+            assert_eq!(
+                lifecycle.effective().config.automatically_reload_config,
+                None,
+                "CLI values may control the generation-zero watcher policy but are not LKG"
+            );
             lifecycle
         };
 
@@ -2493,7 +2269,7 @@ mod tests {
         let home_file = home.join(".wezterm.lua");
         let xdg_file = xdg.join("wezterm/wezterm.lua");
         fs::write(&home_file, "return { automatically_reload_config = true }").unwrap();
-        let mut lifecycle = NativeConfigLifecycle::new(
+        let mut lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: false,
@@ -2505,7 +2281,7 @@ mod tests {
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
         lifecycle.install_initial_attempt(attempt);
@@ -2535,7 +2311,7 @@ mod tests {
             "return { automatically_reload_config = true, term = 'enabled' }",
         )
         .unwrap();
-        let mut lifecycle = NativeConfigLifecycle::new(
+        let mut lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: false,
@@ -2547,7 +2323,7 @@ mod tests {
             },
             false,
             Some(path.clone()),
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
         lifecycle.install_initial_attempt(attempt);
@@ -2589,7 +2365,7 @@ mod tests {
     fn watch_registration_error_is_diagnostic_and_preserves_lkg() {
         let root = unique_temp_dir("watch-registration-error");
         let missing = root.join("missing.lua");
-        let mut lifecycle = NativeConfigLifecycle::new(
+        let mut lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: false,
@@ -2601,7 +2377,7 @@ mod tests {
             },
             false,
             Some(missing.clone()),
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
         lifecycle.install_initial_attempt(attempt);
@@ -2625,9 +2401,10 @@ mod tests {
     #[test]
     fn strict_parser_accepts_empty_direct_table() {
         let overrides =
-            parse_native_config_document("return {} -- before separator\n ; -- eof", &[]).unwrap();
+            parse_test_native_config_document("return {} -- before separator\n ; -- eof", &[])
+                .unwrap();
 
-        assert_eq!(overrides, crate::window::NativeConfigOverrides::default());
+        assert_eq!(overrides, crate::window::NativeConfigSnapshot::default());
     }
 
     #[test]
@@ -2640,7 +2417,7 @@ mod tests {
             return config
         ";
 
-        let overrides = parse_native_config_document(source, &[]).unwrap();
+        let overrides = parse_test_native_config_document(source, &[]).unwrap();
 
         assert_eq!(overrides.term.as_deref(), Some("xterm-256color"));
         assert_eq!(overrides.enable_tab_bar, Some(false));
@@ -2656,7 +2433,7 @@ mod tests {
             config.enable_tab_bar = false ;\r\n\
             return config; -- eof";
 
-        let overrides = parse_native_config_document(source, &[]).unwrap();
+        let overrides = parse_test_native_config_document(source, &[]).unwrap();
 
         assert_eq!(overrides.term.as_deref(), Some("xterm-256color"));
         assert_eq!(overrides.enable_tab_bar, Some(false));
@@ -2802,7 +2579,7 @@ mod tests {
             "return { term = \"bare\rcarriage\" }",
         ] {
             assert!(matches!(
-                parse_native_config_document(source, &[]),
+                parse_test_native_config_document(source, &[]),
                 Err(NativeConfigLoadError::InvalidSyntax { .. })
             ));
         }
@@ -2875,7 +2652,7 @@ mod tests {
             }
         "##;
 
-        let overrides = parse_native_config_document(source, &[]).unwrap();
+        let overrides = parse_test_native_config_document(source, &[]).unwrap();
 
         assert_eq!(overrides.term.as_deref(), Some("xterm-256color"));
         assert_eq!(overrides.default_cwd.as_deref(), Some("C:\\work\"quoted"));
@@ -3037,7 +2814,7 @@ mod tests {
     #[test]
     fn strict_registry_rejects_unknown_top_level_field() {
         let error =
-            parse_native_config_document("return {\n    definitely_unknown = true,\n}", &[])
+            parse_test_native_config_document("return {\n    definitely_unknown = true,\n}", &[])
                 .unwrap_err();
 
         assert!(matches!(
@@ -3051,7 +2828,7 @@ mod tests {
 
     #[test]
     fn strict_registry_rejects_mixed_known_and_unknown_colors_keys() {
-        let error = parse_native_config_document(
+        let error = parse_test_native_config_document(
             r##"return {
                 colors = {
                     cursor_bg = "#ffffff",
@@ -3075,7 +2852,7 @@ mod tests {
 
     #[test]
     fn strict_colors_accepts_compose_cursor_and_converts_it() {
-        let overrides = parse_native_config_document(
+        let overrides = parse_test_native_config_document(
             r##"return { colors = { compose_cursor = "#123456" } }"##,
             &[],
         )
@@ -3092,7 +2869,7 @@ mod tests {
 
     #[test]
     fn strict_registry_rejects_mixed_valid_and_unsupported_key_entries() {
-        let error = parse_native_config_document(
+        let error = parse_test_native_config_document(
             r#"return {
                 keys = {
                     {
@@ -3122,7 +2899,7 @@ mod tests {
         ] {
             let source = format!("return {{ keys = {{ {{ key = \"x\", action = {action} }} }} }}");
             assert!(matches!(
-                parse_native_config_document(&source, &[]),
+                parse_test_native_config_document(&source, &[]),
                 Err(NativeConfigLoadError::UnsupportedDynamicLua { .. })
             ));
         }
@@ -3130,7 +2907,7 @@ mod tests {
 
     #[test]
     fn strict_keys_reject_mods_and_mod_alias_duplicates_before_legacy() {
-        let error = parse_native_config_document(
+        let error = parse_test_native_config_document(
             r#"return {
                 keys = {
                     {
@@ -3172,9 +2949,12 @@ mod tests {
         assert!(canonical.contains(r#"["end"]="reserved-end""#));
         assert!(canonical.contains(r#"["function"]="reserved-function""#));
 
-        let overrides = parse_native_config_document(source, &[]).unwrap();
+        let overrides = parse_test_native_config_document(source, &[]).unwrap();
 
-        let environment = overrides.set_environment_variables.unwrap();
+        let environment = overrides
+            .set_environment_variables
+            .as_ref()
+            .expect("expected parsed environment overrides");
         assert_eq!(
             environment.get("return").map(String::as_str),
             Some("reserved-return")
@@ -3211,7 +2991,7 @@ mod tests {
         let canonical = canonical_document(&assignments);
         assert!(canonical.contains(r#"action="literal""#));
 
-        let overrides = parse_native_config_document(source, &[]).unwrap();
+        let overrides = parse_test_native_config_document(source, &[]).unwrap();
         assert_eq!(
             overrides
                 .set_environment_variables
@@ -3235,7 +3015,7 @@ literal]=],
         let canonical = canonical_document(&assignments);
         assert!(canonical.contains(r#"action="long\nliteral""#));
 
-        let overrides = parse_native_config_document(source, &[]).unwrap();
+        let overrides = parse_test_native_config_document(source, &[]).unwrap();
         assert_eq!(
             overrides
                 .set_environment_variables
@@ -3248,7 +3028,7 @@ literal]=],
 
     #[test]
     fn strict_registry_rejects_trailing_tokens_inside_composite_value() {
-        let error = validate_cli_config_overrides(&[(
+        let error = validate_test_cli_config_overrides(&[(
             "colors".to_owned(),
             "{ cursor_bg = '#ffffff' } trailing".to_owned(),
         )])
@@ -3271,7 +3051,7 @@ literal]=],
             ("term".to_owned(), r#""last\"safe""#.to_owned()),
         ];
 
-        let cli = validate_cli_config_overrides(&items).unwrap();
+        let cli = validate_test_cli_config_overrides(&items).unwrap();
         assert_eq!(cli.len(), 3);
         assert_eq!(cli[0].field_path, ["term"]);
         assert_eq!(cli[2].value_source, r#""last\"safe""#);
@@ -3283,45 +3063,50 @@ literal]=],
         );
 
         let overrides =
-            parse_native_config_document("return { term = 'from-file' }", &cli).unwrap();
+            parse_test_native_config_document("return { term = 'from-file' }", &cli).unwrap();
         assert_eq!(overrides.term.as_deref(), Some("last\"safe"));
         assert_eq!(overrides.enable_tab_bar, Some(false));
 
         assert!(matches!(
-            validate_cli_config_overrides(&[("unknown".to_owned(), "true".to_owned())]),
+            validate_test_cli_config_overrides(&[("unknown".to_owned(), "true".to_owned())]),
             Err(NativeConfigLoadError::UnknownField { .. })
         ));
         assert!(matches!(
-            validate_cli_config_overrides(&[("initial_cols".to_owned(), "-1".to_owned())]),
+            validate_test_cli_config_overrides(&[("initial_cols".to_owned(), "-1".to_owned())]),
             Err(NativeConfigLoadError::InvalidFieldValue { .. })
         ));
     }
 
     #[test]
     fn strict_default_workspace_supports_file_and_cli_with_unknown_field_boundary() {
-        parse_native_config_document("return { default_workspace = 'file-space' }", &[]).unwrap();
+        parse_test_native_config_document("return { default_workspace = 'file-space' }", &[])
+            .unwrap();
 
-        let cli = validate_cli_config_overrides(&[(
+        let cli = validate_test_cli_config_overrides(&[(
             "default_workspace".to_owned(),
             "'cli-space'".to_owned(),
         )])
         .unwrap();
-        parse_native_config_document("return { default_workspace = 'file-space' }", &cli).unwrap();
+        parse_test_native_config_document("return { default_workspace = 'file-space' }", &cli)
+            .unwrap();
 
         assert!(matches!(
-            validate_cli_config_overrides(&[(
+            validate_test_cli_config_overrides(&[(
                 "default_workspace_typo".to_owned(),
                 "'nope'".to_owned()
             )]),
             Err(NativeConfigLoadError::UnknownField { .. })
         ));
         assert!(matches!(
-            validate_cli_config_overrides(&[("default_workspace".to_owned(), "''".to_owned())]),
+            validate_test_cli_config_overrides(&[(
+                "default_workspace".to_owned(),
+                "''".to_owned()
+            )]),
             Err(NativeConfigLoadError::InvalidFieldValue { .. })
         ));
         for invalid in ["true", "nil", "123", "foo.bar"] {
             assert!(
-                validate_cli_config_overrides(&[(
+                validate_test_cli_config_overrides(&[(
                     "default_workspace".to_owned(),
                     invalid.to_owned()
                 )])
@@ -3353,11 +3138,11 @@ literal]=],
             xdg_config_dirs: Vec::new(),
             environment_config_file: Some(environment),
         };
-        let lifecycle = NativeConfigLifecycle::new(
+        let lifecycle = TestNativeConfigLifecycle::new(
             inputs,
             false,
             Some(explicit.clone()),
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -3389,7 +3174,7 @@ literal]=],
         )
         .unwrap();
 
-        let lifecycle = NativeConfigLifecycle::new(
+        let lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: true,
                 is_unix: false,
@@ -3401,7 +3186,7 @@ literal]=],
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -3432,7 +3217,7 @@ literal]=],
         )
         .unwrap();
 
-        let lifecycle = NativeConfigLifecycle::new(
+        let lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: true,
                 is_unix: false,
@@ -3444,7 +3229,7 @@ literal]=],
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -3473,7 +3258,7 @@ literal]=],
         )
         .unwrap();
 
-        let lifecycle = NativeConfigLifecycle::new(
+        let lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: true,
@@ -3485,7 +3270,7 @@ literal]=],
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -3524,11 +3309,11 @@ literal]=],
             xdg_config_dirs: vec![xdg_first, xdg_second],
             environment_config_file: None,
         };
-        let lifecycle = NativeConfigLifecycle::new(
+        let lifecycle = TestNativeConfigLifecycle::new(
             inputs,
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let first_attempt = lifecycle.attempt_reload();
         assert_eq!(
@@ -3559,7 +3344,7 @@ literal]=],
         fs::create_dir_all(fallback.parent().unwrap()).unwrap();
         fs::write(&fallback, "return { term = 'home-config' }").unwrap();
 
-        let lifecycle = NativeConfigLifecycle::new(
+        let lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: true,
@@ -3571,7 +3356,7 @@ literal]=],
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -3593,7 +3378,7 @@ literal]=],
         fs::create_dir_all(&home).unwrap();
         fs::write(home.join(".wezterm.lua"), "return { term = 'home' }").unwrap();
 
-        let lifecycle = NativeConfigLifecycle::new(
+        let lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: true,
@@ -3605,7 +3390,7 @@ literal]=],
             },
             false,
             Some(missing.clone()),
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -3630,19 +3415,19 @@ literal]=],
         assert!(!error.detail.is_empty());
 
         let environment_missing = root.join("environment-missing.lua");
-        let environment_lifecycle = NativeConfigLifecycle::new(
+        let environment_lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: true,
                 current_exe: None,
-                home_dir: lifecycle.inputs.home_dir.clone(),
+                home_dir: lifecycle.inputs().home_dir.clone(),
                 xdg_config_home: None,
                 xdg_config_dirs: Vec::new(),
                 environment_config_file: Some(environment_missing.clone()),
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let environment_attempt = environment_lifecycle.attempt_reload();
         assert_eq!(
@@ -3669,7 +3454,7 @@ literal]=],
         fs::create_dir_all(&home).unwrap();
         fs::write(&xdg_config, "return { term = 'xdg' }").unwrap();
 
-        let lifecycle = NativeConfigLifecycle::new(
+        let lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: true,
                 is_unix: false,
@@ -3681,7 +3466,7 @@ literal]=],
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -3705,7 +3490,7 @@ literal]=],
         fs::create_dir_all(&home).unwrap();
         fs::write(home.join(".wezterm.lua"), "return { term = 'home' }").unwrap();
 
-        let lifecycle = NativeConfigLifecycle::new(
+        let lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: true,
                 is_unix: false,
@@ -3717,7 +3502,7 @@ literal]=],
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let attempt = lifecycle.attempt_reload();
 
@@ -3832,7 +3617,7 @@ literal]=],
         fs::create_dir_all(home_fallback.parent().unwrap()).unwrap();
         fs::write(&home_fallback, "return { term = 'must-not-load' }").unwrap();
 
-        let required_empty = NativeConfigLifecycle::new(
+        let required_empty = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs::from_environment_snapshot(
                 false,
                 true,
@@ -3845,7 +3630,7 @@ literal]=],
             ),
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         )
         .attempt_reload();
         assert_eq!(
@@ -3860,7 +3645,7 @@ literal]=],
             NativeConfigSourceErrorKind::Io(_)
         ));
 
-        let empty_xdg_home = NativeConfigLifecycle::new(
+        let empty_xdg_home = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs::from_environment_snapshot(
                 false,
                 true,
@@ -3873,7 +3658,7 @@ literal]=],
             ),
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         let candidates = empty_xdg_home.candidate_sources();
         assert_eq!(
@@ -3895,8 +3680,8 @@ literal]=],
         let environment = root.join("environment.lua");
         fs::write(&environment, "return { term = 'environment' }").unwrap();
         let cli =
-            validate_cli_config_overrides(&[("term".to_owned(), "'cli'".to_owned())]).unwrap();
-        let lifecycle = NativeConfigLifecycle::new(
+            validate_test_cli_config_overrides(&[("term".to_owned(), "'cli'".to_owned())]).unwrap();
+        let lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: true,
                 is_unix: false,
@@ -3929,7 +3714,7 @@ literal]=],
         fs::create_dir_all(xdg_config.parent().unwrap()).unwrap();
         fs::write(&home_config, "return { term = 'home-v1' }").unwrap();
         fs::write(&xdg_config, "return { term = 'xdg' }").unwrap();
-        let lifecycle = NativeConfigLifecycle::new(
+        let lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: true,
                 is_unix: false,
@@ -3941,7 +3726,7 @@ literal]=],
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
 
         assert_eq!(
@@ -3969,7 +3754,7 @@ literal]=],
         let root = unique_temp_dir("bom");
         let path = root.join("wezterm.lua");
         fs::write(&path, "\u{feff}return { term = 'single-bom' }".as_bytes()).unwrap();
-        let lifecycle = NativeConfigLifecycle::new(
+        let lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: false,
@@ -3981,7 +3766,7 @@ literal]=],
             },
             false,
             Some(path.clone()),
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
         assert_eq!(
             lifecycle.attempt_reload().result.unwrap().term.as_deref(),
@@ -4002,7 +3787,7 @@ literal]=],
         let root = unique_temp_dir("diagnostic-path");
         let path = root.join("wezterm.lua");
         fs::write(&path, [0xff, 0xfe]).unwrap();
-        let lifecycle = NativeConfigLifecycle::new(
+        let lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: false,
@@ -4014,7 +3799,7 @@ literal]=],
             },
             false,
             Some(path.clone()),
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
 
         let utf8_error = lifecycle.attempt_reload().result.unwrap_err();
@@ -4046,7 +3831,7 @@ literal]=],
         let root = unique_temp_dir("initial-success");
         let path = root.join("wezterm.lua");
         fs::write(&path, "return { term = 'loaded' }").unwrap();
-        let mut lifecycle = NativeConfigLifecycle::new(
+        let mut lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: false,
@@ -4058,7 +3843,7 @@ literal]=],
             },
             false,
             Some(path.clone()),
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
 
         assert_eq!(lifecycle.effective().generation, 0);
@@ -4072,10 +3857,7 @@ literal]=],
 
         assert_eq!(lifecycle.effective().generation, 1);
         assert_eq!(lifecycle.effective().source.as_ref(), Some(&path));
-        assert_eq!(
-            lifecycle.effective().overrides.term.as_deref(),
-            Some("loaded")
-        );
+        assert_eq!(lifecycle.effective().config.term.as_deref(), Some("loaded"));
         assert_eq!(
             lifecycle
                 .effective()
@@ -4095,7 +3877,7 @@ literal]=],
         let root = unique_temp_dir("non-utf8-source");
         let path = root.join(OsString::from_vec(b"wezterm-\xff.lua".to_vec()));
         fs::write(&path, "return { term = 'loaded' }").unwrap();
-        let mut lifecycle = NativeConfigLifecycle::new(
+        let mut lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: true,
@@ -4107,7 +3889,7 @@ literal]=],
             },
             false,
             Some(path.clone()),
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
 
         let attempt = lifecycle.attempt_reload();
@@ -4139,7 +3921,7 @@ literal]=],
         let xdg_config = xdg_home.join("wezterm/wezterm.lua");
         fs::create_dir_all(xdg_config.parent().unwrap()).unwrap();
         fs::write(&xdg_config, "return { term = 'xdg' }").unwrap();
-        let lifecycle = NativeConfigLifecycle::new(
+        let lifecycle = TestNativeConfigLifecycle::new(
             ConfigDiscoveryInputs {
                 is_windows: false,
                 is_unix: true,
@@ -4151,7 +3933,7 @@ literal]=],
             },
             false,
             None,
-            ValidatedNativeConfigAssignments::default(),
+            TestValidatedNativeConfigAssignments::default(),
         );
 
         let attempt = lifecycle.attempt_reload();

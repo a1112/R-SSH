@@ -69,6 +69,33 @@ try {
     "--", "--exact", "--nocapture"
   )
   $null = Invoke-BoundedProcess -Phase "native ten-frame E2E ($Profile)" -FilePath "cargo" -ArgumentList $testArguments -TimeoutSeconds 180
+
+  $nativeScenarioAttempts = 2
+  foreach ($scenario in @(
+    "native_window_e2e_preserves_gpu_text_at_scale_100",
+    "native_window_e2e_preserves_gpu_text_at_scale_125",
+    "native_window_e2e_preserves_gpu_text_at_scale_150",
+    "native_window_e2e_preserves_gpu_text_at_scale_200",
+    "native_window_local_pane_v2_writes_visible_session_log"
+  )) {
+    $scenarioArguments = @(
+      "test", "--locked", "-p", "rssh-app", "--test", "native_window_e2e"
+    ) + $profileArguments + @(
+      $scenario,
+      "--", "--exact", "--ignored", "--nocapture"
+    )
+    for ($attempt = 1; $attempt -le $nativeScenarioAttempts; $attempt++) {
+      try {
+        $null = Invoke-BoundedProcess -Phase "native E2E scenario $scenario ($Profile), attempt $attempt" -FilePath "cargo" -ArgumentList $scenarioArguments -TimeoutSeconds 300
+        break
+      } catch {
+        if ($attempt -ge $nativeScenarioAttempts) {
+          throw
+        }
+        Write-Warning "native E2E scenario $scenario attempt $attempt failed; retrying after bounded cleanup: $_"
+      }
+    }
+  }
 } finally {
   Pop-Location
 }

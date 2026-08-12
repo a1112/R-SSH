@@ -1,0 +1,4 @@
+# SSH disconnect preserves status/signal metadata and close ordering.
+kind contracts
+contract crates/rssh-runtime/tests/ssh_transport.rs|ssh_adapter_connects_preserves_partial_io_resize_exit_and_close_order
+contract crates/rssh-runtime/tests/ssh_transport.rs|ssh_adapter_reports_clean_disconnect_without_inventing_exit_metadata

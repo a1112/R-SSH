@@ -22,6 +22,7 @@ const BENCH_CELL_HEIGHT: u32 = 16;
 pub struct BenchReport {
     pub ok: bool,
     pub workload: String,
+    pub runtime_api: String,
     pub bytes: usize,
     pub chunk_size: usize,
     pub chunks: usize,
@@ -42,6 +43,9 @@ pub struct BenchReport {
     pub threshold_violations: Vec<BenchThresholdViolation>,
     pub display_bytes: usize,
     pub responses: usize,
+    pub response_commits: u64,
+    pub response_payload_copies: u64,
+    pub owned_response_materializations: u64,
     pub bells: u64,
     pub scrollback_lines: usize,
     pub inspected_query_bytes: u64,
@@ -113,8 +117,9 @@ pub fn bench_json(report: &BenchReport) -> Result<String, Box<dyn Error>> {
 pub fn bench_text_lines(report: &BenchReport) -> Vec<String> {
     let mut lines = vec![
         format!(
-            "ok\tbench\tworkload={} bytes={} chunks={} chunk_size={} size={}x{}",
+            "ok\tbench\tworkload={} runtime_api={} bytes={} chunks={} chunk_size={} size={}x{}",
             report.workload,
+            report.runtime_api,
             report.bytes,
             report.chunks,
             report.chunk_size,
@@ -151,6 +156,12 @@ pub fn bench_text_lines(report: &BenchReport) -> Vec<String> {
             report.history_row_relocations,
             report.metadata_rebase_batches
         ),
+        format!(
+            "work\tresponse_commits={}\tresponse_payload_copies={}\towned_response_materializations={}",
+            report.response_commits,
+            report.response_payload_copies,
+            report.owned_response_materializations
+        ),
     ];
 
     lines.extend(report.threshold_violations.iter().map(|violation| {
@@ -176,6 +187,9 @@ fn run_benchmark_workload(
     let terminal_work_start = runtime.terminal().work_counters();
     let mut chunk_timings = Vec::new();
     let mut responses = 0_usize;
+    let mut response_commits = 0_u64;
+    let mut response_payload_copies = 0_u64;
+    let mut owned_response_materializations = 0_u64;
     let mut display_bytes = 0_usize;
     let mut bells = 0_u64;
 
@@ -185,6 +199,11 @@ fn run_benchmark_workload(
         let output = runtime.feed(chunk);
         chunk_timings.push(chunk_started.elapsed().as_micros());
         responses = responses.saturating_add(output.responses);
+        response_commits = response_commits.saturating_add(output.response_commits);
+        response_payload_copies =
+            response_payload_copies.saturating_add(output.response_payload_copies);
+        owned_response_materializations =
+            owned_response_materializations.saturating_add(output.owned_response_materializations);
         display_bytes = display_bytes.saturating_add(output.display_bytes);
         bells = bells.saturating_add(output.bells);
     }
@@ -200,6 +219,7 @@ fn run_benchmark_workload(
     BenchReport {
         ok: true,
         workload: workload_kind.as_str().to_owned(),
+        runtime_api: runtime.runtime_api().to_owned(),
         bytes: workload.len(),
         chunk_size,
         chunks: chunk_timings.len(),
@@ -220,6 +240,9 @@ fn run_benchmark_workload(
         threshold_violations: Vec::new(),
         display_bytes,
         responses,
+        response_commits,
+        response_payload_copies,
+        owned_response_materializations,
         bells,
         scrollback_lines: runtime.terminal().scrollback().len(),
         inspected_query_bytes: saturating_counter_delta(
@@ -238,6 +261,9 @@ struct BenchmarkChunkOutput {
     responses: usize,
     display_bytes: usize,
     bells: u64,
+    response_commits: u64,
+    response_payload_copies: u64,
+    owned_response_materializations: u64,
 }
 
 enum BenchmarkRuntime {
@@ -263,14 +289,26 @@ impl BenchmarkRuntime {
                     responses: 0,
                     display_bytes: bytes.len(),
                     bells: terminal.take_bell_count(),
+                    response_commits: 0,
+                    response_payload_copies: 0,
+                    owned_response_materializations: 0,
                 }
             }
             Self::Filtered(runtime) => {
-                let output = runtime.feed_pty_output_with_display(bytes);
+                let delta = runtime.inner.feed_into(bytes, &mut runtime.storage.buffers);
+                let responses = delta.responses().count();
+                let display_bytes = delta.visible_bytes().len();
+                let bells = delta.bell_count();
                 BenchmarkChunkOutput {
-                    responses: output.responses.len(),
-                    display_bytes: output.display.len(),
-                    bells: output.bells,
+                    responses,
+                    display_bytes,
+                    bells,
+                    response_commits: runtime.storage.buffers.response_commits(),
+                    response_payload_copies: runtime.storage.buffers.response_payload_copies(),
+                    owned_response_materializations: runtime
+                        .storage
+                        .buffers
+                        .owned_response_materializations(),
                 }
             }
         }
@@ -287,6 +325,13 @@ impl BenchmarkRuntime {
         match self {
             Self::Plain(_) => 0,
             Self::Filtered(runtime) => runtime.inspected_query_bytes(),
+        }
+    }
+
+    const fn runtime_api(&self) -> &'static str {
+        match self {
+            Self::Plain(_) => "terminal-feed",
+            Self::Filtered(_) => "v2-feed-into",
         }
     }
 }
@@ -683,6 +728,7 @@ mod tests {
 
         assert!(report.ok);
         assert_eq!(report.workload, "ansi-scroll-query");
+        assert_eq!(report.runtime_api, "v2-feed-into");
         assert_eq!(report.bytes, 2048);
         assert_eq!(report.chunk_size, 256);
         assert_eq!(report.chunks, 8);
@@ -700,6 +746,12 @@ mod tests {
         assert!(report.idle_cpu_usage_percent >= 0.0);
         assert!(report.display_bytes > 0);
         assert!(report.responses > 0);
+        assert_eq!(
+            usize::try_from(report.response_commits).unwrap(),
+            report.responses
+        );
+        assert_eq!(report.response_payload_copies, 0);
+        assert_eq!(report.owned_response_materializations, 0);
         assert!(report.inspected_query_bytes > 0);
         assert_eq!(report.scrolled_survivor_cell_clones, 0);
         assert!(report.cursor_row < report.rows);
@@ -711,6 +763,7 @@ mod tests {
         let report = super::BenchReport {
             ok: true,
             workload: "ansi-scroll-query".to_owned(),
+            runtime_api: "v2-feed-into".to_owned(),
             bytes: 1024,
             chunk_size: 128,
             chunks: 8,
@@ -731,6 +784,9 @@ mod tests {
             threshold_violations: Vec::new(),
             display_bytes: 900,
             responses: 4,
+            response_commits: 4,
+            response_payload_copies: 0,
+            owned_response_materializations: 0,
             bells: 1,
             scrollback_lines: 2,
             inspected_query_bytes: 10_240,
@@ -746,6 +802,7 @@ mod tests {
 
         assert_eq!(value["ok"], true);
         assert_eq!(value["workload"], "ansi-scroll-query");
+        assert_eq!(value["runtime_api"], "v2-feed-into");
         assert_eq!(value["throughput_bytes_per_sec"], 85_333);
         assert_eq!(value["chunk_p95_us"], 9);
         assert_eq!(value["render_frames"], 3);
@@ -760,6 +817,9 @@ mod tests {
         assert_eq!(value["scrolled_survivor_cell_clones"], 800);
         assert_eq!(value["history_row_relocations"], 12);
         assert_eq!(value["metadata_rebase_batches"], 3);
+        assert_eq!(value["response_commits"], 4);
+        assert_eq!(value["response_payload_copies"], 0);
+        assert_eq!(value["owned_response_materializations"], 0);
     }
 
     #[test]
@@ -767,6 +827,7 @@ mod tests {
         let report = super::BenchReport {
             ok: true,
             workload: "ansi-scroll-query".to_owned(),
+            runtime_api: "v2-feed-into".to_owned(),
             bytes: 1024,
             chunk_size: 128,
             chunks: 8,
@@ -787,6 +848,9 @@ mod tests {
             threshold_violations: Vec::new(),
             display_bytes: 900,
             responses: 4,
+            response_commits: 4,
+            response_payload_copies: 0,
+            owned_response_materializations: 0,
             bells: 1,
             scrollback_lines: 2,
             inspected_query_bytes: 10_240,
@@ -800,6 +864,11 @@ mod tests {
         let lines = super::bench_text_lines(&report);
 
         assert!(lines.iter().any(|line| line.contains("ok\tbench")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("runtime_api=v2-feed-into"))
+        );
         assert!(
             lines
                 .iter()
@@ -827,6 +896,11 @@ mod tests {
                 && line.contains("history_row_relocations=12")
                 && line.contains("metadata_rebase_batches=3")
         }));
+        assert!(lines.iter().any(|line| {
+            line.contains("response_commits=4")
+                && line.contains("response_payload_copies=0")
+                && line.contains("owned_response_materializations=0")
+        }));
     }
 
     #[test]
@@ -834,6 +908,7 @@ mod tests {
         let mut report = super::BenchReport {
             ok: true,
             workload: "ansi-scroll-query".to_owned(),
+            runtime_api: "v2-feed-into".to_owned(),
             bytes: 1024,
             chunk_size: 128,
             chunks: 8,
@@ -854,6 +929,9 @@ mod tests {
             threshold_violations: Vec::new(),
             display_bytes: 900,
             responses: 4,
+            response_commits: 4,
+            response_payload_copies: 0,
+            owned_response_materializations: 0,
             bells: 1,
             scrollback_lines: 2,
             inspected_query_bytes: 4_096,
@@ -927,6 +1005,7 @@ mod tests {
         }
 
         assert_eq!(plain.inspected_query_bytes, 0);
+        assert_eq!(plain.runtime_api, "terminal-feed");
         assert_eq!(plain.scrolled_survivor_cell_clones, 0);
         assert!(ansi.inspected_query_bytes > 0);
         assert!(query.inspected_query_bytes > 0);
@@ -936,6 +1015,13 @@ mod tests {
         assert!(query.inspected_query_bytes <= query.bytes as u64 * 4);
         assert!(query.inspected_query_bytes > ansi.inspected_query_bytes);
         assert!(query.responses > 0);
+        assert_eq!(query.runtime_api, "v2-feed-into");
+        assert_eq!(
+            usize::try_from(query.response_commits).unwrap(),
+            query.responses
+        );
+        assert_eq!(query.response_payload_copies, 0);
+        assert_eq!(query.owned_response_materializations, 0);
         assert_eq!(plain.responses, 0);
         assert_eq!(ansi.responses, 0);
     }
@@ -945,6 +1031,7 @@ mod tests {
         let mut report = super::BenchReport {
             ok: true,
             workload: "ansi-scroll-query".to_owned(),
+            runtime_api: "v2-feed-into".to_owned(),
             bytes: 1_024,
             chunk_size: 512,
             chunks: 2,
@@ -965,6 +1052,9 @@ mod tests {
             threshold_violations: Vec::new(),
             display_bytes: 1_024,
             responses: 1,
+            response_commits: 1,
+            response_payload_copies: 0,
+            owned_response_materializations: 0,
             bells: 0,
             scrollback_lines: 1,
             inspected_query_bytes: 4_097,
@@ -1006,6 +1096,7 @@ mod tests {
         let mut report = super::BenchReport {
             ok: true,
             workload: "plain-scroll".to_owned(),
+            runtime_api: "terminal-feed".to_owned(),
             bytes: 1_024,
             chunk_size: 512,
             chunks: 2,
@@ -1026,6 +1117,9 @@ mod tests {
             threshold_violations: Vec::new(),
             display_bytes: 1_024,
             responses: 0,
+            response_commits: 0,
+            response_payload_copies: 0,
+            owned_response_materializations: 0,
             bells: 0,
             scrollback_lines: 1,
             inspected_query_bytes: 0,
@@ -1067,6 +1161,7 @@ mod tests {
         let mut report = super::BenchReport {
             ok: true,
             workload: "ansi-scroll-query".to_owned(),
+            runtime_api: "v2-feed-into".to_owned(),
             bytes: 1_024,
             chunk_size: 512,
             chunks: 2,
@@ -1087,6 +1182,9 @@ mod tests {
             threshold_violations: Vec::new(),
             display_bytes: 1_024,
             responses: 1,
+            response_commits: 1,
+            response_payload_copies: 0,
+            owned_response_materializations: 0,
             bells: 0,
             scrollback_lines: 1,
             inspected_query_bytes: 4_096,

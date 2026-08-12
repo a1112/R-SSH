@@ -393,6 +393,26 @@ pub trait SshShellReader: Send {
     /// SSH channel.
     fn read(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError>;
 
+    /// Reads while observing an out-of-band runtime cancellation request.
+    ///
+    /// Backends whose read can block must override this method. `Ok(None)`
+    /// means cancellation won and no bytes were read.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the active channel read fails.
+    fn read_cancellable(
+        &mut self,
+        buffer: &mut [u8],
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<Option<usize>, SshSessionError> {
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            Ok(None)
+        } else {
+            self.read(buffer).map(Some)
+        }
+    }
+
     /// Returns the final remote status observed while draining the channel.
     #[must_use]
     fn session_result(&self) -> SshSessionResult;
@@ -908,7 +928,27 @@ pub fn run_connected_shell_with_events(
     input: SshInputEventReceiver,
     output: &mut dyn std::io::Write,
 ) -> Result<SshSessionOutcome, SshSessionError> {
-    let (mut reader, mut writer) = session.into_read_writer();
+    let (reader, writer) = session.into_read_writer();
+    run_split_shell_with_events(reader, writer, input, output)
+}
+
+/// Pumps independently owned SSH reader and writer halves.
+///
+/// This is the runtime-adapter entry point corresponding to
+/// [`run_connected_shell_with_events`]. It preserves the same cancellation,
+/// partial-write, close-order, and exit-metadata behavior after transport
+/// ownership has already been split.
+///
+/// # Errors
+///
+/// Returns [`SshSessionError`] for input events, channel I/O, output I/O, or
+/// channel shutdown failures.
+pub fn run_split_shell_with_events(
+    mut reader: Box<dyn SshShellReader>,
+    mut writer: Box<dyn SshShellWriter>,
+    input: SshInputEventReceiver,
+    output: &mut dyn std::io::Write,
+) -> Result<SshSessionOutcome, SshSessionError> {
     let cancellation = SshCancellation::new();
     let writer_cancellation = cancellation.clone();
 
