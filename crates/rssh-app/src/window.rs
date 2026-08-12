@@ -7,6 +7,7 @@ use std::{
     error::Error,
     fs::{self, File},
     io::{self, Write},
+    ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     process::Command,
     sync::{
@@ -39776,6 +39777,97 @@ impl NativeWindowStartup {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Clone)]
+struct NativeAppliedConfig {
+    default_prog: Option<Vec<String>>,
+    default_gui_startup_args: Vec<String>,
+    default_domain: String,
+    default_workspace: String,
+    prefer_to_spawn_tabs: bool,
+    automatically_reload_config: bool,
+    check_for_updates: bool,
+    check_for_updates_interval_seconds: u64,
+    show_update_window: bool,
+    native_macos_fullscreen_mode: bool,
+    macos_fullscreen_extend_behind_notch: bool,
+    use_resize_increments: bool,
+    debug_key_events: bool,
+    log_unknown_escape_sequences: bool,
+    warn_about_missing_glyphs: bool,
+    default_cwd: Option<String>,
+    default_ssh_auth_sock: Option<String>,
+    default_mux_server_domain: Option<String>,
+    daemon_options: NativeDaemonOptions,
+    exec_domains: Vec<NativeExecDomain>,
+    wsl_domains: Vec<NativeWslDomain>,
+    unix_domains: Vec<NativeUnixDomain>,
+    ssh_domains: Vec<NativeSshDomain>,
+    tls_servers: Vec<NativeTlsServerDomain>,
+    tls_clients: Vec<NativeTlsClientDomain>,
+    serial_ports: Vec<NativeSerialDomain>,
+    mux_enable_ssh_agent: bool,
+    ssh_backend: NativeSshBackend,
+    ratelimit_mux_line_prefetches_per_second: u32,
+    mux_output_parser_buffer_size: usize,
+    mux_output_parser_coalesce_delay_ms: u64,
+    periodic_stat_logging: u64,
+    ulimit_nofile: u64,
+    ulimit_nproc: u64,
+    mux_env_remove: Vec<String>,
+    tiling_desktop_environments: Vec<String>,
+    derived_config_environment: BTreeMap<String, String>,
+    set_environment_variables: BTreeMap<String, String>,
+    launch_menu: Vec<NativeLaunchMenuItem>,
+}
+
+impl Default for NativeAppliedConfig {
+    fn default() -> Self {
+        Self {
+            default_prog: None,
+            default_gui_startup_args: default_gui_startup_args(),
+            default_domain: DEFAULT_DOMAIN_NAME.to_owned(),
+            default_workspace: DEFAULT_WORKSPACE_NAME.to_owned(),
+            prefer_to_spawn_tabs: DEFAULT_PREFER_TO_SPAWN_TABS,
+            automatically_reload_config: DEFAULT_AUTOMATICALLY_RELOAD_CONFIG,
+            check_for_updates: DEFAULT_CHECK_FOR_UPDATES,
+            check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
+            show_update_window: DEFAULT_SHOW_UPDATE_WINDOW,
+            native_macos_fullscreen_mode: DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
+            macos_fullscreen_extend_behind_notch: DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
+            use_resize_increments: DEFAULT_USE_RESIZE_INCREMENTS,
+            debug_key_events: DEFAULT_DEBUG_KEY_EVENTS,
+            log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
+            warn_about_missing_glyphs: DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
+            default_cwd: None,
+            default_ssh_auth_sock: None,
+            default_mux_server_domain: None,
+            daemon_options: NativeDaemonOptions::default(),
+            exec_domains: Vec::new(),
+            wsl_domains: Vec::new(),
+            unix_domains: default_native_unix_domains(),
+            ssh_domains: Vec::new(),
+            tls_servers: Vec::new(),
+            tls_clients: Vec::new(),
+            serial_ports: Vec::new(),
+            mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
+            ssh_backend: NativeSshBackend::LibSsh,
+            ratelimit_mux_line_prefetches_per_second:
+                DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND,
+            mux_output_parser_buffer_size: DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE,
+            mux_output_parser_coalesce_delay_ms: DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS,
+            periodic_stat_logging: DEFAULT_PERIODIC_STAT_LOGGING,
+            ulimit_nofile: DEFAULT_ULIMIT_NOFILE,
+            ulimit_nproc: DEFAULT_ULIMIT_NPROC,
+            mux_env_remove: default_mux_env_remove(),
+            tiling_desktop_environments: default_tiling_desktop_environments(),
+            derived_config_environment: BTreeMap::new(),
+            set_environment_variables: BTreeMap::new(),
+            launch_menu: Vec::new(),
+        }
+    }
+}
+
 #[expect(
     clippy::option_option,
     reason = "nested options distinguish absent, explicit nil, and concrete values"
@@ -39991,45 +40083,7 @@ struct NativeWindowApp {
     tab_bar_style: NativeTabBarStyle,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
-    default_prog: Option<Vec<String>>,
-    default_gui_startup_args: Vec<String>,
-    default_domain: String,
-    default_workspace: String,
-    prefer_to_spawn_tabs: bool,
-    automatically_reload_config: bool,
-    check_for_updates: bool,
-    check_for_updates_interval_seconds: u64,
-    show_update_window: bool,
-    native_macos_fullscreen_mode: bool,
-    macos_fullscreen_extend_behind_notch: bool,
-    use_resize_increments: bool,
-    debug_key_events: bool,
-    log_unknown_escape_sequences: bool,
-    warn_about_missing_glyphs: bool,
-    default_cwd: Option<String>,
-    default_ssh_auth_sock: Option<String>,
-    default_mux_server_domain: Option<String>,
-    daemon_options: NativeDaemonOptions,
-    exec_domains: Vec<NativeExecDomain>,
-    wsl_domains: Vec<NativeWslDomain>,
-    unix_domains: Vec<NativeUnixDomain>,
-    ssh_domains: Vec<NativeSshDomain>,
-    tls_servers: Vec<NativeTlsServerDomain>,
-    tls_clients: Vec<NativeTlsClientDomain>,
-    serial_ports: Vec<NativeSerialDomain>,
-    mux_enable_ssh_agent: bool,
-    ssh_backend: NativeSshBackend,
-    ratelimit_mux_line_prefetches_per_second: u32,
-    mux_output_parser_buffer_size: usize,
-    mux_output_parser_coalesce_delay_ms: u64,
-    periodic_stat_logging: u64,
-    ulimit_nofile: u64,
-    ulimit_nproc: u64,
-    mux_env_remove: Vec<String>,
-    tiling_desktop_environments: Vec<String>,
-    derived_config_environment: BTreeMap<String, String>,
-    set_environment_variables: BTreeMap<String, String>,
-    launch_menu: Vec<NativeLaunchMenuItem>,
+    applied_config: Arc<NativeAppliedConfig>,
     key_map_preference: NativeKeyMapPreference,
     ui_key_cap_rendering: NativeUiKeyCapRendering,
     swap_backspace_and_delete: bool,
@@ -40205,6 +40259,20 @@ struct NativeWindowApp {
     app_shell: AppShell,
     pane_runtimes: HashMap<rssh_core::PaneId, PaneRuntime>,
     pane_bell_counts: HashMap<rssh_core::PaneId, u64>,
+}
+
+impl Deref for NativeWindowApp {
+    type Target = NativeAppliedConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.applied_config
+    }
+}
+
+impl DerefMut for NativeWindowApp {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        Arc::make_mut(&mut self.applied_config)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -43550,46 +43618,7 @@ impl NativeWindowApp {
                 tab_bar_style: NativeTabBarStyle::default(),
                 visual_bell_color: None,
                 notification_handling: DEFAULT_NOTIFICATION_HANDLING,
-                default_prog: None,
-                default_gui_startup_args: default_gui_startup_args(),
-                default_domain: DEFAULT_DOMAIN_NAME.to_owned(),
-                default_workspace: DEFAULT_WORKSPACE_NAME.to_owned(),
-                prefer_to_spawn_tabs: DEFAULT_PREFER_TO_SPAWN_TABS,
-                automatically_reload_config: DEFAULT_AUTOMATICALLY_RELOAD_CONFIG,
-                check_for_updates: DEFAULT_CHECK_FOR_UPDATES,
-                check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
-                show_update_window: DEFAULT_SHOW_UPDATE_WINDOW,
-                native_macos_fullscreen_mode: DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
-                macos_fullscreen_extend_behind_notch: DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
-                use_resize_increments: DEFAULT_USE_RESIZE_INCREMENTS,
-                debug_key_events: DEFAULT_DEBUG_KEY_EVENTS,
-                log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
-                warn_about_missing_glyphs: DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
-                default_cwd: None,
-                default_ssh_auth_sock: None,
-                default_mux_server_domain: None,
-                daemon_options: NativeDaemonOptions::default(),
-                exec_domains: Vec::new(),
-                wsl_domains: Vec::new(),
-                unix_domains: default_native_unix_domains(),
-                ssh_domains: Vec::new(),
-                tls_servers: Vec::new(),
-                tls_clients: Vec::new(),
-                serial_ports: Vec::new(),
-                mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
-                ssh_backend: NativeSshBackend::LibSsh,
-                ratelimit_mux_line_prefetches_per_second:
-                    DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND,
-                mux_output_parser_buffer_size: DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE,
-                mux_output_parser_coalesce_delay_ms: DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS,
-                periodic_stat_logging: DEFAULT_PERIODIC_STAT_LOGGING,
-                ulimit_nofile: DEFAULT_ULIMIT_NOFILE,
-                ulimit_nproc: DEFAULT_ULIMIT_NPROC,
-                mux_env_remove: default_mux_env_remove(),
-                tiling_desktop_environments: default_tiling_desktop_environments(),
-                derived_config_environment: BTreeMap::new(),
-                set_environment_variables: BTreeMap::new(),
-                launch_menu: Vec::new(),
+                applied_config: Arc::new(NativeAppliedConfig::default()),
                 key_map_preference: NativeKeyMapPreference::Mapped,
                 ui_key_cap_rendering: DEFAULT_UI_KEY_CAP_RENDERING,
                 swap_backspace_and_delete: false,
@@ -44878,60 +44907,8 @@ impl NativeWindowApp {
         detached_app.tab_bar_style.clone_from(&self.tab_bar_style);
         detached_app.visual_bell_color = self.visual_bell_color;
         detached_app.notification_handling = self.notification_handling;
-        detached_app.default_prog.clone_from(&self.default_prog);
-        detached_app
-            .default_gui_startup_args
-            .clone_from(&self.default_gui_startup_args);
-        detached_app.default_domain.clone_from(&self.default_domain);
-        detached_app
-            .default_workspace
-            .clone_from(&self.default_workspace);
-        detached_app.prefer_to_spawn_tabs = self.prefer_to_spawn_tabs;
-        detached_app.automatically_reload_config = self.automatically_reload_config;
-        detached_app.check_for_updates = self.check_for_updates;
-        detached_app.check_for_updates_interval_seconds = self.check_for_updates_interval_seconds;
-        detached_app.show_update_window = self.show_update_window;
-        detached_app.native_macos_fullscreen_mode = self.native_macos_fullscreen_mode;
-        detached_app.macos_fullscreen_extend_behind_notch =
-            self.macos_fullscreen_extend_behind_notch;
-        detached_app.use_resize_increments = self.use_resize_increments;
-        detached_app.debug_key_events = self.debug_key_events;
-        detached_app.log_unknown_escape_sequences = self.log_unknown_escape_sequences;
-        detached_app.warn_about_missing_glyphs = self.warn_about_missing_glyphs;
         detached_app.max_fps = self.max_fps;
         detached_app.animation_fps = self.animation_fps;
-        detached_app.default_cwd.clone_from(&self.default_cwd);
-        detached_app
-            .default_ssh_auth_sock
-            .clone_from(&self.default_ssh_auth_sock);
-        detached_app
-            .default_mux_server_domain
-            .clone_from(&self.default_mux_server_domain);
-        detached_app.daemon_options.clone_from(&self.daemon_options);
-        detached_app.exec_domains.clone_from(&self.exec_domains);
-        detached_app.wsl_domains.clone_from(&self.wsl_domains);
-        detached_app.unix_domains.clone_from(&self.unix_domains);
-        detached_app.ssh_domains.clone_from(&self.ssh_domains);
-        detached_app.tls_servers.clone_from(&self.tls_servers);
-        detached_app.tls_clients.clone_from(&self.tls_clients);
-        detached_app.serial_ports.clone_from(&self.serial_ports);
-        detached_app.mux_enable_ssh_agent = self.mux_enable_ssh_agent;
-        detached_app.ssh_backend = self.ssh_backend;
-        detached_app.ratelimit_mux_line_prefetches_per_second =
-            self.ratelimit_mux_line_prefetches_per_second;
-        detached_app.mux_output_parser_buffer_size = self.mux_output_parser_buffer_size;
-        detached_app.mux_output_parser_coalesce_delay_ms = self.mux_output_parser_coalesce_delay_ms;
-        detached_app.periodic_stat_logging = self.periodic_stat_logging;
-        detached_app.ulimit_nofile = self.ulimit_nofile;
-        detached_app.ulimit_nproc = self.ulimit_nproc;
-        detached_app.mux_env_remove.clone_from(&self.mux_env_remove);
-        detached_app
-            .tiling_desktop_environments
-            .clone_from(&self.tiling_desktop_environments);
-        detached_app
-            .set_environment_variables
-            .clone_from(&self.set_environment_variables);
-        detached_app.launch_menu.clone_from(&self.launch_menu);
         detached_app.key_map_preference = self.key_map_preference;
         detached_app.ui_key_cap_rendering = self.ui_key_cap_rendering;
         detached_app.swap_backspace_and_delete = self.swap_backspace_and_delete;
@@ -45028,6 +45005,7 @@ impl NativeWindowApp {
         reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
     )]
     fn inherit_effective_config_from(&mut self, source: &Self) {
+        self.applied_config = Arc::clone(&source.applied_config);
         self.base_config_overrides
             .clone_from(&source.base_config_overrides);
         self.base_config_generation = source.base_config_generation;
@@ -45035,8 +45013,6 @@ impl NativeWindowApp {
             .clone_from(&source.base_config_source);
         self.window_config_overrides
             .clone_from(&source.window_config_overrides);
-        self.derived_config_environment
-            .clone_from(&source.derived_config_environment);
         self.config_overrides.clone_from(&source.config_overrides);
         self.configured_dpi = source.configured_dpi;
         self.dpi_by_screen.clone_from(&source.dpi_by_screen);
@@ -45251,52 +45227,6 @@ impl NativeWindowApp {
         self.tab_bar_style.clone_from(&source.tab_bar_style);
         self.visual_bell_color = source.visual_bell_color;
         self.notification_handling = source.notification_handling;
-        self.default_prog.clone_from(&source.default_prog);
-        self.default_gui_startup_args
-            .clone_from(&source.default_gui_startup_args);
-        self.default_domain.clone_from(&source.default_domain);
-        self.default_workspace.clone_from(&source.default_workspace);
-        self.prefer_to_spawn_tabs = source.prefer_to_spawn_tabs;
-        self.automatically_reload_config = source.automatically_reload_config;
-        self.check_for_updates = source.check_for_updates;
-        self.check_for_updates_interval_seconds = source.check_for_updates_interval_seconds;
-        self.show_update_window = source.show_update_window;
-        self.native_macos_fullscreen_mode = source.native_macos_fullscreen_mode;
-        self.macos_fullscreen_extend_behind_notch = source.macos_fullscreen_extend_behind_notch;
-        self.use_resize_increments = source.use_resize_increments;
-        self.debug_key_events = source.debug_key_events;
-        self.log_unknown_escape_sequences = source.log_unknown_escape_sequences;
-        self.warn_about_missing_glyphs = source.warn_about_missing_glyphs;
-        self.default_cwd.clone_from(&source.default_cwd);
-        self.default_ssh_auth_sock
-            .clone_from(&source.default_ssh_auth_sock);
-        self.default_mux_server_domain
-            .clone_from(&source.default_mux_server_domain);
-        self.daemon_options.clone_from(&source.daemon_options);
-        self.exec_domains.clone_from(&source.exec_domains);
-        self.wsl_domains.clone_from(&source.wsl_domains);
-        self.unix_domains.clone_from(&source.unix_domains);
-        self.ssh_domains.clone_from(&source.ssh_domains);
-        self.tls_servers.clone_from(&source.tls_servers);
-        self.tls_clients.clone_from(&source.tls_clients);
-        self.serial_ports.clone_from(&source.serial_ports);
-        self.mux_enable_ssh_agent = source.mux_enable_ssh_agent;
-        self.ssh_backend = source.ssh_backend;
-        self.ratelimit_mux_line_prefetches_per_second =
-            source.ratelimit_mux_line_prefetches_per_second;
-        self.mux_output_parser_buffer_size = source.mux_output_parser_buffer_size;
-        self.mux_output_parser_coalesce_delay_ms = source.mux_output_parser_coalesce_delay_ms;
-        self.periodic_stat_logging = source.periodic_stat_logging;
-        self.ulimit_nofile = source.ulimit_nofile;
-        self.ulimit_nproc = source.ulimit_nproc;
-        self.mux_env_remove.clone_from(&source.mux_env_remove);
-        self.tiling_desktop_environments
-            .clone_from(&source.tiling_desktop_environments);
-        self.derived_config_environment
-            .clone_from(&source.derived_config_environment);
-        self.set_environment_variables
-            .clone_from(&source.set_environment_variables);
-        self.launch_menu.clone_from(&source.launch_menu);
         self.key_map_preference = source.key_map_preference;
         self.ui_key_cap_rendering = source.ui_key_cap_rendering;
         self.swap_backspace_and_delete = source.swap_backspace_and_delete;

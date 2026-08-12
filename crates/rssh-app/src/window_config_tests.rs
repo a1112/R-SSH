@@ -41,3 +41,28 @@ fn window_reload_reuses_unchanged_effective_config_subtrees() {
     ));
     assert_eq!(app.config_overrides.effective.terminal.term, "xterm-rssh");
 }
+
+#[test]
+fn domain_and_lifecycle_values_live_in_one_copy_on_write_config_snapshot() {
+    let mut app = NativeWindowApp::new(Some(0));
+    let before = Arc::clone(&app.applied_config);
+
+    app.set_config_overrides(NativeConfigSnapshot {
+        default_domain: Some("local".to_owned()),
+        default_workspace: Some("shared-config".to_owned()),
+        ..NativeConfigSnapshot::default()
+    });
+
+    assert!(!Arc::ptr_eq(&before, &app.applied_config));
+    assert_eq!(before.default_workspace, super::DEFAULT_WORKSPACE_NAME);
+    assert_eq!(app.applied_config.default_workspace, "shared-config");
+    assert_eq!(app.default_workspace, "shared-config");
+    assert_eq!(
+        std::mem::size_of_val(&app.applied_config),
+        std::mem::size_of::<Arc<super::NativeAppliedConfig>>(),
+    );
+
+    let mut inherited = NativeWindowApp::new(Some(0));
+    inherited.inherit_effective_config_from(&app);
+    assert!(Arc::ptr_eq(&app.applied_config, &inherited.applied_config));
+}
