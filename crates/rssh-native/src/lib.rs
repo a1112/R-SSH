@@ -3,6 +3,7 @@
 mod controller;
 mod effect;
 mod host;
+pub mod input;
 mod intent;
 mod layout;
 pub mod platform;

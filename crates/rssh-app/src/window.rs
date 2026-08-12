@@ -26,6 +26,10 @@ use rssh_core::{
         PaneRotationDirection, ResizeDirection, SplitDirection,
     },
 };
+use rssh_native::input::{
+    CanonicalizePastedNewlines as NativeCanonicalizePastedNewlines,
+    encode_paste as encode_window_paste,
+};
 use rssh_pty::{
     PtyCommand, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus, PtySession, PtySize,
 };
@@ -2691,37 +2695,6 @@ impl NativeExitBehaviorMessaging {
             Self::Brief => "Brief",
             Self::Terse => "Terse",
             Self::None => "None",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[allow(dead_code)]
-enum NativeCanonicalizePastedNewlines {
-    #[default]
-    None,
-    LineFeed,
-    CarriageReturn,
-    CarriageReturnAndLineFeed,
-}
-
-impl NativeCanonicalizePastedNewlines {
-    fn parse(value: &str) -> Option<Self> {
-        match value.trim() {
-            "None" => Some(Self::None),
-            "LineFeed" => Some(Self::LineFeed),
-            "CarriageReturn" => Some(Self::CarriageReturn),
-            "CarriageReturnAndLineFeed" => Some(Self::CarriageReturnAndLineFeed),
-            _ => None,
-        }
-    }
-
-    fn config_text(self) -> &'static str {
-        match self {
-            Self::None => "None",
-            Self::LineFeed => "LineFeed",
-            Self::CarriageReturn => "CarriageReturn",
-            Self::CarriageReturnAndLineFeed => "CarriageReturnAndLineFeed",
         }
     }
 }
@@ -91026,49 +90999,6 @@ fn encode_window_focus_event(focused: bool, focus_reporting: bool) -> Option<Vec
     })
 }
 
-fn encode_window_paste(
-    text: &str,
-    bracketed_paste: bool,
-    canonicalize_newlines: NativeCanonicalizePastedNewlines,
-) -> Vec<u8> {
-    if !bracketed_paste {
-        return canonicalize_pasted_newlines(text, canonicalize_newlines).into_bytes();
-    }
-
-    let mut bytes = Vec::with_capacity(b"\x1b[200~".len() + text.len() + b"\x1b[201~".len());
-    bytes.extend_from_slice(b"\x1b[200~");
-    bytes.extend_from_slice(text.as_bytes());
-    bytes.extend_from_slice(b"\x1b[201~");
-    bytes
-}
-
-fn canonicalize_pasted_newlines(
-    text: &str,
-    canonicalize_newlines: NativeCanonicalizePastedNewlines,
-) -> String {
-    let replacement = match canonicalize_newlines {
-        NativeCanonicalizePastedNewlines::None => return text.to_owned(),
-        NativeCanonicalizePastedNewlines::LineFeed => "\n",
-        NativeCanonicalizePastedNewlines::CarriageReturn => "\r",
-        NativeCanonicalizePastedNewlines::CarriageReturnAndLineFeed => "\r\n",
-    };
-    let mut normalized = String::with_capacity(text.len());
-    let mut characters = text.chars().peekable();
-    while let Some(character) = characters.next() {
-        match character {
-            '\r' => {
-                if matches!(characters.peek(), Some('\n')) {
-                    characters.next();
-                }
-                normalized.push_str(replacement);
-            }
-            '\n' => normalized.push_str(replacement),
-            _ => normalized.push(character),
-        }
-    }
-    normalized
-}
-
 fn quote_dropped_file_name(path: &str, quote: NativeQuoteDroppedFiles) -> String {
     match quote {
         NativeQuoteDroppedFiles::None => path.to_owned(),
@@ -97998,42 +97928,6 @@ mod tests {
                 2
             ),
             b"\x1b[27;3;46~"
-        );
-    }
-
-    #[test]
-    fn encodes_window_paste_as_raw_or_bracketed_bytes() {
-        assert_eq!(
-            encode_window_paste("plain\ntext", false, NativeCanonicalizePastedNewlines::None),
-            b"plain\ntext"
-        );
-        assert_eq!(
-            encode_window_paste(
-                "plain\ntext",
-                true,
-                NativeCanonicalizePastedNewlines::CarriageReturn
-            ),
-            b"\x1b[200~plain\ntext\x1b[201~"
-        );
-    }
-
-    #[test]
-    fn encodes_window_paste_canonicalized_newlines_when_not_bracketed() {
-        assert_eq!(
-            encode_window_paste(
-                "one\r\ntwo\nthree\rfour",
-                false,
-                NativeCanonicalizePastedNewlines::CarriageReturn
-            ),
-            b"one\rtwo\rthree\rfour"
-        );
-        assert_eq!(
-            encode_window_paste(
-                "one\r\ntwo\nthree\rfour",
-                false,
-                NativeCanonicalizePastedNewlines::CarriageReturnAndLineFeed
-            ),
-            b"one\r\ntwo\r\nthree\r\nfour"
         );
     }
 

@@ -11,6 +11,7 @@ use rssh_native::{
     ClipboardEffect, HostPorts, NotificationEffect, PaneLifecycleIntent, PersistenceEffect,
     PlatformEvent, PortError, PortErrorKind, RendererEffect, RuntimeDrain, RuntimePortEffect,
     SpawnEffect, TurnBudget, UriEffect, WindowIntent, WindowPortEffect, WindowState, WinitHost,
+    input::{PendingPaneCommand, PendingPaneCommandQueue},
 };
 use rssh_pty::PtySession;
 use rssh_runtime::{
@@ -153,103 +154,6 @@ pub(crate) struct WindowPaneRuntime {
     closed: bool,
     pending_commands: HashMap<PaneId, PendingPaneCommandQueue>,
     closing: HashSet<PaneToken>,
-}
-
-const MAX_PENDING_INPUT_CHUNK_BYTES: usize = 64 * 1024;
-
-#[derive(Clone)]
-enum PendingPaneCommand {
-    Input(Vec<u8>),
-    Resize(TerminalSize),
-}
-
-impl PendingPaneCommand {
-    fn retained_bytes(&self) -> usize {
-        match self {
-            Self::Input(bytes) => bytes.len(),
-            Self::Resize(_) => 0,
-        }
-    }
-}
-
-struct PendingPaneCommandQueue {
-    commands: VecDeque<PendingPaneCommand>,
-    retained_bytes: usize,
-}
-
-impl PendingPaneCommandQueue {
-    const fn new() -> Self {
-        Self {
-            commands: VecDeque::new(),
-            retained_bytes: 0,
-        }
-    }
-
-    fn submit_input(
-        &mut self,
-        bytes: &[u8],
-        mut submit: impl FnMut(PendingPaneCommand) -> SubmitResult,
-    ) -> std::io::Result<()> {
-        let was_empty = self.commands.is_empty();
-        for chunk in bytes.chunks(MAX_PENDING_INPUT_CHUNK_BYTES) {
-            self.retained_bytes = self
-                .retained_bytes
-                .checked_add(chunk.len())
-                .ok_or_else(|| std::io::Error::other("runtime V2 pending input overflow"))?;
-            self.commands
-                .push_back(PendingPaneCommand::Input(chunk.to_vec()));
-        }
-        if was_empty {
-            self.flush(&mut submit)
-        } else {
-            Ok(())
-        }
-    }
-
-    fn submit_resize(
-        &mut self,
-        size: TerminalSize,
-        mut submit: impl FnMut(PendingPaneCommand) -> SubmitResult,
-    ) -> std::io::Result<()> {
-        if let Some(PendingPaneCommand::Resize(pending)) = self.commands.back_mut() {
-            *pending = size;
-            return Ok(());
-        }
-        let was_empty = self.commands.is_empty();
-        self.commands.push_back(PendingPaneCommand::Resize(size));
-        if was_empty {
-            self.flush(&mut submit)
-        } else {
-            Ok(())
-        }
-    }
-
-    fn flush(
-        &mut self,
-        mut submit: impl FnMut(PendingPaneCommand) -> SubmitResult,
-    ) -> std::io::Result<()> {
-        while let Some(command) = self.commands.front() {
-            match submit(command.clone()) {
-                SubmitResult::Accepted => {
-                    let command = self.commands.pop_front().expect("front command exists");
-                    self.retained_bytes =
-                        self.retained_bytes.saturating_sub(command.retained_bytes());
-                }
-                SubmitResult::Backpressured { .. } => break,
-                SubmitResult::Closed => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::BrokenPipe,
-                        "runtime V2 pane is closed",
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn is_empty(&self) -> bool {
-        self.commands.is_empty()
-    }
 }
 
 pub(crate) type SpawnedLocalPane = (WindowPaneRuntime, Option<u32>, Option<String>);
@@ -934,14 +838,11 @@ mod tests {
 
     use rssh_core::{PaneId, WindowId};
     use rssh_runtime::{
-        PaneWorkerConfig, SubmitResult, TerminalRuntime,
+        PaneWorkerConfig, TerminalRuntime,
         testing::{ReadAction, ScriptedTransport, WriteAction},
     };
 
-    use super::{
-        MAX_PENDING_INPUT_CHUNK_BYTES, PaneCapturePolicy, PaneRuntimeRoute, PendingPaneCommand,
-        PendingPaneCommandQueue, TerminalSize, WindowPaneRuntime,
-    };
+    use super::{PaneCapturePolicy, PaneRuntimeRoute, TerminalSize, WindowPaneRuntime};
 
     #[test]
     fn window_runtime_owns_multiple_pane_workers_and_active_selection() {
@@ -1001,92 +902,5 @@ mod tests {
             !window_source.contains("self.app_shell.pane_ids().len() == 1"),
             "V2 ownership must not silently fall back after the first pane"
         );
-    }
-
-    #[test]
-    fn pending_input_retries_in_order_after_runtime_backpressure() {
-        let mut pending = PendingPaneCommandQueue::new();
-        pending
-            .submit_input(b"first", |_| SubmitResult::Backpressured {
-                retry_after: std::time::Duration::from_millis(1),
-            })
-            .expect("queue first input");
-        pending
-            .submit_input(b"second", |_| SubmitResult::Accepted)
-            .expect("queue behind pending input");
-
-        let mut delivered = Vec::new();
-        pending
-            .flush(|command| {
-                let PendingPaneCommand::Input(bytes) = command else {
-                    panic!("unexpected resize")
-                };
-                delivered.push(bytes);
-                SubmitResult::Accepted
-            })
-            .expect("flush pending input");
-
-        assert_eq!(delivered, [b"first".to_vec(), b"second".to_vec()]);
-        assert!(pending.is_empty());
-    }
-
-    #[test]
-    fn pending_resizes_coalesce_without_reordering_input() {
-        let mut pending = PendingPaneCommandQueue::new();
-        pending
-            .submit_input(b"input", |_| SubmitResult::Backpressured {
-                retry_after: std::time::Duration::from_millis(1),
-            })
-            .unwrap();
-        pending
-            .submit_resize(TerminalSize::new(80, 24), |_| SubmitResult::Accepted)
-            .unwrap();
-        pending
-            .submit_resize(TerminalSize::new(120, 40), |_| SubmitResult::Accepted)
-            .unwrap();
-
-        let mut delivered = Vec::new();
-        pending
-            .flush(|command| {
-                delivered.push(match command {
-                    PendingPaneCommand::Input(bytes) => format!("input:{}", bytes.len()),
-                    PendingPaneCommand::Resize(size) => {
-                        format!("resize:{}x{}", size.columns, size.rows)
-                    }
-                });
-                SubmitResult::Accepted
-            })
-            .unwrap();
-        assert_eq!(delivered, ["input:5", "resize:120x40"]);
-    }
-
-    #[test]
-    fn oversized_input_is_chunked_and_deferred_without_blocking_the_ui_thread() {
-        let mut pending = PendingPaneCommandQueue::new();
-        let input = vec![b'x'; MAX_PENDING_INPUT_CHUNK_BYTES * 2 + 17];
-        let mut attempts = 0;
-        pending
-            .submit_input(&input, |_| {
-                attempts += 1;
-                SubmitResult::Backpressured {
-                    retry_after: std::time::Duration::from_millis(1),
-                }
-            })
-            .expect("oversized input is retained for asynchronous retry");
-
-        assert_eq!(attempts, 1, "the UI thread must never spin or sleep");
-        let mut delivered = Vec::new();
-        pending
-            .flush(|command| {
-                let PendingPaneCommand::Input(bytes) = command else {
-                    panic!("unexpected resize")
-                };
-                assert!(bytes.len() <= MAX_PENDING_INPUT_CHUNK_BYTES);
-                delivered.extend(bytes);
-                SubmitResult::Accepted
-            })
-            .expect("asynchronous poll drains every chunk");
-        assert_eq!(delivered, input);
-        assert!(pending.is_empty());
     }
 }
