@@ -13,6 +13,7 @@ pub mod platform;
 mod ports;
 mod presentation;
 mod state;
+pub mod tabs;
 
 pub use commands::CommandIntent;
 pub use controller::reduce;
@@ -33,8 +34,9 @@ pub use presentation::{
     CellMetrics, CursorPresentation, FrameRevision, OverlayPresentation, PaneFrameCandidate,
     PresentationError, PresentationFrame, PresentationInput, PresentedPane, RenderMode,
     ScaleFactor, ScrollbarPresentation, SelectionPresentation, SurfacePresentation,
-    TabPresentation, build_presentation,
+    build_presentation,
 };
 pub use state::{
     ConfigState, LifecycleState, PlatformState, PresentationState, TimerState, WindowState,
 };
+pub use tabs::TabPresentation;

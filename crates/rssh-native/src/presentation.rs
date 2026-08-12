@@ -1,9 +1,9 @@
 use std::{collections::HashMap, num::NonZeroU64, sync::Arc};
 
-use rssh_core::{DamageRegion, PaneId, TabId};
+use rssh_core::{DamageRegion, PaneId};
 use rssh_runtime::{PaneToken, RuntimeRevision};
 
-use crate::{PaneLayout, PaneRenderRect, PaneSeparator};
+use crate::{PaneLayout, PaneRenderRect, PaneSeparator, TabPresentation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FrameRevision(NonZeroU64);
@@ -100,24 +100,6 @@ impl SurfacePresentation {
     #[must_use]
     pub const fn reserved_top_rows(self) -> u16 {
         self.titlebar_rows.saturating_add(self.tab_bar_rows)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TabPresentation {
-    pub tab: TabId,
-    pub title: String,
-    pub active: bool,
-}
-
-impl TabPresentation {
-    #[must_use]
-    pub fn new(tab: TabId, title: impl Into<String>, active: bool) -> Self {
-        Self {
-            tab,
-            title: title.into(),
-            active,
-        }
     }
 }
 
