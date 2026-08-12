@@ -6,26 +6,41 @@ use rssh_runtime::SubmitResult;
 
 #[test]
 fn paste_encoding_preserves_bracketed_input_and_canonicalizes_plain_input() {
-    assert_eq!(
-        encode_paste("plain\ntext", false, CanonicalizePastedNewlines::None,),
-        b"plain\ntext"
-    );
-    assert_eq!(
-        encode_paste(
-            "plain\ntext",
-            true,
-            CanonicalizePastedNewlines::CarriageReturn,
-        ),
-        b"\x1b[200~plain\ntext\x1b[201~"
-    );
-    assert_eq!(
-        encode_paste(
-            "one\r\ntwo\nthree\rfour",
-            false,
-            CanonicalizePastedNewlines::CarriageReturnAndLineFeed,
-        ),
-        b"one\r\ntwo\r\nthree\r\nfour"
-    );
+    for line in include_str!("fixtures/paste_encoding.tsv").lines() {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let fields = line.split('\t').collect::<Vec<_>>();
+        assert_eq!(fields.len(), 5, "malformed paste case: {line}");
+        let name = fields[0];
+        let bracketed = fields[1].parse::<bool>().expect("boolean bracketed flag");
+        let canonicalization = match fields[2] {
+            "none" => CanonicalizePastedNewlines::None,
+            "cr" => CanonicalizePastedNewlines::CarriageReturn,
+            "crlf" => CanonicalizePastedNewlines::CarriageReturnAndLineFeed,
+            value => panic!("unknown canonicalization {value} in case {name}"),
+        };
+        let input = decode_hex(fields[3]);
+        let expected = decode_hex(fields[4]);
+        let input = String::from_utf8(input).expect("fixture input is UTF-8");
+        assert_eq!(
+            encode_paste(&input, bracketed, canonicalization),
+            expected,
+            "paste fixture {name}"
+        );
+    }
+}
+
+fn decode_hex(value: &str) -> Vec<u8> {
+    assert_eq!(value.len() % 2, 0, "hex fixture has an odd length");
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let pair = std::str::from_utf8(pair).expect("hex digits are ASCII");
+            u8::from_str_radix(pair, 16).expect("valid hex byte")
+        })
+        .collect()
 }
 
 #[test]
