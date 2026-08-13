@@ -450,6 +450,9 @@ jobs:
       - name: Build native release binary
         run: cargo build --locked --release -p rssh-app --all-targets
 
+      - name: Verify release binary excludes functional observers
+        run: python scripts/ci/check-functional-observer-isolation.py --binary "${{ matrix.binary }}"
+
       - name: Assemble and unpack-smoke Windows artifact (native_window_e2e; --harness-self-test)
         if: runner.os == 'Windows'
         shell: pwsh

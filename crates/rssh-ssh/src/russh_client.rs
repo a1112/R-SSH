@@ -1104,7 +1104,7 @@ impl RusshChannelOpener {
                     .map_err(|error| {
                         SshSessionError::new(format!("SSH remote TCP forwarding failed: {error}"))
                     })?;
-                let bound_port = validated_remote_forward_bound_port(bound_port)?;
+                let bound_port = resolved_remote_forward_bound_port(bind_port, bound_port)?;
                 resolved_remote_forward.resolve_bind_port(bound_port);
 
                 Ok::<_, SshSessionError>((handle, bound_port))
@@ -1200,6 +1200,19 @@ fn validated_remote_forward_bound_port(bound_port: u32) -> Result<u16, SshSessio
         ));
     }
     Ok(bound_port_u16)
+}
+
+fn resolved_remote_forward_bound_port(
+    requested_port: u16,
+    returned_port: u32,
+) -> Result<u16, SshSessionError> {
+    if requested_port == 0 {
+        validated_remote_forward_bound_port(returned_port)
+    } else if returned_port == 0 || returned_port == u32::from(requested_port) {
+        Ok(requested_port)
+    } else {
+        validated_remote_forward_bound_port(returned_port)
+    }
 }
 
 struct RusshHandleAuthenticationBackend<'a> {
@@ -2357,6 +2370,19 @@ mod tests {
         assert!(validated_remote_forward_bound_port(0).is_err());
         assert!(validated_remote_forward_bound_port(u32::from(u16::MAX) + 1).is_err());
         assert_eq!(validated_remote_forward_bound_port(42_000).unwrap(), 42_000);
+    }
+
+    #[test]
+    fn fixed_remote_forward_uses_requested_port_when_success_has_no_allocated_port() {
+        assert_eq!(
+            resolved_remote_forward_bound_port(42_000, 0).unwrap(),
+            42_000
+        );
+        assert_eq!(
+            resolved_remote_forward_bound_port(0, 42_001).unwrap(),
+            42_001
+        );
+        assert!(resolved_remote_forward_bound_port(0, 0).is_err());
     }
 
     #[test]

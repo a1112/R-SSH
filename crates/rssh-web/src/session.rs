@@ -76,8 +76,8 @@ impl WebPtySession {
             }
         };
 
-        let (input_tx, input_rx) = mpsc::sync_channel(INPUT_QUEUE_CAPACITY);
-        let (control_tx, control_rx) = mpsc::sync_channel(CONTROL_QUEUE_CAPACITY);
+        let (input_tx, input_rx) = bounded_input_queue();
+        let (control_tx, control_rx) = bounded_control_queue();
         let (events_tx, events) = async_mpsc::channel(OUTPUT_QUEUE_CAPACITY);
         let (reader_done_tx, reader_done_rx) = mpsc::sync_channel(1);
         let writer_stop = Arc::new(AtomicBool::new(false));
@@ -123,10 +123,7 @@ impl WebPtySession {
     /// Returns `Full` when the bounded input queue is saturated or `Closed`
     /// after the session has begun shutting down.
     pub fn try_send_input(&self, bytes: Vec<u8>) -> Result<(), InputSendError> {
-        self.input_tx.try_send(bytes).map_err(|error| match error {
-            mpsc::TrySendError::Full(_) => InputSendError::Full,
-            mpsc::TrySendError::Disconnected(_) => InputSendError::Closed,
-        })
+        try_enqueue_input(&self.input_tx, bytes)
     }
 
     /// Enqueues a validated terminal resize without blocking the WebSocket task.
@@ -135,14 +132,7 @@ impl WebPtySession {
     ///
     /// Returns `Invalid`, `Full`, or `Closed` when the resize cannot be queued.
     pub fn try_resize(&self, dimensions: TerminalDimensions) -> Result<(), ResizeSendError> {
-        let size = PtySize::try_new(dimensions.cols, dimensions.rows)
-            .map_err(|_| ResizeSendError::Invalid)?;
-        self.control_tx
-            .try_send(SessionControl::Resize(size))
-            .map_err(|error| match error {
-                mpsc::TrySendError::Full(_) => ResizeSendError::Full,
-                mpsc::TrySendError::Disconnected(_) => ResizeSendError::Closed,
-            })
+        try_enqueue_resize(&self.control_tx, dimensions)
     }
 
     pub fn request_close(&self) {
@@ -154,6 +144,41 @@ impl WebPtySession {
     pub fn events(&mut self) -> &mut async_mpsc::Receiver<SessionEvent> {
         &mut self.events
     }
+}
+
+fn bounded_input_queue() -> (mpsc::SyncSender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) {
+    mpsc::sync_channel(INPUT_QUEUE_CAPACITY)
+}
+
+fn bounded_control_queue() -> (
+    mpsc::SyncSender<SessionControl>,
+    mpsc::Receiver<SessionControl>,
+) {
+    mpsc::sync_channel(CONTROL_QUEUE_CAPACITY)
+}
+
+fn try_enqueue_input(
+    sender: &mpsc::SyncSender<Vec<u8>>,
+    bytes: Vec<u8>,
+) -> Result<(), InputSendError> {
+    sender.try_send(bytes).map_err(|error| match error {
+        mpsc::TrySendError::Full(_) => InputSendError::Full,
+        mpsc::TrySendError::Disconnected(_) => InputSendError::Closed,
+    })
+}
+
+fn try_enqueue_resize(
+    sender: &mpsc::SyncSender<SessionControl>,
+    dimensions: TerminalDimensions,
+) -> Result<(), ResizeSendError> {
+    let size =
+        PtySize::try_new(dimensions.cols, dimensions.rows).map_err(|_| ResizeSendError::Invalid)?;
+    sender
+        .try_send(SessionControl::Resize(size))
+        .map_err(|error| match error {
+            mpsc::TrySendError::Full(_) => ResizeSendError::Full,
+            mpsc::TrySendError::Disconnected(_) => ResizeSendError::Closed,
+        })
 }
 
 impl Drop for WebPtySession {
@@ -334,7 +359,11 @@ fn spawn_supervisor(
 mod tests {
     use std::time::Duration;
 
-    use super::{SessionEvent, WebPtySession};
+    use super::{
+        CONTROL_QUEUE_CAPACITY, INPUT_QUEUE_CAPACITY, InputSendError, ResizeSendError,
+        SessionEvent, WebPtySession, bounded_control_queue, bounded_input_queue, try_enqueue_input,
+        try_enqueue_resize,
+    };
     use crate::protocol::TerminalDimensions;
 
     #[test]
@@ -380,5 +409,36 @@ mod tests {
             }
             assert!(String::from_utf8_lossy(&output).contains("web-pty-test"));
         });
+    }
+
+    #[test]
+    fn bounded_input_queue_reports_backpressure_and_cleans_up() {
+        let (sender, receiver) = bounded_input_queue();
+        for index in 0..INPUT_QUEUE_CAPACITY {
+            sender
+                .try_send(vec![u8::try_from(index).unwrap_or(u8::MAX)])
+                .expect("bounded input slot");
+        }
+        let full = try_enqueue_input(&sender, vec![0]);
+        assert_eq!(full, Err(InputSendError::Full));
+
+        drop(receiver);
+        let closed = try_enqueue_input(&sender, vec![0]);
+        assert_eq!(closed, Err(InputSendError::Closed));
+
+        let (control, control_receiver) = bounded_control_queue();
+        let dimensions = TerminalDimensions { cols: 90, rows: 30 };
+        for _ in 0..CONTROL_QUEUE_CAPACITY {
+            try_enqueue_resize(&control, dimensions).expect("bounded resize slot");
+        }
+        assert_eq!(
+            try_enqueue_resize(&control, dimensions),
+            Err(ResizeSendError::Full)
+        );
+        drop(control_receiver);
+        assert_eq!(
+            try_enqueue_resize(&control, dimensions),
+            Err(ResizeSendError::Closed)
+        );
     }
 }

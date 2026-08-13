@@ -1,0 +1,9 @@
+schema = 1
+id = "startup.help"
+behavior_ids = ["BHV-CMD-HELP", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-EXITED", "BHV-LIFECYCLE-CLEANUP"]
+surface = "console"
+fixture = "help"
+estimated_cost_ms = 100
+required_evidence = ["event_log", "stdout", "stderr", "process_tree"]
+actions = [{ type = "finish" }]
+checkpoints = [{ type = "terminal_contains", text = "Usage:" }, { type = "exit_status", code = 0 }, { type = "resources_zero" }]

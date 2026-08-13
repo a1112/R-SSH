@@ -674,6 +674,7 @@ pub fn run(
 
     event_loop.run_app(&mut app)?;
     app.shutdown_runtime_owners();
+    app.reap_retired_apps();
     if options.metrics_json {
         println!("{}", app.metrics_json_report()?);
     } else if options.metrics {
@@ -7542,3 +7543,4 @@ include!("window_parts/part12.rs");
 include!("window_parts/part13.rs");
 include!("window_parts/part14.rs");
 include!("window_parts/part15.rs");
+include!("window_parts/functional_observer.rs");

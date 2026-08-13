@@ -1,5 +1,9 @@
 # R-SSH
 
+The versioned cross-platform functional-test runner, observer isolation model,
+scenario authoring rules, and CI evidence gate are documented in
+[`docs/functional-testing.md`](docs/functional-testing.md).
+
 R-SSH is a native Rust route for a high-performance SSH terminal client. The
 target product shape is closer to XShell than to a web terminal: native windows,
 direct GPU text rendering, native and system SSH transports, session management,

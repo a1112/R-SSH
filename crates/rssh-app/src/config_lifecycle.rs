@@ -721,6 +721,9 @@ fn validate_assignment(
             validate_integer_range(&assignment.value, 0, usize::MAX as u64)
         }
         "automatically_reload_config" | "enable_tab_bar" => validate_bool(&assignment.value),
+        "window_close_confirmation" => {
+            validate_enum_string(&assignment.value, &["AlwaysPrompt", "NeverPrompt"])
+        }
         "default_prog" | "default_gui_startup_args" => validate_string_array(&assignment.value),
         "colors" => validate_colors(&assignment.value),
         "set_environment_variables" => validate_environment(&assignment.value),
@@ -2601,6 +2604,7 @@ mod tests {
                 scrollback_lines = 9001,
                 max_fps = 120,
                 enable_tab_bar = false,
+                window_close_confirmation = "NeverPrompt",
                 color_scheme = "Builtin Solarized Dark",
                 default_prog = { "pwsh", "-NoLogo" },
                 default_gui_startup_args = { "ssh", "host" },

@@ -3147,6 +3147,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.reap_retired_apps();
         if let Err(error) = self.materialize_pending_apps(event_loop) {
             eprintln!("window error: {error}");
             event_loop.exit();
@@ -3212,6 +3213,10 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
                 );
             }
         }
+        #[cfg(feature = "functional-test-observer")]
+        if let Some(app) = self.windows.values().next() {
+            crate::functional_observer::publish(app.functional_observer_snapshot());
+        }
         if let Some(deadline) = next_frame_limit_redraw {
             event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
         } else {
@@ -3252,14 +3257,9 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
             WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged => {
                 self.reload_configuration();
             }
-            WindowUserEvent::RuntimeWakeWindow { .. } => match self.poll_active_v2_runtime() {
-                Ok(Some(true)) => event_loop.exit(),
-                Ok(Some(false) | None) => {}
-                Err(error) => {
-                    eprintln!("runtime V2 host error: {error}");
-                    event_loop.exit();
-                }
-            },
+            WindowUserEvent::RuntimeWakeWindow { .. } => {
+                self.handle_runtime_wake_window(event_loop);
+            }
             WindowUserEvent::Output {
                 pane_id,
                 runtime_generation,
@@ -3293,6 +3293,13 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     return;
                 }
                 let status = self.finish_pane_runtime_after_exit(pane_id, runtime_generation);
+                #[cfg(feature = "functional-test-observer")]
+                {
+                    crate::functional_observer::publish(self.functional_observer_snapshot());
+                    let _ = crate::functional_observer::wait_until_current_revision_delivered(
+                        Duration::from_millis(250),
+                    );
+                }
                 let close_window = self.apply_pane_exit_behavior_after_exit(pane_id, status);
                 if self.defer_automatic_close_for_frame_limit(close_window) {
                     event_loop.exit();
@@ -3472,6 +3479,9 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
         regular_redraw_needed |= self.expire_key_table_stack_if_due(now);
         regular_redraw_needed |= self.expire_leader_key_if_due(now);
 
+        #[cfg(feature = "functional-test-observer")]
+        crate::functional_observer::publish(self.functional_observer_snapshot());
+
         let animation_active = self.has_active_animation_at(now);
         if regular_redraw_needed || (animation_changed && !animation_active) {
             self.request_redraw_if_due(now);
@@ -3483,6 +3493,28 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
             event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
+        }
+    }
+}
+
+impl NativeWindowApp {
+    fn handle_runtime_wake_window(&mut self, event_loop: &ActiveEventLoop) {
+        match self.poll_active_v2_runtime() {
+            Ok(Some(true)) => {
+                #[cfg(feature = "functional-test-observer")]
+                {
+                    crate::functional_observer::publish(self.functional_observer_snapshot());
+                    let _ = crate::functional_observer::wait_until_current_revision_delivered(
+                        Duration::from_millis(250),
+                    );
+                }
+                event_loop.exit();
+            }
+            Ok(Some(false) | None) => {}
+            Err(error) => {
+                eprintln!("runtime V2 host error: {error}");
+                event_loop.exit();
+            }
         }
     }
 }

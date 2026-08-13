@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "build:functional": "tauri build --config src-tauri/tauri.functional.conf.json --features functional-test-observer",
     "tauri": "tauri"
   },
   "devDependencies": {

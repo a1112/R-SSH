@@ -1,0 +1,10 @@
+schema = 1
+id = "window.local-interaction"
+behavior_ids = ["BHV-CMD-WINDOW", "BHV-WINDOW-INTERACTION", "BHV-ACTION-FOCUS", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-STARTED", "BHV-LIFECYCLE-EXITED", "BHV-ACTION-TYPE-TEXT", "BHV-ACTION-KEY", "BHV-ACTION-MOUSE-CLICK", "BHV-ACTION-MOUSE-DRAG", "BHV-ACTION-MOUSE-WHEEL", "BHV-ACTION-CLIPBOARD-PASTE", "BHV-ACTION-RESIZE", "BHV-EFFECT-CLIPBOARD-WRITE", "BHV-EFFECT-NOTIFICATION", "BHV-EFFECT-BELL", "BHV-LIFECYCLE-CLEANUP", "BHV-RENDER-STABLE-REGION"]
+surface = "native_window"
+capabilities = ["real_os_keyboard", "real_os_pointer", "system_clipboard", "gpu_readback"]
+fixture = "terminal_probe"
+estimated_cost_ms = 8500
+required_evidence = ["event_log", "final_snapshot", "process_tree", "screenshot_on_failure"]
+actions = [{ type = "focus_window" }, { type = "mouse_click", x = 80, y = 80, button = "left" }, { type = "mouse_drag", from_x = 80, from_y = 80, to_x = 160, to_y = 80, button = "left" }, { type = "mouse_wheel", delta_x = 0, delta_y = -1 }, { type = "type_text", text = "window-probe" }, { type = "key", key = "Enter" }, { type = "clipboard_paste", text = "clipboard-probe" }, { type = "key", key = "Enter" }, { type = "resize_window", width = 960, height = 640 }, { type = "type_text", text = "emit-effects" }, { type = "key", key = "Enter" }, { type = "type_text", text = "functional-exit" }, { type = "key", key = "Enter" }, { type = "finish" }]
+checkpoints = [{ type = "terminal_contains", text = "window-probe" }, { type = "terminal_contains", text = "clipboard-probe" }, { type = "host_effect", kind = "bell", sequence = 1 }, { type = "host_effect", kind = "clipboard_write", sequence = 2 }, { type = "host_effect", kind = "notification", sequence = 3 }, { type = "render_probe", region = "terminal:first-row-16-cells", digest = "sha256:3e1c991218d5e3dedf00e1d758651d6661f9485ab0a3c86ef9c5c3583d168f64" }, { type = "exit_status", code = 0 }, { type = "resources_zero" }]

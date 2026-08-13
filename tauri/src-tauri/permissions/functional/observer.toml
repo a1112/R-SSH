@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-functional-observer-publish"
+description = "Allows the functional Web UI to publish a read-only observer snapshot."
+commands.allow = ["functional_observer_publish"]

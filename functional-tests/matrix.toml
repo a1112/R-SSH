@@ -1,0 +1,78 @@
+schema = 1
+
+[[scenario_runs]]
+scenario_id = "startup.version"
+targets = ["windows-x86_64", "linux-x86_64", "macos-aarch64"]
+
+[[scenario_runs]]
+scenario_id = "startup.help"
+targets = ["windows-x86_64", "linux-x86_64", "macos-aarch64"]
+
+[[scenario_runs]]
+scenario_id = "startup.doctor"
+targets = ["windows-x86_64", "linux-x86_64", "macos-aarch64"]
+
+[[scenario_runs]]
+scenario_id = "startup.bench"
+targets = ["windows-x86_64", "linux-x86_64", "macos-aarch64"]
+
+[[scenario_runs]]
+scenario_id = "startup.self-test"
+targets = ["windows-x86_64", "linux-x86_64", "macos-aarch64"]
+
+[[scenario_runs]]
+scenario_id = "console.local-interaction"
+targets = ["windows-x86_64", "linux-x86_64", "macos-aarch64"]
+
+[[scenario_runs]]
+scenario_id = "console.stress-cleanup"
+targets = ["windows-x86_64", "linux-x86_64", "macos-aarch64"]
+
+[[scenario_runs]]
+scenario_id = "console.disconnect-reconnect"
+targets = ["windows-x86_64", "linux-x86_64", "macos-aarch64"]
+
+[[scenario_runs]]
+scenario_id = "host-terminal.smoke"
+targets = ["windows-conhost", "linux-xterm", "linux-foot-wayland", "macos-terminalapp"]
+
+[[scenario_runs]]
+scenario_id = "profiles.lifecycle"
+targets = ["windows-x86_64", "linux-x86_64", "macos-aarch64"]
+
+[[scenario_runs]]
+scenario_id = "ssh.loopback"
+targets = ["windows-x86_64", "linux-x86_64", "macos-aarch64"]
+
+[[scenario_runs]]
+scenario_id = "transfer.roundtrip"
+targets = ["windows-x86_64", "linux-x86_64", "macos-aarch64"]
+
+[[scenario_runs]]
+scenario_id = "window.local-interaction"
+targets = ["windows-x86_64", "linux-x11", "linux-wayland", "macos-accessibility"]
+
+[[scenario_runs]]
+scenario_id = "window.observer-disconnect"
+targets = ["windows-x86_64", "linux-x11", "linux-wayland", "macos-accessibility"]
+
+[[scenario_runs]]
+scenario_id = "window.config-lifecycle"
+targets = ["windows-x86_64", "linux-x11", "linux-wayland", "macos-accessibility"]
+
+[[scenario_runs]]
+scenario_id = "window.forced-close-cleanup"
+targets = ["windows-x86_64", "linux-x11", "linux-wayland", "macos-accessibility"]
+
+[[scenario_runs]]
+scenario_id = "tauri.local-pty"
+targets = ["windows-x86_64", "linux-x11", "linux-wayland", "macos-accessibility"]
+
+[[scenario_runs]]
+scenario_id = "package.startup-smoke"
+targets = ["windows-x86_64", "linux-x86_64", "macos-aarch64"]
+
+[[playwright_runs]]
+scenario_id = "web.local-pty"
+identity = "terminal.spec.ts › redeems the bootstrap ticket and opens a real PTY session"
+projects = ["chromium", "firefox", "webkit"]

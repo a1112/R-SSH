@@ -1417,6 +1417,29 @@
     }
 
     #[test]
+    fn window_manager_defers_closed_gpu_destruction_until_a_safe_event_loop_point() {
+        let mut active = NativeWindowApp::new(None);
+        active.set_config_overrides(native_config_snapshot! {
+            quit_when_all_windows_are_closed: Some(false),
+            ..NativeConfigSnapshot::default()
+        });
+        let mut closing = NativeWindowApp::new(None);
+        closing.gpu = Some(Box::new(
+            crate::window_gpu::WindowGpu::for_manager_close_test(false, true),
+        ));
+        let mut manager = NativeWindowManager::new_for_test(active);
+        let closing_id = winit::window::WindowId::dummy();
+        manager.windows.insert(closing_id, Box::new(closing));
+
+        assert!(!manager.close_window(closing_id));
+        assert_eq!(manager.retired_app_count_for_test(), 1);
+        assert!(manager.windows.is_empty());
+
+        manager.reap_retired_apps();
+        assert_eq!(manager.retired_app_count_for_test(), 0);
+    }
+
+    #[test]
     fn window_manager_abandons_recovered_eligible_window_while_another_window_remains_active() {
         let mut recovered = NativeWindowApp::new(None);
         recovered.gpu = Some(Box::new(
@@ -6025,4 +6048,3 @@
         );
         assert!(app.command_palette.is_none());
     }
-

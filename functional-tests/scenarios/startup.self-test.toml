@@ -1,0 +1,10 @@
+schema = 1
+id = "startup.self-test"
+behavior_ids = ["BHV-STARTUP-SELF-TEST", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-EXITED", "BHV-LIFECYCLE-CLEANUP"]
+surface = "console"
+capabilities = ["real_stdin_pty"]
+fixture = "none"
+estimated_cost_ms = 1500
+required_evidence = ["event_log", "stdout", "stderr", "process_tree"]
+actions = [{ type = "finish" }]
+checkpoints = [{ type = "exit_status", code = 0 }, { type = "resources_zero" }]

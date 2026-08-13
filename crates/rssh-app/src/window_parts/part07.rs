@@ -1638,6 +1638,7 @@ struct NativeWindowManager {
     config_lifecycle: Option<Box<NativeConfigLifecycle>>,
     windows: HashMap<winit::window::WindowId, Box<NativeWindowApp>>,
     pending_apps: Vec<Box<NativeWindowApp>>,
+    retired_apps: Vec<Box<NativeWindowApp>>,
     pane_event_routes: HashMap<(rssh_core::WindowId, rssh_core::PaneId), rssh_core::WindowId>,
     focus: WindowFocusCoordinator<winit::window::WindowId>,
     last_metrics: Option<WindowMetricsSnapshot>,
@@ -1661,6 +1662,7 @@ impl NativeWindowManager {
             config_lifecycle: None,
             windows: HashMap::new(),
             pending_apps: Vec::new(),
+            retired_apps: Vec::new(),
             pane_event_routes: HashMap::new(),
             focus: WindowFocusCoordinator::default(),
             last_metrics: None,
@@ -1670,6 +1672,11 @@ impl NativeWindowManager {
     }
 
     fn with_config_lifecycle(mut self, lifecycle: Box<NativeConfigLifecycle>) -> Self {
+        #[cfg(feature = "functional-test-observer")]
+        crate::functional_observer::record_config_lifecycle(
+            lifecycle.effective().generation,
+            lifecycle.latest_diagnostic().is_some(),
+        );
         self.config_lifecycle = Some(lifecycle);
         self
     }
@@ -1680,6 +1687,7 @@ impl NativeWindowManager {
             .iter_mut()
             .chain(self.windows.values_mut())
             .chain(self.pending_apps.iter_mut())
+            .chain(self.retired_apps.iter_mut())
         {
             app.stop_active_runtime();
             for runtime in app.pane_runtimes.values_mut() {
@@ -1830,6 +1838,11 @@ impl NativeWindowManager {
         let diagnostic = lifecycle
             .latest_diagnostic()
             .map(std::string::ToString::to_string);
+        #[cfg(feature = "functional-test-observer")]
+        crate::functional_observer::record_config_lifecycle(
+            lifecycle.effective().generation,
+            lifecycle.latest_diagnostic().is_some(),
+        );
 
         if let Some(app) = self.startup_app.as_mut() {
             app.set_base_config(&effective, ReloadDisposition::SilentStartup);
@@ -2009,6 +2022,13 @@ impl NativeWindowManager {
         let (app_window_id, quit_when_all_windows_are_closed, snapshot) = {
             let app = self.app_at_location_mut(location)?;
             app.shutdown_gpu_for_window_close();
+            #[cfg(feature = "functional-test-observer")]
+            {
+                crate::functional_observer::publish(app.functional_observer_snapshot());
+                let _ = crate::functional_observer::wait_until_current_revision_delivered(
+                    Duration::from_millis(250),
+                );
+            }
             (
                 app.app_window_id,
                 app.quit_when_all_windows_are_closed,
@@ -2023,9 +2043,13 @@ impl NativeWindowManager {
             .take_app_at_location(location)
             .expect("closed app remains manager-owned until final removal");
         self.retain_closed_window_metrics(snapshot);
-        drop(app);
+        self.retired_apps.push(app);
         self.remove_pane_event_routes_for_window(app_window_id);
         Some(())
+    }
+
+    fn reap_retired_apps(&mut self) {
+        self.retired_apps.clear();
     }
 
     fn dispatch_user_event_to_owner(&mut self, event: WindowUserEvent) -> Option<bool> {
@@ -2077,6 +2101,13 @@ impl NativeWindowManager {
                     pane_identity.expect("pane exit carries a pane identity");
                 let status =
                     app.finish_pane_runtime_after_exit(pane_id, runtime_generation);
+                #[cfg(feature = "functional-test-observer")]
+                {
+                    crate::functional_observer::publish(app.functional_observer_snapshot());
+                    let _ = crate::functional_observer::wait_until_current_revision_delivered(
+                        Duration::from_millis(250),
+                    );
+                }
                 let close_window = app.apply_pane_exit_behavior_after_exit(pane_id, status);
                 app.defer_automatic_close_for_frame_limit(close_window)
             }
@@ -2194,10 +2225,17 @@ impl NativeWindowManager {
     }
 
     fn close_window(&mut self, window_id: winit::window::WindowId) -> bool {
+        let closes_last_window = self.quit_when_all_windows_are_closed
+            && self.windows.len() == 1
+            && self.startup_app.is_none()
+            && self.pending_apps.is_empty();
         if let Some(app) = self.windows.get_mut(&window_id) {
             app.handle_window_close_requested();
             if !app.take_window_close_request() {
                 return false;
+            }
+            if closes_last_window {
+                app.shutdown_gpu_after_native_window_close();
             }
             self.finalize_app_close_at_location(ManagedWindowAppLocation::Window(window_id))
                 .expect("approved window remains manager-owned until final removal");
@@ -2230,11 +2268,14 @@ impl NativeWindowManager {
             .saturating_add(app_snapshot.gpu_abandoned_lost_surfaces)
             .saturating_add(additional_abandonments);
         self.last_metrics = Some(app_snapshot);
-        drop(app);
-        self.windows.clear();
+        self.retired_apps.push(app);
+        self.retired_apps
+            .extend(self.windows.drain().map(|(_, app)| app));
         self.focus = WindowFocusCoordinator::default();
-        self.startup_app = None;
-        self.pending_apps.clear();
+        if let Some(startup) = self.startup_app.take() {
+            self.retired_apps.push(startup);
+        }
+        self.retired_apps.append(&mut self.pending_apps);
         self.pane_event_routes.clear();
     }
 
@@ -2253,6 +2294,9 @@ impl NativeWindowManager {
             app.shutdown_gpu_for_window_close();
         }
         for app in &mut self.pending_apps {
+            app.shutdown_gpu_for_window_close();
+        }
+        for app in &mut self.retired_apps {
             app.shutdown_gpu_for_window_close();
         }
     }
@@ -2281,6 +2325,11 @@ impl NativeWindowManager {
     #[cfg(test)]
     fn pending_app_count_for_test(&self) -> usize {
         self.pending_apps.len()
+    }
+
+    #[cfg(test)]
+    fn retired_app_count_for_test(&self) -> usize {
+        self.retired_apps.len()
     }
 
     #[cfg(test)]

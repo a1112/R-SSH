@@ -1,0 +1,10 @@
+schema = 1
+id = "console.stress-cleanup"
+behavior_ids = ["BHV-CMD-LOCAL", "BHV-CONSOLE-STRESS", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-EXITED", "BHV-LIFECYCLE-CLEANUP"]
+surface = "console"
+capabilities = ["real_stdin_pty"]
+fixture = "terminal_stress"
+estimated_cost_ms = 3500
+required_evidence = ["event_log", "stdout", "stderr", "final_snapshot", "process_tree"]
+actions = [{ type = "finish" }]
+checkpoints = [{ type = "exit_status", code = 0 }, { type = "resources_zero" }]

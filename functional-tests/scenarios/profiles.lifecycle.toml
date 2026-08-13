@@ -1,0 +1,9 @@
+schema = 1
+id = "profiles.lifecycle"
+behavior_ids = ["BHV-CMD-PROFILE-INIT", "BHV-CMD-PROFILE-CHECK", "BHV-CMD-PROFILE-LIST", "BHV-CMD-PROFILE-SHOW", "BHV-CMD-PROFILE-RUN", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-EXITED", "BHV-LIFECYCLE-CLEANUP"]
+surface = "console"
+fixture = "profile_lifecycle"
+estimated_cost_ms = 1000
+required_evidence = ["event_log", "stdout", "stderr", "process_tree"]
+actions = [{ type = "finish" }]
+checkpoints = [{ type = "exit_status", code = 0 }, { type = "resources_zero" }]

@@ -10,6 +10,7 @@ members = [
     "crates/rssh-ssh",
     "crates/rssh-pty",
     "crates/rssh-test-support",
+    "crates/rssh-functional-tests",
     "crates/rssh-fonts",
     "crates/rssh-web",
     "tauri/src-tauri",

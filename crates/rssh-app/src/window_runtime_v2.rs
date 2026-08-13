@@ -73,13 +73,19 @@ impl NativeWindowApp {
                 self.apply_inactive_v2_frame(pane, terminal, &damage, &metadata, metrics);
             }
             RuntimeHostEvent::HostStream { pane, bytes } if pane == token => {
+                #[cfg(feature = "functional-test-observer")]
+                crate::functional_observer::record_effect("host_stream");
                 self.metrics.record_pty_chunk(&bytes);
                 self.metrics.record_active_pty_content(&bytes);
             }
             RuntimeHostEvent::VisibleOutput { pane, bytes } if pane == token => {
+                #[cfg(feature = "functional-test-observer")]
+                crate::functional_observer::record_effect("visible_output");
                 self.write_session_log(&bytes)?;
             }
             RuntimeHostEvent::ModeChange { pane, change } if pane == token => {
+                #[cfg(feature = "functional-test-observer")]
+                crate::functional_observer::record_effect("mode_change");
                 self.runtime.inner.install_presentation_mode_change(change);
             }
             RuntimeHostEvent::InputWriteCompleted {
@@ -90,6 +96,8 @@ impl NativeWindowApp {
                 self.metrics.record_first_pty_byte_at(observed_at);
             }
             RuntimeHostEvent::Bell { pane, count } if pane == token => {
+                #[cfg(feature = "functional-test-observer")]
+                crate::functional_observer::record_effect("bell");
                 self.record_pane_bells(pane.pane(), count);
                 self.metrics.record_bells(count);
                 self.dispatch_bells(pane.pane(), count);
@@ -99,32 +107,30 @@ impl NativeWindowApp {
                 selection,
                 contents,
             } if pane == token => {
-                if self.allows_v2_clipboard_write(selection.as_deref()) {
-                    self.write_clipboard_text(&contents);
-                }
+                self.apply_v2_clipboard_write(selection.as_deref(), &contents);
             }
             RuntimeHostEvent::ClipboardRead { pane, selection } if pane == token => {
-                if self.osc52_policy.allows_query() {
-                    self.answer_clipboard_query(&selection)?;
-                }
+                self.apply_v2_clipboard_read(&selection)?;
             }
             RuntimeHostEvent::Notification {
                 pane,
                 title,
                 body,
             } if pane == token => {
+                #[cfg(feature = "functional-test-observer")]
+                crate::functional_observer::record_effect("notification");
                 self.dispatch_notification(pane.pane(), &TerminalNotification { title, body });
             }
             RuntimeHostEvent::Diagnostic { pane, message } => {
+                #[cfg(feature = "functional-test-observer")]
+                crate::functional_observer::record_effect("diagnostic");
                 self.record_unknown_escape_sequence_warning(
                     pane.map_or(self.app_shell.active_pane_id(), rssh_runtime::PaneToken::pane),
                     &message,
                 );
             }
             RuntimeHostEvent::RequestRedraw => {
-                if let Some(window) = &self.window {
-                    window.request_redraw();
-                }
+                self.request_v2_redraw();
             }
             RuntimeHostEvent::Closed { pane, exit } if pane == token => {
                 *closed = ActiveV2Close::Closed { pane, exit };
@@ -142,6 +148,29 @@ impl NativeWindowApp {
             | RuntimeHostEvent::ClipboardWrite { .. }
             | RuntimeHostEvent::ClipboardRead { .. }
             | RuntimeHostEvent::Notification { .. } => {}
+        }
+        Ok(())
+    }
+
+    fn apply_v2_clipboard_write(&mut self, selection: Option<&str>, contents: &str) {
+        #[cfg(feature = "functional-test-observer")]
+        crate::functional_observer::record_effect("clipboard_write");
+        if self.allows_v2_clipboard_write(selection) {
+            self.write_clipboard_text(contents);
+        }
+    }
+
+    fn request_v2_redraw(&self) {
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn apply_v2_clipboard_read(&mut self, selection: &str) -> Result<(), Box<dyn Error>> {
+        #[cfg(feature = "functional-test-observer")]
+        crate::functional_observer::record_effect("clipboard_read");
+        if self.osc52_policy.allows_query() {
+            self.answer_clipboard_query(selection)?;
         }
         Ok(())
     }

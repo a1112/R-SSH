@@ -276,6 +276,31 @@ pub fn terminal_snapshot_content_digest(
     }
     digest.finalize().into()
 }
+
+/// Renders a stable bitmap probe for the first terminal row and hashes its
+/// exact RGBA bytes with SHA-256.
+///
+/// The probe deliberately uses the bundled 8x16 bitmap path and a fixed
+/// 16-cell region so it is independent of host fonts, DPI, window chrome, and
+/// compositor color management. Real GPU readback is verified separately by
+/// the renderer's headless wgpu contracts.
+#[must_use]
+pub fn terminal_first_row_pixel_digest(snapshot: &TerminalRenderSnapshot) -> TerminalContentDigest {
+    const CELL_WIDTH: u32 = 8;
+    const CELL_HEIGHT: u32 = 16;
+    const COLUMNS: u32 = 16;
+    const WIDTH: u32 = CELL_WIDTH * COLUMNS;
+    let mut pixels = vec![0; usize::try_from(WIDTH * CELL_HEIGHT * 4).unwrap_or(0)];
+    PixelRenderer::new().render(
+        snapshot,
+        &mut pixels,
+        WIDTH,
+        CELL_HEIGHT,
+        CELL_WIDTH,
+        CELL_HEIGHT,
+    );
+    terminal_bytes_content_digest(&pixels)
+}
 const DEFAULT_ANSI_PALETTE: [[u8; 4]; 16] = [
     [0, 0, 0, 255],
     [205, 49, 49, 255],
@@ -6970,7 +6995,7 @@ mod tests {
         SCROLLBAR_TRACK_COLOR, ScrollbackScrollbar, Surface, TerminalRenderSnapshot,
         background_image_axis_coordinate, background_image_layout, build_image_draw_plan,
         compare_image_draw_plans, for_each_image_draw_span, for_each_opaque_glyph_row_run,
-        render_inline_images_from_terminal,
+        render_inline_images_from_terminal, terminal_first_row_pixel_digest,
     };
 
     fn ordering_plan(
@@ -7655,6 +7680,26 @@ mod tests {
 
         assert_eq!(pixel_at(&target, 8, 0, 0), [0, 255, 0, 255]);
         assert_eq!(pixel_at(&target, 8, 7, 7), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn first_row_pixel_probe_is_stable_and_ignores_rows_below_the_region() {
+        let mut terminal = Terminal::new(TerminalSize::new(16, 2));
+        terminal.feed(b"fixture-ready\r\nsecond-row");
+        let first =
+            terminal_first_row_pixel_digest(&TerminalRenderSnapshot::from_terminal(&terminal));
+        terminal.feed(b"X");
+        let second =
+            terminal_first_row_pixel_digest(&TerminalRenderSnapshot::from_terminal(&terminal));
+
+        assert_eq!(first, second);
+        assert_eq!(
+            first,
+            [
+                62, 28, 153, 18, 24, 213, 227, 222, 223, 0, 225, 215, 88, 101, 29, 102, 97, 249,
+                72, 90, 176, 163, 200, 110, 249, 197, 195, 88, 61, 22, 143, 100,
+            ]
+        );
     }
 
     #[test]

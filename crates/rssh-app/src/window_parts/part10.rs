@@ -3208,6 +3208,12 @@ impl NativeWindowApp {
         }
     }
 
+    fn shutdown_gpu_after_native_window_close(&mut self) {
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.shutdown_after_native_window_close();
+        }
+    }
+
     #[cfg(test)]
     fn metrics_report(&self) -> String {
         self.metrics_snapshot().report()

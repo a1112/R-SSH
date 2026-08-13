@@ -1,0 +1,10 @@
+schema = 1
+id = "ssh.loopback"
+behavior_ids = ["BHV-CMD-SSH", "BHV-SSH-LOOPBACK", "BHV-LIFECYCLE-CONNECTED", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-CLEANUP"]
+surface = "console"
+capabilities = ["native_ssh", "system_openssh"]
+fixture = "hermetic_ssh"
+estimated_cost_ms = 9000
+required_evidence = ["event_log", "stdout", "stderr", "server_trace", "process_tree"]
+actions = [{ type = "finish" }]
+checkpoints = [{ type = "terminal_contains", text = "functional-ssh-native" }, { type = "terminal_contains", text = "functional-ssh-system" }, { type = "resources_zero" }]

@@ -1,0 +1,5 @@
+{
+  "build": {
+    "beforeBuildCommand": "npm --prefix ../web run build:functional"
+  }
+}

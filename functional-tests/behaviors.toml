@@ -1,0 +1,553 @@
+schema = 1
+
+[[behaviors]]
+id = "BHV-CMD-BENCH"
+subsystem = "startup"
+summary = "The benchmark command executes its deterministic workload and reports typed metrics"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-CMD-LOCAL"
+subsystem = "console"
+summary = "The local command owns a real PTY session through exit"
+surfaces = ["console", "host_terminal"]
+
+[[behaviors]]
+id = "BHV-CMD-WINDOW"
+subsystem = "window"
+summary = "The window command owns a real native PTY window through exit"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-CMD-SSH"
+subsystem = "ssh"
+summary = "The SSH command executes native and system loopback sessions and forwarding"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-CMD-SFTP"
+subsystem = "transfer"
+summary = "The SFTP command transfers files inside an isolated remote home"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-CMD-SCP"
+subsystem = "transfer"
+summary = "The SCP command transfers files inside an isolated remote home"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-CMD-HELP"
+subsystem = "startup"
+summary = "The public help entry reports all supported command families"
+surfaces = ["console", "package"]
+
+[[behaviors]]
+id = "BHV-CMD-DOCTOR"
+subsystem = "startup"
+summary = "Doctor reports typed diagnostics and recovery guidance"
+surfaces = ["console", "package"]
+
+[[behaviors]]
+id = "BHV-CMD-PROFILE-INIT"
+subsystem = "profiles"
+summary = "Profile init creates an isolated versioned profile file"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-CMD-PROFILE-CHECK"
+subsystem = "profiles"
+summary = "Profile check validates the isolated profile file"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-CMD-PROFILE-LIST"
+subsystem = "profiles"
+summary = "Profile list reports available profile identities"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-CMD-PROFILE-SHOW"
+subsystem = "profiles"
+summary = "Profile show reports a selected profile without exposing credentials"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-CMD-PROFILE-RUN"
+subsystem = "profiles"
+summary = "Profile run launches the selected command through the real entrypoint"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-ACTION-TYPE-TEXT"
+subsystem = "input"
+summary = "Text enters through the platform or browser keyboard API"
+surfaces = ["host_terminal", "native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-ACTION-KEY"
+subsystem = "input"
+summary = "A typed key chord enters through the platform or browser keyboard API"
+surfaces = ["host_terminal", "native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-ACTION-MOUSE-CLICK"
+subsystem = "input"
+summary = "A pointer click enters through the platform seat"
+surfaces = ["native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-ACTION-MOUSE-DRAG"
+subsystem = "input"
+summary = "A pointer drag enters through the platform seat"
+surfaces = ["native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-ACTION-MOUSE-WHEEL"
+subsystem = "input"
+summary = "A pointer wheel action enters through the platform seat"
+surfaces = ["native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-ACTION-CLIPBOARD-PASTE"
+subsystem = "input"
+summary = "Paste uses the system or browser clipboard and restores prior state"
+surfaces = ["native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-ACTION-RESIZE"
+subsystem = "input"
+summary = "A real window or viewport resize propagates new terminal geometry"
+surfaces = ["native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-ACTION-FOCUS"
+subsystem = "input"
+summary = "Window focus changes enter through the platform window system"
+surfaces = ["host_terminal", "native_window", "tauri"]
+
+[[behaviors]]
+id = "BHV-ACTION-WINDOW-CONTROL"
+subsystem = "input"
+summary = "Native minimize, maximize, restore, and close operations use the platform window system"
+surfaces = ["native_window", "tauri"]
+
+[[behaviors]]
+id = "BHV-ACTION-PTY-INPUT"
+subsystem = "console"
+summary = "Raw bytes enter through a real PTY stdin"
+surfaces = ["console", "host_terminal"]
+
+[[behaviors]]
+id = "BHV-ACTION-FIXTURE-DISCONNECT"
+subsystem = "lifecycle"
+summary = "A hermetic fixture can disconnect an active transport"
+surfaces = ["console", "native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-ACTION-FIXTURE-RECONNECT"
+subsystem = "lifecycle"
+summary = "A hermetic fixture can restore a disconnected transport"
+surfaces = ["console", "native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-ACTION-FINISH"
+subsystem = "lifecycle"
+summary = "A scenario requests bounded graceful completion"
+surfaces = ["console", "host_terminal", "native_window", "web", "tauri", "package"]
+
+[[behaviors]]
+id = "BHV-EFFECT-TRANSPORT-WRITE"
+subsystem = "effects"
+summary = "Terminal queries produce ordered transport writes"
+surfaces = ["console", "native_window"]
+
+[[behaviors]]
+id = "BHV-EFFECT-HOST-STREAM"
+subsystem = "effects"
+summary = "Raw host stream bytes preserve their order when capture is enabled"
+surfaces = ["console", "native_window"]
+
+[[behaviors]]
+id = "BHV-EFFECT-VISIBLE-OUTPUT"
+subsystem = "effects"
+summary = "Visible output bytes preserve their order for session logging"
+surfaces = ["console", "native_window"]
+
+[[behaviors]]
+id = "BHV-EFFECT-MODE-CHANGE"
+subsystem = "effects"
+summary = "Terminal input mode transitions are ordered host effects"
+surfaces = ["console", "native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-EFFECT-CLIPBOARD-WRITE"
+subsystem = "effects"
+summary = "OSC52 clipboard writes preserve their ordered host effect"
+surfaces = ["console", "native_window"]
+
+[[behaviors]]
+id = "BHV-EFFECT-CLIPBOARD-READ"
+subsystem = "effects"
+summary = "Clipboard read requests preserve their selection and response order"
+surfaces = ["console", "native_window"]
+
+[[behaviors]]
+id = "BHV-EFFECT-NOTIFICATION"
+subsystem = "effects"
+summary = "Terminal notifications preserve host effect ordering"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-EFFECT-BELL"
+subsystem = "effects"
+summary = "Terminal bells preserve host effect ordering"
+surfaces = ["console", "native_window"]
+
+[[behaviors]]
+id = "BHV-EFFECT-DIAGNOSTIC"
+subsystem = "effects"
+summary = "Runtime diagnostics reach the host without mutating terminal state"
+surfaces = ["console", "native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-LIFECYCLE-STARTED"
+subsystem = "lifecycle"
+summary = "The selected transport reports a started lifecycle state"
+surfaces = ["console", "host_terminal", "native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-LIFECYCLE-CONNECTED"
+subsystem = "lifecycle"
+summary = "The selected transport reports a connected lifecycle state"
+surfaces = ["console", "native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-LIFECYCLE-DISCONNECTED"
+subsystem = "lifecycle"
+summary = "A transport disconnect is observable and bounded"
+surfaces = ["console", "native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-LIFECYCLE-RECONNECTED"
+subsystem = "lifecycle"
+summary = "A disconnected transport can reconnect without leaked ownership"
+surfaces = ["console", "native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-LIFECYCLE-EXITED"
+subsystem = "lifecycle"
+summary = "A process or transport exit preserves its typed result"
+surfaces = ["console", "host_terminal", "native_window", "web", "tauri", "package"]
+
+[[behaviors]]
+id = "BHV-LIFECYCLE-ERROR"
+subsystem = "lifecycle"
+summary = "A transport or host failure reports a typed error and cleans up"
+surfaces = ["console", "native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-STARTUP-VERSION"
+subsystem = "startup"
+summary = "The version command reports machine-readable product and backend identity"
+surfaces = ["console", "package"]
+
+[[behaviors]]
+id = "BHV-STARTUP-SELF-TEST"
+subsystem = "startup"
+summary = "Self-test launches a real local PTY and reports its marker"
+surfaces = ["console", "package"]
+
+[[behaviors]]
+id = "BHV-CONSOLE-INTERACTION"
+subsystem = "console"
+summary = "The local console preserves interactive UTF-8 input and output"
+surfaces = ["console", "host_terminal"]
+
+[[behaviors]]
+id = "BHV-CONSOLE-STRESS"
+subsystem = "console"
+summary = "The local PTY preserves high output, blocked input, synchronized output, nonzero exit, and cleanup"
+surfaces = ["console", "host_terminal"]
+
+[[behaviors]]
+id = "BHV-HOST-TERMINAL"
+subsystem = "console"
+summary = "The local command receives OS input through an actual host terminal emulator"
+surfaces = ["host_terminal"]
+
+[[behaviors]]
+id = "BHV-WINDOW-INTERACTION"
+subsystem = "window"
+summary = "The native window routes real keyboard input to its active PTY pane"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-SSH-LOOPBACK"
+subsystem = "ssh"
+summary = "Native and system SSH connect to isolated loopback fixtures and clean up"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-TRANSFER-ROUNDTRIP"
+subsystem = "transfer"
+summary = "SFTP and SCP preserve uploaded and downloaded content"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-WEB-PTY"
+subsystem = "web"
+summary = "The browser terminal redeems one ticket and exchanges input with a real PTY"
+surfaces = ["web"]
+
+[[behaviors]]
+id = "BHV-TAURI-PTY"
+subsystem = "tauri"
+summary = "The Tauri shell exposes a native window backed by the embedded Web PTY server"
+surfaces = ["tauri"]
+
+[[behaviors]]
+id = "BHV-LIFECYCLE-CLEANUP"
+subsystem = "lifecycle"
+summary = "Every user surface releases children, workers, listeners, and temporary state"
+surfaces = ["console", "host_terminal", "native_window", "web", "tauri", "package"]
+
+[[behaviors]]
+id = "BHV-OBSERVER-DISCONNECT"
+subsystem = "lifecycle"
+summary = "Disconnecting the read-only functional observer does not alter or stop the application"
+surfaces = ["native_window", "tauri"]
+
+[[behaviors]]
+id = "BHV-CONFIG-PRECEDENCE"
+subsystem = "config"
+summary = "Explicit, environment, portable, home, and XDG configuration sources retain stable precedence"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-CONFIG-HOT-RELOAD"
+subsystem = "config"
+summary = "A valid configuration file change advances the live window generation"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-CONFIG-LAST-KNOWN-GOOD"
+subsystem = "config"
+summary = "An invalid reload reports a diagnostic without replacing the last-known-good generation, then recovers"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-SSH-AUTH-HOST-KEY"
+subsystem = "ssh"
+summary = "Key authentication and host-key accept/reject policies are enforced by hermetic servers"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-SSH-RECONNECT"
+subsystem = "ssh"
+summary = "A disconnected SSH transport reconnects with a fresh generation and no stale output"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-SSH-FORWARD-LDR"
+subsystem = "ssh"
+summary = "Local, dynamic SOCKS, and remote forwarding bridge real loopback TCP"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-SSH-NONZERO-EXIT"
+subsystem = "ssh"
+summary = "A nonzero remote exit status and stderr reach the public command result"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-TRANSFER-RECURSIVE"
+subsystem = "transfer"
+summary = "Recursive SCP preserves every file digest inside isolated local and remote homes"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-WEB-BOOTSTRAP-TICKET"
+subsystem = "web"
+summary = "The bootstrap ticket is single-use and rotates into a separate session cookie"
+surfaces = ["web"]
+
+[[behaviors]]
+id = "BHV-WEB-ORIGIN-POLICY"
+subsystem = "web"
+summary = "WebSocket upgrade requires the exact loopback host, origin, and session cookie"
+surfaces = ["web"]
+
+[[behaviors]]
+id = "BHV-WEB-SESSION-LIMIT"
+subsystem = "web"
+summary = "A second authenticated WebSocket is rejected while the configured session permit is held"
+surfaces = ["web"]
+
+[[behaviors]]
+id = "BHV-FAULT-GPU-SURFACE"
+subsystem = "faults"
+summary = "Lost, outdated, timeout, occlusion, and validation surface faults have bounded recovery policies"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-FAULT-BLOCKED-IO"
+subsystem = "faults"
+summary = "A close deadline interrupts blocked transport I/O and leaves zero runtime workers"
+surfaces = ["console", "native_window"]
+
+[[behaviors]]
+id = "BHV-FAULT-IDEMPOTENT-SHUTDOWN"
+subsystem = "faults"
+summary = "Repeated terminal finish and mailbox close operations are idempotent"
+surfaces = ["console", "native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-CONSOLE-RESIZE"
+subsystem = "console"
+summary = "A real PTY resize reaches the child and preserves its eventual exit status"
+surfaces = ["console", "host_terminal"]
+
+[[behaviors]]
+id = "BHV-CONSOLE-INPUT-MODES"
+subsystem = "console"
+summary = "Mouse, focus, and bracketed-paste modes encode input only while enabled by the PTY"
+surfaces = ["console", "host_terminal"]
+
+[[behaviors]]
+id = "BHV-CONSOLE-OSC52"
+subsystem = "console"
+summary = "OSC52 write and query operations preserve policy, selection, and response ordering"
+surfaces = ["console", "host_terminal"]
+
+[[behaviors]]
+id = "BHV-CONSOLE-SESSION-LOG"
+subsystem = "console"
+summary = "Session logging writes visible terminal bytes while excluding control-only traffic"
+surfaces = ["console", "native_window"]
+
+[[behaviors]]
+id = "BHV-WINDOW-TABS-PANES-SPLITS"
+subsystem = "window"
+summary = "Tabs and split panes retain their launch options, identities, focus, and geometry"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-WINDOW-SELECTION-COPY-MODE"
+subsystem = "window"
+summary = "Selection, copy mode, and search editing change atomically without stale projections"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-WINDOW-SCROLL-SEARCH"
+subsystem = "window"
+summary = "Scrolling and search traverse live grid and scrollback with stable coordinates"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-WINDOW-COMMAND-PALETTE"
+subsystem = "window"
+summary = "The command palette dispatches typed native actions to the selected pane or tab"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-WINDOW-TITLE-PROGRESS-CWD"
+subsystem = "window"
+summary = "OSC title, progress, and current-working-directory metadata project to the owning pane"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-WINDOW-SYNCHRONIZED-OUTPUT"
+subsystem = "window"
+summary = "Synchronized output is held and published as one final native-window update"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-WINDOW-ALTERNATE-SCREEN"
+subsystem = "window"
+summary = "Alternate-screen entry and exit preserve the main viewport and independent selection domain"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-WINDOW-IMAGE"
+subsystem = "window"
+summary = "Inline terminal image metadata reaches a deterministic renderer pixel result"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-WINDOW-DPI"
+subsystem = "window"
+summary = "Configured and detected DPI scale the native terminal geometry deterministically"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-WINDOW-PANE-RESTART"
+subsystem = "window"
+summary = "Restarting a pane installs a fresh runtime while preserving unrelated pane ownership"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-SSH-PASSWORD-KEY-AGENT"
+subsystem = "ssh"
+summary = "Password, encrypted-key, and agent authentication succeed or fail against hermetic policy"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-SSH-SHELL-EXEC-RESIZE"
+subsystem = "ssh"
+summary = "Native SSH shell and exec channels preserve PTY resize, output, and exit metadata"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-TRANSFER-ERROR-PATH"
+subsystem = "transfer"
+summary = "SFTP and SCP reject traversal, redirects, absolute paths, and malformed destinations"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-TRANSFER-INTERRUPT-CLEANUP"
+subsystem = "transfer"
+summary = "An interrupted transfer reports failure and releases its SSH channel and fixture resources"
+surfaces = ["console"]
+
+[[behaviors]]
+id = "BHV-WEB-INPUT-PASTE-RESIZE-RESTART"
+subsystem = "web"
+summary = "Browser keyboard, clipboard, resize, exit, and restart operate on a real PTY session"
+surfaces = ["web"]
+
+[[behaviors]]
+id = "BHV-WEB-SECURITY-HEADERS"
+subsystem = "web"
+summary = "Bootstrap, asset, and WebSocket responses enforce authentication, origin, and browser security headers"
+surfaces = ["web", "package"]
+
+[[behaviors]]
+id = "BHV-WEB-BACKPRESSURE"
+subsystem = "web"
+summary = "Bounded WebSocket input and resize pressure report typed errors without unbounded buffering"
+surfaces = ["web"]
+
+[[behaviors]]
+id = "BHV-PACKAGE-OBSERVER-ABSENT"
+subsystem = "package"
+summary = "A production package has no functional observer dependency, protocol marker, or startup endpoint"
+surfaces = ["package"]
+
+[[behaviors]]
+id = "BHV-FAULT-LISTENER-CONFLICT"
+subsystem = "faults"
+summary = "A listener address conflict fails before startup and leaves the existing listener intact"
+surfaces = ["web", "tauri"]
+
+[[behaviors]]
+id = "BHV-FAULT-PTY-DISCONNECT"
+subsystem = "faults"
+summary = "An interrupted live PTY exits and closes idempotently within its cleanup deadline"
+surfaces = ["console", "native_window", "web", "tauri"]
+
+[[behaviors]]
+id = "BHV-RENDER-STABLE-REGION"
+subsystem = "window"
+summary = "A fixed terminal region produces the approved bundled-font RGBA digest while real wgpu readback remains green"
+surfaces = ["native_window"]

@@ -595,6 +595,7 @@ fn harden_bootstrap_response(mut response: Response) -> Response {
     response
         .headers_mut()
         .insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    apply_browser_security_headers(&mut response);
     response
 }
 
@@ -617,6 +618,7 @@ async fn serve_file(root: &Path, relative: &Path) -> Response {
                 header::CONTENT_SECURITY_POLICY,
                 HeaderValue::from_static(CSP),
             );
+            apply_browser_security_headers(&mut response);
             response
         }
         Err(_) => error_response(
@@ -645,7 +647,19 @@ fn error_response(status: StatusCode, message: &'static str) -> Response {
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(CSP),
     );
+    apply_browser_security_headers(&mut response);
     response
+}
+
+fn apply_browser_security_headers(response: &mut Response) {
+    response.headers_mut().insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    response.headers_mut().insert(
+        "permissions-policy",
+        HeaderValue::from_static("clipboard-read=(self), clipboard-write=(self)"),
+    );
 }
 
 fn generate_token(bytes: usize) -> String {
@@ -711,7 +725,7 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use axum::http::{HeaderMap, HeaderValue, header};
+    use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
     use futures_util::{SinkExt, StreamExt};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
@@ -726,7 +740,8 @@ mod tests {
 
     use super::{
         AuthState, WebAppState, WebServer, WebServerConfig, constant_time_equal, cookie_matches,
-        host_for_address, validate_open, websocket_authenticated,
+        error_response, harden_bootstrap_response, host_for_address, validate_open,
+        websocket_authenticated,
     };
     use crate::protocol::TerminalDimensions;
 
@@ -845,6 +860,61 @@ mod tests {
         assert!(validate_open(&request).is_err());
     }
 
+    #[test]
+    fn http_responses_emit_security_and_cache_headers() {
+        let response = harden_bootstrap_response(error_response(
+            StatusCode::UNAUTHORIZED,
+            "authentication required",
+        ));
+        assert_eq!(
+            response.headers().get(header::CACHE_CONTROL).unwrap(),
+            "no-store, max-age=0"
+        );
+        assert_eq!(
+            response.headers().get("referrer-policy").unwrap(),
+            "no-referrer"
+        );
+        assert!(
+            response
+                .headers()
+                .get(header::CONTENT_SECURITY_POLICY)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("frame-ancestors 'none'")
+        );
+        assert_eq!(
+            response.headers().get("x-content-type-options").unwrap(),
+            "nosniff"
+        );
+        assert_eq!(
+            response.headers().get("permissions-policy").unwrap(),
+            "clipboard-read=(self), clipboard-write=(self)"
+        );
+    }
+
+    #[tokio::test]
+    async fn second_server_cannot_bind_the_same_listener() {
+        let first = WebServer::bind(WebServerConfig {
+            listen: "127.0.0.1:0".parse().unwrap(),
+            web_root: PathBuf::from("web/dist"),
+            max_sessions: 1,
+            allowed_origin: None,
+        })
+        .await
+        .unwrap();
+        let address = first.local_addr();
+        let second = WebServer::bind(WebServerConfig {
+            listen: address,
+            web_root: PathBuf::from("web/dist"),
+            max_sessions: 1,
+            allowed_origin: None,
+        })
+        .await;
+        assert!(second.is_err());
+        assert_eq!(first.local_addr(), address);
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[expect(
         clippy::too_many_lines,
@@ -955,6 +1025,144 @@ mod tests {
         assert!(String::from_utf8_lossy(&output).contains("web-socket-test"));
         drop(socket);
 
+        let _ = shutdown_tx.send(());
+        time::timeout(Duration::from_secs(3), server_task)
+            .await
+            .expect("web server did not shut down")
+            .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn authenticated_websocket_reports_real_input_backpressure_and_cleans_up() {
+        let server = WebServer::bind(WebServerConfig {
+            listen: "127.0.0.1:0".parse().unwrap(),
+            web_root: PathBuf::from("web/dist"),
+            max_sessions: 1,
+            allowed_origin: None,
+        })
+        .await
+        .unwrap();
+        let address = server.local_addr();
+        let host = host_for_address(address);
+        let token = server.bootstrap_token.to_string();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server_task = tokio::spawn(async move {
+            server
+                .run_until(async move {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+
+        let cookie = bootstrap_cookie(address, &token).await;
+        let mut request = format!("ws://{host}/api/v1/terminal")
+            .into_client_request()
+            .unwrap();
+        request
+            .headers_mut()
+            .insert("Host", HeaderValue::from_str(&host).unwrap());
+        request.headers_mut().insert(
+            "Origin",
+            HeaderValue::from_str(&format!("http://{host}")).unwrap(),
+        );
+        request
+            .headers_mut()
+            .insert("Cookie", HeaderValue::from_str(&cookie).unwrap());
+        let (mut socket, _) = connect_async(request).await.unwrap();
+        socket
+            .send(Message::Text(
+                r#"{"type":"open","protocol":1,"cols":80,"rows":24,"profile":"local-default"}"#
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        let opened = time::timeout(Duration::from_secs(3), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(matches!(opened, Message::Text(text) if text.contains("\"opened\"")));
+
+        let payload = vec![b'x'; crate::protocol::MAX_INPUT_FRAME_BYTES];
+        for _ in 0..(crate::session::INPUT_QUEUE_CAPACITY * 2) {
+            socket
+                .send(Message::Binary(payload.clone().into()))
+                .await
+                .unwrap();
+        }
+
+        let mut saw_backpressure = false;
+        while let Ok(Some(Ok(message))) = time::timeout(Duration::from_secs(3), socket.next()).await
+        {
+            if matches!(message, Message::Text(ref text) if text.contains("\"code\":\"INPUT_BACKPRESSURE\""))
+            {
+                saw_backpressure = true;
+                break;
+            }
+        }
+        assert!(
+            saw_backpressure,
+            "real authenticated WebSocket never reported bounded PTY input pressure"
+        );
+        drop(socket);
+
+        let _ = shutdown_tx.send(());
+        time::timeout(Duration::from_secs(3), server_task)
+            .await
+            .expect("web server did not shut down after backpressure")
+            .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn second_authenticated_websocket_is_rejected_at_the_session_limit() {
+        let server = WebServer::bind(WebServerConfig {
+            listen: "127.0.0.1:0".parse().unwrap(),
+            web_root: PathBuf::from("web/dist"),
+            max_sessions: 1,
+            allowed_origin: None,
+        })
+        .await
+        .unwrap();
+        let address = server.local_addr();
+        let host = host_for_address(address);
+        let token = server.bootstrap_token.to_string();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server_task = tokio::spawn(async move {
+            server
+                .run_until(async move {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+        let cookie = bootstrap_cookie(address, &token).await;
+        let request = || {
+            let mut request = format!("ws://{host}/api/v1/terminal")
+                .into_client_request()
+                .unwrap();
+            request
+                .headers_mut()
+                .insert("Host", HeaderValue::from_str(&host).unwrap());
+            request.headers_mut().insert(
+                "Origin",
+                HeaderValue::from_str(&format!("http://{host}")).unwrap(),
+            );
+            request
+                .headers_mut()
+                .insert("Cookie", HeaderValue::from_str(&cookie).unwrap());
+            request
+        };
+
+        let (first, _) = connect_async(request()).await.unwrap();
+        let error = connect_async(request())
+            .await
+            .expect_err("second active session must be rejected");
+        let tokio_tungstenite::tungstenite::Error::Http(response) = error else {
+            panic!("expected HTTP rejection, observed {error:?}");
+        };
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        drop(first);
         let _ = shutdown_tx.send(());
         time::timeout(Duration::from_secs(3), server_task)
             .await

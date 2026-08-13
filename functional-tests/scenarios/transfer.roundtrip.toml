@@ -1,0 +1,10 @@
+schema = 1
+id = "transfer.roundtrip"
+behavior_ids = ["BHV-CMD-SFTP", "BHV-CMD-SCP", "BHV-TRANSFER-ROUNDTRIP", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-CLEANUP"]
+surface = "console"
+capabilities = ["system_openssh"]
+fixture = "hermetic_ssh_transfer"
+estimated_cost_ms = 7500
+required_evidence = ["event_log", "stdout", "stderr", "server_trace", "process_tree"]
+actions = [{ type = "finish" }]
+checkpoints = [{ type = "file_sha256", path = "sftp-download.bin", sha256 = "7bae62fd60f1f037e38e6820aa85733a72b7e3854b34731f17a348bad4f0b763" }, { type = "file_sha256", path = "scp-download.bin", sha256 = "7bae62fd60f1f037e38e6820aa85733a72b7e3854b34731f17a348bad4f0b763" }, { type = "resources_zero" }]

@@ -1,5 +1,5 @@
 import '@xterm/xterm/css/xterm.css';
-import { isTauri } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -122,6 +122,14 @@ const terminal = new Terminal({
 const fitAddon = new FitAddon();
 terminal.loadAddon(fitAddon);
 terminal.open(terminalElement);
+terminal.attachCustomKeyEventHandler((event) => {
+  const pasteShortcut =
+    event.type === 'keydown' &&
+    event.key.toLowerCase() === 'v' &&
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey;
+  return !pasteShortcut;
+});
 
 try {
   const webglAddon = new WebglAddon();
@@ -136,11 +144,43 @@ let sessionOpen = false;
 let closeRequested = false;
 let resizeFrame: number | null = null;
 let lastSize = { cols: 0, rows: 0 };
+let functionalPublishQueued = false;
+
+function functionalSnapshot() {
+  const buffer = terminal.buffer.active;
+  const lines: string[] = [];
+  for (let index = 0; index < buffer.length; index += 1) {
+    lines.push(buffer.getLine(index)?.translateToString(true) ?? '');
+  }
+  return Object.freeze({
+    schema: 1,
+    terminalText: lines.join('\n'),
+    cursorRow: buffer.cursorY,
+    cursorColumn: buffer.cursorX,
+    cols: terminal.cols,
+    rows: terminal.rows,
+    windowWidth: window.innerWidth,
+    windowHeight: window.innerHeight,
+    connectionState: status.dataset.state ?? 'unknown',
+  });
+}
+
+function scheduleFunctionalPublish(): void {
+  if (import.meta.env.MODE !== 'functional' || !isTauri() || functionalPublishQueued) {
+    return;
+  }
+  functionalPublishQueued = true;
+  queueMicrotask(() => {
+    functionalPublishQueued = false;
+    void invoke('functional_observer_publish', { snapshot: functionalSnapshot() }).catch(() => {});
+  });
+}
 
 function setStatus(state: 'connecting' | 'open' | 'closing' | 'exited' | 'failed', text: string): void {
   status.dataset.state = state;
   status.textContent = text;
   restart.hidden = state !== 'exited' && state !== 'failed';
+  scheduleFunctionalPublish();
 }
 
 function sendControl(message: ClientMessage): void {
@@ -288,11 +328,24 @@ terminal.onResize(({ cols, rows }) => {
     lastSize = { cols, rows };
     sendControl({ type: 'resize', cols, rows });
   }
+  scheduleFunctionalPublish();
 });
+
+terminal.onWriteParsed(scheduleFunctionalPublish);
+window.addEventListener('resize', scheduleFunctionalPublish);
 
 const resizeObserver = new ResizeObserver(scheduleFit);
 resizeObserver.observe(terminalElement);
 window.addEventListener('beforeunload', closeSession);
+
+if (import.meta.env.MODE === 'functional') {
+  Object.defineProperty(window, '__RSSH_FUNCTIONAL_SNAPSHOT__', {
+    configurable: false,
+    enumerable: false,
+    writable: false,
+    value: functionalSnapshot,
+  });
+}
 
 connect();
 restart.addEventListener('click', connect);
