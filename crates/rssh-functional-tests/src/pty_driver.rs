@@ -25,6 +25,7 @@ pub struct PtyFixtureDriver {
     output: Vec<u8>,
     query_match: usize,
     terminal_query_responses: u64,
+    reader_eof: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -154,6 +155,7 @@ impl PtyFixtureDriver {
             output: Vec::new(),
             query_match: 0,
             terminal_query_responses: 0,
+            reader_eof: false,
         })
     }
 
@@ -249,8 +251,8 @@ impl PtyFixtureDriver {
         mut self,
         status: &rssh_pty::PtyExitStatus,
     ) -> Result<PtyFixtureResult, PtyFixtureError> {
-        drop(self.writer.take());
         let mut close = self.session.begin_master_close();
+        drop(self.writer.take());
         while Instant::now() < self.deadline {
             match self.chunks.recv_timeout(
                 self.deadline
@@ -290,7 +292,10 @@ impl PtyFixtureDriver {
     fn drain_available(&mut self) -> Result<(), PtyFixtureError> {
         loop {
             match self.chunks.try_recv() {
-                Ok(Ok(chunk)) if chunk.is_empty() => return Ok(()),
+                Ok(Ok(chunk)) if chunk.is_empty() => {
+                    self.reader_eof = true;
+                    return Ok(());
+                }
                 Ok(Ok(chunk)) => self.observe_chunk(&chunk)?,
                 Ok(Err(error)) => return Err(PtyFixtureError::Io(error)),
                 Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => return Ok(()),
@@ -300,9 +305,14 @@ impl PtyFixtureDriver {
 
     fn receive_one(&mut self, timeout: Duration) -> Result<(), PtyFixtureError> {
         match self.chunks.recv_timeout(timeout) {
+            Ok(Ok(chunk)) if chunk.is_empty() => {
+                self.reader_eof = true;
+                Ok(())
+            }
             Ok(Ok(chunk)) => self.observe_chunk(&chunk),
             Ok(Err(error)) => Err(PtyFixtureError::Io(error)),
             Err(mpsc::RecvTimeoutError::Timeout) => Ok(()),
+            Err(mpsc::RecvTimeoutError::Disconnected) if self.reader_eof => Ok(()),
             Err(mpsc::RecvTimeoutError::Disconnected) => Err(PtyFixtureError::ReaderDisconnected),
         }
     }

@@ -8,12 +8,50 @@ fi
 pid="$1"
 action="$2"
 shift 2
-mapfile -t matches < <(xdotool search --onlyvisible --pid "$pid")
-if ((${#matches[@]} != 1)); then
-  echo "expected one visible X11 window for PID $pid; observed ${#matches[@]}" >&2
-  exit 3
-fi
-window="${matches[0]}"
+
+process_tree() {
+  local -a processes=("$pid")
+  local index=0 child existing
+  while ((index < ${#processes[@]})); do
+    while IFS= read -r child; do
+      [[ -n "$child" ]] || continue
+      existing=false
+      for known in "${processes[@]}"; do
+        [[ "$known" == "$child" ]] && existing=true && break
+      done
+      [[ "$existing" == true ]] || processes+=("$child")
+    done < <(pgrep -P "${processes[$index]}" 2>/dev/null || true)
+    ((index += 1))
+  done
+  printf '%s\n' "${processes[@]}"
+}
+
+find_visible_window() {
+  local process window
+  local -a matches=()
+  for _ in {1..100}; do
+    matches=()
+    while IFS= read -r process; do
+      while IFS= read -r window; do
+        [[ -n "$window" ]] && matches+=("$window")
+      done < <(xdotool search --onlyvisible --pid "$process" 2>/dev/null || true)
+    done < <(process_tree)
+    if ((${#matches[@]} == 1)); then
+      printf '%s\n' "${matches[0]}"
+      return 0
+    fi
+    if ((${#matches[@]} > 1)); then
+      echo "expected one visible X11 window for PID tree $pid; observed ${#matches[@]}" >&2
+      return 3
+    fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.05
+  done
+  echo "expected one visible X11 window for PID tree $pid; observed 0" >&2
+  return 3
+}
+
+window="$(find_visible_window)"
 xdotool windowactivate --sync "$window"
 
 case "$action" in

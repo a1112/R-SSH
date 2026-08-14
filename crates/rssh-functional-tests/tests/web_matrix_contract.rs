@@ -60,6 +60,13 @@ fn web_functional_test_still_uses_browser_keyboard_pointer_and_clipboard_apis() 
         !spec.contains("socket.send("),
         "test bypasses the browser UI"
     );
+    assert!(spec.contains("async ({ page, request, browserName })"));
+    assert!(spec.contains("if (browserName === 'chromium')"));
+    assert_eq!(
+        spec.matches("grantPermissions(['clipboard-read', 'clipboard-write']")
+            .count(),
+        1
+    );
     let client = repo_file("web/src/main.ts");
     assert!(client.contains("attachCustomKeyEventHandler"));
     assert!(client.contains("event.key.toLowerCase() === 'v'"));

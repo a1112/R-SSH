@@ -81,7 +81,7 @@ test.afterAll(async () => {
   });
 });
 
-test('redeems the bootstrap ticket and opens a real PTY session', async ({ page, request }) => {
+test('redeems the bootstrap ticket and opens a real PTY session', async ({ page, request, browserName }) => {
   await installLoopbackOnlyNetworkPolicy(page);
   await page.setViewportSize({ width: 960, height: 620 });
   const response = await page.goto(bootstrapUrl);
@@ -96,9 +96,11 @@ test('redeems the bootstrap ticket and opens a real PTY session', async ({ page,
   expect(replay.status()).toBe(401);
   expect(replay.headers()['cache-control']).toContain('no-store');
   expect(replay.headers()['referrer-policy']).toBe('no-referrer');
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {
-    origin: new URL(bootstrapUrl).origin,
-  });
+  if (browserName === 'chromium') {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {
+      origin: new URL(bootstrapUrl).origin,
+    });
+  }
   const terminal = page.locator('#terminal');
   const bounds = await terminal.boundingBox();
   if (!bounds) {

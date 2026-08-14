@@ -26,6 +26,9 @@ fn windows_helper_uses_send_input_and_targets_only_the_observed_process_window()
 fn x11_helper_discovers_the_pid_window_and_calls_xdotool_xtest_actions() {
     let source = repo_file("scripts/functional/x11-xtest-input.sh");
     assert!(source.contains("search --onlyvisible --pid"));
+    assert!(source.contains("find_visible_window"));
+    assert!(source.contains("pgrep -P"));
+    assert!(source.contains("for _ in {1..100}"));
     assert!(source.contains("windowactivate --sync"));
     assert!(source.contains("xdotool"));
     assert!(!source.contains("/dev/stdin"));
@@ -46,5 +49,9 @@ fn wayland_harness_is_nested_weston_x11_not_headless_input_emulation() {
     assert!(source.contains("--backend=x11-backend.so"));
     assert!(source.contains("RSSH_FUNCTIONAL_WESTON_BACKEND=x11"));
     assert!(source.contains("Xvfb"));
+    assert!(source.contains("wait_for_x11_display"));
+    assert!(source.contains("wait_for_weston_socket"));
+    assert!(source.contains("wait_for_weston_window"));
+    assert!(source.contains("dump_startup_logs"));
     assert!(!source.contains("--backend=headless-backend.so"));
 }

@@ -2611,9 +2611,15 @@ struct PtyStressEvidence {
 }
 
 fn synchronized_output_was_released(output: &[u8]) -> bool {
-    output
-        .windows(b"first\r\nsecond".len())
-        .any(|window| window == b"first\r\nsecond")
+    let Some(first) = output
+        .windows(b"first".len())
+        .position(|part| part == b"first")
+    else {
+        return false;
+    };
+    output[first + b"first".len()..]
+        .windows(b"second".len())
+        .any(|part| part == b"second")
 }
 
 fn write_pty_stress_evidence(
@@ -3653,6 +3659,9 @@ mod tests {
     fn synchronized_output_requires_the_complete_payload_in_source_order() {
         assert!(super::synchronized_output_was_released(
             b"prefix-first\r\nsecond-suffix"
+        ));
+        assert!(super::synchronized_output_was_released(
+            b"prefix-first\r\r\nsecond-suffix"
         ));
         assert!(!super::synchronized_output_was_released(b"first-only"));
         assert!(!super::synchronized_output_was_released(b"second\r\nfirst"));
