@@ -20,7 +20,7 @@ pub(crate) use rssh_config::{
     ResolvedConfigSource,
 };
 
-pub(crate) trait NativeConfigProjection: Clone + Default {
+pub(crate) trait NativeConfigProjection: Clone + Default + PartialEq {
     fn project_canonical_config(source: &str) -> Option<Self>;
 
     fn automatically_reload_config(&self) -> Option<bool>;
@@ -331,6 +331,21 @@ impl<T: NativeConfigProjection> NativeConfigLifecycle<T> {
     }
 
     pub(crate) fn install_runtime_attempt(&mut self, attempt: NativeConfigLoadAttempt<T>) -> bool {
+        if self.latest_diagnostic().is_none()
+            && self.latest_selection() == &attempt.resolved
+            && self.effective().publication == attempt.publication
+            && attempt
+                .result
+                .as_ref()
+                .is_ok_and(|config| self.effective().config.as_ref() == config)
+        {
+            // File watchers can deliver a second notification after the fixed
+            // debounce window for the same write. Treat the read as successful
+            // without publishing a phantom configuration generation. A valid
+            // read after a diagnostic still installs normally so that recovery
+            // clears the diagnostic and advances the last-known-good state.
+            return true;
+        }
         let event = self.core.install_attempt(attempt, |_, _| ());
         self.refresh_watched_paths();
         matches!(event, ConfigLifecycleEvent::Applied { .. })
@@ -3870,6 +3885,50 @@ literal]=],
                 .get("WEZTERM_CONFIG_DIR"),
             Some(&root.to_str().unwrap().to_owned())
         );
+        assert!(lifecycle.latest_diagnostic().is_none());
+    }
+
+    #[test]
+    fn duplicate_valid_runtime_notification_keeps_generation_stable() {
+        let root = unique_temp_dir("duplicate-valid-runtime-notification");
+        let path = root.join("wezterm.lua");
+        fs::write(&path, "return { term = 'stable' }").unwrap();
+        let mut lifecycle = TestNativeConfigLifecycle::new(
+            ConfigDiscoveryInputs {
+                is_windows: false,
+                is_unix: false,
+                current_exe: None,
+                home_dir: None,
+                xdg_config_home: None,
+                xdg_config_dirs: Vec::new(),
+                environment_config_file: None,
+            },
+            false,
+            Some(path.clone()),
+            TestValidatedNativeConfigAssignments::default(),
+        );
+
+        let attempt = lifecycle.attempt_reload();
+        lifecycle.install_initial_attempt(attempt);
+        assert_eq!(lifecycle.effective().generation, 1);
+
+        let duplicate = lifecycle.attempt_reload();
+        assert!(lifecycle.install_runtime_attempt(duplicate));
+        assert_eq!(
+            lifecycle.effective().generation,
+            1,
+            "a delayed duplicate notification for unchanged contents must not create a generation"
+        );
+
+        fs::write(&path, "return { term = }").unwrap();
+        let invalid = lifecycle.attempt_reload();
+        assert!(!lifecycle.install_runtime_attempt(invalid));
+        assert!(lifecycle.latest_diagnostic().is_some());
+
+        fs::write(&path, "return { term = 'stable' }").unwrap();
+        let recovered = lifecycle.attempt_reload();
+        assert!(lifecycle.install_runtime_attempt(recovered));
+        assert_eq!(lifecycle.effective().generation, 2);
         assert!(lifecycle.latest_diagnostic().is_none());
     }
 
