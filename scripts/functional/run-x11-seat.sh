@@ -13,6 +13,7 @@ export GDK_BACKEND=x11
 export NO_AT_BRIDGE=1
 export WEBKIT_DISABLE_DMABUF_RENDERER=1
 export WEBKIT_DISABLE_COMPOSITING_MODE=1
+export RSSH_FUNCTIONAL_XDOTOOL="${RSSH_FUNCTIONAL_XDOTOOL:-$(command -v xdotool)}"
 
 cleanup() {
   status=$?

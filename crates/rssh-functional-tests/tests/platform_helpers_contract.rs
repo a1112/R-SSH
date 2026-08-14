@@ -98,6 +98,7 @@ fn x11_harness_owns_runtime_dbus_display_and_window_manager_lifetimes() {
     for contract in [
         "mkdir -m 700",
         "export XDG_RUNTIME_DIR=",
+        "export RSSH_FUNCTIONAL_XDOTOOL=",
         "dbus-run-session",
         "xvfb-run --auto-servernum",
         "openbox",
