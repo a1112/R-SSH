@@ -93,6 +93,7 @@ all_owned_exited() {
   for index in "${!owned_pids[@]}"; do
     process_is_owned_live "$index" && return 1
   done
+  return 0
 }
 
 dump_live_owned_processes() {
@@ -174,10 +175,7 @@ wait_condition 15 "production Tauri PTY child did not exit after OS keyboard inp
 input window close
 wait_condition 10 "production Tauri did not exit after its OS close action" root_exited
 wait "$root_pid"
-# WebKitGTK's hosted-runner process pool can use an approximately 45-second
-# idle shutdown grace after the UI process exits. Keep the proof bounded while
-# allowing that process-pool cleanup to complete.
-if ! wait_condition 60 "production Tauri left an owned helper process" all_owned_exited; then
+if ! wait_condition 45 "production Tauri left an owned helper process" all_owned_exited; then
   dump_live_owned_processes
   exit 1
 fi

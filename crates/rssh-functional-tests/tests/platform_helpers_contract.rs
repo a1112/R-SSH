@@ -61,16 +61,22 @@ fn production_tauri_tracks_linux_helpers_by_identity_and_ignores_zombies() {
     assert!(source.contains("/proc/$pid/stat"));
     assert!(source.contains("[[ \"$state\" != Z && \"$state\" != X ]]"));
     assert!(source.contains("process_is_owned_live"));
+    let all_owned_exited = source
+        .split("all_owned_exited() {")
+        .nth(1)
+        .and_then(|body| body.split("dump_live_owned_processes() {").next())
+        .expect("bounded all-owned-exited predicate");
+    assert!(all_owned_exited.trim_end().ends_with("return 0\n}"));
 
     let root_wait = source
         .rfind("wait \"$root_pid\"")
         .expect("reap production Tauri root");
     let helper_wait = source
-        .find("wait_condition 60 \"production Tauri left an owned helper process\"")
+        .find("wait_condition 45 \"production Tauri left an owned helper process\"")
         .expect("verify owned helpers exited");
     assert!(root_wait < helper_wait);
     assert!(source[helper_wait..].starts_with(
-        "wait_condition 60 \"production Tauri left an owned helper process\" all_owned_exited"
+        "wait_condition 45 \"production Tauri left an owned helper process\" all_owned_exited"
     ));
     assert!(source.contains("dump_live_owned_processes"));
     assert!(source.contains("ps -p \"$pid\" -o pid=,ppid=,stat=,comm=,args="));
