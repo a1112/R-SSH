@@ -3586,6 +3586,7 @@ T23-PRESENTATION-3889e32d1b42|crates/rssh-app/src/window_compat_tests/part18_tes
 T23-PRESENTATION-79118f1fbbcb|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_frame_limit_reserves_the_final_frame_for_requested_linkage|1|rssh-app|window::tests|presentation
 T23-PRESENTATION-045599135ec1|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_without_frame_limit_keeps_automatic_close_behavior|1|rssh-app|window::tests|presentation
 T23-TABS-ea4e40145b92|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_palette_close_tab_requests_window_close_for_last_tab|1|rssh-app|window::tests|tabs
+T23-RUNTIME-b59bb0b3a175|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_event_loop_exit_check_preserves_manager_owned_close_request|1|rssh-app|window::tests|runtime
 T23-TABS-b91d40c1f087|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_dispatches_palette_close_workspace_command|1|rssh-app|window::tests|tabs
 T23-TABS-2d7a3bdede02|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_rejects_palette_close_workspace_with_single_workspace|1|rssh-app|window::tests|tabs
 T23-OVERLAYS-3a4ccdf03661|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_native_search_current_selection_joins_multiline_selection|1|rssh-app|window::tests|overlays

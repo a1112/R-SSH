@@ -4852,6 +4852,16 @@
     }
 
     #[test]
+    fn window_app_event_loop_exit_check_preserves_manager_owned_close_request() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.request_window_close();
+
+        assert!(app.event_loop_exit_requested());
+        assert!(app.take_window_close_request());
+    }
+
+    #[test]
     fn window_app_dispatches_palette_close_workspace_command() {
         let mut app = NativeWindowApp::new(None);
 
@@ -5692,4 +5702,3 @@
             )]
         );
     }
-

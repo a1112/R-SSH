@@ -3360,9 +3360,6 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
         match event {
             WindowEvent::CloseRequested => {
                 self.handle_window_close_requested();
-                if self.take_window_close_request() {
-                    event_loop.exit();
-                }
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let Err(error) = self.handle_keyboard_input(&event) {
@@ -3371,12 +3368,6 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     return;
                 }
                 self.update_ime_cursor_area();
-                if self.take_window_close_request() {
-                    event_loop.exit();
-                }
-                if self.take_application_quit_request() {
-                    event_loop.exit();
-                }
             }
             WindowEvent::Ime(winit::event::Ime::Commit(text)) => {
                 if let Err(error) = self.handle_ime_commit(&text) {
@@ -3463,6 +3454,9 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                 self.draw_frame(event_loop);
             }
             _ => {}
+        }
+        if self.event_loop_exit_requested() {
+            event_loop.exit();
         }
     }
 

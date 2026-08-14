@@ -1637,6 +1637,10 @@ impl NativeWindowApp {
         requested
     }
 
+    const fn event_loop_exit_requested(&self) -> bool {
+        self.window_close_requested || self.application_quit_requested
+    }
+
     fn take_application_quit_request(&mut self) -> bool {
         let requested = self.application_quit_requested;
         self.application_quit_requested = false;
