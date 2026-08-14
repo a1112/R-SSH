@@ -21,6 +21,46 @@ fn tauri_test_build_projects_web_state_into_the_read_only_observer() {
 }
 
 #[test]
+fn tauri_close_snapshot_is_serialized_with_web_snapshot_publication() {
+    let backend =
+        fs::read_to_string(root().join("tauri/src-tauri/src/lib.rs")).expect("Tauri backend");
+    assert!(backend.contains("publication: Mutex<()>"));
+    assert!(backend.contains("publication: Mutex::new(())"));
+
+    let web_publish = backend
+        .split("fn functional_observer_publish(")
+        .nth(1)
+        .expect("functional Web publication")
+        .split("pub fn run()")
+        .next()
+        .expect("bounded Web publication");
+    let web_lock = web_publish
+        .find(".publication")
+        .expect("serialize Web publication");
+    assert!(web_publish[web_lock..].contains(".lock()"));
+    let web_snapshot = web_publish
+        .find("state.observer.snapshot()")
+        .expect("read Web observer snapshot");
+    assert!(web_lock < web_snapshot);
+
+    let close_publish = backend
+        .split("app_handle.try_state::<FunctionalObserverState>()")
+        .nth(1)
+        .expect("functional close publication")
+        .split("if main_window_close_requested")
+        .next()
+        .expect("bounded close publication");
+    let close_lock = close_publish
+        .find(".publication")
+        .expect("serialize close publication");
+    assert!(close_publish[close_lock..].contains(".lock()"));
+    let close_snapshot = close_publish
+        .find("state.observer.snapshot()")
+        .expect("read close observer snapshot");
+    assert!(close_lock < close_snapshot);
+}
+
+#[test]
 fn closing_the_main_window_drives_backend_cleanup_and_app_exit() {
     let backend =
         fs::read_to_string(root().join("tauri/src-tauri/src/lib.rs")).expect("Tauri backend");
@@ -31,7 +71,9 @@ fn closing_the_main_window_drives_backend_cleanup_and_app_exit() {
     assert!(backend.contains("exit_after_final_observation_delivery"));
     assert!(backend.contains("Duration::from_secs(2)"));
     assert!(backend.contains("thread::sleep(Duration::from_secs(1))"));
-    assert!(backend.contains("exit_handle.exit(0)"));
+    assert!(backend.contains("destroy_main_window_or_exit"));
+    assert!(backend.contains("window.destroy()"));
+    assert!(backend.contains("app_handle.exit(0)"));
 }
 
 #[test]

@@ -21,6 +21,7 @@ struct BackendState {
 #[cfg(feature = "functional-test-observer")]
 struct FunctionalObserverState {
     observer: ObserverState,
+    publication: Mutex<()>,
 }
 
 #[cfg(feature = "functional-test-observer")]
@@ -50,6 +51,10 @@ fn functional_observer_publish(
             snapshot.schema
         ));
     }
+    let _publication = state
+        .publication
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let current = state.observer.snapshot();
     state
         .observer
@@ -167,6 +172,10 @@ pub fn run() {
             let mut final_observation_delivery = None;
             #[cfg(feature = "functional-test-observer")]
             if let Some(state) = app_handle.try_state::<FunctionalObserverState>() {
+                let _publication = state
+                    .publication
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 let mut snapshot = state.observer.snapshot();
                 snapshot.revision = snapshot.revision.saturating_add(1);
                 snapshot.runtime.transport_state = "closed".to_owned();
@@ -190,9 +199,18 @@ pub fn run() {
                     exit_after_final_observation_delivery(app_handle.clone(), observer, revision);
                     return;
                 }
-                app_handle.exit(0);
+                destroy_main_window_or_exit(app_handle.clone());
             }
         });
+}
+
+fn destroy_main_window_or_exit(app_handle: tauri::AppHandle) {
+    let destroyed = app_handle
+        .get_webview_window("main")
+        .is_some_and(|window| window.destroy().is_ok());
+    if !destroyed {
+        app_handle.exit(0);
+    }
 }
 
 #[cfg(feature = "functional-test-observer")]
@@ -207,11 +225,10 @@ fn exit_after_final_observation_delivery(
         .spawn(move || {
             let _ = observer.wait_until_delivered(revision, Duration::from_secs(2));
             thread::sleep(Duration::from_secs(1));
-            let exit_handle = app_handle;
-            exit_handle.exit(0);
+            destroy_main_window_or_exit(app_handle);
         });
     if spawn_result.is_err() {
-        fallback_handle.exit(0);
+        destroy_main_window_or_exit(fallback_handle);
     }
 }
 
@@ -269,7 +286,10 @@ fn functional_observer_from_environment()
                 eprintln!("Tauri functional observer error: {error}");
             }
         })?;
-    Ok(Some(FunctionalObserverState { observer }))
+    Ok(Some(FunctionalObserverState {
+        observer,
+        publication: Mutex::new(()),
+    }))
 }
 
 fn web_root(_app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
